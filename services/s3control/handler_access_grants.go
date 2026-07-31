@@ -518,14 +518,14 @@ func (h *Handler) handleDeleteAccessGrantsInstanceResourcePolicy(c *echo.Context
 	accountID := accountIDFromRequest(c)
 	h.Backend.DeleteAccessGrantsInstanceResourcePolicy(accountID)
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleDissociateAccessGrantsIdentityCenter(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	h.Backend.DissociateAccessGrantsIdentityCenter(accountID)
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 type getAccessGrantsInstanceForPrefixResponseXML struct {
@@ -599,7 +599,7 @@ func (h *Handler) handleDeleteAccessGrant(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 // listAccessGrantItemXML mirrors aws-sdk-go-v2's ListAccessGrantEntry (used
@@ -736,7 +736,7 @@ func (h *Handler) handleDeleteAccessGrantsLocation(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 type updateAccessGrantsLocationRequestXML struct {

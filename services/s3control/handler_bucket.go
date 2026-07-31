@@ -257,14 +257,25 @@ func (h *Handler) handleGetBucket(c *echo.Context) error {
 // handleDeleteBucketTagging), uses c.NoContent, NOT c.String(204, ""). Found
 // while adding the first real end-to-end HTTP test for this handler
 // (TestHTTP_CreateBucket_RealSDKShape_RoundTrip): echo's c.String writes an
-// (empty) body via c.response.Write, and both net/http/httptest's
-// ResponseRecorder and a real net/http server reject any Write after a 204
-// WriteHeader (bodyAllowedForStatus, http.ErrBodyNotAllowed) -- so the
-// previous c.String(http.StatusNoContent, "") here returned that error from
-// the handler on every real call, not just in tests. No prior test caught
-// this because these four ops had only ever been exercised at the backend
-// (Go method) level, never dispatched through h.Handler() with its error
-// checked.
+// (empty) body via c.response.Write.
+//
+// CORRECTED (2026-07-31): an earlier version of this comment, and the commit
+// that made this change, claimed this returned http.ErrBodyNotAllowed "on
+// every real call." That is false and was verified wrong against the stdlib
+// source. In net/http's (*response).write (net/http/server.go), the
+// `if lenData == 0 { return 0, nil }` no-op check runs BEFORE the
+// `if !w.bodyAllowed() { return 0, ErrBodyNotAllowed }` check -- so a real
+// net/http server treats an empty Write after a 204 WriteHeader as a
+// harmless no-op, not an error. Only httptest.ResponseRecorder.Write
+// (net/http/httptest/recorder.go) checks bodyAllowedForStatus unconditionally,
+// with no exemption for zero-length writes, so it returns the error the
+// prior comment described -- but only in tests, never against a real server.
+// The actual defect was narrower: it was a test-observability gap. A
+// handler-level test that dispatches through httptest.NewRecorder() and
+// asserts the returned error is nil would spuriously fail against
+// c.String(204, ""), which is exactly why no such test existed for these four
+// ops before now. Switching to c.NoContent is a hygiene/testability change,
+// not a production bug fix -- real SDK clients were never affected.
 func (h *Handler) handleDeleteBucket(c *echo.Context) error {
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
 

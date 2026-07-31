@@ -158,7 +158,7 @@ func (h *Handler) handleDeleteAccessPointForObjectLambda(c *echo.Context) error 
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleListAccessPointsForObjectLambda(c *echo.Context) error {
@@ -244,7 +244,7 @@ func (h *Handler) handleDeleteAccessPointPolicyForObjectLambda(c *echo.Context) 
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetAccessPointPolicyStatusForObjectLambda(c *echo.Context) error {
