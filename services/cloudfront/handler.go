@@ -143,6 +143,23 @@ const (
 	opVerifyDNSConfiguration                = "VerifyDnsConfiguration"
 )
 
+// opGetFunctionAssociations and opSetFunctionAssociations are internal-only
+// route labels for a gopherstack-specific convenience endpoint
+// (GET/PUT /2020-05-31/distribution/{id}/function-associations). They are NOT
+// real AWS CloudFront API operations — the real SDK has no "FunctionAssociations"
+// operation at all (verified against aws-sdk-go-v2/service/cloudfront: zero
+// matches). Real clients manage function associations as the <FunctionAssociations>
+// element nested inside a cache behavior in the DistributionConfig XML, submitted
+// via the genuine CreateDistribution/UpdateDistribution operations; gopherstack
+// stores that config as an opaque RawConfig blob and round-trips it correctly,
+// so real SDK clients are fully served without ever touching this route. The
+// FunctionInUse delete-guard (functions.go) also does not depend on this
+// endpoint — it token-searches RawConfig via tokenReferencedByAnyDistribution.
+// Deliberately excluded from GetSupportedOperations()/ChaosOperations() (see
+// coreSupportedOperations) so gopherstack does not claim SDK support for an
+// operation AWS does not have — see gopherstack-vhw2 category A. Left routed
+// (handler_paths.go/handler_dispatch.go) as internal test/tooling scaffolding
+// since nothing outside this package's own tests depends on it.
 const (
 	opGetFunctionAssociations = "GetFunctionAssociations"
 	opSetFunctionAssociations = "SetFunctionAssociations"
@@ -241,10 +258,13 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // coreSupportedOperations returns the CloudFront operations with a full, real implementation.
+//
+// opGetFunctionAssociations/opSetFunctionAssociations are intentionally NOT
+// listed here — they are not real CloudFront SDK operations (see the comment
+// on their const declaration above); listing them would misrepresent
+// gopherstack's SDK completeness.
 func coreSupportedOperations() []string {
 	return []string{
-		opGetFunctionAssociations,
-		opSetFunctionAssociations,
 		opAssociateAlias,
 		opAssociateDistributionTenantWebACL,
 		opAssociateDistributionWebACL,
