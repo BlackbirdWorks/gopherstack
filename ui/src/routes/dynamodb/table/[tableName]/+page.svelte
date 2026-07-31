@@ -25,6 +25,21 @@
 	const dynamodb = regionalClient(getDynamoDBClient);
 	const tableName = $derived(page.params.tableName ?? '');
 
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so both the toast and the inline
+	// error banner show the actual code, not just a generic message.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
+
 	// ── Core state ─────────────────────────────────────────────────────────────
 	let loading = $state(false);
 	let loadError = $state('');
@@ -74,7 +89,7 @@
 			itemsLastKey = result.LastEvaluatedKey;
 			itemsHasMore = !!result.LastEvaluatedKey;
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to load items');
+			toast.error(describeError(err));
 		} finally {
 			itemsLoading = false;
 		}
@@ -133,20 +148,27 @@
 		queryLoading = true;
 		try {
 			const pkAttr = queryPK || (tableDesc?.KeySchema?.[0]?.AttributeName ?? 'pk');
+			// A key's AttributeValue must match its AttributeDefinitions type (S/N/B) or
+			// DynamoDB rejects the query with ValidationException -- always sending { S: ... }
+			// meant Query could never return a result against a Number-typed key.
+			const attrType = (name: string): string =>
+				tableDesc?.AttributeDefinitions?.find((a) => a.AttributeName === name)?.AttributeType ?? 'S';
+			const toAv = (name: string, value: string): AttributeValue =>
+				attrType(name) === 'N' ? { N: value } : { S: value };
 			let keyCondition = `#pk = :pkVal`;
 			const exprNames: Record<string, string> = { '#pk': pkAttr };
-			const exprValues: Record<string, AttributeValue> = { ':pkVal': { S: queryPKValue } };
+			const exprValues: Record<string, AttributeValue> = { ':pkVal': toAv(pkAttr, queryPKValue) };
 			if (querySKAttr && querySKValue) {
 				exprNames['#sk'] = querySKAttr;
 				if (querySKOp === 'begins_with') {
 					keyCondition += ` AND begins_with(#sk, :skVal)`;
 				} else if (querySKOp === 'between' && querySKValue2) {
 					keyCondition += ` AND #sk BETWEEN :skVal AND :skVal2`;
-					exprValues[':skVal2'] = { S: querySKValue2 };
+					exprValues[':skVal2'] = toAv(querySKAttr, querySKValue2);
 				} else {
 					keyCondition += ` AND #sk ${querySKOp} :skVal`;
 				}
-				exprValues[':skVal'] = { S: querySKValue };
+				exprValues[':skVal'] = toAv(querySKAttr, querySKValue);
 			}
 			const result = await dynamodb().send(new QueryCommand({
 				TableName: tableName,
@@ -157,7 +179,7 @@
 			}));
 			queryResults = result.Items ?? [];
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Query failed');
+			toast.error(describeError(err));
 		} finally {
 			queryLoading = false;
 		}
@@ -175,7 +197,7 @@
 			const result = await dynamodb().send(new ListBackupsCommand({ TableName: tableName }));
 			backups = result.BackupSummaries ?? [];
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to load backups');
+			toast.error(describeError(err));
 		} finally {
 			backupsLoading = false;
 		}
@@ -189,7 +211,7 @@
 			newBackupName = '';
 			await loadBackups();
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to create backup');
+			toast.error(describeError(err));
 		}
 	}
 
@@ -267,7 +289,7 @@
 			partiqlOutput = JSON.stringify(result.Items ?? [], null, 2);
 		} catch (err) {
 			partiqlDurationMs = Date.now() - start;
-			partiqlOutput = err instanceof Error ? err.message : 'query failed';
+			partiqlOutput = describeError(err);
 		} finally {
 			partiqlLoading = false;
 		}
@@ -287,7 +309,7 @@
 				toast.success('TTL disabled successfully');
 			}
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'failed to update ttl');
+			toast.error(describeError(err));
 		}
 		await loadState();
 	}
@@ -307,7 +329,7 @@
 				toast.success('Streams disabled successfully');
 			}
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'failed to update streams');
+			toast.error(describeError(err));
 		}
 		await loadState();
 	}
@@ -328,7 +350,7 @@
 			toast.success(`Table "${tableName}" deleted`);
 			window.location.href = '/dashboard/dynamodb';
 		} catch (err) {
-			toast.error(err instanceof Error ? err.message : 'Failed to delete table');
+			toast.error(describeError(err));
 			deleting = false;
 		}
 	}
@@ -382,7 +404,7 @@
 			if (streamSpec?.StreamViewType) streamViewType = streamSpec.StreamViewType;
 			statement = `SELECT * FROM "${tableName}"`;
 		} catch (err) {
-			loadError = err instanceof Error ? err.message : 'Failed to load table details';
+			loadError = describeError(err);
 		} finally {
 			loading = false;
 		}
