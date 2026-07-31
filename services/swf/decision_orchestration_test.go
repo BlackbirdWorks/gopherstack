@@ -258,7 +258,7 @@ func TestChildWorkflowClosure_PropagatesToParent(t *testing.T) {
 			name: "terminate",
 			closeChild: func(t *testing.T, b *swf.InMemoryBackend, _ string) {
 				t.Helper()
-				require.NoError(t, b.TerminateWorkflowExecution("dom", "child-1", "", "operator", ""))
+				require.NoError(t, b.TerminateWorkflowExecution("dom", "child-1", "", "operator", "", ""))
 			},
 			wantEventType: "ChildWorkflowExecutionTerminated",
 		},
@@ -312,6 +312,152 @@ func TestChildWorkflowClosure_PropagatesToParent(t *testing.T) {
 			assert.Equal(t, "RUNNING", exec.Status)
 		})
 	}
+}
+
+// startParentWithChild registers a domain + workflow type, starts a parent
+// execution whose own registered default child policy is "ABANDON" (so any
+// cascade-onto-children behavior observed below can only be explained by the
+// per-call override, never by the parent's stored default), then drives a
+// StartChildWorkflowExecution decision to bring up "child-1" under it.
+// Returns the backend and the child's own task-list decision token drained
+// (so a later cascade produces exactly one fresh, observable child task).
+func startParentWithChild(t *testing.T) *swf.InMemoryBackend {
+	t.Helper()
+
+	b := swf.NewInMemoryBackend()
+	require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
+	require.NoError(t, b.RegisterWorkflowType("dom", "childType", "1.0", "", swf.WorkflowTypeDefaults{}))
+
+	_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
+		Domain: "dom", WorkflowID: "parent-1", TaskList: "parent-tasks",
+		ChildPolicy: "ABANDON",
+	})
+	require.NoError(t, err)
+
+	parentToken := pollDecisionTask(t, b, "dom", "parent-tasks")
+	require.NoError(t, b.RespondDecisionTaskCompleted(parentToken, "", []swf.Decision{{
+		DecisionType: "StartChildWorkflowExecution",
+		StartChildWorkflowExecutionAttrs: &swf.StartChildWorkflowExecutionDecisionAttrs{
+			WorkflowID:   "child-1",
+			WorkflowType: swf.WorkflowTypeRef{Name: "childType", Version: "1.0"},
+			TaskList:     "child-tasks",
+		},
+	}}))
+
+	// Drain the parent's child-start notification task so a cascade below
+	// produces exactly one fresh, observable decision task.
+	pollDecisionTask(t, b, "dom", "child-tasks")
+
+	return b
+}
+
+// TestTerminateWorkflowExecution_ChildPolicyOverride_Terminate verifies that
+// a childPolicy override on TerminateWorkflowExecution -- not the parent's
+// own stored default (here "ABANDON", which alone would leave the child
+// running untouched) -- governs what happens to open child executions for
+// that call, matching real AWS's documented override semantics.
+func TestTerminateWorkflowExecution_ChildPolicyOverride_Terminate(t *testing.T) {
+	t.Parallel()
+
+	b := startParentWithChild(t)
+
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "TERMINATE"))
+
+	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	require.NoError(t, err)
+	assert.Equal(t, "TERMINATED", child.Status, "TERMINATE override must cascade to terminate the open child")
+
+	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", 0, "", false)
+	var found bool
+	for i := range events {
+		if events[i].EventType == "WorkflowExecutionTerminated" {
+			found = true
+			attrs, ok := events[i].Attributes["workflowExecutionTerminatedEventAttributes"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "CHILD_POLICY_APPLIED", attrs["cause"])
+		}
+	}
+	assert.True(t, found, "expected WorkflowExecutionTerminated on the cascaded child's own history")
+
+	// The parent's own event must record the *effective* (overridden) policy,
+	// not the stored default, so a client reading history sees what actually
+	// governed this call.
+	parentEvents, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	var parentAttrs map[string]any
+	for i := range parentEvents {
+		if parentEvents[i].EventType == "WorkflowExecutionTerminated" {
+			parentAttrs, _ = parentEvents[i].Attributes["workflowExecutionTerminatedEventAttributes"].(map[string]any)
+		}
+	}
+	require.NotNil(t, parentAttrs)
+	assert.Equal(t, "TERMINATE", parentAttrs["childPolicy"])
+}
+
+// TestTerminateWorkflowExecution_ChildPolicyOverride_RequestCancel verifies
+// the REQUEST_CANCEL override records a cancel request on the open child
+// (cause CHILD_POLICY_APPLIED) and gives it a fresh decision task, without
+// terminating it -- distinguishing REQUEST_CANCEL from TERMINATE.
+func TestTerminateWorkflowExecution_ChildPolicyOverride_RequestCancel(t *testing.T) {
+	t.Parallel()
+
+	b := startParentWithChild(t)
+
+	require.NoError(t,
+		b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "REQUEST_CANCEL"))
+
+	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", child.Status, "REQUEST_CANCEL must not itself close the child")
+	assert.True(t, child.CancelRequested)
+
+	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", 0, "", false)
+	var found bool
+	for i := range events {
+		if events[i].EventType == "WorkflowExecutionCancelRequested" {
+			found = true
+			attrs, ok := events[i].Attributes["workflowExecutionCancelRequestedEventAttributes"].(map[string]any)
+			require.True(t, ok)
+			assert.Equal(t, "CHILD_POLICY_APPLIED", attrs["cause"])
+		}
+	}
+	assert.True(t, found, "expected WorkflowExecutionCancelRequested on the child's own history")
+
+	task := b.PollForDecisionTask("dom", "child-tasks", 0, "")
+	assert.NotNil(t, task, "the cascaded cancel request must enqueue the child a fresh decision task")
+}
+
+// TestTerminateWorkflowExecution_ChildPolicyOverride_Absent pins the
+// documented no-override behavior: with no override supplied, the parent's
+// own stored child policy (here "ABANDON") governs, and the child is left
+// running untouched -- this is the pre-existing, still-correct ABANDON
+// semantics, not a regression.
+func TestTerminateWorkflowExecution_ChildPolicyOverride_Absent(t *testing.T) {
+	t.Parallel()
+
+	b := startParentWithChild(t)
+
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", ""))
+
+	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	require.NoError(t, err)
+	assert.Equal(t, "RUNNING", child.Status)
+	assert.False(t, child.CancelRequested)
+}
+
+// TestTerminateWorkflowExecution_ChildPolicyOverride_Invalid verifies an
+// invalid override is rejected before any state changes, exactly like an
+// invalid childPolicy at StartWorkflowExecution time.
+func TestTerminateWorkflowExecution_ChildPolicyOverride_Invalid(t *testing.T) {
+	t.Parallel()
+
+	b := startParentWithChild(t)
+
+	err := b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "BOGUS_POLICY")
+	require.ErrorIs(t, err, swf.ErrValidation)
+
+	exec, describeErr := b.DescribeWorkflowExecution("dom", "parent-1")
+	require.NoError(t, describeErr)
+	assert.Equal(t, "RUNNING", exec.Status, "a rejected override must not terminate the execution")
 }
 
 func TestSignalExternalWorkflowExecutionDecision_Success(t *testing.T) {

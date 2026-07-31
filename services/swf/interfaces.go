@@ -36,7 +36,7 @@ type StorageBackend interface {
 
 	// Execution lifecycle
 	StartWorkflowExecution(input StartWorkflowExecutionInput) (*WorkflowExecution, error)
-	TerminateWorkflowExecution(domain, workflowID, runID, reason, details string) error
+	TerminateWorkflowExecution(domain, workflowID, runID, reason, details, childPolicyOverride string) error
 	DescribeWorkflowExecution(domain, workflowID string) (*WorkflowExecution, error)
 	GetWorkflowExecutionHistory(
 		domain, workflowID string,

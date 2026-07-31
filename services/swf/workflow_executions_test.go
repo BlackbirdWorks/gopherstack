@@ -249,7 +249,7 @@ func TestTerminateWorkflowExecution_ReasonInHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "out of budget", "details here"))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "out of budget", "details here", ""))
 
 	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
 	require.NotEmpty(t, events)
@@ -272,7 +272,7 @@ func TestTerminateWorkflowExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
 	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
 	require.NoError(t, err)
@@ -286,7 +286,7 @@ func TestTerminateWorkflowExecution_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := swf.NewInMemoryBackend()
-	err := b.TerminateWorkflowExecution("dom", "missing", "", "", "")
+	err := b.TerminateWorkflowExecution("dom", "missing", "", "", "", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrNotFound)
@@ -303,9 +303,9 @@ func TestTerminateWorkflowExecution_AlreadyTerminated(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
-	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "")
+	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrNotFound)
@@ -321,9 +321,9 @@ func TestTerminateWorkflowExecution_AlreadyClosed(t *testing.T) {
 		Domain: "dom", WorkflowID: "wf-1", RunID: "run-1",
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
-	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "")
+	err = b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", "")
 
 	require.Error(t, err)
 	assert.ErrorIs(t, err, swf.ErrNotFound)
@@ -363,7 +363,7 @@ func TestRequestCancelWorkflowExecution_NotOpen_UnknownResourceFault(t *testing.
 		WorkflowID: "wf-1",
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
 	err = b.RequestCancelWorkflowExecution("dom", "wf-1", "")
 	require.ErrorIs(t, err, swf.ErrNotFound)
@@ -384,7 +384,7 @@ func TestCountTerminatedExecution_CountsClosed(t *testing.T) {
 	assert.Equal(t, 1, b.CountOpenWorkflowExecutions("dom", swf.ExecutionFilter{}))
 	assert.Equal(t, 0, b.CountClosedWorkflowExecutions("dom", swf.ExecutionFilter{}))
 
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
 	assert.Equal(t, 0, b.CountOpenWorkflowExecutions("dom", swf.ExecutionFilter{}))
 	assert.Equal(t, 1, b.CountClosedWorkflowExecutions("dom", swf.ExecutionFilter{}))
@@ -416,7 +416,7 @@ func TestExecutionStatus_OpenClosed(t *testing.T) {
 			require.NoError(t, err)
 
 			if tt.terminate {
-				require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+				require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 			}
 
 			h := swf.NewHandler(b)

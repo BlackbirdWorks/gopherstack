@@ -115,7 +115,7 @@ func domainARN(region, account, name string) string {
 // An empty string is allowed (means "use default").
 func validateChildPolicy(policy string) error {
 	switch policy {
-	case "", "TERMINATE", "REQUEST_CANCEL", "ABANDON":
+	case "", childPolicyTerminate, childPolicyRequestCancel, childPolicyAbandon:
 		return nil
 	}
 

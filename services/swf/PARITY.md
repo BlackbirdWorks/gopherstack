@@ -1,8 +1,8 @@
 ---
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.33.14
-last_audit_commit: 7830ffdc
-last_audit_date: 2026-07-23
+last_audit_commit: 2394427d
+last_audit_date: 2026-07-31
 overall: A            # genuine fixes found this pass (see Notes)
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -23,7 +23,7 @@ ops:
   UndeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   StartWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  TerminateWorkflowExecution: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes"}
+  TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes"}
   DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; see Notes"}
   GetWorkflowExecutionHistory: {wire: ok, errors: ok, state: ok, persist: ok}
   ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution"}
@@ -49,7 +49,8 @@ families:
 gaps:
   - "activityQueues/decisionQueues (FIFO pending-task lists) are intentionally NOT part of backendSnapshot (pre-existing, documented design choice in store.go/persistence.go -- order-sensitive plain maps). A restart loses in-flight pending tasks that haven't been polled yet, while their corresponding history events and active-task records DO survive. Not fixed this pass (would require reworking backendSnapshot's shape); flagged for awareness. (bd: TODO -- file follow-up)"
   - "ContinueAsNewWorkflowExecution's new run necessarily overwrites the same domain+workflowId row/history the old run used (executions/history are keyed by domain+workflowId only, not by domain+workflowId+runId -- see store.go's InMemoryBackend doc). Real AWS keeps every run as an independently queryable record; here, after continuation, DescribeWorkflowExecution/GetWorkflowExecutionHistory for that workflowId always show the latest run only -- the completed old run isn't separately retrievable. Fixed to actually resume the decider (the real bug this pass targeted -- see Notes); the multi-run-history limitation is an architectural gap needing a broader redesign, out of scope here. (bd: TODO -- file follow-up)"
-  - "Child-policy application (TERMINATE/REQUEST_CANCEL/ABANDON) is not cascaded to open child executions when a parent closes -- StartChildWorkflowExecution's childPolicy field is stored on the child's WorkflowExecution.ChildPolicy but never consulted. An orphaned child simply keeps running (equivalent to always applying ABANDON). Parent-closure IS propagated to already-open children as history events (ChildWorkflowExecutionCompleted/Failed/Canceled/Terminated, see Notes), so deciders learn of parent closure, but the child isn't automatically terminated/cancel-requested. (bd: TODO -- file follow-up)"
+  - "Child-policy cascade is now implemented for TerminateWorkflowExecution (this pass, see Notes): TERMINATE recursively terminates open children (cascading each child's own stored ChildPolicy to grandchildren in turn), REQUEST_CANCEL records WorkflowExecutionCancelRequested (cause CHILD_POLICY_APPLIED) on each open child and gives it a fresh decision task, and ABANDON is correctly a no-op. This closes the TerminateWorkflowExecution half of gopherstack-jsi8's child-policy finding. Real AWS's *other* child-policy trigger -- an execution auto-closing via WorkflowExecutionTimedOut when ExecutionStartToCloseTimeout/TaskStartToCloseTimeout expires -- is unreachable here because this backend has no timeout-enforcement mechanism at all (statusTimedOut is defined in models.go but nothing ever sets it; no background timer, no check on poll/describe). That is a separate, materially larger gap (a whole missing feature, not a cascade bug) that predates this pass, was not previously documented, and is out of scope for this fix; flagging it here since it was surfaced while auditing this exact mechanism. (bd: TODO -- file follow-up for timeout enforcement)"
+  - "Complete/Fail/Cancel workflow-closing decisions do NOT cascade child policy onto their own open children, and this is correct, not a gap: real AWS's child policy is only ever invoked when a workflow execution is terminated (explicitly, via TerminateWorkflowExecution) or times out -- never on a normal Complete/Fail/Cancel close, where child executions are simply independent and keep running. Parent-closure IS still propagated to already-open children as history events in all four cases (ChildWorkflowExecutionCompleted/Failed/Canceled/Terminated, see Notes), so deciders learn of parent closure either way."
   - "ScheduleLambdaFunction decision type (Lambda activity tasks) is not implemented -- consistent with the pre-existing openLambdaFunctions deferral below; SWF Lambda task support as a whole is out of scope for this service."
 deferred:
   - "DescribeWorkflowExecution's openCounts.openLambdaFunctions (always 0) and the ScheduleLambdaFunction decision type -- SWF Lambda task support is out of scope for a JSON-wire-shape/state-mutation audit."
@@ -64,6 +65,66 @@ SimpleWorkflowService.<Op>`) -- confirmed against the real
 `Content-Type: application/x-amz-json-1.0`). This is easy to mis-key as
 awsjson1.1 (the more common AWS JSON protocol) since SWF's dispatch shape
 looks identical otherwise.
+
+### Real bugs fixed this pass (2026-07-31)
+
+1. **TerminateWorkflowExecution's `childPolicy` override was parsed and
+   thrown away.** `handler_workflow_executions.go`'s
+   `handleTerminateWorkflowExecutionInput` had a `ChildPolicy` field, but the
+   call into the backend passed only `(Domain, WorkflowID, RunID, Reason,
+   Details)` -- `InMemoryBackend.TerminateWorkflowExecution` had no
+   childPolicy parameter at all. Confirmed against the real
+   `aws-sdk-go-v2/service/swf` `TerminateWorkflowExecutionInput.ChildPolicy`
+   doc comment that this is a genuine, real, per-call override ("This policy
+   overrides the child policy specified for the workflow execution at
+   registration time or when starting the execution"), not an
+   invented/misread field.
+
+   Fixing the signature alone would have created a new false claim -- the API
+   would *appear* to accept an override that still did nothing -- because the
+   child-policy cascade itself did not exist: no code path ever acted on
+   `WorkflowExecution.ChildPolicy` for a closing execution's children (a
+   child just kept running regardless, equivalent to always applying
+   ABANDON; `propagateChildClosureLocked` only ever notifies a closing
+   execution's *own parent*, not the other direction). So this pass
+   implements the cascade too, scoped to what real AWS actually defines:
+   `TerminateWorkflowExecution` now resolves an effective policy (the
+   override if given, else `exec.ChildPolicy`), records it accurately on the
+   `WorkflowExecutionTerminated` event, and applies it to open children via
+   `applyChildPolicyLocked`:
+   - `TERMINATE`: each open child is itself terminated
+     (`terminateExecutionLocked`, cause `CHILD_POLICY_APPLIED`), which
+     recursively cascades *that child's own* stored `ChildPolicy` onto its
+     own children -- the override argument governs only the one execution
+     named in the API call, exactly as AWS's doc says.
+   - `REQUEST_CANCEL`: each open child gets a `WorkflowExecutionCancelRequested`
+     event (cause `CHILD_POLICY_APPLIED` -- the only cause value real AWS's
+     `WorkflowExecutionCancelRequestedCause` enum defines) and a fresh
+     decision task, mirroring `RequestCancelWorkflowExecution`'s own
+     behavior; it does not itself close the child.
+   - `ABANDON`: no-op, matching the pre-existing (and correct) behavior.
+
+   The stored default (`exec.ChildPolicy`, set at `StartWorkflowExecution`)
+   is never mutated by an override -- it continues to govern any later close
+   that doesn't supply one, exactly as real AWS specifies.
+
+   `gopherstack-jsi8`'s note that "executions/history are keyed by
+   `domain+workflowId`, not `+runId`, so Terminate's `runId` parameter is
+   decorative" is real but does **not** block this fix: child-matching in
+   `applyChildPolicyLocked` filters on `ParentRunID == parent.RunID` (the
+   same pattern `openCountsLocked` already used), so the cascade correctly
+   targets only the children of the run actually being terminated. That
+   out-of-scope re-keying issue was left untouched.
+
+   New tests in `decision_orchestration_test.go`:
+   `TestTerminateWorkflowExecution_ChildPolicyOverride_Terminate` (override
+   cascades TERMINATE despite the parent's stored default being ABANDON),
+   `_RequestCancel` (override cascades REQUEST_CANCEL, child stays open),
+   `_Absent` (no override falls back to the stored ABANDON default -- pins
+   the correct no-op behavior), `_Invalid` (a bogus override is rejected,
+   same validation as `StartWorkflowExecution`'s `childPolicy`). No
+   pre-existing test asserted the discarded-override bug or an
+   always-ABANDON cascade; the gap was present but unencoded in tests.
 
 ### Real bugs fixed this pass (2026-07-23)
 

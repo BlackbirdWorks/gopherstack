@@ -315,6 +315,7 @@ func (h *Handler) handleTerminateWorkflowExecution(
 		in.RunID,
 		in.Reason,
 		in.Details,
+		in.ChildPolicy,
 	); err != nil {
 		return nil, err
 	}
