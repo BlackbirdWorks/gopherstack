@@ -4,7 +4,7 @@ import { page } from '$app/state';
 import { goto } from '$app/navigation';
 import { getS3Client } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
-import { onRegionChange } from '$lib/region-effect.svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import {
 HeadObjectCommand,
 GetObjectCommand,
@@ -18,7 +18,7 @@ type Tag
 import { toast } from 'svelte-sonner';
 import { Download, Trash2, Edit, ChevronLeft, Clock, FileText, Tag as TagIcon, Link, Eye } from 'lucide-svelte';
 
-const s3 = getS3Client();
+const s3 = regionalClient(getS3Client);
 
 interface ObjectMetadata {
 ContentType?: string;
@@ -82,7 +82,7 @@ onRegionChange(loadAll);
 async function loadObjectMetadata() {
 try {
 loading = true;
-const response = await s3.send(new HeadObjectCommand({
+const response = await s3().send(new HeadObjectCommand({
 Bucket: bucket,
 Key: objectKey
 }));
@@ -108,7 +108,7 @@ loading = false;
 
 async function loadObjectVersions() {
 try {
-const response = await s3.send(new ListObjectVersionsCommand({
+const response = await s3().send(new ListObjectVersionsCommand({
 Bucket: bucket,
 Prefix: objectKey,
 MaxKeys: 20
@@ -122,7 +122,7 @@ toast.error(`Failed to load versions: ${e instanceof Error ? e.message : String(
 async function loadObjectTags() {
 loadingTags = true;
 try {
-const res = await s3.send(new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }));
+const res = await s3().send(new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }));
 objectTags = res.TagSet ?? [];
 } catch (e) {
 toast.error(`Failed to load tags: ${e instanceof Error ? e.message : String(e)}`);
@@ -144,7 +144,7 @@ objectTags = objectTags.filter((t) => t.Key !== key);
 
 async function saveObjectTags() {
 try {
-await s3.send(new PutObjectTaggingCommand({ Bucket: bucket, Key: objectKey, Tagging: { TagSet: objectTags } }));
+await s3().send(new PutObjectTaggingCommand({ Bucket: bucket, Key: objectKey, Tagging: { TagSet: objectTags } }));
 toast.success('Tags saved');
 } catch (e) {
 toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`);
@@ -182,7 +182,7 @@ return 'binary';
 
 async function fetchPreviewTextBytes(size: number): Promise<Uint8Array | undefined> {
 const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
-const res = await s3.send(new GetObjectCommand({
+const res = await s3().send(new GetObjectCommand({
 Bucket: bucket,
 Key: objectKey,
 Range: `bytes=0-${rangeEnd}`
@@ -200,7 +200,7 @@ if (size > MAX_IMAGE_BYTES) {
 setBinaryPreview(size);
 return;
 }
-const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+const res = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
 previewType = 'image';
@@ -268,7 +268,7 @@ previewBlobUrl = null;
 
 async function downloadObject(versionId?: string) {
 try {
-const response = await s3.send(new GetObjectCommand({
+const response = await s3().send(new GetObjectCommand({
 Bucket: bucket,
 Key: objectKey,
 VersionId: versionId
@@ -292,7 +292,7 @@ toast.error(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
 async function deleteVersion(versionId: string) {
 if (!await confirmDestructive({ title: 'Delete Version', message: `Delete version ${versionId.slice(0, 12)}…? This cannot be undone.` })) return;
 try {
-await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
+await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
 toast.success('Version deleted');
 await loadObjectVersions();
 } catch (e) {
@@ -303,7 +303,7 @@ toast.error(`Failed to delete version: ${e instanceof Error ? e.message : String
 async function deleteObject() {
 if (!await confirmDestructive({ title: 'Delete Object', message: `Delete object "${objectKey}"? This cannot be undone.` })) return;
 try {
-await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
 toast.success('Object deleted');
 goto('/dashboard/s3');
 } catch (e) {

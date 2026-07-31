@@ -2,7 +2,7 @@
 	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { getDynamoDBClient } from '$lib/aws-client';
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import {
 		DescribeTableCommand,
 		DescribeTimeToLiveCommand,
@@ -22,7 +22,7 @@
 	import { toast } from 'svelte-sonner';
 	import { itemToJson, avToJson } from '$lib/dynamodb';
 
-	const dynamodb = getDynamoDBClient();
+	const dynamodb = regionalClient(getDynamoDBClient);
 	const tableName = $derived(page.params.tableName ?? '');
 
 	// ── Core state ─────────────────────────────────────────────────────────────
@@ -60,7 +60,7 @@
 		if (!tableName) return;
 		itemsLoading = true;
 		try {
-			const result = await dynamodb.send(new ScanCommand({
+			const result = await dynamodb().send(new ScanCommand({
 				TableName: tableName,
 				Limit: 50,
 				ExclusiveStartKey: reset ? undefined : itemsLastKey
@@ -148,7 +148,7 @@
 				}
 				exprValues[':skVal'] = { S: querySKValue };
 			}
-			const result = await dynamodb.send(new QueryCommand({
+			const result = await dynamodb().send(new QueryCommand({
 				TableName: tableName,
 				IndexName: queryIndexName || undefined,
 				KeyConditionExpression: keyCondition,
@@ -172,7 +172,7 @@
 		if (!tableName) return;
 		backupsLoading = true;
 		try {
-			const result = await dynamodb.send(new ListBackupsCommand({ TableName: tableName }));
+			const result = await dynamodb().send(new ListBackupsCommand({ TableName: tableName }));
 			backups = result.BackupSummaries ?? [];
 		} catch (err) {
 			toast.error(err instanceof Error ? err.message : 'Failed to load backups');
@@ -184,7 +184,7 @@
 	async function createBackup(): Promise<void> {
 		const name = newBackupName.trim() || `${tableName}-${Date.now()}`;
 		try {
-			await dynamodb.send(new CreateBackupCommand({ TableName: tableName, BackupName: name }));
+			await dynamodb().send(new CreateBackupCommand({ TableName: tableName, BackupName: name }));
 			toast.success(`Backup "${name}" created`);
 			newBackupName = '';
 			await loadBackups();
@@ -262,7 +262,7 @@
 		partiqlDurationMs = 0;
 		const start = Date.now();
 		try {
-			const result = await dynamodb.send(new ExecuteStatementCommand({ Statement: statement }));
+			const result = await dynamodb().send(new ExecuteStatementCommand({ Statement: statement }));
 			partiqlDurationMs = Date.now() - start;
 			partiqlOutput = JSON.stringify(result.Items ?? [], null, 2);
 		} catch (err) {
@@ -277,7 +277,7 @@
 	async function updateTTL(): Promise<void> {
 		if (!tableName) return;
 		try {
-			await dynamodb.send(new UpdateTimeToLiveCommand({
+			await dynamodb().send(new UpdateTimeToLiveCommand({
 				TableName: tableName,
 				TimeToLiveSpecification: { AttributeName: ttlAttributeName, Enabled: ttlEnabled }
 			}));
@@ -295,7 +295,7 @@
 	async function updateStreams(): Promise<void> {
 		if (!tableName) return;
 		try {
-			await dynamodb.send(new UpdateTableCommand({
+			await dynamodb().send(new UpdateTableCommand({
 				TableName: tableName,
 				StreamSpecification: streamsEnabled
 					? { StreamEnabled: true, StreamViewType: streamViewType }
@@ -324,7 +324,7 @@
 		}
 		deleting = true;
 		try {
-			await dynamodb.send(new DeleteTableCommand({ TableName: tableName }));
+			await dynamodb().send(new DeleteTableCommand({ TableName: tableName }));
 			toast.success(`Table "${tableName}" deleted`);
 			window.location.href = '/dashboard/dynamodb';
 		} catch (err) {
@@ -370,8 +370,8 @@
 		loadError = '';
 		try {
 			const [ttl, desc] = await Promise.all([
-				dynamodb.send(new DescribeTimeToLiveCommand({ TableName: tableName })),
-				dynamodb.send(new DescribeTableCommand({ TableName: tableName }))
+				dynamodb().send(new DescribeTimeToLiveCommand({ TableName: tableName })),
+				dynamodb().send(new DescribeTableCommand({ TableName: tableName }))
 			]);
 			tableDesc = desc.Table ?? null;
 			const ttlStatus = ttl.TimeToLiveDescription?.TimeToLiveStatus;

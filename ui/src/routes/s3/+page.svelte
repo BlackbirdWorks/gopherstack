@@ -3,7 +3,7 @@
 import { goto } from '$app/navigation';
 import { getS3Client } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
-import { onRegionChange } from '$lib/region-effect.svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import {
 ListBucketsCommand,
 CreateBucketCommand,
@@ -70,7 +70,7 @@ type LifecycleRule
 } from '@aws-sdk/client-s3';
 import { toast } from 'svelte-sonner';
 
-const s3 = getS3Client();
+const s3 = regionalClient(getS3Client);
 
 let buckets = $state<Bucket[]>([]);
 let loading = $state(true);
@@ -214,7 +214,7 @@ const sortedObjects = $derived(
 async function loadBuckets() {
 loading = true;
 try {
-const res = await s3.send(new ListBucketsCommand({}));
+const res = await s3().send(new ListBucketsCommand({}));
 buckets = res.Buckets ?? [];
 bucketPage = 1;
 void loadBucketSizes(buckets);
@@ -241,9 +241,9 @@ async function createBucket() {
 if (!newBucketName.trim()) return;
 creating = true;
 try {
-await s3.send(new CreateBucketCommand({ Bucket: newBucketName.trim() }));
+await s3().send(new CreateBucketCommand({ Bucket: newBucketName.trim() }));
 if (enableVersioning) {
-await s3.send(
+await s3().send(
 new PutBucketVersioningCommand({
 Bucket: newBucketName.trim(),
 VersioningConfiguration: { Status: 'Enabled' }
@@ -263,11 +263,11 @@ creating = false;
 }
 
 async function deleteAllObjectsInBucket(bucketName: string): Promise<void> {
-const objs = await s3.send(new ListObjectsV2Command({ Bucket: bucketName }));
+const objs = await s3().send(new ListObjectsV2Command({ Bucket: bucketName }));
 if (!objs.Contents) return;
 for (const obj of objs.Contents) {
 if (obj.Key) {
-await s3.send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
+await s3().send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
 }
 }
 }
@@ -278,7 +278,7 @@ try {
 for (const bucket of buckets) {
 if (!bucket.Name) continue;
 await deleteAllObjectsInBucket(bucket.Name);
-await s3.send(new DeleteBucketCommand({ Bucket: bucket.Name }));
+await s3().send(new DeleteBucketCommand({ Bucket: bucket.Name }));
 }
 toast.success('All buckets purged');
 await loadBuckets();
@@ -291,7 +291,7 @@ async function deleteBucket(name: string) {
 if (!await confirmDestructive({ title: 'Delete Bucket', message: `Delete bucket "${name}"? The bucket must be empty before deletion.` })) return;
 try {
 await deleteAllObjectsInBucket(name);
-await s3.send(new DeleteBucketCommand({ Bucket: name }));
+await s3().send(new DeleteBucketCommand({ Bucket: name }));
 toast.success(`Bucket "${name}" deleted`);
 if (selectedBucket === name) {
 selectedBucket = null;
@@ -322,7 +322,7 @@ async function loadObjects(reset = true): Promise<void> {
     const allObjects: _Object[] = [];
     const allPrefixes: string[] = [];
     do {
-      const res = await s3.send(new ListObjectsV2Command({
+      const res = await s3().send(new ListObjectsV2Command({
         Bucket: selectedBucket,
         Prefix: currentPrefix || undefined,
         Delimiter: '/',
@@ -372,7 +372,7 @@ uploading = true;
 try {
 const key = uploadKey.trim() || (currentPrefix + uploadFile.name);
 const arrayBuffer = await uploadFile.arrayBuffer();
-await s3.send(
+await s3().send(
 new PutObjectCommand({
 Bucket: selectedBucket,
 Key: key,
@@ -404,7 +404,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
       toast.info(`Uploading ${i + 1} of ${files.length}: ${file.name}`);
       const key = `${currentPrefix}${file.name}`;
       const buf = await file.arrayBuffer();
-      await s3.send(new PutObjectCommand({
+      await s3().send(new PutObjectCommand({
         Bucket: selectedBucket,
         Key: key,
         Body: new Uint8Array(buf),
@@ -422,7 +422,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
 async function deleteObject(key: string) {
 if (!selectedBucket || !await confirmDestructive({ title: 'Delete Object', message: `Delete "${key}"? This cannot be undone.` })) return;
 try {
-await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
+await s3().send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 toast.success(`Deleted "${key}"`);
 await loadObjects();
 } catch (err: unknown) {
@@ -435,7 +435,7 @@ if (!selectedBucket || selectedObjects.size === 0) return;
 if (!await confirmDestructive({ title: 'Delete Objects', message: `Delete ${selectedObjects.size} selected object(s)? This cannot be undone.` })) return;
 try {
 for (const key of selectedObjects) {
-await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
+await s3().send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 }
 toast.success(`Deleted ${selectedObjects.size} object(s)`);
 selectedObjects = new Set<string>();
@@ -448,7 +448,7 @@ toast.error(`Failed to delete: ${(err as Error).message}`);
 async function downloadObject(key: string) {
 if (!selectedBucket) return;
 try {
-const res = await s3.send(new GetObjectCommand({ Bucket: selectedBucket, Key: key }));
+const res = await s3().send(new GetObjectCommand({ Bucket: selectedBucket, Key: key }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
 const url = URL.createObjectURL(new Blob([bytes]));
@@ -500,7 +500,7 @@ previewTagsLoading = true;
 const type = guessPreviewType(obj.Key);
 previewType = type;
 try {
-	const res = await s3.send(new GetObjectCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	const res = await s3().send(new GetObjectCommand({ Bucket: selectedBucket, Key: obj.Key }));
 	const bytes = await res.Body?.transformToByteArray();
 	if (bytes) {
 		if (type === 'image') {
@@ -521,7 +521,7 @@ try {
 	previewLoading = false;
 }
 try {
-	const tagRes = await s3.send(new GetObjectTaggingCommand({ Bucket: selectedBucket, Key: obj.Key }));
+	const tagRes = await s3().send(new GetObjectTaggingCommand({ Bucket: selectedBucket, Key: obj.Key }));
 	previewTags = tagRes.TagSet ?? [];
 } catch {
 	previewTags = [];
@@ -534,7 +534,7 @@ async function saveObjectTags() {
 if (!selectedBucket || !previewObj?.Key) return;
 previewTagsSaving = true;
 try {
-	await s3.send(new PutObjectTaggingCommand({
+	await s3().send(new PutObjectTaggingCommand({
 		Bucket: selectedBucket,
 		Key: previewObj.Key,
 		Tagging: { TagSet: previewTags.filter(t => t.Key?.trim()) }
@@ -559,25 +559,25 @@ if (!selectedBucket) return;
 loadingProperties = true;
 try {
 const [vRes, locRes] = await Promise.allSettled([
-s3.send(new GetBucketVersioningCommand({ Bucket: selectedBucket })),
-s3.send(new GetBucketLocationCommand({ Bucket: selectedBucket }))
+s3().send(new GetBucketVersioningCommand({ Bucket: selectedBucket })),
+s3().send(new GetBucketLocationCommand({ Bucket: selectedBucket }))
 ]);
 if (vRes.status === 'fulfilled') bucketVersioning = vRes.value.Status || 'Disabled';
 if (locRes.status === 'fulfilled') bucketLocation = locRes.value.LocationConstraint || 'us-east-1';
 try {
-const encRes = await s3.send(new GetBucketEncryptionCommand({ Bucket: selectedBucket }));
+const encRes = await s3().send(new GetBucketEncryptionCommand({ Bucket: selectedBucket }));
 bucketEncryption = encRes.ServerSideEncryptionConfiguration?.Rules?.[0]?.ApplyServerSideEncryptionByDefault?.SSEAlgorithm || 'None';
 } catch {
 bucketEncryption = 'None';
 }
 try {
-const lockRes = await s3.send(new GetObjectLockConfigurationCommand({ Bucket: selectedBucket }));
+const lockRes = await s3().send(new GetObjectLockConfigurationCommand({ Bucket: selectedBucket }));
 objectLockStatus = lockRes.ObjectLockConfiguration?.ObjectLockEnabled || 'Disabled';
 } catch {
 objectLockStatus = 'Disabled';
 }
 try {
-const versRes = await s3.send(new ListObjectVersionsCommand({ Bucket: selectedBucket }));
+const versRes = await s3().send(new ListObjectVersionsCommand({ Bucket: selectedBucket }));
 bucketVersions = versRes.Versions || [];
 } catch {
 bucketVersions = [];
@@ -593,7 +593,7 @@ async function toggleBucketVersioning() {
 if (!selectedBucket) return;
 const newStatus = bucketVersioning === 'Enabled' ? 'Suspended' : 'Enabled';
 try {
-await s3.send(
+await s3().send(
 new PutBucketVersioningCommand({
 Bucket: selectedBucket,
 VersioningConfiguration: { Status: newStatus as 'Enabled' | 'Suspended' }
@@ -610,7 +610,7 @@ async function toggleEncryption() {
 if (!selectedBucket) return;
 try {
 if (bucketEncryption === 'None') {
-await s3.send(new PutBucketEncryptionCommand({
+await s3().send(new PutBucketEncryptionCommand({
 Bucket: selectedBucket,
 ServerSideEncryptionConfiguration: {
 Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }]
@@ -619,7 +619,7 @@ Rules: [{ ApplyServerSideEncryptionByDefault: { SSEAlgorithm: 'AES256' } }]
 bucketEncryption = 'AES256';
 toast.success('AES256 encryption enabled');
 } else {
-await s3.send(new PutBucketEncryptionCommand({
+await s3().send(new PutBucketEncryptionCommand({
 Bucket: selectedBucket,
 ServerSideEncryptionConfiguration: { Rules: [] }
 }));
@@ -635,7 +635,7 @@ async function loadTagsTab() {
 if (!selectedBucket) return;
 loadingTags = true;
 try {
-const res = await s3.send(new GetBucketTaggingCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = res.TagSet ?? [];
 } catch (err: unknown) {
 const e = err as { Code?: string; name?: string };
@@ -664,7 +664,7 @@ bucketTags = bucketTags.filter((t) => t.Key !== key);
 async function saveTags() {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutBucketTaggingCommand({ Bucket: selectedBucket, Tagging: { TagSet: bucketTags } }));
+await s3().send(new PutBucketTaggingCommand({ Bucket: selectedBucket, Tagging: { TagSet: bucketTags } }));
 toast.success('Tags saved');
 } catch (err: unknown) {
 toast.error(`Failed to save tags: ${(err as Error).message}`);
@@ -674,7 +674,7 @@ toast.error(`Failed to save tags: ${(err as Error).message}`);
 async function clearAllTags() {
 if (!selectedBucket || !await confirmDestructive({ title: 'Delete All Tags', message: 'Remove all tags from this bucket?' })) return;
 try {
-await s3.send(new DeleteBucketTaggingCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = [];
 toast.success('All tags cleared');
 } catch (err: unknown) {
@@ -686,7 +686,7 @@ async function loadPermissionsTab() {
 if (!selectedBucket) return;
 loadingPolicy = true;
 try {
-const res = await s3.send(new GetBucketPolicyCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = res.Policy ?? '';
 } catch (err: unknown) {
 const e = err as { Code?: string; name?: string };
@@ -704,7 +704,7 @@ loadingPolicy = false;
 async function savePolicy() {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutBucketPolicyCommand({ Bucket: selectedBucket, Policy: bucketPolicy }));
+await s3().send(new PutBucketPolicyCommand({ Bucket: selectedBucket, Policy: bucketPolicy }));
 toast.success('Policy saved');
 } catch (err: unknown) {
 toast.error(`Failed to save policy: ${(err as Error).message}`);
@@ -714,7 +714,7 @@ toast.error(`Failed to save policy: ${(err as Error).message}`);
 async function deletePolicy() {
 if (!selectedBucket || !await confirmDestructive({ title: 'Delete Bucket Policy', message: 'Remove the bucket policy? Access control will revert to default bucket settings.' })) return;
 try {
-await s3.send(new DeleteBucketPolicyCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = '';
 toast.success('Policy deleted');
 } catch (err: unknown) {
@@ -726,7 +726,7 @@ async function loadLifecycleTab() {
 if (!selectedBucket) return;
 loadingLifecycle = true;
 try {
-const res = await s3.send(new GetBucketLifecycleConfigurationCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketLifecycleConfigurationCommand({ Bucket: selectedBucket }));
 lifecycleRules = res.Rules ?? [];
 } catch (err: unknown) {
 const e = err as { Code?: string; name?: string };
@@ -751,7 +751,7 @@ Expiration: { Days: newLifecycleDays }
 };
 const updatedRules = [...lifecycleRules, newRule];
 try {
-await s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: selectedBucket, LifecycleConfiguration: { Rules: updatedRules } }));
+await s3().send(new PutBucketLifecycleConfigurationCommand({ Bucket: selectedBucket, LifecycleConfiguration: { Rules: updatedRules } }));
 lifecycleRules = updatedRules;
 newLifecycleId = '';
 newLifecyclePrefix = '';
@@ -767,9 +767,9 @@ if (!selectedBucket) return;
 const updatedRules = lifecycleRules.filter((r) => r.ID !== id);
 try {
 if (updatedRules.length === 0) {
-await s3.send(new DeleteBucketLifecycleCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketLifecycleCommand({ Bucket: selectedBucket }));
 } else {
-await s3.send(new PutBucketLifecycleConfigurationCommand({ Bucket: selectedBucket, LifecycleConfiguration: { Rules: updatedRules } }));
+await s3().send(new PutBucketLifecycleConfigurationCommand({ Bucket: selectedBucket, LifecycleConfiguration: { Rules: updatedRules } }));
 }
 lifecycleRules = updatedRules;
 toast.success('Lifecycle rule deleted');
@@ -782,7 +782,7 @@ async function loadCorsTab() {
 if (!selectedBucket) return;
 loadingCors = true;
 try {
-const res = await s3.send(new GetBucketCorsCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketCorsCommand({ Bucket: selectedBucket }));
 corsRules = res.CORSRules ?? [];
 } catch (err: unknown) {
 const e = err as { Code?: string; name?: string };
@@ -807,7 +807,7 @@ MaxAgeSeconds: newCorsMaxAge
 };
 const updatedRules = [...corsRules, newRule];
 try {
-await s3.send(new PutBucketCorsCommand({ Bucket: selectedBucket, CORSConfiguration: { CORSRules: updatedRules } }));
+await s3().send(new PutBucketCorsCommand({ Bucket: selectedBucket, CORSConfiguration: { CORSRules: updatedRules } }));
 corsRules = updatedRules;
 newCorsOrigins = '';
 newCorsMethods = ['GET'];
@@ -824,9 +824,9 @@ if (!selectedBucket) return;
 const updatedRules = corsRules.filter((_, i) => i !== idx);
 try {
 if (updatedRules.length === 0) {
-await s3.send(new DeleteBucketCorsCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketCorsCommand({ Bucket: selectedBucket }));
 } else {
-await s3.send(new PutBucketCorsCommand({ Bucket: selectedBucket, CORSConfiguration: { CORSRules: updatedRules } }));
+await s3().send(new PutBucketCorsCommand({ Bucket: selectedBucket, CORSConfiguration: { CORSRules: updatedRules } }));
 }
 corsRules = updatedRules;
 toast.success('CORS rule deleted');
@@ -839,7 +839,7 @@ async function createFolder(): Promise<void> {
   if (!selectedBucket || !newFolderName.trim()) return;
   const key = `${currentPrefix}${newFolderName.trim().replace(/\/+$/, '')}/`;
   try {
-    await s3.send(new PutObjectCommand({
+    await s3().send(new PutObjectCommand({
       Bucket: selectedBucket,
       Key: key,
       Body: new Uint8Array(0),
@@ -861,7 +861,7 @@ async function loadBucketSizes(bucketList: Bucket[]): Promise<void> {
       let total = 0;
       let token: string | undefined;
       do {
-        const res = await s3.send(new ListObjectsV2Command({
+        const res = await s3().send(new ListObjectsV2Command({
           Bucket: b.Name,
           ContinuationToken: token,
           MaxKeys: 1000,
@@ -882,7 +882,7 @@ async function copyObject(): Promise<void> {
     return;
   }
   try {
-    await s3.send(new CopyObjectCommand({
+    await s3().send(new CopyObjectCommand({
       Bucket: selectedBucket,
       CopySource: `${selectedBucket}/${copySourceKey}`,
       Key: copyTargetKey.trim(),
@@ -898,12 +898,12 @@ async function copyObject(): Promise<void> {
 async function renameObject(): Promise<void> {
   if (!selectedBucket || !renameOldKey || !renameNewKey.trim()) return;
   try {
-    await s3.send(new CopyObjectCommand({
+    await s3().send(new CopyObjectCommand({
       Bucket: selectedBucket,
       CopySource: `${selectedBucket}/${renameOldKey}`,
       Key: renameNewKey.trim(),
     }));
-    await s3.send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: renameOldKey }));
+    await s3().send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: renameOldKey }));
     toast.success('Object renamed');
     showRenameModal = false;
     await loadObjects();
@@ -916,7 +916,7 @@ async function loadWebsite(): Promise<void> {
   if (!selectedBucket) return;
   loadingWebsite = true;
   try {
-    const res = await s3.send(new GetBucketWebsiteCommand({ Bucket: selectedBucket }));
+    const res = await s3().send(new GetBucketWebsiteCommand({ Bucket: selectedBucket }));
     websiteConfig = {
       IndexDocument: res.IndexDocument?.Suffix,
       ErrorDocument: res.ErrorDocument?.Key,
@@ -937,7 +937,7 @@ async function loadWebsite(): Promise<void> {
 async function saveWebsite(): Promise<void> {
   if (!selectedBucket || !websiteConfig) return;
   try {
-    await s3.send(new PutBucketWebsiteCommand({
+    await s3().send(new PutBucketWebsiteCommand({
       Bucket: selectedBucket,
       WebsiteConfiguration: {
         IndexDocument: { Suffix: websiteConfig.IndexDocument ?? 'index.html' },
@@ -953,7 +953,7 @@ async function saveWebsite(): Promise<void> {
 async function deleteWebsite(): Promise<void> {
   if (!selectedBucket || !await confirmDestructive({ title: 'Remove Website Configuration', message: 'Remove the static website hosting configuration from this bucket?', confirmLabel: 'Remove' })) return;
   try {
-    await s3.send(new DeleteBucketWebsiteCommand({ Bucket: selectedBucket }));
+    await s3().send(new DeleteBucketWebsiteCommand({ Bucket: selectedBucket }));
     websiteConfig = null;
     toast.success('Website configuration deleted');
   } catch (err: unknown) {
@@ -999,7 +999,7 @@ let aclGrantCount = $state(0);
 async function loadAcl(): Promise<void> {
 if (!selectedBucket) return;
 try {
-const res = await s3.send(new GetBucketAclCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketAclCommand({ Bucket: selectedBucket }));
 aclGrantCount = (res.Grants ?? []).length;
 } catch {
 aclGrantCount = 0;
@@ -1008,7 +1008,7 @@ aclGrantCount = 0;
 async function applyAcl(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutBucketAclCommand({ Bucket: selectedBucket, ACL: cannedAcl }));
+await s3().send(new PutBucketAclCommand({ Bucket: selectedBucket, ACL: cannedAcl }));
 toast.success('Bucket ACL applied');
 await loadAcl();
 } catch (err: unknown) {
@@ -1026,16 +1026,16 @@ loadingConfig = true;
 try {
 let ids: string[] = [];
 if (kind === 'analytics') {
-const r = await s3.send(new ListBucketAnalyticsConfigurationsCommand({ Bucket: selectedBucket }));
+const r = await s3().send(new ListBucketAnalyticsConfigurationsCommand({ Bucket: selectedBucket }));
 ids = (r.AnalyticsConfigurationList ?? []).map((c) => c.Id ?? '');
 } else if (kind === 'metrics') {
-const r = await s3.send(new ListBucketMetricsConfigurationsCommand({ Bucket: selectedBucket }));
+const r = await s3().send(new ListBucketMetricsConfigurationsCommand({ Bucket: selectedBucket }));
 ids = (r.MetricsConfigurationList ?? []).map((c) => c.Id ?? '');
 } else if (kind === 'inventory') {
-const r = await s3.send(new ListBucketInventoryConfigurationsCommand({ Bucket: selectedBucket }));
+const r = await s3().send(new ListBucketInventoryConfigurationsCommand({ Bucket: selectedBucket }));
 ids = (r.InventoryConfigurationList ?? []).map((c) => c.Id ?? '');
 } else {
-const r = await s3.send(new ListBucketIntelligentTieringConfigurationsCommand({ Bucket: selectedBucket }));
+const r = await s3().send(new ListBucketIntelligentTieringConfigurationsCommand({ Bucket: selectedBucket }));
 ids = (r.IntelligentTieringConfigurationList ?? []).map((c) => c.Id ?? '');
 }
 configList = ids.filter((id) => id !== '');
@@ -1048,10 +1048,10 @@ loadingConfig = false;
 async function deleteConfig(kind: ConfigKind, id: string): Promise<void> {
 if (!selectedBucket) return;
 try {
-if (kind === 'analytics') await s3.send(new DeleteBucketAnalyticsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
-else if (kind === 'metrics') await s3.send(new DeleteBucketMetricsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
-else if (kind === 'inventory') await s3.send(new DeleteBucketInventoryConfigurationCommand({ Bucket: selectedBucket, Id: id }));
-else await s3.send(new DeleteBucketIntelligentTieringConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+if (kind === 'analytics') await s3().send(new DeleteBucketAnalyticsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else if (kind === 'metrics') await s3().send(new DeleteBucketMetricsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else if (kind === 'inventory') await s3().send(new DeleteBucketInventoryConfigurationCommand({ Bucket: selectedBucket, Id: id }));
+else await s3().send(new DeleteBucketIntelligentTieringConfigurationCommand({ Bucket: selectedBucket, Id: id }));
 toast.success('Configuration deleted');
 await loadConfigList(kind);
 } catch (err: unknown) {
@@ -1064,7 +1064,7 @@ let pab = $state({ BlockPublicAcls: false, IgnorePublicAcls: false, BlockPublicP
 async function loadPublicAccessBlock(): Promise<void> {
 if (!selectedBucket) return;
 try {
-const res = await s3.send(new GetPublicAccessBlockCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetPublicAccessBlockCommand({ Bucket: selectedBucket }));
 const c = res.PublicAccessBlockConfiguration ?? {};
 pab = {
 BlockPublicAcls: c.BlockPublicAcls ?? false,
@@ -1079,7 +1079,7 @@ pab = { BlockPublicAcls: false, IgnorePublicAcls: false, BlockPublicPolicy: fals
 async function savePublicAccessBlock(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutPublicAccessBlockCommand({ Bucket: selectedBucket, PublicAccessBlockConfiguration: { ...pab } }));
+await s3().send(new PutPublicAccessBlockCommand({ Bucket: selectedBucket, PublicAccessBlockConfiguration: { ...pab } }));
 toast.success('Public access block saved');
 } catch (err: unknown) {
 toast.error(`Failed to save public access block: ${(err as Error).message}`);
@@ -1095,7 +1095,7 @@ async function loadObjectLock(): Promise<void> {
 if (!selectedBucket) return;
 loadingObjectLock = true;
 try {
-const res = await s3.send(new GetObjectLockConfigurationCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetObjectLockConfigurationCommand({ Bucket: selectedBucket }));
 const cfg = res.ObjectLockConfiguration;
 objectLockEnabled = cfg?.ObjectLockEnabled === 'Enabled';
 const rule = cfg?.Rule?.DefaultRetention;
@@ -1111,7 +1111,7 @@ loadingObjectLock = false;
 async function saveObjectLock(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutObjectLockConfigurationCommand({
+await s3().send(new PutObjectLockConfigurationCommand({
 Bucket: selectedBucket,
 ObjectLockConfiguration: {
 ObjectLockEnabled: 'Enabled',
@@ -1131,7 +1131,7 @@ async function loadNotifications(): Promise<void> {
 if (!selectedBucket) return;
 loadingNotifications = true;
 try {
-const res = await s3.send(new GetBucketNotificationConfigurationCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketNotificationConfigurationCommand({ Bucket: selectedBucket }));
 notificationConfig = JSON.stringify({
 QueueConfigurations: res.QueueConfigurations ?? [],
 TopicConfigurations: res.TopicConfigurations ?? [],
@@ -1152,7 +1152,7 @@ async function loadReplication(): Promise<void> {
 if (!selectedBucket) return;
 loadingReplication = true;
 try {
-const res = await s3.send(new GetBucketReplicationCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketReplicationCommand({ Bucket: selectedBucket }));
 replicationConfig = JSON.stringify(res.ReplicationConfiguration ?? {}, null, 2);
 } catch {
 replicationConfig = '';
@@ -1163,7 +1163,7 @@ loadingReplication = false;
 async function deleteReplication(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new DeleteBucketReplicationCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketReplicationCommand({ Bucket: selectedBucket }));
 replicationConfig = '';
 toast.success('Replication configuration deleted');
 } catch (err: unknown) {
@@ -1179,7 +1179,7 @@ async function loadLogging(): Promise<void> {
 if (!selectedBucket) return;
 loadingLogging = true;
 try {
-const res = await s3.send(new GetBucketLoggingCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketLoggingCommand({ Bucket: selectedBucket }));
 loggingTargetBucket = res.LoggingEnabled?.TargetBucket ?? '';
 loggingTargetPrefix = res.LoggingEnabled?.TargetPrefix ?? '';
 } catch {
@@ -1195,7 +1195,7 @@ try {
 const bucketLoggingStatus = loggingTargetBucket
 ? { LoggingEnabled: { TargetBucket: loggingTargetBucket, TargetPrefix: loggingTargetPrefix } }
 : {};
-await s3.send(new PutBucketLoggingCommand({ Bucket: selectedBucket, BucketLoggingStatus: bucketLoggingStatus }));
+await s3().send(new PutBucketLoggingCommand({ Bucket: selectedBucket, BucketLoggingStatus: bucketLoggingStatus }));
 toast.success('Logging configuration saved');
 } catch (err: unknown) {
 toast.error(`Failed to save logging: ${(err as Error).message}`);
@@ -1209,7 +1209,7 @@ async function loadOwnership(): Promise<void> {
 if (!selectedBucket) return;
 loadingOwnership = true;
 try {
-const res = await s3.send(new GetBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
+const res = await s3().send(new GetBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
 const rule = res.OwnershipControls?.Rules?.[0];
 ownership = (rule?.ObjectOwnership as typeof ownership) ?? 'BucketOwnerEnforced';
 } catch {
@@ -1221,7 +1221,7 @@ loadingOwnership = false;
 async function saveOwnership(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new PutBucketOwnershipControlsCommand({
+await s3().send(new PutBucketOwnershipControlsCommand({
 Bucket: selectedBucket,
 OwnershipControls: { Rules: [{ ObjectOwnership: ownership }] },
 }));
@@ -1233,7 +1233,7 @@ toast.error(`Failed to save ownership controls: ${(err as Error).message}`);
 async function deleteOwnership(): Promise<void> {
 if (!selectedBucket) return;
 try {
-await s3.send(new DeleteBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
+await s3().send(new DeleteBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
 toast.success('Ownership controls deleted');
 } catch (err: unknown) {
 toast.error(`Failed to delete ownership controls: ${(err as Error).message}`);
@@ -1244,7 +1244,7 @@ async function loadMultipartUploads(): Promise<void> {
   if (!selectedBucket) return;
   loadingUploads = true;
   try {
-    const res = await s3.send(new ListMultipartUploadsCommand({ Bucket: selectedBucket }));
+    const res = await s3().send(new ListMultipartUploadsCommand({ Bucket: selectedBucket }));
     const uploads = res.Uploads ?? [];
     // ListParts in parallel to compute per-upload completion stats.
     const entries: MultipartUploadEntry[] = await Promise.all(
@@ -1253,7 +1253,7 @@ async function loadMultipartUploads(): Promise<void> {
         let bytesUploaded = 0;
         if (u.Key && u.UploadId) {
           try {
-            const partsRes = await s3.send(new ListPartsCommand({
+            const partsRes = await s3().send(new ListPartsCommand({
               Bucket: selectedBucket!,
               Key: u.Key,
               UploadId: u.UploadId,
@@ -1286,7 +1286,7 @@ async function loadMultipartUploads(): Promise<void> {
 async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
   if (!selectedBucket) return;
   try {
-    await s3.send(new AbortMultipartUploadCommand({
+    await s3().send(new AbortMultipartUploadCommand({
       Bucket: selectedBucket,
       Key: key,
       UploadId: uploadId,

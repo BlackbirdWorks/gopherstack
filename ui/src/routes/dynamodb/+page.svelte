@@ -3,7 +3,7 @@
 	import { onDestroy } from 'svelte';
 	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
-import { onRegionChange } from '$lib/region-effect.svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -52,7 +52,7 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
-	const ddb = getDynamoDBClient();
+	const ddb = regionalClient(getDynamoDBClient);
 
 	// Table List State
 	let tableNames = $state<string[]>([]);
@@ -135,7 +135,7 @@ let scanLastKey = $state<unknown>(null);
 	let streamEventsHtml = $state('');
 	let streamEventsLoading = $state(false);
 	let streamBackendUnavailable = $state(false);
-let ddbStreams = $state(getDynamoDBStreamsClient());
+const ddbStreams = regionalClient(getDynamoDBStreamsClient);
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
 	let streamFetchController: AbortController | undefined;
 
@@ -168,7 +168,7 @@ let editWcu = $state(5);
 async function updateCapacity() {
   if (!selectedTable) return;
   try {
-    await ddb.send(new UpdateTableCommand({
+    await ddb().send(new UpdateTableCommand({
       TableName: selectedTable,
       BillingMode: editBillingMode as 'PROVISIONED' | 'PAY_PER_REQUEST',
       ...(editBillingMode === 'PROVISIONED' ? {
@@ -194,7 +194,7 @@ let batchGetKeys = $state('');
 async function execBatchGet() {
   if (!selectedTable) return;
   try {
-    const res = await ddb.send(new BatchGetItemCommand({
+    const res = await ddb().send(new BatchGetItemCommand({
       RequestItems: { [selectedTable]: { Keys: JSON.parse(batchGetKeys).map((k: unknown) => jsonToItem(k as Record<string, unknown>)) } }
     }));
     toast.success("BatchGet completed. Found: " + (res.Responses?.[selectedTable]?.length || 0));
@@ -203,7 +203,7 @@ async function execBatchGet() {
 async function execUpdateItem() {
   if (!selectedTable || !editItemJson) return;
   try {
-    await ddb.send(new UpdateItemCommand({
+    await ddb().send(new UpdateItemCommand({
       TableName: selectedTable,
       Key: buildItemKey(JSON.parse(editItemJson)),
       UpdateExpression: updateExp || undefined,
@@ -283,9 +283,9 @@ let s3Imports: unknown[] = $state([]);
 async function loadExportsImports() {
   if (!selectedTable) return;
   try {
-    const e = await ddb.send(new ListExportsCommand({TableArn: selectedTableDesc?.TableArn}));
+    const e = await ddb().send(new ListExportsCommand({TableArn: selectedTableDesc?.TableArn}));
     s3Exports = e.ExportSummaries || [];
-    const i = await ddb.send(new ListImportsCommand({}));
+    const i = await ddb().send(new ListImportsCommand({}));
     // Needs filter by table if supported
     s3Imports = i.ImportSummaryList || [];
   } catch(e){}
@@ -295,7 +295,7 @@ async function nativeExport() {
   const bucket = prompt("S3 Bucket Name:");
   if (!bucket || !selectedTableDesc?.TableArn) return;
   try {
-    await ddb.send(new ExportTableToPointInTimeCommand({
+    await ddb().send(new ExportTableToPointInTimeCommand({
       TableArn: selectedTableDesc.TableArn,
       S3Bucket: bucket,
       ExportFormat: "DYNAMODB_JSON"
@@ -310,7 +310,7 @@ async function nativeImport() {
   const table = prompt("Target Table Name:");
   if (!bucket || !table) return;
   try {
-    await ddb.send(new ImportTableCommand({
+    await ddb().send(new ImportTableCommand({
       S3BucketSource: { S3Bucket: bucket },
       InputFormat: "DYNAMODB_JSON",
       TableCreationParameters: {
@@ -337,12 +337,12 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	async function loadTables() {
 		loading = true;
 		try {
-			const res = await ddb.send(new ListTablesCommand({}));
+			const res = await ddb().send(new ListTablesCommand({}));
 			tableNames = res.TableNames ?? [];
 			const details = new Map<string, TableDescription>();
 			for (const name of tableNames) {
 				try {
-					const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
+					const desc = await ddb().send(new DescribeTableCommand({ TableName: name }));
 					if (desc.Table) details.set(name, desc.Table);
 				} catch {
                                     // skip
@@ -367,7 +367,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 				ks.push({ AttributeName: sortKey.trim(), KeyType: 'RANGE' });
 				ad.push({ AttributeName: sortKey.trim(), AttributeType: sortKeyType });
 			}
-			await ddb.send(new CreateTableCommand({
+			await ddb().send(new CreateTableCommand({
 				TableName: newTableName.trim(),
 				KeySchema: ks,
 				AttributeDefinitions: ad,
@@ -391,7 +391,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	async function purgeAll() {
 		if (!await confirmDestructive({ title: 'Delete All Tables', message: 'Delete ALL DynamoDB tables? This cannot be undone.', confirmLabel: 'Delete All' })) return;
 		try {
-			for (const name of tableNames) await ddb.send(new DeleteTableCommand({ TableName: name }));
+			for (const name of tableNames) await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
 			selectedTable = null;
 			await loadTables();
@@ -403,7 +403,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	async function deleteTable(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Table', message: `Delete table "${name}"? All items and indexes will be permanently removed.` })) return;
 		try {
-			await ddb.send(new DeleteTableCommand({ TableName: name }));
+			await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
 			if (selectedTable === name) { selectedTable = null; selectedTableDesc = null; }
 			await loadTables();
@@ -421,10 +421,10 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 		streamEventsHtml = ''; streamInfo = null;
 		partiqlStatement = `SELECT * FROM "${name}"`;
 		try {
-			const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
+			const desc = await ddb().send(new DescribeTableCommand({ TableName: name }));
 			selectedTableDesc = desc.Table ?? null;
 			try {
-				const ttl = await ddb.send(new DescribeTimeToLiveCommand({ TableName: name }));
+				const ttl = await ddb().send(new DescribeTimeToLiveCommand({ TableName: name }));
 				ttlEnabled = ttl.TimeToLiveDescription?.TimeToLiveStatus === 'ENABLED';
 				ttlAttribute = ttl.TimeToLiveDescription?.AttributeName ?? '';
 			} catch {
@@ -459,7 +459,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 				...(queryIndexName ? { IndexName: queryIndexName } : {}),
 				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})
 			};
-			const res = await ddb.send(new QueryCommand({...input, ExclusiveStartKey: queryLastKey as Record<string, AttributeValue>}));
+			const res = await ddb().send(new QueryCommand({...input, ExclusiveStartKey: queryLastKey as Record<string, AttributeValue>}));
 queryLastKey = res.LastEvaluatedKey;
 			queryResults = (res.Items ?? []).map((item) => itemToJson(item));
 			queryCount = res.Count ?? 0;
@@ -481,7 +481,7 @@ queryLastKey = res.LastEvaluatedKey;
 				...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
 				...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {})
 			};
-			const res = await ddb.send(new ScanCommand({...input, ExclusiveStartKey: scanLastKey as Record<string, AttributeValue>}));
+			const res = await ddb().send(new ScanCommand({...input, ExclusiveStartKey: scanLastKey as Record<string, AttributeValue>}));
 scanLastKey = res.LastEvaluatedKey;
 			scanResults = (res.Items ?? []).map((item) => itemToJson(item));
 			scanCount = res.Count ?? 0;
@@ -503,7 +503,7 @@ scanLastKey = res.LastEvaluatedKey;
 			itemsSelectedKeys = new Set();
 		}
 		try {
-			const res = await ddb.send(new ScanCommand({
+			const res = await ddb().send(new ScanCommand({
 				TableName: selectedTable,
 				Limit: 25,
 				...(itemsLastKey && !reset ? { ExclusiveStartKey: itemsLastKey } : {})
@@ -544,7 +544,7 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		if (!await confirmDestructive({ title: 'Delete Item', message: 'Delete this item? This cannot be undone.', confirmLabel: 'Delete Item' })) return;
 		try {
-			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
+			await ddb().send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
 			toast.success('Item deleted');
 			if (activeTab === 'items') await loadItems(true);
 			else if (activeTab === 'scan') await executeScan();
@@ -572,7 +572,7 @@ scanLastKey = res.LastEvaluatedKey;
 			for (let i = 0; i < targets.length; i += 25) {
 				const chunk = targets.slice(i, i + 25);
 				const requests = chunk.map((it) => ({ DeleteRequest: { Key: buildItemKey(it) } }));
-				const out = await ddb.send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
+				const out = await ddb().send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
 				const unprocessed = out.UnprocessedItems?.[tableName]?.length ?? 0;
 				deleted += chunk.length - unprocessed;
 			}
@@ -591,7 +591,7 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		backupsLoading = true;
 		try {
-			const res = await ddb.send(new ListBackupsCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new ListBackupsCommand({ TableName: selectedTable }));
 			backups = res.BackupSummaries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load backups: ${(err as Error).message}`);
@@ -605,7 +605,7 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!arn) return;
 		tagsLoading = true;
 		try {
-			const res = await ddb.send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
+			const res = await ddb().send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
 			tags = res.Tags ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load tags: ${(err as Error).message}`);
@@ -618,7 +618,7 @@ scanLastKey = res.LastEvaluatedKey;
 		const arn = selectedTableDesc?.TableArn;
 		if (!arn || !newTagKey) return;
 		try {
-			await ddb.send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
+			await ddb().send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
 			newTagKey = '';
 			newTagValue = '';
 			toast.success('Tag added');
@@ -632,7 +632,7 @@ scanLastKey = res.LastEvaluatedKey;
 		const arn = selectedTableDesc?.TableArn;
 		if (!arn) return;
 		try {
-			await ddb.send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
+			await ddb().send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
 			toast.success('Tag removed');
 			await loadTags();
 		} catch (err: unknown) {
@@ -643,7 +643,7 @@ scanLastKey = res.LastEvaluatedKey;
 	async function createBackup(): Promise<void> {
 		if (!selectedTable || !newBackupName.trim()) return;
 		try {
-			await ddb.send(new CreateBackupCommand({ TableName: selectedTable, BackupName: newBackupName.trim() }));
+			await ddb().send(new CreateBackupCommand({ TableName: selectedTable, BackupName: newBackupName.trim() }));
 			toast.success(`Backup "${newBackupName.trim()}" created`);
 			newBackupName = '';
 			await loadBackups();
@@ -655,7 +655,7 @@ scanLastKey = res.LastEvaluatedKey;
 	async function deleteBackup(arn: string): Promise<void> {
 		if (!await confirmDestructive({ title: 'Delete Backup', message: 'Delete this backup? This cannot be undone.' })) return;
 		try {
-			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
+			await ddb().send(new DeleteBackupCommand({ BackupArn: arn }));
 			toast.success('Backup deleted');
 			await loadBackups();
 		} catch (err: unknown) {
@@ -668,7 +668,7 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		pitrLoading = true;
 		try {
-			const res = await ddb.send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
 			const pitr = res.ContinuousBackupsDescription?.PointInTimeRecoveryDescription;
 			pitrStatus = (pitr?.PointInTimeRecoveryStatus as 'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING') ?? 'DISABLED';
 			pitrEarliestRestoreDate = pitr?.EarliestRestorableDateTime ?? null;
@@ -684,7 +684,7 @@ scanLastKey = res.LastEvaluatedKey;
   const name = prompt("New Table Name:");
   if (!name || !selectedTable) return;
   try {
-    await ddb.send(new RestoreTableToPointInTimeCommand({
+    await ddb().send(new RestoreTableToPointInTimeCommand({
       SourceTableName: selectedTable,
       TargetTableName: name,
       UseLatestRestorableTime: true
@@ -696,7 +696,7 @@ async function togglePitr(): Promise<void> {
 		if (!selectedTable) return;
 		const enable = pitrStatus !== 'ENABLED';
 		try {
-			await ddb.send(new UpdateContinuousBackupsCommand({
+			await ddb().send(new UpdateContinuousBackupsCommand({
 				TableName: selectedTable,
 				PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: enable }
 			}));
@@ -712,7 +712,7 @@ async function togglePitr(): Promise<void> {
 		if (!selectedTable) return;
 		replicasLoading = true;
 		try {
-			const res = await ddb.send(new DescribeTableReplicaAutoScalingCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new DescribeTableReplicaAutoScalingCommand({ TableName: selectedTable }));
 			tableReplicas = (res.TableAutoScalingDescription?.Replicas ?? []).map(r => ({
 				RegionName: r.RegionName,
 				ReplicaStatus: r.ReplicaStatus as string
@@ -731,7 +731,7 @@ async function togglePitr(): Promise<void> {
 	async function addReplica(): Promise<void> {
 		if (!selectedTable || !newReplicaRegion.trim()) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				ReplicaUpdates: [{ Create: { RegionName: newReplicaRegion.trim() } }]
 			}));
@@ -746,7 +746,7 @@ async function togglePitr(): Promise<void> {
 	async function removeReplica(region: string): Promise<void> {
 		if (!selectedTable || !await confirmDestructive({ title: 'Remove Replica', message: `Remove replica in ${region}? This deletes the table copy in that region.`, confirmLabel: 'Remove' })) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				ReplicaUpdates: [{ Delete: { RegionName: region } }]
 			}));
@@ -766,7 +766,7 @@ async function togglePitr(): Promise<void> {
 		try {
 			const now = Math.floor(Date.now() / 1000);
 			const oneHourFromNow = now + 3600;
-			const res = await ddb.send(new ScanCommand({
+			const res = await ddb().send(new ScanCommand({
 				TableName: selectedTable,
 				FilterExpression: '#ttlAttr BETWEEN :now AND :plus1h',
 				ExpressionAttributeNames: { '#ttlAttr': ttlAttribute },
@@ -787,7 +787,7 @@ async function togglePitr(): Promise<void> {
 		partiqlDuration = 0;
 		const t0 = Date.now();
 		try {
-			const res = await ddb.send(new ExecuteStatementCommand({ Statement: partiqlStatement }));
+			const res = await ddb().send(new ExecuteStatementCommand({ Statement: partiqlStatement }));
 			partiqlDuration = Date.now() - t0;
 			partiqlResults = (res.Items ?? []).map((item) => itemToJson(item));
 			partiqlCount = res.Items?.length ?? 0;
@@ -803,18 +803,18 @@ async function togglePitr(): Promise<void> {
 async function loadNativeStreams() {
   if (!streamARN) return;
   try {
-    const desc = await ddbStreams.send(new DescribeStreamCommand({StreamArn: streamARN}));
+    const desc = await ddbStreams().send(new DescribeStreamCommand({StreamArn: streamARN}));
     if (!desc.StreamDescription?.Shards) return;
     let recordsHtml = '';
     for (const shard of desc.StreamDescription.Shards) {
       if (!shard.ShardId) continue;
-      const it = await ddbStreams.send(new GetShardIteratorCommand({
+      const it = await ddbStreams().send(new GetShardIteratorCommand({
         StreamArn: streamARN,
         ShardId: shard.ShardId,
         ShardIteratorType: "TRIM_HORIZON"
       }));
       if (!it.ShardIterator) continue;
-      const recs = await ddbStreams.send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
+      const recs = await ddbStreams().send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
       if (recs.Records) {
          for (const r of recs.Records) {
            recordsHtml += `<div>Native Stream Record: ${r.eventName} ${JSON.stringify(r.dynamodb)}</div>`;
@@ -896,7 +896,7 @@ async function loadStreamEvents() {
 		if (!selectedTable || !newItemJson.trim()) return;
 		try {
 			const json = JSON.parse(newItemJson);
-			await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
+			await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
 			toast.success('Item created');
 			showNewItemModal = false;
 			newItemJson = '';
@@ -912,7 +912,7 @@ async function loadStreamEvents() {
 			const items: unknown[] = JSON.parse(importJson);
 			if (!Array.isArray(items)) throw new Error('Expected a JSON array');
 			for (const item of items) {
-				await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
+				await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
 			}
 			toast.success(`${items.length} items imported`);
 			showImportModal = false;
@@ -927,7 +927,7 @@ async function loadStreamEvents() {
 		if (!selectedTable || !editItemJson.trim()) return;
 		try {
 			const json = JSON.parse(editItemJson);
-			await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
+			await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
 			toast.success('Item updated');
 			showEditModal = false;
 			editItemJson = '';
@@ -955,7 +955,7 @@ function setPartiqlExample(query: string) {
 	async function updateTTL() {
 		if (!selectedTable || !ttlAttribute.trim()) return;
 		try {
-			await ddb.send(new UpdateTimeToLiveCommand({
+			await ddb().send(new UpdateTimeToLiveCommand({
 				TableName: selectedTable,
 				TimeToLiveSpecification: { Enabled: ttlEnabled, AttributeName: ttlAttribute.trim() }
 			}));
@@ -970,9 +970,9 @@ function setPartiqlExample(query: string) {
 		try {
 			const spec: StreamSpecification = { StreamEnabled: streamsEnabled };
 			if (streamsEnabled) spec.StreamViewType = streamsViewType as StreamViewType;
-			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec }));
+			await ddb().send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec }));
 			toast.success(`Streams ${streamsEnabled ? 'enabled successfully' : 'disabled successfully'}`);
-			const desc = await ddb.send(new DescribeTableCommand({ TableName: selectedTable }));
+			const desc = await ddb().send(new DescribeTableCommand({ TableName: selectedTable }));
 			selectedTableDesc = desc.Table ?? null;
 			streamARN = desc.Table?.LatestStreamArn ?? '';
 		} catch (err: unknown) {
@@ -983,7 +983,7 @@ function setPartiqlExample(query: string) {
 	async function updateDeletionProtection(enabled: boolean): Promise<void> {
 		if (!selectedTable) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				DeletionProtectionEnabled: enabled,
 			}));
@@ -1032,7 +1032,7 @@ function setPartiqlExample(query: string) {
 		if (!selectedTable) return;
 		if (!await confirmDestructive({ title: 'Delete Global Secondary Index', message: `Delete GSI "${indexName}"? This cannot be undone and will impact existing queries.` })) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				GlobalSecondaryIndexUpdates: [{ Delete: { IndexName: indexName } }]
 			}));
@@ -1056,7 +1056,7 @@ function setPartiqlExample(query: string) {
 			const projection = gsiProjection === 'INCLUDE'
 				? { ProjectionType: gsiProjection as 'INCLUDE', NonKeyAttributes: gsiNonKeyAttrs.split(',').map(s => s.trim()).filter(Boolean) }
 				: { ProjectionType: gsiProjection as 'ALL' | 'KEYS_ONLY' };
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				AttributeDefinitions: attrDefs,
 				GlobalSecondaryIndexUpdates: [{

@@ -247,3 +247,89 @@ func TestE2E_Region_ClientConstructionHonorsSelector(t *testing.T) {
 	assert.Equal(t, "eu-west-2", last.region,
 		"a freshly constructed Redshift client must sign for the currently selected region, not a hardcoded us-east-1")
 }
+
+// waitForDynamoDBPage waits for the DynamoDB dashboard page's table-list view
+// (the `{:else}` branch of the top-level `{#if showTableDetails}`) to finish
+// mounting after a navigation.
+func waitForDynamoDBPage(t *testing.T, page playwright.Page) {
+	t.Helper()
+
+	require.NoError(t, page.Locator("h1:has-text('DynamoDB Tables')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	}))
+}
+
+// TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion closes the gap that
+// TestE2E_Region_ClientConstructionHonorsSelector's doc comment deliberately
+// left open and flagged as a known, separately-tracked bug (gopherstack-ks2s.6):
+// switching the region on an already-mounted page and letting the page's OWN
+// refetch run — via `onRegionChange`, with NO page reload and no manual
+// "Refresh" click — must sign that refetch's request for the newly selected
+// region, not the region the page's client was first constructed with.
+//
+// Root cause (verified against the vendored SDK, not just inferred): in
+// ui/node_modules/@aws-sdk/core/dist-es/submodules/httpAuthSchemes/aws_sdk/resolveAwsSdkSigV4Config.js,
+// the `signer` closure re-evaluates the region Provider correctly on every
+// call (`signingRegion: await normalizeProvider(config.region)()`), but then
+// does `config.signingRegion = config.signingRegion || signingRegion;` and
+// hands the *signer* `region: config.signingRegion` — reading back the
+// memoized field it just conditionally wrote, not the freshly computed local
+// value. `config.signingRegion` is set once, on a client's first signed
+// request, and every later request on that SAME client instance keeps
+// signing for that first region no matter what the Provider now returns.
+// (The sibling `regionInfoProvider` branch a few lines up has the identical
+// bug shape, but is dead code here: no `aws-client.ts` factory sets
+// `regionInfoProvider`.) The fix lives in
+// ui/src/lib/region-effect.svelte.ts's `regionalClient()`: it rebuilds the
+// client (via a `$derived`, so the rebuild happens lazily on next access)
+// whenever the region changes, instead of letting a page keep signing
+// requests on one long-lived client instance forever.
+//
+// DynamoDB is the probe page because:
+//   - it is explicitly named in TestE2E_Region_ClientConstructionHonorsSelector's
+//     comment as where this was reproduced live, so this test closes that
+//     exact loop;
+//   - its backend is wired into the e2e test stack (unlike DAX, which has no
+//     handler registered in internal/teststack/teststack.go, and unlike
+//     GuardDuty per the sibling test's comment);
+//   - a fresh stack starts with zero tables, so `loadTables()` issues exactly
+//     one ListTables request per mount/refetch (no per-table DescribeTable
+//     fan-out to complicate request counting).
+func TestE2E_Region_MidSessionSwitchRefetchesWithNewRegion(t *testing.T) {
+	stack := newStack(t)
+
+	server := httptest.NewServer(stack.Echo)
+	defer server.Close()
+
+	ctx, err := browser.NewContext()
+	require.NoError(t, err)
+	defer ctx.Close()
+
+	page, err := ctx.NewPage()
+	require.NoError(t, err)
+	defer page.Close()
+
+	capture := newRequestCapture("dynamodb")
+	page.OnRequest(capture.onRequest)
+
+	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
+	require.NoError(t, err)
+	waitForDynamoDBPage(t, page)
+
+	initial := waitForRequestCount(t, capture, 1, "initial page load, before any region selection")
+	assert.Equal(t, "us-east-1", initial[0].region,
+		"the default region (no selection made yet) must be us-east-1")
+
+	// Switch region via the header dropdown WITHOUT navigating away and
+	// without clicking any in-page "Refresh" control. The DynamoDB page
+	// already wires `onRegionChange(loadTables)`, so the switch alone must
+	// be enough to trigger a second ListTables request.
+	switchRegion(t, page, "eu-west-2")
+
+	afterSwitch := waitForRequestCount(t, capture, 2, "after switching to eu-west-2 with no reload")
+	last := afterSwitch[len(afterSwitch)-1]
+	assert.Equal(t, "eu-west-2", last.region,
+		"the page's own onRegionChange refetch must sign for the newly selected region, "+
+			"not the region its client was first constructed with")
+}
