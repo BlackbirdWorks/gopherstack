@@ -1,274 +1,464 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	// MediaStore Data is the MediaStore *data plane*: PutObject, GetObject,
+	// DeleteObject, DescribeObject, ListItems (confirmed exhaustive against
+	// services/mediastoredata/handler.go's GetSupportedOperations() and the
+	// installed @aws-sdk/client-mediastore-data command list -- both directions
+	// clean, no fabricated ops, nothing missing). Unlike the pure query-shaped
+	// services handled earlier in this sweep (redshiftdata, sts), this one
+	// genuinely creates and deletes objects, so a browser/CRUD-ish shape is
+	// closer to right here. But it is still not a resource-management page:
+	//
+	//   - There is no Update. services/mediastoredata/objects.go DOES have an
+	//     UpdateObjectMetadata() backend method (content-type/cache-control
+	//     in place, tested in objects_test.go) -- but handler.go's Handler()
+	//     dispatch only ever calls handlePutObject/handleGetObject/
+	//     handleDeleteObject/handleListItems/handleDescribeObject; nothing
+	//     wires UpdateObjectMetadata to any HTTP route, and there is no
+	//     UpdateObject-shaped command in the real SDK either. It is dead code
+	//     on the wire. The PREVIOUS version of this page had an "Edit
+	//     metadata" panel that PATCHed a `/dashboard/api/mediastoredata/objects`
+	//     endpoint that does not exist anywhere in this codebase (no matching
+	//     +server.ts, confirmed by search) -- so that feature could never have
+	//     worked even against the old custom-API architecture, let alone the
+	//     real SDK. It is not reintroduced here.
+	//   - There is no folder-create op. ListItems' FOLDER entries are
+	//     synthesized purely from "/"-nesting in real object Paths (see
+	//     services/mediastoredata/items.go: a FOLDER item only ever comes from
+	//     `strings.Cut(rest, "/")` finding a nested object) -- there is no
+	//     "create empty folder" primitive the way S3's zero-byte
+	//     trailing-slash-key trick has a real analogue. A folder appears the
+	//     moment an object is uploaded under it, and this page relies on
+	//     exactly that (type the nested path directly into the upload form),
+	//     rather than adding a "New Folder" button the backend has no op for.
+	//
+	// So the shape is: a Path-prefix object/folder browser (ListItems drives
+	// navigation, matching real MediaStore's folder semantics) with real
+	// Upload (PutObject), Download (GetObject), Delete (DeleteObject), and
+	// Details/Range-preview (DescribeObject + GetObject Range) -- no forced
+	// Update.
+	//
+	// ---------------------------------------------------------------------
+	// Container control-plane connection: checked, and there isn't one
+	// ---------------------------------------------------------------------
+	// Real AWS MediaStore Data is reached through a *per-container* data
+	// endpoint (obtained from mediastore:DescribeContainer) -- a request never
+	// carries a container name/ARN as a parameter, the container is implied
+	// entirely by which endpoint you send it to. gopherstack does not model
+	// per-container endpoints or isolation at all: services/mediastoredata's
+	// InMemoryBackend keys objects only by region (see store_setup.go /
+	// getRegion), with no notion of a container anywhere in
+	// objects.go/items.go/models.go. Grepping services/mediastore (the
+	// separate control-plane service that owns Container/CORS/lifecycle/
+	// metric policies) for any reference to the mediastoredata package finds
+	// nothing, and the reverse search is equally empty -- the two backends
+	// are entirely unaware of each other. Concretely: PutObject/GetObject/etc.
+	// here work against a single flat per-region object store regardless of
+	// whether any container was ever created via the mediastore service, and
+	// ContainerNotFoundException (a real, always-present modeled error on
+	// every op) can never actually be returned -- confirmed in
+	// services/mediastoredata/PARITY.md's gaps section. This is a milder
+	// disconnect than appconfigdata's (there the data-plane op 404s until an
+	// internal admin endpoint seeds it -- here every real op just works,
+	// unconditionally, without ever needing a container). So this page does
+	// not pretend to select or require a container; it is honest that it
+	// talks to gopherstack's single region-wide object store.
+	//
+	// ---------------------------------------------------------------------
+	// Object bodies, content types, and Range requests -- verified for real
+	// ---------------------------------------------------------------------
+	// PutObject stores the exact bytes given, computes a real SHA-256
+	// (contentSHA256) and quotes it as ETag, and honors Content-Type/
+	// Cache-Control headers verbatim (objects.go PutObject). GetObject/
+	// DescribeObject return those same Content-Type/Content-Length/
+	// Cache-Control/ETag/Last-Modified values back -- both were checked
+	// against the real SDK's response shape and match. Range requests are
+	// REAL: handler.go's handleRangeGet supports single closed ("bytes=a-b"),
+	// suffix ("bytes=-N"), and open ("bytes=N-") ranges, returning 206 +
+	// Content-Range on success and 416 (RequestedRangeNotSatisfiableException)
+	// when unsatisfiable -- so the Range field below is wired to something
+	// real, not decorative. What is NOT real: StorageClass has exactly one
+	// legal value on the wire (`TEMPORAL` -- confirmed against the installed
+	// SDK's StorageClass enum, which does not include `STANDARD` at all;
+	// `STANDARD` is a value of the unrelated UploadAvailability enum, and the
+	// PREVIOUS version of this page's Storage Class dropdown conflated the
+	// two by offering "STANDARD" as a storage class option). Also: neither
+	// GetObjectResponse, DescribeObjectResponse, nor ListItems' Item include
+	// StorageClass or UploadAvailability at all (verified against the
+	// installed SDK's models_0.d.ts) -- PutObject's response is the ONLY
+	// place StorageClass is ever visible again after upload, so this page
+	// does not pretend to show a persistent "storage class" column/field
+	// anywhere else. Chunked/progressive delivery for STREAMING uploads is
+	// also not modeled server-side (PARITY.md gaps: "an object is only ever
+	// visible after PutObject fully returns") -- UploadAvailability is still
+	// exposed as a real request field since it round-trips into storage, but
+	// this page does not claim a live-streaming-while-uploading experience
+	// the backend cannot produce.
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { getMediaStoreDataClient } from '$lib/aws-client';
+	import {
+		PutObjectCommand,
+		GetObjectCommand,
+		DeleteObjectCommand,
+		DescribeObjectCommand,
+		ListItemsCommand,
+		type Item,
+		type DescribeObjectCommandOutput
+	} from '@aws-sdk/client-mediastore-data';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import {
-		Upload, Download, Trash2, RefreshCw, Search,
-		File as FileIcon, Info, ChevronUp, Film, Copy, Check,
-		BarChart2, Edit2, X
-	} from 'lucide-svelte';
+	import { createTabLoader } from '$lib/tab-loader.svelte';
+	import { formatDate, formatBytes } from '$lib/format';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import DataTable from '$lib/components/DataTable.svelte';
+	import { defineColumns } from '$lib/components/data-table';
+	import LoadMore from '$lib/components/LoadMore.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import { Film, Upload, Download, Trash2, Folder, File as FileIcon, Home, ChevronRight, Info, Scissors } from 'lucide-svelte';
 
-	type MsdObject = {
-		path: string;
-		contentType: string;
-		cacheControl: string;
-		storageClass: string;
-		etag: string;
-		sha256: string;
-		contentLength: number;
-		lastModified: number;
-	};
+	const client = regionalClient(getMediaStoreDataClient);
 
-	type SortField = 'path' | 'contentLength' | 'lastModified';
-	type SortDir = 'asc' | 'desc';
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so both the toast and the inline
+	// error banner show the actual code, not just a generic message.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
 
-	let loading = $state(false);
-	let objects = $state<MsdObject[]>([]);
+	function rethrowDescribed(e: unknown): never {
+		throw new Error(describeError(e));
+	}
+
+	// Replaces the JSON.stringify(x) antipattern: search only over the named
+	// fields that are actually meaningful for each resource.
+	function matches(q: string, ...vals: (string | undefined)[]): boolean {
+		if (!q) return true;
+		const needle = q.toLowerCase();
+		return vals.some((v) => (v ?? '').toLowerCase().includes(needle));
+	}
+
+	// ==================== Folder navigation (ListItems) ====================
+	//
+	// currentPath never has a leading slash and always has a trailing slash
+	// once non-root, matching real MediaStore Path semantics: the wire URI
+	// template is literally "/{Path+}" (confirmed in the installed SDK's
+	// bundled operation schema), so the *value* bound to Path must NOT itself
+	// start with "/" -- the template already supplies that slash. A value
+	// that did start with "/" would serialize to a double-slash URL. Real
+	// AWS's own CLI examples for mediastore-data likewise never show a
+	// leading slash on --path.
+
+	let currentPath = $state('');
+	let items = $state<Item[]>([]);
+	let nextToken = $state<string | undefined>();
+	let loadingMore = $state(false);
 	let searchQuery = $state('');
-	let expandedPath = $state<string | null>(null);
-	let sortField = $state<SortField>('path');
-	let sortDir = $state<SortDir>('asc');
-	let deletingPaths = $state<Set<string>>(new Set());
-	let copiedKey = $state<string | null>(null);
 
-	// Stats
-	let stats = $state({ objectCount: 0, totalBytes: 0 });
+	const breadcrumbs = $derived(currentPath.split('/').filter(Boolean));
 
-	// Upload form
-	let showUpload = $state(false);
-	let uploadPath = $state('');
-	let uploadContentType = $state('');
-	let uploadCacheControl = $state('');
-	let uploadStorageClass = $state('TEMPORAL');
-	let uploading = $state(false);
-	// Typed as globalThis.File to avoid collision with lucide FileIcon import.
-	let uploadFileBrowser = $state<globalThis.File | null>(null);
-
-	// Metadata edit
-	let editingPath = $state<string | null>(null);
-	let editContentType = $state('');
-	let editCacheControl = $state('');
-	let saving = $state(false);
-
-	const filteredObjects = $derived(
-		[...objects]
-			.filter(o =>
-				o.path.toLowerCase().includes(searchQuery.toLowerCase()) ||
-				o.contentType.toLowerCase().includes(searchQuery.toLowerCase())
-			)
-			.toSorted((a, b) => {
-				let cmp = 0;
-				if (sortField === 'path') cmp = a.path.localeCompare(b.path);
-				else if (sortField === 'contentLength') cmp = a.contentLength - b.contentLength;
-				else cmp = a.lastModified - b.lastModified;
-				return sortDir === 'asc' ? cmp : -cmp;
+	// `currentPath`/`nextToken` are read with `untrack` for the same reason
+	// tab-loader.svelte.ts's `load()` untracks `s.loaded`: this function runs
+	// synchronously up to its first `await`, and when it is invoked from
+	// inside the `onRegionChange` effect below (via `tabLoader.refresh`), any
+	// reactive read that happens in that synchronous prefix becomes a tracked
+	// dependency of THAT effect -- not just of this call. Without `untrack`,
+	// `currentPath` would become a dependency of the `onRegionChange` effect,
+	// and since that same effect also *writes* `currentPath` (resetting to
+	// root), navigating into a folder (which writes `currentPath`) would
+	// immediately re-trigger the effect and snap the user back to root.
+	// Confirmed with a console.log repro before adding this: the effect fired
+	// a second time, "resetting currentPath from clips/" back to "", right
+	// after a folder click. `untrack` makes this an ordinary imperative read
+	// of whatever `currentPath`/`nextToken` are AT CALL TIME, with no
+	// dependency created on whoever happened to call it.
+	async function fetchItems(reset: boolean): Promise<void> {
+		const path = untrack(() => currentPath);
+		const token = untrack(() => nextToken);
+		const resp = await client().send(
+			new ListItemsCommand({
+				Path: path || undefined,
+				NextToken: reset ? undefined : token
 			})
-	);
+		);
+		items = reset ? (resp.Items ?? []) : [...items, ...(resp.Items ?? [])];
+		nextToken = resp.NextToken;
+	}
 
-	const totalSize = $derived(objects.reduce((s, o) => s + o.contentLength, 0));
-
-	async function loadObjects() {
-		loading = true;
+	async function loadMoreItems(): Promise<void> {
+		loadingMore = true;
 		try {
-			const [objRes, statsRes] = await Promise.all([
-				fetch('/dashboard/api/mediastoredata/objects'),
-				fetch('/dashboard/api/mediastoredata/stats')
-			]);
-
-			if (!objRes.ok) throw new Error(`status ${objRes.status}`);
-			const data = await objRes.json() as { objects?: MsdObject[] };
-			objects = data.objects ?? [];
-
-			if (statsRes.ok) {
-				stats = await statsRes.json() as typeof stats;
-			}
-		} catch (err: unknown) {
-			toast.error(`Failed to load objects: ${(err as Error).message}`);
+			await fetchItems(false);
+		} catch (e) {
+			toast.error(describeError(e));
 		} finally {
-			loading = false;
+			loadingMore = false;
 		}
 	}
 
-	async function uploadObject() {
-		if (!uploadFileBrowser) { toast.error('Select a file to upload'); return; }
+	function navigateInto(item: Item): void {
+		if (item.Type !== 'FOLDER' || !item.Name) return;
+		currentPath = `${currentPath}${item.Name}/`;
+		searchQuery = '';
+		tabLoader.refresh('browse');
+	}
+
+	function navigateToBreadcrumb(index: number): void {
+		currentPath = index < 0 ? '' : breadcrumbs.slice(0, index + 1).join('/') + '/';
+		searchQuery = '';
+		tabLoader.refresh('browse');
+	}
+
+	function fullPath(item: Item): string {
+		return `${currentPath}${item.Name ?? ''}`;
+	}
+
+	// ==================== Upload (PutObject) ====================
+
+	let showUpload = $state(false);
+	let uploadFile = $state<globalThis.File | null>(null);
+	let uploadPath = $state('');
+	let uploadContentType = $state('');
+	let uploadCacheControl = $state('');
+	let uploadAvailability = $state<'STANDARD' | 'STREAMING'>('STANDARD');
+	let uploading = $state(false);
+
+	function handleFileChange(e: Event): void {
+		const input = e.target as HTMLInputElement;
+		uploadFile = input.files?.[0] ?? null;
+		if (uploadFile) {
+			if (!uploadContentType) uploadContentType = uploadFile.type || 'application/octet-stream';
+			if (!uploadPath.trim()) uploadPath = `${currentPath}${uploadFile.name}`;
+		}
+	}
+
+	async function uploadObject(): Promise<void> {
+		if (!uploadFile) { toast.error('Select a file to upload'); return; }
 		if (!uploadPath.trim()) { toast.error('Object path is required'); return; }
 
 		uploading = true;
 		try {
-			const form = new FormData();
-			form.append('path', uploadPath.trim());
-			form.append('file', uploadFileBrowser);
-			if (uploadContentType.trim()) form.append('content_type', uploadContentType.trim());
-			if (uploadCacheControl.trim()) form.append('cache_control', uploadCacheControl.trim());
-			if (uploadStorageClass) form.append('storage_class', uploadStorageClass);
-
-			const res = await fetch('/dashboard/api/mediastoredata/upload', { method: 'POST', body: form });
-			if (!res.ok) {
-				const err = await res.json().catch(() => ({ error: `status ${res.status}` })) as { error?: string };
-				throw new Error(err.error ?? `status ${res.status}`);
-			}
-
+			const buf = await uploadFile.arrayBuffer();
+			// StorageClass is intentionally omitted: TEMPORAL is the only
+			// legal value (see script-top comment) and is exactly what the
+			// backend defaults to when the field is unset (objects.go
+			// PutObject: `if storageClass == "" { storageClass = "TEMPORAL" }`).
+			await client().send(
+				new PutObjectCommand({
+					Path: uploadPath.trim(),
+					Body: new Uint8Array(buf),
+					ContentType: uploadContentType.trim() || undefined,
+					CacheControl: uploadCacheControl.trim() || undefined,
+					UploadAvailability: uploadAvailability
+				})
+			);
 			toast.success(`Uploaded ${uploadPath.trim()}`);
+			uploadFile = null;
 			uploadPath = '';
-			uploadFileBrowser = null;
 			uploadContentType = '';
 			uploadCacheControl = '';
-			uploadStorageClass = 'TEMPORAL';
+			uploadAvailability = 'STANDARD';
 			showUpload = false;
-			await loadObjects();
-		} catch (err: unknown) {
-			toast.error(`Upload failed: ${(err as Error).message}`);
+			await tabLoader.refresh('browse');
+		} catch (e) {
+			toast.error(`Upload failed: ${describeError(e)}`);
 		} finally {
 			uploading = false;
 		}
 	}
 
-	async function downloadObject(obj: MsdObject) {
+	// ==================== Download (GetObject) ====================
+
+	async function downloadObject(item: Item): Promise<void> {
 		try {
-			const res = await fetch(`/dashboard/api/mediastoredata/download?path=${encodeURIComponent(obj.path)}`);
-			if (!res.ok) throw new Error(`status ${res.status}`);
-			const blob = await res.blob();
+			const res = await client().send(new GetObjectCommand({ Path: fullPath(item) }));
+			const bytes = await res.Body?.transformToByteArray();
+			const blob = new Blob([bytes ? (bytes as BlobPart) : new Uint8Array()], {
+				type: res.ContentType ?? 'application/octet-stream'
+			});
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = obj.path.split('/').pop() ?? obj.path;
+			a.download = item.Name ?? 'object';
 			a.click();
 			URL.revokeObjectURL(url);
-		} catch (err: unknown) {
-			toast.error(`Download failed: ${(err as Error).message}`);
+		} catch (e) {
+			toast.error(`Download failed: ${describeError(e)}`);
 		}
 	}
 
-	async function deleteObject(obj: MsdObject) {
-		const confirmed = await confirmDestructive({ message: `Delete object "${obj.path}"?`, dangerous: true });
+	// ==================== Delete (DeleteObject) ====================
+
+	let deletingNames = $state<Set<string>>(new Set());
+
+	async function deleteObject(item: Item): Promise<void> {
+		if (!item.Name) return;
+		const confirmed = await confirmDestructive({
+			message: `Delete object "${fullPath(item)}"?`,
+			dangerous: true
+		});
 		if (!confirmed) return;
 
-		deletingPaths = new Set([...deletingPaths, obj.path]);
+		deletingNames = new Set([...deletingNames, item.Name]);
 		try {
-			const res = await fetch(`/dashboard/api/mediastoredata/objects?path=${encodeURIComponent(obj.path)}`, { method: 'DELETE' });
-			if (!res.ok) {
-				const err = await res.json().catch(() => ({ error: `status ${res.status}` })) as { error?: string };
-				throw new Error(err.error ?? `status ${res.status}`);
-			}
-			toast.success(`Deleted ${obj.path}`);
-			await loadObjects();
-		} catch (err: unknown) {
-			toast.error(`Delete failed: ${(err as Error).message}`);
+			await client().send(new DeleteObjectCommand({ Path: fullPath(item) }));
+			toast.success(`Deleted ${fullPath(item)}`);
+			await tabLoader.refresh('browse');
+		} catch (e) {
+			toast.error(`Delete failed: ${describeError(e)}`);
 		} finally {
-			deletingPaths = new Set([...deletingPaths].filter(p => p !== obj.path));
+			deletingNames = new Set([...deletingNames].filter((n) => n !== item.Name));
 		}
 	}
 
-	function startEdit(obj: MsdObject) {
-		editingPath = obj.path;
-		editContentType = obj.contentType;
-		editCacheControl = obj.cacheControl;
-	}
+	// ==================== Details modal (DescribeObject + GetObject Range) ====================
+	//
+	// DescribeObject (HEAD) is used for the metadata panel rather than
+	// GetObject, so opening "Details" never downloads the object body -- this
+	// is the one real op the previous version of this page never called at
+	// all (it only ever hit its own nonexistent custom API routes). The
+	// Range field below sends a real GetObject Range request and shows the
+	// resulting StatusCode/Content-Range, demonstrating actual 206/416
+	// behavior instead of a decorative input.
 
-	async function saveMetadata() {
-		if (!editingPath) return;
-		saving = true;
+	let detailsModal = $state<Modal | null>(null);
+	let detailsItem = $state<Item | null>(null);
+	let detailsLoading = $state(false);
+	let detailsResult = $state<DescribeObjectCommandOutput | null>(null);
+	let detailsError = $state<string | null>(null);
+
+	let rangeInput = $state('');
+	let rangeLoading = $state(false);
+	let rangeResult = $state<{ status?: number; contentRange?: string; bytes: number; text?: string } | null>(null);
+	let rangeError = $state<string | null>(null);
+
+	async function openDetails(item: Item): Promise<void> {
+		detailsItem = item;
+		detailsResult = null;
+		detailsError = null;
+		rangeInput = '';
+		rangeResult = null;
+		rangeError = null;
+		detailsModal?.open();
+		detailsLoading = true;
 		try {
-			const res = await fetch(`/dashboard/api/mediastoredata/objects?path=${encodeURIComponent(editingPath)}`, {
-				method: 'PATCH',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ contentType: editContentType, cacheControl: editCacheControl })
-			});
-			if (!res.ok) throw new Error(`status ${res.status}`);
-			toast.success('Metadata updated');
-			editingPath = null;
-			await loadObjects();
-		} catch (err: unknown) {
-			toast.error(`Save failed: ${(err as Error).message}`);
+			detailsResult = await client().send(new DescribeObjectCommand({ Path: fullPath(item) }));
+		} catch (e) {
+			detailsError = describeError(e);
 		} finally {
-			saving = false;
+			detailsLoading = false;
 		}
 	}
 
-	async function copyToClipboard(value: string, key: string) {
+	async function fetchRange(): Promise<void> {
+		if (!detailsItem) return;
+		rangeLoading = true;
+		rangeError = null;
+		rangeResult = null;
 		try {
-			await navigator.clipboard.writeText(value);
-			copiedKey = key;
-			setTimeout(() => { copiedKey = null; }, 1500);
-		} catch {
-			toast.error('Copy failed');
+			const res = await client().send(
+				new GetObjectCommand({ Path: fullPath(detailsItem), Range: rangeInput.trim() || undefined })
+			);
+			const bytes = await res.Body?.transformToByteArray();
+			const isTextish = (res.ContentType ?? '').startsWith('text/') || res.ContentType === 'application/json';
+			rangeResult = {
+				status: res.StatusCode,
+				contentRange: res.ContentRange,
+				bytes: bytes?.length ?? 0,
+				text: isTextish && bytes ? new TextDecoder().decode(bytes) : undefined
+			};
+		} catch (e) {
+			rangeError = describeError(e);
+		} finally {
+			rangeLoading = false;
 		}
 	}
 
-	function toggleSort(field: SortField) {
-		if (sortField === field) {
-			sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-		} else {
-			sortField = field;
-			sortDir = 'asc';
-		}
+	// ==================== Loader ====================
+
+	const tabLoader = createTabLoader<'browse'>({
+		browse: () => fetchItems(true).catch(rethrowDescribed)
+	});
+
+	onRegionChange(() => {
+		currentPath = '';
+		searchQuery = '';
+		tabLoader.refresh('browse');
+	});
+
+	function handleRefresh(): void {
+		tabLoader.refresh('browse');
 	}
 
-	function formatBytes(n: number): string {
-		if (n < 1024) return `${n} B`;
-		if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / 1024 / 1024).toFixed(2)} MB`;
-	}
-
-	function formatDate(unix: number): string {
-		return new Date(unix * 1000).toLocaleString();
-	}
-
-	function handleFileChange(e: Event) {
-		const input = e.target as HTMLInputElement;
-		uploadFileBrowser = input.files?.[0] ?? null;
-		if (uploadFileBrowser) {
-			if (!uploadContentType) uploadContentType = uploadFileBrowser.type || 'application/octet-stream';
-			if (!uploadPath.trim()) uploadPath = '/' + uploadFileBrowser.name;
-		}
-	}
-
-	onMount(() => { void loadObjects(); });
+	const filteredItems = $derived(items.filter((i) => matches(searchQuery, i.Name, i.ContentType)));
+	const folderCount = $derived(filteredItems.filter((i) => i.Type === 'FOLDER').length);
+	const objectCount = $derived(filteredItems.filter((i) => i.Type === 'OBJECT').length);
+	const totalBytes = $derived(
+		filteredItems.reduce((sum, i) => sum + (i.Type === 'OBJECT' ? (i.ContentLength ?? 0) : 0), 0)
+	);
 </script>
 
 <div class="p-6 space-y-6">
-	<!-- Header -->
-	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<Film class="w-7 h-7 text-blue-700 dark:text-blue-300" />
-			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">MediaStore Data</h1>
-				<p class="text-sm text-gray-500 dark:text-gray-400">Object browser — upload, download, and inspect media objects</p>
-			</div>
-		</div>
-		<div class="flex items-center gap-2">
+	<PageHeader
+		icon={Film}
+		title="MediaStore Data"
+		description="Browse, upload, download, and delete objects in the MediaStore data plane."
+		onRefresh={handleRefresh}
+		color="blue"
+	>
+		{#snippet actions()}
 			<button
 				onclick={() => (showUpload = !showUpload)}
 				class="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
 			>
 				<Upload class="w-4 h-4" /> Upload
 			</button>
-			<button
-				onclick={loadObjects}
-				title="Refresh"
-				class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
-			>
-				<RefreshCw class="w-4 h-4 {loading ? 'animate-spin' : ''}" />
-			</button>
-		</div>
+		{/snippet}
+	</PageHeader>
+
+	<div
+		role="note"
+		class="rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-2 text-xs text-blue-800 dark:text-blue-300"
+	>
+		This is a single, region-wide object store, not scoped to any MediaStore container — the MediaStore Data
+		API never takes a container name (a real client is pointed at a per-container endpoint instead), and this
+		emulator does not connect objects here to containers created via the separate MediaStore service.
 	</div>
 
-	<!-- Stats bar -->
-	<div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3">
-			<BarChart2 class="w-5 h-5 text-blue-500 shrink-0" />
-			<div>
-				<p class="text-xs text-gray-500 dark:text-gray-400">Objects</p>
-				<p class="text-lg font-bold text-gray-900 dark:text-white">{stats.objectCount}</p>
-			</div>
-		</div>
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3 flex items-center gap-3">
-			<FileIcon class="w-5 h-5 text-green-500 shrink-0" />
-			<div>
-				<p class="text-xs text-gray-500 dark:text-gray-400">Total Size</p>
-				<p class="text-lg font-bold text-gray-900 dark:text-white">{formatBytes(totalSize)}</p>
-			</div>
-		</div>
+	<!-- Breadcrumbs -->
+	<nav aria-label="Breadcrumb" class="flex items-center gap-1 text-sm">
+		<button
+			onclick={() => navigateToBreadcrumb(-1)}
+			class="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
+		>
+			<Home class="w-3.5 h-3.5" /> root
+		</button>
+		{#each breadcrumbs as segment, i (i)}
+			<ChevronRight class="w-3.5 h-3.5 text-gray-400 shrink-0" />
+			<button
+				onclick={() => navigateToBreadcrumb(i)}
+				class="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 font-mono"
+			>
+				{segment}
+			</button>
+		{/each}
+	</nav>
+
+	<!-- Stats -->
+	<div class="flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
+		<span>{objectCount} object{objectCount === 1 ? '' : 's'}</span>
+		<span>·</span>
+		<span>{folderCount} folder{folderCount === 1 ? '' : 's'}</span>
+		<span>·</span>
+		<span>{formatBytes(totalBytes)} in this folder</span>
 	</div>
 
 	<!-- Upload panel -->
@@ -292,8 +482,8 @@
 					<input
 						id="upload-path"
 						bind:value={uploadPath}
-						placeholder="/folder/filename.mp4"
-						class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
+						placeholder="folder/filename.mp4"
+						class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm font-mono text-gray-900 dark:text-white"
 					/>
 				</div>
 				<div>
@@ -315,15 +505,25 @@
 					/>
 				</div>
 				<div>
-					<label for="upload-sc" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Storage Class</label>
+					<label for="upload-avail" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+						Upload Availability
+					</label>
 					<select
-						id="upload-sc"
-						bind:value={uploadStorageClass}
+						id="upload-avail"
+						bind:value={uploadAvailability}
 						class="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-3 py-2 text-sm text-gray-900 dark:text-white"
 					>
-						<option value="TEMPORAL">TEMPORAL</option>
 						<option value="STANDARD">STANDARD</option>
+						<option value="STREAMING">STREAMING</option>
 					</select>
+					<p class="text-[11px] text-gray-400 mt-1">
+						Stored and echoed back on PutObject's response only; this emulator does not model progressive
+						download of a still-uploading STREAMING object.
+					</p>
+				</div>
+				<div>
+					<span class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Storage Class</span>
+					<p class="px-3 py-2 text-sm text-gray-500 dark:text-gray-400 font-mono">TEMPORAL (only legal value)</p>
 				</div>
 			</div>
 			<div class="flex justify-end gap-2">
@@ -344,192 +544,155 @@
 		</div>
 	{/if}
 
-	<!-- Objects list -->
-	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-wrap justify-between items-center gap-2">
-			<div class="flex items-center gap-3">
-				<h2 class="text-base font-semibold text-gray-900 dark:text-white">
-					Objects {#if objects.length > 0}<span class="text-gray-400 font-normal text-sm">({filteredObjects.length}/{objects.length})</span>{/if}
-				</h2>
-				<!-- Sort controls -->
-				<div class="flex items-center gap-1 text-xs">
-					{#each ([['path', 'Name'], ['contentLength', 'Size'], ['lastModified', 'Date']] as const) as [field, label]}
-						<button
-							onclick={() => toggleSort(field as SortField)}
-							class="px-2 py-1 rounded {sortField === field ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'}"
-						>
-							{label}{sortField === field ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''}
-						</button>
-					{/each}
-				</div>
-			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input
-					bind:value={searchQuery}
-					placeholder="Search by path or type..."
-					class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64"
-				/>
-			</div>
+	<!-- Search -->
+	<div class="flex justify-end">
+		<SearchInput bind:value={searchQuery} placeholder="Search by name or content type..." />
+	</div>
+
+	{#if tabLoader.getError('browse')}
+		<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+			<p class="font-medium">Failed to load items</p>
+			<p>{tabLoader.getError('browse')}</p>
 		</div>
+	{/if}
 
-		<div class="p-4">
-			{#if loading && objects.length === 0}
-				<div class="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">Loading objects...</div>
-			{:else if filteredObjects.length === 0}
-				<div class="text-center py-10 text-gray-500 dark:text-gray-400">
-					<FileIcon class="w-10 h-10 mx-auto mb-3 opacity-40" />
-					<p class="text-sm">{searchQuery ? 'No objects match your search.' : 'No objects stored. Upload one to get started.'}</p>
-				</div>
-			{:else}
-				<div class="space-y-2">
-					{#each filteredObjects as obj (obj.path)}
-						<div class="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-							<!-- Object row -->
-							<div class="flex items-center justify-between p-3 gap-3">
-								<div class="flex items-center gap-2 min-w-0 flex-1">
-									<FileIcon class="w-4 h-4 shrink-0 text-blue-500" />
-									<div class="min-w-0">
-										<p class="font-medium text-sm text-gray-900 dark:text-white truncate font-mono">{obj.path}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-											{obj.contentType || 'unknown'} · {formatBytes(obj.contentLength)} · {formatDate(obj.lastModified)}
-											{#if obj.storageClass}<span class="ml-1 text-[10px] bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded font-mono">{obj.storageClass}</span>{/if}
-										</p>
-									</div>
-								</div>
-								<div class="flex items-center gap-1 shrink-0">
-									<button
-										onclick={() => (expandedPath = expandedPath === obj.path ? null : obj.path)}
-										title="Details"
-										class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
-									>
-										{#if expandedPath === obj.path}
-											<ChevronUp class="w-4 h-4" />
-										{:else}
-											<Info class="w-4 h-4" />
-										{/if}
-									</button>
-									<button
-										onclick={() => startEdit(obj)}
-										title="Edit metadata"
-										class="p-1.5 rounded hover:bg-yellow-50 dark:hover:bg-yellow-900/30 text-yellow-600 dark:text-yellow-400"
-									>
-										<Edit2 class="w-4 h-4" />
-									</button>
-									<button
-										onclick={() => downloadObject(obj)}
-										title="Download"
-										class="p-1.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"
-									>
-										<Download class="w-4 h-4" />
-									</button>
-									<button
-										onclick={() => deleteObject(obj)}
-										disabled={deletingPaths.has(obj.path)}
-										title="Delete"
-										class="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400 disabled:opacity-40"
-									>
-										<Trash2 class="w-4 h-4 {deletingPaths.has(obj.path) ? 'animate-pulse' : ''}" />
-									</button>
-								</div>
-							</div>
+	<!-- Browser -->
+	{#snippet nameCell(item: Item)}
+		{#if item.Type === 'FOLDER'}
+			<button
+				onclick={() => navigateInto(item)}
+				class="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:underline font-medium"
+			>
+				<Folder class="w-4 h-4 shrink-0" /> {item.Name}
+			</button>
+		{:else}
+			<span class="flex items-center gap-2 font-mono text-xs text-gray-900 dark:text-white">
+				<FileIcon class="w-4 h-4 shrink-0 text-gray-400" /> {item.Name}
+			</span>
+		{/if}
+	{/snippet}
+	{#snippet typeCell(item: Item)}
+		<span class="text-xs px-2 py-0.5 rounded-full {item.Type === 'FOLDER' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' : 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300'}">
+			{item.Type}
+		</span>
+	{/snippet}
+	{#snippet contentTypeCell(item: Item)}
+		{item.Type === 'OBJECT' ? (item.ContentType || 'unknown') : '—'}
+	{/snippet}
+	{#snippet sizeCell(item: Item)}
+		{item.Type === 'OBJECT' ? formatBytes(item.ContentLength) : '—'}
+	{/snippet}
+	{#snippet modifiedCell(item: Item)}
+		{item.Type === 'OBJECT' ? formatDate(item.LastModified) : '—'}
+	{/snippet}
+	{#snippet actionsCell(item: Item)}
+		{#if item.Type === 'OBJECT'}
+			<div class="flex items-center gap-1 justify-end">
+				<button
+					onclick={() => openDetails(item)}
+					title="Details"
+					aria-label="Details for {item.Name}"
+					class="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
+				>
+					<Info class="w-4 h-4" />
+				</button>
+				<button
+					onclick={() => downloadObject(item)}
+					title="Download"
+					aria-label="Download {item.Name}"
+					class="p-1.5 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 text-blue-600 dark:text-blue-400"
+				>
+					<Download class="w-4 h-4" />
+				</button>
+				<button
+					onclick={() => deleteObject(item)}
+					disabled={deletingNames.has(item.Name ?? '')}
+					title="Delete"
+					aria-label="Delete {item.Name}"
+					class="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/30 text-red-500 dark:text-red-400 disabled:opacity-40"
+				>
+					<Trash2 class="w-4 h-4 {deletingNames.has(item.Name ?? '') ? 'animate-pulse' : ''}" />
+				</button>
+			</div>
+		{/if}
+	{/snippet}
+	<DataTable
+		rows={filteredItems}
+		rowKey={(i) => i.Name ?? ''}
+		columns={defineColumns<Item>([
+			{ key: 'Name', label: 'Name', render: nameCell },
+			{ key: 'Type', label: 'Type', render: typeCell },
+			{ key: 'ContentType', label: 'Content-Type', render: contentTypeCell },
+			{ key: 'ContentLength', label: 'Size', render: sizeCell },
+			{ key: 'LastModified', label: 'Last Modified', render: modifiedCell },
+			{ key: 'actions', label: '', render: actionsCell }
+		])}
+		loading={tabLoader.isLoading('browse')}
+		emptyMessage={searchQuery ? 'No items match your search.' : 'No objects or folders here. Upload a file to get started.'}
+	/>
+	<LoadMore hasMore={!!nextToken} loading={loadingMore} onLoadMore={loadMoreItems} />
+</div>
 
-							<!-- Inline metadata editor -->
-							{#if editingPath === obj.path}
-								<div class="border-t border-blue-200 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/20 p-4 space-y-3">
-									<h3 class="text-xs font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">Edit Metadata</h3>
-									<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-										<div>
-											<label for="edit-ct-{obj.path}" class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Content-Type</label>
-											<input
-												id="edit-ct-{obj.path}"
-												bind:value={editContentType}
-												class="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-sm text-gray-900 dark:text-white"
-											/>
-										</div>
-										<div>
-											<label for="edit-cc-{obj.path}" class="block text-xs text-gray-600 dark:text-gray-400 mb-1">Cache-Control</label>
-											<input
-												id="edit-cc-{obj.path}"
-												bind:value={editCacheControl}
-												class="w-full rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-2 py-1.5 text-sm text-gray-900 dark:text-white"
-											/>
-										</div>
-									</div>
-									<div class="flex gap-2">
-										<button onclick={saveMetadata} disabled={saving}
-											class="px-3 py-1.5 text-sm rounded bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50">
-											{saving ? 'Saving...' : 'Save'}
-										</button>
-										<button onclick={() => (editingPath = null)}
-											class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-											<X class="w-4 h-4 inline" />
-										</button>
-									</div>
-								</div>
-							{/if}
+<!-- Details modal -->
+<Modal bind:this={detailsModal} title={detailsItem ? `Details — ${detailsItem.Name}` : 'Details'}>
+	{#snippet children()}
+		{#if detailsLoading}
+			<div class="flex justify-center py-8">
+				<div class="animate-spin w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full"></div>
+			</div>
+		{:else if detailsError}
+			<p class="text-sm text-red-600 dark:text-red-400">{detailsError}</p>
+		{:else if detailsResult}
+			<div class="space-y-3 text-sm max-h-[65vh] overflow-y-auto pr-1">
+				{#each [
+					['ETag', detailsResult.ETag],
+					['Content-Type', detailsResult.ContentType],
+					['Content-Length', detailsResult.ContentLength !== undefined ? `${detailsResult.ContentLength} bytes (${formatBytes(detailsResult.ContentLength)})` : undefined],
+					['Cache-Control', detailsResult.CacheControl],
+					['Last Modified', formatDate(detailsResult.LastModified)]
+				] as [label, value] (label)}
+					<div class="flex justify-between gap-4 border-b border-gray-100 dark:border-gray-800 pb-1">
+						<span class="text-gray-500">{label}</span>
+						<span class="font-mono text-right break-all text-gray-900 dark:text-white">{value ?? '—'}</span>
+					</div>
+				{/each}
 
-							<!-- Expanded metadata -->
-							{#if expandedPath === obj.path}
-								<div class="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 p-4">
-									<div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">ETag</span>
-											<div class="flex items-center gap-1 mt-0.5">
-												<p class="font-mono text-gray-800 dark:text-gray-200 break-all text-xs flex-1">{obj.etag}</p>
-												<button
-													onclick={() => copyToClipboard(obj.etag, obj.path + ':etag')}
-													class="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-													title="Copy ETag"
-												>
-													{#if copiedKey === obj.path + ':etag'}
-														<Check class="w-3.5 h-3.5 text-green-500" />
-													{:else}
-														<Copy class="w-3.5 h-3.5" />
-													{/if}
-												</button>
-											</div>
-										</div>
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">SHA-256</span>
-											<div class="flex items-center gap-1 mt-0.5">
-												<p class="font-mono text-gray-800 dark:text-gray-200 break-all text-xs flex-1">{obj.sha256}</p>
-												<button
-													onclick={() => copyToClipboard(obj.sha256, obj.path + ':sha')}
-													class="shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-													title="Copy SHA-256"
-												>
-													{#if copiedKey === obj.path + ':sha'}
-														<Check class="w-3.5 h-3.5 text-green-500" />
-													{:else}
-														<Copy class="w-3.5 h-3.5" />
-													{/if}
-												</button>
-											</div>
-										</div>
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Storage Class</span>
-											<p class="text-gray-800 dark:text-gray-200">{obj.storageClass || '—'}</p>
-										</div>
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Cache-Control</span>
-											<p class="text-gray-800 dark:text-gray-200">{obj.cacheControl || '—'}</p>
-										</div>
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Content-Length</span>
-											<p class="text-gray-800 dark:text-gray-200">{obj.contentLength} bytes ({formatBytes(obj.contentLength)})</p>
-										</div>
-										<div>
-											<span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">Last Modified</span>
-											<p class="text-gray-800 dark:text-gray-200">{formatDate(obj.lastModified)}</p>
-										</div>
-									</div>
-								</div>
+				<div class="pt-2">
+					<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2 flex items-center gap-1">
+						<Scissors class="w-3.5 h-3.5" /> Range preview (GetObject)
+					</h4>
+					<div class="flex gap-2">
+						<input
+							bind:value={rangeInput}
+							placeholder="bytes=0-99 (leave empty for full object)"
+							aria-label="Range header value"
+							class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-slate-700 px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-white"
+						/>
+						<button
+							onclick={fetchRange}
+							disabled={rangeLoading}
+							class="px-3 py-1.5 text-xs rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+						>
+							{rangeLoading ? 'Fetching…' : 'Fetch'}
+						</button>
+					</div>
+					{#if rangeError}
+						<p class="text-xs text-red-600 dark:text-red-400 mt-2">{rangeError}</p>
+					{:else if rangeResult}
+						<div class="mt-2 text-xs space-y-1 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+							<p><span class="text-gray-500">Status:</span> <span class="font-mono">{rangeResult.status ?? '—'}</span></p>
+							<p><span class="text-gray-500">Content-Range:</span> <span class="font-mono">{rangeResult.contentRange ?? '—'}</span></p>
+							<p><span class="text-gray-500">Bytes received:</span> <span class="font-mono">{rangeResult.bytes}</span></p>
+							{#if rangeResult.text !== undefined}
+								<pre class="mt-1 whitespace-pre-wrap break-all font-mono text-[11px] text-gray-700 dark:text-gray-300">{rangeResult.text}</pre>
 							{/if}
 						</div>
-					{/each}
+					{/if}
 				</div>
-			{/if}
-		</div>
-	</div>
-</div>
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button onclick={() => detailsModal?.close()} class="px-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">Close</button>
+	{/snippet}
+</Modal>
