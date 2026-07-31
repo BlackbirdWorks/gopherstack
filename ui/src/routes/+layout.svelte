@@ -3,7 +3,7 @@
 	import { Toaster } from 'svelte-sonner';
 	import './layout.css';
 	import { page } from '$app/state';
-	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getCommonCategories } from '$lib/nav';
+	import { sidebarCategories, implementedDashboardRouteIds, getCommonServices, getUncommonCategories } from '$lib/nav';
 	import { goto } from '$app/navigation';
 	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
@@ -23,21 +23,28 @@
 
 	let sidebarOpen = $state(false);
 	let sidebarMini = $state(false);
+	let showAllServices = $state(false);
 	let confirmDialog = $state<ConfirmDialog | null>(null);
 
 	const visibleSidebarCategories = $derived.by(() => {
-		// Filter to show only the 25 most common implemented services, organized by category
-		const commonServiceIds = getCommonServices().map(s => s.id);
-		
+		// By default, show only the common (most-used) implemented services. When
+		// showAllServices is toggled on, also surface the "uncommon" (long-tail)
+		// implemented services via getUncommonCategories(), organized by category.
+		const commonServiceIds = new Set(getCommonServices().map(s => s.id));
+		const uncommonServiceIds = showAllServices
+			? new Set(getUncommonCategories().flatMap((category) => category.routes).map((r) => r.id))
+			: new Set<string>();
+
 		const filtered = sidebarCategories
 			.map((category) => ({
 				...category,
-				routes: category.routes.filter((route) => 
-					implementedDashboardRouteIds.has(route.id) && commonServiceIds.includes(route.id)
+				routes: category.routes.filter((route) =>
+					implementedDashboardRouteIds.has(route.id) &&
+					(commonServiceIds.has(route.id) || uncommonServiceIds.has(route.id))
 				)
 			}))
 			.filter((category) => category.routes.length > 0);
-		
+
 		return filtered;
 	});
 
@@ -86,7 +93,8 @@
 		registerConfirmDialog(confirmHandler);
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
-		
+		showAllServices = window.localStorage.getItem('gopherstack-sidebar-show-all') === 'true';
+
 		// Close search on escape
 		const handleKeydown = (e: KeyboardEvent) => {
 			if (e.key === 'Escape') searchOpen = false;
@@ -124,6 +132,11 @@
 	function toggleMiniMode(): void {
 		sidebarMini = !sidebarMini;
 		window.localStorage.setItem('gopherstack-sidebar-mini', String(sidebarMini));
+	}
+
+	function toggleShowAllServices(): void {
+		showAllServices = !showAllServices;
+		window.localStorage.setItem('gopherstack-sidebar-show-all', String(showAllServices));
 	}
 
 	function toggleSection(id: string) {
@@ -301,7 +314,10 @@
 		</div>
 
 		<!-- Sidebar Footer Toggle -->
-		<div class="p-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-transparent hidden lg:flex justify-end pr-4 shrink-0" id="sidebar-footer-toggle">
+		<div class="p-4 border-t border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-transparent hidden lg:flex justify-between items-center pr-4 shrink-0" id="sidebar-footer-toggle">
+			<button id="sidebar-show-all-toggle" onclick={toggleShowAllServices} type="button" aria-pressed={showAllServices} class={`p-1 transition-colors bg-white dark:bg-slate-800 rounded border shadow-sm ${showAllServices ? 'text-indigo-600 dark:text-indigo-400 border-indigo-300 dark:border-indigo-500/40' : 'text-slate-400 hover:text-slate-900 dark:text-slate-500 dark:hover:text-white border-slate-200 dark:border-white/10'}`} title={showAllServices ? 'Showing all services — click to show common services only' : 'Showing common services only — click to show all services'}>
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+			</button>
 			<button onclick={toggleMiniMode} class="p-1 text-slate-400 hover:text-slate-900 dark:text-slate-500 dark:hover:text-white transition-colors bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-white/10 shadow-sm" title="Toggle Sidebar Width">
 				<svg class="w-4 h-4 transition-transform duration-200" id="sidebar-toggle-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={sidebarMini ? 'transform: rotate(180deg)' : ''}>
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>

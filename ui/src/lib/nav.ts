@@ -97,10 +97,12 @@ export const implementedDashboardRouteIds = new Set<string>([
   "sagemakeruntime",
   "codecommit",
   "codeartifact",
+  "codestarconnections",
   "ram",
-  "resource-health",
+  "resources",
   "verifiedpermissions",
   "emrserverless",
+  "kinesisanalytics",
   "textract",
   "transcribe",
   "translate",
@@ -156,7 +158,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "workmail",
 ]);
 
-// The 25 most commonly used AWS services shown in the sidebar.
+// The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
 // S3 and DynamoDB are pinned first as core services via the core-services category.
 export const sidebarCategories: DashboardCategory[] = [
   {
@@ -241,6 +243,7 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "acm", href: "/dashboard/acm", label: "ACM", icon: "acm" },
       { id: "acmpca", href: "/dashboard/acmpca", label: "ACM PCA", icon: "acmpca" },
       { id: "wafv2", href: "/dashboard/wafv2", label: "WAF v2", icon: "wafv2" },
+      { id: "waf", href: "/dashboard/waf", label: "WAF Classic", icon: "waf" },
       { id: "guardduty", href: "/dashboard/guardduty", label: "GuardDuty", icon: "guardduty" },
       { id: "inspector", href: "/dashboard/inspector", label: "Inspector", icon: "inspector" },
       {
@@ -330,7 +333,6 @@ export const sidebarCategories: DashboardCategory[] = [
         common: true,
       },
       { id: "memorydb", href: "/dashboard/memorydb", label: "MemoryDB", icon: "memorydb" },
-      { id: "keyspaces", href: "/dashboard/keyspaces", label: "Keyspaces", icon: "keyspaces" },
       {
         id: "timestream",
         href: "/dashboard/timestream",
@@ -345,6 +347,12 @@ export const sidebarCategories: DashboardCategory[] = [
       },
       { id: "s3tables", href: "/dashboard/s3tables", label: "S3 Tables", icon: "s3tables" },
       { id: "emr", href: "/dashboard/emr", label: "EMR", icon: "emr" },
+      {
+        id: "emrserverless",
+        href: "/dashboard/emrserverless",
+        label: "EMR Serverless",
+        icon: "emrserverless",
+      },
       { id: "redshift", href: "/dashboard/redshift", label: "Redshift", icon: "redshift" },
       { id: "opensearch", href: "/dashboard/opensearch", label: "OpenSearch", icon: "opensearch" },
       {
@@ -363,15 +371,15 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "firehose", href: "/dashboard/firehose", label: "Firehose", icon: "firehose" },
       { id: "msk", href: "/dashboard/msk", label: "Managed Kafka", icon: "kafka" },
       {
-        id: "kinesisvideo",
-        href: "/dashboard/kinesisvideo",
-        label: "Kinesis Video",
+        id: "kinesisanalytics",
+        href: "/dashboard/kinesisanalytics",
+        label: "Kinesis Analytics v1",
         icon: "kinesis",
       },
       {
         id: "kinesisanalyticsv2",
         href: "/dashboard/kinesisanalyticsv2",
-        label: "Kinesis Analytics",
+        label: "Kinesis Analytics v2",
         icon: "kinesis",
       },
       { id: "dms", href: "/dashboard/dms", label: "DMS", icon: "dms" },
@@ -421,6 +429,12 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "codeconnections",
       },
       {
+        id: "codestarconnections",
+        href: "/dashboard/codestarconnections",
+        label: "CodeStar Connections",
+        icon: "codestarconnections",
+      },
+      {
         id: "serverlessrepo",
         href: "/dashboard/serverlessrepo",
         label: "Serverless Repo",
@@ -453,7 +467,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "APIGW Management",
         icon: "apigatewaymanagementapi",
       },
-      { id: "appfabric", href: "/dashboard/appfabric", label: "AppFabric", icon: "appfabric" },
       { id: "mq", href: "/dashboard/mq", label: "MQ", icon: "mq", common: true },
       { id: "mwaa", href: "/dashboard/mwaa", label: "MWAA", icon: "mwaa", common: true },
       {
