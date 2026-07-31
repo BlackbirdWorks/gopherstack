@@ -211,8 +211,14 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TestEventPattern",
 		"PutPermission",
 		"RemovePermission",
-		"GetEventBusPolicy",
-		"PutEventBusPolicy",
+		// GetEventBusPolicy/PutEventBusPolicy are deliberately NOT listed here:
+		// they are not real EventBridge SDK operations (no such methods on
+		// aws-sdk-go-v2/service/eventbridge.Client at any version -- the real
+		// wire path for reading a bus policy is DescribeEventBus's Policy
+		// field, populated via eventBusToResponse). They remain reachable
+		// internal-only via policyActions() in the dispatch table below for
+		// any existing direct callers, but no real AWS SDK client can invoke
+		// them, so they must not be advertised as supported here.
 		"CreatePipe",
 		"DeletePipe",
 		"DescribePipe",
@@ -231,12 +237,26 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SearchSchemas",
 		"UpdateSchema",
 		"ListSchemaVersions",
-		"DescribeSchemaVersion",
+		// DescribeSchemaVersion is deliberately NOT listed here: it is not a
+		// real Schemas SDK operation (no such method on
+		// aws-sdk-go-v2/service/schemas.Client at any version -- the real
+		// wire path for reading a specific version's content is
+		// DescribeSchema's optional SchemaVersion request field). It remains
+		// reachable internal-only via schemaVersionActions() in the dispatch
+		// table below, but no real AWS SDK client can invoke it under this
+		// name, so it must not be advertised as supported here.
 		"DeleteSchemaVersion",
 		"GetDiscoveredSchema",
 		"PutCodeBinding",
 		"DescribeCodeBinding",
-		"ListCodeBindings",
+		// ListCodeBindings is deliberately NOT listed here: it is not a real
+		// Schemas SDK operation (no such method on
+		// aws-sdk-go-v2/service/schemas.Client at any version -- checking a
+		// binding's status is DescribeCodeBinding, per-language, one at a
+		// time; there is no list-all-bindings operation in the real API). It
+		// remains reachable internal-only via codeBindingActions() in the
+		// dispatch table below, but no real AWS SDK client can invoke it
+		// under this name, so it must not be advertised as supported here.
 		"GetCodeBindingSource",
 	}
 }

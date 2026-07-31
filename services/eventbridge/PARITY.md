@@ -1,6 +1,7 @@
 ---
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.45.21
+sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.0, aws-sdk-go-v2/service/schemas@v1.37.2]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
 last_audit_commit: PENDING (uncommitted at end of this sweep -- main thread fills in on commit)
 last_audit_date: 2026-07-23
 overall: A
@@ -62,20 +63,73 @@ ops:
   TestEventPattern: {wire: ok, errors: ok, state: ok, persist: n/a, note: "delegates to the same compilePattern/matchCompiledPattern engine proved correct in prior sweeps -- see families.event_pattern_matching"}
   PutPermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: busePolicies (the map PutPermission/RemovePermission/PutEventBusPolicy write to) was entirely excluded from backendSnapshot -- persistence.go's own doc comment said so, and PARITY.md had nonetheless marked this op 'persist: ok', which was independently field-verified false this sweep (a policy set via PutPermission did not survive Snapshot/Restore). Added backendSnapshot.BusPolicies (plain map[string]map[string]*EventBusPolicy, round-trips via encoding/json without needing a func(*V) string key extractor the way the genuinely unkeyable archivedEvents/schemaVersions/codeBindings maps do) and wired it into Snapshot/Restore. Also added the missing `json:\"Statements\"` tag on EventBusPolicy.Statements (musttag caught this once the type became reachable from json.Marshal). Proven by an addition to TestInMemoryBackend_FullStateSnapshotRestore."}
   RemovePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep -- see PutPermission (same busePolicies persistence fix)."}
-  GetEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "not a real EventBridge SDK op (no GetEventBusPolicy/PutEventBusPolicy in aws-sdk-go-v2/service/eventbridge's 57 ops); an internal-only helper reachable via the handler's policyActions() dispatch table but absent from GetSupportedOperations, so no real SDK client can invoke it. The real wire path for reading a bus policy, DescribeEventBus.Policy, is now actually wired (see DescribeEventBus above -- it was NOT before this sweep despite a prior note claiming otherwise). Left as-is, not a gap worth fixing."}
-  PutEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "same as GetEventBusPolicy -- not a real SDK op. Its writes now persist (see PutPermission)."}
+  GetEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "not a real EventBridge SDK op (no GetEventBusPolicy/PutEventBusPolicy in aws-sdk-go-v2/service/eventbridge's 57 ops); an internal-only helper reachable via the handler's policyActions() dispatch table. FIXED this sweep: prior notes here claimed it was 'absent from GetSupportedOperations, so no real SDK client can invoke it' -- that was false; it was actually present in GetSupportedOperations()/ChaosOperations() (confirmed by pkgs/sdkcheck's reverse-completeness check, gopherstack-vhw2), and TestHandler_GetSupportedOperationsIncludesPolicyOps asserted the very defect. Removed from GetSupportedOperations() (kept in the dispatch table for any existing direct callers) so the code finally matches what this note always claimed. The real wire path for reading a bus policy, DescribeEventBus.Policy, is wired (see DescribeEventBus above)."}
+  PutEventBusPolicy: {wire: partial, errors: ok, state: ok, persist: ok, note: "same as GetEventBusPolicy -- not a real SDK op, and had the same GetSupportedOperations discrepancy, now fixed the same way. Its writes still persist (see PutPermission)."}
+  DescribeSchemaVersion: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: not a real Schemas SDK op (no such method on aws-sdk-go-v2/service/schemas.Client at any version -- the real wire path for reading a specific version's content is DescribeSchema's optional SchemaVersion request field). Was advertised in GetSupportedOperations()/ChaosOperations() and asserted present by TestHandler_SchemaOperationsIncluded, both wrong. Removed from GetSupportedOperations() (kept in the dispatch table via schemaVersionActions() for any existing direct callers)."}
+  ListCodeBindings: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: not a real Schemas SDK op (no such method on aws-sdk-go-v2/service/schemas.Client at any version -- checking a binding's status is DescribeCodeBinding, one language at a time; there is no list-all-bindings operation). Was advertised in GetSupportedOperations()/ChaosOperations() and asserted present by TestHandler_SchemaOperationsIncluded, both wrong. Removed from GetSupportedOperations() (kept in the dispatch table via codeBindingActions() for any existing direct callers)."}
 families:
   event_pattern_matching: {status: ok, note: "Not re-read this sweep (pattern.go unchanged since the prior sweep's commit -- trusted per the re-audit protocol). Prior sweep's proof: read pattern.go (559 LOC) in full and cross-checked every documented AWS content-filter operator against matchSpecialMatcher/matchStringMatcher: exact-match arrays, prefix/suffix (incl. nested equals-ignore-case form), exists (incl. explicit JSON null counting as present), numeric (paired-operator ranges, all four comparators), anything-but (scalar/list/object forms incl. nested prefix/suffix/wildcard/equals-ignore-case/numeric), cidr, wildcard (iterative two-pointer glob, no recursion/ReDoS), equals-ignore-case, nested objects, $or (top-level and nested), and array-valued event fields (any-element-matches semantics). Covered by pattern_test.go (519 LOC) + pattern_validation_test.go (129 LOC)."}
-  schema_registry_and_pipes: {status: ok, note: "CreateRegistry..GetCodeBindingSource and CreatePipe..UpdatePipe are separate control planes in real AWS (schemas/pipes SDK modules, not events); not audited this sweep (out of the events/eventbridge parity scope), no evidence of regressions while editing adjacent PutEvents/persistence.go code."}
+  schema_registry_and_pipes: {status: ok, note: "CreateRegistry..GetCodeBindingSource and CreatePipe..UpdatePipe are separate control planes in real AWS (schemas/pipes SDK modules, not events). pkgs/sdkcheck's reverse-completeness check (gopherstack-vhw2) verified this sweep: all Pipe ops (CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe) and all remaining Schema Registry ops (CreateRegistry..UpdateSchema, GetDiscoveredSchema, PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource) are real pipes.Client/schemas.Client operations -- confirmed by name against both SDK modules at their pinned versions. sdk_completeness_test.go now checks each third of GetSupportedOperations() against the SDK client that actually owns it (eventbridge/pipes/schemas) instead of a single eventbridgesdk.Client, which is what let the two fabricated ops below hide as 'phantom' entries the reverse check couldn't previously distinguish from legitimate sibling-client ops. DescribeSchemaVersion and ListCodeBindings were NOT real (see ops above) and have been removed from GetSupportedOperations()."}
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
 gaps: []
 deferred:
-  - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 ops) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; not audited this pass."
+  - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check."
   - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix."
 leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery goroutine (b.wg.Go) acquires a workerSem slot or aborts on svcCtx.Done() before delivering, so Close()/Shutdown() cannot leave in-flight goroutines past defaultShutdownTimeout; deliverToTargetBounded applies a per-attempt context.WithTimeout and always cancels it. The new StartReplay FilterArns plumbing (replayDeliveryPlan struct, matchedDeliveryGroupsForEntry) is a same-lock-discipline refactor of the existing buildDeliveryPlan/deliverEvents path, not a new goroutine or lock -- scheduleReplayWorker still acquires workerSem-or-aborts-on-ctx.Done() exactly as before. Scheduler (scheduler.go) and ArchiveJanitor (janitor.go) were not touched this sweep; existing leak_test.go/isolation_test.go continue to pass."}
 ---
 
 ## Notes
+
+### Reverse sdkcheck sweep (2026-07-31) -- 4 fabricated ops found and removed, multi-client check added
+
+`pkgs/sdkcheck`'s reverse check (gopherstack-vhw2) flagged 26 GetSupportedOperations()
+entries as "phantom" (not exported methods on `eventbridgesdk.Client`). Verified every one
+by name against `pipes.Client`/`schemas.Client` at their pinned versions (and, for the four
+that matched neither, against every released version of `eventbridge.Client`/`schemas.Client`
+back to v1.0.0, to rule out a rename/removal rather than an outright fabrication):
+
+- **22 real, sibling-owned**: CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe (5,
+  real `pipes.Client` ops) and CreateRegistry..UpdateSchema/GetDiscoveredSchema/
+  PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource (17, real `schemas.Client` ops).
+  The reverse check only flagged these because it was comparing them against
+  `eventbridgesdk.Client` instead of the client that actually owns them.
+  `sdk_completeness_test.go` now splits `GetSupportedOperations()` three ways and checks
+  each third against `eventbridgesdk.Client`/`pipessdk.Client`/`schemassdk.Client`
+  respectively (mirroring the pattern `services/bedrock` already uses for its two handlers,
+  each checked against its own client -- here it's one handler's op list split three ways
+  instead of two handlers).
+- **4 fabricated -- never real at any SDK version, now removed from GetSupportedOperations()**:
+  `GetEventBusPolicy`/`PutEventBusPolicy` (not real EventBridge ops; the real wire path is
+  `DescribeEventBus.Policy`) and `DescribeSchemaVersion`/`ListCodeBindings` (not real Schemas
+  ops; the real wire paths are `DescribeSchema`'s optional `SchemaVersion` field and
+  per-language `DescribeCodeBinding` respectively). All four remain reachable internal-only
+  via their existing dispatch-table entries (`policyActions()`/`schemaVersionActions()`/
+  `codeBindingActions()`) for any existing direct callers, but a real AWS SDK client can never
+  send them, so they must not be advertised as supported. See the `ops:` entries above for
+  detail per operation.
+- **Test encoding the defect**: `TestHandler_GetSupportedOperationsIncludesPolicyOps`
+  asserted `GetEventBusPolicy`/`PutEventBusPolicy` were present in
+  `GetSupportedOperations()` -- i.e. it asserted the bug. Renamed to
+  `TestHandler_GetSupportedOperationsExcludesPolicyOps` and flipped to `NotContains`.
+  `TestHandler_GetSupportedOperationsIncludesDeliveryTargetTypes` and
+  `TestHandler_SchemaOperationsIncluded` also asserted the four fabricated names were
+  present; trimmed.
+- Also worth noting: two prior sweeps' notes on `GetEventBusPolicy`/`PutEventBusPolicy`
+  (`### Deep sweep (parity-3...)` and `### Re-audit sweep (parity-4...)` below) both claimed
+  these two were "absent from `GetSupportedOperations()`" -- that claim was never actually
+  true until this sweep's fix; the code had them present all along and nothing had verified
+  the claim against the real list. Left the historical notes as-is (they're an accurate
+  record of what was believed at the time) and corrected the live `ops:` entries above.
+
+Gates run scoped to `services/cloudfront`, `services/eventbridge`, `services/iot`,
+`services/opensearch`, `services/personalize` (four other services triaged in the same
+sdkcheck sweep, sharing the "real op on a sibling client vs. fabricated" pattern): `go build
+./...`, `go vet`, `go test -race -count=1`, `gofmt -l`, `golangci-lint run` all clean;
+`git diff --stat go.mod go.sum` non-empty by design -- added
+`cloudfrontkeyvaluestore`/`schemas`/`opensearchserverless`/`personalizeruntime` as new direct
+SDK dependencies (needed by the new sibling-client `sdk_completeness_test.go` checks), which
+bumped the shared `aws-sdk-go-v2` core module v1.43.0 -> v1.43.2 (patch only) and
+`smithy-go` v1.27.4 -> v1.27.5.
 
 ### Deep sweep (parity-3, 2026-07-23) -- field-diffed the "deferred" families, found and fixed 8 real bugs
 

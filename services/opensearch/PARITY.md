@@ -1,6 +1,7 @@
 ---
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.0
+sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.2]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: acb2e23f9
 last_audit_date: 2026-07-30
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade
@@ -164,14 +165,31 @@ families:
   serverless:
     status: deferred
     note: >
-      Out of this pass's explicit task scope (the assigned service description enumerates domains,
-      config, versions, packages, VPC endpoints, reserved instances, cross-cluster connections,
-      dry-run, auto-tune, off-peak windows, software update, data sources, direct queries, and
-      application -- serverless collections are conspicuously absent). Also structurally blocked:
-      OpenSearch Serverless is a genuinely separate AWS API/SDK module
-      (aws-sdk-go-v2/service/opensearchserverless, 2021-11-01), not present in go.mod, and this
-      pass is barred from touching go.mod/go.sum. Left untouched; needs its own audit pass with
-      the real opensearchserverless types available for field-diffing.
+      Field-level wire/state audit still out of scope this pass -- see items_still_open. UPDATE
+      (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): the "structurally blocked, not in
+      go.mod" reasoning below is now stale for the operation-naming half of this problem --
+      aws-sdk-go-v2/service/opensearchserverless was added to go.mod this sweep (needed for the
+      sdk_completeness_test.go multi-client check, see below) and pkgs/sdkcheck's reverse check
+      was run against it directly. Confirmed 14 of serverlessOperations()'s 22 entries are real
+      opensearchserverless.Client ops (BatchGetCollection, CreateCollection, DeleteCollection,
+      ListCollections; Create/Delete/Get/List/UpdateAccessPolicy;
+      Create/Delete/Get/List/UpdateSecurityConfig) that the reverse check only flagged because it
+      was comparing against opensearchsdk.Client instead of the client that owns them --
+      sdk_completeness_test.go now checks this family against opensearchserverlesssdk.Client
+      separately. The other 8 (CreateEncryptionPolicy/CreateNetworkPolicy/
+      DeleteEncryptionPolicy/DeleteNetworkPolicy/GetEncryptionPolicy/ListEncryptionPolicies/
+      ListNetworkPolicies/UpdateEncryptionPolicy) were genuinely fabricated -- confirmed absent
+      from opensearchserverless.Client at every released SDK version back to v1.0.0. Real AWS
+      discriminates encryption vs. network security policies with a "type" request field on a
+      single CreateSecurityPolicy/DeleteSecurityPolicy/GetSecurityPolicy/ListSecurityPolicies/
+      UpdateSecurityPolicy operation family, not by operation name. Renamed
+      serverlessOperations() to the 5 real names (net -3, 22 -> 19 ops); the underlying route
+      handlers (handleServerlessEncryptionPolicyRoutes/handleServerlessNetworkPolicyRoutes) are
+      untouched -- this was purely an operation-naming/advertising fix, not a wire-shape fix. Full
+      field-diff of Collection/AccessPolicy/SecurityConfig/SecurityPolicy request/response shapes
+      against opensearchserverless's real Input/Output types is still not done -- that's the
+      "needs its own audit pass" work below, now unblocked (module present) but not attempted this
+      sweep.
   data_source_attachments:
     status: ok
     note: >
@@ -278,6 +296,45 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 ---
 
 ## Notes
+
+### Reverse sdkcheck sweep (2026-07-31) -- 8 fabricated serverless policy op names found and renamed
+
+`pkgs/sdkcheck`'s reverse check (gopherstack-vhw2) flagged 22 `serverlessOperations()`
+entries as "phantom" (not exported methods on `opensearchsdk.Client`). Added
+`aws-sdk-go-v2/service/opensearchserverless` to go.mod and verified each by name:
+
+- **14 real, sibling-owned**: `BatchGetCollection`, `CreateCollection`, `DeleteCollection`,
+  `ListCollections`, `Create/Delete/Get/List/UpdateAccessPolicy`,
+  `Create/Delete/Get/List/UpdateSecurityConfig` -- all real `opensearchserverless.Client`
+  ops, flagged only because the reverse check compared them against `opensearchsdk.Client`
+  (the classic managed-domain client) instead of the AOSS client that owns them.
+  `sdk_completeness_test.go` now splits `GetSupportedOperations()` and checks the AOSS half
+  against `opensearchserverlesssdk.Client` directly.
+- **8 fabricated -- never real at any SDK version, renamed**: `CreateEncryptionPolicy`,
+  `CreateNetworkPolicy`, `DeleteEncryptionPolicy`, `DeleteNetworkPolicy`,
+  `GetEncryptionPolicy`, `ListEncryptionPolicies`, `ListNetworkPolicies`,
+  `UpdateEncryptionPolicy`. Confirmed absent from `opensearchserverless.Client` at v1.0.0
+  through v1.34.2 -- AOSS has always discriminated encryption vs. network security policies
+  with a `type` request field on one `CreateSecurityPolicy`/`DeleteSecurityPolicy`/
+  `GetSecurityPolicy`/`ListSecurityPolicies`/`UpdateSecurityPolicy` operation family, never
+  by separate operation names. Renamed `serverlessOperations()`'s entries to the 5 real
+  names (net -3, 22 -> 19 ops; `TestHandlerOpsLen`/`TestOpenSearchHandler_GetSupportedOperations`
+  updated from 118 to 115 total ops). This was purely an operation-name/advertising fix: the
+  HTTP route handlers underneath (`handleServerlessEncryptionPolicyRoutes`/
+  `handleServerlessNetworkPolicyRoutes`, `/encryptionpolicies`/`/networksecuritypolicies`)
+  are untouched, since `ExtractOperation` doesn't route serverless paths at all currently
+  (chaos fault injection isn't wired up for this family either way) -- see
+  families.serverless for what's still not field-diffed.
+- No test was found asserting the 8 fabricated names as data (only test *function names*
+  like `TestServerless_CreateEncryptionPolicy`, which exercise the unchanged HTTP routes, not
+  the operation-name list).
+
+Gates run scoped to `services/cloudfront`, `services/eventbridge`, `services/iot`,
+`services/opensearch`, `services/personalize` (four other services triaged in the same
+sdkcheck sweep): `go build ./...`, `go vet`, `go test -race -count=1`, `gofmt -l`,
+`golangci-lint run` all clean; `git diff --stat go.mod go.sum` non-empty by design -- see
+eventbridge's PARITY.md for the shared go.mod/go.sum justification (four new sibling SDK
+deps added across the five services in this sweep, one shared `aws-sdk-go-v2` core patch bump).
 
 **IdentityCenterOptions wire-key bug (real, fixed):** the SDK (as of v1.59.0)
 renamed the CreateDomainInput/UpdateDomainConfigInput/DomainStatus/DomainConfig
@@ -421,10 +478,12 @@ beyond the capability's existence/name/status.
 ## items_still_open (this pass)
 
 - **serverless** (OpenSearch Serverless collections/policies): explicitly out
-  of this pass's assigned scope, and the real SDK types live in
-  `aws-sdk-go-v2/service/opensearchserverless`, not in go.mod. Cannot
-  field-diff without adding a dependency, which this pass is barred from
-  doing. Needs a dedicated audit pass.
+  of this pass's assigned scope. `aws-sdk-go-v2/service/opensearchserverless`
+  was added to go.mod in the 2026-07-31 reverse-sdkcheck sweep (see families.serverless)
+  to fix an operation-naming bug (8 fabricated policy op names) and verify the
+  rest of serverlessOperations() against the real client, but no field-level
+  wire/state diff of Collection/AccessPolicy/SecurityConfig/SecurityPolicy was
+  done. Still needs a dedicated audit pass.
 - **Un-re-verified ops outside the assigned scope/deferred list**: GetCompatibleVersions,
   ListVersions, DescribeDomainAutoTunes, DescribeDomainChangeProgress,
   DescribeDomainHealth, DescribeDomainNodes, DescribeDryRunProgress,
