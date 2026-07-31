@@ -23,9 +23,14 @@ type createReplicationSubnetGroupInput struct {
 	Tags                              []tagEntry `json:"Tags"`
 }
 
+// replicationSubnetGroupFullJSON is the wire shape of types.ReplicationSubnetGroup.
+// The real type has NO Arn field at all -- DMS subnet groups are referenced by
+// identifier on the wire; a client that wants to tag one (AddTagsToResource
+// requires a ResourceArn) must build the ARN itself from the deterministic
+// arn:aws:dms:<region>:<account>:subgrp:<identifier> format. Don't add an Arn
+// field back here without re-verifying against the SDK.
 type replicationSubnetGroupFullJSON struct {
 	ReplicationSubnetGroupIdentifier  string `json:"ReplicationSubnetGroupIdentifier"`
-	ReplicationSubnetGroupArn         string `json:"ReplicationSubnetGroupArn"`
 	ReplicationSubnetGroupDescription string `json:"ReplicationSubnetGroupDescription"`
 	VpcID                             string `json:"VpcId"`
 }
@@ -37,7 +42,6 @@ type createReplicationSubnetGroupOutput struct {
 func rsgToJSON(sg *ReplicationSubnetGroup) replicationSubnetGroupFullJSON {
 	return replicationSubnetGroupFullJSON{
 		ReplicationSubnetGroupIdentifier:  sg.ReplicationSubnetGroupIdentifier,
-		ReplicationSubnetGroupArn:         sg.ReplicationSubnetGroupArn,
 		ReplicationSubnetGroupDescription: sg.ReplicationSubnetGroupDescription,
 		VpcID:                             sg.VpcID,
 	}

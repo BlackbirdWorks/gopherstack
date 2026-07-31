@@ -18,7 +18,11 @@ func TestImportDeleteCertificate(t *testing.T) {
 		"CertificatePem":        "-----BEGIN CERTIFICATE-----",
 	})
 	require.Equal(t, http.StatusOK, importRec.Code)
-	certArn := parseJSON(t, importRec)["Certificate"].(map[string]any)["CertificateArn"].(string)
+	importedCert := parseJSON(t, importRec)["Certificate"].(map[string]any)
+	certArn := importedCert["CertificateArn"].(string)
+	// The real Certificate wire type carries CertificatePem; a real client
+	// deserializing ImportCertificate's response must see back what it sent.
+	assert.Equal(t, "-----BEGIN CERTIFICATE-----", importedCert["CertificatePem"])
 
 	// Duplicate should fail.
 	dupRec := doDMS(t, h, "ImportCertificate", map[string]any{
@@ -34,6 +38,9 @@ func TestImportDeleteCertificate(t *testing.T) {
 	// Describe.
 	descRec := doDMS(t, h, "DescribeCertificates", map[string]any{})
 	assert.Equal(t, http.StatusOK, descRec.Code)
+	certs := parseJSON(t, descRec)["Certificates"].([]any)
+	require.Len(t, certs, 1)
+	assert.Equal(t, "-----BEGIN CERTIFICATE-----", certs[0].(map[string]any)["CertificatePem"])
 
 	// Delete by ARN.
 	delRec := doDMS(t, h, "DeleteCertificate", map[string]any{

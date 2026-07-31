@@ -11,6 +11,51 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestEndpointPassword_StoredButNeverOnWire asserts that Password sent on
+// CreateEndpoint/ModifyEndpoint is actually stored by the backend (matching
+// what a real client would expect -- e.g. a subsequent connection attempt
+// should be able to use it) rather than silently dropped, while also never
+// appearing in any Describe/Create/Modify JSON response -- the real
+// Endpoint wire type has no Password field, matching AWS's documented
+// behavior of never echoing credentials back.
+func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	ctx := t.Context()
+
+	createRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+		"EndpointIdentifier": "pw-ep",
+		"EndpointType":       "source",
+		"EngineName":         "mysql",
+		"Password":           "s3cr3t",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createdEp := parseJSON(t, createRec)["Endpoint"].(map[string]any)
+	_, hasPassword := createdEp["Password"]
+	assert.False(t, hasPassword, "CreateEndpoint response must never carry Password")
+
+	list, err := h.Backend.DescribeEndpoints(ctx, "pw-ep")
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "s3cr3t", list[0].Password, "Password must be stored, not silently dropped")
+
+	epArn := createdEp["EndpointArn"].(string)
+	modRec := doDMS(t, h, "ModifyEndpoint", map[string]any{
+		"EndpointArn": epArn,
+		"Password":    "n3wpass",
+	})
+	require.Equal(t, http.StatusOK, modRec.Code)
+	modEp := parseJSON(t, modRec)["Endpoint"].(map[string]any)
+	_, modHasPassword := modEp["Password"]
+	assert.False(t, modHasPassword, "ModifyEndpoint response must never carry Password")
+
+	list2, err := h.Backend.DescribeEndpoints(ctx, "pw-ep")
+	require.NoError(t, err)
+	require.Len(t, list2, 1)
+	assert.Equal(t, "n3wpass", list2[0].Password, "ModifyEndpoint must persist the new Password")
+}
+
 func TestModifyEndpoint(t *testing.T) {
 	t.Parallel()
 

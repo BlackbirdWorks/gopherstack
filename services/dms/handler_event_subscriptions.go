@@ -19,14 +19,20 @@ type createEventSubscriptionInput struct {
 	Tags             []tagEntry `json:"Tags"`
 }
 
+// eventSubscriptionJSON is the wire shape of types.EventSubscription. Unlike
+// CreateEventSubscriptionMessage/CreateEventSubscriptionInput (which use
+// SubscriptionName/EventCategories on the request), the real EventSubscription
+// response type uses CustSubscriptionId and EventCategoriesList -- the
+// asymmetry is genuine AWS behavior, not a naming bug. Don't "fix" the two
+// to match each other.
 type eventSubscriptionJSON struct {
-	SubscriptionName string   `json:"SubscriptionName"`
-	SnsTopicArn      string   `json:"SnsTopicArn"`
-	SourceType       string   `json:"SourceType,omitempty"`
-	Status           string   `json:"Status"`
-	SourceIDsList    []string `json:"SourceIdsList"`
-	EventCategories  []string `json:"EventCategories"`
-	Enabled          bool     `json:"Enabled"`
+	CustSubscriptionID  string   `json:"CustSubscriptionId"`
+	SnsTopicArn         string   `json:"SnsTopicArn"`
+	SourceType          string   `json:"SourceType,omitempty"`
+	Status              string   `json:"Status"`
+	SourceIDsList       []string `json:"SourceIdsList"`
+	EventCategoriesList []string `json:"EventCategoriesList"`
+	Enabled             bool     `json:"Enabled"`
 }
 
 type createEventSubscriptionOutput struct {
@@ -71,13 +77,13 @@ func (h *Handler) handleCreateEventSubscription(
 
 func esToJSON(es *EventSubscription) eventSubscriptionJSON {
 	return eventSubscriptionJSON{
-		SubscriptionName: es.SubscriptionName,
-		SnsTopicArn:      es.SnsTopicArn,
-		SourceType:       es.SourceType,
-		SourceIDsList:    ensureNonNil(es.SourceIDsList),
-		EventCategories:  ensureNonNil(es.EventCategories),
-		Status:           es.Status,
-		Enabled:          es.Enabled,
+		CustSubscriptionID:  es.SubscriptionName,
+		SnsTopicArn:         es.SnsTopicArn,
+		SourceType:          es.SourceType,
+		SourceIDsList:       ensureNonNil(es.SourceIDsList),
+		EventCategoriesList: ensureNonNil(es.EventCategories),
+		Status:              es.Status,
+		Enabled:             es.Enabled,
 	}
 }
 

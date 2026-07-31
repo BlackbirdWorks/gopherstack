@@ -24,11 +24,11 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["replicationInstanceArn"] = ri.ReplicationInstanceArn
 
-	src, err := b.CreateEndpoint(ctx, "ep-src", "source", "mysql", "", "", "", 0, nil)
+	src, err := b.CreateEndpoint(ctx, "ep-src", "source", "mysql", "", "", "", "", 0, nil)
 	require.NoError(t, err)
 	ids["sourceEndpointArn"] = src.EndpointArn
 
-	tgt, err := b.CreateEndpoint(ctx, "ep-tgt", "target", "mysql", "", "", "", 0, nil)
+	tgt, err := b.CreateEndpoint(ctx, "ep-tgt", "target", "mysql", "", "", "", "", 0, nil)
 	require.NoError(t, err)
 	ids["targetEndpointArn"] = tgt.EndpointArn
 

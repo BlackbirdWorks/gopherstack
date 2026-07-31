@@ -128,7 +128,13 @@ func TestHandler_CreateEventSubscription(t *testing.T) {
 				resp := parseJSON(t, rec)
 				es, ok := resp["EventSubscription"].(map[string]any)
 				require.True(t, ok)
-				assert.Equal(t, "my-sub", es["SubscriptionName"])
+				// The real EventSubscription wire type has no SubscriptionName or
+				// EventCategories fields -- those are CreateEventSubscriptionMessage
+				// (request) field names. The response uses CustSubscriptionId and
+				// EventCategoriesList instead.
+				assert.Equal(t, "my-sub", es["CustSubscriptionId"])
+				_, hasReqNameField := es["SubscriptionName"]
+				assert.False(t, hasReqNameField, "EventSubscription response must not carry SubscriptionName")
 				assert.Equal(t, "arn:aws:sns:us-east-1:123:my-topic", es["SnsTopicArn"])
 				assert.Equal(t, "active", es["Status"])
 				assert.Equal(t, true, es["Enabled"])
@@ -193,7 +199,9 @@ func TestNonNilEventSubscriptionSlices(t *testing.T) {
 	body := parseJSON(t, rec)
 	es := body["EventSubscription"].(map[string]any)
 	require.NotNil(t, es["SourceIdsList"])
-	require.NotNil(t, es["EventCategories"])
+	require.NotNil(t, es["EventCategoriesList"])
+	_, hasReqCategoriesField := es["EventCategories"]
+	assert.False(t, hasReqCategoriesField, "EventSubscription response must not carry EventCategories")
 }
 
 func TestEventSubscriptionSeedHelper(t *testing.T) {

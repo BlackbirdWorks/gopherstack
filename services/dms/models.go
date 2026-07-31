@@ -110,6 +110,13 @@ type ReplicationInstance struct {
 //
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via AddTagsToResource or CreateEndpoint.
+//
+// Password is accepted on CreateEndpoint/ModifyEndpoint and stored here, but
+// (matching the real Endpoint wire type, which has no Password field) it is
+// never put on the wire by any Describe/Create/Modify response -- see
+// endpointJSON in handler_endpoints.go. Engine-specific nested settings
+// (MySQLSettings, PostgreSQLSettings, S3Settings, ...) are deliberately not
+// modeled; see PARITY.md.
 type Endpoint struct {
 	CreationTime       time.Time  `json:"creationTime"`
 	Tags               *tags.Tags `json:"-"`
@@ -120,6 +127,7 @@ type Endpoint struct {
 	ServerName         string     `json:"serverName,omitempty"`
 	DatabaseName       string     `json:"databaseName,omitempty"`
 	Username           string     `json:"username,omitempty"`
+	Password           string     `json:"password,omitempty"`
 	Status             string     `json:"status"`
 	AccountID          string     `json:"accountId"`
 	Region             string     `json:"region"`

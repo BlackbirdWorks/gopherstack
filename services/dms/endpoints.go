@@ -20,7 +20,7 @@ func (b *InMemoryBackend) mustDescribeEndpoints(ctx context.Context) []*Endpoint
 // CreateEndpoint creates a new DMS endpoint.
 func (b *InMemoryBackend) CreateEndpoint(
 	ctx context.Context,
-	identifier, endpointType, engineName, serverName, databaseName, username string,
+	identifier, endpointType, engineName, serverName, databaseName, username, password string,
 	port int32,
 	kv map[string]string,
 ) (*Endpoint, error) {
@@ -48,6 +48,7 @@ func (b *InMemoryBackend) CreateEndpoint(
 		ServerName:         serverName,
 		DatabaseName:       databaseName,
 		Username:           username,
+		Password:           password,
 		Port:               port,
 		Status:             statusActive,
 		AccountID:          b.accountID,
@@ -221,7 +222,7 @@ func (b *InMemoryBackend) AddEndpointInternal(identifier, endpointType, engineNa
 // ModifyEndpoint updates endpoint settings.
 func (b *InMemoryBackend) ModifyEndpoint(
 	ctx context.Context,
-	arnOrID, endpointType, engineName, serverName, databaseName, username string,
+	arnOrID, endpointType, engineName, serverName, databaseName, username, password string,
 	port int32,
 ) (*Endpoint, error) {
 	b.mu.Lock("ModifyEndpoint")
@@ -250,6 +251,10 @@ func (b *InMemoryBackend) ModifyEndpoint(
 
 	if username != "" {
 		ep.Username = username
+	}
+
+	if password != "" {
+		ep.Password = password
 	}
 
 	if port != 0 {

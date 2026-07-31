@@ -63,7 +63,9 @@ func (h *Handler) handleDescribeConnections(
 		all = append(all, connToJSON(conn))
 	}
 
-	return &describeConnectionsOutput{Connections: all}, nil
+	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
+
+	return &describeConnectionsOutput{Connections: data, Marker: nextMarker}, nil
 }
 
 type testConnectionInput struct {

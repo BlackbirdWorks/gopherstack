@@ -443,7 +443,9 @@ func TestHandler_TagsOnReplicationSubnetGroup(t *testing.T) {
 					},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
-				sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)
+				// Real ReplicationSubnetGroup has no Arn field on the wire; build
+				// it from the deterministic arn:aws:dms:<region>:<account>:subgrp:<id> format.
+				sgArn := "arn:aws:dms:us-east-1:123456789012:subgrp:tagged-sg"
 
 				listRec := doDMS(t, h, "ListTagsForResource", map[string]any{
 					"ResourceArn": sgArn,
@@ -464,7 +466,9 @@ func TestHandler_TagsOnReplicationSubnetGroup(t *testing.T) {
 					"SubnetIds":                         []string{"subnet-1"},
 				})
 				require.Equal(t, http.StatusOK, createRec.Code)
-				sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)
+				// Real ReplicationSubnetGroup has no Arn field on the wire; build
+				// it from the deterministic arn:aws:dms:<region>:<account>:subgrp:<id> format.
+				sgArn := "arn:aws:dms:us-east-1:123456789012:subgrp:tag-rm-sg"
 
 				doDMS(t, h, "AddTagsToResource", map[string]any{
 					"ResourceArn": sgArn,
