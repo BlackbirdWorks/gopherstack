@@ -46,7 +46,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { ZapOff, Plus, Trash2, Eye, Pencil, Play, Square, ShieldAlert } from 'lucide-svelte';
@@ -1343,6 +1343,12 @@
 			{/if}
 
 			{#if activeTab === 'templates'}
+				{#snippet tplCreatedCell(t: ExperimentTemplateSummary)}
+					{formatDate(t.creationTime)}
+				{/snippet}
+				{#snippet tplUpdatedCell(t: ExperimentTemplateSummary)}
+					{formatDate(t.lastUpdateTime)}
+				{/snippet}
 				{#snippet tplActionsCell(t: ExperimentTemplateSummary)}
 					<div class="flex items-center gap-2 justify-end">
 						<button onclick={() => openTemplateDetail(t)} title="View" aria-label="View template {t.id}" class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button>
@@ -1350,13 +1356,13 @@
 						<button onclick={() => handleDeleteTemplate(t)} title="Delete" aria-label="Delete template {t.id}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const tplColumns = [
+				{@const tplColumns = defineColumns<ExperimentTemplateSummary>([
 					{ key: 'id', label: 'ID' },
 					{ key: 'description', label: 'Description' },
-					{ key: 'creationTime', label: 'Created', render: (t: ExperimentTemplateSummary) => formatDate(t.creationTime) },
-					{ key: 'lastUpdateTime', label: 'Updated', render: (t: ExperimentTemplateSummary) => formatDate(t.lastUpdateTime) },
+					{ key: 'creationTime', label: 'Created', render: tplCreatedCell },
+					{ key: 'lastUpdateTime', label: 'Updated', render: tplUpdatedCell },
 					{ key: 'actions', label: '', render: tplActionsCell }
-				] as Column<ExperimentTemplateSummary>[]}
+				])}
 				<DataTable
 					rows={filteredTemplates}
 					rowKey={(t) => t.id ?? ''}
@@ -1377,12 +1383,12 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const expColumns = [
+				{@const expColumns = defineColumns<ExperimentSummary>([
 					{ key: 'id', label: 'ID' },
 					{ key: 'experimentTemplateId', label: 'Template' },
 					{ key: 'state', label: 'Status', render: expStatusCell },
 					{ key: 'actions', label: '', render: expActionsCell }
-				] as Column<ExperimentSummary>[]}
+				])}
 				<DataTable
 					rows={filteredExperiments}
 					rowKey={(e) => e.id ?? ''}
@@ -1410,12 +1416,12 @@
 							<button onclick={() => handleDeleteTAC(c)} title="Delete" aria-label="Delete target account config {c.accountId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 						</div>
 					{/snippet}
-					{@const tacColumns = [
+					{@const tacColumns = defineColumns<TargetAccountConfigurationSummary>([
 						{ key: 'accountId', label: 'Account ID' },
 						{ key: 'roleArn', label: 'Role ARN' },
 						{ key: 'description', label: 'Description' },
 						{ key: 'actions', label: '', render: tacActionsCell }
-					] as Column<TargetAccountConfigurationSummary>[]}
+					])}
 					<DataTable
 						rows={filteredTAC}
 						rowKey={(c) => c.accountId ?? ''}
@@ -1430,11 +1436,11 @@
 						<button onclick={() => openActionDetail(a)} title="View" aria-label="View action {a.id}" class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const actionColumns = [
+				{@const actionColumns = defineColumns<ActionSummary>([
 					{ key: 'id', label: 'Action ID' },
 					{ key: 'description', label: 'Description' },
 					{ key: 'actions', label: '', render: catalogActionsCell }
-				] as Column<ActionSummary>[]}
+				])}
 				<DataTable
 					rows={filteredActions}
 					rowKey={(a) => a.id ?? ''}
@@ -1449,11 +1455,11 @@
 						<button onclick={() => openResourceTypeDetail(rt)} title="View" aria-label="View resource type {rt.resourceType}" class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const rtColumns = [
+				{@const rtColumns = defineColumns<TargetResourceTypeSummary>([
 					{ key: 'resourceType', label: 'Resource Type' },
 					{ key: 'description', label: 'Description' },
 					{ key: 'actions', label: '', render: rtActionsCell }
-				] as Column<TargetResourceTypeSummary>[]}
+				])}
 				<DataTable
 					rows={filteredResourceTypes}
 					rowKey={(rt) => rt.resourceType ?? ''}

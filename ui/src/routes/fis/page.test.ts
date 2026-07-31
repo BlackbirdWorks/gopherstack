@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import FISPage from "./+page.svelte";
+import { formatDate } from "$lib/format";
 
 const mockSend = vi.fn();
 
@@ -95,6 +96,30 @@ describe("FIS Page", () => {
       expect.objectContaining({ input: expect.objectContaining({ nextToken: undefined }) }),
     );
     expect(screen.getByText("Load More")).toBeInTheDocument();
+  });
+
+  // Regression test for a shipped bug: the "Created"/"Updated" columns used
+  // `render: (t) => formatDate(...)` -- a plain value-returning function --
+  // instead of a `{#snippet}`. `{@render column.render(row)}` requires a
+  // real Snippet (which has an anchor-node calling convention); handed a
+  // plain function it renders nothing, so the cells were silently blank.
+  // Earlier tests in this file only assert on the ID cell, so they never
+  // exercised these two columns. Assert on the actual rendered text here,
+  // not just presence of the row.
+  it("renders the template's Created and Updated date columns", async () => {
+    mockSend.mockResolvedValueOnce({ experimentTemplates: [exampleTemplate] });
+    render(FISPage);
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "EXT123" })).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("cell", { name: formatDate(exampleTemplate.creationTime) }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("cell", { name: formatDate(exampleTemplate.lastUpdateTime) }),
+    ).toBeInTheDocument();
   });
 
   it("creates an experiment template via the modal", async () => {
