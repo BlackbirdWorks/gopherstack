@@ -380,7 +380,15 @@ func TestCreateCluster_WithSettings(t *testing.T) {
 	assert.Equal(t, "enabled", settings[0].(map[string]any)["value"])
 }
 
-func TestUpdateCluster_CapacityProviders(t *testing.T) {
+// TestUpdateCluster_DoesNotAcceptCapacityProviders proves that UpdateCluster
+// does not wire up capacityProviders/defaultCapacityProviderStrategy: the
+// real UpdateClusterRequest has neither field (only cluster, settings,
+// configuration, serviceConnectDefaults) -- capacity-provider association is
+// managed exclusively by the separate PutClusterCapacityProviders operation
+// (see TestCluster_PutCapacityProviders_WithStrategy). Even if a caller
+// sends these fields anyway, as a real typed SDK client cannot, they must be
+// silently ignored rather than applied.
+func TestUpdateCluster_DoesNotAcceptCapacityProviders(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
@@ -400,8 +408,13 @@ func TestUpdateCluster_CapacityProviders(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	cluster := out["cluster"].(map[string]any)
-	providers := cluster["capacityProviders"].([]any)
-	assert.Len(t, providers, 2)
+	providers, ok := cluster["capacityProviders"].([]any)
+	require.True(t, ok)
+	assert.Empty(
+		t,
+		providers,
+		"UpdateCluster must not apply capacityProviders -- only PutClusterCapacityProviders can",
+	)
 }
 
 func TestDescribeClusters_MultipleClusters(t *testing.T) {

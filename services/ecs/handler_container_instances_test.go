@@ -18,8 +18,8 @@ func TestContainerInstance_DRAINING_State(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "draining-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "draining-cluster",
-		"ec2InstanceId": "i-drain-1234",
+		"cluster":                  "draining-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-drain-1234"),
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
@@ -61,8 +61,8 @@ func TestContainerInstance_DRAINING_to_ACTIVE(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "reactivate-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "reactivate-cluster",
-		"ec2InstanceId": "i-react-5678",
+		"cluster":                  "reactivate-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-react-5678"),
 	})
 	var ciOut map[string]any
 	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
@@ -94,8 +94,8 @@ func TestContainerInstance_UpdateAgent(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "update-agent-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "update-agent-cluster",
-		"ec2InstanceId": "i-agent-9999",
+		"cluster":                  "update-agent-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-agent-9999"),
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
@@ -125,8 +125,8 @@ func TestContainerInstance_Deregister_Force(t *testing.T) {
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "deregforce-cluster",
-		"ec2InstanceId": "i-force-1234",
+		"cluster":                  "deregforce-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-force-1234"),
 	})
 	var ciOut map[string]any
 	require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))
@@ -157,6 +157,11 @@ func TestContainerInstance_Deregister_Force(t *testing.T) {
 	assert.Empty(t, arns)
 }
 
+// TestECS_RegisterContainerInstance proves that the EC2 instance ID
+// surfaced on the resulting ContainerInstance (ec2InstanceId, a real
+// response field) is derived from the request's instanceIdentityDocument --
+// the real RegisterContainerInstanceRequest has no ec2InstanceId field of
+// its own, so no real typed client could ever send one directly.
 func TestECS_RegisterContainerInstance(t *testing.T) {
 	t.Parallel()
 
@@ -169,7 +174,9 @@ func TestECS_RegisterContainerInstance(t *testing.T) {
 		{
 			name: "register to default cluster",
 			setup: func(_ *ecs.Handler) map[string]any {
-				return map[string]any{"ec2InstanceId": "i-12345678"}
+				return map[string]any{
+					"instanceIdentityDocument": fakeInstanceIdentityDocument("i-12345678"),
+				}
 			},
 			wantCode: http.StatusOK,
 			wantID:   "i-12345678",
@@ -180,12 +187,23 @@ func TestECS_RegisterContainerInstance(t *testing.T) {
 				doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ec2-cluster"})
 
 				return map[string]any{
-					"cluster":       "ec2-cluster",
-					"ec2InstanceId": "i-abcdef00",
+					"cluster":                  "ec2-cluster",
+					"instanceIdentityDocument": fakeInstanceIdentityDocument("i-abcdef00"),
 				}
 			},
 			wantCode: http.StatusOK,
 			wantID:   "i-abcdef00",
+		},
+		{
+			// A real typed SDK client cannot send ec2InstanceId (it isn't a
+			// field on RegisterContainerInstanceRequest); proves it is
+			// ignored rather than accidentally still wired up.
+			name: "ec2InstanceId in raw body is ignored",
+			setup: func(_ *ecs.Handler) map[string]any {
+				return map[string]any{"ec2InstanceId": "i-should-be-ignored"}
+			},
+			wantCode: http.StatusOK,
+			wantID:   "",
 		},
 	}
 
@@ -240,13 +258,19 @@ func TestECS_ListContainerInstances(t *testing.T) {
 					t,
 					h,
 					"RegisterContainerInstance",
-					map[string]any{"cluster": "list-ci-two", "ec2InstanceId": "i-1"},
+					map[string]any{
+						"cluster":                  "list-ci-two",
+						"instanceIdentityDocument": fakeInstanceIdentityDocument("i-1"),
+					},
 				)
 				doECSRequest(
 					t,
 					h,
 					"RegisterContainerInstance",
-					map[string]any{"cluster": "list-ci-two", "ec2InstanceId": "i-2"},
+					map[string]any{
+						"cluster":                  "list-ci-two",
+						"instanceIdentityDocument": fakeInstanceIdentityDocument("i-2"),
+					},
 				)
 			},
 			cluster:  "list-ci-two",
@@ -318,8 +342,8 @@ func TestECS_DescribeContainerInstances(t *testing.T) {
 			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "desc-ci-cluster"})
 
 			rec := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-				"cluster":       "desc-ci-cluster",
-				"ec2InstanceId": "i-describe",
+				"cluster":                  "desc-ci-cluster",
+				"instanceIdentityDocument": fakeInstanceIdentityDocument("i-describe"),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -398,8 +422,8 @@ func TestECS_DeregisterContainerInstance(t *testing.T) {
 
 			// Register.
 			rec := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-				"cluster":       "dereg-cluster",
-				"ec2InstanceId": "i-dereg",
+				"cluster":                  "dereg-cluster",
+				"instanceIdentityDocument": fakeInstanceIdentityDocument("i-dereg"),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -511,8 +535,8 @@ func TestECS_UpdateContainerInstancesState(t *testing.T) {
 			doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "update-ci-cluster"})
 
 			rec := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-				"cluster":       "update-ci-cluster",
-				"ec2InstanceId": "i-update",
+				"cluster":                  "update-ci-cluster",
+				"instanceIdentityDocument": fakeInstanceIdentityDocument("i-update"),
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
@@ -588,8 +612,8 @@ func TestECS_UpdateContainerAgent(t *testing.T) {
 
 			if tt.valid {
 				rec := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-					"cluster":       "agent-cluster",
-					"ec2InstanceId": "i-agent-update",
+					"cluster":                  "agent-cluster",
+					"instanceIdentityDocument": fakeInstanceIdentityDocument("i-agent-update"),
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 
@@ -733,8 +757,8 @@ func TestDescribeContainerInstances_TagsRequireInclude(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ci-tags-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "ci-tags-cluster",
-		"ec2InstanceId": "i-tags-1234",
+		"cluster":                  "ci-tags-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-tags-1234"),
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 

@@ -2,6 +2,7 @@ package ecs
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -16,20 +17,56 @@ const describeContainerInstanceIncludeTags = "TAGS"
 
 // ----- Container instance handlers -----
 
+// registerContainerInstanceInput mirrors the real RegisterContainerInstanceRequest.
+// There is no ec2InstanceId field on the real request -- a real client (EC2
+// launch-type container agent) can never send one -- so it cannot appear
+// here either. Real ECS derives the EC2 instance ID from the signed EC2
+// instance identity document (see ec2InstanceIDFromIdentityDocument).
+// instanceIdentityDocumentSignature is accepted for wire-shape completeness
+// but not cryptographically verified by this emulator.
 type registerContainerInstanceInput struct {
-	Cluster       string `json:"cluster,omitempty"`
-	EC2InstanceID string `json:"ec2InstanceId"`
+	Cluster                           string `json:"cluster,omitempty"`
+	InstanceIdentityDocument          string `json:"instanceIdentityDocument,omitempty"`
+	InstanceIdentityDocumentSignature string `json:"instanceIdentityDocumentSignature,omitempty"`
 }
 
 type registerContainerInstanceOutput struct {
 	ContainerInstance containerInstanceView `json:"containerInstance"`
 }
 
+// ec2InstanceIDFromIdentityDocument extracts the "instanceId" field from an
+// EC2 instance identity document (the JSON blob served at
+// http://169.254.169.254/latest/dynamic/instance-identity/document/, which
+// real EC2-launch-type container agents pass verbatim as
+// instanceIdentityDocument). If doc is empty or does not parse as such a
+// document, it returns "" rather than fabricating a plausible-looking ID:
+// callers that omit the identity document (e.g. Fargate-style or
+// externally-registered instances, or tests exercising other behavior)
+// simply get an empty EC2InstanceID, matching what real ECS would show for
+// an instance it cannot identify.
+func ec2InstanceIDFromIdentityDocument(doc string) string {
+	if doc == "" {
+		return ""
+	}
+
+	var parsed struct {
+		InstanceID string `json:"instanceId"`
+	}
+
+	if err := json.Unmarshal([]byte(doc), &parsed); err != nil {
+		return ""
+	}
+
+	return parsed.InstanceID
+}
+
 func (h *Handler) handleRegisterContainerInstance(
 	_ context.Context,
 	in *registerContainerInstanceInput,
 ) (*registerContainerInstanceOutput, error) {
-	ci, err := h.Backend.RegisterContainerInstance(in.Cluster, in.EC2InstanceID)
+	ec2InstanceID := ec2InstanceIDFromIdentityDocument(in.InstanceIdentityDocument)
+
+	ci, err := h.Backend.RegisterContainerInstance(in.Cluster, ec2InstanceID)
 	if err != nil {
 		return nil, err
 	}

@@ -105,15 +105,23 @@ func TestCapacityProvider_FARGATE_Types(t *testing.T) {
 	assert.Contains(t, names, "FARGATE_SPOT")
 }
 
+// TestCapacityProvider_Update_ManagedScaling proves UpdateCapacityProvider's
+// autoScalingGroupProvider wire shape matches the real
+// AutoScalingGroupProviderUpdate: no autoScalingGroupArn field (a real typed
+// client cannot send one -- the ASG a capacity provider wraps cannot be
+// swapped after creation), yet the ARN set at creation time must survive an
+// update that only touches managedScaling.
 func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
+	const wantArn = "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:asg-3"
+
 	doECSRequest(t, h, "CreateCapacityProvider", map[string]any{
 		"name": "asg-update-cp",
 		"autoScalingGroupProvider": map[string]any{
-			"autoScalingGroupArn": "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:asg-3",
+			"autoScalingGroupArn": wantArn,
 			"managedScaling": map[string]any{
 				"status":                "ENABLED",
 				"targetCapacityPercent": 75,
@@ -124,7 +132,6 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 	resp := doECSRequest(t, h, "UpdateCapacityProvider", map[string]any{
 		"name": "asg-update-cp",
 		"autoScalingGroupProvider": map[string]any{
-			"autoScalingGroupArn": "arn:aws:autoscaling:us-east-1:000000000000:autoScalingGroup:asg-3",
 			"managedScaling": map[string]any{
 				"status":                "ENABLED",
 				"targetCapacityPercent": 90,
@@ -139,6 +146,8 @@ func TestCapacityProvider_Update_ManagedScaling(t *testing.T) {
 	asg := cp["autoScalingGroupProvider"].(map[string]any)
 	ms := asg["managedScaling"].(map[string]any)
 	assert.InDelta(t, float64(90), ms["targetCapacityPercent"], 0.001)
+	assert.Equal(t, wantArn, asg["autoScalingGroupArn"],
+		"the ASG's ARN must survive an update since it cannot be changed")
 }
 
 func TestCapacityProvider_DeleteByARN(t *testing.T) {
@@ -538,8 +547,11 @@ func TestECS_UpdateCapacityProvider(t *testing.T) {
 		wantCode int
 	}{
 		{
+			// No status field: the real UpdateCapacityProviderRequest has
+			// no such field (status only ever transitions via
+			// CreateCapacityProvider/DeleteCapacityProvider).
 			name:     "update existing",
-			input:    map[string]any{"name": "my-cp", "status": "ACTIVE"},
+			input:    map[string]any{"name": "my-cp"},
 			wantCode: http.StatusOK,
 		},
 		{

@@ -272,7 +272,9 @@ func (b *InMemoryBackend) UpdateClusterSettings(
 	return &cp, nil
 }
 
-// UpdateCluster updates an ECS cluster's capacity providers, default strategy, or settings.
+// UpdateCluster updates an ECS cluster's settings. Capacity-provider
+// association is not part of this operation in real AWS -- see
+// PutClusterCapacityProviders for that.
 func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
@@ -282,20 +284,6 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	c, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, input.Cluster)
-	}
-
-	if input.DefaultCapacityProviderStrategy != nil {
-		if err := b.validateCapacityProviderStrategyLocked(input.DefaultCapacityProviderStrategy); err != nil {
-			return nil, err
-		}
-	}
-
-	if input.CapacityProviders != nil {
-		c.CapacityProviders = input.CapacityProviders
-	}
-
-	if input.DefaultCapacityProviderStrategy != nil {
-		c.DefaultCapacityProviderStrategy = input.DefaultCapacityProviderStrategy
 	}
 
 	if input.Settings != nil {

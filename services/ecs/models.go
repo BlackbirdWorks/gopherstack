@@ -280,20 +280,22 @@ type DeploymentAlarms struct {
 
 // ---- Cluster/capacity-provider/task update input models ----
 
-// UpdateClusterInput holds input for UpdateCluster.
+// UpdateClusterInput holds input for UpdateCluster. Note this does not
+// include CapacityProviders/DefaultCapacityProviderStrategy: the real
+// UpdateClusterRequest has no such fields (only cluster, settings,
+// configuration, serviceConnectDefaults) -- capacity-provider association is
+// exclusively managed by the separate PutClusterCapacityProviders operation.
 type UpdateClusterInput struct {
-	Cluster                         string
-	CapacityProviders               []string
-	DefaultCapacityProviderStrategy []CapacityProviderStrategyItem
-	Settings                        []ClusterSetting
+	Cluster  string
+	Settings []ClusterSetting
 }
 
-// UpdateCapacityProviderInput holds input for UpdateCapacityProvider.
+// UpdateCapacityProviderInput holds input for UpdateCapacityProvider. Note
+// this has no Status or Tags: the real UpdateCapacityProviderRequest only
+// has name, cluster, autoScalingGroupProvider, and managedInstancesProvider.
 type UpdateCapacityProviderInput struct {
+	AutoScalingGroupProvider *AutoScalingGroupProviderUpdate
 	Name                     string
-	Status                   string
-	AutoScalingGroupProvider *AutoScalingGroupProvider
-	Tags                     []Tag
 }
 
 // StartTaskInput holds input for StartTask (place a task on a specific container instance).
@@ -329,6 +331,18 @@ type AutoScalingGroupProvider struct {
 	ManagedScaling               *ManagedScaling `json:"managedScaling,omitempty"`
 	ManagedTerminationProtection string          `json:"managedTerminationProtection,omitempty"`
 	ManagedDraining              string          `json:"managedDraining,omitempty"`
+}
+
+// AutoScalingGroupProviderUpdate holds the mutable subset of
+// AutoScalingGroupProvider that UpdateCapacityProvider can change. Unlike
+// AutoScalingGroupProvider (used at creation time), it has no
+// AutoScalingGroupArn: the ASG a capacity provider wraps cannot be swapped
+// after creation, matching the real UpdateCapacityProviderRequest's
+// AutoScalingGroupProviderUpdate shape.
+type AutoScalingGroupProviderUpdate struct {
+	ManagedScaling               *ManagedScaling
+	ManagedTerminationProtection string
+	ManagedDraining              string
 }
 
 // CapacityProvider represents an ECS capacity provider.
