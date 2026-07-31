@@ -106,34 +106,3 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 
 	return nil
 }
-
-// UpdateKnowledgeBaseDocuments upserts document records in a KB data source.
-func (b *InMemoryBackend) UpdateKnowledgeBaseDocuments(
-	kbID, dsID string,
-	documentIDs []string,
-) ([]*KnowledgeBaseDocument, error) {
-	b.mu.Lock("UpdateKnowledgeBaseDocuments")
-	defer b.mu.Unlock()
-
-	docs := make([]*KnowledgeBaseDocument, 0, len(documentIDs))
-
-	for _, docID := range documentIDs {
-		key := kbDocKey(kbID, dsID, docID)
-		doc, ok := b.kbDocuments.Get(key)
-
-		if !ok {
-			doc = &KnowledgeBaseDocument{
-				KnowledgeBaseID: kbID,
-				DataSourceID:    dsID,
-				DocumentID:      docID,
-				Status:          docStatusActive,
-			}
-			b.kbDocuments.Put(doc)
-		}
-
-		cp := *doc
-		docs = append(docs, &cp)
-	}
-
-	return docs, nil
-}

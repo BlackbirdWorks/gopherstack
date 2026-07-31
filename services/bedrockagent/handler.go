@@ -667,10 +667,14 @@ func (h *Handler) dispatchKBDocuments(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/documents")
 
+	// IngestKnowledgeBaseDocuments (PUT) and ListKnowledgeBaseDocuments (POST)
+	// share this exact collection path on the real wire, distinguished only by
+	// method -- POST is NOT an Ingest synonym here. GET is accepted too as
+	// harmless extra leniency (no real client sends it).
 	switch {
-	case rest == "" && method == http.MethodPost:
+	case rest == "" && method == http.MethodPut:
 		return h.handleIngestKBDocs(ctx, c, kbID, dsID, body)
-	case rest == "" && method == http.MethodGet:
+	case rest == "" && (method == http.MethodPost || method == http.MethodGet):
 		return h.handleListKBDocs(ctx, c, kbID, dsID)
 	case rest == "/deleteDocuments":
 		return h.handleDeleteKBDocs(ctx, c, kbID, dsID, body)

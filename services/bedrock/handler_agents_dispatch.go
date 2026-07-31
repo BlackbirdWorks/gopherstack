@@ -123,12 +123,11 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		// bedrock-agent operation. Real AWS's IngestKnowledgeBaseDocuments (PUT,
 		// already advertised above) both adds and updates documents -- there is no
 		// separate update call. dispatchDocumentOps (handler_knowledge_base_documents.go)
-		// still routes PUT to a separate handleUpdateKBDocuments for this package's own
-		// tests, but a real client's PUT (real IngestKnowledgeBaseDocuments) would hit
-		// this route too since dispatch here is by HTTP method, not operation name --
-		// see that file's dispatchDocumentOps for the resulting wire-shape mismatch
-		// (POST/PUT/GET on this path don't match the real Ingest/List/Get/Delete method
-		// assignment) noted for a future pass.
+		// now routes PUT on the base .../documents path to real Ingest and POST (GET
+		// too, as harmless leniency) to real List; the fabricated PUT-means-Update
+		// handler (handleUpdateKBDocuments) and its backend method were deleted --
+		// see PARITY.md for the fix history (previously SEVERE: List and Delete were
+		// both unreachable via their real wire shape, silently hitting Ingest instead).
 		// Ingestion job management
 		"StopIngestionJob",
 		// Resource tags (agent-domain)

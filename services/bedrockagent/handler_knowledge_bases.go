@@ -224,9 +224,9 @@ func classifyDocPath(method string, segs []string) string {
 	}
 
 	switch method {
-	case http.MethodPost:
+	case http.MethodPut:
 		return opIngestKnowledgeBaseDocuments
-	case http.MethodGet:
+	case http.MethodPost, http.MethodGet:
 		return opListKnowledgeBaseDocuments
 	}
 

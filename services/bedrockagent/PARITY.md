@@ -8,23 +8,29 @@ service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.0   # version audited against
 last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
 last_audit_date: 2026-07-25
-overall: B            # DOWNGRADED A->B (parity-5/phantom-triage pass, 2026-07-31): the
-                      # IngestKnowledgeBaseDocuments and ListKnowledgeBaseDocuments rows
-                      # below were marked wire: ok but are wrong — see their corrected
-                      # notes and the new gaps entry. IngestKnowledgeBaseDocuments (real:
-                      # PUT to .../datasources/{id}/documents) has NO matching case in
-                      # dispatchKBDocuments (handler.go) at all and 404s
-                      # ("unknown kb docs op") for a real client; ListKnowledgeBaseDocuments
-                      # (real: POST to the same base path) is routed to Ingest's handler
-                      # instead of List's, because the dispatch treats POST-on-base as
-                      # always meaning Ingest (matching this package's own test helper,
-                      # ingestionFixture.ingestDocs, which POSTs to ingest — i.e. the tests
-                      # were written against the emulator's own wrong convention, not the
-                      # real SDK's, the "unit tests are not parity proof" trap named in
-                      # .claude/memories/parity-principles.md #3). NOT FIXED this pass: a
-                      # correct fix requires re-plumbing dispatchKBDocuments AND rewriting
-                      # every test built on the current convention — out of scope for a
-                      # phantom-operation triage pass. See gaps.
+overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
+                      # bug that caused the prior A->B downgrade is fixed and proven.
+                      # dispatchKBDocuments (handler.go) now assigns PUT on the base
+                      # .../documents path to real IngestKnowledgeBaseDocuments and POST
+                      # (GET too, as harmless leniency, matching the sibling
+                      # CreateDataSource/ListDataSources and StartIngestionJob/
+                      # ListIngestionJobs base-path conventions already in this file) to
+                      # real ListKnowledgeBaseDocuments — see classifyDocPath
+                      # (handler_knowledge_bases.go) for the matching fix to the
+                      # ExtractOperation-facing classifier. The test helper this was
+                      # blocked on (ingestionFixture.ingestDocs, one call site in
+                      # handler_ingestion_jobs_test.go) now issues a real PUT instead of
+                      # the emulator's-own-wrong-convention POST. A new regression test,
+                      # TestKBDocumentsRealWireRouting, drives both operations by their
+                      # real method+path and asserts each reaches its own handler; it was
+                      # confirmed to fail against the pre-fix code (PUT 404'd with
+                      # "unknown kb docs op") before the fix and passes after. No other
+                      # issue in this file was found to justify withholding the grade
+                      # restoration — the pre-existing GetPrompt/DeletePrompt promptVersion
+                      # partial-gap rows below are unrelated and predate this downgrade
+                      # (already present under the prior A grade). See the corrected
+                      # IngestKnowledgeBaseDocuments/ListKnowledgeBaseDocuments rows and
+                      # gaps entry for detail.
                       # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -213,28 +219,31 @@ ops:
     promptVersion query param, which DeletePrompt does not implement).
     Removed from GetSupportedOperations() this pass; route/state kept for
     this package's own tests."}
-  IngestKnowledgeBaseDocuments: {wire: gap, errors: ok, state: ok, persist: ok,
-    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): was marked wire:
-    ok, which was wrong. Real IngestKnowledgeBaseDocuments is PUT to
-    .../datasources/{id}/documents; dispatchKBDocuments (handler.go) has no
-    case for PUT at that path at all — a real client's real, correctly-formed
-    request 404s ('unknown kb docs op'). Currently reachable only via POST
-    (which this package's own tests, and gopherstack's own StartIngestionJob
-    flow, use instead — matching neither the real Ingest method (PUT) nor the
-    real List method (POST), see ListKnowledgeBaseDocuments row). NOT FIXED
-    this pass — re-plumbing this and its tests is out of scope for a
-    phantom-operation triage pass. See gaps."}
+  IngestKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
+    (handler.go) had no case for PUT to the base .../datasources/{id}/documents
+    path at all, so a real client's real, correctly-formed request 404'd
+    ('unknown kb docs op'). Now routed on PUT, verified against the vendored
+    SDK's IngestKnowledgeBaseDocuments.request.snap. classifyDocPath
+    (handler_knowledge_bases.go), the parallel ExtractOperation-facing
+    classifier, updated to match. See TestKBDocumentsRealWireRouting
+    (handler_ingestion_jobs_test.go) for the regression coverage, and the
+    gaps entry below for the fix history."}
   GetKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListKnowledgeBaseDocuments: {wire: gap, errors: ok, state: ok, persist: ok,
-    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): was marked wire:
-    ok, which was wrong. Real ListKnowledgeBaseDocuments is POST to the base
-    .../documents path; dispatchKBDocuments routes POST-on-base to
-    handleIngestKBDocs unconditionally (see IngestKnowledgeBaseDocuments row)
-    — a real client's real ListKnowledgeBaseDocuments call gets Ingest's
-    behavior instead of a list. GET-on-base (what this package's tests use
-    for listing) is not a real wire shape for this operation at all. NOT
-    FIXED this pass — see gaps."}
+  ListKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (parity-5, 2026-07-31, follow-up pass): dispatchKBDocuments
+    routed POST-on-base unconditionally to handleIngestKBDocs (see
+    IngestKnowledgeBaseDocuments row), so a real client's real
+    ListKnowledgeBaseDocuments call (POST to the base .../documents path,
+    verified against the vendored SDK's ListKnowledgeBaseDocuments.request.snap)
+    got Ingest's upsert behavior instead of a listing. Now routed on POST
+    (GET accepted too, as harmless extra leniency matching the sibling
+    CreateDataSource/ListDataSources and StartIngestionJob/ListIngestionJobs
+    base-path conventions already in this file — no real client sends it, but
+    it's a superset of the real API, not a divergence from it). classifyDocPath
+    updated to match. See TestKBDocumentsRealWireRouting for the regression
+    coverage."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -280,26 +289,28 @@ gaps:
     routes/backend state kept as internal-only (used by this package's own tests,
     unreachable by a real SDK client which would never construct
     /prompts/{id}/versions/{ver}). See GetPromptVersion/DeletePromptVersion ops rows."
-  - "SEVERE, found while investigating the above (parity-5/phantom-triage, 2026-07-31):
-    dispatchKBDocuments (handler.go) has no case at all for PUT to the base
-    .../documents path — real IngestKnowledgeBaseDocuments (PUT) 404s
-    ('unknown kb docs op') for a real client. Separately, real
-    ListKnowledgeBaseDocuments (POST to the same base path) is routed to
-    handleIngestKBDocs (the same handler POST currently maps to for this package's own
-    ingest flow), not to a list handler — a real client's List call gets Ingest's
-    upsert-by-documentId behavior instead of a listing. GetKnowledgeBaseDocuments
-    (POST .../getDocuments) and DeleteKnowledgeBaseDocuments (POST
-    .../deleteDocuments) ARE correctly routed (dispatchKBDocuments checks those path
-    suffixes explicitly, method-agnostically). Both previously-affected ops' PARITY
-    rows were incorrectly marked wire: ok before this pass; corrected. NOT FIXED:
+  - "FIXED (parity-5, 2026-07-31, follow-up pass) — was: 'SEVERE, found while
+    investigating the above (parity-5/phantom-triage, 2026-07-31): dispatchKBDocuments
+    (handler.go) has no case at all for PUT to the base .../documents path...
+    Downgraded overall: A->B for this.' Re-verified both real wire shapes against the
+    vendored SDK's request snapshots (aws-sdk-go-v2/service/bedrockagent
+    IngestKnowledgeBaseDocuments.request.snap: PUT to the base
+    .../datasources/{id}/documents path; ListKnowledgeBaseDocuments.request.snap: POST
+    to the same base path) before touching dispatch, per
+    .claude/memories/parity-principles.md #2. dispatchKBDocuments now routes PUT to
+    handleIngestKBDocs and POST (GET too, as harmless leniency) to handleListKBDocs;
+    classifyDocPath (handler_knowledge_bases.go, the parallel ExtractOperation-facing
+    classifier) updated to match. The blocking issue named in the prior pass —
     this package's own test helper (ingestionFixture.ingestDocs,
-    handler_ingestion_jobs_test.go) and every test built on it POST to ingest,
-    matching the current wrong convention — a correct fix means re-plumbing
-    dispatchKBDocuments' base-path method assignment (PUT->Ingest, POST->List) AND
-    rewriting those tests, out of scope for a phantom-operation triage pass.
-    Downgraded overall: A->B for this — two already-advertised real operations,
-    previously documented as fully correct, are actually broken for a real client.
-    (bd: file follow-up — this is the priority fix for this service)"
+    handler_ingestion_jobs_test.go) POSTing to ingest, matching the emulator's own
+    wrong convention instead of the real SDK's — is fixed: the helper's one call site
+    now issues a real PUT. Added TestKBDocumentsRealWireRouting
+    (handler_ingestion_jobs_test.go), which drives both operations by their real
+    method+path and asserts each reaches its own handler; confirmed failing against
+    the pre-fix code (PUT 404'd with 'unknown kb docs op') before applying the fix.
+    GetKnowledgeBaseDocuments (POST .../getDocuments) and DeleteKnowledgeBaseDocuments
+    (POST .../deleteDocuments) were already correctly routed and are unaffected.
+    Restored overall: B->A."
   - "ValidateFlowDefinition always returns zero validation errors regardless of
     the definition passed — acceptable for a permissive emulator (the op still
     reads real state and returns the AWS-accurate empty-array shape); not a
