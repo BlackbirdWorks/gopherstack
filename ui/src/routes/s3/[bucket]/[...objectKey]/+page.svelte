@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount, onDestroy } from 'svelte';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { newS3Client, getStoredRegion } from '$lib/aws/client';
+import { getS3Client } from '$lib/aws-client';
+import { currentRegion } from '$lib/region.svelte';
+import { onRegionChange } from '$lib/region-effect.svelte';
 import {
 HeadObjectCommand,
 GetObjectCommand,
@@ -17,7 +18,7 @@ type Tag
 import { toast } from 'svelte-sonner';
 import { Download, Trash2, Edit, ChevronLeft, Clock, FileText, Tag as TagIcon, Link, Eye } from 'lucide-svelte';
 
-let s3 = newS3Client();
+const s3 = getS3Client();
 
 interface ObjectMetadata {
 ContentType?: string;
@@ -66,9 +67,7 @@ const expiryOptions = [
 { label: '7 days', seconds: 604800 }
 ];
 
-let regionChangeCleanup: (() => void) | null = null;
-
-onMount(async () => {
+async function loadAll(): Promise<void> {
 const bucketParam = String(page.params.bucket ?? '');
 const objectKeyParam = String(page.params.objectKey ?? '');
 bucket = bucketParam;
@@ -76,27 +75,9 @@ objectKey = objectKeyParam;
 await loadObjectMetadata();
 await loadObjectVersions();
 await loadObjectTags();
-
-const handleRegionChange = (e: Event) => {
-const region = e instanceof CustomEvent && typeof e.detail === 'string'
-? e.detail
-: getStoredRegion();
-s3 = newS3Client(region);
-};
-window.addEventListener('gopherstack:region-change', handleRegionChange);
-const handleStorage = (e: StorageEvent) => {
-if (e.key === 'gopherstack_region' && e.newValue) {
-s3 = newS3Client(e.newValue);
 }
-};
-window.addEventListener('storage', handleStorage);
-regionChangeCleanup = () => {
-window.removeEventListener('gopherstack:region-change', handleRegionChange);
-window.removeEventListener('storage', handleStorage);
-};
-});
 
-onDestroy(() => { regionChangeCleanup?.(); });
+onRegionChange(loadAll);
 
 async function loadObjectMetadata() {
 try {
@@ -175,7 +156,7 @@ toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`
 // Do not use in production environments.
 function generatePresignedUrl() {
 const now = new Date();
-const region = getStoredRegion();
+const region = currentRegion();
 const dateShort = now.toISOString().slice(0, 10).replaceAll('-', '');
 const isoDate = now.toISOString().replaceAll('-', '').replaceAll(':', '').replace(/\.\d+Z$/, 'Z');
 const encodedKey = objectKey.split('/').map(seg => encodeURIComponent(seg)).join('/');

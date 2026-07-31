@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onRegionChange } from '$lib/region-effect.svelte';
 	import { getDAXClient } from '$lib/aws-client';
-	import { getStoredRegion } from '$lib/aws/client';
 	import {
 		DescribeClustersCommand,
 		DescribeParameterGroupsCommand,
@@ -25,8 +24,7 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { RefreshCw, Search, Zap, Plus, Trash2 } from 'lucide-svelte';
 
-	let currentRegion = $state(getStoredRegion());
-	let client = $state(getDAXClient(currentRegion));
+	const client = getDAXClient();
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -72,23 +70,7 @@
 		loadData();
 	}
 
-	function handleRegionChange(e: Event) {
-		const ce = e as CustomEvent<string>;
-		currentRegion = ce.detail;
-		client = getDAXClient(currentRegion);
-		loadData();
-	}
-
-	onMount(() => {
-		loadData();
-		window.addEventListener('gopherstack:region-change', handleRegionChange);
-	});
-
-	onDestroy(() => {
-		if (typeof window !== 'undefined') {
-			window.removeEventListener('gopherstack:region-change', handleRegionChange);
-		}
-	});
+	onRegionChange(loadData);
 
 	async function createCluster() {
 		// eslint-disable-next-line no-alert

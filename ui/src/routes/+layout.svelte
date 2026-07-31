@@ -8,7 +8,7 @@
 	import { initializeTheme, isDarkTheme, setTheme, themes, type ThemeName } from '$lib/theme';
 	import ServiceIcon from '$lib/components/ServiceIcon.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
-	import { getStoredRegion, setStoredRegion } from '$lib/aws/client';
+	import { currentRegion, setStoredRegion } from '$lib/region.svelte';
 	import { registerConfirmDialog, unregisterConfirmDialog } from '$lib/confirm-dialog';
 
 	let { children } = $props();
@@ -62,11 +62,9 @@
 		'eu-central-1', 'eu-west-1', 'eu-west-2',
 		'ap-south-1', 'ap-northeast-1', 'ap-southeast-1', 'ap-southeast-2'
 	];
-	let currentRegion = $state('us-east-1');
 	let regionDropdownOpen = $state(false);
 
 	function selectRegion(region: string) {
-		currentRegion = region;
 		setStoredRegion(region);
 		regionDropdownOpen = false;
 	}
@@ -86,7 +84,6 @@
 			return confirmDialog.show(options);
 		};
 		registerConfirmDialog(confirmHandler);
-		currentRegion = getStoredRegion();
 		theme = initializeTheme(document, window.localStorage, window.matchMedia('(prefers-color-scheme: dark)').matches);
 		sidebarMini = window.localStorage.getItem('gopherstack-sidebar-mini') === 'true';
 		
@@ -212,14 +209,14 @@
 				<div class="relative">
 					<button onclick={() => regionDropdownOpen = !regionDropdownOpen} type="button" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-medium text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors" title="Switch region" aria-haspopup="listbox" aria-expanded={regionDropdownOpen}>
 						<svg class="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" /></svg>
-						<span>{currentRegion}</span>
+						<span>{currentRegion()}</span>
 						<svg class={`w-3 h-3 transition-transform duration-200 ${regionDropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" /></svg>
 					</button>
 					{#if regionDropdownOpen}
 						<div class="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg z-50">
 							<div class="py-1 text-sm max-h-64 overflow-y-auto">
 								{#each AWS_REGIONS as region}
-									<button onclick={() => selectRegion(region)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 {currentRegion === region ? 'bg-slate-50 text-indigo-600 dark:bg-slate-700 dark:text-indigo-400 font-semibold' : ''}">
+									<button onclick={() => selectRegion(region)} class="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 {currentRegion() === region ? 'bg-slate-50 text-indigo-600 dark:bg-slate-700 dark:text-indigo-400 font-semibold' : ''}">
 										{region}
 									</button>
 								{/each}

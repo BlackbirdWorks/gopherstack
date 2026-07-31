@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount, onDestroy } from 'svelte';
-	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
-import { getDynamoDBStreamsClient } from '$lib/aws-client';
+	import { onDestroy } from 'svelte';
+	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
+import { currentRegion } from '$lib/region.svelte';
+import { onRegionChange } from '$lib/region-effect.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -51,8 +52,7 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
-	let ddb = $state(newDynamoDBClient());
-	let currentRegion = $state(getStoredRegion());
+	const ddb = getDynamoDBClient();
 
 	// Table List State
 	let tableNames = $state<string[]>([]);
@@ -1075,34 +1075,7 @@ function setPartiqlExample(query: string) {
 		}
 	}
 
-	onMount(() => {
-		currentRegion = getStoredRegion();
-		loadTables();
-
-		function refreshRegionClient(region: string | null | undefined): void {
-			if (!region || region === currentRegion) return;
-			currentRegion = region;
-			ddb = newDynamoDBClient(region);
-			void loadTables();
-		}
-
-		const handleStorage = (e: StorageEvent) => {
-			if (e.key === 'gopherstack_region') refreshRegionClient(e.newValue);
-		};
-		const handleRegionChange = (e: Event) => {
-			const region = e instanceof CustomEvent && typeof e.detail === 'string'
-				? e.detail
-				: getStoredRegion();
-			refreshRegionClient(region);
-		};
-
-		window.addEventListener('storage', handleStorage);
-		window.addEventListener('gopherstack:region-change', handleRegionChange);
-		return () => {
-			window.removeEventListener('storage', handleStorage);
-			window.removeEventListener('gopherstack:region-change', handleRegionChange);
-		};
-	});
+	onRegionChange(loadTables);
 	onDestroy(() => { stopStreamPolling(); });
 
 	$effect(() => {
@@ -2170,7 +2143,7 @@ function setPartiqlExample(query: string) {
 				</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
 					Manage your DynamoDB tables.
-					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{currentRegion}</span>
+					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{currentRegion()}</span>
 				</p>
 			</div>
 			<div class="flex gap-2">

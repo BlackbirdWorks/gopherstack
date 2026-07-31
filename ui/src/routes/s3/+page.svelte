@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
 import { goto } from '$app/navigation';
-import { newS3Client, getStoredRegion } from '$lib/aws/client';
+import { getS3Client } from '$lib/aws-client';
+import { currentRegion } from '$lib/region.svelte';
+import { onRegionChange } from '$lib/region-effect.svelte';
 import {
 ListBucketsCommand,
 CreateBucketCommand,
@@ -69,7 +70,7 @@ type LifecycleRule
 } from '@aws-sdk/client-s3';
 import { toast } from 'svelte-sonner';
 
-let s3 = newS3Client();
+const s3 = getS3Client();
 
 let buckets = $state<Bucket[]>([]);
 let loading = $state(true);
@@ -1339,30 +1340,7 @@ newCorsMethods = [...newCorsMethods, method];
 }
 }
 
-onMount(() => {
-loadBuckets();
-
-function refreshS3Client(region: string | null | undefined): void {
-if (!region) return;
-s3 = newS3Client(region);
-void loadBuckets();
-}
-const handleStorage = (e: StorageEvent) => {
-if (e.key === 'gopherstack_region') refreshS3Client(e.newValue);
-};
-const handleRegionChange = (e: Event) => {
-const region = e instanceof CustomEvent && typeof e.detail === 'string'
-? e.detail
-: getStoredRegion();
-refreshS3Client(region);
-};
-window.addEventListener('storage', handleStorage);
-window.addEventListener('gopherstack:region-change', handleRegionChange);
-return () => {
-window.removeEventListener('storage', handleStorage);
-window.removeEventListener('gopherstack:region-change', handleRegionChange);
-};
-});
+onRegionChange(loadBuckets);
 
 $effect(() => {
 if (bucketPage > totalBucketPages) {
@@ -1698,7 +1676,7 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
   {:else if websiteConfig}
     <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Status: <span class="font-medium text-green-600 dark:text-green-400">Enabled</span></p>
     {#if selectedBucket}
-    {@const websiteUrl = `http://${selectedBucket}.s3-website-${getStoredRegion() || 'us-east-1'}.amazonaws.com`}
+    {@const websiteUrl = `http://${selectedBucket}.s3-website-${currentRegion() || 'us-east-1'}.amazonaws.com`}
     <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
       <p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-1">Website Endpoint</p>
       <div class="flex items-center gap-2">

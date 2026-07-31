@@ -4,9 +4,9 @@ import DynamoDBPage from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws/client", () => ({
-  newDynamoDBClient: () => ({ send: mockSend }),
-  getStoredRegion: () => "us-east-1",
+vi.mock("$lib/aws-client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getDynamoDBClient: () => ({ send: mockSend }),
 }));
 
 vi.mock("svelte-sonner", () => ({

@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { page } from '$app/state';
-	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
+	import { getDynamoDBClient } from '$lib/aws-client';
+	import { onRegionChange } from '$lib/region-effect.svelte';
 	import {
 		DescribeTableCommand,
 		DescribeTimeToLiveCommand,
@@ -21,7 +22,7 @@
 	import { toast } from 'svelte-sonner';
 	import { itemToJson, avToJson } from '$lib/dynamodb';
 
-	let dynamodb = newDynamoDBClient();
+	const dynamodb = getDynamoDBClient();
 	const tableName = $derived(page.params.tableName ?? '');
 
 	// ── Core state ─────────────────────────────────────────────────────────────
@@ -397,28 +398,7 @@
 	}
 
 	// ── Lifecycle ──────────────────────────────────────────────────────────────
-	onMount(() => {
-		void loadState();
-		const handleRegionChange = (e: Event) => {
-			const region = e instanceof CustomEvent && typeof e.detail === 'string'
-				? e.detail
-				: getStoredRegion();
-			dynamodb = newDynamoDBClient(region);
-			void loadState();
-		};
-		const handleStorage = (e: StorageEvent) => {
-			if (e.key === 'gopherstack_region' && e.newValue) {
-				dynamodb = newDynamoDBClient(e.newValue);
-				void loadState();
-			}
-		};
-		window.addEventListener('gopherstack:region-change', handleRegionChange);
-		window.addEventListener('storage', handleStorage);
-		return () => {
-			window.removeEventListener('gopherstack:region-change', handleRegionChange);
-			window.removeEventListener('storage', handleStorage);
-		};
-	});
+	onRegionChange(loadState);
 	onDestroy(() => { stopStreamPolling(); });
 
 	$effect(() => {

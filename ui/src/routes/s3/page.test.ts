@@ -4,8 +4,9 @@ import S3Page from "./+page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws/client", () => ({
-  newS3Client: () => ({ send: mockSend }),
+vi.mock("$lib/aws-client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getS3Client: () => ({ send: mockSend }),
 }));
 
 vi.mock("svelte-sonner", () => ({

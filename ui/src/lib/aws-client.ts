@@ -86,8 +86,9 @@ import { PersonalizeClient } from "@aws-sdk/client-personalize";
 import { QuickSightClient } from "@aws-sdk/client-quicksight";
 import { RolesAnywhereClient } from "@aws-sdk/client-rolesanywhere";
 import { WorkMailClient } from "@aws-sdk/client-workmail";
-
-const defaultRegion = "us-east-1";
+import { S3Client } from "@aws-sdk/client-s3";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { regionProvider } from "$lib/region.svelte";
 
 function endpointURL(): string {
   if (typeof window === "undefined" || !window.location) {
@@ -97,15 +98,23 @@ function endpointURL(): string {
   return window.location.origin;
 }
 
-function clientConfig(region = defaultRegion) {
+function clientConfig(region?: string) {
   return {
     endpoint: endpointURL(),
-    region,
+    region: region ?? regionProvider,
     credentials: {
       accessKeyId: "test",
       secretAccessKey: "test",
     },
   };
+}
+
+export function getS3Client(region?: string): S3Client {
+  return new S3Client({ ...clientConfig(region), forcePathStyle: true });
+}
+
+export function getDynamoDBClient(region?: string): DynamoDBClient {
+  return new DynamoDBClient(clientConfig(region));
 }
 
 export function getElastiCacheClient(region?: string): ElastiCacheClient {
