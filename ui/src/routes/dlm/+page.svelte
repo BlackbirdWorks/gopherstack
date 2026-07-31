@@ -1,106 +1,669 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDLMClient } from '$lib/aws-client';
 	import {
 		GetLifecyclePoliciesCommand,
-		type LifecyclePolicySummary
+		GetLifecyclePolicyCommand,
+		CreateLifecyclePolicyCommand,
+		UpdateLifecyclePolicyCommand,
+		DeleteLifecyclePolicyCommand,
+		TagResourceCommand,
+		UntagResourceCommand,
+		type LifecyclePolicySummary,
+		type LifecyclePolicy
 	} from '@aws-sdk/client-dlm';
 	import { toast } from 'svelte-sonner';
-	import { CalendarClock, RefreshCw, Search } from 'lucide-svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { createTabLoader } from '$lib/tab-loader.svelte';
+	import { formatDate } from '$lib/format';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import DataTable from '$lib/components/DataTable.svelte';
+	import type { Column } from '$lib/components/data-table';
+	import Modal from '$lib/components/Modal.svelte';
+	import { CalendarClock, Plus, Trash2, Eye, Pencil, X } from 'lucide-svelte';
 
-	const client = getDLMClient();
+	// DLM has exactly one listable resource family (lifecycle policies) --
+	// TagResource/UntagResource/ListTagsForResource operate on a policy's own
+	// ARN and are not a separately listable family, so tag management lives
+	// inside the policy detail modal instead of getting its own tab.
+	const client = regionalClient(getDLMClient);
 
-	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
-	function statusClass(s: unknown): string {
-		return activeStatuses.has(String(s)) ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
+	type TabId = 'policies';
+
+	const tabs: TabDef[] = [{ id: 'policies', label: 'Lifecycle Policies' }];
+
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so both the toast and the inline
+	// error banner show the actual code, not just a generic message.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
 	}
 
-	let loading = $state(false);
-	let activeTab = $state<'policies'>('policies');
+	function stateClass(state: string | undefined): string {
+		if (state === 'ENABLED') {
+			return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+		}
+		if (state === 'ERROR') {
+			return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
+		}
+		return 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
+	}
+
+	let activeTab = $state<TabId>('policies');
 	let searchQuery = $state('');
-	let policiesData = $state<LifecyclePolicySummary[]>([]);
 
-	const filteredPolicies = $derived(policiesData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
+	let policies = $state<LifecyclePolicySummary[]>([]);
 
-	async function loadData() {
-		loading = true;
+	// GetLifecyclePolicies has no NextToken/pagination on the wire (confirmed
+	// against GetLifecyclePoliciesResponse in the vendored SDK types -- it
+	// carries only `Policies`), so there is no LoadMore here.
+	async function fetchPolicies(): Promise<void> {
+		const resp = await client().send(new GetLifecyclePoliciesCommand({}));
+		policies = resp.Policies ?? [];
+	}
+
+	// Wrap so a failure's message (captured by tab-loader as err.message)
+	// already contains the AWS error code/status rather than a bare string.
+	function rethrowDescribed(e: unknown): never {
+		throw new Error(describeError(e));
+	}
+
+	const tabLoader = createTabLoader<TabId>({
+		policies: () => fetchPolicies().catch(rethrowDescribed)
+	});
+
+	function switchTab(id: string): void {
+		activeTab = id as TabId;
+		searchQuery = '';
+		tabLoader.load(activeTab);
+	}
+
+	function handleRefresh(): void {
+		tabLoader.refresh(activeTab);
+	}
+
+	onRegionChange(() => {
+		tabLoader.refresh('policies');
+	});
+
+	const filteredPolicies = $derived(
+		policies.filter((p) => {
+			const q = searchQuery.toLowerCase();
+			if (!q) return true;
+			const tagsMatch = Object.entries(p.Tags ?? {}).some(([k, v]) =>
+				`${k}=${v}`.toLowerCase().includes(q)
+			);
+			return (
+				(p.PolicyId ?? '').toLowerCase().includes(q) ||
+				(p.Description ?? '').toLowerCase().includes(q) ||
+				(p.State ?? '').toLowerCase().includes(q) ||
+				(p.PolicyType ?? '').toLowerCase().includes(q) ||
+				tagsMatch
+			);
+		})
+	);
+
+	const activeTabError = $derived(tabLoader.getError(activeTab));
+
+	// --- Create ---
+
+	let createModal = $state<Modal | null>(null);
+	let creating = $state(false);
+	let createError = $state<string | null>(null);
+	let newDescription = $state('');
+	let newExecutionRoleArn = $state('');
+	let newState = $state<'ENABLED' | 'DISABLED'>('ENABLED');
+	let newTags = $state<{ key: string; value: string }[]>([]);
+
+	function openCreateModal(): void {
+		createError = null;
+		newDescription = '';
+		newExecutionRoleArn = '';
+		newState = 'ENABLED';
+		newTags = [];
+		createModal?.open();
+	}
+
+	function addNewTagRow(): void {
+		newTags = [...newTags, { key: '', value: '' }];
+	}
+
+	function removeNewTagRow(index: number): void {
+		newTags = newTags.filter((_, i) => i !== index);
+	}
+
+	async function submitCreate(): Promise<void> {
+		if (!newDescription || !newExecutionRoleArn) {
+			createError = 'Description and execution role ARN are required.';
+			return;
+		}
+		creating = true;
+		createError = null;
 		try {
-			if (activeTab === 'policies') {
-				const resp = await client.send(new GetLifecyclePoliciesCommand({}));
-				policiesData = resp.Policies ?? [];
+			const tags: Record<string, string> = {};
+			for (const t of newTags) {
+				if (t.key) tags[t.key] = t.value;
 			}
+			await client().send(
+				new CreateLifecyclePolicyCommand({
+					Description: newDescription,
+					ExecutionRoleArn: newExecutionRoleArn,
+					State: newState,
+					Tags: Object.keys(tags).length > 0 ? tags : undefined
+				})
+			);
+			toast.success('Lifecycle policy created');
+			createModal?.close();
+			await tabLoader.refresh('policies');
 		} catch (e) {
-			toast.error('Failed to load Data Lifecycle Manager data: ' + String(e));
+			const msg = describeError(e);
+			createError = msg;
+			toast.error(msg);
 		} finally {
-			loading = false;
+			creating = false;
 		}
 	}
 
-	function switchTab(tab: typeof activeTab) {
-		activeTab = tab;
-		searchQuery = '';
-		loadData();
+	// --- Delete ---
+
+	async function handleDelete(p: LifecyclePolicySummary): Promise<void> {
+		if (!p.PolicyId) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete lifecycle policy',
+			message: `Delete lifecycle policy ${p.PolicyId}? This cannot be undone.`
+		});
+		if (!confirmed) return;
+		try {
+			await client().send(new DeleteLifecyclePolicyCommand({ PolicyId: p.PolicyId }));
+			toast.success('Lifecycle policy deleted');
+			await tabLoader.refresh('policies');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
-	onMount(loadData);
+	// --- Detail (with tag management) ---
+
+	let detailModal = $state<Modal | null>(null);
+	let viewedPolicy = $state<LifecyclePolicy | null>(null);
+	let detailLoading = $state(false);
+	let detailError = $state<string | null>(null);
+	let tagActionError = $state<string | null>(null);
+	let newTagKey = $state('');
+	let newTagValue = $state('');
+
+	async function openDetail(p: LifecyclePolicySummary): Promise<void> {
+		viewedPolicy = null;
+		detailError = null;
+		tagActionError = null;
+		newTagKey = '';
+		newTagValue = '';
+		detailModal?.open();
+		if (!p.PolicyId) return;
+		detailLoading = true;
+		try {
+			const resp = await client().send(new GetLifecyclePolicyCommand({ PolicyId: p.PolicyId }));
+			viewedPolicy = resp.Policy ?? null;
+		} catch (e) {
+			detailError = describeError(e);
+		} finally {
+			detailLoading = false;
+		}
+	}
+
+	async function refreshDetail(): Promise<void> {
+		if (!viewedPolicy?.PolicyId) return;
+		try {
+			const resp = await client().send(
+				new GetLifecyclePolicyCommand({ PolicyId: viewedPolicy.PolicyId })
+			);
+			viewedPolicy = resp.Policy ?? viewedPolicy;
+		} catch (e) {
+			detailError = describeError(e);
+		}
+	}
+
+	async function addTag(): Promise<void> {
+		if (!viewedPolicy?.PolicyArn || !newTagKey) return;
+		tagActionError = null;
+		try {
+			await client().send(
+				new TagResourceCommand({
+					ResourceArn: viewedPolicy.PolicyArn,
+					Tags: { [newTagKey]: newTagValue }
+				})
+			);
+			newTagKey = '';
+			newTagValue = '';
+			toast.success('Tag added');
+			await refreshDetail();
+			await tabLoader.refresh('policies');
+		} catch (e) {
+			const msg = describeError(e);
+			tagActionError = msg;
+			toast.error(msg);
+		}
+	}
+
+	async function removeTag(key: string): Promise<void> {
+		if (!viewedPolicy?.PolicyArn) return;
+		tagActionError = null;
+		try {
+			await client().send(
+				new UntagResourceCommand({ ResourceArn: viewedPolicy.PolicyArn, TagKeys: [key] })
+			);
+			toast.success('Tag removed');
+			await refreshDetail();
+			await tabLoader.refresh('policies');
+		} catch (e) {
+			const msg = describeError(e);
+			tagActionError = msg;
+			toast.error(msg);
+		}
+	}
+
+	// --- Edit (top-level fields only -- see PARITY notes on PolicyDetails) ---
+
+	let editModal = $state<Modal | null>(null);
+	let editing = $state(false);
+	let editError = $state<string | null>(null);
+	let editPolicyId = $state('');
+	let editDescription = $state('');
+	let editExecutionRoleArn = $state('');
+	let editState = $state<'ENABLED' | 'DISABLED'>('ENABLED');
+
+	function openEditModal(p: LifecyclePolicy): void {
+		editError = null;
+		editPolicyId = p.PolicyId ?? '';
+		editDescription = p.Description ?? '';
+		editExecutionRoleArn = p.ExecutionRoleArn ?? '';
+		editState = p.State === 'DISABLED' ? 'DISABLED' : 'ENABLED';
+		editModal?.open();
+	}
+
+	async function submitEdit(): Promise<void> {
+		if (!editPolicyId) return;
+		if (!editDescription || !editExecutionRoleArn) {
+			editError = 'Description and execution role ARN are required.';
+			return;
+		}
+		editing = true;
+		editError = null;
+		try {
+			await client().send(
+				new UpdateLifecyclePolicyCommand({
+					PolicyId: editPolicyId,
+					Description: editDescription,
+					ExecutionRoleArn: editExecutionRoleArn,
+					State: editState
+				})
+			);
+			toast.success('Lifecycle policy updated');
+			editModal?.close();
+			await tabLoader.refresh('policies');
+			await refreshDetail();
+		} catch (e) {
+			const msg = describeError(e);
+			editError = msg;
+			toast.error(msg);
+		} finally {
+			editing = false;
+		}
+	}
 </script>
 
 <div class="p-6 space-y-6">
-	<div class="flex items-center justify-between flex-wrap gap-3">
-		<div class="flex items-center gap-3">
-			<CalendarClock class="w-7 h-7 text-teal-500" />
-			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">Data Lifecycle Manager</h1>
-				<p class="text-sm text-gray-500 dark:text-gray-400">Automate EBS snapshot & AMI lifecycle</p>
-			</div>
-		</div>
-		<div class="flex items-center gap-2 flex-wrap">
-			<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-				<RefreshCw class="w-4 h-4" /> Refresh
+	<PageHeader
+		icon={CalendarClock}
+		title="Data Lifecycle Manager"
+		description="Automate EBS snapshot & AMI lifecycle"
+		onRefresh={handleRefresh}
+	>
+		{#snippet actions()}
+			<button
+				onclick={openCreateModal}
+				class="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 text-sm"
+			>
+				<Plus class="w-4 h-4" /> Create policy
 			</button>
-		</div>
-	</div>
+		{/snippet}
+	</PageHeader>
 
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
-			<div class="flex gap-2 flex-wrap">
-				{#each [['policies', 'Lifecycle Policies']] as [tab, label]}
-					<button onclick={() => switchTab(tab as typeof activeTab)}
-						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-teal-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
-						{label}
-					</button>
-				{/each}
-			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
-			</div>
+		<div
+			class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between"
+		>
+			<Tabs {tabs} active={activeTab} onSelect={switchTab} color="teal" />
+			<SearchInput bind:value={searchQuery} />
 		</div>
-		<div class="p-4">
-			{#if loading}
-				<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</div>
-			{:else if activeTab === 'policies'}
-				{#if filteredPolicies.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No lifecycle policies found</div>
-				{:else}
-					<div class="space-y-2">
-						{#each filteredPolicies as a}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3 min-w-0">
-									<CalendarClock class="w-5 h-5 text-teal-500 shrink-0" />
-									<div class="min-w-0">
-										<p class="font-medium text-gray-900 dark:text-white truncate">{a.PolicyId ?? '(unnamed)'}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{`${a.PolicyType ?? '-'} · ${a.Description ?? ''}`}</p>
-									</div>
-								</div>
-								{#if a.State}
-									<span class="text-xs px-2 py-1 rounded-full shrink-0 {statusClass(a.State)}">{a.State}</span>
-								{/if}
-							</div>
-						{/each}
+
+		<div class="p-4 space-y-4">
+			{#if activeTabError}
+				<div
+					role="alert"
+					class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+				>
+					<p class="font-medium">Failed to load data</p>
+					<p>{activeTabError}</p>
+				</div>
+			{/if}
+
+			{#if activeTab === 'policies'}
+				{#snippet policyStateCell(p: LifecyclePolicySummary)}
+					<span class="text-xs px-2 py-1 rounded-full {stateClass(p.State)}">{p.State ?? '—'}</span>
+				{/snippet}
+				{#snippet policyActionsCell(p: LifecyclePolicySummary)}
+					<div class="flex items-center gap-2 justify-end">
+						<button
+							onclick={() => openDetail(p)}
+							title="View"
+							aria-label="View policy {p.PolicyId}"
+							class="text-gray-400 hover:text-teal-500"><Eye class="w-4 h-4" /></button
+						>
+						<button
+							onclick={() => handleDelete(p)}
+							title="Delete"
+							aria-label="Delete policy {p.PolicyId}"
+							class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button
+						>
 					</div>
-				{/if}
+				{/snippet}
+				{@const policyColumns = [
+					{ key: 'PolicyId', label: 'Policy ID' },
+					{ key: 'Description', label: 'Description' },
+					{ key: 'State', label: 'State', render: policyStateCell },
+					{ key: 'PolicyType', label: 'Type' },
+					{ key: 'actions', label: '', render: policyActionsCell }
+				] as Column<LifecyclePolicySummary>[]}
+				<DataTable
+					rows={filteredPolicies}
+					rowKey={(p) => p.PolicyId ?? ''}
+					columns={policyColumns}
+					loading={tabLoader.isLoading('policies')}
+					emptyMessage="No lifecycle policies found"
+				/>
 			{/if}
 		</div>
 	</div>
 </div>
+
+<Modal bind:this={createModal} title="Create Lifecycle Policy">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="dlm-new-description" class="text-sm text-slate-600 dark:text-slate-300"
+					>Description</label
+				>
+				<input
+					id="dlm-new-description"
+					bind:value={newDescription}
+					placeholder="Daily EBS snapshots"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="dlm-new-role-arn" class="text-sm text-slate-600 dark:text-slate-300"
+					>Execution role ARN</label
+				>
+				<input
+					id="dlm-new-role-arn"
+					bind:value={newExecutionRoleArn}
+					placeholder="arn:aws:iam::123456789012:role/DLM-Role"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="dlm-new-state" class="text-sm text-slate-600 dark:text-slate-300">State</label>
+				<select
+					id="dlm-new-state"
+					bind:value={newState}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				>
+					<option value="ENABLED">ENABLED</option>
+					<option value="DISABLED">DISABLED</option>
+				</select>
+			</div>
+			<div>
+				<div class="flex items-center justify-between">
+					<span class="text-sm text-slate-600 dark:text-slate-300">Tags</span>
+					<button
+						type="button"
+						onclick={addNewTagRow}
+						class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add tag</button
+					>
+				</div>
+				{#each newTags as tag, index (index)}
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							bind:value={tag.key}
+							placeholder="Key"
+							aria-label="Tag key"
+							class="w-1/2 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+						/>
+						<input
+							bind:value={tag.value}
+							placeholder="Value"
+							aria-label="Tag value"
+							class="w-1/2 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+						/>
+						<button
+							type="button"
+							onclick={() => removeNewTagRow(index)}
+							aria-label="Remove tag row"
+							class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+						>
+					</div>
+				{/each}
+			</div>
+			<p class="text-xs text-slate-500 dark:text-slate-400">
+				Policy content (schedules, targets, retention rules) is not editable here -- see the
+				project follow-up notes.
+			</p>
+			{#if createError}
+				<p class="text-sm text-red-600 dark:text-red-400">{createError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => createModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitCreate}
+			disabled={creating}
+			class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+			>{creating ? 'Creating…' : 'Create'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={editModal} title="Edit Lifecycle Policy">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="dlm-edit-description" class="text-sm text-slate-600 dark:text-slate-300"
+					>Description</label
+				>
+				<input
+					id="dlm-edit-description"
+					bind:value={editDescription}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="dlm-edit-role-arn" class="text-sm text-slate-600 dark:text-slate-300"
+					>Execution role ARN</label
+				>
+				<input
+					id="dlm-edit-role-arn"
+					bind:value={editExecutionRoleArn}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="dlm-edit-state" class="text-sm text-slate-600 dark:text-slate-300">State</label>
+				<select
+					id="dlm-edit-state"
+					bind:value={editState}
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				>
+					<option value="ENABLED">ENABLED</option>
+					<option value="DISABLED">DISABLED</option>
+				</select>
+			</div>
+			{#if editError}
+				<p class="text-sm text-red-600 dark:text-red-400">{editError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => editModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitEdit}
+			disabled={editing}
+			class="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+			>{editing ? 'Saving…' : 'Save'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={detailModal} title="Lifecycle Policy">
+	{#snippet children()}
+		{#if detailLoading}
+			<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+		{:else if detailError}
+			<p class="text-sm text-red-600 dark:text-red-400">{detailError}</p>
+		{:else if viewedPolicy}
+			<dl class="text-sm space-y-2">
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Policy ID</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedPolicy.PolicyId ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Policy ARN</dt>
+					<dd class="break-all text-slate-900 dark:text-white">{viewedPolicy.PolicyArn ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Description</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedPolicy.Description ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Execution role ARN</dt>
+					<dd class="break-all text-slate-900 dark:text-white">
+						{viewedPolicy.ExecutionRoleArn ?? '—'}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">State</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedPolicy.State ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Status message</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedPolicy.StatusMessage ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
+					<dd class="text-slate-900 dark:text-white">{formatDate(viewedPolicy.DateCreated)}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Last modified</dt>
+					<dd class="text-slate-900 dark:text-white">{formatDate(viewedPolicy.DateModified)}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Tags</dt>
+					<dd class="text-slate-900 dark:text-white">
+						{#if Object.keys(viewedPolicy.Tags ?? {}).length === 0}
+							<span class="text-slate-500 dark:text-slate-400">No tags</span>
+						{:else}
+							<ul class="space-y-1">
+								{#each Object.entries(viewedPolicy.Tags ?? {}) as [key, value] (key)}
+									<li class="flex items-center gap-2">
+										<span
+											class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs"
+											>{key} = {value}</span
+										>
+										<button
+											onclick={() => removeTag(key)}
+											aria-label="Remove tag {key}"
+											class="text-gray-400 hover:text-red-500"><X class="w-3 h-3" /></button
+										>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								bind:value={newTagKey}
+								placeholder="Key"
+								aria-label="New tag key"
+								class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<input
+								bind:value={newTagValue}
+								placeholder="Value"
+								aria-label="New tag value"
+								class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+							/>
+							<button
+								type="button"
+								onclick={addTag}
+								class="px-2 py-1 text-xs rounded-lg bg-teal-600 text-white hover:bg-teal-700">Add</button
+							>
+						</div>
+						{#if tagActionError}
+							<p class="mt-1 text-sm text-red-600 dark:text-red-400">{tagActionError}</p>
+						{/if}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Policy details (read-only)</dt>
+					<dd class="text-slate-900 dark:text-white">
+						<pre
+							class="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-50 dark:bg-slate-900 p-2 text-xs">{JSON.stringify(
+								viewedPolicy.PolicyDetails ?? {},
+								null,
+								2
+							)}</pre>
+					</dd>
+				</div>
+			</dl>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => detailModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Close</button
+		>
+		{#if viewedPolicy}
+			<button
+				type="button"
+				onclick={() => viewedPolicy && openEditModal(viewedPolicy)}
+				class="flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700"
+				><Pencil class="w-4 h-4" /> Edit</button
+			>
+		{/if}
+	{/snippet}
+</Modal>
