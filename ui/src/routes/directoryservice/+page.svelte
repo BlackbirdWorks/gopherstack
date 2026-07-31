@@ -80,7 +80,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Network, Plus, Trash2, Eye, Pencil, Check } from 'lucide-svelte';
@@ -2131,14 +2131,14 @@
 						<button onclick={() => handleDeleteDir(d)} title="Delete" aria-label="Delete directory {d.Name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const dirColumns = [
+				{@const dirColumns = defineColumns<DirectoryDescription>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'DirectoryId', label: 'ID' },
 					{ key: 'Type', label: 'Type' },
 					{ key: 'Stage', label: 'Stage', render: dirStageCell },
 					{ key: 'LaunchTime', label: 'Launched', render: dirLaunchCell },
 					{ key: 'actions', label: '', render: dirActionsCell }
-				] as Column<DirectoryDescription>[]}
+				])}
 				<DataTable
 					rows={filteredDirs}
 					rowKey={(d) => d.DirectoryId ?? ''}
@@ -2161,7 +2161,7 @@
 						<button onclick={() => handleDeleteSnap(s)} title="Delete" aria-label="Delete snapshot {s.SnapshotId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const snapColumns = [
+				{@const snapColumns = defineColumns<Snapshot>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'SnapshotId', label: 'ID' },
 					{ key: 'DirectoryId', label: 'Directory' },
@@ -2169,7 +2169,7 @@
 					{ key: 'Status', label: 'Status', render: snapStatusCell },
 					{ key: 'StartTime', label: 'Started', render: snapStartCell },
 					{ key: 'actions', label: '', render: snapActionsCell }
-				] as Column<Snapshot>[]}
+				])}
 				<DataTable
 					rows={filteredSnaps}
 					rowKey={(s) => s.SnapshotId ?? ''}
@@ -2190,14 +2190,14 @@
 						<button onclick={() => handleDeleteTrust(t)} title="Delete" aria-label="Delete trust {t.TrustId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const trustColumns = [
+				{@const trustColumns = defineColumns<Trust>([
 					{ key: 'RemoteDomainName', label: 'Remote Domain' },
 					{ key: 'DirectoryId', label: 'Directory' },
 					{ key: 'TrustType', label: 'Type' },
 					{ key: 'TrustDirection', label: 'Direction' },
 					{ key: 'TrustState', label: 'State', render: trustStateCell },
 					{ key: 'actions', label: '', render: trustActionsCell }
-				] as Column<Trust>[]}
+				])}
 				<DataTable
 					rows={filteredTrusts}
 					rowKey={(t) => t.TrustId ?? ''}
@@ -2217,12 +2217,12 @@
 						<button onclick={() => handleDeleteCfwd(f)} title="Delete" aria-label="Delete forwarder {f.RemoteDomainName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const cfwdColumns = [
+				{@const cfwdColumns = defineColumns<ConditionalForwarder>([
 					{ key: 'RemoteDomainName', label: 'Remote Domain' },
 					{ key: 'DnsIpAddrs', label: 'DNS IPs', render: cfwdDnsCell },
 					{ key: 'ReplicationScope', label: 'Replication Scope' },
 					{ key: 'actions', label: '', render: cfwdActionsCell }
-				] as Column<ConditionalForwarder>[]}
+				])}
 				<DataTable
 					rows={filteredCfwds}
 					rowKey={(f) => f.RemoteDomainName ?? ''}
@@ -2240,12 +2240,12 @@
 						<button onclick={() => handleDeleteLogSub(l)} title="Delete" aria-label="Delete log subscription {l.DirectoryId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const logSubColumns = [
+				{@const logSubColumns = defineColumns<LogSubscription>([
 					{ key: 'DirectoryId', label: 'Directory' },
 					{ key: 'LogGroupName', label: 'Log Group' },
 					{ key: 'SubscriptionCreatedDateTime', label: 'Created', render: logSubCreatedCell },
 					{ key: 'actions', label: '', render: logSubActionsCell }
-				] as Column<LogSubscription>[]}
+				])}
 				<DataTable
 					rows={filteredLogSubs}
 					rowKey={(l) => l.DirectoryId ?? ''}
@@ -2267,13 +2267,13 @@
 						<button onclick={() => handleRemoveRoute(r)} title="Remove" aria-label="Remove route {r.CidrIp}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const routeColumns = [
+				{@const routeColumns = defineColumns<IpRouteInfo>([
 					{ key: 'CidrIp', label: 'CIDR' },
 					{ key: 'Description', label: 'Description' },
 					{ key: 'IpRouteStatusMsg', label: 'Status', render: routeStatusCell },
 					{ key: 'AddedDateTime', label: 'Added', render: routeAddedCell },
 					{ key: 'actions', label: '', render: routeActionsCell }
-				] as Column<IpRouteInfo>[]}
+				])}
 				<DataTable
 					rows={filteredIpRoutes}
 					rowKey={(r) => r.CidrIp ?? ''}
@@ -2295,13 +2295,13 @@
 						<button onclick={() => handleCancelSchema(s)} title="Cancel" aria-label="Cancel schema extension {s.SchemaExtensionId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const schemaColumns = [
+				{@const schemaColumns = defineColumns<SchemaExtensionInfo>([
 					{ key: 'SchemaExtensionId', label: 'ID' },
 					{ key: 'Description', label: 'Description' },
 					{ key: 'SchemaExtensionStatus', label: 'Status', render: schemaStatusCell },
 					{ key: 'StartDateTime', label: 'Started', render: schemaStartCell },
 					{ key: 'actions', label: '', render: schemaActionsCell }
-				] as Column<SchemaExtensionInfo>[]}
+				])}
 				<DataTable
 					rows={filteredSchemaExts}
 					rowKey={(s) => s.SchemaExtensionId ?? ''}
@@ -2323,14 +2323,14 @@
 						<button onclick={() => handleDeregisterCert(c)} title="Deregister" aria-label="Deregister certificate {c.CertificateId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const certColumns = [
+				{@const certColumns = defineColumns<CertificateInfo>([
 					{ key: 'CommonName', label: 'Common Name' },
 					{ key: 'CertificateId', label: 'ID' },
 					{ key: 'Type', label: 'Type' },
 					{ key: 'State', label: 'State', render: certStateCell },
 					{ key: 'ExpiryDateTime', label: 'Expires', render: certExpiryCell },
 					{ key: 'actions', label: '', render: certActionsCell }
-				] as Column<CertificateInfo>[]}
+				])}
 				<DataTable
 					rows={filteredCerts}
 					rowKey={(c) => c.CertificateId ?? ''}
@@ -2352,13 +2352,13 @@
 						<button onclick={() => handleDeregisterTopic(t)} title="Deregister" aria-label="Deregister event topic {t.TopicName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const topicColumns = [
+				{@const topicColumns = defineColumns<EventTopic>([
 					{ key: 'TopicName', label: 'Topic Name' },
 					{ key: 'DirectoryId', label: 'Directory' },
 					{ key: 'Status', label: 'Status', render: topicStatusCell },
 					{ key: 'CreatedDateTime', label: 'Created', render: topicCreatedCell },
 					{ key: 'actions', label: '', render: topicActionsCell }
-				] as Column<EventTopic>[]}
+				])}
 				<DataTable
 					rows={filteredEventTopics}
 					rowKey={(t) => `${t.DirectoryId ?? ''}/${t.TopicName ?? ''}`}
@@ -2378,14 +2378,14 @@
 						<button onclick={() => openDcDetail(d)} title="View" aria-label="View domain controller {d.DomainControllerId}" class="text-gray-400 hover:text-sky-500"><Eye class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const dcColumns = [
+				{@const dcColumns = defineColumns<DomainController>([
 					{ key: 'DomainControllerId', label: 'ID' },
 					{ key: 'DnsIpAddr', label: 'DNS IP' },
 					{ key: 'AvailabilityZone', label: 'AZ' },
 					{ key: 'Status', label: 'Status', render: dcStatusCell },
 					{ key: 'LaunchTime', label: 'Launched', render: dcLaunchCell },
 					{ key: 'actions', label: '', render: dcActionsCell }
-				] as Column<DomainController>[]}
+				])}
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					Domain controllers have no individual create/delete operation in the real API -- they are
 					provisioned and torn down automatically. The only real mutation is a directory-level resize
@@ -2414,13 +2414,13 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const regionColumns = [
+				{@const regionColumns = defineColumns<RegionDescription>([
 					{ key: 'RegionName', label: 'Region' },
 					{ key: 'RegionType', label: 'Type' },
 					{ key: 'Status', label: 'Status', render: regionStatusCell },
 					{ key: 'LaunchTime', label: 'Added', render: regionLaunchCell },
 					{ key: 'actions', label: '', render: regionActionsCell }
-				] as Column<RegionDescription>[]}
+				])}
 				<DataTable
 					rows={filteredRegions}
 					rowKey={(r) => r.RegionName ?? ''}
@@ -2442,13 +2442,13 @@
 						<button onclick={() => handleUnshareDir(s)} title="Unshare" aria-label="Unshare {s.SharedDirectoryId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const shareColumns = [
+				{@const shareColumns = defineColumns<SharedDirectory>([
 					{ key: 'SharedDirectoryId', label: 'Shared Directory ID' },
 					{ key: 'SharedAccountId', label: 'Shared Account' },
 					{ key: 'ShareMethod', label: 'Method' },
 					{ key: 'ShareStatus', label: 'Status', render: shareStatusCell },
 					{ key: 'actions', label: '', render: shareActionsCell }
-				] as Column<SharedDirectory>[]}
+				])}
 				<DataTable
 					rows={filteredSharedDirs}
 					rowKey={(s) => s.SharedDirectoryId ?? ''}
@@ -2470,14 +2470,14 @@
 						<button onclick={() => handleDeleteAssess(a)} title="Delete" aria-label="Delete assessment {a.AssessmentId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const assessColumns = [
+				{@const assessColumns = defineColumns<AssessmentSummary>([
 					{ key: 'AssessmentId', label: 'ID' },
 					{ key: 'DnsName', label: 'DNS Name' },
 					{ key: 'DirectoryId', label: 'Directory' },
 					{ key: 'Status', label: 'Status', render: assessStatusCell },
 					{ key: 'StartTime', label: 'Started', render: assessStartCell },
 					{ key: 'actions', label: '', render: assessActionsCell }
-				] as Column<AssessmentSummary>[]}
+				])}
 				<DataTable
 					rows={filteredAssessments}
 					rowKey={(a) => a.AssessmentId ?? ''}
@@ -2496,13 +2496,13 @@
 						<button onclick={() => openEditSettingModal(s)} title="Update" aria-label="Update setting {s.Name}" class="text-gray-400 hover:text-sky-500"><Pencil class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const settingColumns = [
+				{@const settingColumns = defineColumns<SettingEntry>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Type', label: 'Type' },
 					{ key: 'AppliedValue', label: 'Applied Value' },
 					{ key: 'RequestStatus', label: 'Status', render: settingStatusCell },
 					{ key: 'actions', label: '', render: settingActionsCell }
-				] as Column<SettingEntry>[]}
+				])}
 				<p class="text-xs text-gray-500 dark:text-gray-400">
 					Directory settings are predefined by AWS per directory type -- there is no create or delete
 					operation for an individual setting, only reading and updating its value.

@@ -49,7 +49,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Database, Plus, Trash2, Eye, Pencil } from 'lucide-svelte';
@@ -1155,13 +1155,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const apColumns = [
+				{@const apColumns = defineColumns<AccessPoint>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Bucket', label: 'Bucket' },
 					{ key: 'NetworkOrigin', label: 'Network Origin' },
 					{ key: 'Alias', label: 'Alias' },
 					{ key: 'actions', label: '', render: apActionsCell }
-				] as Column<AccessPoint>[]}
+				])}
 				<DataTable
 					rows={filteredAccessPoints}
 					rowKey={(a) => a.Name ?? ''}
@@ -1201,13 +1201,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const mrapColumns = [
+				{@const mrapColumns = defineColumns<MultiRegionAccessPointReport>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Alias', label: 'Alias' },
 					{ key: 'Status', label: 'Status', render: mrapStatusCell },
 					{ key: 'CreatedAt', label: 'Created', render: mrapCreatedCell },
 					{ key: 'actions', label: '', render: mrapActionsCell }
-				] as Column<MultiRegionAccessPointReport>[]}
+				])}
 				<DataTable
 					rows={filteredMraps}
 					rowKey={(m) => m.Name ?? ''}
@@ -1246,12 +1246,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const slcColumns = [
+				{@const slcColumns = defineColumns<ListStorageLensConfigurationEntry>([
 					{ key: 'Id', label: 'ID' },
 					{ key: 'HomeRegion', label: 'Home Region' },
 					{ key: 'IsEnabled', label: 'Status', render: slcEnabledCell },
 					{ key: 'actions', label: '', render: slcActionsCell }
-				] as Column<ListStorageLensConfigurationEntry>[]}
+				])}
 				<DataTable
 					rows={filteredStorageLensConfigs}
 					rowKey={(c) => c.Id ?? ''}
@@ -1287,11 +1287,11 @@
 						>
 					</div>
 				{/snippet}
-				{@const slgColumns = [
+				{@const slgColumns = defineColumns<ListStorageLensGroupEntry>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'StorageLensGroupArn', label: 'ARN' },
 					{ key: 'actions', label: '', render: slgActionsCell }
-				] as Column<ListStorageLensGroupEntry>[]}
+				])}
 				<DataTable
 					rows={filteredStorageLensGroups}
 					rowKey={(g) => g.Name ?? ''}
@@ -1330,13 +1330,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const locColumns = [
+				{@const locColumns = defineColumns<ListAccessGrantsLocationsEntry>([
 					{ key: 'AccessGrantsLocationId', label: 'ID' },
 					{ key: 'LocationScope', label: 'Scope' },
 					{ key: 'IAMRoleArn', label: 'IAM Role ARN' },
 					{ key: 'CreatedAt', label: 'Created', render: locCreatedCell },
 					{ key: 'actions', label: '', render: locActionsCell }
-				] as Column<ListAccessGrantsLocationsEntry>[]}
+				])}
 				<DataTable
 					rows={filteredGrantsLocations}
 					rowKey={(l) => l.AccessGrantsLocationId ?? ''}
@@ -1377,13 +1377,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const bucketColumns = [
+				{@const bucketColumns = defineColumns<RegionalBucket>([
 					{ key: 'Bucket', label: 'Bucket' },
 					{ key: 'OutpostId', label: 'Outpost ID' },
 					{ key: 'PublicAccessBlockEnabled', label: 'Public Access', render: bucketPabCell },
 					{ key: 'CreationDate', label: 'Created', render: bucketCreatedCell },
 					{ key: 'actions', label: '', render: bucketActionsCell }
-				] as Column<RegionalBucket>[]}
+				])}
 				<DataTable
 					rows={filteredBuckets}
 					rowKey={(b) => b.Bucket ?? ''}

@@ -24,7 +24,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Tag, Plus, Trash2, Eye, X, FileText, ShieldCheck } from 'lucide-svelte';
@@ -709,11 +709,11 @@
 						>
 					</div>
 				{/snippet}
-				{@const resourceColumns = [
+				{@const resourceColumns = defineColumns<ResourceTagMapping>([
 					{ key: 'ResourceARN', label: 'Resource ARN' },
 					{ key: 'Tags', label: 'Tags', render: resourceTagsCell },
 					{ key: 'actions', label: '', render: resourceActionsCell }
-				] as Column<ResourceTagMapping>[]}
+				])}
 				<DataTable
 					rows={filteredResources}
 					rowKey={(r) => r.ResourceARN ?? ''}
@@ -737,10 +737,10 @@
 						>
 					</div>
 				{/snippet}
-				{@const tagKeyColumns = [
+				{@const tagKeyColumns = defineColumns<TagKeyRow>([
 					{ key: 'Key', label: 'Tag Key' },
 					{ key: 'actions', label: '', render: tagKeyActionsCell }
-				] as Column<TagKeyRow>[]}
+				])}
 				<DataTable
 					rows={filteredTagKeys}
 					rowKey={(k) => k.Key}
@@ -816,13 +816,13 @@
 					</button>
 				</div>
 
-				{@const summaryColumns = [
+				{@const summaryColumns = defineColumns<Summary>([
 					{ key: 'Region', label: 'Region' },
 					{ key: 'ResourceType', label: 'Resource Type' },
 					{ key: 'TargetId', label: 'Target ID' },
 					{ key: 'TargetIdType', label: 'Target Type' },
 					{ key: 'NonCompliantResources', label: 'Non-Compliant' }
-				] as Column<Summary>[]}
+				])}
 				<DataTable
 					rows={filteredSummary}
 					rowKey={(s) => `${s.TargetId ?? ''}|${s.Region ?? ''}|${s.ResourceType ?? ''}`}

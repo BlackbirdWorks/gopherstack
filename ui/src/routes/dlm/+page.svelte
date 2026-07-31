@@ -21,7 +21,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import Modal from '$lib/components/Modal.svelte';
 	import { CalendarClock, Plus, Trash2, Eye, Pencil, X } from 'lucide-svelte';
 
@@ -380,13 +380,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const policyColumns = [
+				{@const policyColumns = defineColumns<LifecyclePolicySummary>([
 					{ key: 'PolicyId', label: 'Policy ID' },
 					{ key: 'Description', label: 'Description' },
 					{ key: 'State', label: 'State', render: policyStateCell },
 					{ key: 'PolicyType', label: 'Type' },
 					{ key: 'actions', label: '', render: policyActionsCell }
-				] as Column<LifecyclePolicySummary>[]}
+				])}
 				<DataTable
 					rows={filteredPolicies}
 					rowKey={(p) => p.PolicyId ?? ''}

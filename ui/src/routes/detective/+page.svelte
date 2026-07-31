@@ -30,7 +30,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Search, Plus, Trash2, Eye, Check, X } from 'lucide-svelte';
@@ -660,11 +660,11 @@
 						>
 					</div>
 				{/snippet}
-				{@const graphColumns = [
+				{@const graphColumns = defineColumns<Graph>([
 					{ key: 'Arn', label: 'ARN' },
 					{ key: 'CreatedTime', label: 'Created', render: graphCreatedCell },
 					{ key: 'actions', label: '', render: graphActionsCell }
-				] as Column<Graph>[]}
+				])}
 				<DataTable
 					rows={filteredGraphs}
 					rowKey={(g) => g.Arn ?? ''}
@@ -707,13 +707,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const memberColumns = [
+				{@const memberColumns = defineColumns<MemberDetail>([
 					{ key: 'AccountId', label: 'Account ID' },
 					{ key: 'EmailAddress', label: 'Email' },
 					{ key: 'Status', label: 'Status', render: memberStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: memberInvitedCell },
 					{ key: 'actions', label: '', render: memberActionsCell }
-				] as Column<MemberDetail>[]}
+				])}
 				<DataTable
 					rows={filteredMembers}
 					rowKey={(m) => m.AccountId ?? ''}
@@ -762,13 +762,13 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const invitationColumns = [
+				{@const invitationColumns = defineColumns<MemberDetail>([
 					{ key: 'GraphArn', label: 'Behavior Graph' },
 					{ key: 'AdministratorId', label: 'Administrator' },
 					{ key: 'Status', label: 'Status', render: invitationStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: invitationInvitedCell },
 					{ key: 'actions', label: '', render: invitationActionsCell }
-				] as Column<MemberDetail>[]}
+				])}
 				<DataTable
 					rows={filteredInvitations}
 					rowKey={(i) => i.GraphArn ?? ''}
@@ -806,7 +806,7 @@
 						>
 					</div>
 				{/snippet}
-				{@const investigationColumns = [
+				{@const investigationColumns = defineColumns<InvestigationDetail>([
 					{ key: 'InvestigationId', label: 'Investigation ID' },
 					{ key: 'EntityArn', label: 'Entity' },
 					{ key: 'Severity', label: 'Severity', render: investigationSeverityCell },
@@ -814,7 +814,7 @@
 					{ key: 'State', label: 'State' },
 					{ key: 'CreatedTime', label: 'Created', render: investigationCreatedCell },
 					{ key: 'actions', label: '', render: investigationActionsCell }
-				] as Column<InvestigationDetail>[]}
+				])}
 				<DataTable
 					rows={filteredInvestigations}
 					rowKey={(inv) => inv.InvestigationId ?? ''}

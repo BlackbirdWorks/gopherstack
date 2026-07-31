@@ -63,7 +63,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Table2, Plus, Trash2, Eye } from 'lucide-svelte';
@@ -1294,12 +1294,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const bucketColumns = [
+				{@const bucketColumns = defineColumns<TableBucketSummary>([
 					{ key: 'name', label: 'Name' },
 					{ key: 'ownerAccountId', label: 'Owner account', render: bucketOwnerCell },
 					{ key: 'createdAt', label: 'Created', render: bucketCreatedCell },
 					{ key: 'actions', label: '', render: bucketActionsCell }
-				] as Column<TableBucketSummary>[]}
+				])}
 				<DataTable
 					rows={filteredBuckets}
 					rowKey={(b) => b.arn ?? ''}
@@ -1331,12 +1331,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const namespaceColumns = [
+				{@const namespaceColumns = defineColumns<NamespaceSummary>([
 					{ key: 'namespace', label: 'Namespace', render: namespaceNameCell },
 					{ key: 'createdBy', label: 'Created by' },
 					{ key: 'createdAt', label: 'Created', render: namespaceCreatedCell },
 					{ key: 'actions', label: '', render: namespaceActionsCell }
-				] as Column<NamespaceSummary>[]}
+				])}
 				<DataTable
 					rows={filteredNamespaces}
 					rowKey={(n) => joinNamespace(n.namespace)}
@@ -1372,13 +1372,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const tableColumns = [
+				{@const tableColumns = defineColumns<TableSummary>([
 					{ key: 'name', label: 'Name' },
 					{ key: 'namespace', label: 'Namespace', render: tableNamespaceCell },
 					{ key: 'type', label: 'Type' },
 					{ key: 'modifiedAt', label: 'Modified', render: tableModifiedCell },
 					{ key: 'actions', label: '', render: tableActionsCell }
-				] as Column<TableSummary>[]}
+				])}
 				<DataTable
 					rows={filteredTables}
 					rowKey={(t) => t.tableARN ?? ''}

@@ -44,7 +44,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { ShieldCheck, Plus, Trash2, Eye, Archive, ArchiveRestore, Ban } from 'lucide-svelte';
@@ -885,13 +885,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const analyzerColumns = [
+				{@const analyzerColumns = defineColumns<AnalyzerSummary>([
 					{ key: 'name', label: 'Name' },
 					{ key: 'type', label: 'Type' },
 					{ key: 'status', label: 'Status', render: analyzerStatusCell },
 					{ key: 'createdAt', label: 'Created', render: analyzerCreatedCell },
 					{ key: 'actions', label: '', render: analyzerActionsCell }
-				] as Column<AnalyzerSummary>[]}
+				])}
 				<DataTable
 					rows={filteredAnalyzers}
 					rowKey={(a) => a.arn ?? ''}
@@ -927,12 +927,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const archiveRuleColumns = [
+				{@const archiveRuleColumns = defineColumns<ArchiveRuleSummary>([
 					{ key: 'ruleName', label: 'Rule Name' },
 					{ key: 'filter', label: 'Filter', render: ruleFilterCell },
 					{ key: 'updatedAt', label: 'Updated', render: ruleUpdatedCell },
 					{ key: 'actions', label: '', render: ruleActionsCell }
-				] as Column<ArchiveRuleSummary>[]}
+				])}
 				<DataTable
 					rows={filteredArchiveRules}
 					rowKey={(r) => r.ruleName ?? ''}
@@ -978,14 +978,14 @@
 						</button>
 					</div>
 				{/snippet}
-				{@const findingColumns = [
+				{@const findingColumns = defineColumns<FindingSummaryV2>([
 					{ key: 'id', label: 'ID' },
 					{ key: 'resource', label: 'Resource' },
 					{ key: 'resourceType', label: 'Resource Type' },
 					{ key: 'status', label: 'Status', render: findingStatusCell },
 					{ key: 'createdAt', label: 'Created', render: findingCreatedCell },
 					{ key: 'actions', label: '', render: findingActionsCell }
-				] as Column<FindingSummaryV2>[]}
+				])}
 				<DataTable
 					rows={filteredFindings}
 					rowKey={(f) => f.id ?? ''}
@@ -1016,12 +1016,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const analyzedResourceColumns = [
+				{@const analyzedResourceColumns = defineColumns<AnalyzedResourceSummary>([
 					{ key: 'resourceArn', label: 'Resource ARN' },
 					{ key: 'resourceType', label: 'Resource Type' },
 					{ key: 'resourceOwnerAccount', label: 'Owner Account' },
 					{ key: 'actions', label: '', render: resourceActionsCell }
-				] as Column<AnalyzedResourceSummary>[]}
+				])}
 				<DataTable
 					rows={filteredAnalyzedResources}
 					rowKey={(r) => r.resourceArn ?? ''}
@@ -1055,12 +1055,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const accessPreviewColumns = [
+				{@const accessPreviewColumns = defineColumns<AccessPreviewSummary>([
 					{ key: 'id', label: 'ID' },
 					{ key: 'status', label: 'Status', render: previewStatusCell },
 					{ key: 'createdAt', label: 'Created', render: previewCreatedCell },
 					{ key: 'actions', label: '', render: previewActionsCell }
-				] as Column<AccessPreviewSummary>[]}
+				])}
 				<DataTable
 					rows={filteredAccessPreviews}
 					rowKey={(ap) => ap.id ?? ''}
@@ -1102,13 +1102,13 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const policyGenerationColumns = [
+				{@const policyGenerationColumns = defineColumns<PolicyGeneration>([
 					{ key: 'jobId', label: 'Job ID' },
 					{ key: 'principalArn', label: 'Principal' },
 					{ key: 'status', label: 'Status', render: jobStatusCell },
 					{ key: 'startedOn', label: 'Started', render: jobStartedCell },
 					{ key: 'actions', label: '', render: jobActionsCell }
-				] as Column<PolicyGeneration>[]}
+				])}
 				<DataTable
 					rows={filteredPolicyGenerations}
 					rowKey={(pg) => pg.jobId ?? ''}

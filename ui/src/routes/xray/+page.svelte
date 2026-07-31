@@ -35,7 +35,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import {
@@ -1219,13 +1219,13 @@
 				{#snippet traceResponseTimeCell(trace: TraceSummary)}
 					{trace.ResponseTime != null ? `${(trace.ResponseTime * 1000).toFixed(0)}ms` : '—'}
 				{/snippet}
-				{@const traceColumns = [
+				{@const traceColumns = defineColumns<TraceSummary>([
 					{ key: 'status', label: 'Status', render: traceStatusCell },
 					{ key: 'id', label: 'Trace ID', render: traceIdCell },
 					{ key: 'duration', label: 'Duration', render: traceDurationCell },
 					{ key: 'http', label: 'HTTP', render: traceHttpCell },
 					{ key: 'responseTime', label: 'Response Time', render: traceResponseTimeCell }
-				] as Column<TraceSummary>[]}
+				])}
 				<DataTable
 					rows={filteredTraces}
 					rowKey={(t) => t.Id ?? ''}
@@ -1260,14 +1260,14 @@
 				{#snippet sgLatencyCell(svc: Service)}
 					{svc.SummaryStatistics?.TotalResponseTime != null ? `${(svc.SummaryStatistics.TotalResponseTime * 1000).toFixed(0)}ms` : '—'}
 				{/snippet}
-				{@const sgColumns = [
+				{@const sgColumns = defineColumns<Service>([
 					{ key: 'name', label: 'Service', render: sgNameCell },
 					{ key: 'type', label: 'Type', render: sgTypeCell },
 					{ key: 'requests', label: 'Requests', render: sgRequestsCell },
 					{ key: 'faults', label: 'Faults', render: sgFaultsCell },
 					{ key: 'errors', label: 'Errors', render: sgErrorsCell },
 					{ key: 'latency', label: 'Avg Latency', render: sgLatencyCell }
-				] as Column<Service>[]}
+				])}
 				<DataTable
 					rows={serviceGraphNodes}
 					rowKey={(svc) => svc.Name ?? ''}
@@ -1287,12 +1287,12 @@
 				{#snippet groupNameCell(g: GroupSummary)}{g.GroupName ?? '—'}{/snippet}
 				{#snippet groupFilterCell(g: GroupSummary)}{g.FilterExpression || '—'}{/snippet}
 				{#snippet groupInsightsCell(g: GroupSummary)}{g.InsightsConfiguration?.InsightsEnabled ? 'Enabled' : 'Disabled'}{/snippet}
-				{@const groupColumns = [
+				{@const groupColumns = defineColumns<GroupSummary>([
 					{ key: 'name', label: 'Group Name', render: groupNameCell },
 					{ key: 'filter', label: 'Filter Expression', render: groupFilterCell },
 					{ key: 'insights', label: 'Insights', render: groupInsightsCell },
 					{ key: 'actions', label: '', render: groupActionsCell }
-				] as Column<GroupSummary>[]}
+				])}
 				<DataTable
 					rows={filteredGroups}
 					rowKey={(g) => g.GroupName ?? ''}
@@ -1318,14 +1318,14 @@
 				{#snippet srFixedRateCell(r: SamplingRuleRecord)}{r.SamplingRule?.FixedRate ?? '—'}{/snippet}
 				{#snippet srReservoirCell(r: SamplingRuleRecord)}{r.SamplingRule?.ReservoirSize ?? '—'}{/snippet}
 				{#snippet srServiceCell(r: SamplingRuleRecord)}{r.SamplingRule?.ServiceName ?? '—'}{/snippet}
-				{@const srColumns = [
+				{@const srColumns = defineColumns<SamplingRuleRecord>([
 					{ key: 'name', label: 'Rule Name', render: srNameCell },
 					{ key: 'priority', label: 'Priority', render: srPriorityCell },
 					{ key: 'fixedRate', label: 'Fixed Rate', render: srFixedRateCell },
 					{ key: 'reservoir', label: 'Reservoir', render: srReservoirCell },
 					{ key: 'service', label: 'Service', render: srServiceCell },
 					{ key: 'actions', label: '', render: srActionsCell }
-				] as Column<SamplingRuleRecord>[]}
+				])}
 				<DataTable
 					rows={filteredSamplingRules}
 					rowKey={(r) => r.SamplingRule?.RuleName ?? ''}
@@ -1345,12 +1345,12 @@
 				{#snippet rpNameCell(p: ResourcePolicy)}{p.PolicyName ?? '—'}{/snippet}
 				{#snippet rpRevisionCell(p: ResourcePolicy)}{p.PolicyRevisionId ?? '—'}{/snippet}
 				{#snippet rpUpdatedCell(p: ResourcePolicy)}{formatDate(p.LastUpdatedTime)}{/snippet}
-				{@const rpColumns = [
+				{@const rpColumns = defineColumns<ResourcePolicy>([
 					{ key: 'name', label: 'Policy Name', render: rpNameCell },
 					{ key: 'revision', label: 'Revision ID', render: rpRevisionCell },
 					{ key: 'updated', label: 'Last Updated', render: rpUpdatedCell },
 					{ key: 'actions', label: '', render: rpActionsCell }
-				] as Column<ResourcePolicy>[]}
+				])}
 				<DataTable
 					rows={filteredResourcePolicies}
 					rowKey={(p) => p.PolicyName ?? ''}

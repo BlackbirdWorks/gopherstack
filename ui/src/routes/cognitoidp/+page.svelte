@@ -56,7 +56,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { UserCog, Plus, Trash2, Eye, Pencil, Check, X } from 'lucide-svelte';
@@ -1433,13 +1433,13 @@
 						<button onclick={() => handleDeletePool(p)} title="Delete" aria-label="Delete pool {p.Name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const poolColumns = [
+				{@const poolColumns = defineColumns<UserPoolDescriptionType>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Id', label: 'Pool ID' },
 					{ key: 'Status', label: 'Status', render: poolStatusCell },
 					{ key: 'CreationDate', label: 'Created', render: poolCreatedCell },
 					{ key: 'actions', label: '', render: poolActionsCell }
-				] as Column<UserPoolDescriptionType>[]}
+				])}
 				<DataTable
 					rows={filteredPools}
 					rowKey={(p) => p.Id ?? ''}
@@ -1471,13 +1471,13 @@
 						<button onclick={() => handleDeleteUser(u)} title="Delete" aria-label="Delete user {u.Username}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const userColumns = [
+				{@const userColumns = defineColumns<UserType>([
 					{ key: 'Username', label: 'Username' },
 					{ key: 'UserStatus', label: 'Status', render: userStatusCell },
 					{ key: 'Enabled', label: 'Enabled', render: userEnabledCell },
 					{ key: 'UserCreateDate', label: 'Created', render: userCreatedCell },
 					{ key: 'actions', label: '', render: userActionsCell }
-				] as Column<UserType>[]}
+				])}
 				<DataTable
 					rows={filteredUsers}
 					rowKey={(u) => u.Username ?? ''}
@@ -1494,12 +1494,12 @@
 						<button onclick={() => handleDeleteGroup(g)} title="Delete" aria-label="Delete group {g.GroupName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const groupColumns = [
+				{@const groupColumns = defineColumns<GroupType>([
 					{ key: 'GroupName', label: 'Group Name' },
 					{ key: 'Description', label: 'Description' },
 					{ key: 'Precedence', label: 'Precedence' },
 					{ key: 'actions', label: '', render: groupActionsCell }
-				] as Column<GroupType>[]}
+				])}
 				<DataTable
 					rows={filteredGroups}
 					rowKey={(g) => g.GroupName ?? ''}
@@ -1516,11 +1516,11 @@
 						<button onclick={() => handleDeleteClient(c)} title="Delete" aria-label="Delete client {c.ClientName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const clientColumns = [
+				{@const clientColumns = defineColumns<UserPoolClientDescription>([
 					{ key: 'ClientName', label: 'Client Name' },
 					{ key: 'ClientId', label: 'Client ID' },
 					{ key: 'actions', label: '', render: clientActionsCell }
-				] as Column<UserPoolClientDescription>[]}
+				])}
 				<DataTable
 					rows={filteredClients}
 					rowKey={(c) => c.ClientId ?? ''}
@@ -1540,12 +1540,12 @@
 						<button onclick={() => handleDeleteIdp(p)} title="Delete" aria-label="Delete provider {p.ProviderName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const idpColumns = [
+				{@const idpColumns = defineColumns<ProviderDescription>([
 					{ key: 'ProviderName', label: 'Provider Name' },
 					{ key: 'ProviderType', label: 'Type' },
 					{ key: 'CreationDate', label: 'Created', render: idpCreatedCell },
 					{ key: 'actions', label: '', render: idpActionsCell }
-				] as Column<ProviderDescription>[]}
+				])}
 				<DataTable
 					rows={filteredIdps}
 					rowKey={(p) => p.ProviderName ?? ''}
@@ -1565,12 +1565,12 @@
 						<button onclick={() => handleDeleteResourceServer(r)} title="Delete" aria-label="Delete resource server {r.Name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const rsColumns = [
+				{@const rsColumns = defineColumns<ResourceServerType>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'Identifier', label: 'Identifier' },
 					{ key: 'Scopes', label: 'Scopes', render: rsScopesCell },
 					{ key: 'actions', label: '', render: rsActionsCell }
-				] as Column<ResourceServerType>[]}
+				])}
 				<DataTable
 					rows={filteredResourceServers}
 					rowKey={(r) => r.Identifier ?? ''}

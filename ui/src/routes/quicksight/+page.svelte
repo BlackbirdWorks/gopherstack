@@ -59,7 +59,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { BarChart3, Plus, Trash2, Eye, Pencil } from 'lucide-svelte';
@@ -1417,13 +1417,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const dashboardColumns = [
+				{@const dashboardColumns = defineColumns<DashboardSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'DashboardId', label: 'ID' },
 					{ key: 'PublishedVersionNumber', label: 'Version', render: dashboardVersionCell },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: dashboardUpdatedCell },
 					{ key: 'actions', label: '', render: dashboardActionsCell }
-				] as Column<DashboardSummary>[]}
+				])}
 				<DataTable
 					rows={filteredDashboards}
 					rowKey={(d) => d.DashboardId ?? ''}
@@ -1467,13 +1467,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const analysisColumns = [
+				{@const analysisColumns = defineColumns<AnalysisSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'AnalysisId', label: 'ID' },
 					{ key: 'Status', label: 'Status', render: analysisStatusCell },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: analysisUpdatedCell },
 					{ key: 'actions', label: '', render: analysisActionsCell }
-				] as Column<AnalysisSummary>[]}
+				])}
 				<DataTable
 					rows={filteredAnalyses}
 					rowKey={(a) => a.AnalysisId ?? ''}
@@ -1512,13 +1512,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const dataSetColumns = [
+				{@const dataSetColumns = defineColumns<DataSetSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'DataSetId', label: 'ID' },
 					{ key: 'ImportMode', label: 'Import Mode' },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: dataSetUpdatedCell },
 					{ key: 'actions', label: '', render: dataSetActionsCell }
-				] as Column<DataSetSummary>[]}
+				])}
 				<DataTable
 					rows={filteredDataSets}
 					rowKey={(ds) => ds.DataSetId ?? ''}
@@ -1562,14 +1562,14 @@
 						>
 					</div>
 				{/snippet}
-				{@const dataSourceColumns = [
+				{@const dataSourceColumns = defineColumns<DataSource>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'DataSourceId', label: 'ID' },
 					{ key: 'Type', label: 'Type' },
 					{ key: 'Status', label: 'Status', render: dataSourceStatusCell },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: dataSourceUpdatedCell },
 					{ key: 'actions', label: '', render: dataSourceActionsCell }
-				] as Column<DataSource>[]}
+				])}
 				<DataTable
 					rows={filteredDataSources}
 					rowKey={(ds) => ds.DataSourceId ?? ''}
@@ -1608,13 +1608,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const folderColumns = [
+				{@const folderColumns = defineColumns<FolderSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'FolderId', label: 'ID' },
 					{ key: 'FolderType', label: 'Type' },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: folderUpdatedCell },
 					{ key: 'actions', label: '', render: folderActionsCell }
-				] as Column<FolderSummary>[]}
+				])}
 				<DataTable
 					rows={filteredFolders}
 					rowKey={(f) => f.FolderId ?? ''}
@@ -1658,13 +1658,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const vpcColumns = [
+				{@const vpcColumns = defineColumns<VPCConnectionSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'VPCConnectionId', label: 'ID' },
 					{ key: 'Status', label: 'Status', render: vpcStatusCell },
 					{ key: 'LastUpdatedTime', label: 'Updated', render: vpcUpdatedCell },
 					{ key: 'actions', label: '', render: vpcActionsCell }
-				] as Column<VPCConnectionSummary>[]}
+				])}
 				<DataTable
 					rows={filteredVpcConnections}
 					rowKey={(v) => v.VPCConnectionId ?? ''}

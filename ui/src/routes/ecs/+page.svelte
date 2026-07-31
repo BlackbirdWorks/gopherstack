@@ -61,7 +61,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Container, Plus, Trash2, Eye, Pencil, Play, Square, Check } from 'lucide-svelte';
@@ -1715,13 +1715,13 @@
 						<button onclick={() => handleDeleteCluster(c)} title="Delete" aria-label="Delete cluster {c.clusterName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const clusterColumns = [
+				{@const clusterColumns = defineColumns<Cluster>([
 					{ key: 'clusterName', label: 'Name' },
 					{ key: 'status', label: 'Status', render: clusterStatusCell },
 					{ key: 'counts', label: 'Tasks / Services', render: clusterCountsCell },
 					{ key: 'registeredContainerInstancesCount', label: 'Instances' },
 					{ key: 'actions', label: '', render: clusterActionsCell }
-				] as Column<Cluster>[]}
+				])}
 				<DataTable
 					rows={filteredClusters}
 					rowKey={(c) => c.clusterArn ?? ''}
@@ -1744,13 +1744,13 @@
 						<button onclick={() => handleDeleteService(s)} title="Delete" aria-label="Delete service {s.serviceName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const serviceColumns = [
+				{@const serviceColumns = defineColumns<Service>([
 					{ key: 'serviceName', label: 'Name' },
 					{ key: 'taskDefinition', label: 'Task Definition' },
 					{ key: 'status', label: 'Status', render: svcStatusCell },
 					{ key: 'counts', label: 'Running/Desired', render: svcCountsCell },
 					{ key: 'actions', label: '', render: svcActionsCell }
-				] as Column<Service>[]}
+				])}
 				<DataTable
 					rows={filteredServices}
 					rowKey={(s) => s.serviceArn ?? ''}
@@ -1772,13 +1772,13 @@
 						<button onclick={() => handleStopTask(t)} title="Stop" aria-label="Stop task {taskShortId(t.taskArn)}" class="text-gray-400 hover:text-red-500"><Square class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const taskColumns = [
+				{@const taskColumns = defineColumns<Task>([
 					{ key: 'taskArn', label: 'Task', render: taskIdCell },
 					{ key: 'taskDefinitionArn', label: 'Task Definition' },
 					{ key: 'lastStatus', label: 'Status', render: taskStatusCell },
 					{ key: 'launchType', label: 'Launch Type' },
 					{ key: 'actions', label: '', render: taskActionsCell }
-				] as Column<Task>[]}
+				])}
 				<DataTable
 					rows={filteredTasks}
 					rowKey={(t) => t.taskArn ?? ''}
@@ -1801,11 +1801,11 @@
 						<button onclick={() => handleDeleteTaskDef(arn)} title="Delete permanently" aria-label="Permanently delete task definition {taskDefFamily(arn)}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const taskDefColumns = [
+				{@const taskDefColumns = defineColumns<string>([
 					{ key: 'family', label: 'Family', render: tdFamilyCell },
 					{ key: 'revision', label: 'Revision', render: tdRevisionCell },
 					{ key: 'actions', label: '', render: tdActionsCell }
-				] as Column<string>[]}
+				])}
 				<DataTable
 					rows={filteredTaskDefArns}
 					rowKey={(arn) => arn}
@@ -1832,13 +1832,13 @@
 						<button onclick={() => handleDeregisterContainerInstance(ci)} title="Deregister" aria-label="Deregister container instance {ci.ec2InstanceId}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const ciColumns = [
+				{@const ciColumns = defineColumns<ContainerInstance>([
 					{ key: 'ec2InstanceId', label: 'EC2 Instance' },
 					{ key: 'status', label: 'Status', render: ciStatusCell },
 					{ key: 'tasks', label: 'Tasks', render: ciTasksCell },
 					{ key: 'agentConnected', label: 'Agent', render: ciAgentCell },
 					{ key: 'actions', label: '', render: ciActionsCell }
-				] as Column<ContainerInstance>[]}
+				])}
 				<DataTable
 					rows={filteredContainerInstances}
 					rowKey={(ci) => ci.containerInstanceArn ?? ''}
@@ -1867,12 +1867,12 @@
 						<button onclick={() => handleDeleteCapacityProvider(cp)} title="Delete" aria-label="Delete capacity provider {cp.name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const cpColumns = [
+				{@const cpColumns = defineColumns<CapacityProvider>([
 					{ key: 'name', label: 'Name' },
 					{ key: 'status', label: 'Status', render: cpStatusCell },
 					{ key: 'asg', label: 'Auto Scaling Group', render: cpAsgCell },
 					{ key: 'actions', label: '', render: cpActionsCell }
-				] as Column<CapacityProvider>[]}
+				])}
 				<DataTable
 					rows={filteredCapacityProviders}
 					rowKey={(cp) => cp.capacityProviderArn ?? cp.name ?? ''}
@@ -1896,13 +1896,13 @@
 						<button onclick={() => handleDeleteTaskSet(ts)} title="Delete" aria-label="Delete task set {ts.id}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const taskSetColumns = [
+				{@const taskSetColumns = defineColumns<TaskSet>([
 					{ key: 'id', label: 'ID' },
 					{ key: 'taskDefinition', label: 'Task Definition' },
 					{ key: 'status', label: 'Status', render: tsStatusCell },
 					{ key: 'scale', label: 'Scale', render: tsScaleCell },
 					{ key: 'actions', label: '', render: tsActionsCell }
-				] as Column<TaskSet>[]}
+				])}
 				<DataTable
 					rows={filteredTaskSets}
 					rowKey={(ts) => ts.taskSetArn ?? ''}
@@ -1916,12 +1916,12 @@
 						<button onclick={() => handleDeleteSetting(s)} title="Reset to default" aria-label="Reset setting {s.name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const settingColumns = [
+				{@const settingColumns = defineColumns<Setting>([
 					{ key: 'name', label: 'Name' },
 					{ key: 'value', label: 'Value' },
 					{ key: 'principalArn', label: 'Principal' },
 					{ key: 'actions', label: '', render: asActionsCell }
-				] as Column<Setting>[]}
+				])}
 				<DataTable
 					rows={filteredAccountSettings}
 					rowKey={(s) => `${s.name ?? ''}:${s.principalArn ?? ''}`}

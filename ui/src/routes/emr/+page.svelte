@@ -60,7 +60,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Database, Plus, Trash2, Eye, Pencil, XCircle, StopCircle } from 'lucide-svelte';
@@ -1568,13 +1568,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const clusterColumns = [
+				{@const clusterColumns = defineColumns<ClusterSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'status', label: 'Status', render: clusterStatusCell },
 					{ key: 'normalizedInstanceHours', label: 'Normalized Hours', render: clusterHoursCell },
 					{ key: 'created', label: 'Created', render: clusterCreatedCell },
 					{ key: 'actions', label: '', render: clusterActionsCell }
-				] as Column<ClusterSummary>[]}
+				])}
 				<DataTable
 					rows={filteredClusters}
 					rowKey={(c) => c.Id ?? ''}
@@ -1611,12 +1611,12 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const stepColumns = [
+				{@const stepColumns = defineColumns<StepSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'status', label: 'Status', render: stepStatusCell },
 					{ key: 'ActionOnFailure', label: 'Action on Failure' },
 					{ key: 'actions', label: '', render: stepActionsCell }
-				] as Column<StepSummary>[]}
+				])}
 				<DataTable
 					rows={filteredSteps}
 					rowKey={(s) => s.Id ?? ''}
@@ -1650,7 +1650,7 @@
 						>
 					</div>
 				{/snippet}
-				{@const groupColumns = [
+				{@const groupColumns = defineColumns<InstanceGroup>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'InstanceGroupType', label: 'Type' },
 					{ key: 'InstanceType', label: 'Instance Type' },
@@ -1658,7 +1658,7 @@
 					{ key: 'status', label: 'Status', render: groupStatusCell },
 					{ key: 'counts', label: 'Running / Requested', render: groupCountsCell },
 					{ key: 'actions', label: '', render: groupActionsCell }
-				] as Column<InstanceGroup>[]}
+				])}
 				<DataTable
 					rows={filteredInstanceGroups}
 					rowKey={(g) => g.Id ?? ''}
@@ -1694,14 +1694,14 @@
 						>
 					</div>
 				{/snippet}
-				{@const fleetColumns = [
+				{@const fleetColumns = defineColumns<InstanceFleet>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'InstanceFleetType', label: 'Type' },
 					{ key: 'status', label: 'Status', render: fleetStatusCell },
 					{ key: 'TargetOnDemandCapacity', label: 'Target On-Demand' },
 					{ key: 'TargetSpotCapacity', label: 'Target Spot' },
 					{ key: 'actions', label: '', render: fleetActionsCell }
-				] as Column<InstanceFleet>[]}
+				])}
 				<DataTable
 					rows={filteredInstanceFleets}
 					rowKey={(f) => f.Id ?? ''}
@@ -1730,13 +1730,13 @@
 						>
 					</div>
 				{/snippet}
-				{@const instanceColumns = [
+				{@const instanceColumns = defineColumns<Instance>([
 					{ key: 'Ec2InstanceId', label: 'EC2 Instance ID' },
 					{ key: 'InstanceType', label: 'Instance Type' },
 					{ key: 'status', label: 'Status', render: instanceStatusCell },
 					{ key: 'PrivateIpAddress', label: 'Private IP' },
 					{ key: 'actions', label: '', render: instanceActionsCell }
-				] as Column<Instance>[]}
+				])}
 				<DataTable
 					rows={filteredInstances}
 					rowKey={(i) => i.Id ?? ''}
@@ -1766,11 +1766,11 @@
 						>
 					</div>
 				{/snippet}
-				{@const bootstrapColumns = [
+				{@const bootstrapColumns = defineColumns<BootstrapCommand>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'ScriptPath', label: 'Script Path' },
 					{ key: 'actions', label: '', render: bootstrapActionsCell }
-				] as Column<BootstrapCommand>[]}
+				])}
 				<DataTable
 					rows={filteredBootstrapActions}
 					rowKey={(b) => `${b.Name}-${b.ScriptPath}`}
@@ -1809,11 +1809,11 @@
 						>
 					</div>
 				{/snippet}
-				{@const secConfigColumns = [
+				{@const secConfigColumns = defineColumns<SecurityConfigurationSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'created', label: 'Created', render: secConfigCreatedCell },
 					{ key: 'actions', label: '', render: secConfigActionsCell }
-				] as Column<SecurityConfigurationSummary>[]}
+				])}
 				<DataTable
 					rows={filteredSecurityConfigs}
 					rowKey={(s) => s.Name ?? ''}
@@ -1849,12 +1849,12 @@
 						>
 					</div>
 				{/snippet}
-				{@const studioColumns = [
+				{@const studioColumns = defineColumns<StudioSummary>([
 					{ key: 'Name', label: 'Name' },
 					{ key: 'AuthMode', label: 'Auth Mode' },
 					{ key: 'VpcId', label: 'VPC ID' },
 					{ key: 'actions', label: '', render: studioActionsCell }
-				] as Column<StudioSummary>[]}
+				])}
 				<DataTable
 					rows={filteredStudios}
 					rowKey={(s) => s.StudioId ?? ''}
@@ -1891,12 +1891,12 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const notebookColumns = [
+				{@const notebookColumns = defineColumns<NotebookExecutionSummary>([
 					{ key: 'NotebookExecutionName', label: 'Name' },
 					{ key: 'EditorId', label: 'Editor ID' },
 					{ key: 'status', label: 'Status', render: notebookStatusCell },
 					{ key: 'actions', label: '', render: notebookActionsCell }
-				] as Column<NotebookExecutionSummary>[]}
+				])}
 				<DataTable
 					rows={filteredNotebookExecutions}
 					rowKey={(n) => n.NotebookExecutionId ?? ''}

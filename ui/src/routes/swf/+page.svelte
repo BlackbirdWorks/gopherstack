@@ -50,7 +50,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import {
@@ -1536,12 +1536,12 @@
 						{/if}
 					</div>
 				{/snippet}
-				{@const domainColumns = [
+				{@const domainColumns = defineColumns<DomainInfo>([
 					{ key: 'name', label: 'Name', render: domainNameCell },
 					{ key: 'description', label: 'Description' },
 					{ key: 'status', label: 'Status', render: domainStatusCell },
 					{ key: 'actions', label: '', render: domainActionsCell }
-				] as Column<DomainInfo>[]}
+				])}
 				<DataTable
 					rows={filteredDomains}
 					rowKey={(d) => d.name ?? ''}
@@ -1573,12 +1573,12 @@
 							<button onclick={() => handleDeleteWfType(w)} title="Delete" aria-label="Delete workflow type {w.workflowType?.name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 						</div>
 					{/snippet}
-					{@const wfColumns = [
+					{@const wfColumns = defineColumns<WorkflowTypeInfo>([
 						{ key: 'name', label: 'Name', render: wfNameCell },
 						{ key: 'description', label: 'Description' },
 						{ key: 'status', label: 'Status', render: wfStatusCell },
 						{ key: 'actions', label: '', render: wfActionsCell }
-					] as Column<WorkflowTypeInfo>[]}
+					])}
 					<DataTable
 						rows={filteredWorkflowTypes}
 						rowKey={(w) => `${w.workflowType?.name}:${w.workflowType?.version}`}
@@ -1608,12 +1608,12 @@
 							<button onclick={() => handleDeleteAtType(a)} title="Delete" aria-label="Delete activity type {a.activityType?.name}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 						</div>
 					{/snippet}
-					{@const atColumns = [
+					{@const atColumns = defineColumns<ActivityTypeInfo>([
 						{ key: 'name', label: 'Name', render: atNameCell },
 						{ key: 'description', label: 'Description' },
 						{ key: 'status', label: 'Status', render: atStatusCell },
 						{ key: 'actions', label: '', render: atActionsCell }
-					] as Column<ActivityTypeInfo>[]}
+					])}
 					<DataTable
 						rows={filteredActivityTypes}
 						rowKey={(a) => `${a.activityType?.name}:${a.activityType?.version}`}
@@ -1649,13 +1649,13 @@
 							<button onclick={() => handleTerminateExecution(e)} title="Terminate" aria-label="Terminate execution {e.execution?.workflowId}" class="text-gray-400 hover:text-red-500"><Square class="w-4 h-4" /></button>
 						</div>
 					{/snippet}
-					{@const openColumns = [
+					{@const openColumns = defineColumns<WorkflowExecutionInfo>([
 						{ key: 'workflowId', label: 'Execution', render: execIdCell },
 						{ key: 'workflowType', label: 'Workflow Type', render: execTypeCell },
 						{ key: 'status', label: 'Status', render: openStatusCell },
 						{ key: 'startTimestamp', label: 'Started', render: execStartedCell },
 						{ key: 'actions', label: '', render: openActionsCell }
-					] as Column<WorkflowExecutionInfo>[]}
+					])}
 					<div>
 						<h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
 							<Play class="w-4 h-4 text-green-500" /> Open Executions
@@ -1679,13 +1679,13 @@
 							<button onclick={() => openExecDetail(e)} title="View" aria-label="View execution {e.execution?.workflowId}" class="text-gray-400 hover:text-violet-500"><Eye class="w-4 h-4" /></button>
 						</div>
 					{/snippet}
-					{@const closedColumns = [
+					{@const closedColumns = defineColumns<WorkflowExecutionInfo>([
 						{ key: 'workflowId', label: 'Execution', render: execIdCell },
 						{ key: 'workflowType', label: 'Workflow Type', render: execTypeCell },
 						{ key: 'closeStatus', label: 'Close Status', render: closedStatusCell },
 						{ key: 'startTimestamp', label: 'Started', render: execStartedCell },
 						{ key: 'actions', label: '', render: closedActionsCell }
-					] as Column<WorkflowExecutionInfo>[]}
+					])}
 					<div>
 						<h3 class="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
 							Closed Executions

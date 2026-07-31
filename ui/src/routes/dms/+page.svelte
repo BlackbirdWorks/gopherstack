@@ -50,7 +50,7 @@
 	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
 	import SearchInput from '$lib/components/SearchInput.svelte';
 	import DataTable from '$lib/components/DataTable.svelte';
-	import type { Column } from '$lib/components/data-table';
+	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { GitBranch, PlugZap, Plus, Trash2, Eye, Pencil, Play, Square, RotateCcw, Table2 } from 'lucide-svelte';
@@ -2019,14 +2019,14 @@
 						<button onclick={() => handleDeleteInstance(i)} title="Delete" aria-label="Delete instance {i.ReplicationInstanceIdentifier}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const instColumns = [
+				{@const instColumns = defineColumns<ReplicationInstance>([
 					{ key: 'ReplicationInstanceIdentifier', label: 'Identifier' },
 					{ key: 'ReplicationInstanceClass', label: 'Class' },
 					{ key: 'ReplicationInstanceStatus', label: 'Status', render: instStatusCell },
 					{ key: 'EngineVersion', label: 'Engine Version' },
 					{ key: 'InstanceCreateTime', label: 'Created', render: instCreatedCell },
 					{ key: 'actions', label: '', render: instActionsCell }
-				] as Column<ReplicationInstance>[]}
+				])}
 				<DataTable
 					rows={filteredInstances}
 					rowKey={(i) => i.ReplicationInstanceArn ?? ''}
@@ -2053,14 +2053,14 @@
 						<button onclick={() => handleDeleteEndpoint(e)} title="Delete" aria-label="Delete endpoint {e.EndpointIdentifier}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const epColumns = [
+				{@const epColumns = defineColumns<Endpoint>([
 					{ key: 'EndpointIdentifier', label: 'Identifier' },
 					{ key: 'EndpointType', label: 'Type', render: epTypeCell },
 					{ key: 'EngineName', label: 'Engine' },
 					{ key: 'ServerName', label: 'Server', render: epServerCell },
 					{ key: 'Status', label: 'Status', render: epStatusCell },
 					{ key: 'actions', label: '', render: epActionsCell }
-				] as Column<Endpoint>[]}
+				])}
 				<DataTable
 					rows={filteredEndpoints}
 					rowKey={(e) => e.EndpointArn ?? ''}
@@ -2085,12 +2085,12 @@
 						<button onclick={() => handleDeleteTask(t)} title="Delete" aria-label="Delete task {t.ReplicationTaskIdentifier}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const taskColumns = [
+				{@const taskColumns = defineColumns<ReplicationTask>([
 					{ key: 'ReplicationTaskIdentifier', label: 'Identifier' },
 					{ key: 'Status', label: 'Status', render: taskStatusCell },
 					{ key: 'MigrationType', label: 'Migration Type' },
 					{ key: 'actions', label: '', render: taskActionsCell }
-				] as Column<ReplicationTask>[]}
+				])}
 				<DataTable
 					rows={filteredTasks}
 					rowKey={(t) => t.ReplicationTaskArn ?? ''}
@@ -2107,12 +2107,12 @@
 						<button onclick={() => handleDeleteSubnetGroup(sg)} title="Delete" aria-label="Delete subnet group {sg.ReplicationSubnetGroupIdentifier}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const sgColumns = [
+				{@const sgColumns = defineColumns<ReplicationSubnetGroup>([
 					{ key: 'ReplicationSubnetGroupIdentifier', label: 'Identifier' },
 					{ key: 'ReplicationSubnetGroupDescription', label: 'Description' },
 					{ key: 'VpcId', label: 'VPC ID' },
 					{ key: 'actions', label: '', render: sgActionsCell }
-				] as Column<ReplicationSubnetGroup>[]}
+				])}
 				<DataTable
 					rows={filteredSubnetGroups}
 					rowKey={(sg) => sg.ReplicationSubnetGroupIdentifier ?? ''}
@@ -2135,13 +2135,13 @@
 						<button onclick={() => handleDeleteEventSub(es)} title="Delete" aria-label="Delete subscription {subscriptionId(es)}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const esColumns = [
+				{@const esColumns = defineColumns<EventSubscriptionWire>([
 					{ key: 'SubscriptionName', label: 'Name', render: esNameCell },
 					{ key: 'SnsTopicArn', label: 'SNS Topic ARN' },
 					{ key: 'SourceType', label: 'Source Type' },
 					{ key: 'Status', label: 'Status', render: esStatusCell },
 					{ key: 'actions', label: '', render: esActionsCell }
-				] as Column<EventSubscriptionWire>[]}
+				])}
 				<DataTable
 					rows={filteredEventSubs}
 					rowKey={(es) => subscriptionId(es)}
@@ -2157,11 +2157,11 @@
 						<button onclick={() => handleDeleteCert(c)} title="Delete" aria-label="Delete certificate {c.CertificateIdentifier}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const certColumns = [
+				{@const certColumns = defineColumns<Certificate>([
 					{ key: 'CertificateIdentifier', label: 'Identifier' },
 					{ key: 'CertificateArn', label: 'ARN' },
 					{ key: 'actions', label: '', render: certActionsCell }
-				] as Column<Certificate>[]}
+				])}
 				<DataTable
 					rows={filteredCertificates}
 					rowKey={(c) => c.CertificateArn ?? ''}
@@ -2186,12 +2186,12 @@
 						<button onclick={() => handleDeleteConnection(c)} title="Delete" aria-label="Delete connection" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const connColumns = [
+				{@const connColumns = defineColumns<Connection>([
 					{ key: 'EndpointArn', label: 'Endpoint', render: connEndpointCell },
 					{ key: 'ReplicationInstanceArn', label: 'Replication Instance', render: connInstanceCell },
 					{ key: 'Status', label: 'Status', render: connStatusCell },
 					{ key: 'actions', label: '', render: connActionsCell }
-				] as Column<Connection>[]}
+				])}
 				<DataTable
 					rows={filteredConnections}
 					rowKey={(c) => `${c.EndpointArn ?? ''}:${c.ReplicationInstanceArn ?? ''}`}
