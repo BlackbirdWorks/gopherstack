@@ -7,8 +7,9 @@
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.29.18   # awsjson1.1 protocol, target prefix AmazonDAXV3.
 last_audit_commit: 61ba31abe8d8   # unchanged: this pass's changes are not yet committed by this agent
-last_audit_date: 2026-07-24
-overall: A            # follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
+                      # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -28,7 +29,20 @@ ops:
   DeleteParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeParameters: {wire: ok, errors: ok, state: ok, persist: ok, note: Source filter (user/system) now applied -- fixed 2026-07-24, see Notes}
   DescribeDefaultParameters: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ResetParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  # ResetParameterGroup is intentionally NOT listed as an advertised SDK op
+  # here. 2026-07-31 CORRECTION: the row that used to live at this position
+  # ("wire: ok, ...") was inaccurate -- ResetParameterGroup is not a real AWS
+  # DAX SDK operation at all (verified against botocore's dax
+  # service-2.json: no such action exists in the 2017-04-19 model; the real
+  # op list has no reset-to-defaults call for parameter groups). Caught by
+  # pkgs/sdkcheck's reverse check (commit 12cfe14d5; gopherstack-vhw2
+  # category A). DAX dispatches purely by X-Amz-Target header value through
+  # the daxOperations table, so a real client can never send this target and
+  # this route was already unreachable by real traffic; it stays wired as
+  # internal test scaffolding, unadvertised. See handler.go's comment on the
+  # GetSupportedOperations() entry. Same resolution as EMR's
+  # ListTagsForResource and CloudFront's
+  # GetFunctionAssociations/SetFunctionAssociations.
   CreateSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeSubnetGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateSubnetGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -38,7 +52,7 @@ ops:
 families:
   cluster-lifecycle: {status: ok, note: "CreateCluster/DescribeClusters/UpdateCluster/DeleteCluster/IncreaseReplicationFactor/DecreaseReplicationFactor/RebootNode all mutate the real store.Table[Cluster], persist via backendSnapshot, and now emit the correct wire shape (Status key, epoch timestamps) -- see gaps for the 5 bugs found and fixed this pass."
   tags: {status: ok, note: "TagResource/UntagResource/ListTags mutate the ARN-keyed tags map and propagate cluster ARNs to Cluster.Tags; quota (50) and key/value length enforcement match AWS constraints. arnExists now recognizes cluster ARNs only (fixed 2026-07-24, see Notes) -- real DAX has no Arn field on ParameterGroup/SubnetGroup, so those were never taggable."}
-  parameter-groups: {status: ok, note: "CreateParameterGroup/DescribeParameterGroups/UpdateParameterGroup/DeleteParameterGroup/DescribeParameters/DescribeDefaultParameters/ResetParameterGroup all real; UpdateParameterGroup correctly cascades pending-reboot + NodeIdsToReboot to dependent clusters; DescribeParameters now honors the request's Source filter (fixed 2026-07-24)."
+  parameter-groups: {status: ok, note: "CreateParameterGroup/DescribeParameterGroups/UpdateParameterGroup/DeleteParameterGroup/DescribeParameters/DescribeDefaultParameters all real; UpdateParameterGroup correctly cascades pending-reboot + NodeIdsToReboot to dependent clusters; DescribeParameters now honors the request's Source filter (fixed 2026-07-24). ResetParameterGroup is NOT a real DAX op (see its ops-block note, corrected 2026-07-31) -- kept wired as internal test scaffolding only, unreachable by real clients."
   subnet-groups: {status: ok, note: "CreateSubnetGroup/DescribeSubnetGroups/UpdateSubnetGroup/DeleteSubnetGroup real; in-use protection (blocks delete while referenced by a cluster) verified. SupportedNetworkTypes now modeled (always [\"ipv4\"], fixed 2026-07-24, see Notes)."}
   events: {status: ok, note: "DescribeEvents ring buffer (1000 cap) is real; StartTime/EndTime/SourceName/SourceType filtering verified after fixing the epoch-seconds request-parsing bug."}
   dataplane: {status: deferred, note: "Binary DAX client protocol (services/dax/dataplane/) is a separate, extensively self-tested subsystem (936-line dataplane_integration_test.go + dataplane/*_test.go) not covered by this control-plane wire-shape sweep. Not audited this pass -- different reference material (aws-dax-go's binary encoding, not aws-sdk-go-v2/service/dax) would be needed."}

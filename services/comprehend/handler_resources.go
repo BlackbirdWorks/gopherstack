@@ -62,6 +62,12 @@ func resourceSpecs() map[string]resourceSpec {
 			arnField:     fieldDatasetARN,
 			objectField:  "DatasetProperties",
 			listField:    "DatasetPropertiesList",
+			// Real Comprehend has no DeleteDataset operation at all -- datasets
+			// are immutable once created (confirmed against
+			// aws-sdk-go-v2/service/comprehend.Client: no Client.DeleteDataset,
+			// unlike DocumentClassifier/EntityRecognizer/Endpoint/Flywheel,
+			// which are all real Delete ops).
+			noDelete: true,
 		},
 	}
 }

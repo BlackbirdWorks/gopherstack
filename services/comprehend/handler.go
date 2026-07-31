@@ -47,6 +47,14 @@ type resourceSpec struct {
 	arnField     string
 	objectField  string
 	listField    string
+	// noDelete marks a resource family that has no real Delete*/SDK operation at
+	// all (verified against aws-sdk-go-v2/service/comprehend.Client: Dataset has
+	// no Client.DeleteDataset -- real Comprehend datasets are immutable once
+	// created, unlike DocumentClassifier/EntityRecognizer/Endpoint/Flywheel,
+	// which all have a real Delete op). buildOperations skips generating
+	// "Delete"+prefix when this is set, instead of advertising/dispatching a
+	// fabricated operation -- see gopherstack-vhw2 category A.
+	noDelete bool
 }
 
 // jobSpec describes one async job family's wire shape. The *Properties
@@ -72,6 +80,14 @@ type jobSpec struct {
 	hasTargetEventTypes      bool
 	hasPiiMode               bool
 	hasNumberOfTopics        bool
+	// noStop marks a job family that has no real Stop*Job SDK operation at all
+	// (verified against aws-sdk-go-v2/service/comprehend.Client: only 7 of the 9
+	// job families have a Stop method -- DocumentClassificationJob and
+	// TopicsDetectionJob, once started, cannot be cancelled via the real API).
+	// buildOperations skips generating "Stop"+prefix when this is set, instead
+	// of advertising/dispatching a fabricated operation -- see
+	// gopherstack-vhw2 category A.
+	noStop bool
 }
 
 // Handler serves Amazon Comprehend JSON operations.
@@ -224,17 +240,22 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 func (h *Handler) buildOperations() map[string]operation {
 	ops := map[string]operation{
-		"DetectSentiment":             h.detectSentiment,
-		"DetectEntities":              h.detectEntities,
-		"DetectKeyPhrases":            h.detectKeyPhrases,
-		"DetectPiiEntities":           h.detectPIIEntities,
-		"DetectSyntax":                h.detectSyntax,
-		"DetectDominantLanguage":      h.detectDominantLanguage,
-		"DetectToxicContent":          h.detectToxicContent,
-		"BatchDetectSentiment":        h.batch(h.detectSentiment, generalLanguageCodes),
-		"BatchDetectEntities":         h.batch(h.detectEntities, generalLanguageCodes),
-		"BatchDetectKeyPhrases":       h.batch(h.detectKeyPhrases, generalLanguageCodes),
-		"BatchDetectPiiEntities":      h.batch(h.detectPIIEntities, generalLanguageCodes),
+		"DetectSentiment":        h.detectSentiment,
+		"DetectEntities":         h.detectEntities,
+		"DetectKeyPhrases":       h.detectKeyPhrases,
+		"DetectPiiEntities":      h.detectPIIEntities,
+		"DetectSyntax":           h.detectSyntax,
+		"DetectDominantLanguage": h.detectDominantLanguage,
+		"DetectToxicContent":     h.detectToxicContent,
+		"BatchDetectSentiment":   h.batch(h.detectSentiment, generalLanguageCodes),
+		"BatchDetectEntities":    h.batch(h.detectEntities, generalLanguageCodes),
+		"BatchDetectKeyPhrases":  h.batch(h.detectKeyPhrases, generalLanguageCodes),
+		// Deliberately no "BatchDetectPiiEntities" entry: real Comprehend has no
+		// such operation (verified against aws-sdk-go-v2/service/comprehend.Client
+		// -- PII entity detection has no Batch* form at all, unlike Sentiment/
+		// Entities/KeyPhrases/Syntax/DominantLanguage, which all do). A prior pass
+		// fabricated it by pattern-matching the other five Batch* ops -- see
+		// gopherstack-vhw2 category A.
 		"BatchDetectSyntax":           h.batch(h.detectSyntax, syntaxLanguageCodes),
 		"BatchDetectDominantLanguage": h.batch(h.detectDominantLanguage, nil),
 		"TagResource":                 h.tagResource,
@@ -245,19 +266,30 @@ func (h *Handler) buildOperations() map[string]operation {
 		ops["Start"+prefix] = h.startJob(spec)
 		ops["Describe"+prefix] = h.describeJob(spec)
 		ops["List"+prefix+"s"] = h.listJobs(spec)
-		ops["Stop"+prefix] = h.stopJob(spec)
+		if !spec.noStop {
+			ops["Stop"+prefix] = h.stopJob(spec)
+		}
 	}
 	for prefix, spec := range resourceSpecs() {
 		ops["Create"+prefix] = h.createResource(spec)
 		ops["Describe"+prefix] = h.describeResource(spec)
 		ops["List"+prefix+"s"] = h.listResources(spec)
-		ops["Delete"+prefix] = h.deleteResource(spec)
+		if !spec.noDelete {
+			ops["Delete"+prefix] = h.deleteResource(spec)
+		}
 		if spec.resourceType == resourceTypeEndpoint || spec.resourceType == resourceTypeFlywheel {
 			ops["Update"+prefix] = h.updateResource(spec)
 		}
 	}
 	ops["StartFlywheelIteration"] = h.startIteration
-	ops["GetFlywheelIteration"] = h.getIteration
+	// Deliberately no "GetFlywheelIteration" entry: the real SDK operation is
+	// named DescribeFlywheelIteration (aws-sdk-go-v2/service/comprehend.Client
+	// has Client.DescribeFlywheelIteration, no Client.GetFlywheelIteration at
+	// all). A prior pass registered both names pointing at the same handler;
+	// "GetFlywheelIteration" was a fabricated alias, not a real op or a real
+	// gopherstack-only route -- removed rather than kept, since the real name
+	// was already present and wired to the identical handler (same resolution
+	// as lambda's InvokeFunction/Invoke) -- see gopherstack-vhw2 category A.
 	ops["DescribeFlywheelIteration"] = h.getIteration
 	ops["ListFlywheelIterationHistory"] = h.listIterations
 

@@ -7,8 +7,9 @@
 service: ram
 sdk_module: aws-sdk-go-v2/service/ram@v1.36.1   # version audited against
 last_audit_commit: e259b2f8                     # HEAD when this manifest was written
-last_audit_date: 2026-07-23
-overall: A            # genuine fixes found (state-corruption bugs + wire-shape bugs)
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)
+                      # 2026-07-31: pkgs/sdkcheck reverse check found ListTagsForResource wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way (RAM dispatches by request path, and no real client sends this path), and real tag-reading via GetResourceShares.Tags was already correct.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -22,7 +23,20 @@ ops:
   GetResourceShareAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "AssociationType is now enforced as required ('This member is required' on the real GetResourceShareAssociationsInput, previously silently defaulted to 'return every type')"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  # ListTagsForResource is intentionally NOT listed as an advertised SDK op
+  # here. 2026-07-31 CORRECTION: the row that used to live at this position
+  # ("wire: ok, ...") was inaccurate -- ListTagsForResource is not a real AWS
+  # RAM SDK operation at all (verified against botocore's ram service-2.json:
+  # only /tagresource and /untagresource exist; there is no
+  # /listtagsforresource route). Caught by pkgs/sdkcheck's reverse check
+  # (commit 12cfe14d5; gopherstack-vhw2 category A). Real clients read tags
+  # back via GetResourceShares' ResourceShare.Tags field, which gopherstack
+  # already populates correctly. RAM dispatches purely by request path via
+  # ramGetListRoutes, so a real client can never send "/listtagsforresource"
+  # and this route was already unreachable by real traffic; it stays wired as
+  # internal test scaffolding, unadvertised. See handler.go's comment on
+  # opListTagsForResource. Same resolution as EMR's ListTagsForResource and
+  # CloudFront's GetFunctionAssociations/SetFunctionAssociations.
   AcceptResourceShareInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   RejectResourceShareInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceShareInvitations: {wire: ok, errors: ok, state: ok, persist: ok}

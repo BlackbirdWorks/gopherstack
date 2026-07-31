@@ -332,7 +332,10 @@ func TestGetSupportedOperations(t *testing.T) {
 
 	ops := h.GetSupportedOperations()
 
-	assert.Len(t, ops, 46)
+	// 45, not 46: "ExportSnapshot" was removed because it is not a real MemoryDB
+	// SDK operation — see its comment in handler.go.
+	assert.Len(t, ops, 45)
+	assert.NotContains(t, ops, "ExportSnapshot")
 	assert.Contains(t, ops, "DescribeSnapshots")
 	assert.Contains(t, ops, "BatchUpdateCluster")
 	assert.Contains(t, ops, "CreateMultiRegionCluster")

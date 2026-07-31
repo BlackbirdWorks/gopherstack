@@ -39,10 +39,21 @@ const (
 	opGetResourceShareInvitations         = "GetResourceShareInvitations"
 	opGetResourceShares                   = "GetResourceShares"
 	opListResourceSharePermissions        = "ListResourceSharePermissions"
-	opListTagsForResource                 = "ListTagsForResource"
-	opTagResource                         = "TagResource"
-	opUntagResource                       = "UntagResource"
-	opUpdateResourceShare                 = "UpdateResourceShare"
+	// opListTagsForResource is an internal route label for POST /listtagsforresource.
+	// It is NOT a real AWS RAM SDK operation — the real API has no ListTagsForResource
+	// action at all (verified against botocore's ram service-2.json: only
+	// /tagresource and /untagresource exist under the tags family). Real clients read
+	// tags back via GetResourceShares, whose ResourceShare.Tags field gopherstack
+	// already populates correctly. RAM dispatches purely by request path via
+	// ramGetListRoutes, so a real client can never send this path and the route is
+	// unreachable by real traffic either way; it stays wired below as internal test
+	// scaffolding only, unadvertised — see gopherstack-vhw2 category A, same
+	// resolution as EMR's ListTagsForResource and CloudFront's
+	// GetFunctionAssociations/SetFunctionAssociations.
+	opListTagsForResource = "ListTagsForResource"
+	opTagResource         = "TagResource"
+	opUntagResource       = "UntagResource"
+	opUpdateResourceShare = "UpdateResourceShare"
 )
 
 const (
@@ -131,7 +142,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListResourceTypes,
 		opListResources,
 		opListSourceAssociations,
-		opListTagsForResource,
+		// opListTagsForResource is deliberately NOT advertised — see its doc comment
+		// in the const block above; it is not a real RAM SDK operation.
 		opPromotePermissionCreatedFromPolicy,
 		opPromoteResourceShareCreatedFromPolicy,
 		opRejectResourceShareInvitation,

@@ -198,7 +198,6 @@ func TestHandlerGetSupportedOperations(t *testing.T) {
 		"DeleteParameterGroup",
 		"DescribeParameters",
 		"DescribeDefaultParameters",
-		"ResetParameterGroup",
 		"CreateSubnetGroup",
 		"DescribeSubnetGroups",
 		"UpdateSubnetGroup",
@@ -209,4 +208,9 @@ func TestHandlerGetSupportedOperations(t *testing.T) {
 	for _, op := range expected {
 		assert.Contains(t, ops, op)
 	}
+
+	// "ResetParameterGroup" is deliberately NOT advertised: it is not a real DAX
+	// SDK operation (no such action exists in the real API) — see its comment in
+	// handler.go.
+	assert.NotContains(t, ops, "ResetParameterGroup")
 }

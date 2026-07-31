@@ -75,7 +75,10 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "GetResourceShareAssociations")
 	assert.Contains(t, ops, "TagResource")
 	assert.Contains(t, ops, "UntagResource")
-	assert.Contains(t, ops, "ListTagsForResource")
+	// "ListTagsForResource" is deliberately NOT advertised: it is not a real RAM
+	// SDK operation (real clients read tags via GetResourceShares) — see
+	// opListTagsForResource's doc comment in handler.go.
+	assert.NotContains(t, ops, "ListTagsForResource")
 }
 
 func TestHandler_MatchPriority(t *testing.T) {
@@ -363,7 +366,10 @@ func TestHandlerOpsLen(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, 36, ram.HandlerOpsLen(h))
+	// 35, not 36: "ListTagsForResource" was removed from GetSupportedOperations
+	// because it is not a real RAM SDK operation — see opListTagsForResource's
+	// doc comment in handler.go.
+	assert.Equal(t, 35, ram.HandlerOpsLen(h))
 }
 
 // TestRefinement1_GetSupportedOperationsSorted verifies the ops list is sorted.
@@ -495,7 +501,10 @@ func TestHandler_ExtractOperation_AllKnownPaths(t *testing.T) {
 		{"/getresourceshareassociations", "GetResourceShareAssociations"},
 		{"/tagresource", "TagResource"},
 		{"/untagresource", "UntagResource"},
-		{"/listtagsforresource", "ListTagsForResource"},
+		// "/listtagsforresource" is deliberately excluded from this table: it routes
+		// (ExtractOperation still resolves it), but "ListTagsForResource" is not a
+		// real RAM SDK operation and so is not in GetSupportedOperations — see
+		// opListTagsForResource's doc comment in handler.go.
 		{"/getpermission", "GetPermission"},
 		{"/createpermission", "CreatePermission"},
 		{"/createpermissionversion", "CreatePermissionVersion"},

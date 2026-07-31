@@ -395,7 +395,18 @@ func forecastOperations() map[string]operationSpec {
 		"DatasetGroups",
 		true,
 	)
-	addCRUD(operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", true)
+	// update=false: real Forecast has no UpdateDataset operation (verified against
+	// aws-sdk-go-v2/service/forecast.Client: only UpdateDatasetGroup exists among
+	// dataset-family Update* methods; datasets are immutable after creation, only
+	// re-imported via CreateDatasetImportJob). A prior pass wired this addCRUD call
+	// with update=true, which both advertised and dispatched a fabricated
+	// "UpdateDataset" operation no real client can send — caught by pkgs/sdkcheck's
+	// reverse check (commit 12cfe14d5; gopherstack-vhw2 category A). Unlike some
+	// other findings in this campaign, nothing legitimate depended on the route (no
+	// test exercised it, PARITY.md's Dataset family note already only claimed
+	// Create/Describe/Delete/List), so it is deleted outright rather than kept
+	// wired-but-unadvertised.
+	addCRUD(operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", false)
 	addCRUD(
 		operations,
 		"DatasetImportJob",

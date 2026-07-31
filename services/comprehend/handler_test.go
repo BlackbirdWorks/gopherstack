@@ -181,11 +181,14 @@ func TestSynchronousDetectionOperations(t *testing.T) {
 func TestBatchDetectionOperations(t *testing.T) {
 	t.Parallel()
 
+	// "BatchDetectPiiEntities" is deliberately excluded: real Comprehend has no
+	// such operation at all (PII entity detection has no Batch* form, unlike
+	// the five detection types below) -- see handler.go's buildOperations
+	// comment.
 	for _, operation := range []string{
 		"BatchDetectSentiment",
 		"BatchDetectEntities",
 		"BatchDetectKeyPhrases",
-		"BatchDetectPiiEntities",
 		"BatchDetectSyntax",
 		"BatchDetectDominantLanguage",
 	} {
@@ -292,6 +295,7 @@ func TestResourceCRUDAndTags(t *testing.T) {
 		listField    string
 		update       bool
 		trainingType bool // must advance lifecycle to TRAINED before Delete
+		noDelete     bool // real API has no Delete op for this resource family at all
 	}{
 		{
 			name:         "classifier",
@@ -341,6 +345,13 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			arnField:    "DatasetArn",
 			objectField: "DatasetProperties",
 			listField:   "DatasetPropertiesList",
+			// Real Comprehend has no DeleteDataset operation -- datasets are
+			// immutable once created (see resourceSpecs' Dataset.noDelete comment
+			// in handler_resources.go). "DeleteDataset" used to be advertised and
+			// dispatchable here, which was itself the bug pkgs/sdkcheck's reverse
+			// check caught; this test now exercises real behavior instead of the
+			// fabricated op.
+			noDelete: true,
 		},
 	}
 	for _, test := range tests {
@@ -381,6 +392,14 @@ func TestResourceCRUDAndTags(t *testing.T) {
 			if test.trainingType {
 				// Extra describe (no-op in status since emulator starts at TRAINED).
 				request(t, handler, "Describe"+test.prefix, map[string]any{test.arnField: resourceARN})
+			}
+			if test.noDelete {
+				// No real Delete op exists for this family; the resource must
+				// simply persist.
+				listed = request(t, handler, "List"+test.prefix+"s", nil)
+				assert.Len(t, listed[test.listField], 1)
+
+				return
 			}
 			request(t, handler, "Delete"+test.prefix, map[string]any{test.arnField: resourceARN})
 			listed = request(t, handler, "List"+test.prefix+"s", nil)
@@ -448,13 +467,15 @@ func TestModelVersionsAndFlywheelIteration(t *testing.T) {
 	flywheelARN := flywheel["FlywheelArn"].(string)
 	started := request(t, handler, "StartFlywheelIteration", map[string]any{"FlywheelArn": flywheelARN})
 	id := started["FlywheelIterationId"].(string)
-	inProgress := request(t, handler, "GetFlywheelIteration", map[string]any{"FlywheelIterationId": id})
+	// "GetFlywheelIteration" is not a real Comprehend operation -- the real name
+	// is DescribeFlywheelIteration (see handler.go's buildOperations comment).
+	inProgress := request(t, handler, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": id})
 	assert.Equal(
 		t,
 		"IN_PROGRESS",
 		inProgress["FlywheelIterationProperties"].(map[string]any)["FlywheelIterationStatus"],
 	)
-	completed := request(t, handler, "GetFlywheelIteration", map[string]any{"FlywheelIterationId": id})
+	completed := request(t, handler, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": id})
 	assert.Equal(t, "COMPLETED", completed["FlywheelIterationProperties"].(map[string]any)["FlywheelIterationStatus"])
 	history := request(t, handler, "ListFlywheelIterationHistory", map[string]any{"FlywheelArn": flywheelARN})
 	assert.Len(t, history["FlywheelIterationPropertiesList"], 1)

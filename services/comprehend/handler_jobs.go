@@ -14,7 +14,9 @@ import (
 // EntitiesDetectionJob carry FlywheelArn, only PiiEntitiesDetectionJob
 // carries Mode/RedactionConfig, and DocumentClassificationJob/
 // TopicsDetectionJob/DominantLanguageDetectionJob have no LanguageCode at
-// all (unlike the other six).
+// all (unlike the other six). Also NOT uniform: real AWS only exposes a
+// Stop*Job operation for 7 of the 9 families (see jobSpec.noStop) --
+// DocumentClassificationJob and TopicsDetectionJob have no Stop op at all.
 func asyncJobSpecs() map[string]jobSpec {
 	return map[string]jobSpec{
 		"DocumentClassificationJob": {
@@ -25,6 +27,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasFlywheelArn:           true,
 			hasVolumeKmsKeyID:        true,
 			hasVpcConfig:             true,
+			noStop:                   true, // no real StopDocumentClassificationJob op
 		},
 		"EntitiesDetectionJob": {
 			jobType:                "entities-detection-job",
@@ -66,6 +69,7 @@ func asyncJobSpecs() map[string]jobSpec {
 			hasVolumeKmsKeyID: true,
 			hasVpcConfig:      true,
 			hasNumberOfTopics: true,
+			noStop:            true, // no real StopTopicsDetectionJob op
 		},
 		"TargetedSentimentDetectionJob": {
 			jobType:           "targeted-sentiment-detection-job",

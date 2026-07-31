@@ -391,8 +391,12 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	h, _ := newTestHandler()
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateGraphqlApi")
-	assert.Contains(t, ops, "ExecuteGraphQL")
 	assert.Contains(t, ops, "CreateResolver")
+	// "ExecuteGraphQL" is deliberately NOT advertised: it is an internal route
+	// label for the GraphQL data-plane endpoint, not a real AppSync SDK
+	// operation (aws-sdk-go-v2/service/appsync.Client has no such method) — see
+	// opExecuteGraphQL's doc comment in handler.go.
+	assert.NotContains(t, ops, "ExecuteGraphQL")
 }
 
 func TestHandler_ExtractOperation(t *testing.T) {

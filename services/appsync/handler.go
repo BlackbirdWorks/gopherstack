@@ -87,6 +87,20 @@ const (
 	opUntagResource                = "UntagResource"
 	opStartDataSourceIntrospection = "StartDataSourceIntrospection"
 	opGetDataSourceIntrospection   = "GetDataSourceIntrospection"
+	// opExecuteGraphQL is the internal route label for POST /v1/apis/{apiId}/graphql,
+	// AppSync's GraphQL data-plane execution endpoint. It is NOT a real AWS AppSync
+	// *control-plane* SDK operation — aws-sdk-go-v2/service/appsync.Client has no
+	// ExecuteGraphQL method at all (verified: `go doc .../appsync.Client` lists only
+	// management operations). Real clients execute GraphQL queries with a plain signed
+	// HTTPS POST straight to the API's graphqlEndpoint, a request shape the typed SDK
+	// does not model as an operation. gopherstack still needs to serve that traffic for
+	// real emulation, so the route stays wired (handleGraphQL) and dispatch keys off the
+	// literal "graphql" path segment, not off this label — but the label is deliberately
+	// excluded from GetSupportedOperations()/ChaosOperations() so gopherstack does not
+	// misrepresent SDK completeness for an operation that does not exist. Same resolution
+	// as CloudFront's opGetFunctionAssociations/opSetFunctionAssociations and EMR's
+	// ListTagsForResource — see gopherstack-vhw2 category A.
+	opExecuteGraphQL = "ExecuteGraphQL"
 )
 
 // Handler is the Echo HTTP handler for AppSync operations.
@@ -135,7 +149,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"ListResolvers",
 		"DeleteResolver",
 		"ListResolversByFunction",
-		"ExecuteGraphQL",
+		// opExecuteGraphQL is deliberately NOT advertised here — see its doc comment
+		// above; it is not a real AppSync SDK operation.
 		"AssociateApi",
 		"DisassociateApi",
 		"AssociateMergedGraphqlApi",
@@ -642,7 +657,7 @@ func parseOperationSub(method, seg string) string {
 		return parseOpIfMethod(method, http.MethodPut,
 			"PutGraphqlApiEnvironmentVariables", "GetGraphqlApiEnvironmentVariables")
 	case "graphql":
-		return "ExecuteGraphQL"
+		return opExecuteGraphQL
 	case pathSegTags:
 		// Legacy convenience alias: the real AWS SDK sends tag ops to
 		// "/v1/tags/{resourceArn}" instead (see parseOperationTags), but this

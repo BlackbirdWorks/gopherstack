@@ -2,8 +2,9 @@
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.33.12
 last_audit_commit: 437393d5
-last_audit_date: 2026-07-23
-overall: A            # this pass: field-diffed every core response/request wire type
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-31: pkgs/sdkcheck reverse check found ExportSnapshot wrongly advertised/documented as a real SDK op (it isn't -- MemoryDB has no export-to-S3 API at all; see its ops-block note). Corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since MemoryDB dispatches purely by X-Amz-Target and no real client can send this target.
+                       # 2026-07-23: this pass: field-diffed every core response/request wire type
                        # (Cluster, MultiRegionCluster/RegionalCluster, ReservedNode/
                        # ReservedNodesOffering, User, SubnetGroup/Subnet, ParameterGroup/
                        # Parameter/MultiRegionParameter, Snapshot, EngineVersion,
@@ -50,7 +51,20 @@ ops:
   DescribeSnapshots: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: Source request filter previously string-compared directly against internal automated/manual storage values, but DescribeSnapshotsInput.Source's real accepted values are \"system\"/\"user\" (per its own doc comment) -- a real client's Source=system/user would have matched zero snapshots. normalizeSnapshotSource (snapshots.go) now maps system->automated, user->manual, while still leniently accepting automated/manual directly."}
   CopySnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: dst snapshot never set Source at all (only the now-deleted SnapshotType), so a Source-filtered DescribeSnapshots would never match a copied snapshot -- a real state bug, not just wire-label. Now sets Source and carries DataTiering forward from the source snapshot."}
   DeleteSnapshot: {wire: ok, errors: ok, state: ok, persist: ok}
-  ExportSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "mock export (no real S3 write); acceptable, matches other services"}
+  # ExportSnapshot is intentionally NOT listed as an advertised SDK op here.
+  # 2026-07-31 CORRECTION: the row that used to live at this position ("wire:
+  # ok, ...", "mock export ... matches other services") was inaccurate --
+  # ExportSnapshot is not a real AWS MemoryDB SDK operation at all (verified
+  # against botocore's memorydb service-2.json: only CopySnapshot/
+  # CreateSnapshot/DeleteSnapshot/DescribeSnapshots exist under the snapshot
+  # family; MemoryDB, unlike ElastiCache, has no export-to-S3 API). Caught by
+  # pkgs/sdkcheck's reverse check (commit 12cfe14d5; gopherstack-vhw2 category
+  # A). MemoryDB dispatches purely by X-Amz-Target header value, so a real
+  # client can never send this target and the route (a validate-and-return
+  # no-op) was already unreachable by real traffic; it stays wired as
+  # internal test scaffolding, unadvertised. See handler.go's comment on the
+  # GetSupportedOperations() entry. Same resolution as DAX's
+  # ResetParameterGroup and EMR's ListTagsForResource.
   DescribeEngineVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: engineVersionObject dropped a fabricated \"Description\" field -- confirmed absent from types.EngineVersionInfo's 4-key deserializer case list (Engine, EnginePatchVersion, EngineVersion, ParameterGroupFamily); kept internally on the EngineVersion model as seed-table documentation only."}
   DescribeEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified: eventObject (Date, Message, SourceName, SourceType) matches types.Event's 4-key deserializer case list exactly"}
   CreateMultiRegionCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: multiRegionClusterObject was missing the real \"Clusters\" ([]RegionalCluster) and \"TLSEnabled\" fields -- both confirmed on types.MultiRegionCluster. Clusters is now populated from actual per-Region Cluster records referencing this multi-Region cluster by name (RegionalClustersFor, multi_region_clusters.go)."}
@@ -163,8 +177,10 @@ holds), never `no-password-required`.
 `ACL`/`ParameterGroup`/`MultiRegionParameterGroup`/`Event`/`ListAllowedNodeTypeUpdatesOutput`
 wire shapes were all re-verified field-for-field against their deserializers.go case lists and
 found to already match exactly, with zero fabricated or missing fields -- these are genuinely
-clean, not merely unaudited. `ExportSnapshot`'s "export" being a pure read (no real S3 write)
-matches every other service's snapshot-export mock. `b.mu` being a plain `sync.RWMutex` rather
+clean, not merely unaudited. (2026-07-31 correction: the note previously here comparing
+`ExportSnapshot`'s mock export to "every other service's snapshot-export mock" was itself
+wrong -- `ExportSnapshot` is not a real MemoryDB operation at all; see its ops-block entry
+above.) `b.mu` being a plain `sync.RWMutex` rather
 than `pkgs/lockmetrics.RWMutex` is a pre-existing convention deviation, not a leak or
 correctness bug (every lock path is still properly `defer`-released) -- flagged under `leaks`
 for a future pass rather than churned here, since retrofitting the metrics wrapper across ~30

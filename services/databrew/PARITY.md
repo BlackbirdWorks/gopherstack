@@ -1,8 +1,9 @@
 service: databrew
 sdk_module: aws-sdk-go-v2/service/databrew@v1.40.0
 last_audit_commit: 782e2a93
-last_audit_date: 2026-07-23
-overall: A            # genuine fixes found across recipe version history, job/dataset field gaps, and an invented UpdateProject field
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-23: genuine fixes found across recipe version history, job/dataset field gaps, and an invented UpdateProject field
+                      # 2026-07-31: pkgs/sdkcheck reverse check found DeleteRecipe wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test/tooling scaffolding. Grade held at A: a documentation defect, not a served-client bug.
 ops:
   CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now accepts PathOptions (S3 wildcard-path dataset config: FilesLimit/LastModifiedDateCondition/Parameters, incl. DatasetParameter.DatetimeOptions) -- was previously silently discarded. Also fixed: Dataset now carries AccountId (aws-sdk-go-v2/service/databrew/types.Dataset has an AccountId member; ListDatasets items were always echoing it empty)."}
   DescribeDataset: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -14,7 +15,25 @@ ops:
   ListRecipes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: RecipeVersion filter (query param \"recipeVersion\") is now read and applied. Default (no filter) now matches the documented real behavior -- \"If RecipeVersion is omitted, ListRecipes returns all of the LATEST_PUBLISHED recipe versions\" -- so a never-published recipe no longer appears in a default listing; RecipeVersion=LATEST_WORKING lists every recipe's working draft regardless of publish state. Previously this filter didn't exist at all and every recipe was always listed once."}
   PublishRecipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now appends a new numbered version (\"N.0\") to the recipe's real version history on every call instead of overwriting a single tracked \"1.0\" -- see families.recipe_version_history."}
   UpdateRecipe: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRecipe: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now cascades to delete the recipe's entire published version history (recipeVersions), so re-creating a deleted recipe name never resurrects old version rows -- no ghost state."}
+  # DeleteRecipe is intentionally NOT listed as an advertised SDK op here.
+  # 2026-07-31 CORRECTION: the row that used to live at this position ("wire:
+  # ok, ...") was inaccurate -- DeleteRecipe is not a real AWS DataBrew SDK
+  # operation at all (verified against botocore's databrew service-2.json:
+  # the only DELETE route under /recipes is DELETE
+  # /recipes/{name}/recipeVersion/{recipeVersion}, i.e. DeleteRecipeVersion;
+  # there is no bare "DELETE /recipes/{name}". Real clients delete an entire
+  # recipe by calling BatchDeleteRecipeVersion with every version including
+  # LATEST_WORKING). Caught by pkgs/sdkcheck's reverse check (commit
+  # 12cfe14d5; gopherstack-vhw2 category A). The route (DELETE /recipes/{name}
+  # with no sub-path -> handleDeleteRecipe, which still cascades to delete the
+  # recipe's entire published version history) stays wired as internal
+  # test/tooling scaffolding -- parseRecipeOp matches the real
+  # "recipeVersion/{version}" suffix first, so this fallback never shadows a
+  # real client's DeleteRecipeVersion/BatchDeleteRecipeVersion call.
+  # GetSupportedOperations() no longer advertises it; see opDeleteRecipe's doc
+  # comment in handler.go. Same resolution as CloudFront's
+  # GetFunctionAssociations/SetFunctionAssociations and EMR's
+  # ListTagsForResource.
   ListRecipeVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now backed by a real per-recipe published-version history (see families.recipe_version_history) instead of echoing the single tracked recipe row; excludes LATEST_WORKING per the real op's doc comment (\"except for LATEST_WORKING\"); a never-published recipe now correctly returns an empty (non-nil) Recipes list instead of one containing the working draft -- confirmed via a real aws-sdk-go-v2 client round trip (Test_SDKRoundTrip_ListRecipeVersions_BarePath, updated this pass)."}
   BatchDeleteRecipeVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now a real backend op (was previously a bare DescribeRecipe existence check with a no-op body) operating on the real version history. Implements the documented split between whole-request rejection (empty/oversized/duplicate/syntactically-invalid version list -> ValidationException, nothing deleted) and per-version partial failure (a version that doesn't exist, or LATEST_WORKING while other versions still exist -> reported in the response's Errors list, call still succeeds) -- confirmed against aws-sdk-go-v2/service/databrew's BatchDeleteRecipeVersionInput/Output doc comments and types.RecipeVersionErrorDetail (RecipeVersion/ErrorCode/ErrorMessage). state=ok (was state=partial): no longer a single-version simplification."}
   DeleteRecipeVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now a real backend op deleting one entry from the real version history; 404s for a version that doesn't exist (previously always 200 no-op'd); rejects LATEST_PUBLISHED and syntactically invalid identifiers with ValidationException (\"LATEST_PUBLISHED is not supported\" per the real op's doc comment); LATEST_WORKING only deletes (removing the whole recipe) when no published versions remain. state=ok (was state=partial)."}
