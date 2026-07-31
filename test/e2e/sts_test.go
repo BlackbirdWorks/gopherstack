@@ -85,6 +85,14 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// The page now defaults to the Identity tab; GetSessionToken lives under
+	// "Get Token" and its form isn't in the DOM until that tab is selected.
+	tokensTab := page.Locator("#tab-tokens")
+	require.NoError(t, tokensTab.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
+	require.NoError(t, tokensTab.Click())
+
 	// Locate and click the Generate Session Token button via id selector.
 	genBtn := page.Locator("button#gen-session-btn")
 	require.NoError(t, genBtn.WaitFor(playwright.LocatorWaitForOptions{
@@ -93,9 +101,11 @@ func TestSTSDashboard_GenerateSessionToken(t *testing.T) {
 
 	require.NoError(t, genBtn.Click())
 
-	// Wait for the session token credentials to appear (the result div is only rendered when
-	// the token has been returned by the server).
-	sessionResult := page.Locator("div#session-token-result")
+	// Wait for the session token credentials to appear. The rebuilt page shares
+	// one credsBlock snippet across all eight credential-issuing operations with
+	// no per-operation result id, so wait for the shared credential paragraph
+	// (rendered only once the token has been returned by the server) instead.
+	sessionResult := page.Locator("p.font-mono").First()
 	err = sessionResult.WaitFor(
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(15000)},
 	)
@@ -140,14 +150,24 @@ func TestSTSDashboard_AssumeRole(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// Fill in AssumeRole form fields.
-	roleArnInput := page.Locator("input#assume-role-arn")
+	// The page now defaults to the Identity tab; AssumeRole lives under
+	// "Assume Role" and its form isn't in the DOM until that tab is selected.
+	assumeTab := page.Locator("#tab-assume")
+	require.NoError(t, assumeTab.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
+	require.NoError(t, assumeTab.Click())
+
+	// Fill in AssumeRole form fields (rebuilt page uses id="ar-role-arn" /
+	// "ar-session-name", scoped to the AssumeRole card specifically since the
+	// tab also holds AssumeRoleWithSAML/WithWebIdentity/Root forms).
+	roleArnInput := page.Locator("input#ar-role-arn")
 	require.NoError(t, roleArnInput.WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	}))
 	require.NoError(t, roleArnInput.Fill("arn:aws:iam::000000000000:role/E2ETestRole"))
 
-	sessionInput := page.Locator("input#assume-role-session")
+	sessionInput := page.Locator("input#ar-session-name")
 	require.NoError(t, sessionInput.Fill("e2e-test-session"))
 
 	// Click Assume Role button via id selector.
@@ -201,6 +221,14 @@ func TestSTSDashboard_ValidatorClear(t *testing.T) {
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
+
+	// The page now defaults to the Identity tab; GetAccessKeyInfo's validator
+	// lives under "Utilities" and isn't in the DOM until that tab is selected.
+	utilitiesTab := page.Locator("#tab-utilities")
+	require.NoError(t, utilitiesTab.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
+	require.NoError(t, utilitiesTab.Click())
 
 	// Type into the validator input.
 	validatorInput := page.Locator("input[placeholder='ASIA...']")
@@ -257,8 +285,10 @@ func TestSTSDashboard_MetricsPanel(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	// Metrics panel heading must be present.
-	assert.Contains(t, content, "STS Janitor Metrics")
+	// Metrics panel heading must be present (rebuilt page titles it "Session
+	// Metrics" — the panel itself, its aggregate counters, and the janitor
+	// stats it renders are unchanged; only the heading wording moved).
+	assert.Contains(t, content, "Session Metrics")
 }
 
 // TestSTSDashboard_DecodeAuthMessageClear verifies the decode panel clear button.
@@ -293,6 +323,14 @@ func TestSTSDashboard_DecodeAuthMessageClear(t *testing.T) {
 		playwright.LocatorWaitForOptions{Timeout: playwright.Float(60000)},
 	)
 	require.NoError(t, err)
+
+	// The page now defaults to the Identity tab; DecodeAuthorizationMessage
+	// lives under "Utilities" and isn't in the DOM until that tab is selected.
+	utilitiesTab := page.Locator("#tab-utilities")
+	require.NoError(t, utilitiesTab.WaitFor(playwright.LocatorWaitForOptions{
+		Timeout: playwright.Float(10000),
+	}))
+	require.NoError(t, utilitiesTab.Click())
 
 	// Fill in the decode textarea.
 	decodeArea := page.Locator("textarea[placeholder*='base64']")
