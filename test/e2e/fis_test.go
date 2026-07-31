@@ -72,7 +72,13 @@ func TestFISDashboard(t *testing.T) {
 	err = page.Locator("button:has-text('Experiment Templates')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=Stop DynamoDB writes").WaitFor(playwright.LocatorWaitForOptions{
+	// The template's description also appears inside the (hidden) Start
+	// Experiment modal's template picker, as "<id> — <description>" option
+	// text -- that <select> is always present in the DOM (native <dialog>
+	// content isn't unmounted when closed), so an unscoped text locator is
+	// ambiguous. Scope to the templates table row to assert what this test
+	// actually protects: the list renders the seeded template.
+	err = page.Locator("td:has-text('Stop DynamoDB writes')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -114,8 +120,8 @@ func TestFISDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "Live Experiments")
-	assert.Contains(t, content, "No registered chaos assets.")
+	assert.Contains(t, content, "AWS Fault Injection Simulator")
+	assert.Contains(t, content, "No experiment templates found")
 }
 
 // TestFISDashboard_TemplatesTab verifies the templates tab lists seeded templates.
@@ -170,7 +176,10 @@ func TestFISDashboard_TemplatesTab(t *testing.T) {
 	err = page.Locator("button:has-text('Experiment Templates')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=E2E template").WaitFor(playwright.LocatorWaitForOptions{
+	// Same ambiguity as TestFISDashboard: the description also appears in
+	// the Start Experiment modal's (always-mounted) template picker, so
+	// scope to the templates table row.
+	err = page.Locator("td:has-text('E2E template')").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -240,15 +249,24 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The dashboard now defaults to the Experiment Templates tab (the page
+	// was rebuilt around the six real FIS families instead of an
+	// experiments-first "chaos console" view), so the seeded experiment
+	// isn't rendered until the Experiments tab is selected.
+	err = page.Locator("button:has-text('Experiments')").Click()
+	require.NoError(t, err)
+
 	err = page.Locator("text=" + experiment.ID).WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("text=" + experiment.ID).Click()
-	require.NoError(t, err)
-
-	err = page.Locator("button[title='Stop Chaos']").WaitFor(playwright.LocatorWaitForOptions{
+	// The rebuilt page has no per-row detail-on-click affordance -- the
+	// row's action cell exposes View and Stop buttons directly (see
+	// expActionsCell in +page.svelte), and the Stop button's title is
+	// "Stop", not the old "Stop Chaos". Status is likewise inline on the
+	// row rather than behind a click.
+	err = page.Locator("button[title='Stop']").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
@@ -257,7 +275,7 @@ func TestFISDashboard_StartAndStopExperiment(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, content, "running")
 
-	err = page.Locator("button[title='Stop Chaos']").Click()
+	err = page.Locator("button[title='Stop']").Click()
 	require.NoError(t, err)
 	confirmDialog := page.Locator("[role='alertdialog']")
 	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
