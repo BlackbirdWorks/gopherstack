@@ -49,7 +49,13 @@ func objectLambdaAccessPointKeyFn(v *ObjectLambdaAccessPoint) string {
 	return v.AccountID + ":" + v.Name
 }
 
-func outpostsBucketKeyFn(v *OutpostsBucket) string { return v.AccountID + ":" + v.Name }
+// outpostsBucketKeyFn is keyed by bucket Name ALONE, not "AccountID:Name"
+// like every sibling keyFn above -- see the CreateBucket doc comment in
+// bucket.go (gopherstack-eje5) for why: unlike every other Create* op in this
+// service, the real CreateBucketInput has no AccountId member at all, so
+// there is no request-derived account value to partition by at the one
+// point (creation) that establishes a bucket's identity.
+func outpostsBucketKeyFn(v *OutpostsBucket) string { return v.Name }
 
 func batchJobKeyFn(v *BatchJob) string { return v.AccountID + ":" + v.JobID }
 

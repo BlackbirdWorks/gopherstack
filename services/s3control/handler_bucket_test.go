@@ -21,7 +21,7 @@ func TestOutpostsBucket(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("000000000000", "my-bucket")
-		bucket, err := b.GetBucket("000000000000", "my-bucket")
+		bucket, err := b.GetBucket("my-bucket")
 		require.NoError(t, err)
 		assert.Equal(t, "my-bucket", bucket.Name)
 	})
@@ -30,8 +30,8 @@ func TestOutpostsBucket(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("000000000000", "to-delete")
-		require.NoError(t, b.DeleteBucket("000000000000", "to-delete"))
-		_, err := b.GetBucket("000000000000", "to-delete")
+		require.NoError(t, b.DeleteBucket("to-delete"))
+		_, err := b.GetBucket("to-delete")
 		require.Error(t, err)
 	})
 
@@ -41,13 +41,13 @@ func TestOutpostsBucket(t *testing.T) {
 		b.CreateBucket("000000000000", "policy-bucket")
 		require.NoError(
 			t,
-			b.PutBucketPolicy("000000000000", "policy-bucket", `{"Version":"2012-10-17"}`),
+			b.PutBucketPolicy("policy-bucket", `{"Version":"2012-10-17"}`),
 		)
-		policy, err := b.GetBucketPolicy("000000000000", "policy-bucket")
+		policy, err := b.GetBucketPolicy("policy-bucket")
 		require.NoError(t, err)
 		assert.Contains(t, policy, "Version")
-		require.NoError(t, b.DeleteBucketPolicy("000000000000", "policy-bucket"))
-		policy2, _ := b.GetBucketPolicy("000000000000", "policy-bucket")
+		require.NoError(t, b.DeleteBucketPolicy("policy-bucket"))
+		policy2, _ := b.GetBucketPolicy("policy-bucket")
 		assert.Empty(t, policy2)
 	})
 
@@ -57,22 +57,22 @@ func TestOutpostsBucket(t *testing.T) {
 		b.CreateBucket("000000000000", "tag-bucket")
 		require.NoError(
 			t,
-			b.PutBucketTagging("000000000000", "tag-bucket", s3control.TagSet{"env": "prod"}),
+			b.PutBucketTagging("tag-bucket", s3control.TagSet{"env": "prod"}),
 		)
-		tags, err := b.GetBucketTagging("000000000000", "tag-bucket")
+		tags, err := b.GetBucketTagging("tag-bucket")
 		require.NoError(t, err)
 		assert.Equal(t, "prod", tags["env"])
-		require.NoError(t, b.DeleteBucketTagging("000000000000", "tag-bucket"))
+		require.NoError(t, b.DeleteBucketTagging("tag-bucket"))
 	})
 
 	t.Run("bucket versioning", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("000000000000", "ver-bucket")
-		status, _ := b.GetBucketVersioning("000000000000", "ver-bucket")
+		status, _ := b.GetBucketVersioning("ver-bucket")
 		assert.Equal(t, "Suspended", status)
-		require.NoError(t, b.PutBucketVersioning("000000000000", "ver-bucket", "Enabled"))
-		status2, _ := b.GetBucketVersioning("000000000000", "ver-bucket")
+		require.NoError(t, b.PutBucketVersioning("ver-bucket", "Enabled"))
+		status2, _ := b.GetBucketVersioning("ver-bucket")
 		assert.Equal(t, "Enabled", status2)
 	})
 
@@ -82,16 +82,14 @@ func TestOutpostsBucket(t *testing.T) {
 		b.CreateBucket("000000000000", "lc-bucket")
 		require.NoError(
 			t,
-			b.PutBucketLifecycleConfiguration(
-				"000000000000",
-				"lc-bucket",
+			b.PutBucketLifecycleConfiguration("lc-bucket",
 				"<LifecycleConfiguration/>",
 			),
 		)
-		config, err := b.GetBucketLifecycleConfiguration("000000000000", "lc-bucket")
+		config, err := b.GetBucketLifecycleConfiguration("lc-bucket")
 		require.NoError(t, err)
 		assert.Contains(t, config, "Lifecycle")
-		require.NoError(t, b.DeleteBucketLifecycleConfiguration("000000000000", "lc-bucket"))
+		require.NoError(t, b.DeleteBucketLifecycleConfiguration("lc-bucket"))
 	})
 
 	t.Run("list regional buckets", func(t *testing.T) {
@@ -99,7 +97,7 @@ func TestOutpostsBucket(t *testing.T) {
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("000000000000", "b1")
 		b.CreateBucket("000000000000", "b2")
-		buckets := b.ListRegionalBuckets("000000000000")
+		buckets := b.ListRegionalBuckets()
 		require.Len(t, buckets, 2)
 	})
 
@@ -112,34 +110,34 @@ func TestOutpostsBucket(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
 		bkt := b.CreateBucket("000000000000", "cascade-bucket")
-		require.NoError(t, b.PutBucketPolicy("000000000000", "cascade-bucket", `{"p":1}`))
-		require.NoError(t, b.PutBucketTagging("000000000000", "cascade-bucket", s3control.TagSet{"env": "prod"}))
-		require.NoError(t, b.PutBucketLifecycleConfiguration("000000000000", "cascade-bucket", "<Lifecycle/>"))
-		require.NoError(t, b.PutBucketVersioning("000000000000", "cascade-bucket", "Enabled"))
-		require.NoError(t, b.PutBucketReplication("000000000000", "cascade-bucket", "<Replication/>"))
+		require.NoError(t, b.PutBucketPolicy("cascade-bucket", `{"p":1}`))
+		require.NoError(t, b.PutBucketTagging("cascade-bucket", s3control.TagSet{"env": "prod"}))
+		require.NoError(t, b.PutBucketLifecycleConfiguration("cascade-bucket", "<Lifecycle/>"))
+		require.NoError(t, b.PutBucketVersioning("cascade-bucket", "Enabled"))
+		require.NoError(t, b.PutBucketReplication("cascade-bucket", "<Replication/>"))
 		b.TagResource(bkt.BucketArn, map[string]string{"team": "infra"})
 
-		require.NoError(t, b.DeleteBucket("000000000000", "cascade-bucket"))
+		require.NoError(t, b.DeleteBucket("cascade-bucket"))
 
 		b.CreateBucket("000000000000", "cascade-bucket")
 
-		policy, err := b.GetBucketPolicy("000000000000", "cascade-bucket")
+		policy, err := b.GetBucketPolicy("cascade-bucket")
 		require.NoError(t, err)
 		assert.Empty(t, policy, "policy must not survive delete")
 
-		tags, err := b.GetBucketTagging("000000000000", "cascade-bucket")
+		tags, err := b.GetBucketTagging("cascade-bucket")
 		require.NoError(t, err)
 		assert.Empty(t, tags, "tagging must not survive delete")
 
-		lc, err := b.GetBucketLifecycleConfiguration("000000000000", "cascade-bucket")
+		lc, err := b.GetBucketLifecycleConfiguration("cascade-bucket")
 		require.NoError(t, err)
 		assert.Empty(t, lc, "lifecycle must not survive delete")
 
-		v, err := b.GetBucketVersioning("000000000000", "cascade-bucket")
+		v, err := b.GetBucketVersioning("cascade-bucket")
 		require.NoError(t, err)
 		assert.Equal(t, "Suspended", v, "versioning must reset, not survive delete")
 
-		_, err = b.GetBucketReplication("000000000000", "cascade-bucket")
+		_, err = b.GetBucketReplication("cascade-bucket")
 		require.Error(t, err, "replication must not survive delete")
 
 		assert.Empty(t, b.ListTagsForResource(bkt.BucketArn), "generic tags must not survive delete")
@@ -247,7 +245,7 @@ func TestBackendBucketReplication(t *testing.T) {
 		b := s3control.NewInMemoryBackend()
 		b.CreateBucket("acct1", "bkt")
 
-		_, err := b.GetBucketReplication("acct1", "bkt")
+		_, err := b.GetBucketReplication("bkt")
 		require.Error(t, err)
 	})
 
@@ -255,7 +253,7 @@ func TestBackendBucketReplication(t *testing.T) {
 		t.Parallel()
 
 		b := s3control.NewInMemoryBackend()
-		err := b.DeleteBucketReplication("acct1", "bkt")
+		err := b.DeleteBucketReplication("bkt")
 		require.NoError(t, err)
 	})
 }
@@ -337,7 +335,7 @@ func TestBucketReplication_Delete(t *testing.T) {
 			h := s3control.NewHandler(b)
 
 			if tt.preload {
-				b.PutBucketReplication("000000000000", tt.bucket, "<Rule/>")
+				b.PutBucketReplication(tt.bucket, "<Rule/>")
 			}
 
 			rec := doS3ControlNewOpRequest(t, h, http.MethodDelete,
@@ -404,6 +402,63 @@ func TestCreateBucket(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHTTP_CreateBucket_RealSDKShape_RoundTrip locks in gopherstack-eje5: a
+// real aws-sdk-go-v2 CreateBucket request has NO AccountId member at all
+// (confirmed against the installed aws-sdk-go-v2/service/s3control's
+// CreateBucketInput -- its members are Bucket/ACL/CreateBucketConfiguration/
+// Grant*/ObjectLockEnabledForBucket/OutpostId, nothing account-related),
+// unlike GetBucket/DeleteBucket/ListRegionalBuckets, which all bind an
+// (optional) AccountId to the X-Amz-Account-Id header. A real client
+// therefore never sends that header on CreateBucket, while it commonly DOES
+// send its actual AWS account ID on the read-side ops. A previous version of
+// this handler resolved CreateBucket's owner via the same
+// accountIDFromRequest() helper every other op uses, which silently fell
+// back to the literal string "default" when the header was absent -- so a
+// bucket created by a real client landed under account "default" while that
+// same client's later Get/Delete/List calls (sent with its actual account
+// ID) looked for it under a different key and never found it. This
+// exercises the real, headerless CreateBucket shape and then reads it back
+// using an explicit, different AccountId on every read op, exactly as a
+// real SDK client would.
+// Deliberately NOT split into t.Run subtests: List/Get must observe the
+// bucket before Delete removes it, so the three reads share one strict
+// sequence rather than running in parallel.
+func TestHTTP_CreateBucket_RealSDKShape_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+
+	// Real CreateBucket: no X-Amz-Account-Id header at all.
+	createRec := doS3ControlNewOpRequest(
+		t, h, http.MethodPut, "/v20180820/bucket/real-bucket", "", "",
+	)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	// Real ListRegionalBuckets: the caller's actual AWS account ID header.
+	listRec := doS3ControlNewOpRequest(t, h, http.MethodGet, "/v20180820/bucket", "123456789012", "")
+	require.Equal(t, http.StatusOK, listRec.Code)
+	assert.Contains(t, listRec.Body.String(), "real-bucket")
+
+	// Real GetBucket: same real account ID header.
+	getRec := doS3ControlNewOpRequest(
+		t, h, http.MethodGet, "/v20180820/bucket/real-bucket", "123456789012", "",
+	)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out struct {
+		XMLName xml.Name `xml:"GetBucketResult"`
+		Bucket  string   `xml:"Bucket"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &out))
+	assert.Equal(t, "real-bucket", out.Bucket)
+
+	// Real DeleteBucket: same real account ID header.
+	deleteRec := doS3ControlNewOpRequest(
+		t, h, http.MethodDelete, "/v20180820/bucket/real-bucket", "123456789012", "",
+	)
+	assert.Equal(t, http.StatusNoContent, deleteRec.Code)
 }
 
 func TestListRegionalBuckets_Pagination(t *testing.T) {
