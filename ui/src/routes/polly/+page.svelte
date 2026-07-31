@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getPollyClient } from '$lib/aws-client';
 	import {
 		DescribeVoicesCommand,
@@ -12,16 +12,12 @@
 			type VoiceId,
 		type Voice,
 		type LexiconDescription,
-		type SynthesisTask,
-		type PollyClient
+		type SynthesisTask
 	} from '@aws-sdk/client-polly';
 	import { toast } from 'svelte-sonner';
 	import { Mic, RefreshCw, Search, BookOpen, Activity, Play, Plus, Pencil, Trash2, X } from 'lucide-svelte';
 
-	let pollyClient: PollyClient | undefined;
-	function polly(): PollyClient {
-		return (pollyClient ??= getPollyClient());
-	}
+	const polly = regionalClient(getPollyClient);
 
 	// Lexicons applied to the synthesize demo ("test pronunciation").
 	let selectedLexicons = $state<string[]>([]);
@@ -229,7 +225,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

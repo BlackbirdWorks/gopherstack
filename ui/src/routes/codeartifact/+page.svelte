@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getCodeArtifactClient } from '$lib/aws-client';
 	import {
@@ -10,7 +10,6 @@
 		ListPackageVersionDependenciesCommand,
 		ListPackageGroupsCommand,
 		UpdatePackageVersionsStatusCommand,
-		type CodeartifactClient,
 		type DomainSummary,
 		type RepositorySummary,
 		type PackageSummary,
@@ -22,10 +21,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Package, RefreshCw, Search, Database, Archive, ChevronRight, GitBranch, Layers, CheckCircle2, Trash2 } from 'lucide-svelte';
 
-	let caClient: CodeartifactClient | undefined;
-	function ca(): CodeartifactClient {
-		return (caClient ??= getCodeArtifactClient());
-	}
+	const ca = regionalClient(getCodeArtifactClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'domains' | 'repositories' | 'packages' | 'versions' | 'groups'>('domains');
@@ -195,7 +191,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

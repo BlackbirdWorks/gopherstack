@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getWAFV2Client } from '$lib/aws-client';
 	import {
 		ListWebACLsCommand,
@@ -19,7 +20,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Shield, Search, RefreshCw, Plus, Trash2, ChevronRight, Activity, Globe } from 'lucide-svelte';
 
-	const waf = getWAFV2Client();
+	const waf = regionalClient(getWAFV2Client);
 
 	let activeTab = $state<'webacls' | 'ipsets' | 'rulegroups'>('webacls');
 	let searchQuery = $state('');
@@ -56,7 +57,13 @@
 	async function loadWebACLs() {
 		loading = true;
 		try {
-			const resp = await waf.send(new ListWebACLsCommand({ Scope: scope, Limit: 50 }));
+			// `scope` is read with `untrack` so it never becomes a dependency of
+			// the `onRegionChange` effect below -- the scope <select>'s onchange
+			// already writes scope and calls loadWebACLs() (via
+			// handleScopeChange) directly, so letting the effect also depend on
+			// scope would double-fetch on every scope change.
+			const currentScope = untrack(() => scope);
+			const resp = await waf().send(new ListWebACLsCommand({ Scope: currentScope, Limit: 50 }));
 			webAcls = resp.WebACLs ?? [];
 		} catch (e) {
 			toast.error('Failed to load Web ACLs: ' + String(e));
@@ -69,7 +76,7 @@
 		loadingDetail = true;
 		sampledRequests = [];
 		try {
-			const resp = await waf.send(new GetWebACLCommand({
+			const resp = await waf().send(new GetWebACLCommand({
 				Name: summary.Name ?? '',
 				Scope: scope,
 				Id: summary.Id ?? ''
@@ -86,7 +93,7 @@
 		if (!selectedWebACL) return;
 		loadingSamples = true;
 		try {
-			const resp = await waf.send(new GetSampledRequestsCommand({
+			const resp = await waf().send(new GetSampledRequestsCommand({
 				WebAclArn: selectedWebACL.ARN ?? '',
 				RuleMetricName: selectedWebACL.Rules?.[0]?.Name ?? 'ALL',
 				Scope: scope,
@@ -108,7 +115,7 @@
 		if (!newAclName.trim()) return;
 		creatingACL = true;
 		try {
-			await waf.send(new CreateWebACLCommand({
+			await waf().send(new CreateWebACLCommand({
 				Name: newAclName.trim(),
 				Scope: scope,
 				DefaultAction: newDefaultAction === 'ALLOW' ? { Allow: {} } : { Block: {} },
@@ -135,7 +142,7 @@
 	async function deleteWebACL(summary: WebACLSummary) {
 		if (!await confirmDestructive({ title: 'Delete Web ACL', message: `Delete Web ACL "${summary.Name}"? Any associated resources will lose their WAF protection.` })) return;
 		try {
-			await waf.send(new DeleteWebACLCommand({
+			await waf().send(new DeleteWebACLCommand({
 				Name: summary.Name ?? '',
 				Scope: scope,
 				Id: summary.Id ?? '',
@@ -152,7 +159,7 @@
 	async function loadIPSets() {
 		loadingIPSets = true;
 		try {
-			const resp = await waf.send(new ListIPSetsCommand({ Scope: scope, Limit: 50 }));
+			const resp = await waf().send(new ListIPSetsCommand({ Scope: scope, Limit: 50 }));
 			ipSets = resp.IPSets ?? [];
 		} catch (e) {
 			toast.error('Failed to load IP sets: ' + String(e));
@@ -164,7 +171,7 @@
 	async function loadRuleGroups() {
 		loadingRuleGroups = true;
 		try {
-			const resp = await waf.send(new ListRuleGroupsCommand({ Scope: scope, Limit: 50 }));
+			const resp = await waf().send(new ListRuleGroupsCommand({ Scope: scope, Limit: 50 }));
 			ruleGroups = resp.RuleGroups ?? [];
 		} catch (e) {
 			toast.error('Failed to load rule groups: ' + String(e));
@@ -189,7 +196,7 @@
 		if (tab === 'rulegroups' && ruleGroups.length === 0) await loadRuleGroups();
 	}
 
-	onMount(loadWebACLs);
+	onRegionChange(loadWebACLs);
 </script>
 
 <div class="p-6 space-y-6">

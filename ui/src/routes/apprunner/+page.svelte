@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAppRunnerClient } from '$lib/aws-client';
 	import {
 		ListServicesCommand,
@@ -26,7 +26,7 @@
 		ExternalLink
 	} from 'lucide-svelte';
 
-	const apprunner = getAppRunnerClient();
+	const apprunner = regionalClient(getAppRunnerClient);
 
 	let loading = $state(false);
 	let services = $state<ServiceSummary[]>([]);
@@ -64,7 +64,7 @@
 	async function loadServices() {
 		loading = true;
 		try {
-			const res = await apprunner.send(new ListServicesCommand({}));
+			const res = await apprunner().send(new ListServicesCommand({}));
 			services = res.ServiceSummaryList ?? [];
 		} catch (e) {
 			toast.error(`Failed to load services: ${e}`);
@@ -78,7 +78,7 @@
 		loadingDetail = true;
 		selectedService = null;
 		try {
-			const res = await apprunner.send(
+			const res = await apprunner().send(
 				new DescribeServiceCommand({ ServiceArn: service.ServiceArn })
 			);
 			selectedService = res.Service ?? null;
@@ -92,7 +92,7 @@
 	async function pauseService(service: ServiceSummary) {
 		if (!service.ServiceArn) return;
 		try {
-			await apprunner.send(new PauseServiceCommand({ ServiceArn: service.ServiceArn }));
+			await apprunner().send(new PauseServiceCommand({ ServiceArn: service.ServiceArn }));
 			toast.success(`Service "${service.ServiceName}" paused`);
 			await loadServices();
 		} catch (e) {
@@ -103,7 +103,7 @@
 	async function resumeService(service: ServiceSummary) {
 		if (!service.ServiceArn) return;
 		try {
-			await apprunner.send(new ResumeServiceCommand({ ServiceArn: service.ServiceArn }));
+			await apprunner().send(new ResumeServiceCommand({ ServiceArn: service.ServiceArn }));
 			toast.success(`Service "${service.ServiceName}" resumed`);
 			await loadServices();
 		} catch (e) {
@@ -114,7 +114,7 @@
 	async function deleteService(service: ServiceSummary) {
 		if (!service.ServiceArn || !await confirmDestructive({ title: 'Delete App Runner Service', message: `Delete service "${service.ServiceName}"? The service will be stopped and all associated resources removed.` })) return;
 		try {
-			await apprunner.send(new DeleteServiceCommand({ ServiceArn: service.ServiceArn }));
+			await apprunner().send(new DeleteServiceCommand({ ServiceArn: service.ServiceArn }));
 			toast.success(`Service "${service.ServiceName}" deletion initiated`);
 			if (selectedService?.ServiceArn === service.ServiceArn) selectedService = null;
 			await loadServices();
@@ -130,7 +130,7 @@
 		}
 		creating = true;
 		try {
-			await apprunner.send(
+			await apprunner().send(
 				new CreateServiceCommand({
 					ServiceName: newServiceName.trim(),
 					SourceConfiguration: {
@@ -161,7 +161,7 @@
 		}
 	}
 
-	onMount(() => loadServices());
+	onRegionChange(loadServices);
 </script>
 
 <div class="space-y-6">

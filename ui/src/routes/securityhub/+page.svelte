@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSecurityHubClient } from '$lib/aws-client';
 	import {
 		GetFindingsCommand,
@@ -28,7 +28,7 @@
 		X
 	} from 'lucide-svelte';
 
-	const hub = getSecurityHubClient();
+	const hub = regionalClient(getSecurityHubClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'findings' | 'insights'>('findings');
@@ -71,7 +71,7 @@
 
 	async function checkHubStatus() {
 		try {
-			await hub.send(new DescribeHubCommand({}));
+			await hub().send(new DescribeHubCommand({}));
 			hubEnabled = true;
 		} catch (e) {
 			hubEnabled = false;
@@ -81,7 +81,7 @@
 	async function loadFindings() {
 		loading = true;
 		try {
-			const res = await hub.send(
+			const res = await hub().send(
 				new GetFindingsCommand({
 					MaxResults: 50,
 					SortCriteria: [{ Field: 'LastObservedAt', SortOrder: 'desc' }]
@@ -106,7 +106,7 @@
 		if (!finding.Id || !finding.ProductArn) return;
 		updatingWorkflow = true;
 		try {
-			await hub.send(
+			await hub().send(
 				new BatchUpdateFindingsCommand({
 					FindingIdentifiers: [{ Id: finding.Id, ProductArn: finding.ProductArn }],
 					Workflow: { Status: status }
@@ -125,7 +125,7 @@
 	async function loadInsights() {
 		loading = true;
 		try {
-			const res = await hub.send(new GetInsightsCommand({ MaxResults: 50 }));
+			const res = await hub().send(new GetInsightsCommand({ MaxResults: 50 }));
 			insights = res.Insights ?? [];
 		} catch (e) {
 			toast.error(`Failed to load insights: ${e}`);
@@ -170,7 +170,7 @@
 				newInsightSeverity === 'all'
 					? { RecordState: [{ Value: 'ACTIVE', Comparison: 'EQUALS' }] }
 					: { SeverityLabel: [{ Value: newInsightSeverity, Comparison: 'EQUALS' }] };
-			await hub.send(
+			await hub().send(
 				new CreateInsightCommand({
 					Name: newInsightName.trim(),
 					Filters: filters,
@@ -190,7 +190,7 @@
 	async function deleteInsight(arn: string) {
 		deletingInsight = arn;
 		try {
-			await hub.send(new DeleteInsightCommand({ InsightArn: arn }));
+			await hub().send(new DeleteInsightCommand({ InsightArn: arn }));
 			toast.success('Insight deleted');
 			await loadInsights();
 		} catch (e) {
@@ -226,7 +226,7 @@
 		else await loadInsights();
 	}
 
-	onMount(async () => {
+	onRegionChange(async () => {
 		await checkHubStatus();
 		if (hubEnabled) await loadFindings();
 	});

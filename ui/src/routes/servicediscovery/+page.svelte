@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getServiceDiscoveryClient } from '$lib/aws-client';
 	import {
 		ListNamespacesCommand,
@@ -20,7 +20,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Network, RefreshCw, Search, Globe, Server, Box, Plus, Activity, CheckCircle, XCircle, Clock } from 'lucide-svelte';
 
-	const sd = getServiceDiscoveryClient();
+	const sd = regionalClient(getServiceDiscoveryClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'namespaces' | 'services' | 'instances' | 'operations'>('namespaces');
@@ -70,9 +70,9 @@
 		loading = true;
 		try {
 			const [nsResp, svcResp, opsResp] = await Promise.all([
-				sd.send(new ListNamespacesCommand({})),
-				sd.send(new ListServicesCommand({})),
-				sd.send(new ListOperationsCommand({}))
+				sd().send(new ListNamespacesCommand({})),
+				sd().send(new ListServicesCommand({})),
+				sd().send(new ListOperationsCommand({}))
 			]);
 			namespaces = nsResp.Namespaces ?? [];
 			services = svcResp.Services ?? [];
@@ -88,7 +88,7 @@
 		if (!serviceId) return;
 		loadingInstances = true;
 		try {
-			const resp = await sd.send(new ListInstancesCommand({ ServiceId: serviceId }));
+			const resp = await sd().send(new ListInstancesCommand({ ServiceId: serviceId }));
 			instances = resp.Instances ?? [];
 		} catch (e) {
 			toast.error('Failed to load instances: ' + String(e));
@@ -103,11 +103,11 @@
 		creatingNs = true;
 		try {
 			if (nsType === 'HTTP') {
-				await sd.send(new CreateHttpNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined }));
+				await sd().send(new CreateHttpNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined }));
 			} else if (nsType === 'PRIVATE_DNS') {
-				await sd.send(new CreatePrivateDnsNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined, Vpc: nsVpc || undefined }));
+				await sd().send(new CreatePrivateDnsNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined, Vpc: nsVpc || undefined }));
 			} else {
-				await sd.send(new CreatePublicDnsNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined }));
+				await sd().send(new CreatePublicDnsNamespaceCommand({ Name: nsName.trim(), Description: nsDesc || undefined }));
 			}
 			toast.success('Namespace creation initiated');
 			showCreateNamespace = false;
@@ -124,7 +124,7 @@
 		if (!svcName.trim()) { toast.error('Name is required'); return; }
 		creatingService = true;
 		try {
-			await sd.send(new CreateServiceCommand({
+			await sd().send(new CreateServiceCommand({
 				Name: svcName.trim(),
 				Description: svcDesc || undefined,
 				NamespaceId: svcNamespaceId || undefined
@@ -148,7 +148,7 @@
 			const attrs: Record<string, string> = {};
 			if (instIPv4.trim()) attrs['AWS_INSTANCE_IPV4'] = instIPv4.trim();
 			if (instPort.trim()) attrs['AWS_INSTANCE_PORT'] = instPort.trim();
-			await sd.send(new RegisterInstanceCommand({
+			await sd().send(new RegisterInstanceCommand({
 				ServiceId: instServiceId.trim(),
 				InstanceId: instId.trim(),
 				Attributes: attrs
@@ -167,7 +167,7 @@
 	async function updateHealthStatus() {
 		updatingHealth = true;
 		try {
-			await sd.send(new UpdateInstanceCustomHealthStatusCommand({
+			await sd().send(new UpdateInstanceCustomHealthStatusCommand({
 				ServiceId: healthServiceId,
 				InstanceId: healthInstanceId,
 				Status: healthStatus
@@ -215,7 +215,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getComprehendClient } from '$lib/aws-client';
 	import {
 		ListDocumentClassifiersCommand,
@@ -16,16 +16,12 @@
 		type SentimentScore,
 		type Entity,
 		type KeyPhrase,
-		type LanguageCode,
-		type ComprehendClient
+		type LanguageCode
 	} from '@aws-sdk/client-comprehend';
 	import { toast } from 'svelte-sonner';
 	import { MessageSquare, RefreshCw, Search, FileText, Tag, Activity, Play, ChevronDown, ChevronRight, GitCompare } from 'lucide-svelte';
 
-	let comp: ComprehendClient | undefined;
-	function client(): ComprehendClient {
-		return (comp ??= getComprehendClient());
-	}
+	const client = regionalClient(getComprehendClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'classifiers' | 'recognizers' | 'topics' | 'tester'>('classifiers');
@@ -136,7 +132,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

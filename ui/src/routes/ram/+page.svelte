@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRAMClient } from '$lib/aws-client';
 	import {
 		GetResourceSharesCommand,
@@ -21,7 +21,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Share2, RefreshCw, Search, Users, Box, CheckCircle, Key, Bell } from 'lucide-svelte';
 
-	const ram = getRAMClient();
+	const ram = regionalClient(getRAMClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'shares' | 'resources' | 'principals' | 'permissions' | 'invitations'>('shares');
@@ -55,11 +55,11 @@
 		loading = true;
 		try {
 			const [sharesResp, resourcesResp, principalsResp, permsResp, invsResp] = await Promise.all([
-				ram.send(new GetResourceSharesCommand({ resourceOwner: 'SELF' })),
-				ram.send(new ListResourcesCommand({ resourceOwner: 'SELF' })),
-				ram.send(new ListPrincipalsCommand({ resourceOwner: 'SELF' })),
-				ram.send(new ListPermissionsCommand({})),
-				ram.send(new GetResourceShareInvitationsCommand({}))
+				ram().send(new GetResourceSharesCommand({ resourceOwner: 'SELF' })),
+				ram().send(new ListResourcesCommand({ resourceOwner: 'SELF' })),
+				ram().send(new ListPrincipalsCommand({ resourceOwner: 'SELF' })),
+				ram().send(new ListPermissionsCommand({})),
+				ram().send(new GetResourceShareInvitationsCommand({}))
 			]);
 			shares = sharesResp.resourceShares ?? [];
 			sharesNextToken = sharesResp.nextToken ?? null;
@@ -80,7 +80,7 @@
 	async function loadMoreShares() {
 		if (!sharesNextToken) return;
 		try {
-			const resp = await ram.send(new GetResourceSharesCommand({ resourceOwner: 'SELF', nextToken: sharesNextToken }));
+			const resp = await ram().send(new GetResourceSharesCommand({ resourceOwner: 'SELF', nextToken: sharesNextToken }));
 			shares = [...shares, ...(resp.resourceShares ?? [])];
 			sharesNextToken = resp.nextToken ?? null;
 		} catch (e) {
@@ -91,7 +91,7 @@
 	async function loadMoreResources() {
 		if (!resourcesNextToken) return;
 		try {
-			const resp = await ram.send(new ListResourcesCommand({ resourceOwner: 'SELF', nextToken: resourcesNextToken }));
+			const resp = await ram().send(new ListResourcesCommand({ resourceOwner: 'SELF', nextToken: resourcesNextToken }));
 			resources = [...resources, ...(resp.resources ?? [])];
 			resourcesNextToken = resp.nextToken ?? null;
 		} catch (e) {
@@ -102,7 +102,7 @@
 	async function loadMorePrincipals() {
 		if (!principalsNextToken) return;
 		try {
-			const resp = await ram.send(new ListPrincipalsCommand({ resourceOwner: 'SELF', nextToken: principalsNextToken }));
+			const resp = await ram().send(new ListPrincipalsCommand({ resourceOwner: 'SELF', nextToken: principalsNextToken }));
 			principals = [...principals, ...(resp.principals ?? [])];
 			principalsNextToken = resp.nextToken ?? null;
 		} catch (e) {
@@ -113,7 +113,7 @@
 	async function loadMorePermissions() {
 		if (!permissionsNextToken) return;
 		try {
-			const resp = await ram.send(new ListPermissionsCommand({ nextToken: permissionsNextToken }));
+			const resp = await ram().send(new ListPermissionsCommand({ nextToken: permissionsNextToken }));
 			permissions = [...permissions, ...(resp.permissions ?? [])];
 			permissionsNextToken = resp.nextToken ?? null;
 		} catch (e) {
@@ -127,7 +127,7 @@
 		if (!perm.arn) return;
 		loadingVersions = true;
 		try {
-			const resp = await ram.send(new ListPermissionVersionsCommand({ permissionArn: perm.arn }));
+			const resp = await ram().send(new ListPermissionVersionsCommand({ permissionArn: perm.arn }));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			permissionVersions = (resp.permissions ?? []) as any;
 		} catch (e) {
@@ -139,7 +139,7 @@
 
 	async function setDefaultVersion(permArn: string, version: number) {
 		try {
-			await ram.send(new SetDefaultPermissionVersionCommand({ permissionArn: permArn, permissionVersion: version }));
+			await ram().send(new SetDefaultPermissionVersionCommand({ permissionArn: permArn, permissionVersion: version }));
 			toast.success('Default permission version updated');
 			if (selectedPermission) await selectPermission(selectedPermission);
 			await loadData();
@@ -150,7 +150,7 @@
 
 	async function acceptInvitation(invArn: string) {
 		try {
-			await ram.send(new AcceptResourceShareInvitationCommand({ resourceShareInvitationArn: invArn }));
+			await ram().send(new AcceptResourceShareInvitationCommand({ resourceShareInvitationArn: invArn }));
 			toast.success('Invitation accepted');
 			await loadData();
 		} catch (e) {
@@ -160,7 +160,7 @@
 
 	async function rejectInvitation(invArn: string) {
 		try {
-			await ram.send(new RejectResourceShareInvitationCommand({ resourceShareInvitationArn: invArn }));
+			await ram().send(new RejectResourceShareInvitationCommand({ resourceShareInvitationArn: invArn }));
 			toast.success('Invitation rejected');
 			await loadData();
 		} catch (e) {
@@ -168,7 +168,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getLightsailClient } from '$lib/aws-client';
 	import {
 		GetInstancesCommand,
@@ -40,7 +40,7 @@
 		Sun, Sunrise, Lightbulb, Sparkles as Flare, GaugeCircle
 	} from 'lucide-svelte';
 
-	const lightsail = getLightsailClient();
+	const lightsail = regionalClient(getLightsailClient);
 
 	// State
 	let loading = $state(false);
@@ -72,13 +72,13 @@
 	async function loadLightsail() {
 		loading = true;
 		try {
-			const instRes = await lightsail.send(new GetInstancesCommand({}));
+			const instRes = await lightsail().send(new GetInstancesCommand({}));
 			instances = instRes.instances ?? [];
 
-			const dbRes = await lightsail.send(new GetRelationalDatabasesCommand({}));
+			const dbRes = await lightsail().send(new GetRelationalDatabasesCommand({}));
 			databases = dbRes.relationalDatabases ?? [];
 
-			const ipRes = await lightsail.send(new GetStaticIpsCommand({}));
+			const ipRes = await lightsail().send(new GetStaticIpsCommand({}));
 			staticIps = ipRes.staticIps ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load Lightsail: ${(err as Error).message}`);
@@ -90,7 +90,7 @@
 	async function terminateInstance(name: string | undefined) {
 		if (!name || !await confirmDestructive({ title: 'Terminate Instance', message: 'Terminate this Lightsail instance? All ephemeral data and the public IP will be permanently released.', confirmLabel: 'Terminate' })) return;
 		try {
-			await lightsail.send(new DeleteInstanceCommand({ instanceName: name }));
+			await lightsail().send(new DeleteInstanceCommand({ instanceName: name }));
 			toast.success(`Instance termination initiated`);
 			selectedInstance = null;
 			await loadLightsail();
@@ -103,7 +103,7 @@
 		if (!instanceName.trim()) return;
 		creating = true;
 		try {
-			await lightsail.send(new CreateInstancesCommand({
+			await lightsail().send(new CreateInstancesCommand({
 				instanceNames: [instanceName.trim()],
 				availabilityZone: 'us-east-1a',
 				blueprintId: 'ubuntu_22_04',
@@ -127,9 +127,7 @@
 		return 'bg-slate-400';
 	}
 
-	onMount(() => {
-		loadLightsail();
-	});
+	onRegionChange(loadLightsail);
 </script>
 
 <div class="space-y-6">

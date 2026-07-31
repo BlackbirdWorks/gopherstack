@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getEMRServerlessClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -10,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Zap, RefreshCw, Search, Activity, Server, CheckCircle, XCircle, ArrowUpDown, Info } from 'lucide-svelte';
 
-	const emr = getEMRServerlessClient();
+	const emr = regionalClient(getEMRServerlessClient);
 
 	const JOB_STATE_BADGE: Record<string, string> = {
 		SUCCESS:   'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400',
@@ -117,7 +117,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await emr.send(new ListApplicationsCommand({}));
+			const resp = await emr().send(new ListApplicationsCommand({}));
 			applications = resp.applications ?? [];
 		} catch (e) {
 			toast.error('Failed to load EMR Serverless applications: ' + String(e));
@@ -133,7 +133,7 @@
 		searchQuery = '';
 		jobsLoading = true;
 		try {
-			const resp = await emr.send(new ListJobRunsCommand({ applicationId: appId }));
+			const resp = await emr().send(new ListJobRunsCommand({ applicationId: appId }));
 			jobRuns = resp.jobRuns ?? [];
 			activeTab = 'jobs';
 		} catch (e) {
@@ -143,7 +143,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
