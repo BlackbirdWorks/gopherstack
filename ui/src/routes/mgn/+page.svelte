@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMGNClient } from '$lib/aws-client';
 	import {
 		DescribeSourceServersCommand,
@@ -12,7 +12,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Server, RefreshCw, Search, Layers, Waves, Box } from 'lucide-svelte';
 
-	const mgn = getMGNClient();
+	const mgn = regionalClient(getMGNClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'servers' | 'applications' | 'waves'>('servers');
@@ -31,9 +31,9 @@
 		loading = true;
 		try {
 			const [srvResp, appResp, waveResp] = await Promise.all([
-				mgn.send(new DescribeSourceServersCommand({ filters: {} })),
-				mgn.send(new ListApplicationsCommand({})),
-				mgn.send(new ListWavesCommand({}))
+				mgn().send(new DescribeSourceServersCommand({ filters: {} })),
+				mgn().send(new ListApplicationsCommand({})),
+				mgn().send(new ListWavesCommand({}))
 			]);
 			servers = srvResp.items ?? [];
 			applications = appResp.items ?? [];
@@ -45,7 +45,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

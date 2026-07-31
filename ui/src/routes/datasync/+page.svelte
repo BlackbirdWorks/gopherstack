@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDataSyncClient } from '$lib/aws-client';
 	import {
 		ListAgentsCommand,
@@ -12,7 +13,7 @@
 	import { toast } from 'svelte-sonner';
 	import { ArrowLeftRight, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getDataSyncClient();
+	const client = regionalClient(getDataSyncClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -33,16 +34,22 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'tasks') {
-				const resp = await client.send(new ListTasksCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every tab switch.
+			const tab = untrack(() => activeTab);
+			if (tab === 'tasks') {
+				const resp = await client().send(new ListTasksCommand({}));
 				tasksData = resp.Tasks ?? [];
 			}
-			if (activeTab === 'locations') {
-				const resp = await client.send(new ListLocationsCommand({}));
+			if (tab === 'locations') {
+				const resp = await client().send(new ListLocationsCommand({}));
 				locationsData = resp.Locations ?? [];
 			}
-			if (activeTab === 'agents') {
-				const resp = await client.send(new ListAgentsCommand({}));
+			if (tab === 'agents') {
+				const resp = await client().send(new ListAgentsCommand({}));
 				agentsData = resp.Agents ?? [];
 			}
 		} catch (e) {
@@ -58,7 +65,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

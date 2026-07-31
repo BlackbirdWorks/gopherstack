@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRolesAnywhereClient } from '$lib/aws-client';
 	import {
 		ListCrlsCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { KeyRound, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getRolesAnywhereClient();
+	const client = regionalClient(getRolesAnywhereClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'profiles' | 'anchors' | 'subjects' | 'crls'>('profiles');
@@ -32,20 +33,26 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'profiles') {
-				const resp = await client.send(new ListProfilesCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every tab switch.
+			const tab = untrack(() => activeTab);
+			if (tab === 'profiles') {
+				const resp = await client().send(new ListProfilesCommand({}));
 				profilesData = resp.profiles ?? [];
 			}
-			if (activeTab === 'anchors') {
-				const resp = await client.send(new ListTrustAnchorsCommand({}));
+			if (tab === 'anchors') {
+				const resp = await client().send(new ListTrustAnchorsCommand({}));
 				anchorsData = resp.trustAnchors ?? [];
 			}
-			if (activeTab === 'subjects') {
-				const resp = await client.send(new ListSubjectsCommand({}));
+			if (tab === 'subjects') {
+				const resp = await client().send(new ListSubjectsCommand({}));
 				subjectsData = resp.subjects ?? [];
 			}
-			if (activeTab === 'crls') {
-				const resp = await client.send(new ListCrlsCommand({}));
+			if (tab === 'crls') {
+				const resp = await client().send(new ListCrlsCommand({}));
 				crlsData = resp.crls ?? [];
 			}
 		} catch (e) {
@@ -61,7 +68,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

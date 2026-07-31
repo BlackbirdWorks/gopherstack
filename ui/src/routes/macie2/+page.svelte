@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMacie2Client } from '$lib/aws-client';
 	import {
 		ListAllowListsCommand,
@@ -12,7 +13,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Search, ShieldAlert } from 'lucide-svelte';
 
-	const client = getMacie2Client();
+	const client = regionalClient(getMacie2Client);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -33,16 +34,22 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'jobs') {
-				const resp = await client.send(new ListClassificationJobsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every tab switch.
+			const tab = untrack(() => activeTab);
+			if (tab === 'jobs') {
+				const resp = await client().send(new ListClassificationJobsCommand({}));
 				jobsData = resp.items ?? [];
 			}
-			if (activeTab === 'identifiers') {
-				const resp = await client.send(new ListCustomDataIdentifiersCommand({}));
+			if (tab === 'identifiers') {
+				const resp = await client().send(new ListCustomDataIdentifiersCommand({}));
 				identifiersData = resp.items ?? [];
 			}
-			if (activeTab === 'allowlists') {
-				const resp = await client.send(new ListAllowListsCommand({}));
+			if (tab === 'allowlists') {
+				const resp = await client().send(new ListAllowListsCommand({}));
 				allowlistsData = resp.allowLists ?? [];
 			}
 		} catch (e) {
@@ -58,7 +65,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

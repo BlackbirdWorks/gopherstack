@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMediaTailorClient } from '$lib/aws-client';
 	import {
 		ListChannelsCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Search, Tv } from 'lucide-svelte';
 
-	const client = getMediaTailorClient();
+	const client = regionalClient(getMediaTailorClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -38,21 +39,29 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'channels') {
-				const resp = await client.send(new ListChannelsCommand({}));
+			// `activeTab`/`sourceLocationFilter` are read with `untrack` so
+			// neither becomes a dependency of the `onRegionChange` effect
+			// below -- switchTab() and the source-location input's `onchange`
+			// already write these and call loadData() directly, so letting
+			// the effect also depend on them would double-fetch on every tab
+			// switch or filter edit.
+			const tab = untrack(() => activeTab);
+			if (tab === 'channels') {
+				const resp = await client().send(new ListChannelsCommand({}));
 				channelsData = resp.Items ?? [];
 			}
-			if (activeTab === 'sources') {
-				const resp = await client.send(new ListSourceLocationsCommand({}));
+			if (tab === 'sources') {
+				const resp = await client().send(new ListSourceLocationsCommand({}));
 				sourcesData = resp.Items ?? [];
 			}
-			if (activeTab === 'configs') {
-				const resp = await client.send(new ListPlaybackConfigurationsCommand({}));
+			if (tab === 'configs') {
+				const resp = await client().send(new ListPlaybackConfigurationsCommand({}));
 				configsData = resp.Items ?? [];
 			}
-			if (activeTab === 'vod') {
-				if (sourceLocationFilter) {
-					const resp = await client.send(new ListVodSourcesCommand({ SourceLocationName: sourceLocationFilter }));
+			if (tab === 'vod') {
+				const loc = untrack(() => sourceLocationFilter);
+				if (loc) {
+					const resp = await client().send(new ListVodSourcesCommand({ SourceLocationName: loc }));
 					vodData = resp.Items ?? [];
 				} else {
 					vodData = [];
@@ -71,7 +80,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getForecastClient } from '$lib/aws-client';
 	import {
 		ListDatasetGroupsCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Search, TrendingUp } from 'lucide-svelte';
 
-	const client = getForecastClient();
+	const client = regionalClient(getForecastClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -37,20 +38,26 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'datasetgroups') {
-				const resp = await client.send(new ListDatasetGroupsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every tab switch.
+			const tab = untrack(() => activeTab);
+			if (tab === 'datasetgroups') {
+				const resp = await client().send(new ListDatasetGroupsCommand({}));
 				datasetgroupsData = resp.DatasetGroups ?? [];
 			}
-			if (activeTab === 'predictors') {
-				const resp = await client.send(new ListPredictorsCommand({}));
+			if (tab === 'predictors') {
+				const resp = await client().send(new ListPredictorsCommand({}));
 				predictorsData = resp.Predictors ?? [];
 			}
-			if (activeTab === 'forecasts') {
-				const resp = await client.send(new ListForecastsCommand({}));
+			if (tab === 'forecasts') {
+				const resp = await client().send(new ListForecastsCommand({}));
 				forecastsData = resp.Forecasts ?? [];
 			}
-			if (activeTab === 'monitors') {
-				const resp = await client.send(new ListMonitorsCommand({}));
+			if (tab === 'monitors') {
+				const resp = await client().send(new ListMonitorsCommand({}));
 				monitorsData = resp.Monitors ?? [];
 			}
 		} catch (e) {
@@ -66,7 +73,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

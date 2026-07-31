@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getOutpostsClient } from '$lib/aws-client';
 	import {
 		ListOutpostsCommand,
@@ -10,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Server, RefreshCw, Search, MapPin, CheckCircle } from 'lucide-svelte';
 
-	const op = getOutpostsClient();
+	const op = regionalClient(getOutpostsClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'outposts' | 'sites'>('outposts');
@@ -27,8 +27,8 @@
 		loading = true;
 		try {
 			const [opResp, siteResp] = await Promise.all([
-				op.send(new ListOutpostsCommand({})),
-				op.send(new ListSitesCommand({}))
+				op().send(new ListOutpostsCommand({})),
+				op().send(new ListSitesCommand({}))
 			]);
 			outposts = opResp.Outposts ?? [];
 			sites = siteResp.Sites ?? [];
@@ -39,7 +39,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

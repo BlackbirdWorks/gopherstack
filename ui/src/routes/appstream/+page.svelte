@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAppStreamClient } from '$lib/aws-client';
 	import {
 		DescribeStacksCommand,
@@ -12,7 +12,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Monitor, RefreshCw, Search, Server, Image, CheckCircle } from 'lucide-svelte';
 
-	const as2 = getAppStreamClient();
+	const as2 = regionalClient(getAppStreamClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'stacks' | 'fleets' | 'images'>('stacks');
@@ -31,9 +31,9 @@
 		loading = true;
 		try {
 			const [stackResp, fleetResp, imgResp] = await Promise.all([
-				as2.send(new DescribeStacksCommand({})),
-				as2.send(new DescribeFleetsCommand({})),
-				as2.send(new DescribeImagesCommand({}))
+				as2().send(new DescribeStacksCommand({})),
+				as2().send(new DescribeFleetsCommand({})),
+				as2().send(new DescribeImagesCommand({}))
 			]);
 			stacks = stackResp.Stacks ?? [];
 			fleets = fleetResp.Fleets ?? [];
@@ -45,7 +45,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

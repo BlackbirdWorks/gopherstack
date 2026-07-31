@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getGrafanaClient } from '$lib/aws-client';
 	import {
 		ListWorkspacesCommand,
@@ -8,7 +8,7 @@
 	import { toast } from 'svelte-sonner';
 	import { BarChart3, RefreshCw, Search, Monitor, CheckCircle } from 'lucide-svelte';
 
-	const grafana = getGrafanaClient();
+	const grafana = regionalClient(getGrafanaClient);
 
 	let loading = $state(false);
 	let searchQuery = $state('');
@@ -21,7 +21,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await grafana.send(new ListWorkspacesCommand({}));
+			const resp = await grafana().send(new ListWorkspacesCommand({}));
 			workspaces = resp.workspaces ?? [];
 		} catch (e) {
 			toast.error('Failed to load Grafana data: ' + String(e));
@@ -30,7 +30,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

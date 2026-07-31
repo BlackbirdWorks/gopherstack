@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMediaPackageClient } from '$lib/aws-client';
 	import {
 		ListChannelsCommand,
@@ -12,7 +13,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Package, RefreshCw, Search } from 'lucide-svelte';
 
-	const client = getMediaPackageClient();
+	const client = regionalClient(getMediaPackageClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -33,16 +34,22 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'channels') {
-				const resp = await client.send(new ListChannelsCommand({}));
+			// `activeTab` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- switchTab()
+			// already writes activeTab and calls loadData() directly, so
+			// letting the effect also depend on activeTab would double-fetch
+			// on every tab switch.
+			const tab = untrack(() => activeTab);
+			if (tab === 'channels') {
+				const resp = await client().send(new ListChannelsCommand({}));
 				channelsData = resp.Channels ?? [];
 			}
-			if (activeTab === 'endpoints') {
-				const resp = await client.send(new ListOriginEndpointsCommand({}));
+			if (tab === 'endpoints') {
+				const resp = await client().send(new ListOriginEndpointsCommand({}));
 				endpointsData = resp.OriginEndpoints ?? [];
 			}
-			if (activeTab === 'harvest') {
-				const resp = await client.send(new ListHarvestJobsCommand({}));
+			if (tab === 'harvest') {
+				const resp = await client().send(new ListHarvestJobsCommand({}));
 				harvestData = resp.HarvestJobs ?? [];
 			}
 		} catch (e) {
@@ -58,7 +65,7 @@
 		loadData();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

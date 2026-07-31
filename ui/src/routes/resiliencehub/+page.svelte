@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getResiliencehubClient } from '$lib/aws-client';
 	import {
 		ListAppsCommand,
@@ -10,7 +10,7 @@
 	import { toast } from 'svelte-sonner';
 	import { ShieldCheck, RefreshCw, Search, BarChart3, Activity, CheckCircle } from 'lucide-svelte';
 
-	const rh = getResiliencehubClient();
+	const rh = regionalClient(getResiliencehubClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'apps' | 'assessments'>('apps');
@@ -27,8 +27,8 @@
 		loading = true;
 		try {
 			const [appsResp, assResp] = await Promise.all([
-				rh.send(new ListAppsCommand({})),
-				rh.send(new ListAppAssessmentsCommand({}))
+				rh().send(new ListAppsCommand({})),
+				rh().send(new ListAppAssessmentsCommand({}))
 			]);
 			apps = appsResp.appSummaries ?? [];
 			assessments = assResp.assessmentSummaries ?? [];
@@ -39,7 +39,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

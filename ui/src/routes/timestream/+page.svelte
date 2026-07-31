@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getTimestreamQueryClient, getTimestreamWriteClient } from '$lib/aws-client';
 	import {
 		ListDatabasesCommand,
@@ -14,8 +14,8 @@
 	import { toast } from 'svelte-sonner';
 	import { Clock, RefreshCw, Search, Database as DatabaseIcon, Table2, Activity } from 'lucide-svelte';
 
-	const tsWrite = getTimestreamWriteClient();
-	const tsQuery = getTimestreamQueryClient();
+	const tsWrite = regionalClient(getTimestreamWriteClient);
+	const tsQuery = regionalClient(getTimestreamQueryClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'databases' | 'tables' | 'queries'>('databases');
@@ -33,8 +33,8 @@
 		loading = true;
 		try {
 			const [dbResp, qResp] = await Promise.all([
-				tsWrite.send(new ListDatabasesCommand({})),
-				tsQuery.send(new ListScheduledQueriesCommand({}))
+				tsWrite().send(new ListDatabasesCommand({})),
+				tsQuery().send(new ListScheduledQueriesCommand({}))
 			]);
 			databases = dbResp.Databases ?? [];
 			scheduledQueries = qResp.ScheduledQueries ?? [];
@@ -48,7 +48,7 @@
 	async function loadTables(dbName: string) {
 		selectedDbName = dbName;
 		try {
-			const resp = await tsWrite.send(new ListWriteTablesCommand({ DatabaseName: dbName }));
+			const resp = await tsWrite().send(new ListWriteTablesCommand({ DatabaseName: dbName }));
 			tables = resp.Tables ?? [];
 			activeTab = 'tables';
 		} catch (e) {
@@ -56,7 +56,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

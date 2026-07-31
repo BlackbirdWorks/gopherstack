@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getNetworkManagerClient } from '$lib/aws-client';
 	import {
 		DescribeGlobalNetworksCommand,
@@ -12,7 +12,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Globe, RefreshCw, Search, Router, Link as LinkIcon, Monitor } from 'lucide-svelte';
 
-	const nm = getNetworkManagerClient();
+	const nm = regionalClient(getNetworkManagerClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'networks' | 'devices' | 'links'>('networks');
@@ -29,7 +29,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await nm.send(new DescribeGlobalNetworksCommand({}));
+			const resp = await nm().send(new DescribeGlobalNetworksCommand({}));
 			globalNetworks = resp.GlobalNetworks ?? [];
 		} catch (e) {
 			toast.error('Failed to load Network Manager data: ' + String(e));
@@ -42,8 +42,8 @@
 		selectedNetworkId = networkId;
 		try {
 			const [devResp, linkResp] = await Promise.all([
-				nm.send(new GetDevicesCommand({ GlobalNetworkId: networkId })),
-				nm.send(new GetLinksCommand({ GlobalNetworkId: networkId }))
+				nm().send(new GetDevicesCommand({ GlobalNetworkId: networkId })),
+				nm().send(new GetLinksCommand({ GlobalNetworkId: networkId }))
 			]);
 			devices = devResp.Devices ?? [];
 			links = linkResp.Links ?? [];
@@ -53,7 +53,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDirectConnectClient } from '$lib/aws-client';
 	import {
 		DescribeConnectionsCommand,
@@ -12,7 +12,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Cable, RefreshCw, Search, Router, Network, CheckCircle } from 'lucide-svelte';
 
-	const dc = getDirectConnectClient();
+	const dc = regionalClient(getDirectConnectClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'connections' | 'vifs' | 'gateways'>('connections');
@@ -31,9 +31,9 @@
 		loading = true;
 		try {
 			const [connResp, vifResp, gwResp] = await Promise.all([
-				dc.send(new DescribeConnectionsCommand({})),
-				dc.send(new DescribeVirtualInterfacesCommand({})),
-				dc.send(new DescribeDirectConnectGatewaysCommand({}))
+				dc().send(new DescribeConnectionsCommand({})),
+				dc().send(new DescribeVirtualInterfacesCommand({})),
+				dc().send(new DescribeDirectConnectGatewaysCommand({}))
 			]);
 			connections = connResp.connections ?? [];
 			vifs = vifResp.virtualInterfaces ?? [];
@@ -45,7 +45,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
