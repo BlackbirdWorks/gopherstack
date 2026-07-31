@@ -104,7 +104,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	studio, err := original.CreateStudio(
-		t.Context(), "studio-1", "SSO", "s3://bucket/studio", "sg-eng", "role-arn", "vpc-1", "sg-workspace",
+		t.Context(), "studio-1", "", "SSO", "s3://bucket/studio", "sg-eng", "role-arn", "vpc-1", "sg-workspace",
 		[]string{"subnet-1"}, nil,
 	)
 	require.NoError(t, err)

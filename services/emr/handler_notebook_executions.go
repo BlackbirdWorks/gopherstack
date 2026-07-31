@@ -10,9 +10,16 @@ type startNotebookExecutionInput struct {
 	EditorID              string `json:"EditorId,omitempty"`
 	NotebookExecutionName string `json:"NotebookExecutionName,omitempty"`
 	NotebookParams        string `json:"NotebookParams,omitempty"`
-	ExecutionEngineConfig struct {
+	// ExecutionEngine is the real StartNotebookExecutionInput member name
+	// (types.ExecutionEngineConfig) -- it was previously declared here with
+	// the JSON tag "ExecutionEngineConfig" (the Go *type* name, not the
+	// wire field name), so a real client's top-level ExecutionEngine field
+	// was silently dropped by this handler's json.Unmarshal and
+	// NotebookExecution.ExecutionEngineId came back empty no matter what
+	// cluster the caller named.
+	ExecutionEngine struct {
 		ID string `json:"Id,omitempty"`
-	} `json:"ExecutionEngineConfig"`
+	} `json:"ExecutionEngine"`
 	Tags []Tag `json:"Tags,omitempty"`
 }
 
@@ -27,7 +34,7 @@ func (h *Handler) handleStartNotebookExecution(
 	ne, err := h.Backend.StartNotebookExecution(ctx, in.EditorID,
 		in.NotebookExecutionName,
 		in.NotebookParams,
-		in.ExecutionEngineConfig.ID,
+		in.ExecutionEngine.ID,
 		in.Tags,
 	)
 	if err != nil {

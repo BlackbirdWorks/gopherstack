@@ -69,6 +69,12 @@ func (h *Handler) Reset() {
 func (h *Handler) Name() string { return "EMR" }
 
 // GetSupportedOperations returns the list of supported operations.
+//
+// "ListTagsForResource" is deliberately NOT listed here -- the real EMR SDK
+// has no such operation (verified against aws-sdk-go-v2/service/emr: only
+// AddTags/RemoveTags exist; a real client reads tags back via
+// DescribeCluster.Tags/DescribeStudio.Tags). See the opListTagsForResource
+// comment in buildOps below for why the route itself stays wired.
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"RunJobFlow",
@@ -77,7 +83,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"TerminateJobFlows",
 		"AddTags",
 		"RemoveTags",
-		"ListTagsForResource",
 		"ListSteps",
 		"AddJobFlowSteps",
 		"ListInstanceGroups",
@@ -227,12 +232,26 @@ func (h *Handler) Handler() echo.HandlerFunc {
 
 func (h *Handler) buildOps() map[string]service.JSONOpFunc {
 	return map[string]service.JSONOpFunc{
-		"RunJobFlow":                        service.WrapOp(h.handleRunJobFlow),
-		"DescribeCluster":                   service.WrapOp(h.handleDescribeCluster),
-		"ListClusters":                      service.WrapOp(h.handleListClusters),
-		"TerminateJobFlows":                 service.WrapOp(h.handleTerminateJobFlows),
-		"AddTags":                           service.WrapOp(h.handleAddTags),
-		"RemoveTags":                        service.WrapOp(h.handleRemoveTags),
+		"RunJobFlow":        service.WrapOp(h.handleRunJobFlow),
+		"DescribeCluster":   service.WrapOp(h.handleDescribeCluster),
+		"ListClusters":      service.WrapOp(h.handleListClusters),
+		"TerminateJobFlows": service.WrapOp(h.handleTerminateJobFlows),
+		"AddTags":           service.WrapOp(h.handleAddTags),
+		"RemoveTags":        service.WrapOp(h.handleRemoveTags),
+		// "ListTagsForResource" is NOT a real EMR SDK operation -- the real
+		// API only has AddTags/RemoveTags, with tags read back via
+		// DescribeCluster.Tags/DescribeStudio.Tags. This route (and the
+		// backend ListTagsForResource method it calls in tags.go) is
+		// gopherstack-only test/tooling scaffolding: a real SDK client can
+		// never reach it (there is no ElasticMapReduce.ListTagsForResource
+		// X-Amz-Target a real client would ever send), so it is
+		// deliberately excluded from GetSupportedOperations()/
+		// ChaosOperations() above so gopherstack does not claim SDK support
+		// for an operation AWS does not have. Left routed here because this
+		// package's own tests (handler_tags_test.go,
+		// handler_wire_shape_test.go, isolation_test.go, persistence_test.go)
+		// exercise it directly as a convenient way to assert stored-tag
+		// state without hand-decoding DescribeCluster/DescribeStudio.
 		"ListTagsForResource":               service.WrapOp(h.handleListTagsForResource),
 		"ListSteps":                         service.WrapOp(h.handleListSteps),
 		"AddJobFlowSteps":                   service.WrapOp(h.handleAddJobFlowSteps),

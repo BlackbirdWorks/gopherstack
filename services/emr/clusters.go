@@ -446,11 +446,10 @@ func (b *InMemoryBackend) gatherClusterSummaries(
 			Timeline: c.Status.Timeline,
 		}
 		list = append(list, ClusterSummary{
-			ID:           c.ID,
-			Name:         c.Name,
-			Status:       status,
-			ClusterArn:   c.ARN,
-			ReleaseLabel: c.ReleaseLabel,
+			ID:         c.ID,
+			Name:       c.Name,
+			Status:     status,
+			ClusterArn: c.ARN,
 		})
 	}
 

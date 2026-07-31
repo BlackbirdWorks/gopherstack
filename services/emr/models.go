@@ -504,12 +504,20 @@ type ClusterStatus struct {
 }
 
 // ClusterSummary is a trimmed-down view used for ListClusters.
+//
+// NormalizedInstanceHours is a real ClusterSummary member
+// (aws-sdk-go-v2/service/emr/types.ClusterSummary) this backend never
+// populates -- an honest omission (a real client sees it as nil/zero), not
+// fabricated. OutpostArn is likewise real and omitted for the same reason.
+// ReleaseLabel used to live here but was deleted: the real ClusterSummary
+// has no such member at all (only Id, Name, Status, ClusterArn,
+// NormalizedInstanceHours, OutpostArn) -- it was an invented field, not an
+// omission.
 type ClusterSummary struct {
-	ID           string        `json:"Id"`
-	Name         string        `json:"Name"`
-	Status       ClusterStatus `json:"Status"`
-	ClusterArn   string        `json:"ClusterArn"`
-	ReleaseLabel string        `json:"ReleaseLabel"`
+	ID         string        `json:"Id"`
+	Name       string        `json:"Name"`
+	Status     ClusterStatus `json:"Status"`
+	ClusterArn string        `json:"ClusterArn"`
 }
 
 // InstanceFleet represents an EMR instance fleet returned by AddInstanceFleet.
