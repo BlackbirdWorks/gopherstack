@@ -34,14 +34,6 @@
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { Search, Plus, Trash2, Eye, Check, X } from 'lucide-svelte';
-	import { untrack, type Component } from 'svelte';
-
-	// PageHeader's `icon` prop is typed `Component<Record<string, unknown>>`,
-	// but lucide-svelte icon components have a narrower (and contravariantly
-	// incompatible) props type, so TS rejects passing them directly. Every
-	// future page that uses lucide icons with PageHeader will hit the same
-	// cast; see the report for detail.
-	const PageIcon = Search as unknown as Component<Record<string, unknown>>;
 
 	const client = getDetectiveClient();
 
@@ -156,20 +148,6 @@
 		investigations: () => fetchInvestigations(true).catch(rethrowDescribed)
 	});
 
-	// createTabLoader's per-tab `$state` object is created lazily, on first
-	// access (see tab-loader.svelte.ts's `stateFor`). Every real load in
-	// this page is kicked off from inside `onRegionChange`'s effect, which
-	// runs *after* the first render — so without this, a tab's `$state`
-	// object would not exist yet when this component's own template reads
-	// `tabLoader.getError(...)`/`isLoading(...)` during that first render,
-	// and (empirically, in this Svelte version) the template's `{#if}`
-	// blocks then never observe later writes to that lazily-created object,
-	// leaving error banners permanently invisible. Touching every tab key
-	// synchronously here, before the first render, avoids that.
-	for (const tab of tabs) {
-		tabLoader.isLoading(tab.id as TabId);
-	}
-
 	function switchTab(id: string): void {
 		activeTab = id as TabId;
 		searchQuery = '';
@@ -196,19 +174,10 @@
 		selectedGraphArn = '';
 		graphs = [];
 		graphsNextToken = undefined;
-		// createTabLoader's loaded/loading/error flags are `$state`, and
-		// `load()`/`refresh()` read them synchronously before the first
-		// `await`. Reading them from inside this effect's callback (even
-		// transitively) makes the effect depend on them, so the *write* to
-		// `loaded` once the fetch settles would re-trigger this whole
-		// effect and double-fetch. `untrack` keeps the tab-loader call from
-		// being treated as a dependency of the region-change effect.
-		untrack(() => {
-			void tabLoader.refresh('graphs').then(() => {
-				if (activeTab !== 'graphs') {
-					tabLoader.refresh(activeTab);
-				}
-			});
+		void tabLoader.refresh('graphs').then(() => {
+			if (activeTab !== 'graphs') {
+				tabLoader.refresh(activeTab);
+			}
 		});
 	});
 
@@ -599,7 +568,7 @@
 
 <div class="p-6 space-y-6">
 	<PageHeader
-		icon={PageIcon}
+		icon={Search}
 		title="Amazon Detective"
 		description="Investigate and analyze security findings"
 		onRefresh={handleRefresh}

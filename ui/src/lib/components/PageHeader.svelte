@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { Component, Snippet } from 'svelte';
-	import { RefreshCw } from 'lucide-svelte';
+	import type { ComponentType, SvelteComponent, Snippet } from 'svelte';
+	import { RefreshCw, type IconProps } from 'lucide-svelte';
 
 	type Props = {
-		icon: Component<Record<string, unknown>>;
+		icon: ComponentType<SvelteComponent<IconProps>>;
 		title: string;
 		description: string;
 		onRefresh?: () => void;
