@@ -28,7 +28,7 @@
 		type ExperimentTemplateSummary,
 		type Experiment,
 		type ExperimentSummary,
-		type ResolvedTarget as ResolvedTargetShape,
+		type ResolvedTarget,
 		type ExperimentTargetAccountConfigurationSummary,
 		type TargetAccountConfigurationSummary,
 		type Action,
@@ -108,20 +108,6 @@
 		return Object.entries(m ?? {})
 			.map(([k, v]) => `${k}=${v}`)
 			.join(', ');
-	}
-
-	// The real ListExperimentResolvedTargetsResponse's ResolvedTarget
-	// (confirmed against the installed SDK model) has only
-	// resourceType/targetName/targetInformation (a generic string map).
-	// gopherstack's resolvedTargetDTO (services/fis/models.go) instead emits
-	// resolvedArns/targetResourcesCount -- fields the real shape does not
-	// have at all -- and never populates targetInformation. A real SDK
-	// client would see none of the count/ARN data at all. Read the wire
-	// fields gopherstack actually sends (this backend) while keeping the
-	// import typed against the real shape; see report.
-	type ResolvedTarget = ResolvedTargetShape & { resolvedArns?: string[]; targetResourcesCount?: number };
-	function resolvedTargetCount(rt: ResolvedTarget): number {
-		return rt.targetResourcesCount ?? rt.resolvedArns?.length ?? Object.keys(rt.targetInformation ?? {}).length;
 	}
 
 	type TabId =
@@ -1156,7 +1142,11 @@
 				<div>
 					<h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Resolved Targets ({viewedResolvedTargets.length})</h4>
 					{#each viewedResolvedTargets as rt, i (i)}
-						<div class="text-xs font-mono text-gray-700 dark:text-gray-300 mb-1">{rt.targetName}: {resolvedTargetCount(rt)} resource(s) ({rt.resourceType})</div>
+						<div class="text-xs font-mono text-gray-700 dark:text-gray-300 mb-1">
+							{rt.targetName}: {rt.resourceType}{#if rt.targetInformation && Object.keys(rt.targetInformation).length > 0}
+								({formatKeyValueList(rt.targetInformation)})
+							{/if}
+						</div>
 					{:else}
 						<p class="text-xs text-gray-400 italic">None resolved.</p>
 					{/each}

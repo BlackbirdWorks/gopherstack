@@ -6,9 +6,11 @@
 		CreateAnalyzerCommand,
 		DeleteAnalyzerCommand,
 		GetAnalyzerCommand,
+		UpdateAnalyzerCommand,
 		ListArchiveRulesCommand,
 		CreateArchiveRuleCommand,
 		DeleteArchiveRuleCommand,
+		UpdateArchiveRuleCommand,
 		ListFindingsV2Command,
 		GetFindingV2Command,
 		UpdateFindingsCommand,
@@ -33,7 +35,8 @@
 		type AnalyzedResource,
 		type AccessPreview,
 		type Criterion,
-		type Configuration
+		type Configuration,
+		type AnalyzerConfiguration
 	} from '@aws-sdk/client-accessanalyzer';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
@@ -47,7 +50,7 @@
 	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
-	import { ShieldCheck, Plus, Trash2, Eye, Archive, ArchiveRestore, Ban } from 'lucide-svelte';
+	import { ShieldCheck, Plus, Trash2, Eye, Pencil, Archive, ArchiveRestore, Ban } from 'lucide-svelte';
 
 	const client = regionalClient(getAccessAnalyzerClient);
 
@@ -463,6 +466,75 @@
 		}
 	}
 
+	// --- Analyzers: edit (UpdateAnalyzer). Real UpdateAnalyzerRequest carries
+	// only analyzerName (path) + an optional "configuration" (the
+	// AnalyzerConfiguration union) -- confirmed against the installed SDK
+	// model; UpdateAnalyzerResponse echoes back just "configuration", no arn.
+	// AnalyzerSummary rows from ListAnalyzers never carry "configuration"
+	// (only GetAnalyzer's response does, per the API docs), so the edit
+	// modal re-fetches via GetAnalyzer to prefill the current value rather
+	// than editing blind. Per the real API this update is not supported for
+	// external access (ACCOUNT/ORGANIZATION type) analyzers; the emulator
+	// does not enforce that restriction, so no client-side type gating here
+	// -- a real error from the backend would surface via describeError. ---
+
+	let editAnalyzerModal = $state<Modal | null>(null);
+	let editingAnalyzer = $state(false);
+	let editAnalyzerError = $state<string | null>(null);
+	let editAnalyzerName = $state('');
+	let editAnalyzerConfiguration = $state('{}');
+
+	async function openEditAnalyzerModal(a: AnalyzerSummary): Promise<void> {
+		if (!a.name) return;
+		editAnalyzerError = null;
+		editAnalyzerName = a.name;
+		editAnalyzerConfiguration = '{}';
+		editAnalyzerModal?.open();
+		try {
+			const resp = await client().send(new GetAnalyzerCommand({ analyzerName: a.name }));
+			editAnalyzerConfiguration = JSON.stringify(resp.analyzer?.configuration ?? {}, null, 2);
+		} catch (e) {
+			editAnalyzerError = describeError(e);
+		}
+	}
+
+	async function submitEditAnalyzer(): Promise<void> {
+		if (!editAnalyzerName) return;
+		let configuration: AnalyzerConfiguration;
+		try {
+			configuration = JSON.parse(editAnalyzerConfiguration);
+		} catch {
+			editAnalyzerError = 'Configuration must be valid JSON.';
+			return;
+		}
+		editingAnalyzer = true;
+		editAnalyzerError = null;
+		try {
+			await client().send(
+				new UpdateAnalyzerCommand({
+					analyzerName: editAnalyzerName,
+					// An empty object means "no change" -- the backend only
+					// overwrites the stored configuration when one is present
+					// on the wire (see UpdateAnalyzer/firstConfiguration in
+					// services/accessanalyzer/analyzers.go).
+					configuration: Object.keys(configuration).length > 0 ? configuration : undefined
+				})
+			);
+			toast.success('Analyzer updated');
+			editAnalyzerModal?.close();
+			await tabLoader.refresh('analyzers');
+			if (viewedAnalyzer && viewedAnalyzer.name === editAnalyzerName) {
+				await openAnalyzerDetail(viewedAnalyzer);
+			}
+		} catch (e) {
+			const msg = describeError(e);
+			editAnalyzerError = msg;
+			toast.error(msg);
+		} finally {
+			editingAnalyzer = false;
+		}
+	}
+
 	// --- Archive Rules: create / delete / detail ---
 
 	let createArchiveRuleModal = $state<Modal | null>(null);
@@ -540,6 +612,59 @@
 	function openArchiveRuleDetail(r: ArchiveRuleSummary): void {
 		viewedArchiveRule = r;
 		archiveRuleDetailModal?.open();
+	}
+
+	// --- Archive Rules: edit (UpdateArchiveRule). Real
+	// UpdateArchiveRuleRequest carries analyzerName, ruleName, and a
+	// required "filter" (plus an optional idempotency "clientToken" this UI
+	// doesn't surface, matching the same omission on the create form) --
+	// confirmed against the installed SDK model. ArchiveRuleSummary rows
+	// from ListArchiveRules always include "filter", so this can prefill
+	// straight from the row without an extra Get round-trip. ---
+
+	let editArchiveRuleModal = $state<Modal | null>(null);
+	let editingArchiveRule = $state(false);
+	let editArchiveRuleError = $state<string | null>(null);
+	let editRuleName = $state('');
+	let editRuleFilter = $state('{}');
+
+	function openEditArchiveRuleModal(r: ArchiveRuleSummary): void {
+		if (!r.ruleName) return;
+		editArchiveRuleError = null;
+		editRuleName = r.ruleName;
+		editRuleFilter = JSON.stringify(r.filter ?? {}, null, 2);
+		editArchiveRuleModal?.open();
+	}
+
+	async function submitEditArchiveRule(): Promise<void> {
+		if (!selectedAnalyzerName || !editRuleName) return;
+		let filter: Record<string, Criterion>;
+		try {
+			filter = JSON.parse(editRuleFilter);
+		} catch {
+			editArchiveRuleError = 'Filter must be valid JSON.';
+			return;
+		}
+		editingArchiveRule = true;
+		editArchiveRuleError = null;
+		try {
+			await client().send(
+				new UpdateArchiveRuleCommand({
+					analyzerName: selectedAnalyzerName,
+					ruleName: editRuleName,
+					filter
+				})
+			);
+			toast.success('Archive rule updated');
+			editArchiveRuleModal?.close();
+			await tabLoader.refresh('archiveRules');
+		} catch (e) {
+			const msg = describeError(e);
+			editArchiveRuleError = msg;
+			toast.error(msg);
+		} finally {
+			editingArchiveRule = false;
+		}
 	}
 
 	// --- Findings: archive/restore (the only mutation the real API offers;
@@ -878,6 +1003,12 @@
 							class="text-gray-400 hover:text-emerald-500"><Eye class="w-4 h-4" /></button
 						>
 						<button
+							onclick={() => openEditAnalyzerModal(a)}
+							title="Edit"
+							aria-label="Edit analyzer {a.name}"
+							class="text-gray-400 hover:text-emerald-500"><Pencil class="w-4 h-4" /></button
+						>
+						<button
 							onclick={() => handleDeleteAnalyzer(a)}
 							title="Delete"
 							aria-label="Delete analyzer {a.name}"
@@ -918,6 +1049,12 @@
 							title="View"
 							aria-label="View archive rule {r.ruleName}"
 							class="text-gray-400 hover:text-emerald-500"><Eye class="w-4 h-4" /></button
+						>
+						<button
+							onclick={() => openEditArchiveRuleModal(r)}
+							title="Edit"
+							aria-label="Edit archive rule {r.ruleName}"
+							class="text-gray-400 hover:text-emerald-500"><Pencil class="w-4 h-4" /></button
 						>
 						<button
 							onclick={() => handleDeleteArchiveRule(r)}
@@ -1229,6 +1366,47 @@
 	{/snippet}
 </Modal>
 
+<Modal bind:this={editAnalyzerModal} title="Edit Analyzer">
+	{#snippet children()}
+		<div class="space-y-3">
+			<p class="text-sm text-slate-600 dark:text-slate-300">
+				Editing <span class="font-medium">{editAnalyzerName}</span>. Not supported for external
+				access analyzers -- only unused access and internal access analyzers accept a configuration
+				update. Leave as <code>{'{}'}</code> to make no change.
+			</p>
+			<div>
+				<label for="analyzer-edit-configuration" class="text-sm text-slate-600 dark:text-slate-300"
+					>Configuration (JSON)</label
+				>
+				<textarea
+					id="analyzer-edit-configuration"
+					bind:value={editAnalyzerConfiguration}
+					rows="8"
+					class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				></textarea>
+			</div>
+			{#if editAnalyzerError}
+				<p class="text-sm text-red-600 dark:text-red-400">{editAnalyzerError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => editAnalyzerModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitEditAnalyzer}
+			disabled={editingAnalyzer}
+			class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+			>{editingAnalyzer ? 'Saving…' : 'Save'}</button
+		>
+	{/snippet}
+</Modal>
+
 <Modal bind:this={createArchiveRuleModal} title="Create Archive Rule">
 	{#snippet children()}
 		<div class="space-y-3">
@@ -1310,6 +1488,47 @@
 			onclick={() => archiveRuleDetailModal?.close()}
 			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
 			>Close</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={editArchiveRuleModal} title="Edit Archive Rule">
+	{#snippet children()}
+		<div class="space-y-3">
+			<p class="text-sm text-slate-600 dark:text-slate-300">
+				For analyzer <span class="font-medium">{selectedAnalyzerName || '(none selected)'}</span>.
+				Editing <span class="font-medium">{editRuleName}</span>. Only rules that match the new filter
+				are updated going forward.
+			</p>
+			<div>
+				<label for="rule-edit-filter" class="text-sm text-slate-600 dark:text-slate-300"
+					>Updated filter (JSON)</label
+				>
+				<textarea
+					id="rule-edit-filter"
+					bind:value={editRuleFilter}
+					rows="4"
+					class="mt-1 w-full px-3 py-2 text-sm font-mono rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				></textarea>
+			</div>
+			{#if editArchiveRuleError}
+				<p class="text-sm text-red-600 dark:text-red-400">{editArchiveRuleError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => editArchiveRuleModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitEditArchiveRule}
+			disabled={editingArchiveRule}
+			class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+			>{editingArchiveRule ? 'Saving…' : 'Save'}</button
 		>
 	{/snippet}
 </Modal>

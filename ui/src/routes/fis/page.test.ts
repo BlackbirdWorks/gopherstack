@@ -321,7 +321,11 @@ describe("FIS Page", () => {
     });
     mockSend.mockResolvedValueOnce({
       resolvedTargets: [
-        { targetName: "myInstances", resourceType: "aws:ec2:instance", targetResourcesCount: 2 },
+        {
+          targetName: "myInstances",
+          resourceType: "aws:ec2:instance",
+          targetInformation: { instanceId: "i-1234" },
+        },
       ],
     });
     mockSend.mockResolvedValueOnce({ targetAccountConfigurations: [] });
@@ -329,8 +333,9 @@ describe("FIS Page", () => {
     await fireEvent.click(screen.getByTitle("View"));
 
     await waitFor(() => {
-      expect(screen.getByText(/myInstances: 2 resource/)).toBeInTheDocument();
+      expect(screen.getByText(/myInstances: aws:ec2:instance/)).toBeInTheDocument();
     });
+    expect(screen.getByText(/instanceId=i-1234/)).toBeInTheDocument();
   });
 
   it("lists target account configurations for the selected template and creates a new one", async () => {
