@@ -211,15 +211,35 @@ const sortedObjects = $derived(
   })
 );
 
+// The SDK puts the AWS error code on err.name and status on
+// err.$metadata.httpStatusCode; err.message alone is usually just the
+// human-readable text. Combine them so both the toast and the inline
+// error banner show the actual code, not just a generic message.
+function describeError(e: unknown): string {
+if (e && typeof e === 'object') {
+const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+const name = rec.name ? String(rec.name) : 'Error';
+const message = rec.message ? String(rec.message) : String(e);
+const status = rec.$metadata?.httpStatusCode;
+return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+}
+return String(e);
+}
+
+let bucketsError = $state<string | null>(null);
+let objectsError = $state<string | null>(null);
+
 async function loadBuckets() {
 loading = true;
+bucketsError = null;
 try {
 const res = await s3().send(new ListBucketsCommand({}));
 buckets = res.Buckets ?? [];
 bucketPage = 1;
 void loadBucketSizes(buckets);
 } catch (err: unknown) {
-toast.error(`Failed to list buckets: ${(err as Error).message}`);
+bucketsError = describeError(err);
+toast.error(`Failed to list buckets: ${bucketsError}`);
 } finally {
 loading = false;
 }
@@ -256,20 +276,45 @@ newBucketName = '';
 enableVersioning = false;
 await loadBuckets();
 } catch (err: unknown) {
-toast.error(`Failed to create bucket: ${(err as Error).message}`);
+toast.error(`Failed to create bucket: ${describeError(err)}`);
 } finally {
 creating = false;
 }
 }
 
 async function deleteAllObjectsInBucket(bucketName: string): Promise<void> {
-const objs = await s3().send(new ListObjectsV2Command({ Bucket: bucketName }));
-if (!objs.Contents) return;
-for (const obj of objs.Contents) {
+// Plain (unversioned) listing/delete first, paginated.
+let continuationToken: string | undefined;
+do {
+const objs = await s3().send(new ListObjectsV2Command({ Bucket: bucketName, ContinuationToken: continuationToken }));
+for (const obj of objs.Contents ?? []) {
 if (obj.Key) {
 await s3().send(new DeleteObjectCommand({ Bucket: bucketName, Key: obj.Key }));
 }
 }
+continuationToken = objs.IsTruncated ? objs.NextContinuationToken : undefined;
+} while (continuationToken);
+
+// On a versioned (or previously-versioned) bucket, the deletes above only
+// write delete markers -- the object versions and markers themselves stay
+// behind. DeleteBucket rejects any bucket with remaining versions or
+// delete markers (409 BucketNotEmpty), so purge those explicitly too.
+let keyMarker: string | undefined;
+let versionIdMarker: string | undefined;
+do {
+const res = await s3().send(new ListObjectVersionsCommand({
+Bucket: bucketName,
+KeyMarker: keyMarker,
+VersionIdMarker: versionIdMarker,
+}));
+for (const entry of [...(res.Versions ?? []), ...(res.DeleteMarkers ?? [])]) {
+if (entry.Key) {
+await s3().send(new DeleteObjectCommand({ Bucket: bucketName, Key: entry.Key, VersionId: entry.VersionId }));
+}
+}
+keyMarker = res.IsTruncated ? res.NextKeyMarker : undefined;
+versionIdMarker = res.IsTruncated ? res.NextVersionIdMarker : undefined;
+} while (keyMarker);
 }
 
 async function purgeAll() {
@@ -283,7 +328,7 @@ await s3().send(new DeleteBucketCommand({ Bucket: bucket.Name }));
 toast.success('All buckets purged');
 await loadBuckets();
 } catch (err: unknown) {
-toast.error(`Failed to purge: ${(err as Error).message}`);
+toast.error(`Failed to purge: ${describeError(err)}`);
 }
 }
 
@@ -298,7 +343,7 @@ selectedBucket = null;
 }
 await loadBuckets();
 } catch (err: unknown) {
-toast.error(`Failed to delete bucket: ${(err as Error).message}`);
+toast.error(`Failed to delete bucket: ${describeError(err)}`);
 }
 }
 
@@ -315,6 +360,7 @@ async function openBucket(name: string) {
 async function loadObjects(reset = true): Promise<void> {
   if (!selectedBucket) return;
   loadingObjects = true;
+  objectsError = null;
   if (reset) { objects = []; commonPrefixes = []; }
   try {
     let continuationToken: string | undefined;
@@ -340,7 +386,8 @@ async function loadObjects(reset = true): Promise<void> {
     objects = allObjects;
     commonPrefixes = allPrefixes;
   } catch (err: unknown) {
-    toast.error(`Failed to load objects: ${(err as Error).message}`);
+    objectsError = describeError(err);
+    toast.error(`Failed to load objects: ${objectsError}`);
   } finally {
     loadingObjects = false;
   }
@@ -386,7 +433,7 @@ uploadKey = '';
 uploadFile = null;
 await loadObjects();
 } catch (err: unknown) {
-toast.error(`Upload failed: ${(err as Error).message}`);
+toast.error(`Upload failed: ${describeError(err)}`);
 } finally {
 uploading = false;
 }
@@ -412,7 +459,7 @@ async function handleDrop(e: DragEvent): Promise<void> {
       }));
       uploaded++;
     } catch (err: unknown) {
-      toast.error(`Failed to upload ${file.name}: ${(err as Error).message}`);
+      toast.error(`Failed to upload ${file.name}: ${describeError(err)}`);
     }
   }
   toast.success(`Uploaded ${uploaded} of ${files.length} files`);
@@ -426,7 +473,7 @@ await s3().send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: key }));
 toast.success(`Deleted "${key}"`);
 await loadObjects();
 } catch (err: unknown) {
-toast.error(`Failed to delete: ${(err as Error).message}`);
+toast.error(`Failed to delete: ${describeError(err)}`);
 }
 }
 
@@ -441,7 +488,7 @@ toast.success(`Deleted ${selectedObjects.size} object(s)`);
 selectedObjects = new Set<string>();
 await loadObjects();
 } catch (err: unknown) {
-toast.error(`Failed to delete: ${(err as Error).message}`);
+toast.error(`Failed to delete: ${describeError(err)}`);
 }
 }
 
@@ -460,7 +507,7 @@ a.remove();
 URL.revokeObjectURL(url);
 toast.success('Download started');
 } catch (err: unknown) {
-toast.error(`Download failed: ${(err as Error).message}`);
+toast.error(`Download failed: ${describeError(err)}`);
 }
 }
 
@@ -516,7 +563,7 @@ try {
 		}
 	}
 } catch (err: unknown) {
-	toast.error(`Preview failed: ${(err as Error).message}`);
+	toast.error(`Preview failed: ${describeError(err)}`);
 } finally {
 	previewLoading = false;
 }
@@ -541,7 +588,7 @@ try {
 	}));
 	toast.success('Tags saved');
 } catch (err: unknown) {
-	toast.error(`Save tags failed: ${(err as Error).message}`);
+	toast.error(`Save tags failed: ${describeError(err)}`);
 } finally {
 	previewTagsSaving = false;
 }
@@ -583,7 +630,7 @@ bucketVersions = versRes.Versions || [];
 bucketVersions = [];
 }
 } catch (err: unknown) {
-toast.error(`Failed to load properties: ${(err as Error).message}`);
+toast.error(`Failed to load properties: ${describeError(err)}`);
 } finally {
 loadingProperties = false;
 }
@@ -602,7 +649,7 @@ VersioningConfiguration: { Status: newStatus as 'Enabled' | 'Suspended' }
 bucketVersioning = newStatus;
 toast.success(`Versioning ${newStatus.toLowerCase()} for "${selectedBucket}"`);
 } catch (err: unknown) {
-toast.error(`Failed to update versioning: ${(err as Error).message}`);
+toast.error(`Failed to update versioning: ${describeError(err)}`);
 }
 }
 
@@ -627,7 +674,7 @@ bucketEncryption = 'None';
 toast.success('Encryption disabled');
 }
 } catch (err: unknown) {
-toast.error(`Failed to update encryption: ${(err as Error).message}`);
+toast.error(`Failed to update encryption: ${describeError(err)}`);
 }
 }
 
@@ -643,7 +690,7 @@ const e = err as { Code?: string; name?: string };
 if (code === 'NoSuchTagSet') {
 bucketTags = [];
 } else {
-toast.error(`Failed to load tags: ${(err as Error).message}`);
+toast.error(`Failed to load tags: ${describeError(err)}`);
 }
 } finally {
 loadingTags = false;
@@ -667,7 +714,7 @@ try {
 await s3().send(new PutBucketTaggingCommand({ Bucket: selectedBucket, Tagging: { TagSet: bucketTags } }));
 toast.success('Tags saved');
 } catch (err: unknown) {
-toast.error(`Failed to save tags: ${(err as Error).message}`);
+toast.error(`Failed to save tags: ${describeError(err)}`);
 }
 }
 
@@ -678,7 +725,7 @@ await s3().send(new DeleteBucketTaggingCommand({ Bucket: selectedBucket }));
 bucketTags = [];
 toast.success('All tags cleared');
 } catch (err: unknown) {
-toast.error(`Failed to clear tags: ${(err as Error).message}`);
+toast.error(`Failed to clear tags: ${describeError(err)}`);
 }
 }
 
@@ -694,7 +741,7 @@ const e = err as { Code?: string; name?: string };
 if (code === 'NoSuchBucketPolicy') {
 bucketPolicy = '';
 } else {
-toast.error(`Failed to load policy: ${(err as Error).message}`);
+toast.error(`Failed to load policy: ${describeError(err)}`);
 }
 } finally {
 loadingPolicy = false;
@@ -707,7 +754,7 @@ try {
 await s3().send(new PutBucketPolicyCommand({ Bucket: selectedBucket, Policy: bucketPolicy }));
 toast.success('Policy saved');
 } catch (err: unknown) {
-toast.error(`Failed to save policy: ${(err as Error).message}`);
+toast.error(`Failed to save policy: ${describeError(err)}`);
 }
 }
 
@@ -718,7 +765,7 @@ await s3().send(new DeleteBucketPolicyCommand({ Bucket: selectedBucket }));
 bucketPolicy = '';
 toast.success('Policy deleted');
 } catch (err: unknown) {
-toast.error(`Failed to delete policy: ${(err as Error).message}`);
+toast.error(`Failed to delete policy: ${describeError(err)}`);
 }
 }
 
@@ -734,7 +781,7 @@ const e = err as { Code?: string; name?: string };
 if (code === 'NoSuchLifecycleConfiguration') {
 lifecycleRules = [];
 } else {
-toast.error(`Failed to load lifecycle: ${(err as Error).message}`);
+toast.error(`Failed to load lifecycle: ${describeError(err)}`);
 }
 } finally {
 loadingLifecycle = false;
@@ -758,12 +805,12 @@ newLifecyclePrefix = '';
 newLifecycleDays = 30;
 toast.success('Lifecycle rule added');
 } catch (err: unknown) {
-toast.error(`Failed to add rule: ${(err as Error).message}`);
+toast.error(`Failed to add rule: ${describeError(err)}`);
 }
 }
 
 async function deleteLifecycleRule(id: string) {
-if (!selectedBucket) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Lifecycle Rule', message: `Delete lifecycle rule "${id}"?` })) return;
 const updatedRules = lifecycleRules.filter((r) => r.ID !== id);
 try {
 if (updatedRules.length === 0) {
@@ -774,7 +821,7 @@ await s3().send(new PutBucketLifecycleConfigurationCommand({ Bucket: selectedBuc
 lifecycleRules = updatedRules;
 toast.success('Lifecycle rule deleted');
 } catch (err: unknown) {
-toast.error(`Failed to delete rule: ${(err as Error).message}`);
+toast.error(`Failed to delete rule: ${describeError(err)}`);
 }
 }
 
@@ -790,7 +837,7 @@ const e = err as { Code?: string; name?: string };
 if (code === 'NoSuchCORSConfiguration') {
 corsRules = [];
 } else {
-toast.error(`Failed to load CORS: ${(err as Error).message}`);
+toast.error(`Failed to load CORS: ${describeError(err)}`);
 }
 } finally {
 loadingCors = false;
@@ -815,12 +862,12 @@ newCorsHeaders = '';
 newCorsMaxAge = 3600;
 toast.success('CORS rule added');
 } catch (err: unknown) {
-toast.error(`Failed to add CORS rule: ${(err as Error).message}`);
+toast.error(`Failed to add CORS rule: ${describeError(err)}`);
 }
 }
 
 async function deleteCorsRule(idx: number) {
-if (!selectedBucket) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete CORS Rule', message: 'Delete this CORS rule?' })) return;
 const updatedRules = corsRules.filter((_, i) => i !== idx);
 try {
 if (updatedRules.length === 0) {
@@ -831,7 +878,7 @@ await s3().send(new PutBucketCorsCommand({ Bucket: selectedBucket, CORSConfigura
 corsRules = updatedRules;
 toast.success('CORS rule deleted');
 } catch (err: unknown) {
-toast.error(`Failed to delete CORS rule: ${(err as Error).message}`);
+toast.error(`Failed to delete CORS rule: ${describeError(err)}`);
 }
 }
 
@@ -850,7 +897,7 @@ async function createFolder(): Promise<void> {
     newFolderName = '';
     await loadObjects();
   } catch (err: unknown) {
-    toast.error(`Failed to create folder: ${(err as Error).message}`);
+    toast.error(`Failed to create folder: ${describeError(err)}`);
   }
 }
 
@@ -875,6 +922,15 @@ async function loadBucketSizes(bucketList: Bucket[]): Promise<void> {
   void results;
 }
 
+// CopySource is a header value that S3 URL-decodes server-side (real SDKs
+// never encode it for you) -- a source key with spaces, "+", "%", or other
+// reserved/unicode characters must be percent-encoded here or the copy will
+// resolve the wrong (or no) source key. Slashes stay literal since they
+// separate path segments, not the bucket/key delimiter.
+function encodeCopySource(bucketName: string, key: string): string {
+  return `${encodeURIComponent(bucketName)}/${key.split('/').map((segment) => encodeURIComponent(segment)).join('/')}`;
+}
+
 async function copyObject(): Promise<void> {
   if (!selectedBucket || !copySourceKey || !copyTargetKey.trim()) return;
   if (copyTargetKey.trim() === copySourceKey) {
@@ -884,14 +940,14 @@ async function copyObject(): Promise<void> {
   try {
     await s3().send(new CopyObjectCommand({
       Bucket: selectedBucket,
-      CopySource: `${selectedBucket}/${copySourceKey}`,
+      CopySource: encodeCopySource(selectedBucket, copySourceKey),
       Key: copyTargetKey.trim(),
     }));
     toast.success('Object copied');
     showCopyModal = false;
     await loadObjects();
   } catch (err: unknown) {
-    toast.error(`Copy failed: ${(err as Error).message}`);
+    toast.error(`Copy failed: ${describeError(err)}`);
   }
 }
 
@@ -900,7 +956,7 @@ async function renameObject(): Promise<void> {
   try {
     await s3().send(new CopyObjectCommand({
       Bucket: selectedBucket,
-      CopySource: `${selectedBucket}/${renameOldKey}`,
+      CopySource: encodeCopySource(selectedBucket, renameOldKey),
       Key: renameNewKey.trim(),
     }));
     await s3().send(new DeleteObjectCommand({ Bucket: selectedBucket, Key: renameOldKey }));
@@ -908,7 +964,7 @@ async function renameObject(): Promise<void> {
     showRenameModal = false;
     await loadObjects();
   } catch (err: unknown) {
-    toast.error(`Rename failed: ${(err as Error).message}`);
+    toast.error(`Rename failed: ${describeError(err)}`);
   }
 }
 
@@ -927,7 +983,7 @@ async function loadWebsite(): Promise<void> {
     if (code === 'NoSuchWebsiteConfiguration') {
       websiteConfig = null;
     } else {
-      toast.error(`Failed to load website config: ${(err as Error).message}`);
+      toast.error(`Failed to load website config: ${describeError(err)}`);
     }
   } finally {
     loadingWebsite = false;
@@ -946,7 +1002,7 @@ async function saveWebsite(): Promise<void> {
     }));
     toast.success('Website configuration saved');
   } catch (err: unknown) {
-    toast.error(`Failed to save website config: ${(err as Error).message}`);
+    toast.error(`Failed to save website config: ${describeError(err)}`);
   }
 }
 
@@ -957,7 +1013,7 @@ async function deleteWebsite(): Promise<void> {
     websiteConfig = null;
     toast.success('Website configuration deleted');
   } catch (err: unknown) {
-    toast.error(`Failed to delete website config: ${(err as Error).message}`);
+    toast.error(`Failed to delete website config: ${describeError(err)}`);
   }
 }
 
@@ -1012,7 +1068,7 @@ await s3().send(new PutBucketAclCommand({ Bucket: selectedBucket, ACL: cannedAcl
 toast.success('Bucket ACL applied');
 await loadAcl();
 } catch (err: unknown) {
-toast.error(`Failed to apply ACL: ${(err as Error).message}`);
+toast.error(`Failed to apply ACL: ${describeError(err)}`);
 }
 }
 
@@ -1046,7 +1102,7 @@ loadingConfig = false;
 }
 }
 async function deleteConfig(kind: ConfigKind, id: string): Promise<void> {
-if (!selectedBucket) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Configuration', message: `Delete ${kind} configuration "${id}"?` })) return;
 try {
 if (kind === 'analytics') await s3().send(new DeleteBucketAnalyticsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
 else if (kind === 'metrics') await s3().send(new DeleteBucketMetricsConfigurationCommand({ Bucket: selectedBucket, Id: id }));
@@ -1055,7 +1111,7 @@ else await s3().send(new DeleteBucketIntelligentTieringConfigurationCommand({ Bu
 toast.success('Configuration deleted');
 await loadConfigList(kind);
 } catch (err: unknown) {
-toast.error(`Failed to delete configuration: ${(err as Error).message}`);
+toast.error(`Failed to delete configuration: ${describeError(err)}`);
 }
 }
 
@@ -1082,7 +1138,7 @@ try {
 await s3().send(new PutPublicAccessBlockCommand({ Bucket: selectedBucket, PublicAccessBlockConfiguration: { ...pab } }));
 toast.success('Public access block saved');
 } catch (err: unknown) {
-toast.error(`Failed to save public access block: ${(err as Error).message}`);
+toast.error(`Failed to save public access block: ${describeError(err)}`);
 }
 }
 
@@ -1120,7 +1176,7 @@ Rule: objectLockDays > 0 ? { DefaultRetention: { Mode: objectLockMode, Days: obj
 }));
 toast.success('Object lock configuration saved');
 } catch (err: unknown) {
-toast.error(`Failed to save object lock: ${(err as Error).message}`);
+toast.error(`Failed to save object lock: ${describeError(err)}`);
 }
 }
 
@@ -1139,7 +1195,7 @@ LambdaFunctionConfigurations: res.LambdaFunctionConfigurations ?? [],
 EventBridgeConfiguration: res.EventBridgeConfiguration ?? null,
 }, null, 2);
 } catch (err: unknown) {
-notificationConfig = `// ${(err as Error).message}`;
+notificationConfig = `// ${describeError(err)}`;
 } finally {
 loadingNotifications = false;
 }
@@ -1161,13 +1217,13 @@ loadingReplication = false;
 }
 }
 async function deleteReplication(): Promise<void> {
-if (!selectedBucket) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Replication', message: 'Remove the replication configuration from this bucket?' })) return;
 try {
 await s3().send(new DeleteBucketReplicationCommand({ Bucket: selectedBucket }));
 replicationConfig = '';
 toast.success('Replication configuration deleted');
 } catch (err: unknown) {
-toast.error(`Failed to delete replication: ${(err as Error).message}`);
+toast.error(`Failed to delete replication: ${describeError(err)}`);
 }
 }
 
@@ -1198,7 +1254,7 @@ const bucketLoggingStatus = loggingTargetBucket
 await s3().send(new PutBucketLoggingCommand({ Bucket: selectedBucket, BucketLoggingStatus: bucketLoggingStatus }));
 toast.success('Logging configuration saved');
 } catch (err: unknown) {
-toast.error(`Failed to save logging: ${(err as Error).message}`);
+toast.error(`Failed to save logging: ${describeError(err)}`);
 }
 }
 
@@ -1227,16 +1283,16 @@ OwnershipControls: { Rules: [{ ObjectOwnership: ownership }] },
 }));
 toast.success('Ownership controls saved');
 } catch (err: unknown) {
-toast.error(`Failed to save ownership controls: ${(err as Error).message}`);
+toast.error(`Failed to save ownership controls: ${describeError(err)}`);
 }
 }
 async function deleteOwnership(): Promise<void> {
-if (!selectedBucket) return;
+if (!selectedBucket || !await confirmDestructive({ title: 'Delete Ownership Controls', message: 'Remove ownership controls from this bucket?' })) return;
 try {
 await s3().send(new DeleteBucketOwnershipControlsCommand({ Bucket: selectedBucket }));
 toast.success('Ownership controls deleted');
 } catch (err: unknown) {
-toast.error(`Failed to delete ownership controls: ${(err as Error).message}`);
+toast.error(`Failed to delete ownership controls: ${describeError(err)}`);
 }
 }
 
@@ -1276,7 +1332,7 @@ async function loadMultipartUploads(): Promise<void> {
     );
     multipartUploads = entries;
   } catch (err: unknown) {
-    toast.error(`Failed to list uploads: ${(err as Error).message}`);
+    toast.error(`Failed to list uploads: ${describeError(err)}`);
     multipartUploads = [];
   } finally {
     loadingUploads = false;
@@ -1284,7 +1340,7 @@ async function loadMultipartUploads(): Promise<void> {
 }
 
 async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
-  if (!selectedBucket) return;
+  if (!selectedBucket || !await confirmDestructive({ title: 'Abort Upload', message: `Abort the in-progress upload of "${key}"? Uploaded parts will be discarded.` })) return;
   try {
     await s3().send(new AbortMultipartUploadCommand({
       Bucket: selectedBucket,
@@ -1294,7 +1350,7 @@ async function abortMultipartUpload(key: string, uploadId: string): Promise<void
     toast.success('Upload aborted');
     await loadMultipartUploads();
   } catch (err: unknown) {
-    toast.error(`Abort failed: ${(err as Error).message}`);
+    toast.error(`Abort failed: ${describeError(err)}`);
   }
 }
 
@@ -1433,6 +1489,12 @@ class={`inline-block p-4 border-b-2 rounded-t-lg transition-colors ${activeDetai
 <!-- Tab Content -->
 {#if activeDetailTab === 'objects'}
 <!-- Objects Tab -->
+{#if objectsError}
+<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300 mb-2">
+<p class="font-medium">Failed to load objects</p>
+<p>{objectsError}</p>
+</div>
+{/if}
 <div class="flex flex-wrap gap-2 items-center justify-between mb-2">
 <div class="flex gap-2 items-center">
 <input
@@ -2198,6 +2260,13 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
   </select>
 </div>
 </div>
+
+{#if bucketsError}
+<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+<p class="font-medium">Failed to load buckets</p>
+<p>{bucketsError}</p>
+</div>
+{/if}
 
 {#if loading}
 <div class="flex items-center justify-center p-8">

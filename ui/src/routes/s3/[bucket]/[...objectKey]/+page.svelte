@@ -33,8 +33,15 @@ ContentDisposition?: string;
 ContentEncoding?: string;
 }
 
-let bucket = $state('');
-let objectKey = $state('');
+// Read via $derived, not inside loadAll() below -- reading page.params
+// directly inside the async function that onRegionChange's $effect calls
+// makes that read part of the effect's own dependency tracking, which
+// causes the effect to re-run a second time on every mount (every request
+// below fired twice). Hoisting the read to a top-level $derived (the same
+// pattern the dynamodb table-detail page uses) decouples it from the
+// effect's tracked reads.
+const bucket = $derived(String(page.params.bucket ?? ''));
+const objectKey = $derived(String(page.params.objectKey ?? ''));
 let metadata = $state<ObjectMetadata | null>(null);
 let versions = $state<ObjectVersion[]>([]);
 let loading = $state(true);
@@ -67,11 +74,22 @@ const expiryOptions = [
 { label: '7 days', seconds: 604800 }
 ];
 
+// The SDK puts the AWS error code on err.name and status on
+// err.$metadata.httpStatusCode; err.message alone is usually just the
+// human-readable text. Combine them so both the toast and the inline
+// error banner show the actual code, not just a generic message.
+function describeError(e: unknown): string {
+if (e && typeof e === 'object') {
+const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+const name = rec.name ? String(rec.name) : 'Error';
+const message = rec.message ? String(rec.message) : String(e);
+const status = rec.$metadata?.httpStatusCode;
+return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+}
+return String(e);
+}
+
 async function loadAll(): Promise<void> {
-const bucketParam = String(page.params.bucket ?? '');
-const objectKeyParam = String(page.params.objectKey ?? '');
-bucket = bucketParam;
-objectKey = objectKeyParam;
 await loadObjectMetadata();
 await loadObjectVersions();
 await loadObjectTags();
@@ -99,7 +117,7 @@ ContentDisposition: response.ContentDisposition,
 ContentEncoding: response.ContentEncoding
 };
 } catch (e) {
-loadError = e instanceof Error ? e.message : 'Failed to load object metadata';
+loadError = describeError(e);
 toast.error(loadError ?? 'Error');
 } finally {
 loading = false;
@@ -115,7 +133,7 @@ MaxKeys: 20
 }));
 versions = response.Versions?.filter((v) => v.Key === objectKey) || [];
 } catch (e) {
-toast.error(`Failed to load versions: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to load versions: ${describeError(e)}`);
 }
 }
 
@@ -125,7 +143,7 @@ try {
 const res = await s3().send(new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }));
 objectTags = res.TagSet ?? [];
 } catch (e) {
-toast.error(`Failed to load tags: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to load tags: ${describeError(e)}`);
 } finally {
 loadingTags = false;
 }
@@ -147,7 +165,7 @@ try {
 await s3().send(new PutObjectTaggingCommand({ Bucket: bucket, Key: objectKey, Tagging: { TagSet: objectTags } }));
 toast.success('Tags saved');
 } catch (e) {
-toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to save tags: ${describeError(e)}`);
 }
 }
 
@@ -181,7 +199,14 @@ return 'binary';
 }
 
 async function fetchPreviewTextBytes(size: number): Promise<Uint8Array | undefined> {
-const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
+// bytesToFetch is the whole object when it fits under the preview cap, else
+// the cap itself. The end-of-range index is inclusive (Range: bytes=0-N
+// requests N+1 bytes), so it's bytesToFetch - 1, not one less than that --
+// the previous formula subtracted an extra byte, silently truncating the
+// last byte of every preview whose object fit entirely under the cap (and
+// producing an invalid "bytes=0--1" range for 1-byte objects).
+const bytesToFetch = size > 0 ? Math.min(MAX_TEXT_BYTES, size) : MAX_TEXT_BYTES;
+const rangeEnd = bytesToFetch - 1;
 const res = await s3().send(new GetObjectCommand({
 Bucket: bucket,
 Key: objectKey,
@@ -251,7 +276,7 @@ await prepareTextPreview(size);
 setBinaryPreview(size);
 }
 } catch (e) {
-toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Preview failed: ${describeError(e)}`);
 previewVisible = false;
 } finally {
 previewLoading = false;
@@ -285,7 +310,7 @@ URL.revokeObjectURL(url);
 }
 toast.success('Download started');
 } catch (e) {
-toast.error(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Download failed: ${describeError(e)}`);
 }
 }
 
@@ -296,7 +321,7 @@ await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, Versio
 toast.success('Version deleted');
 await loadObjectVersions();
 } catch (e) {
-toast.error(`Failed to delete version: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to delete version: ${describeError(e)}`);
 }
 }
 
@@ -307,7 +332,7 @@ await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
 toast.success('Object deleted');
 goto('/dashboard/s3');
 } catch (e) {
-toast.error(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Delete failed: ${describeError(e)}`);
 }
 }
 
