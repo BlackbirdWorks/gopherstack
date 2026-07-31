@@ -51,6 +51,22 @@ overall: A            # the 32 ops the v1.112.0->v1.121.0 SDK bump added (Agent,
                       # family note) -- this single, fully-disclosed, provably-unbuildable omission does
                       # not by itself hold the grade at A- (matching how route53resolver's Route 53
                       # Profile DELEGATE gap didn't block its A either).
+                      # FIXED (gopherstack-i0n4, this pass): the "No other gaps found this pass" claim
+                      # above and the "no other missing/incorrect fields were found in the families
+                      # spot-checked in full depth (Folder, VPCConnection, ...)" claim below (families
+                      # preamble) were both FALSE. vpcConnectionToMap (handler_vpcconnections.go) was
+                      # emitting a top-level SubnetIds field on DescribeVPCConnection/ListVPCConnections
+                      # that real AWS never returns (confirmed against types.VPCConnection/
+                      # VPCConnectionSummary in both aws-sdk-go-v2/service/quicksight and the installed
+                      # @aws-sdk/client-quicksight TS defs -- neither carries SubnetIds; it's
+                      # request-only, valid on Create/UpdateVPCConnectionRequest, never on a response or
+                      # summary type). Fixed by dropping it from the read-path map; see VPCConnection
+                      # family note. This does not by itself hold the grade down since the wire shape is
+                      # correct again, but it disproves the "spot-checked in full depth" claim for
+                      # VPCConnection: that check either didn't happen or missed a top-level field
+                      # mismatch, so the same claim for CustomPermissions/Brand/AccountLevel/Embed in
+                      # that same sentence should not be taken as strong evidence those are actually
+                      # field-clean without independent re-verification.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -126,10 +142,16 @@ families:
   # true exception, UpdateApplicationWithTokenExchangeGrant, is a genuinely void-result
   # op per its SDK doc comment -- no Describe/Get op exists for it, so there is no state
   # to fabricate), and (2) spot-checking wire shapes for each family's core
-  # Create/Describe/List op against aws-sdk-go-v2/service/quicksight/types. One real gap
-  # was found and fixed (Folder.SharingModel, below); no other missing/incorrect fields
-  # were found in the families spot-checked in full depth (Folder, VPCConnection,
-  # CustomPermissions, Brand, AccountLevel, Embed). Families not independently
+  # Create/Describe/List op against aws-sdk-go-v2/service/quicksight/types. Two real gaps
+  # were found and fixed this pass (Folder.SharingModel, and -- found later, under
+  # gopherstack-i0n4, not during the original pass -- VPCConnection's read path emitting a
+  # top-level SubnetIds field no real Describe/List response carries; see VPCConnection
+  # family note). The claim that formerly stood here, that VPCConnection was "spot-checked
+  # in full depth" with "no other missing/incorrect fields found," was FALSE: that check
+  # either wasn't actually done at field-by-field depth or missed a top-level field. Treat
+  # the same "spot-checked, fields match" language for CustomPermissions/Brand/AccountLevel/
+  # Embed below as unverified until independently re-checked, not as a settled finding.
+  # Families not independently
   # field-by-field diffed against the SDK this pass (Template, Theme, Topic,
   # IAMPolicyAssignment, RefreshSchedule, OAuthClientApplication, ActionConnector,
   # IdentityPropagationConfig, AssetBundle, Automation, DashboardSnapshotJob, Flow,
@@ -140,7 +162,7 @@ families:
   Template: {status: ok, note: "CRUD + versions/aliases/permissions real (templates.go, handler_templates.go); classifyTemplateAlias decomposed from a flagged nolint this pass, behavior preserved verbatim including DeleteTemplateAlias's id-not-alias quirk (locked in handler_paths_test.go)"}
   Theme: {status: ok, note: "CRUD + versions/aliases/permissions real (themes.go, handler_themes.go); classifyThemeAlias decomposed from a flagged nolint this pass, same DeleteThemeAlias id-not-alias quirk preserved and locked"}
   Topic: {status: ok, note: "CRUD + permissions + refresh schedules/reviewed answers real (topics.go, handler_topics.go); classifyTopicPaths decomposed from a flagged nolint this pass, behavior preserved verbatim"}
-  VPCConnection: {status: ok, note: "CRUD real (vpcconnections.go); spot-checked against types.VPCConnection -- NetworkInterfaces (AWS-populated once the VPC connection succeeds) is not modeled, a safe omission (no fabrication) consistent with this backend having no real VPC provisioning to report on, not a fabricated field"}
+  VPCConnection: {status: ok, note: "CRUD real (vpcconnections.go). FIXED THIS PASS (gopherstack-i0n4): vpcConnectionToMap (handler_vpcconnections.go) was emitting a top-level SubnetIds field on both DescribeVPCConnection and ListVPCConnections. Confirmed against aws-sdk-go-v2/service/quicksight's types.VPCConnection/VPCConnectionSummary and the installed @aws-sdk/client-quicksight TypeScript defs (models_4.d.ts): neither the Describe nor List response type carries a SubnetIds field -- real AWS never echoes it back. SubnetIds IS a genuine field on Create/UpdateVPCConnectionRequest (models_3.d.ts/models_5.d.ts), so it's still accepted, stored on VPCConnection.SubnetIDs, and round-tripped for Create/Update purposes -- only the read-path (Describe/List) wire shape was wrong. Fixed by dropping keySubnetIDs from vpcConnectionToMap; TestQuickSight_VPCConnectionCRUD updated to assert SubnetIds is ABSENT from Describe/Update-then-Describe responses (it previously asserted presence, encoding the bug). Separately, NetworkInterfaces (AWS-populated once the VPC connection succeeds, and the only real place subnet placement is observable post-creation) remains unmodeled -- this backend's VPCConnection struct has no such field at all, and populating it would require fabricating NetworkInterfaceId/AvailabilityZone/Status this backend has no real ENI provisioning to derive them from, so it stays honestly absent rather than invented. The prior note here claimed this family was 'spot-checked in full depth... no other missing/incorrect fields found' -- that claim was false; this SubnetIds leak is proof a full-depth check was not actually done. Treat other families' 'spot-checked, fields match' claims in this file with corresponding caution until independently re-verified."}
   IAMPolicyAssignment: {status: ok, note: "CRUD + list-for-user real (iampolicyassignments.go, handler_iampolicyassignments.go)"}
   CustomPermissions: {status: ok, note: "CRUD + role membership + role/user custom-permission sub-families real (custompermissions.go, handler_custompermissions.go); spot-checked against types.CustomPermissions -- fields match exactly"}
   RefreshSchedule: {status: ok, note: "DataSet refresh-schedule + refresh-properties CRUD real (refreshschedule.go, handler_refreshschedule.go); classifyDataSetSubRes/SubResID decomposed from classifyDataSetPaths's flagged nolint this pass, behavior preserved verbatim"}
@@ -169,6 +191,14 @@ gaps: []
   # choices, not gaps: parity-principles.md rule 1 says never fabricate a field this
   # backend has no real state to back, and both are safe, visible omissions
   # (nil/empty), not silently-wrong values.
+  # gopherstack-i0n4 (separate task, same day): a 6th real gap surfaced and was fixed --
+  # VPCConnection's DescribeVPCConnection/ListVPCConnections were emitting a top-level
+  # SubnetIds field real AWS never returns from those ops (it's request-only, on
+  # Create/UpdateVPCConnectionRequest). This was NOT caught by the "spot-checked in full
+  # depth" pass claimed above for VPCConnection -- that claim was false and has been
+  # corrected in the VPCConnection family note and the families preamble. Fixed by
+  # dropping the field from vpcConnectionToMap; the model still stores/round-trips
+  # SubnetIDs for Create/Update. See handler_vpcconnections.go, handler_vpcconnections_test.go.
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.

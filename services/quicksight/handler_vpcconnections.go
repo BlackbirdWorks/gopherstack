@@ -185,12 +185,20 @@ func (h *Handler) handleListVPCConnections(c *echo.Context) error {
 // ---- shared helpers ----
 
 func vpcConnectionToMap(v *VPCConnection) map[string]any {
+	// SubnetIds is deliberately NOT included here: real DescribeVPCConnection/
+	// ListVPCConnections responses never echo it back (confirmed against
+	// aws-sdk-go-v2/service/quicksight's types.VPCConnection/VPCConnectionSummary --
+	// neither carries a SubnetIds field). SubnetIds IS a genuine field on
+	// Create/UpdateVPCConnectionRequest, so it is still accepted, stored, and
+	// round-tripped into the model (VPCConnection.SubnetIDs); it just isn't part of
+	// this backend's read-path wire shape. Real AWS only surfaces subnet placement
+	// indirectly via NetworkInterfaces[].SubnetId once ENIs are provisioned, which
+	// this backend doesn't model (see PARITY.md).
 	return map[string]any{
 		keyVPCConnectionID:    v.VPCConnectionID,
 		keyArn:                v.Arn,
 		keyName:               v.Name,
 		keyVPCID:              v.VPCID,
-		keySubnetIDs:          v.SubnetIDs,
 		keySecurityGroupIDs:   v.SecurityGroupIDs,
 		keyDNSResolvers:       v.DNSResolvers,
 		keyRoleArn:            v.RoleArn,
