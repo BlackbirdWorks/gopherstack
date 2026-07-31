@@ -329,6 +329,7 @@
 		title="Data Lifecycle Manager"
 		description="Automate EBS snapshot & AMI lifecycle"
 		onRefresh={handleRefresh}
+		color="teal"
 	>
 		{#snippet actions()}
 			<button

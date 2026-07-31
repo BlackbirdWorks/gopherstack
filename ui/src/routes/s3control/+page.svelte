@@ -1070,6 +1070,7 @@
 		title="Amazon S3 Control"
 		description="Manage S3 resources across accounts and regions"
 		onRefresh={handleRefresh}
+		color="amber"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'accesspoints'}

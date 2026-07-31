@@ -787,6 +787,7 @@
 		title="IAM Access Analyzer"
 		description="Identify resources shared with external entities"
 		onRefresh={handleRefresh}
+		color="emerald"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'analyzers'}

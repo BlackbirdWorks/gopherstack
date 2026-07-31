@@ -1190,6 +1190,7 @@
 		title="Amazon S3 Tables"
 		description="Managed Apache Iceberg tables optimized for analytics workloads"
 		onRefresh={handleRefresh}
+		color="blue"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'buckets'}

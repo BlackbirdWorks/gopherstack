@@ -1981,6 +1981,7 @@
 		title="AWS Directory Service"
 		description="Managed Microsoft AD, AD Connector, Simple AD, and hybrid directories"
 		onRefresh={handleRefresh}
+		color="sky"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'directories'}

@@ -564,6 +564,7 @@
 		title="Resource Groups Tagging API"
 		description="Cross-service tag discovery, tag mutation, and compliance reporting"
 		onRefresh={handleRefresh}
+		color="indigo"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'resources'}

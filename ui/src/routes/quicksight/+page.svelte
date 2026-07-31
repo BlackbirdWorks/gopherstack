@@ -1320,6 +1320,7 @@
 		title="Amazon QuickSight"
 		description="Business intelligence dashboards"
 		onRefresh={handleRefresh}
+		color="blue"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'dashboards'}

@@ -572,6 +572,7 @@
 		title="Amazon Detective"
 		description="Investigate and analyze security findings"
 		onRefresh={handleRefresh}
+		color="rose"
 	>
 		{#snippet actions()}
 			{#if activeTab === 'graphs'}
