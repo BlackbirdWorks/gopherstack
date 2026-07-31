@@ -19,6 +19,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/mediastoredata"
 )
 
+// chromeUserAgent is a realistic browser User-Agent value, used to prove a
+// browser-shaped request (which cannot set User-Agent to an SDK marker --
+// see RouteMatcher's doc comment) still matches via X-Amz-User-Agent.
+const chromeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+
 func newTestHandler(t *testing.T) *mediastoredata.Handler {
 	t.Helper()
 
@@ -85,9 +90,10 @@ func TestMediaStoreData_RouteMatcher(t *testing.T) {
 	e := echo.New()
 
 	tests := []struct {
-		name      string
-		userAgent string
-		wantMatch bool
+		name          string
+		userAgent     string
+		xAmzUserAgent string
+		wantMatch     bool
 	}{
 		{
 			name:      "sdk_user_agent_matches",
@@ -104,6 +110,28 @@ func TestMediaStoreData_RouteMatcher(t *testing.T) {
 			userAgent: "",
 			wantMatch: false,
 		},
+		{
+			// A real browser cannot set User-Agent itself (forbidden by the
+			// Fetch spec) -- the browser sends its own literal UA there, and
+			// the AWS SDK for JavaScript puts its SDK identification in
+			// X-Amz-User-Agent instead. MediaStore Data's serviceId is
+			// "MediaStore Data" (with a space); the SDK's user-agent escaping
+			// turns the space into a hyphen ("MediaStore-Data"), which is a
+			// different literal string from aws-sdk-go-v2's module-path-derived
+			// "mediastoredata" marker, not just a case difference.
+			name:          "browser_user_agent_matches_via_x_amz_user_agent",
+			userAgent:     chromeUserAgent,
+			xAmzUserAgent: "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js md/react-native api/MediaStore-Data/3.1094.0",
+			wantMatch:     true,
+		},
+		{
+			// Same browser shape, but for a different service (S3) -- must NOT
+			// be claimed by MediaStoreData's matcher.
+			name:          "browser_wrong_service_x_amz_user_agent_does_not_match",
+			userAgent:     chromeUserAgent,
+			xAmzUserAgent: "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js api/S3/3.1094.0",
+			wantMatch:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -112,6 +140,9 @@ func TestMediaStoreData_RouteMatcher(t *testing.T) {
 
 			req := httptest.NewRequest(http.MethodGet, "/", nil)
 			req.Header.Set("User-Agent", tt.userAgent)
+			if tt.xAmzUserAgent != "" {
+				req.Header.Set("X-Amz-User-Agent", tt.xAmzUserAgent)
+			}
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 

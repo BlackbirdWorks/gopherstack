@@ -24,8 +24,18 @@ const (
 const (
 	// msdMatchPriority must be higher than S3 (0) to intercept mediastoredata SDK requests.
 	msdMatchPriority = 87
-	// userAgentMarker is the AWS SDK marker present in User-Agent for MediaStore Data requests.
+	// userAgentMarker is the marker aws-sdk-go-v2 puts in its User-Agent header
+	// for MediaStore Data requests -- derived from the Go module path
+	// ("mediastoredata"), so it has no separator and no space.
 	userAgentMarker = "mediastoredata"
+	// jsUserAgentMarker is the marker the AWS SDK for JavaScript puts in its
+	// User-Agent (Node) or X-Amz-User-Agent (browser) header instead. Its
+	// serviceId is "MediaStore Data" (with a space); the SDK's user-agent
+	// escaping turns the space into a hyphen, producing "MediaStore-Data" --
+	// a different literal string from userAgentMarker above, not just a case
+	// difference, so it needs its own marker rather than case-insensitivity
+	// alone.
+	jsUserAgentMarker = "mediastore-data"
 )
 
 // Handler is the Echo HTTP handler for Amazon MediaStore Data operations.
@@ -62,13 +72,13 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} }
 
 // RouteMatcher returns a function that matches MediaStore Data requests.
-// It identifies requests by the "mediastoredata" marker in the User-Agent
-// header, which the AWS SDK always includes.
+// It identifies requests by the "mediastoredata"/"mediastore-data" marker
+// present in either the User-Agent header (set by native SDKs) or the
+// X-Amz-User-Agent header (used by the AWS SDK for JavaScript in a browser,
+// which cannot set User-Agent itself -- see service.MatchesUserAgentMarker).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		ua := c.Request().Header.Get("User-Agent")
-
-		return strings.Contains(ua, userAgentMarker)
+		return service.MatchesUserAgentMarker(c.Request().Header, userAgentMarker, jsUserAgentMarker)
 	}
 }
 

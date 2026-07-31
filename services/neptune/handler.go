@@ -153,8 +153,10 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		if !strings.Contains(ct, "application/x-www-form-urlencoded") {
 			return false
 		}
-		ua := r.Header.Get("User-Agent")
-		if !strings.Contains(ua, "api/neptune") {
+		// Checks both User-Agent (native SDKs) and X-Amz-User-Agent (the AWS
+		// SDK for JavaScript in a browser, which cannot set User-Agent
+		// itself) -- see service.MatchesUserAgentMarker.
+		if !service.MatchesUserAgentMarker(r.Header, "api/neptune") {
 			return false
 		}
 		body, err := httputils.ReadBody(r)

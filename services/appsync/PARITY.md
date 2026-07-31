@@ -5,6 +5,7 @@ last_audit_commit: 4bece540
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
                       # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
+                      # 2026-07-31 (second pass, browser parity): RouteMatcher's /v2/apis-vs-ApiGatewayV2 disambiguation (see its doc comment) checked only the User-Agent header, which a browser cannot set (Fetch spec) -- the AWS SDK for JavaScript in a browser puts its SDK identification in X-Amz-User-Agent instead, so every browser dashboard request through /v2/apis silently fell through to API Gateway V2 or S3. Fixed via the new pkgs/service.MatchesUserAgentMarker helper (checks both headers, case-insensitively -- the JS SDK's marker is "api/AppSync", PascalCase, vs aws-sdk-go-v2's lowercase "api/appsync"), shared with the identical bug class fixed the same pass in mediastoredata/docdb/neptune. Grade held at A: fixed, not deferred.
 ops:
   CreateGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}

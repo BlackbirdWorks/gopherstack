@@ -83,5 +83,9 @@ func TestRedshiftDataDashboard_Empty(t *testing.T) {
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "Redshift Data")
-	assert.Contains(t, content, "SQL Editor")
+	// The rebuilt page's default tab (Query Console) renders its SQL
+	// textarea with aria-label "SQL Query" (see +page.svelte's `rd-sql`
+	// textarea) -- there is no "SQL Editor" label anywhere on the page; that
+	// was the previous page's wording for the same control.
+	assert.Contains(t, content, "SQL Query")
 }
