@@ -722,62 +722,80 @@
 		createDirModal?.open();
 	}
 
-	async function submitCreateDir(): Promise<void> {
+	function validateNewDir(subnetIds: string[]): string | null {
 		if (!newDirName || !newDirPassword) {
-			createDirError = 'Name and password are required.';
-			return;
+			return 'Name and password are required.';
 		}
-		const subnetIds = parseCommaList(newDirSubnetIds);
 		if (newDirKind !== 'simple' && (!newDirVpcId || subnetIds.length === 0)) {
-			createDirError = 'VPC ID and at least one subnet are required.';
-			return;
+			return 'VPC ID and at least one subnet are required.';
 		}
 		if (newDirKind === 'connector' && !newDirConnectUserName) {
-			createDirError = 'Self-managed account user name is required for AD Connector.';
+			return 'Self-managed account user name is required for AD Connector.';
+		}
+		return null;
+	}
+
+	async function createSimpleDirectory(subnetIds: string[]): Promise<void> {
+		await client().send(
+			new CreateDirectoryCommand({
+				Name: newDirName,
+				ShortName: newDirShortName || undefined,
+				Description: newDirDescription || undefined,
+				Password: newDirPassword,
+				Size: newDirSize,
+				VpcSettings:
+					newDirVpcId && subnetIds.length > 0 ? { VpcId: newDirVpcId, SubnetIds: subnetIds } : undefined
+			})
+		);
+	}
+
+	async function createMicrosoftAdDirectory(subnetIds: string[]): Promise<void> {
+		await client().send(
+			new CreateMicrosoftADCommand({
+				Name: newDirName,
+				ShortName: newDirShortName || undefined,
+				Description: newDirDescription || undefined,
+				Password: newDirPassword,
+				Edition: newDirEdition,
+				VpcSettings: { VpcId: newDirVpcId, SubnetIds: subnetIds }
+			})
+		);
+	}
+
+	async function createConnectorDirectory(subnetIds: string[]): Promise<void> {
+		await client().send(
+			new ConnectDirectoryCommand({
+				Name: newDirName,
+				ShortName: newDirShortName || undefined,
+				Description: newDirDescription || undefined,
+				Password: newDirPassword,
+				Size: newDirSize,
+				ConnectSettings: {
+					VpcId: newDirVpcId,
+					SubnetIds: subnetIds,
+					CustomerUserName: newDirConnectUserName,
+					CustomerDnsIps: parseCommaList(newDirConnectDnsIps)
+				}
+			})
+		);
+	}
+
+	async function submitCreateDir(): Promise<void> {
+		const subnetIds = parseCommaList(newDirSubnetIds);
+		const validationError = validateNewDir(subnetIds);
+		if (validationError) {
+			createDirError = validationError;
 			return;
 		}
 		creatingDir = true;
 		createDirError = null;
 		try {
 			if (newDirKind === 'simple') {
-				await client().send(
-					new CreateDirectoryCommand({
-						Name: newDirName,
-						ShortName: newDirShortName || undefined,
-						Description: newDirDescription || undefined,
-						Password: newDirPassword,
-						Size: newDirSize,
-						VpcSettings:
-							newDirVpcId && subnetIds.length > 0 ? { VpcId: newDirVpcId, SubnetIds: subnetIds } : undefined
-					})
-				);
+				await createSimpleDirectory(subnetIds);
 			} else if (newDirKind === 'microsoftad') {
-				await client().send(
-					new CreateMicrosoftADCommand({
-						Name: newDirName,
-						ShortName: newDirShortName || undefined,
-						Description: newDirDescription || undefined,
-						Password: newDirPassword,
-						Edition: newDirEdition,
-						VpcSettings: { VpcId: newDirVpcId, SubnetIds: subnetIds }
-					})
-				);
+				await createMicrosoftAdDirectory(subnetIds);
 			} else {
-				await client().send(
-					new ConnectDirectoryCommand({
-						Name: newDirName,
-						ShortName: newDirShortName || undefined,
-						Description: newDirDescription || undefined,
-						Password: newDirPassword,
-						Size: newDirSize,
-						ConnectSettings: {
-							VpcId: newDirVpcId,
-							SubnetIds: subnetIds,
-							CustomerUserName: newDirConnectUserName,
-							CustomerDnsIps: parseCommaList(newDirConnectDnsIps)
-						}
-					})
-				);
+				await createConnectorDirectory(subnetIds);
 			}
 			toast.success('Directory creation started');
 			createDirModal?.close();

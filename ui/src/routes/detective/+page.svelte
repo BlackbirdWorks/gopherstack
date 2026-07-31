@@ -545,24 +545,62 @@
 		}
 	}
 
+	type IndicatorDetailValue = NonNullable<Indicator['IndicatorDetail']>;
+
+	function flaggedIpSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.FlaggedIpAddressDetail) return undefined;
+		return `IP ${d.FlaggedIpAddressDetail.IpAddress ?? '—'} (${d.FlaggedIpAddressDetail.Reason ?? '—'})`;
+	}
+
+	function impossibleTravelSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.ImpossibleTravelDetail) return undefined;
+		return `${d.ImpossibleTravelDetail.StartingLocation ?? '—'} → ${d.ImpossibleTravelDetail.EndingLocation ?? '—'}`;
+	}
+
+	function newAsoSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewAsoDetail) return undefined;
+		return `ASO ${d.NewAsoDetail.Aso ?? '—'}`;
+	}
+
+	function newGeolocationSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewGeolocationDetail) return undefined;
+		return `Location ${d.NewGeolocationDetail.Location ?? '—'}`;
+	}
+
+	function newUserAgentSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewUserAgentDetail) return undefined;
+		return `User agent ${d.NewUserAgentDetail.UserAgent ?? '—'}`;
+	}
+
+	function relatedFindingSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.RelatedFindingDetail) return undefined;
+		return `Finding ${d.RelatedFindingDetail.Type ?? '—'}`;
+	}
+
+	function relatedFindingGroupSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.RelatedFindingGroupDetail) return undefined;
+		return `Finding group ${d.RelatedFindingGroupDetail.Id ?? '—'}`;
+	}
+
+	function ttpsObservedSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.TTPsObservedDetail) return undefined;
+		return `${d.TTPsObservedDetail.Tactic ?? '—'} / ${d.TTPsObservedDetail.Technique ?? '—'}`;
+	}
+
 	function indicatorSummary(ind: Indicator): string {
 		const d = ind.IndicatorDetail;
 		if (!d) return '—';
-		if (d.FlaggedIpAddressDetail) {
-			return `IP ${d.FlaggedIpAddressDetail.IpAddress ?? '—'} (${d.FlaggedIpAddressDetail.Reason ?? '—'})`;
-		}
-		if (d.ImpossibleTravelDetail) {
-			return `${d.ImpossibleTravelDetail.StartingLocation ?? '—'} → ${d.ImpossibleTravelDetail.EndingLocation ?? '—'}`;
-		}
-		if (d.NewAsoDetail) return `ASO ${d.NewAsoDetail.Aso ?? '—'}`;
-		if (d.NewGeolocationDetail) return `Location ${d.NewGeolocationDetail.Location ?? '—'}`;
-		if (d.NewUserAgentDetail) return `User agent ${d.NewUserAgentDetail.UserAgent ?? '—'}`;
-		if (d.RelatedFindingDetail) return `Finding ${d.RelatedFindingDetail.Type ?? '—'}`;
-		if (d.RelatedFindingGroupDetail) return `Finding group ${d.RelatedFindingGroupDetail.Id ?? '—'}`;
-		if (d.TTPsObservedDetail) {
-			return `${d.TTPsObservedDetail.Tactic ?? '—'} / ${d.TTPsObservedDetail.Technique ?? '—'}`;
-		}
-		return '—';
+		return (
+			flaggedIpSummary(d) ??
+			impossibleTravelSummary(d) ??
+			newAsoSummary(d) ??
+			newGeolocationSummary(d) ??
+			newUserAgentSummary(d) ??
+			relatedFindingSummary(d) ??
+			relatedFindingGroupSummary(d) ??
+			ttpsObservedSummary(d) ??
+			'—'
+		);
 	}
 </script>
 

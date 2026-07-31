@@ -558,17 +558,69 @@
 		srFormModal?.open();
 	}
 
-	async function submitSamplingRuleForm(): Promise<void> {
+	type SamplingRuleBoost = NonNullable<SamplingRuleRecord['SamplingRule']>['SamplingRateBoost'];
+
+	function validateSamplingRuleForm(): string | null {
 		if (srFormMode === 'create' && !srRuleName.trim()) {
-			srFormError = 'Rule name is required.';
-			return;
+			return 'Rule name is required.';
 		}
 		if (srPriority < 1 || srPriority > 9999) {
-			srFormError = 'Priority must be between 1 and 9999.';
-			return;
+			return 'Priority must be between 1 and 9999.';
 		}
 		if (srFixedRate < 0 || srFixedRate > 1) {
-			srFormError = 'Fixed rate must be between 0.0 and 1.0.';
+			return 'Fixed rate must be between 0.0 and 1.0.';
+		}
+		return null;
+	}
+
+	async function createSamplingRuleFromForm(boost: SamplingRuleBoost): Promise<void> {
+		await client().send(
+			new CreateSamplingRuleCommand({
+				SamplingRule: {
+					RuleName: srRuleName.trim(),
+					ResourceARN: srResourceARN.trim() || '*',
+					Priority: srPriority,
+					FixedRate: srFixedRate,
+					ReservoirSize: srReservoirSize,
+					ServiceName: srServiceName.trim() || '*',
+					ServiceType: srServiceType.trim() || '*',
+					Host: srHost.trim() || '*',
+					HTTPMethod: srHTTPMethod.trim() || '*',
+					URLPath: srURLPath.trim() || '*',
+					Version: 1,
+					Attributes: parseKeyValueList(srAttributes),
+					SamplingRateBoost: boost
+				}
+			})
+		);
+		toast.success('Sampling rule created');
+	}
+
+	async function updateSamplingRuleFromForm(ruleName: string, boost: SamplingRuleBoost): Promise<void> {
+		await client().send(
+			new UpdateSamplingRuleCommand({
+				SamplingRuleUpdate: {
+					RuleName: ruleName,
+					ResourceARN: srResourceARN.trim() || '*',
+					Priority: srPriority,
+					FixedRate: srFixedRate,
+					ReservoirSize: srReservoirSize,
+					ServiceName: srServiceName.trim() || '*',
+					ServiceType: srServiceType.trim() || '*',
+					Host: srHost.trim() || '*',
+					HTTPMethod: srHTTPMethod.trim() || '*',
+					URLPath: srURLPath.trim() || '*',
+					SamplingRateBoost: boost
+				}
+			})
+		);
+		toast.success('Sampling rule updated');
+	}
+
+	async function submitSamplingRuleForm(): Promise<void> {
+		const validationError = validateSamplingRuleForm();
+		if (validationError) {
+			srFormError = validationError;
 			return;
 		}
 		srFormSaving = true;
@@ -576,45 +628,9 @@
 		const boost = srBoostEnabled ? { MaxRate: srBoostMaxRate, CooldownWindowMinutes: srBoostCooldown } : undefined;
 		try {
 			if (srFormMode === 'create') {
-				await client().send(
-					new CreateSamplingRuleCommand({
-						SamplingRule: {
-							RuleName: srRuleName.trim(),
-							ResourceARN: srResourceARN.trim() || '*',
-							Priority: srPriority,
-							FixedRate: srFixedRate,
-							ReservoirSize: srReservoirSize,
-							ServiceName: srServiceName.trim() || '*',
-							ServiceType: srServiceType.trim() || '*',
-							Host: srHost.trim() || '*',
-							HTTPMethod: srHTTPMethod.trim() || '*',
-							URLPath: srURLPath.trim() || '*',
-							Version: 1,
-							Attributes: parseKeyValueList(srAttributes),
-							SamplingRateBoost: boost
-						}
-					})
-				);
-				toast.success('Sampling rule created');
+				await createSamplingRuleFromForm(boost);
 			} else if (editingRuleName) {
-				await client().send(
-					new UpdateSamplingRuleCommand({
-						SamplingRuleUpdate: {
-							RuleName: editingRuleName,
-							ResourceARN: srResourceARN.trim() || '*',
-							Priority: srPriority,
-							FixedRate: srFixedRate,
-							ReservoirSize: srReservoirSize,
-							ServiceName: srServiceName.trim() || '*',
-							ServiceType: srServiceType.trim() || '*',
-							Host: srHost.trim() || '*',
-							HTTPMethod: srHTTPMethod.trim() || '*',
-							URLPath: srURLPath.trim() || '*',
-							SamplingRateBoost: boost
-						}
-					})
-				);
-				toast.success('Sampling rule updated');
+				await updateSamplingRuleFromForm(editingRuleName, boost);
 			}
 			srFormModal?.close();
 			await tabLoader.refresh('samplingRules');

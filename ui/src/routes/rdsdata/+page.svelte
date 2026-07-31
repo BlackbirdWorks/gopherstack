@@ -493,6 +493,65 @@
 		batchUpdateResults = [];
 	}
 
+	type SharedExecParams = {
+		resourceArn: string;
+		secretArn: string;
+		database: string | undefined;
+		schema: string | undefined;
+		transactionId: string | undefined;
+	};
+
+	async function executeBatchStatement(shared: SharedExecParams, sql: string): Promise<void> {
+		const parameterSets = paramSets
+			.map((set) => rowsToSqlParameters(set))
+			.filter((set) => set.length > 0);
+		const resp = await client().send(
+			new BatchExecuteStatementCommand({
+				...shared,
+				sql,
+				parameterSets: parameterSets.length > 0 ? parameterSets : undefined
+			})
+		);
+		batchUpdateResults = resp.updateResults ?? [];
+	}
+
+	async function executeSingleStatement(shared: SharedExecParams, sql: string): Promise<void> {
+		const parameters = rowsToSqlParameters(paramSets[0] ?? []);
+		const resp = await client().send(
+			new ExecuteStatementCommand({
+				...shared,
+				sql,
+				parameters: parameters.length > 0 ? parameters : undefined,
+				includeResultMetadata,
+				continueAfterTimeout,
+				resultSetOptions:
+					decimalReturnType || longReturnType
+						? {
+								decimalReturnType: decimalReturnType || undefined,
+								longReturnType: longReturnType || undefined
+							}
+						: undefined,
+				formatRecordsAs: formatRecordsAs || undefined
+			})
+		);
+		resultRecords = resp.records ?? [];
+		resultColumns = resp.columnMetadata ?? [];
+		resultFormatted = resp.formattedRecords;
+		resultGenerated = resp.generatedFields ?? [];
+		resultUpdated = resp.numberOfRecordsUpdated;
+	}
+
+	function recordQueryHistory(sql: string, durationMs: number, ok: boolean, error?: string): void {
+		addHistory({
+			op: batchMode ? 'BatchExecuteStatement' : 'ExecuteStatement',
+			sql,
+			transactionId: transactionIdInput.trim() || undefined,
+			durationMs,
+			ok,
+			error
+		});
+	}
+
 	async function runQuery(): Promise<void> {
 		if (!connectionReady) {
 			toast.error('Resource ARN and Secret ARN are required');
@@ -506,7 +565,7 @@
 		hasRun = true;
 		const start = performance.now();
 
-		const shared = {
+		const shared: SharedExecParams = {
 			resourceArn: resourceArn.trim(),
 			secretArn: secretArn.trim(),
 			database: database.trim() || undefined,
@@ -516,66 +575,21 @@
 
 		try {
 			if (batchMode) {
-				const parameterSets = paramSets
-					.map((set) => rowsToSqlParameters(set))
-					.filter((set) => set.length > 0);
-				const resp = await client().send(
-					new BatchExecuteStatementCommand({
-						...shared,
-						sql,
-						parameterSets: parameterSets.length > 0 ? parameterSets : undefined
-					})
-				);
-				batchUpdateResults = resp.updateResults ?? [];
+				await executeBatchStatement(shared, sql);
 			} else {
-				const parameters = rowsToSqlParameters(paramSets[0] ?? []);
-				const resp = await client().send(
-					new ExecuteStatementCommand({
-						...shared,
-						sql,
-						parameters: parameters.length > 0 ? parameters : undefined,
-						includeResultMetadata,
-						continueAfterTimeout,
-						resultSetOptions:
-							decimalReturnType || longReturnType
-								? {
-										decimalReturnType: decimalReturnType || undefined,
-										longReturnType: longReturnType || undefined
-									}
-								: undefined,
-						formatRecordsAs: formatRecordsAs || undefined
-					})
-				);
-				resultRecords = resp.records ?? [];
-				resultColumns = resp.columnMetadata ?? [];
-				resultFormatted = resp.formattedRecords;
-				resultGenerated = resp.generatedFields ?? [];
-				resultUpdated = resp.numberOfRecordsUpdated;
+				await executeSingleStatement(shared, sql);
 			}
 
 			const ms = performance.now() - start;
 			executionMs = ms;
 			toast.success('Statement executed');
-			addHistory({
-				op: batchMode ? 'BatchExecuteStatement' : 'ExecuteStatement',
-				sql,
-				transactionId: transactionIdInput.trim() || undefined,
-				durationMs: ms,
-				ok: true
-			});
+			recordQueryHistory(sql, ms, true);
 		} catch (e) {
 			const ms = performance.now() - start;
 			executionMs = ms;
 			runError = describeError(e);
 			toast.error('Execution failed');
-			addHistory({
-				op: batchMode ? 'BatchExecuteStatement' : 'ExecuteStatement',
-				sql,
-				transactionId: transactionIdInput.trim() || undefined,
-				durationMs: ms,
-				ok: false,
-				error: runError
-			});
+			recordQueryHistory(sql, ms, false, runError);
 		} finally {
 			executing = false;
 		}

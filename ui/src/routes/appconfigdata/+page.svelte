@@ -363,6 +363,77 @@
 		}
 	}
 
+	async function handlePollFailure(res: Response, tokenBefore: string): Promise<void> {
+		const err = await awsErrorFromResponse(res);
+		const retryAfter = res.headers.get('Retry-After');
+		const message = retryAfter
+			? `${describeError(err)} (Retry-After: ${retryAfter}s)`
+			: describeError(err);
+		pollLog = [
+			{
+				id: ++pollLogSeq,
+				at: new Date(),
+				changed: false,
+				error: message,
+				tokenBefore
+			},
+			...pollLog
+		];
+		pollError = message;
+		toast.error(message);
+		stopAutoPollTimers();
+		autoPoll = false;
+	}
+
+	// Applies a successful GetLatestConfiguration response to session state and
+	// returns the interval the caller should use to schedule the next auto-poll.
+	async function applyPollSuccess(res: Response, tokenBefore: string): Promise<number> {
+		// Per services/appconfigdata/handler.go's writeGetLatestConfigurationResponse:
+		// these poll-control headers are ALWAYS set, whether or not content
+		// changed; Content-Type/ETag are only set when content changed.
+		const nextToken = res.headers.get('Next-Poll-Configuration-Token') ?? '';
+		const nextIntervalHeader = res.headers.get('Next-Poll-Interval-In-Seconds');
+		const nextInterval = nextIntervalHeader ? Number(nextIntervalHeader) : 30;
+		const versionLabel = res.headers.get('Version-Label') ?? '';
+		const contentTypeHeader = res.headers.get('Content-Type') ?? '';
+		const etag = res.headers.get('ETag') ?? '';
+		const text = await res.text();
+		const changed = text.length > 0;
+
+		// The token from this poll response is the ONLY token valid for the
+		// next poll -- tokenBefore is now spent. This is the real single-use
+		// rotation the AWS docs describe; if the backend ever failed to
+		// rotate this (echoing the same token back, or leaving it blank),
+		// this assignment is exactly where that bug would surface, since
+		// every subsequent poll uses whatever this variable holds.
+		currentToken = nextToken || null;
+
+		lastPoll = {
+			changed,
+			content: changed ? text : (lastPoll?.content ?? ''),
+			contentType: changed ? contentTypeHeader : (lastPoll?.contentType ?? ''),
+			versionLabel: versionLabel || (lastPoll?.versionLabel ?? ''),
+			etag: etag || (lastPoll?.etag ?? ''),
+			nextPollInterval: nextInterval,
+			at: new Date()
+		};
+		pollLog = [
+			{
+				id: ++pollLogSeq,
+				at: new Date(),
+				changed,
+				versionLabel: versionLabel || undefined,
+				pollIntervalInSeconds: nextInterval,
+				tokenBefore,
+				tokenAfter: nextToken
+			},
+			...pollLog
+		];
+		pollError = null;
+
+		return nextInterval;
+	}
+
 	async function pollNow(): Promise<void> {
 		if (!currentToken) return;
 		pollBusy = true;
@@ -370,70 +441,11 @@
 		try {
 			const res = await fetch(`/configuration?configuration_token=${encodeURIComponent(currentToken)}`);
 			if (!res.ok) {
-				const err = await awsErrorFromResponse(res);
-				const retryAfter = res.headers.get('Retry-After');
-				const message = retryAfter
-					? `${describeError(err)} (Retry-After: ${retryAfter}s)`
-					: describeError(err);
-				pollLog = [
-					{
-						id: ++pollLogSeq,
-						at: new Date(),
-						changed: false,
-						error: message,
-						tokenBefore
-					},
-					...pollLog
-				];
-				pollError = message;
-				toast.error(message);
-				stopAutoPollTimers();
-				autoPoll = false;
+				await handlePollFailure(res, tokenBefore);
 				return;
 			}
 
-			// Per services/appconfigdata/handler.go's writeGetLatestConfigurationResponse:
-			// these poll-control headers are ALWAYS set, whether or not content
-			// changed; Content-Type/ETag are only set when content changed.
-			const nextToken = res.headers.get('Next-Poll-Configuration-Token') ?? '';
-			const nextIntervalHeader = res.headers.get('Next-Poll-Interval-In-Seconds');
-			const nextInterval = nextIntervalHeader ? Number(nextIntervalHeader) : 30;
-			const versionLabel = res.headers.get('Version-Label') ?? '';
-			const contentTypeHeader = res.headers.get('Content-Type') ?? '';
-			const etag = res.headers.get('ETag') ?? '';
-			const text = await res.text();
-			const changed = text.length > 0;
-
-			// The token from this poll response is the ONLY token valid for the
-			// next poll -- tokenBefore is now spent. This is the real single-use
-			// rotation the AWS docs describe; if the backend ever failed to
-			// rotate this (echoing the same token back, or leaving it blank),
-			// this assignment is exactly where that bug would surface, since
-			// every subsequent poll uses whatever this variable holds.
-			currentToken = nextToken || null;
-
-			lastPoll = {
-				changed,
-				content: changed ? text : (lastPoll?.content ?? ''),
-				contentType: changed ? contentTypeHeader : (lastPoll?.contentType ?? ''),
-				versionLabel: versionLabel || (lastPoll?.versionLabel ?? ''),
-				etag: etag || (lastPoll?.etag ?? ''),
-				nextPollInterval: nextInterval,
-				at: new Date()
-			};
-			pollLog = [
-				{
-					id: ++pollLogSeq,
-					at: new Date(),
-					changed,
-					versionLabel: versionLabel || undefined,
-					pollIntervalInSeconds: nextInterval,
-					tokenBefore,
-					tokenAfter: nextToken
-				},
-				...pollLog
-			];
-			pollError = null;
+			const nextInterval = await applyPollSuccess(res, tokenBefore);
 
 			if (autoPoll) scheduleNextAutoPoll(nextInterval);
 		} catch (e) {

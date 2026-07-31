@@ -13,6 +13,8 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 		DeleteItemCommand,
 		BatchWriteItemCommand,
 		ScanCommand,
+		type ScanCommandInput,
+		type ScanCommandOutput,
 		QueryCommand,
 		PutItemCommand,
 		ExecuteStatementCommand,
@@ -561,26 +563,37 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	}
 
 	// Scan
+	// Takes the table name rather than reading selectedTable, so the caller's
+	// null guard still narrows it -- reading the nullable state here would
+	// widen TableName to string | null, which ScanCommandInput rejects.
+	function buildScanInput(tableName: string): ScanCommandInput {
+		const filterValues = scanFilterValues.trim() ? jsonToItem(JSON.parse(scanFilterValues)) : undefined;
+		return {
+			TableName: tableName,
+			Limit: scanLimit,
+			...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
+			...(filterValues ? { ExpressionAttributeValues: filterValues } : {}),
+			...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {}),
+			...(scanLastKey ? { ExclusiveStartKey: scanLastKey as Record<string, AttributeValue> } : {})
+		};
+	}
+
+	function applyScanResults(res: ScanCommandOutput, reset: boolean): void {
+		scanLastKey = res.LastEvaluatedKey;
+		const newItems = (res.Items ?? []).map((item) => itemToJson(item));
+		scanResults = reset ? newItems : [...scanResults, ...newItems];
+		scanCount = reset ? (res.Count ?? 0) : scanCount + (res.Count ?? 0);
+		scanScannedCount = reset ? (res.ScannedCount ?? 0) : scanScannedCount + (res.ScannedCount ?? 0);
+	}
+
 	async function executeScan(reset = true) {
 		if (!selectedTable) return;
 		scanLoading = true;
 		if (reset) scanLastKey = null;
 		try {
-			const filterValues = scanFilterValues.trim() ? jsonToItem(JSON.parse(scanFilterValues)) : undefined;
-			const input = {
-				TableName: selectedTable,
-				Limit: scanLimit,
-				...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
-				...(filterValues ? { ExpressionAttributeValues: filterValues } : {}),
-				...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {}),
-				...(scanLastKey ? { ExclusiveStartKey: scanLastKey as Record<string, AttributeValue> } : {})
-			};
+			const input = buildScanInput(selectedTable);
 			const res = await ddb().send(new ScanCommand(input));
-			scanLastKey = res.LastEvaluatedKey;
-			const newItems = (res.Items ?? []).map((item) => itemToJson(item));
-			scanResults = reset ? newItems : [...scanResults, ...newItems];
-			scanCount = reset ? (res.Count ?? 0) : scanCount + (res.Count ?? 0);
-			scanScannedCount = reset ? (res.ScannedCount ?? 0) : scanScannedCount + (res.ScannedCount ?? 0);
+			applyScanResults(res, reset);
 		} catch (err: unknown) {
 			toast.error(`Scan failed: ${describeError(err)}`);
 		} finally {
