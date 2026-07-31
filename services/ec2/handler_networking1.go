@@ -14,7 +14,6 @@ func registerNetworking1Ops(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateTransitGatewayVpcAttachment"] = h.handleCreateTransitGatewayVpcAttachment
 	ops["DescribeTransitGatewayVpcAttachments"] = h.handleDescribeTransitGatewayVpcAttachments
 	ops["DeleteTransitGatewayVpcAttachment"] = h.handleDeleteTransitGatewayVpcAttachment
-	ops["ModifyTransitGatewayAttribute"] = h.handleModifyTransitGatewayAttribute
 
 	// Flow Logs
 	ops["CreateFlowLogs"] = h.handleCreateFlowLogs
@@ -39,7 +38,6 @@ func networking1SupportedOperations() []string {
 		"CreateTransitGatewayVpcAttachment",
 		"DescribeTransitGatewayVpcAttachments",
 		"DeleteTransitGatewayVpcAttachment",
-		"ModifyTransitGatewayAttribute",
 		"CreateFlowLogs",
 		"DescribeFlowLogs",
 		"DeleteFlowLogs",
@@ -74,12 +72,6 @@ type deleteTransitGatewayVpcAttachmentResponse struct {
 	XMLName    xml.Name             `xml:"DeleteTransitGatewayVpcAttachmentResponse"`
 	RequestID  string               `xml:"requestId"`
 	Attachment tgwVpcAttachmentItem `xml:"transitGatewayVpcAttachment"`
-}
-
-type modifyTransitGatewayAttributeResponse struct {
-	XMLName   xml.Name `xml:"ModifyTransitGatewayAttributeResponse"`
-	RequestID string   `xml:"requestId"`
-	Return    bool     `xml:"return"`
 }
 
 type flowLogItem struct {
@@ -266,17 +258,6 @@ func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
 			State:                      tgwRouteStateDeleted,
 		},
 	}, nil
-}
-
-func (h *Handler) handleModifyTransitGatewayAttribute(vals url.Values, reqID string) (any, error) {
-	if err := h.Backend.ModifyTransitGatewayAttribute(
-		vals.Get("TransitGatewayId"),
-		vals.Get("Description"),
-	); err != nil {
-		return nil, err
-	}
-
-	return &modifyTransitGatewayAttributeResponse{RequestID: reqID, Return: true}, nil
 }
 
 func flowLogToItem(fl *FlowLog) flowLogItem {

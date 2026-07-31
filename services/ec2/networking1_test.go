@@ -35,9 +35,6 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 	atts2 := bk.DescribeTransitGatewayVpcAttachments(nil)
 	assert.Len(t, atts2, 1)
 
-	// Modify transit gateway attribute.
-	require.NoError(t, bk.ModifyTransitGatewayAttribute(tgw.ID, "updated-desc"))
-
 	// Delete.
 	require.NoError(t, bk.DeleteTransitGatewayVpcAttachment(att.TransitGatewayAttachmentID))
 	assert.Empty(t, bk.DescribeTransitGatewayVpcAttachments(nil))
@@ -57,12 +54,6 @@ func TestNetworking1_TGWVpcAttachment(t *testing.T) {
 
 	err6 := bk.DeleteTransitGatewayVpcAttachment("nonexistent")
 	require.Error(t, err6)
-
-	err7 := bk.ModifyTransitGatewayAttribute("", "desc")
-	require.Error(t, err7)
-
-	err8 := bk.ModifyTransitGatewayAttribute("nonexistent", "desc")
-	require.Error(t, err8)
 }
 
 // ---- Flow Logs ----

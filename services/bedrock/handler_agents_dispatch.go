@@ -87,11 +87,24 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		"ListPrompts",
 		"UpdatePrompt",
 		"CreatePromptVersion",
-		"DeletePromptVersion",
-		"GetPromptVersion",
-		"ListPromptVersions",
+		// DeletePromptVersion, GetPromptVersion, and ListPromptVersions are deliberately
+		// NOT advertised: they are not real bedrock-agent operations. The real client
+		// gets/deletes a specific prompt version via GetPrompt/DeletePrompt's
+		// promptVersion query parameter on the base /prompts/{id}/ path, and lists
+		// versions via ListPrompts' promptIdentifier parameter -- there is no distinct
+		// wire operation. The /prompts/{id}/versions[/{ver}] sub-paths handled by
+		// dispatchPromptVersionRoutes (handler_prompt_versions.go) remain wired as an
+		// internal convenience route (used by this package's own tests) but are
+		// unreachable by any real bedrock-agent SDK client, which would never construct
+		// that path.
 		// Agent versions
-		"CreateAgentVersion",
+		// CreateAgentVersion is deliberately NOT advertised: it is not a real
+		// bedrock-agent operation. Real AWS creates a new agent version only as a side
+		// effect of PrepareAgent (see dispatchCanonicalAgentVersionRoutes' POST
+		// .../agentversions/DRAFT branch, which IS the real, advertised operation). The
+		// non-canonical POST /agents/{id}/versions route (dispatchAgentVersionRoutes,
+		// handler_agents.go) that dispatches to it remains wired for this package's own
+		// tests but is unreachable by a real client, which sends PrepareAgent instead.
 		"GetAgentVersion",
 		"ListAgentVersions",
 		"DeleteAgentVersion",
@@ -106,14 +119,30 @@ func (h *AgentsHandler) GetSupportedOperations() []string {
 		"GetKnowledgeBaseDocuments",
 		"DeleteKnowledgeBaseDocuments",
 		"ListKnowledgeBaseDocuments",
-		"UpdateKnowledgeBaseDocuments",
+		// UpdateKnowledgeBaseDocuments is deliberately NOT advertised: it is not a real
+		// bedrock-agent operation. Real AWS's IngestKnowledgeBaseDocuments (PUT,
+		// already advertised above) both adds and updates documents -- there is no
+		// separate update call. dispatchDocumentOps (handler_knowledge_base_documents.go)
+		// still routes PUT to a separate handleUpdateKBDocuments for this package's own
+		// tests, but a real client's PUT (real IngestKnowledgeBaseDocuments) would hit
+		// this route too since dispatch here is by HTTP method, not operation name --
+		// see that file's dispatchDocumentOps for the resulting wire-shape mismatch
+		// (POST/PUT/GET on this path don't match the real Ingest/List/Get/Delete method
+		// assignment) noted for a future pass.
 		// Ingestion job management
 		"StopIngestionJob",
 		// Resource tags (agent-domain)
 		opTagResource,
 		opUntagResource,
 		opListTagsForResource,
-		// Agent memory
+		// Agent memory: GetAgentMemory/DeleteAgentMemory ARE real AWS operations, but on
+		// bedrock-agent-runtime (a separate, data-plane SDK client this repo does not
+		// vendor as its own service) rather than bedrock-agent (the control-plane
+		// client sdk_completeness_test.go checks against here). They are correctly
+		// implemented and wire-shape-routed (see dispatchMemoryRoutes,
+		// /agents/{id}/agentversions/{v}/memories/...); the reverse sdkcheck flags them
+		// as phantom only because it can't see the runtime client, not because they are
+		// fabricated.
 		"GetAgentMemory",
 		"DeleteAgentMemory",
 		// parity-4: knowledge-base resource policies, added by the

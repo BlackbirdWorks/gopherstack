@@ -356,6 +356,13 @@ func TestDescribeCustomDBEngineVersions_SortedResults(t *testing.T) {
 	assert.Equal(t, "19.v2", all[1].EngineVersion)
 }
 
+// TestDescribeCustomDBEngineVersions_ViaHandler verifies that a created custom engine
+// version is visible via DescribeDBEngineVersions -- the real AWS RDS operation. There
+// is no separate "DescribeCustomDBEngineVersions" wire operation on the real RDS SDK
+// client (custom engine versions are just DBEngineVersion entries distinguished by
+// their Engine value); an earlier pass advertised and dispatched that name as if it
+// were real, which this test used to exercise. See DescribeDBEngineVersions's doc
+// comment in engine_versions.go.
 func TestDescribeCustomDBEngineVersions_ViaHandler(t *testing.T) {
 	t.Parallel()
 
@@ -366,23 +373,32 @@ func TestDescribeCustomDBEngineVersions_ViaHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	rec := postRDSForm(t, h,
-		"Action=DescribeCustomDBEngineVersions&Version=2014-10-31&Engine=oracle-ee")
+		"Action=DescribeDBEngineVersions&Version=2014-10-31&Engine=oracle-ee")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "oracle-ee")
 	assert.Contains(t, rec.Body.String(), "19.test.v1")
-	assert.Contains(t, rec.Body.String(), "DescribeCustomDBEngineVersionsResponse")
+	assert.Contains(t, rec.Body.String(), "DescribeDBEngineVersionsResponse")
 }
 
-func TestDescribeCustomDBEngineVersions_InSupportedOps(t *testing.T) {
+// TestDescribeCustomDBEngineVersions_NotAdvertised documents that
+// "DescribeCustomDBEngineVersions" is not a real RDS operation and must not be
+// advertised via GetSupportedOperations() -- see the ViaHandler test above for the
+// real (DescribeDBEngineVersions) equivalent.
+func TestDescribeCustomDBEngineVersions_NotAdvertised(t *testing.T) {
 	t.Parallel()
 
 	h := newBatch3Handler()
 	ops := h.GetSupportedOperations()
 
-	assert.True(
+	assert.False(
 		t,
 		slices.Contains(ops, "DescribeCustomDBEngineVersions"),
-		"DescribeCustomDBEngineVersions should be in supported operations",
+		"DescribeCustomDBEngineVersions is not a real RDS operation and should not be advertised",
+	)
+	assert.True(
+		t,
+		slices.Contains(ops, "DescribeDBEngineVersions"),
+		"DescribeDBEngineVersions (the real operation) should be advertised",
 	)
 }
 
@@ -452,27 +468,4 @@ func TestDescribeCustomDBEngineVersions_ConcurrentSafe(t *testing.T) {
 
 	versions := b.DescribeCustomDBEngineVersions("", "")
 	assert.NotEmpty(t, versions)
-}
-
-func TestDescribeCustomDBEngineVersions_Pagination(t *testing.T) {
-	t.Parallel()
-
-	b := newBatch3Backend()
-	h := rds.NewHandler(b)
-
-	for i := range 5 {
-		_, err := b.CreateCustomDBEngineVersion(
-			"oracle-ee",
-			"19.v"+string(rune('a'+i)),
-			"version "+string(rune('a'+i)),
-		)
-		require.NoError(t, err)
-	}
-
-	rec := postRDSForm(t, h,
-		"Action=DescribeCustomDBEngineVersions&Version=2014-10-31&Engine=oracle-ee&MaxRecords=2")
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	respStr := rec.Body.String()
-	assert.Contains(t, respStr, "Marker", "paginated response should have a Marker")
 }

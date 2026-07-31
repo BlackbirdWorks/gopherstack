@@ -290,27 +290,6 @@ func TestHandlerTGWRouteTableAssociation(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "DisassociateTransitGatewayRouteTableResponse")
 }
 
-// TestHandlerModifyTransitGatewayAttribute covers handleModifyTransitGatewayAttribute.
-
-// TestHandlerModifyTransitGatewayAttribute covers handleModifyTransitGatewayAttribute.
-func TestHandlerModifyTransitGatewayAttribute(t *testing.T) {
-	t.Parallel()
-
-	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-	h := ec2.NewHandler(b)
-	h.AccountID = "000000000000"
-	h.Region = "us-east-1"
-
-	tgw, err := b.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "original-desc"})
-	require.NoError(t, err)
-
-	rec := postForm(t, h, "Action=ModifyTransitGatewayAttribute&Version=2016-11-15"+
-		"&TransitGatewayId="+tgw.ID+
-		"&Description=updated-desc")
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "ModifyTransitGatewayAttributeResponse")
-}
-
 // TestHandlerDeleteFlowLogs covers handleDeleteFlowLogs.
 
 // TestHandlerDescribeTransitGatewaysAndDelete covers handleDescribeTransitGateways

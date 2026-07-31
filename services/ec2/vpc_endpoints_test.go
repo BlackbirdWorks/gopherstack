@@ -95,8 +95,6 @@ func TestDescribeVpcEndpointServices(t *testing.T) {
 	assert.True(t, foundS3, "s3 endpoint service should be present")
 }
 
-// TestExportKeyPair tests key pair export.
-
 // TestHTTP_DeleteVpcEndpoints verifies the HTTP handler for DeleteVpcEndpoints.
 func TestHTTP_DeleteVpcEndpoints(t *testing.T) {
 	t.Parallel()

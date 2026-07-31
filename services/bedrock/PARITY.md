@@ -2,7 +2,25 @@ service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.0
 last_audit_commit: 5ee940036
 last_audit_date: 2026-07-25
-overall: A            # every named gap fixed for real; ARP sub-resource path model is a documented, still-open exception. parity-4 (SDK v1.56.0 -> v1.66.0 bump): 10 new ops implemented for real, field-diffed against v1.66.0; grade held at A, see families.AdvancedPromptOptimizationJob/AccountDataRetention/ResourcePolicy below.
+overall: A-           # DOWNGRADED A->A- (parity-5/phantom-triage pass, 2026-07-31): while
+                      # removing 5 fabricated operations from AgentsHandler's
+                      # GetSupportedOperations() (see the AgentsHandler gaps entry below),
+                      # found that dispatchDocumentOps (handler_knowledge_base_documents.go)
+                      # dispatches purely by HTTP method rather than the real per-path
+                      # operation names, and as a result TWO ALREADY-ADVERTISED REAL
+                      # operations are unreachable via their real wire shape:
+                      # ListKnowledgeBaseDocuments (real: POST to the base
+                      # .../documents path) and DeleteKnowledgeBaseDocuments (real: POST to
+                      # .../documents/deleteDocuments) both currently route to
+                      # handleIngestKBDocuments instead, because POST on/under the base path
+                      # unconditionally means Ingest in the current dispatch. A real bedrock-agent
+                      # SDK client calling either of these two real, advertised operations would
+                      # silently get Ingest's behavior instead. NOT FIXED this pass (see the
+                      # AgentsHandler gaps entry for why: correcting it requires re-plumbing the
+                      # method-to-handler mapping in a way that breaks this package's own existing
+                      # tests, which assume the current non-standard convention -- a properly-scoped
+                      # fix, not a phantom-cleanup fix). Everything else: every named gap fixed for
+                      # real; ARP sub-resource path model is a documented, still-open exception. parity-4 (SDK v1.56.0 -> v1.66.0 bump): 10 new ops implemented for real, field-diffed against v1.66.0; grade held at A, see families.AdvancedPromptOptimizationJob/AccountDataRetention/ResourcePolicy below.
 
 # Per-op status. wire=response/request shape vs SDK; errors=code+HTTP status;
 # state=real mutate/read; persist=in backendSnapshot.
@@ -107,6 +125,49 @@ families:
   FoundationModelAvailability: {status: ok, note: "fixed — field-diffed for real this pass. See GetFoundationModelAvailability ops entry."}
 
 gaps:
+  - "AgentsHandler (bedrock-agent sub-API, handler_agents_dispatch.go) GetSupportedOperations
+    phantom-triage pass (parity-5, 2026-07-31): the reverse sdkcheck (gopherstack-vhw2,
+    checked against bedrockagentsdk.Client) previously flagged 7 fabricated entries.
+    5 were genuinely fabricated (no such bedrock-agent operation exists) and delisted:
+    CreateAgentVersion (real AWS creates a new agent version only via PrepareAgent, already
+    advertised and correctly wired at the canonical POST .../agentversions/DRAFT path);
+    DeletePromptVersion/GetPromptVersion/ListPromptVersions (real AWS gets/deletes a specific
+    prompt version via GetPrompt/DeletePrompt's promptVersion query param on the base
+    /prompts/{id}/ path and lists versions via ListPrompts' promptIdentifier param — no
+    distinct operation); UpdateKnowledgeBaseDocuments (real IngestKnowledgeBaseDocuments,
+    already advertised, both adds and updates documents — no separate update call). All 5
+    remain wired as non-canonical internal routes (used by this package's own test suite)
+    but are unreachable by any real bedrock-agent SDK client and are no longer advertised —
+    see the inline comments at each list entry in handler_agents_dispatch.go for routing
+    detail per case. The other 2 (GetAgentMemory/DeleteAgentMemory) are real AWS operations
+    but on bedrock-agent-runtime (a separate data-plane client this repo does not vendor as
+    its own service), not bedrock-agent (the control-plane client the completeness check
+    tests against) — correctly implemented and left advertised; the check will keep flagging
+    them for that reason. (bd: file follow-up)"
+  - "SEVERE, discovered while investigating the UpdateKnowledgeBaseDocuments phantom above
+    (parity-5/phantom-triage, 2026-07-31): dispatchDocumentOps
+    (handler_knowledge_base_documents.go), reached for any /documents or
+    /documents/deleteDocuments path suffix except the already-carved-out
+    /documents/getDocuments case, dispatches purely by HTTP method
+    (GET/POST/PUT/DELETE) instead of the real per-path operation names. Real wire shapes:
+    IngestKnowledgeBaseDocuments = PUT base path; ListKnowledgeBaseDocuments = POST base
+    path; DeleteKnowledgeBaseDocuments = POST .../deleteDocuments;
+    GetKnowledgeBaseDocuments = POST .../getDocuments (this one IS correctly routed, see
+    handler_data_sources.go's dispatchDataSourceIDRoutes). Because dispatchDocumentOps
+    dispatches on method alone, ANY POST under /documents (base path OR
+    /deleteDocuments) currently hits handleIngestKBDocuments — meaning
+    ListKnowledgeBaseDocuments and DeleteKnowledgeBaseDocuments, BOTH real,
+    already-advertised operations, are UNREACHABLE via their real wire shape today: a
+    real bedrock-agent SDK client calling either would silently get Ingest's behavior
+    (upsert by document ID) instead of a list or a delete. This is a real, pre-existing
+    bug, not introduced by this pass and not specific to the phantom cleanup — it
+    predates it. NOT FIXED this pass: this package's own existing tests (TestKBDocumentsCRUD
+    and friends) assume the current non-standard method-based convention (POST=create,
+    GET=list, PUT=update, DELETE=delete, all on the base path), so a correct fix means
+    re-plumbing the dispatch to real path+method combinations AND rewriting those tests —
+    a properly-scoped fix in its own right, out of bounds for a phantom-operation triage
+    pass. Downgraded overall: A->A- for this. (bd: file follow-up — this is the next
+    thing to fix in this family, ahead of any cosmetic gap below)"
   - "AutomatedReasoningPolicy sub-resource path model: GetAutomatedReasoningPolicyAnnotations/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario, GetAutomatedReasoningPolicyTestResult/ListAutomatedReasoningPolicyTestResults, and ExportAutomatedReasoningPolicyVersion are all build-workflow-scoped in real AWS (e.g. real annotations path is /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/annotations) but gopherstack models them as policy-scoped only (no buildWorkflowId in the path/state at all — arpAnnotations is keyed solely by policyARN). isARPTestCaseRunPath (\"/test-cases/{id}/run\") and the policy-scoped \"/test-cases/{id}/result\"/\"/test-cases/results\" paths appear to be invented outright; real AWS has no per-test-case run endpoint (StartAutomatedReasoningPolicyTestWorkflow is build-workflow-scoped: POST .../build-workflows/{id}/test-workflows) and the real result paths are .../build-workflows/{id}/test-cases/{testCaseId}/test-results and .../build-workflows/{id}/test-results. ExportAutomatedReasoningPolicyVersion's real path takes ONLY {policyArn} (which may itself be a versioned ARN) at /automated-reasoning-policies/{policyArn}/export; gopherstack requires a separate /versions/{version}/export path shape that doesn't exist in the real API. This is a resource-model redesign (re-plumbing build-workflow-scoped storage for annotations/test-results), not a route fix — deliberately NOT attempted this pass; the 3 PUT->PATCH method-reachability bugs were fixed (see families.AutomatedReasoningPolicy) but the path-model issues remain. (bd: file follow-up)"
   - "UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)"
   - "ListCustomModels and ListModelCustomizationJobs: nextToken pagination only; real AWS supports nameContains/statusEquals-or-modelStatus/creationTime-range/sortBy/sortOrder filters on both (plus baseModelArnEquals/foundationModelArnEquals/isOwned on ListCustomModels specifically), all silently ignored. Same shape as AWS's minimum viable page-through, low risk, but worth aligning. (bd: file follow-up)"

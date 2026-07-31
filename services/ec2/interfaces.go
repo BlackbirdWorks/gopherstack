@@ -464,11 +464,6 @@ type Backend interface {
 	// DescribeVpcEndpointServices returns available AWS endpoint service names.
 	DescribeVpcEndpointServices() []string
 
-	// ---- Key pair export ----
-
-	// ExportKeyPair returns the public-key material for a key pair.
-	ExportKeyPair(name string) (string, error)
-
 	// ---- Instance type offerings ----
 
 	// DescribeInstanceTypeOfferings returns available instance type / AZ pairs.
@@ -497,9 +492,6 @@ type Backend interface {
 
 	// DeleteTransitGatewayVpcAttachment removes a TGW VPC attachment by ID.
 	DeleteTransitGatewayVpcAttachment(id string) error
-
-	// ModifyTransitGatewayAttribute updates attributes of a transit gateway.
-	ModifyTransitGatewayAttribute(id, description string) error
 
 	// ---- Flow Logs ----
 

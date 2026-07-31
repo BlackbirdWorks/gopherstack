@@ -8,7 +8,24 @@ service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.0   # version audited against
 last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
 last_audit_date: 2026-07-25
-overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
+overall: B            # DOWNGRADED A->B (parity-5/phantom-triage pass, 2026-07-31): the
+                      # IngestKnowledgeBaseDocuments and ListKnowledgeBaseDocuments rows
+                      # below were marked wire: ok but are wrong — see their corrected
+                      # notes and the new gaps entry. IngestKnowledgeBaseDocuments (real:
+                      # PUT to .../datasources/{id}/documents) has NO matching case in
+                      # dispatchKBDocuments (handler.go) at all and 404s
+                      # ("unknown kb docs op") for a real client; ListKnowledgeBaseDocuments
+                      # (real: POST to the same base path) is routed to Ingest's handler
+                      # instead of List's, because the dispatch treats POST-on-base as
+                      # always meaning Ingest (matching this package's own test helper,
+                      # ingestionFixture.ingestDocs, which POSTs to ingest — i.e. the tests
+                      # were written against the emulator's own wrong convention, not the
+                      # real SDK's, the "unit tests are not parity proof" trap named in
+                      # .claude/memories/parity-principles.md #3). NOT FIXED this pass: a
+                      # correct fix requires re-plumbing dispatchKBDocuments AND rewriting
+                      # every test built on the current convention — out of scope for a
+                      # phantom-operation triage pass. See gaps.
+                      # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -160,22 +177,64 @@ ops:
   CreatePrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed — see Notes:
     invented-tags-field. b.tags[PromptArn] seed was already correct."}
-  GetPrompt: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetPrompt: {wire: partial, errors: ok, state: ok, persist: ok,
+    note: "GAP (parity-5/phantom-triage, 2026-07-31): does not read the real
+    promptVersion query parameter at all — always returns the DRAFT/latest
+    version regardless of what a real client requests. See GetPromptVersion
+    row below for the fabricated route this gap left in place of the real
+    fix."}
   UpdatePrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed; real UpdatePromptInput has no
     tags param, so the old cfg.Tags-on-update branch was dead code for real
     clients — removed"}
-  DeletePrompt: {wire: ok, errors: ok, state: fixed, persist: ok,
+  DeletePrompt: {wire: partial, errors: ok, state: fixed, persist: ok,
     note: "now also deletes the prompt's b.tags[PromptArn] entry (promptVersions
-    cleanup was already correct) — see Notes: cascade-delete."}
+    cleanup was already correct) — see Notes: cascade-delete. GAP
+    (parity-5/phantom-triage, 2026-07-31): does not read the real promptVersion
+    query parameter either — always deletes the whole prompt (all versions),
+    never a single version. See DeletePromptVersion row below."}
   ListPrompts: {wire: ok, errors: ok, state: ok, persist: ok}
   CreatePromptVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetPromptVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeletePromptVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  IngestKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetPromptVersion: {wire: n/a, errors: n/a, state: ok, persist: ok,
+    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): this was marked
+    wire: ok, which was wrong — 'GetPromptVersion' is not a real bedrock-agent
+    operation at all. Real AWS gets a specific prompt version via GetPrompt's
+    promptVersion query parameter (GET /prompts/{id}/?promptVersion=X), which
+    GetPrompt does not implement (see that row). This op's own route
+    (GET /prompts/{id}/versions/{ver}) is a gopherstack-only path a real SDK
+    client never constructs. Removed from GetSupportedOperations() this pass
+    (was previously incorrectly advertised as if real); route and backend
+    state kept, used by this package's own tests. wire/errors marked n/a
+    rather than ok/gap since there is no real wire shape for a fabricated
+    operation to be correct or incorrect against."}
+  DeletePromptVersion: {wire: n/a, errors: n/a, state: ok, persist: ok,
+    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): same issue as
+    GetPromptVersion above — not a real operation (real: DeletePrompt's
+    promptVersion query param, which DeletePrompt does not implement).
+    Removed from GetSupportedOperations() this pass; route/state kept for
+    this package's own tests."}
+  IngestKnowledgeBaseDocuments: {wire: gap, errors: ok, state: ok, persist: ok,
+    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): was marked wire:
+    ok, which was wrong. Real IngestKnowledgeBaseDocuments is PUT to
+    .../datasources/{id}/documents; dispatchKBDocuments (handler.go) has no
+    case for PUT at that path at all — a real client's real, correctly-formed
+    request 404s ('unknown kb docs op'). Currently reachable only via POST
+    (which this package's own tests, and gopherstack's own StartIngestionJob
+    flow, use instead — matching neither the real Ingest method (PUT) nor the
+    real List method (POST), see ListKnowledgeBaseDocuments row). NOT FIXED
+    this pass — re-plumbing this and its tests is out of scope for a
+    phantom-operation triage pass. See gaps."}
   GetKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListKnowledgeBaseDocuments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListKnowledgeBaseDocuments: {wire: gap, errors: ok, state: ok, persist: ok,
+    note: "CORRECTED (parity-5/phantom-triage, 2026-07-31): was marked wire:
+    ok, which was wrong. Real ListKnowledgeBaseDocuments is POST to the base
+    .../documents path; dispatchKBDocuments routes POST-on-base to
+    handleIngestKBDocs unconditionally (see IngestKnowledgeBaseDocuments row)
+    — a real client's real ListKnowledgeBaseDocuments call gets Ingest's
+    behavior instead of a list. GET-on-base (what this package's tests use
+    for listing) is not a real wire shape for this operation at all. NOT
+    FIXED this pass — see gaps."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -213,6 +272,34 @@ families:
     ConflictException, InternalServerException, ResourceNotFoundException,
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps:
+  - "GetSupportedOperations phantom-triage pass (parity-5, 2026-07-31): the reverse
+    sdkcheck (gopherstack-vhw2) flagged GetPromptVersion and DeletePromptVersion as
+    fabricated — neither is a real bedrock-agent operation (real AWS: GetPrompt/
+    DeletePrompt's promptVersion query parameter, which GetPrompt/DeletePrompt do not
+    implement here — see those ops' rows). Removed both from GetSupportedOperations();
+    routes/backend state kept as internal-only (used by this package's own tests,
+    unreachable by a real SDK client which would never construct
+    /prompts/{id}/versions/{ver}). See GetPromptVersion/DeletePromptVersion ops rows."
+  - "SEVERE, found while investigating the above (parity-5/phantom-triage, 2026-07-31):
+    dispatchKBDocuments (handler.go) has no case at all for PUT to the base
+    .../documents path — real IngestKnowledgeBaseDocuments (PUT) 404s
+    ('unknown kb docs op') for a real client. Separately, real
+    ListKnowledgeBaseDocuments (POST to the same base path) is routed to
+    handleIngestKBDocs (the same handler POST currently maps to for this package's own
+    ingest flow), not to a list handler — a real client's List call gets Ingest's
+    upsert-by-documentId behavior instead of a listing. GetKnowledgeBaseDocuments
+    (POST .../getDocuments) and DeleteKnowledgeBaseDocuments (POST
+    .../deleteDocuments) ARE correctly routed (dispatchKBDocuments checks those path
+    suffixes explicitly, method-agnostically). Both previously-affected ops' PARITY
+    rows were incorrectly marked wire: ok before this pass; corrected. NOT FIXED:
+    this package's own test helper (ingestionFixture.ingestDocs,
+    handler_ingestion_jobs_test.go) and every test built on it POST to ingest,
+    matching the current wrong convention — a correct fix means re-plumbing
+    dispatchKBDocuments' base-path method assignment (PUT->Ingest, POST->List) AND
+    rewriting those tests, out of scope for a phantom-operation triage pass.
+    Downgraded overall: A->B for this — two already-advertised real operations,
+    previously documented as fully correct, are actually broken for a real client.
+    (bd: file follow-up — this is the priority fix for this service)"
   - "ValidateFlowDefinition always returns zero validation errors regardless of
     the definition passed — acceptable for a permissive emulator (the op still
     reads real state and returns the AWS-accurate empty-array shape); not a

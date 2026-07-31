@@ -84,9 +84,14 @@ func (b *InMemoryBackend) ModifyCustomDBEngineVersion(
 	return &cp, nil
 }
 
-// DescribeDBEngineVersions returns available engine versions, filtered by engine and/or version.
+// DescribeDBEngineVersions returns available engine versions, filtered by engine and/or
+// version. This includes custom engine versions created via CreateCustomDBEngineVersion:
+// real AWS has no separate "describe custom engine versions" operation on this client --
+// custom engine versions (custom-oracle-ee, custom-oracle-se2, etc.) are returned by this
+// same operation like any other engine/version pair, distinguished only by their Engine
+// value.
 func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
-	all := []DBEngineVersion{
+	builtin := []DBEngineVersion{
 		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
 		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5"},
 		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35"},
@@ -95,6 +100,21 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 		{Engine: engineAuroraPostgresql, EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
 		{Engine: engineAuroraPostgresql, EngineVersion: "15.4", DBEngineDescription: "Aurora PostgreSQL 15.4"},
 	}
+
+	b.mu.RLock("DescribeDBEngineVersions")
+	custom := b.customEngineVersions.All()
+	all := make([]DBEngineVersion, 0, len(builtin)+len(custom))
+	all = append(all, builtin...)
+
+	for _, cev := range custom {
+		all = append(all, DBEngineVersion{
+			Engine:              cev.Engine,
+			EngineVersion:       cev.EngineVersion,
+			DBEngineDescription: cev.Description,
+		})
+	}
+	b.mu.RUnlock()
+
 	if engine == "" && engineVersion == "" {
 		return all
 	}

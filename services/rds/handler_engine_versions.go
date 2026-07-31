@@ -74,57 +74,6 @@ type describeOrderableDBInstanceOptionsResponse struct {
 	Result  describeOrderableDBInstanceOptionsResult `xml:"DescribeOrderableDBInstanceOptionsResult"`
 }
 
-type xmlCustomDBEngineVersionItem struct {
-	Engine                 string `xml:"Engine"`
-	EngineVersion          string `xml:"EngineVersion"`
-	Status                 string `xml:"Status,omitempty"`
-	Description            string `xml:"Description,omitempty"`
-	DBParameterGroupFamily string `xml:"DBParameterGroupFamily,omitempty"`
-}
-
-type xmlCustomDBEngineVersionList struct {
-	Members []xmlCustomDBEngineVersionItem `xml:"CustomDBEngineVersion"`
-}
-
-type describeCustomDBEngineVersionsResponse struct {
-	XMLName                xml.Name                     `xml:"DescribeCustomDBEngineVersionsResponse"`
-	Xmlns                  string                       `xml:"xmlns,attr"`
-	Marker                 string                       `xml:"DescribeCustomDBEngineVersionsResult>Marker,omitempty"`
-	CustomDBEngineVersions xmlCustomDBEngineVersionList `xml:"DescribeCustomDBEngineVersionsResult>CustomDBEngineVersions"`
-}
-
-func (h *Handler) handleDescribeCustomDBEngineVersions(vals url.Values) (any, error) {
-	engine := vals.Get("Engine")
-	engineVersion := vals.Get("EngineVersion")
-
-	versions := h.Backend.DescribeCustomDBEngineVersions(engine, engineVersion)
-
-	members, marker, err := paginateDescribe(
-		vals,
-		versions,
-		func(a, b CustomDBEngineVersion) bool {
-			return a.Engine+"/"+a.EngineVersion < b.Engine+"/"+b.EngineVersion
-		},
-		func(cev CustomDBEngineVersion) xmlCustomDBEngineVersionItem {
-			return xmlCustomDBEngineVersionItem{
-				Engine:        cev.Engine,
-				EngineVersion: cev.EngineVersion,
-				Status:        cev.Status,
-				Description:   cev.Description,
-			}
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return &describeCustomDBEngineVersionsResponse{
-		Xmlns:                  rdsXMLNS,
-		Marker:                 marker,
-		CustomDBEngineVersions: xmlCustomDBEngineVersionList{Members: members},
-	}, nil
-}
-
 // CreateCustomDBEngineVersionOutput, DeleteCustomDBEngineVersionOutput, and
 // ModifyCustomDBEngineVersionOutput are all flat shapes in the real RDS API — the
 // Engine/EngineVersion/Status/DBEngineVersionDescription members sit directly under

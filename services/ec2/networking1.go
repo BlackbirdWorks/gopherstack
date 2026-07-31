@@ -144,27 +144,6 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 	return nil
 }
 
-// ModifyTransitGatewayAttribute updates the description of a transit gateway.
-func (b *InMemoryBackend) ModifyTransitGatewayAttribute(id, description string) error {
-	if id == "" {
-		return fmt.Errorf("%w: TransitGatewayId is required", ErrInvalidParameter)
-	}
-
-	b.mu.Lock("ModifyTransitGatewayAttribute")
-	defer b.mu.Unlock()
-
-	tgw, ok := b.transitGateways.Get(id)
-	if !ok {
-		return fmt.Errorf("%w: %s", ErrTransitGatewayNotFound, id)
-	}
-
-	if description != "" {
-		tgw.Description = description
-	}
-
-	return nil
-}
-
 // ---- VPC Flow Logs ----
 
 // CreateFlowLogs creates flow log records for the given resources.
