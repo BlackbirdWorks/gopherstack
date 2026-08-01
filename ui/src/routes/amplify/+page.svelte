@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAmplifyClient } from '$lib/aws-client';
 	import {
 		ListAppsCommand,
@@ -14,7 +14,6 @@
 		StartJobCommand,
 		ListDomainAssociationsCommand,
 		CreateDomainAssociationCommand,
-		type AmplifyClient,
 		type App,
 		type Branch,
 		type JobSummary,
@@ -35,10 +34,7 @@
 		Link, Network, Gauge
 	} from 'lucide-svelte';
 
-	let amplifyClient: AmplifyClient | undefined;
-	function amplify(): AmplifyClient {
-		return (amplifyClient ??= getAmplifyClient());
-	}
+	const amplify = regionalClient(getAmplifyClient);
 
 	// State
 	let loading = $state(false);
@@ -265,9 +261,7 @@
 		return 'text-slate-400';
 	}
 
-	onMount(() => {
-		loadApps();
-	});
+	onRegionChange(loadApps);
 </script>
 
 <div class="space-y-6">

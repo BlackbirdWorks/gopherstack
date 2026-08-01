@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getOpenSearchClient } from '$lib/aws-client';
 	import {
 		ListDomainNamesCommand,
@@ -21,7 +21,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Search, RefreshCw, Plus, Trash2, ChevronRight, Database, Tag, Package } from 'lucide-svelte';
 
-	const opensearch = getOpenSearchClient();
+	const opensearch = regionalClient(getOpenSearchClient);
 
 	let loading = $state(false);
 	let domainNames = $state<{ DomainName: string }[]>([]);
@@ -91,7 +91,7 @@
 	async function loadDomains() {
 		loading = true;
 		try {
-			const resp = await opensearch.send(new ListDomainNamesCommand({}));
+			const resp = await opensearch().send(new ListDomainNamesCommand({}));
 			domainNames = (resp.DomainNames ?? []).map(d => ({ DomainName: d.DomainName ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load domains: ' + String(e));
@@ -105,7 +105,7 @@
 		activeTab = 'overview';
 		domainPackages = [];
 		try {
-			const resp = await opensearch.send(new DescribeDomainCommand({ DomainName: name }));
+			const resp = await opensearch().send(new DescribeDomainCommand({ DomainName: name }));
 			selectedDomain = resp.DomainStatus ?? null;
 			updateInstanceType = selectedDomain?.ClusterConfig?.InstanceType ?? '';
 			updateInstanceCount = selectedDomain?.ClusterConfig?.InstanceCount ?? 1;
@@ -126,7 +126,7 @@
 	async function loadDomainPackages(domainName: string) {
 		loadingDomainPackages = true;
 		try {
-			const resp = await opensearch.send(new ListPackagesForDomainCommand({ DomainName: domainName }));
+			const resp = await opensearch().send(new ListPackagesForDomainCommand({ DomainName: domainName }));
 			domainPackages = (resp.DomainPackageDetailsList ?? []).map((p) => ({
 				PackageID: p.PackageID ?? '',
 				PackageName: p.PackageName ?? '',
@@ -149,7 +149,7 @@
 	async function loadPackages() {
 		loadingPackages = true;
 		try {
-			const resp = await opensearch.send(new DescribePackagesCommand({}));
+			const resp = await opensearch().send(new DescribePackagesCommand({}));
 			packages = (resp.PackageDetailsList ?? []).map((p) => ({
 				PackageID: p.PackageID ?? '',
 				PackageName: p.PackageName ?? '',
@@ -168,7 +168,7 @@
 		if (!newPackageName.trim()) return;
 		creatingPackage = true;
 		try {
-			await opensearch.send(new CreatePackageCommand({
+			await opensearch().send(new CreatePackageCommand({
 				PackageName: newPackageName.trim(),
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				PackageType: newPackageType as any,
@@ -191,7 +191,7 @@
 	async function deletePackage(packageID: string, packageName: string) {
 		if (!await confirmDestructive({ title: 'Delete Package', message: `Delete package "${packageName}"?` })) return;
 		try {
-			await opensearch.send(new DeletePackageCommand({ PackageID: packageID }));
+			await opensearch().send(new DeletePackageCommand({ PackageID: packageID }));
 			toast.success(`Package "${packageName}" deleted`);
 			packages = [];
 			await loadPackages();
@@ -203,7 +203,7 @@
 	async function associatePackage(packageID: string) {
 		if (!selectedDomain?.DomainName) return;
 		try {
-			await opensearch.send(new AssociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			await opensearch().send(new AssociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
 			toast.success('Package associated with domain');
 		} catch (e) {
 			toast.error('Failed to associate package: ' + String(e));
@@ -213,7 +213,7 @@
 	async function dissociatePackage(packageID: string) {
 		if (!selectedDomain?.DomainName) return;
 		try {
-			await opensearch.send(new DissociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			await opensearch().send(new DissociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
 			toast.success('Package dissociated from domain');
 		} catch (e) {
 			toast.error('Failed to dissociate package: ' + String(e));
@@ -224,7 +224,7 @@
 		if (!selectedDomain?.ARN) return;
 		loadingTags = true;
 		try {
-			const resp = await opensearch.send(new ListTagsCommand({ ARN: selectedDomain.ARN }));
+			const resp = await opensearch().send(new ListTagsCommand({ ARN: selectedDomain.ARN }));
 			tags = (resp.TagList ?? []).map((t) => ({ Key: t.Key ?? '', Value: t.Value ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load tags: ' + String(e));
@@ -236,7 +236,7 @@
 	async function addTag() {
 		if (!selectedDomain?.ARN || !newTagKey.trim()) return;
 		try {
-			await opensearch.send(new AddTagsCommand({
+			await opensearch().send(new AddTagsCommand({
 				ARN: selectedDomain.ARN,
 				TagList: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }]
 			}));
@@ -255,7 +255,7 @@
 		if (!newDomainName.trim()) return;
 		creatingDomain = true;
 		try {
-			await opensearch.send(new CreateDomainCommand({
+			await opensearch().send(new CreateDomainCommand({
 				DomainName: newDomainName.trim(),
 				EngineVersion: newEngineVersion,
 				ClusterConfig: {
@@ -293,7 +293,7 @@
 		if (!selectedDomain) return;
 		updatingConfig = true;
 		try {
-			await opensearch.send(new UpdateDomainConfigCommand({
+			await opensearch().send(new UpdateDomainConfigCommand({
 				DomainName: selectedDomain.DomainName ?? '',
 				ClusterConfig: {
 					InstanceType: updateInstanceType as 't3.small.search',
@@ -314,7 +314,7 @@
 		if (!selectedDomain || !accessPolicyValid) return;
 		savingPolicy = true;
 		try {
-			await opensearch.send(new UpdateDomainConfigCommand({
+			await opensearch().send(new UpdateDomainConfigCommand({
 				DomainName: selectedDomain.DomainName ?? '',
 				AccessPolicies: accessPolicyText.trim()
 			}));
@@ -339,7 +339,7 @@
 	async function deleteDomain(name: string) {
 		if (!await confirmDestructive({ title: 'Delete OpenSearch Domain', message: `Delete domain "${name}"? All indices and data will be permanently lost.` })) return;
 		try {
-			await opensearch.send(new DeleteDomainCommand({ DomainName: name }));
+			await opensearch().send(new DeleteDomainCommand({ DomainName: name }));
 			toast.success(`Domain "${name}" deletion initiated`);
 			if (selectedDomain?.DomainName === name) selectedDomain = null;
 			await loadDomains();
@@ -355,7 +355,7 @@
 		'c6g.large.search', 'c6g.xlarge.search'
 	];
 
-	onMount(loadDomains);
+	onRegionChange(loadDomains);
 </script>
 
 <div class="p-6 space-y-6">

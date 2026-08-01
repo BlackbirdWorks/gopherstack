@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMWAAClient } from '$lib/aws-client';
 	import {
 		ListEnvironmentsCommand,
@@ -8,7 +8,6 @@
 		DeleteEnvironmentCommand,
 		CreateWebLoginTokenCommand,
 		CreateCliTokenCommand,
-		type MWAAClient,
 		type Environment
 	} from '@aws-sdk/client-mwaa';
 	import { toast } from 'svelte-sonner';
@@ -29,10 +28,7 @@
 		Terminal
 	} from 'lucide-svelte';
 
-	let mwaaClient: MWAAClient | undefined;
-	function mwaa(): MWAAClient {
-		return (mwaaClient ??= getMWAAClient());
-	}
+	const mwaa = regionalClient(getMWAAClient);
 
 	type Tab = 'environments' | 'metrics';
 
@@ -274,8 +270,12 @@
 		}
 	}
 
-	onMount(() => {
-		loadEnvironmentNames();
+	// Environments are cached by name in loadedNames; on a region change the
+	// same env name in the new region must not be treated as already
+	// loaded, so use refresh() (which clears environments/loadedNames)
+	// rather than calling loadEnvironmentNames() directly.
+	onRegionChange(() => {
+		void refresh();
 	});
 </script>
 

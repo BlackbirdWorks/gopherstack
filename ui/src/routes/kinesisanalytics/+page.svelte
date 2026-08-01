@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getKinesisAnalyticsClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -30,7 +30,7 @@
 		Radio
 	} from 'lucide-svelte';
 
-	const kda = getKinesisAnalyticsClient();
+	const kda = regionalClient(getKinesisAnalyticsClient);
 
 	// Applications list
 	let loading = $state(false);
@@ -77,7 +77,7 @@
 	async function loadApplications() {
 		loading = true;
 		try {
-			const resp = await kda.send(new ListApplicationsCommand({}));
+			const resp = await kda().send(new ListApplicationsCommand({}));
 			applications = resp.ApplicationSummaries ?? [];
 		} catch (e) {
 			toast.error(`Failed to load applications: ${e}`);
@@ -93,7 +93,7 @@
 		}
 		creating = true;
 		try {
-			await kda.send(
+			await kda().send(
 				new CreateApplicationCommand({
 					ApplicationName: newAppName.trim(),
 					ApplicationCode: newAppCode.trim() || undefined,
@@ -115,9 +115,9 @@
 
 	async function deleteApplication(name: string) {
 		try {
-			const detail = await kda.send(new DescribeApplicationCommand({ ApplicationName: name }));
+			const detail = await kda().send(new DescribeApplicationCommand({ ApplicationName: name }));
 			const ts = detail.ApplicationDetail?.CreateTimestamp;
-			await kda.send(
+			await kda().send(
 				new DeleteApplicationCommand({
 					ApplicationName: name,
 					CreateTimestamp: ts ?? new Date()
@@ -136,7 +136,7 @@
 
 	async function startApplication(name: string) {
 		try {
-			await kda.send(
+			await kda().send(
 				new StartApplicationCommand({
 					ApplicationName: name,
 					InputConfigurations: []
@@ -152,7 +152,7 @@
 
 	async function stopApplication(name: string) {
 		try {
-			await kda.send(new StopApplicationCommand({ ApplicationName: name }));
+			await kda().send(new StopApplicationCommand({ ApplicationName: name }));
 			toast.success(`Application "${name}" stopped`);
 			await loadApplications();
 			if (selectedApp === name) await loadAppDetail(name);
@@ -164,7 +164,7 @@
 	async function loadAppDetail(name: string) {
 		loadingDetail = true;
 		try {
-			const resp = await kda.send(new DescribeApplicationCommand({ ApplicationName: name }));
+			const resp = await kda().send(new DescribeApplicationCommand({ ApplicationName: name }));
 			appDetail = resp.ApplicationDetail ?? null;
 		} catch (e) {
 			toast.error(`Failed to load application detail: ${e}`);
@@ -181,7 +181,7 @@
 		}
 		try {
 			const versionId = appDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new AddApplicationInputCommand({
 					ApplicationName: selectedApp,
 					CurrentApplicationVersionId: versionId,
@@ -224,7 +224,7 @@
 		}
 		try {
 			const versionId = appDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new AddApplicationOutputCommand({
 					ApplicationName: selectedApp,
 					CurrentApplicationVersionId: versionId,
@@ -255,7 +255,7 @@
 		if (!selectedApp) return;
 		try {
 			const versionId = appDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new DeleteApplicationOutputCommand({
 					ApplicationName: selectedApp,
 					CurrentApplicationVersionId: versionId,
@@ -277,7 +277,7 @@
 		}
 		try {
 			const versionId = appDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new AddApplicationCloudWatchLoggingOptionCommand({
 					ApplicationName: selectedApp,
 					CurrentApplicationVersionId: versionId,
@@ -301,7 +301,7 @@
 		if (!selectedApp) return;
 		try {
 			const versionId = appDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new DeleteApplicationCloudWatchLoggingOptionCommand({
 					ApplicationName: selectedApp,
 					CurrentApplicationVersionId: versionId,
@@ -322,7 +322,7 @@
 		}
 		discoveringSchema = true;
 		try {
-			const resp = await kda.send(
+			const resp = await kda().send(
 				new DiscoverInputSchemaCommand({
 					ResourceARN: schemaResourceARN.trim(),
 					RoleARN: schemaRoleARN.trim() || undefined,
@@ -365,7 +365,7 @@
 		}
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadApplications();
 	});
 </script>

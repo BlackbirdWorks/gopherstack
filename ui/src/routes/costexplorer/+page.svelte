@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCostExplorerClient } from '$lib/aws-client';
 	import {
 		ListCostCategoryDefinitionsCommand,
@@ -34,7 +34,7 @@
 		Server
 	} from 'lucide-svelte';
 
-	const ce = getCostExplorerClient();
+	const ce = regionalClient(getCostExplorerClient);
 
 	type Tab = 'categories' | 'monitors' | 'subscriptions' | 'anomalies' | 'forecasting' | 'reservations';
 
@@ -107,7 +107,7 @@
 	async function loadCategories() {
 		loading = true;
 		try {
-			const res = await ce.send(new ListCostCategoryDefinitionsCommand({}));
+			const res = await ce().send(new ListCostCategoryDefinitionsCommand({}));
 			categories = res.CostCategoryReferences ?? [];
 		} catch (e) {
 			toast.error(`Failed to load cost categories: ${e}`);
@@ -120,7 +120,7 @@
 		if (!newCategoryName.trim()) return;
 		creatingCategory = true;
 		try {
-			await ce.send(
+			await ce().send(
 				new CreateCostCategoryDefinitionCommand({
 					Name: newCategoryName.trim(),
 					RuleVersion: newCategoryRuleVersion as 'CostCategoryExpression.v1',
@@ -139,7 +139,7 @@
 
 	async function deleteCategory(arn: string, name: string) {
 		try {
-			await ce.send(new DeleteCostCategoryDefinitionCommand({ CostCategoryArn: arn }));
+			await ce().send(new DeleteCostCategoryDefinitionCommand({ CostCategoryArn: arn }));
 			toast.success(`Deleted category '${name}'`);
 			await loadCategories();
 		} catch (e) {
@@ -150,7 +150,7 @@
 	async function loadMonitors() {
 		loading = true;
 		try {
-			const res = await ce.send(new GetAnomalyMonitorsCommand({}));
+			const res = await ce().send(new GetAnomalyMonitorsCommand({}));
 			monitors = res.AnomalyMonitors ?? [];
 		} catch (e) {
 			toast.error(`Failed to load anomaly monitors: ${e}`);
@@ -163,7 +163,7 @@
 		if (!newMonitorName.trim()) return;
 		creatingMonitor = true;
 		try {
-			await ce.send(
+			await ce().send(
 				new CreateAnomalyMonitorCommand({
 					AnomalyMonitor: {
 						MonitorName: newMonitorName.trim(),
@@ -183,7 +183,7 @@
 
 	async function deleteMonitor(arn: string, name: string) {
 		try {
-			await ce.send(new DeleteAnomalyMonitorCommand({ MonitorArn: arn }));
+			await ce().send(new DeleteAnomalyMonitorCommand({ MonitorArn: arn }));
 			toast.success(`Deleted monitor '${name}'`);
 			await loadMonitors();
 		} catch (e) {
@@ -194,7 +194,7 @@
 	async function loadSubscriptions() {
 		loading = true;
 		try {
-			const res = await ce.send(new GetAnomalySubscriptionsCommand({}));
+			const res = await ce().send(new GetAnomalySubscriptionsCommand({}));
 			subscriptions = res.AnomalySubscriptions ?? [];
 		} catch (e) {
 			toast.error(`Failed to load subscriptions: ${e}`);
@@ -207,7 +207,7 @@
 		if (!newSubName.trim()) return;
 		creatingSubscription = true;
 		try {
-			await ce.send(
+			await ce().send(
 				new CreateAnomalySubscriptionCommand({
 					AnomalySubscription: {
 						SubscriptionName: newSubName.trim(),
@@ -230,7 +230,7 @@
 
 	async function deleteSubscription(arn: string, name: string) {
 		try {
-			await ce.send(new DeleteAnomalySubscriptionCommand({ SubscriptionArn: arn }));
+			await ce().send(new DeleteAnomalySubscriptionCommand({ SubscriptionArn: arn }));
 			toast.success(`Deleted subscription '${name}'`);
 			await loadSubscriptions();
 		} catch (e) {
@@ -248,7 +248,7 @@
 							DateInterval: { StartDate: '2020-01-01', EndDate: '2099-12-31' },
 							Feedback: feedbackFilter
 						};
-			const res = await ce.send(new GetAnomaliesCommand(params));
+			const res = await ce().send(new GetAnomaliesCommand(params));
 			anomalies = res.Anomalies ?? [];
 		} catch (e) {
 			toast.error(`Failed to load anomalies: ${e}`);
@@ -260,7 +260,7 @@
 	async function loadForecast() {
 		loadingForecast = true;
 		try {
-			const res = await ce.send(
+			const res = await ce().send(
 				new GetCostForecastCommand({
 					TimePeriod: { Start: forecastStart, End: forecastEnd },
 					Metric: forecastMetric,
@@ -278,7 +278,7 @@
 	async function loadReservations() {
 		loadingReservations = true;
 		try {
-			const res = await ce.send(
+			const res = await ce().send(
 				new GetReservationPurchaseRecommendationCommand({
 					Service: reservationService,
 					LookbackPeriodInDays: reservationLookback,
@@ -304,7 +304,7 @@
 		else if (tab === 'reservations') await loadReservations();
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadCategories();
 	});
 </script>

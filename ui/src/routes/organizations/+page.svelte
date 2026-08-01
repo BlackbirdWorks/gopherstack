@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getOrganizationsClient } from '$lib/aws-client';
 	import {
@@ -15,7 +15,6 @@
 		ListParentsCommand,
 		ListPoliciesForTargetCommand,
 		CloseAccountCommand,
-		type OrganizationsClient,
 		type Organization,
 		type Account,
 		type OrganizationalUnit,
@@ -40,11 +39,7 @@
 		Ban
 	} from 'lucide-svelte';
 
-	let org: OrganizationsClient | undefined;
-
-	function client(): OrganizationsClient {
-		return (org ??= getOrganizationsClient());
-	}
+	const client = regionalClient(getOrganizationsClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'overview' | 'accounts' | 'ous' | 'policies'>('overview');
@@ -322,7 +317,7 @@
 		else await loadPolicies();
 	}
 
-	onMount(() => loadOverview());
+	onRegionChange(() => loadOverview());
 </script>
 
 <div class="space-y-6">

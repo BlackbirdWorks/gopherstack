@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getConfigClient } from '$lib/aws-client';
 	import {
 		DescribeConfigRulesCommand,
@@ -39,7 +39,7 @@
 		Wrench
 	} from 'lucide-svelte';
 
-	const config = getConfigClient();
+	const config = regionalClient(getConfigClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'rules' | 'recorder' | 'conformance' | 'remediation'>('rules');
@@ -115,9 +115,9 @@
 	async function loadRules() {
 		loading = true;
 		try {
-			const res = await config.send(new DescribeConfigRulesCommand({}));
+			const res = await config().send(new DescribeConfigRulesCommand({}));
 			rules = res.ConfigRules ?? [];
-			const compRes = await config.send(new DescribeComplianceByConfigRuleCommand({}));
+			const compRes = await config().send(new DescribeComplianceByConfigRuleCommand({}));
 			const byRule: Record<string, string> = {};
 			for (const item of compRes.ComplianceByConfigRules ?? []) {
 				byRule[item.ConfigRuleName ?? ''] = item.Compliance?.ComplianceType ?? 'UNKNOWN';
@@ -133,13 +133,13 @@
 	async function loadRecorders() {
 		loading = true;
 		try {
-			const res = await config.send(new DescribeConfigurationRecordersCommand({}));
+			const res = await config().send(new DescribeConfigurationRecordersCommand({}));
 			recorders = (res.ConfigurationRecorders ?? []).map((r) => ({
 				name: r.name,
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				recordingGroup: r.recordingGroup as Record<string, any>
 			}));
-			const statusRes = await config.send(new DescribeConfigurationRecorderStatusCommand({}));
+			const statusRes = await config().send(new DescribeConfigurationRecorderStatusCommand({}));
 			const statusMap: Record<string, { recording?: boolean; lastStatus?: string }> = {};
 			for (const s of statusRes.ConfigurationRecordersStatus ?? []) {
 				statusMap[s.name ?? ''] = {
@@ -159,8 +159,8 @@
 		loading = true;
 		try {
 			const [packRes, statusRes] = await Promise.all([
-				config.send(new DescribeConformancePacksCommand({})),
-				config.send(new DescribeConformancePackStatusCommand({}))
+				config().send(new DescribeConformancePacksCommand({})),
+				config().send(new DescribeConformancePackStatusCommand({}))
 			]);
 			conformancePacks = packRes.ConformancePackDetails ?? [];
 
@@ -173,7 +173,7 @@
 			const scores: Record<string, string> = {};
 			if (conformancePacks.length > 0) {
 				try {
-					const scoreRes = await config.send(
+					const scoreRes = await config().send(
 						new GetConformancePackComplianceSummaryCommand({
 							ConformancePackNames: conformancePacks.map((p) => p.ConformancePackName ?? '')
 						})
@@ -197,7 +197,7 @@
 	async function loadRemediation() {
 		loading = true;
 		try {
-			const res = await config.send(new DescribeRemediationConfigurationsCommand({ ConfigRuleNames: [] }));
+			const res = await config().send(new DescribeRemediationConfigurationsCommand({ ConfigRuleNames: [] }));
 			remediations = res.RemediationConfigurations ?? [];
 		} catch (e) {
 			toast.error(`Failed to load remediation configurations: ${e}`);
@@ -211,7 +211,7 @@
 		loadingDetails = true;
 		ruleDetails = [];
 		try {
-			const res = await config.send(
+			const res = await config().send(
 				new GetComplianceDetailsByConfigRuleCommand({
 					ConfigRuleName: rule.ConfigRuleName,
 					Limit: 25
@@ -231,7 +231,7 @@
 	async function deleteRule(rule: ConfigRule) {
 		if (!await confirmDestructive({ title: 'Delete Config Rule', message: `Delete rule "${rule.ConfigRuleName}"? Compliance evaluation for this rule will stop.` })) return;
 		try {
-			await config.send(new DeleteConfigRuleCommand({ ConfigRuleName: rule.ConfigRuleName }));
+			await config().send(new DeleteConfigRuleCommand({ ConfigRuleName: rule.ConfigRuleName }));
 			toast.success(`Rule "${rule.ConfigRuleName}" deleted`);
 			await loadRules();
 		} catch (e) {
@@ -243,7 +243,7 @@
 		if (!newRuleName.trim()) return;
 		creating = true;
 		try {
-			await config.send(
+			await config().send(
 				new PutConfigRuleCommand({
 					ConfigRule: {
 						ConfigRuleName: newRuleName.trim(),
@@ -269,10 +269,10 @@
 		const isRecording = recorderStatuses[name]?.recording;
 		try {
 			if (isRecording) {
-				await config.send(new StopConfigurationRecorderCommand({ ConfigurationRecorderName: name }));
+				await config().send(new StopConfigurationRecorderCommand({ ConfigurationRecorderName: name }));
 				toast.success(`Stopped recorder "${name}"`);
 			} else {
-				await config.send(new StartConfigurationRecorderCommand({ ConfigurationRecorderName: name }));
+				await config().send(new StartConfigurationRecorderCommand({ ConfigurationRecorderName: name }));
 				toast.success(`Started recorder "${name}"`);
 			}
 			await loadRecorders();
@@ -284,7 +284,7 @@
 	async function deleteConformancePack(pack: ConformancePackDetail) {
 		if (!await confirmDestructive({ title: 'Delete Conformance Pack', message: `Delete conformance pack "${pack.ConformancePackName}"?` })) return;
 		try {
-			await config.send(new DeleteConformancePackCommand({ ConformancePackName: pack.ConformancePackName }));
+			await config().send(new DeleteConformancePackCommand({ ConformancePackName: pack.ConformancePackName }));
 			toast.success(`Conformance pack "${pack.ConformancePackName}" deleted`);
 			await loadConformancePacks();
 		} catch (e) {
@@ -296,7 +296,7 @@
 		if (!remediation.ConfigRuleName) return;
 		remediatingRule = remediation.ConfigRuleName;
 		try {
-			await config.send(
+			await config().send(
 				new StartRemediationExecutionCommand({
 					ConfigRuleName: remediation.ConfigRuleName,
 					ResourceKeys: []
@@ -319,7 +319,7 @@
 		else if (tab === 'remediation') await loadRemediation();
 	}
 
-	onMount(() => loadRules());
+	onRegionChange(loadRules);
 </script>
 
 <div class="space-y-6">

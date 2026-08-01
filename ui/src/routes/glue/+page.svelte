@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getGlueClient } from '$lib/aws-client';
 	import {
@@ -32,7 +32,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Database as DBIcon, Search, RefreshCw, Play, Pause, XCircle, ChevronRight, Table as TableIcon, Settings, Globe, Trash2, Copy, Clock } from 'lucide-svelte';
 
-	const glue = getGlueClient();
+	const glue = regionalClient(getGlueClient);
 
 	let activeTab = $state<'catalog' | 'jobs' | 'crawlers' | 'connections' | 'dataquality'>('catalog');
 	let searchQuery = $state('');
@@ -110,7 +110,7 @@
 	async function loadDatabases() {
 		loading = true;
 		try {
-			const resp = await glue.send(new GetDatabasesCommand({ MaxResults: 50 }));
+			const resp = await glue().send(new GetDatabasesCommand({ MaxResults: 50 }));
 			databases = resp.DatabaseList ?? [];
 		} catch (e) {
 			toast.error('Failed to load databases: ' + String(e));
@@ -124,7 +124,7 @@
 		searchQuery = '';
 		loadingTables = true;
 		try {
-			const resp = await glue.send(new GetTablesCommand({ DatabaseName: db.Name ?? '', MaxResults: 100 }));
+			const resp = await glue().send(new GetTablesCommand({ DatabaseName: db.Name ?? '', MaxResults: 100 }));
 			tables = resp.TableList ?? [];
 		} catch (e) {
 			toast.error('Failed to load tables: ' + String(e));
@@ -136,7 +136,7 @@
 	async function loadJobs() {
 		loadingJobs = true;
 		try {
-			const resp = await glue.send(new GetJobsCommand({ MaxResults: 50 }));
+			const resp = await glue().send(new GetJobsCommand({ MaxResults: 50 }));
 			jobs = resp.Jobs ?? [];
 		} catch (e) {
 			toast.error('Failed to load jobs: ' + String(e));
@@ -149,7 +149,7 @@
 		selectedJob = job;
 		loadingRuns = true;
 		try {
-			const resp = await glue.send(new GetJobRunsCommand({ JobName: job.Name ?? '', MaxResults: 20 }));
+			const resp = await glue().send(new GetJobRunsCommand({ JobName: job.Name ?? '', MaxResults: 20 }));
 			jobRuns = resp.JobRuns ?? [];
 		} catch (e) {
 			toast.error('Failed to load job runs: ' + String(e));
@@ -160,7 +160,7 @@
 
 	async function startJob(jobName: string) {
 		try {
-			const resp = await glue.send(new StartJobRunCommand({ JobName: jobName }));
+			const resp = await glue().send(new StartJobRunCommand({ JobName: jobName }));
 			toast.success(`Job run started: ${resp.JobRunId}`);
 			if (selectedJob?.Name === jobName) await selectJob(selectedJob);
 		} catch (e) {
@@ -170,7 +170,7 @@
 
 	async function stopJobRun(jobName: string, runId: string) {
 		try {
-			await glue.send(new BatchStopJobRunCommand({ JobName: jobName, JobRunIds: [runId] }));
+			await glue().send(new BatchStopJobRunCommand({ JobName: jobName, JobRunIds: [runId] }));
 			toast.success('Job run stopping');
 			if (selectedJob?.Name === jobName) await selectJob(selectedJob);
 		} catch (e) {
@@ -181,7 +181,7 @@
 	async function loadCrawlers() {
 		loadingCrawlers = true;
 		try {
-			const resp = await glue.send(new GetCrawlersCommand({ MaxResults: 50 }));
+			const resp = await glue().send(new GetCrawlersCommand({ MaxResults: 50 }));
 			crawlers = resp.Crawlers ?? [];
 		} catch (e) {
 			toast.error('Failed to load crawlers: ' + String(e));
@@ -192,7 +192,7 @@
 
 	async function startCrawler(name: string) {
 		try {
-			await glue.send(new StartCrawlerCommand({ Name: name }));
+			await glue().send(new StartCrawlerCommand({ Name: name }));
 			toast.success(`Crawler "${name}" started`);
 			await loadCrawlers();
 		} catch (e) {
@@ -202,7 +202,7 @@
 
 	async function stopCrawler(name: string) {
 		try {
-			await glue.send(new StopCrawlerCommand({ Name: name }));
+			await glue().send(new StopCrawlerCommand({ Name: name }));
 			toast.success(`Crawler "${name}" stopping`);
 			await loadCrawlers();
 		} catch (e) {
@@ -219,7 +219,7 @@
 		if (!scheduleCrawler?.Name || !scheduleExpression.trim()) return;
 		savingSchedule = true;
 		try {
-			await glue.send(new UpdateCrawlerScheduleCommand({
+			await glue().send(new UpdateCrawlerScheduleCommand({
 				CrawlerName: scheduleCrawler.Name,
 				Schedule: scheduleExpression.trim()
 			}));
@@ -238,10 +238,10 @@
 		const isScheduled = crawler.Schedule?.State === 'SCHEDULED';
 		try {
 			if (isScheduled) {
-				await glue.send(new StopCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				await glue().send(new StopCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
 				toast.success(`Schedule paused for "${crawler.Name}"`);
 			} else {
-				await glue.send(new StartCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				await glue().send(new StartCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
 				toast.success(`Schedule resumed for "${crawler.Name}"`);
 			}
 			await loadCrawlers();
@@ -253,7 +253,7 @@
 	async function loadConnections() {
 		loadingConnections = true;
 		try {
-			const resp = await glue.send(new GetConnectionsCommand({ MaxResults: 50 }));
+			const resp = await glue().send(new GetConnectionsCommand({ MaxResults: 50 }));
 			connections = resp.ConnectionList ?? [];
 		} catch (e) {
 			toast.error('Failed to load connections: ' + String(e));
@@ -265,7 +265,7 @@
 	async function loadDataQualityRulesets() {
 		loadingRulesets = true;
 		try {
-			const resp = await glue.send(new ListDataQualityRulesetsCommand({ MaxResults: 50 }));
+			const resp = await glue().send(new ListDataQualityRulesetsCommand({ MaxResults: 50 }));
 			dataQualityRulesets = resp.Rulesets ?? [];
 		} catch (e) {
 			toast.error('Failed to load data quality rulesets: ' + String(e));
@@ -280,7 +280,7 @@
 		const tbl = evalRunTable.trim() || 'default';
 		const role = evalRunRole.trim() || 'arn:aws:iam::000000000000:role/GlueRole';
 		try {
-			const resp = await glue.send(new StartDataQualityRulesetEvaluationRunCommand({
+			const resp = await glue().send(new StartDataQualityRulesetEvaluationRunCommand({
 				RulesetNames: [rulesetName],
 				Role: role,
 				DataSource: { GlueTable: { DatabaseName: db, TableName: tbl } }
@@ -294,7 +294,7 @@
 	async function deleteJob(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Job', message: `Delete job "${name}"? This cannot be undone.` })) return;
 		try {
-			await glue.send(new DeleteJobCommand({ JobName: name }));
+			await glue().send(new DeleteJobCommand({ JobName: name }));
 			toast.success(`Job "${name}" deleted`);
 			if (selectedJob?.Name === name) { selectedJob = null; jobRuns = []; }
 			await loadJobs();
@@ -306,7 +306,7 @@
 	async function deleteCrawler(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Crawler', message: `Delete crawler "${name}"? This cannot be undone.` })) return;
 		try {
-			await glue.send(new DeleteCrawlerCommand({ Name: name }));
+			await glue().send(new DeleteCrawlerCommand({ Name: name }));
 			toast.success(`Crawler "${name}" deleted`);
 			await loadCrawlers();
 		} catch (e) {
@@ -317,7 +317,7 @@
 	async function deleteConnection(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Connection', message: `Delete connection "${name}"? This cannot be undone.` })) return;
 		try {
-			await glue.send(new DeleteConnectionCommand({ ConnectionName: name }));
+			await glue().send(new DeleteConnectionCommand({ ConnectionName: name }));
 			toast.success(`Connection "${name}" deleted`);
 			await loadConnections();
 		} catch (e) {
@@ -352,7 +352,7 @@
 		return m > 0 ? `${m}m ${s}s` : `${s}s`;
 	}
 
-	onMount(loadDatabases);
+	onRegionChange(loadDatabases);
 </script>
 
 <div class="p-6 space-y-6">
