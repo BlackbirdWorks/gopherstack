@@ -879,8 +879,9 @@
 										/>
 									{/if}
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Target %</label>
+										<label for="policy-target-value" class="w-24 text-xs text-slate-600 dark:text-slate-300">Target %</label>
 										<input
+											id="policy-target-value"
 											bind:value={targetValue}
 											type="number"
 											min="1"
@@ -898,16 +899,18 @@
 										<option value="ExactCapacity">ExactCapacity</option>
 									</select>
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Adjustment</label>
+										<label for="policy-step-adjustment" class="w-24 text-xs text-slate-600 dark:text-slate-300">Adjustment</label>
 										<input
+											id="policy-step-adjustment"
 											bind:value={stepScalingAdjustment}
 											type="number"
 											class="w-24 rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 										/>
 									</div>
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Cooldown (s)</label>
+										<label for="policy-step-cooldown" class="w-24 text-xs text-slate-600 dark:text-slate-300">Cooldown (s)</label>
 										<input
+											id="policy-step-cooldown"
 											bind:value={stepCooldown}
 											type="number"
 											min="0"
@@ -1158,16 +1161,18 @@
 							/>
 							<div class="flex gap-2">
 								<div class="flex-1">
-									<label class="mb-1 block text-[10px] text-slate-500">Start Time</label>
+									<label for="forecast-start-time" class="mb-1 block text-[10px] text-slate-500">Start Time</label>
 									<input
+										id="forecast-start-time"
 										bind:value={forecastStartTime}
 										type="datetime-local"
 										class="w-full rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 									/>
 								</div>
 								<div class="flex-1">
-									<label class="mb-1 block text-[10px] text-slate-500">End Time</label>
+									<label for="forecast-end-time" class="mb-1 block text-[10px] text-slate-500">End Time</label>
 									<input
+										id="forecast-end-time"
 										bind:value={forecastEndTime}
 										type="datetime-local"
 										class="w-full rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -1238,8 +1243,9 @@
 			</div>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Service Namespace</label>
+					<label for="reg-namespace" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Service Namespace</label>
 					<select
+						id="reg-namespace"
 						bind:value={regNamespace}
 						onchange={() => {
 							if (regNamespace === ServiceNamespace.ECS) {
@@ -1261,16 +1267,18 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Resource ID</label>
+					<label for="reg-resource-id" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Resource ID</label>
 					<input
+						id="reg-resource-id"
 						bind:value={regResourceId}
 						placeholder="e.g. service/default/my-service"
 						class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-mono dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 					/>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Scalable Dimension</label>
+					<label for="reg-dimension" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Scalable Dimension</label>
 					<input
+						id="reg-dimension"
 						bind:value={regDimension}
 						placeholder="e.g. ecs:service:DesiredCount"
 						class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-mono dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -1278,8 +1286,9 @@
 				</div>
 				<div class="flex gap-3">
 					<div class="flex-1">
-						<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Min Capacity</label>
+						<label for="reg-min-capacity" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Min Capacity</label>
 						<input
+							id="reg-min-capacity"
 							bind:value={regMin}
 							type="number"
 							min="0"
@@ -1287,8 +1296,9 @@
 						/>
 					</div>
 					<div class="flex-1">
-						<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Max Capacity</label>
+						<label for="reg-max-capacity" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Max Capacity</label>
 						<input
+							id="reg-max-capacity"
 							bind:value={regMax}
 							type="number"
 							min="1"

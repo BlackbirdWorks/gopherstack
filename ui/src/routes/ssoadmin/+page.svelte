@@ -1140,8 +1140,9 @@
 			</div>
 			<div class="grid gap-2 md:grid-cols-2 lg:grid-cols-4">
 				<div>
-					<label class="text-xs text-slate-500">Permission Set</label>
+					<label for="assignment-permission-set" class="text-xs text-slate-500">Permission Set</label>
 					<select
+						id="assignment-permission-set"
 						bind:value={selectedPermissionSetArn}
 						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 					>
@@ -1154,16 +1155,18 @@
 					</select>
 				</div>
 				<div>
-					<label class="text-xs text-slate-500">Account ID</label>
+					<label for="assignment-account-id" class="text-xs text-slate-500">Account ID</label>
 					<input
+						id="assignment-account-id"
 						bind:value={selectedAccountID}
 						placeholder="123456789012"
 						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 					/>
 				</div>
 				<div>
-					<label class="text-xs text-slate-500">Principal Type</label>
+					<label for="assignment-principal-type" class="text-xs text-slate-500">Principal Type</label>
 					<select
+						id="assignment-principal-type"
 						bind:value={assignmentPrincipalType}
 						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
 					>
@@ -1172,8 +1175,9 @@
 					</select>
 				</div>
 				<div>
-					<label class="text-xs text-slate-500">Principal ID</label>
+					<label for="assignment-principal-id" class="text-xs text-slate-500">Principal ID</label>
 					<input
+						id="assignment-principal-id"
 						bind:value={assignmentPrincipalID}
 						placeholder="Principal ID"
 						class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"

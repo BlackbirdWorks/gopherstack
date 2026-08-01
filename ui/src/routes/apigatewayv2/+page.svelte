@@ -207,6 +207,14 @@
 	}
 
 	async function loadApiDetail(api: Api) {
+		// Every create/delete handler for a sub-resource (route, stage,
+		// integration, authorizer, deployment) refreshes by re-calling this
+		// same function with the already-selected API, to pick up the new
+		// state. Only reset the detail tab back to "routes" when this is a
+		// genuinely new selection -- otherwise creating e.g. a stage while on
+		// the Stages tab would silently punt the user back to Routes and hide
+		// the resource they just created.
+		const isNewSelection = selectedApi?.ApiId !== api.ApiId;
 		selectedApi = api;
 		if (!api.ApiId) return;
 		loadingApiDetail = true;
@@ -215,7 +223,7 @@
 		apiIntegrations = [];
 		apiAuthorizers = [];
 		apiDeployments = [];
-		apiDetailTab = 'routes';
+		if (isNewSelection) apiDetailTab = 'routes';
 		try {
 			const [routesRes, stagesRes, integrationsRes, authorizersRes, deploymentsRes] =
 				await Promise.all([
