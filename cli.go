@@ -57,6 +57,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -5318,13 +5319,17 @@ func registerTaggingService(
 // service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
 // UntagResources work cross-service.
 //
-// Coverage note (bd: gopherstack-3xne): of the ~90 gopherstack services with native
-// TagResource support, this wires 20 (dynamodb, sqs, sns, lambda, kms, secretsmanager,
-// ecs, athena, glue, ecr, kinesis, stepfunctions, cloudfront, eks, batch, wafv2, backup,
-// efs, rds, elasticache). The rest remain unwired -- see PARITY.md's gaps section for the
-// honest remaining list and why a few (notably s3control, whose taggable ARNs span the
-// "s3"/"s3-object-lambda" service namespaces rather than "s3control" itself) need more
-// than this dispatch shape supports today.
+// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
+// ~90 gopherstack services with native tagging support, this wires 29 (dynamodb, sqs,
+// sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
+// cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
+// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr). The rest remain
+// unwired -- see PARITY.md's gaps section for the honest remaining list and why a few
+// (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
+// namespaces rather than "s3control" itself, and codebuild, whose real API has no
+// TagResource/CreateTags-style mutation call at all -- tags are set only via
+// CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
+// bodies) need more than this dispatch shape supports today.
 //
 // byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
 // rather than one parameter per service: the wired-service count keeps growing, and a
@@ -5356,8 +5361,31 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingWAFv2(bk, byName["Wafv2"])
 	wireTaggingBackup(bk, byName["Backup"])
 	wireTaggingEFS(bk, byName["EFS"])
+
+	// DocDB and Neptune must be wired ahead of RDS: both share the "rds" ARN service
+	// for some or all of their resource kinds (see wireTaggingDocDB and
+	// wireTaggingNeptune below), and resourcegroupstaggingapi tries ARN taggers in
+	// registration order, stopping at the first handled=true match. RDS's own tagger
+	// does not validate resource existence and would otherwise either shadow these
+	// (if registered first) or get shadowed uselessly by them (if these ran
+	// unconditionally after it).
+	wireTaggingDocDB(bk, byName["DocDB"])
+	wireTaggingNeptune(bk, byName["Neptune"])
 	wireTaggingRDS(bk, byName["RDS"])
 	wireTaggingElastiCache(bk, byName["ElastiCache"])
+
+	// gopherstack-no6n: these eight were reported as untaggable by a grep for
+	// "func.*TagResource(" that missed every non-standard method name (AddTags,
+	// CreateTags, TagDeliveryStream, ...). Re-audited: seven have real native tagging
+	// and are wired below; codebuild is not (see wireResourceGroupsTagging's package
+	// doc, or PARITY.md, for why).
+	wireTaggingRedshift(bk, byName["Redshift"])
+	wireTaggingSageMaker(bk, byName["SageMaker"])
+	wireTaggingFirehose(bk, byName["Firehose"])
+	wireTaggingOpenSearch(bk, byName["OpenSearch"])
+	wireTaggingCloudWatchLogs(bk, byName["CloudWatchLogs"])
+	wireTaggingMQ(bk, byName["MQ"])
+	wireTaggingEMR(bk, byName["EMR"])
 }
 
 func wireTaggingDDB(
@@ -6112,6 +6140,162 @@ func wireTaggingEFS(bk resourcegroupstaggingapibackend.StorageBackend, efsReg se
 	)
 }
 
+// neptuneResourceType derives the resource-type string for a Neptune-owned ARN by
+// reading the ARN's own service segment (fields[2]) rather than assuming one, since
+// Neptune's single flat tag store spans two ARN services: "neptune" for DB clusters
+// and instances (services/neptune/db_clusters.go:70, db_instances.go:32) and "rds" for
+// parameter groups, subnet groups, and cluster snapshots
+// (services/neptune/cluster_parameter_groups.go:47, subnet_groups.go:41,
+// cluster_snapshots.go:44) -- the same "rds" segment the separate RDS and DocumentDB
+// backends use.
+func neptuneResourceType(arnStr string) string {
+	fields := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+	if len(fields) != arnResourceFieldCount {
+		return "neptune"
+	}
+
+	return resourceTypeFromARN(arnStr, fields[2])
+}
+
+// wireTaggingDocDB wires the DocumentDB backend into the Resource Groups Tagging API.
+// Every DocumentDB resource kind builds its ARN under the "rds" ARN service --
+// clusterARN, instanceARN, subnetGroupARN, clusterParameterGroupARN,
+// clusterSnapshotARN, globalClusterARN, and eventSubscriptionARN in
+// services/docdb/store.go:232-266 all call arn.Build("rds", ...) -- the same service
+// segment wireTaggingRDS below already claims for the separate RDS backend. RDS's own
+// AddTagsToResource does not validate that an ARN belongs to a resource it actually
+// manages (services/rds/tags.go:4-25 stores blindly for any ARN), and
+// resourcegroupstaggingapi's RegisterARNTagger tries taggers in registration order,
+// stopping at the first one that reports handled=true. So this is wired ahead of
+// wireTaggingRDS in wireResourceGroupsTagging (a naive tagger registered after RDS's
+// would never run, since RDS's blind claim always wins first), and its tagger/
+// untagger only claim an ARN once docdbBk.HasTaggableResource confirms DocDB itself
+// has a matching resource, declining (handled=false) otherwise so RDS's tagger gets a
+// turn.
+func wireTaggingDocDB(bk resourcegroupstaggingapibackend.StorageBackend, docdbReg service.Registerable) {
+	docdbH, ok := docdbReg.(*docdbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	docdbBk := docdbH.Backend
+	if docdbBk == nil {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := docdbBk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: resourceTypeFromARN(item.ARN, "rds"),
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(ctx context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !arnServiceIs(arnStr, "rds") || !docdbBk.HasTaggableResource(ctx, arnStr) {
+			return false, nil
+		}
+
+		tagList := make([]docdbbackend.Tag, 0, len(newTags))
+		for k, v := range newTags {
+			tagList = append(tagList, docdbbackend.Tag{Key: k, Value: v})
+		}
+
+		return true, docdbBk.AddTagsToResource(ctx, arnStr, tagList)
+	})
+
+	bk.RegisterARNUntagger(func(ctx context.Context, arnStr string, keys []string) (bool, error) {
+		if !arnServiceIs(arnStr, "rds") || !docdbBk.HasTaggableResource(ctx, arnStr) {
+			return false, nil
+		}
+
+		docdbBk.RemoveTagsFromResource(ctx, arnStr, keys)
+
+		return true, nil
+	})
+}
+
+// neptuneOwnsARN reports whether Neptune should claim arnStr for cross-service
+// tagging: unconditionally for the "neptune" ARN service (exclusive to Neptune, no
+// other wired backend uses it), and only after an ownership check for the "rds" ARN
+// service it shares with RDS and DocumentDB. See wireTaggingNeptune.
+func neptuneOwnsARN(ctx context.Context, neptuneBk *neptunebackend.InMemoryBackend, arnStr string) bool {
+	switch {
+	case arnServiceIs(arnStr, "neptune"):
+		return true
+	case arnServiceIs(arnStr, "rds"):
+		return neptuneBk.HasTaggableResource(ctx, arnStr)
+	default:
+		return false
+	}
+}
+
+// wireTaggingNeptune wires the Neptune backend into the Resource Groups Tagging API.
+// Neptune's single flat tag store spans two ARN services (see neptuneResourceType
+// above for the file:line ARN-building evidence): "neptune" for DB clusters and
+// instances, which no other wired backend claims, and "rds" for parameter groups,
+// subnet groups, and cluster snapshots, which RDS and DocDB also use. The "neptune"
+// portion is claimed unconditionally, exactly like every other single-service wiring
+// in this file, since arnServiceIs("neptune") alone rules out every other backend. The
+// "rds" portion needs the same ownership check as wireTaggingDocDB above and for the
+// same reason (RDS's tagger blindly claims any "rds" ARN, and taggers are tried in
+// registration order), so this too is wired ahead of wireTaggingRDS and declines
+// (handled=false) any "rds" ARN neptuneBk.HasTaggableResource does not recognize.
+func wireTaggingNeptune(bk resourcegroupstaggingapibackend.StorageBackend, neptuneReg service.Registerable) {
+	neptuneH, ok := neptuneReg.(*neptunebackend.Handler)
+	if !ok {
+		return
+	}
+
+	neptuneBk, ok := neptuneH.Backend.(*neptunebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := neptuneBk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: neptuneResourceType(item.ARN),
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(ctx context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !neptuneOwnsARN(ctx, neptuneBk, arnStr) {
+			return false, nil
+		}
+
+		tagList := make([]neptunebackend.Tag, 0, len(newTags))
+		for k, v := range newTags {
+			tagList = append(tagList, neptunebackend.Tag{Key: k, Value: v})
+		}
+
+		return true, neptuneBk.AddTagsToResource(ctx, arnStr, tagList)
+	})
+
+	bk.RegisterARNUntagger(func(ctx context.Context, arnStr string, keys []string) (bool, error) {
+		if !neptuneOwnsARN(ctx, neptuneBk, arnStr) {
+			return false, nil
+		}
+
+		return true, neptuneBk.RemoveTagsFromResource(ctx, arnStr, keys)
+	})
+}
+
 // wireTaggingRDS wires the RDS backend into the Resource Groups Tagging API. RDS keeps
 // tags for every resource kind it supports (DB instances, clusters, snapshots,
 // parameter groups, and more) in one flat ARN-keyed map, so resourceTypeFromARN derives
@@ -6190,6 +6374,367 @@ func wireTaggingElastiCache(bk resourcegroupstaggingapibackend.StorageBackend, e
 		},
 		ecBk.AddTagsToResource,
 		ecBk.RemoveTagsFromResource,
+	)
+}
+
+// redshiftClusterARNFieldCount is the number of colon-delimited fields in a
+// well-formed Redshift cluster ARN: "arn:partition:redshift:region:account:cluster:id".
+const redshiftClusterARNFieldCount = 7
+
+// redshiftClusterIDFromARN extracts the cluster identifier from a Redshift cluster
+// ARN. wireTaggingRedshift's tagger/untagger need this because
+// CreateTags/DeleteTags (services/redshift/tags.go) take the bare cluster identifier,
+// not an ARN -- see wireTaggingRedshift's doc comment.
+func redshiftClusterIDFromARN(arnStr string) (string, bool) {
+	parts := strings.SplitN(arnStr, ":", redshiftClusterARNFieldCount)
+	if len(parts) != redshiftClusterARNFieldCount || parts[5] != "cluster" {
+		return "", false
+	}
+
+	return parts[6], true
+}
+
+// wireTaggingRedshift wires the Redshift backend into the Resource Groups Tagging
+// API. Redshift's own CreateTags/DeleteTags/DescribeTags (services/redshift/tags.go)
+// only ever manage cluster tags -- DescribeTags walks b.clusters.All() exclusively,
+// per its own doc comment -- and, unlike every other resource wired in this file,
+// take a bare cluster identifier rather than an ARN: the handler layer
+// (services/redshift/handler_tags.go's handleCreateTags/handleDeleteTags) passes
+// ResourceName straight through uninterpreted, so a full ARN would silently look up
+// nothing. Cluster ARNs are not built anywhere in this package (Cluster has no ARN
+// field of its own; only DescribeTags' request handler
+// (handler_tags.go:50's ":cluster:"+clusterID suffix check) encodes the expected
+// shape), so this reconstructs it the same way:
+// "arn:aws:redshift:{region}:{account}:cluster:{id}". redshift-serverless resources
+// (workgroups, namespaces, snapshots, usage limits) use a different ARN service
+// ("redshift-serverless", see services/redshift/serverless_workgroups.go:38 and
+// siblings) and are not reachable through this same tagging surface, so they are out
+// of scope here.
+func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, redshiftReg service.Registerable) {
+	redshiftH, ok := redshiftReg.(*redshiftbackend.Handler)
+	if !ok {
+		return
+	}
+
+	redshiftBk, ok := redshiftH.Backend.(*redshiftbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	clusterARN := func(id string) string {
+		return arn.Build("redshift", redshiftBk.Region(), redshiftBk.AccountID(), "cluster:"+id)
+	}
+
+	wireTaggingARNResources(bk, "redshift",
+		constantResourceType("redshift:cluster"),
+		func() []taggedARNEntry {
+			all := redshiftBk.DescribeTags()
+			out := make([]taggedARNEntry, 0, len(all))
+
+			for clusterID, tagMap := range all {
+				if len(tagMap) == 0 {
+					continue
+				}
+
+				out = append(out, taggedARNEntry{ARN: clusterARN(clusterID), Tags: tagMap})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			id, parsed := redshiftClusterIDFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
+			}
+
+			return redshiftBk.CreateTags(id, newTags)
+		},
+		func(arnStr string, keys []string) error {
+			id, parsed := redshiftClusterIDFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
+			}
+
+			return redshiftBk.DeleteTags(id, keys)
+		},
+	)
+}
+
+// firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN
+// ("arn:partition:firehose:region:account:deliverystream/name"). Needed because
+// TagDeliveryStream/UntagDeliveryStream/ListTagsForDeliveryStream (services/firehose/
+// tags.go) take the bare stream name, not an ARN.
+func firehoseStreamNameFromARN(arnStr string) (string, bool) {
+	const firehoseARNFieldCount = 6
+
+	parts := strings.SplitN(arnStr, ":", firehoseARNFieldCount)
+	if len(parts) != firehoseARNFieldCount {
+		return "", false
+	}
+
+	name, ok := strings.CutPrefix(parts[firehoseARNFieldCount-1], "deliverystream/")
+	if !ok {
+		return "", false
+	}
+
+	return name, true
+}
+
+// wireTaggingFirehose wires the Firehose backend into the Resource Groups Tagging
+// API. Delivery stream ARNs use the "firehose" ARN service and a "deliverystream/"
+// resource prefix (services/firehose/delivery_streams.go:65's
+// arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name) call),
+// matching the package name -- no collision with any other wired service. TagDeliveryStream/
+// UntagDeliveryStream/ListTagsForDeliveryStream take the bare stream name rather than
+// an ARN, so firehoseStreamNameFromARN above recovers it.
+func wireTaggingFirehose(bk resourcegroupstaggingapibackend.StorageBackend, firehoseReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	firehoseBk, ok := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "firehose",
+		constantResourceType("firehose:deliverystream"),
+		func() []taggedARNEntry {
+			items := firehoseBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(ctx context.Context, arnStr string, newTags map[string]string) error {
+			name, parsed := firehoseStreamNameFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Firehose delivery stream ARN: %s", firehosebackend.ErrNotFound, arnStr)
+			}
+
+			return firehoseBk.TagDeliveryStream(ctx, name, newTags)
+		},
+		func(ctx context.Context, arnStr string, keys []string) error {
+			name, parsed := firehoseStreamNameFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Firehose delivery stream ARN: %s", firehosebackend.ErrNotFound, arnStr)
+			}
+
+			return firehoseBk.UntagDeliveryStream(ctx, name, keys)
+		},
+	)
+}
+
+// wireTaggingOpenSearch wires the OpenSearch backend into the Resource Groups
+// Tagging API. AddTags/RemoveTags/ListTags (services/opensearch/tags.go) only ever
+// manage domain tags (both look up exclusively via findDomainByARN), and domain ARNs
+// use the "es" ARN service -- not "opensearch" -- per
+// services/opensearch/domains.go:32's arn.Build("es", b.region, b.accountID,
+// "domain/"+input.Name) call (OpenSearch Service domains keep the legacy
+// Elasticsearch Service ARN namespace in real AWS too). Applications and direct-query
+// data sources use "opensearch" (data_sources.go:75, applications.go:33) but have no
+// AddTags/RemoveTags path in this backend, so they are out of scope here.
+func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, osReg service.Registerable) {
+	osH, ok := osReg.(*opensearchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	osBk, ok := osH.Backend.(*opensearchbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "es",
+		constantResourceType("es:domain"),
+		func() []taggedARNEntry {
+			domains, err := osBk.DescribeDomains(nil)
+			if err != nil {
+				return nil
+			}
+
+			out := make([]taggedARNEntry, 0, len(domains))
+
+			for _, d := range domains {
+				if d.Tags == nil || d.Tags.Len() == 0 {
+					continue
+				}
+
+				out = append(out, taggedARNEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+			}
+
+			return out
+		},
+		osBk.AddTags,
+		osBk.RemoveTags,
+	)
+}
+
+// wireTaggingMQ wires the Amazon MQ backend into the Resource Groups Tagging API. MQ
+// keeps tags for both resource kinds it supports (brokers and configurations) in one
+// flat ARN-keyed map (services/mq/tags.go), and both use the "mq" ARN service
+// (services/mq/brokers.go:170, configurations.go:101), matching the package name --
+// no collision with any other wired service. resourceTypeFromARN derives the
+// per-resource type ("mq:broker" or "mq:configuration") from each ARN's own resource
+// segment.
+func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg service.Registerable) {
+	mqH, ok := mqReg.(*mqbackend.Handler)
+	if !ok {
+		return
+	}
+
+	mqBk, ok := mqH.Backend.(*mqbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "mq",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mq") },
+		func() []taggedARNEntry {
+			items := mqBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		mqBk.CreateTags,
+		func(arnStr string, keys []string) error {
+			mqBk.DeleteTags(arnStr, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingEMR wires the EMR backend into the Resource Groups Tagging API. EMR
+// ARNs use the "elasticmapreduce" ARN service, not "emr"
+// (services/emr/clusters.go:207's arn.Build("elasticmapreduce", region, b.accountID,
+// "cluster/"+id) call and studios.go:253's matching "studio/"+id call).
+// AddTags/RemoveTags (services/emr/tags.go) accept either a cluster identifier or a
+// studio ID/ARN and take a context, so this uses wireTaggingCtxARNResources.
+func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg service.Registerable) {
+	emrH, ok := emrReg.(*emrbackend.Handler)
+	if !ok {
+		return
+	}
+
+	emrBk := emrH.Backend
+	if emrBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "elasticmapreduce",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "elasticmapreduce") },
+		func() []taggedARNEntry {
+			items := emrBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(ctx context.Context, arnStr string, newTags map[string]string) error {
+			tagList := make([]emrbackend.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagList = append(tagList, emrbackend.Tag{Key: k, Value: v})
+			}
+
+			return emrBk.AddTags(ctx, arnStr, tagList)
+		},
+		emrBk.RemoveTags,
+	)
+}
+
+// wireTaggingCloudWatchLogs wires the CloudWatch Logs backend into the Resource
+// Groups Tagging API. Unlike every other service wired in this file, CloudWatch
+// Logs' tag store (h.tags/h.tagsMu) lives on the *Handler itself, not on a Backend --
+// see services/cloudwatchlogs/handler.go:29-30 -- so this operates on the Handler
+// directly rather than digging into a Backend field. Log group ARNs (and every other
+// taggable CloudWatch Logs ARN kind: deliveries, log-anomaly-detectors, lookup
+// tables, log streams) use the "logs" ARN service, not "cloudwatchlogs"
+// (services/cloudwatchlogs/log_groups.go:22's arn.Build("logs", region, b.accountID,
+// "log-group:"+name) call and its siblings in deliveries.go:37, anomaly_detectors.go:47,
+// lookup_tables.go:46, log_streams.go:14). The generic "TagResource"/"UntagResource"/
+// "ListTagsForResource" actions (handler_tags.go) already key h.tags by the full ARN
+// exactly as passed in, so TagResource/UntagResource/GetTagsForResource/
+// TaggedResources (added alongside those actions) need no ARN parsing at all.
+func wireTaggingCloudWatchLogs(bk resourcegroupstaggingapibackend.StorageBackend, cwlReg service.Registerable) {
+	cwlH, ok := cwlReg.(*cwlogsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "logs",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "logs") },
+		func() []taggedARNEntry {
+			items := cwlH.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			cwlH.TagResource(arnStr, newTags)
+
+			return nil
+		},
+		func(arnStr string, keys []string) error {
+			cwlH.UntagResource(arnStr, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingSageMaker wires the SageMaker backend into the Resource Groups Tagging
+// API. Every SageMaker ARN this backend builds uses the "sagemaker" ARN service
+// (e.g. services/sagemaker/endpoints.go:145, algorithms.go:47, and the many other
+// arn.Build("sagemaker", ...) call sites across the package), matching the package
+// name -- no collision with any other wired service. AddTags/DeleteTags
+// (services/sagemaker/tags.go) already dispatch across every taggable resource kind
+// (models, endpoint configs, endpoints, training jobs, notebook instances,
+// hyperparameter tuning jobs, actions, algorithms, clusters, model packages,
+// processing jobs, transform jobs, domains, feature groups, pipelines, experiments,
+// trials, trial components -- see TaggedResources' doc comment for the authoritative
+// list) purely by ARN with no resource-kind-specific plumbing needed here, and take a
+// context, so this uses wireTaggingCtxARNResources.
+func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smReg service.Registerable) {
+	smH, ok := smReg.(*sagemakerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk := smH.Backend
+	if smBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "sagemaker",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sagemaker") },
+		func() []taggedARNEntry {
+			items := smBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		smBk.AddTags,
+		smBk.DeleteTags,
 	)
 }
 

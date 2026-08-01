@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"maps"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -63,6 +64,56 @@ func (h *Handler) getTags(resourceID string) map[string]string {
 	}
 
 	return t.Clone()
+}
+
+// TagResource adds or updates tags on the resource identified by resourceARN, the
+// same store the "TagResource" action (below) writes through h.setTags. Exported for
+// cross-service tagging (resourcegroupstaggingapi, wired in cli.go's
+// wireTaggingCloudWatchLogs).
+func (h *Handler) TagResource(resourceARN string, kv map[string]string) {
+	h.setTags(resourceARN, kv)
+}
+
+// UntagResource removes tag keys from the resource identified by resourceARN.
+func (h *Handler) UntagResource(resourceARN string, keys []string) {
+	h.removeTags(resourceARN, keys)
+}
+
+// GetTagsForResource returns the tags for the resource identified by resourceARN.
+func (h *Handler) GetTagsForResource(resourceARN string) map[string]string {
+	return h.getTags(resourceARN)
+}
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingCloudWatchLogs).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every tagged resource whose h.tags key is itself a full
+// ARN (starts with "arn:"). The legacy TagLogGroup/ListTagsLogGroup/UntagLogGroup
+// actions key this same map by bare log group name instead (see logTagActions'
+// "TagLogGroup" case below), so a log group tagged only through those legacy actions
+// has no ARN-keyed entry to report here -- this backend does not unify the two keys
+// for the same log group, matching its existing (pre-existing, out of scope here)
+// behavior.
+func (h *Handler) TaggedResources() []TaggedEntry {
+	h.tagsMu.RLock("TaggedResources")
+	defer h.tagsMu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(h.tags))
+
+	for key, t := range h.tags {
+		if !strings.HasPrefix(key, "arn:") || t.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: key, Tags: t.Clone()})
+	}
+
+	return out
 }
 
 type listTagsLogGroupOutput struct {

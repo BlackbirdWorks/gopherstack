@@ -122,3 +122,42 @@ func sortedTagKeys(m map[string]string) []string {
 
 	return keys
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingEMR).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every EMR cluster and studio ARN, across all
+// regions, that currently has at least one tag. b.clusters and b.studios are
+// each a single store.Table keyed by "region|id" (see regionKey), so All()
+// on each already spans every region without a per-region loop.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	clusters := b.clusters.All()
+	studios := b.studios.All()
+	out := make([]TaggedEntry, 0, len(clusters)+len(studios))
+
+	for _, c := range clusters {
+		if len(c.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: c.ARN, Tags: tagsToMap(c.Tags)})
+	}
+
+	for _, s := range studios {
+		if len(s.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: s.StudioArn, Tags: tagsToMap(s.Tags)})
+	}
+
+	return out
+}
