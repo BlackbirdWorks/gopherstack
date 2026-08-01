@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getLambdaClient } from '$lib/aws-client';
 	import {
 		ListFunctionsCommand,
@@ -30,7 +30,7 @@
 		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X
 	} from 'lucide-svelte';
 
-	const lambda = getLambdaClient();
+	const lambda = regionalClient(getLambdaClient);
 
 	// State
 	let loading = $state(false);
@@ -133,7 +133,7 @@
 	async function loadFunctions(marker = '') {
 		loading = true;
 		try {
-			const res = await lambda.send(new ListFunctionsCommand({ Marker: marker || undefined }));
+			const res = await lambda().send(new ListFunctionsCommand({ Marker: marker || undefined }));
 			functions = res.Functions ?? [];
 			nextMarker = res.NextMarker ?? '';
 			hasNextPage = !!res.NextMarker;
@@ -148,7 +148,7 @@
 	async function deleteFunction(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${name}"? All versions, aliases, and event source mappings will be removed.` })) return;
 		try {
-			await lambda.send(new DeleteFunctionCommand({ FunctionName: name }));
+			await lambda().send(new DeleteFunctionCommand({ FunctionName: name }));
 			toast.success(`Function "${name}" deleted`);
 			if (selectedFunction?.FunctionName === name) selectedFunction = null;
 			await loadFunctions();
@@ -163,7 +163,7 @@
 		invokeResponse = null;
 		try {
 			const payload = new TextEncoder().encode(invokePayload);
-			const res = await lambda.send(new InvokeCommand({
+			const res = await lambda().send(new InvokeCommand({
 				FunctionName: selectedFunction.FunctionName,
 				InvocationType: invokeType,
 				LogType: 'Tail',
@@ -200,7 +200,7 @@
 		creating = true;
 		try {
 			const imageUri = runtimeImageMap[newFnRuntime] ?? 'public.ecr.aws/lambda/python:3.12';
-			await lambda.send(new CreateFunctionCommand({
+			await lambda().send(new CreateFunctionCommand({
 				FunctionName: newFnName.trim(),
 				PackageType: 'Image',
 				Code: { ImageUri: imageUri },
@@ -246,7 +246,7 @@
 	async function loadVersions(fnName: string) {
 		versionsLoading = true;
 		try {
-			const res = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
 			fnVersions = res.Versions ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load versions');
@@ -259,7 +259,7 @@
 		if (!selectedFunction?.FunctionName) return;
 		publishing = true;
 		try {
-			await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
+			await lambda().send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
 			toast.success('Version published');
 			publishDesc = '';
 			await loadVersions(selectedFunction.FunctionName);
@@ -273,7 +273,7 @@
 	async function loadAliases(fnName: string) {
 		aliasesLoading = true;
 		try {
-			const res = await lambda.send(new ListAliasesCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListAliasesCommand({ FunctionName: fnName }));
 			fnAliases = res.Aliases ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
@@ -286,7 +286,7 @@
 		if (!selectedFunction?.FunctionName || !newAliasName.trim()) return;
 		creatingAlias = true;
 		try {
-			await lambda.send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
+			await lambda().send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
 			toast.success(`Alias "${newAliasName.trim()}" created`);
 			newAliasName = '';
 			await loadAliases(selectedFunction.FunctionName);
@@ -300,7 +300,7 @@
 	async function deleteAlias(name: string) {
 		if (!selectedFunction?.FunctionName || !await confirmDestructive({ title: 'Delete Alias', message: `Delete alias "${name}"?`, confirmLabel: 'Delete' })) return;
 		try {
-			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			await lambda().send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
 			toast.success('Alias deleted');
 			await loadAliases(selectedFunction.FunctionName);
 		} catch (e) {
@@ -311,7 +311,7 @@
 	async function loadEsms(fnName: string) {
 		esmsLoading = true;
 		try {
-			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
 			fnEsms = res.EventSourceMappings ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load event sources');
@@ -324,7 +324,7 @@
 		if (!selectedFunction?.FunctionArn || !newEsmEventArn.trim()) return;
 		creatingEsm = true;
 		try {
-			await lambda.send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
+			await lambda().send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
 			toast.success('Event source mapping created');
 			newEsmEventArn = '';
 			await loadEsms(selectedFunction.FunctionName!);
@@ -338,7 +338,7 @@
 	async function deleteEsm(uuid: string) {
 		if (!await confirmDestructive({ title: 'Delete Trigger', message: 'Remove this event source mapping?', confirmLabel: 'Remove' })) return;
 		try {
-			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
+			await lambda().send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
 			toast.success('Event source mapping removed');
 			if (selectedFunction?.FunctionName) await loadEsms(selectedFunction.FunctionName);
 		} catch (e) {
@@ -353,10 +353,10 @@
 		updatingCode = true;
 		try {
 			if (updateCodeMode === 'image') {
-				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
 			} else {
 				const buf = await updateCodeZipFile!.arrayBuffer();
-				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
+				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
 			}
 			toast.success('Function code updated');
 			updateCodeImageUri = '';
@@ -372,7 +372,7 @@
 	async function loadLayers() {
 		layersLoading = true;
 		try {
-			const res = await lambda.send(new ListLayersCommand({}));
+			const res = await lambda().send(new ListLayersCommand({}));
 			layers = res.Layers ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load layers: ${(err as Error).message}`);
@@ -390,7 +390,7 @@
 		if (!selectedFunction) return;
 		savingEnvVars = true;
 		try {
-			await lambda.send(new UpdateFunctionConfigurationCommand({
+			await lambda().send(new UpdateFunctionConfigurationCommand({
 				FunctionName: selectedFunction.FunctionName,
 				Environment: { Variables: envVarDraft }
 			}));
@@ -404,7 +404,21 @@
 		}
 	}
 
-	onMount(() => {
+	// selectedFunction and its versions/aliases/triggers, plus the list-page
+	// pagination markers and the layers list, all reference resources or
+	// tokens from whichever region they were fetched in — clear the whole
+	// selection chain and reload, mirroring the original mount sequence
+	// (both functions and layers load unconditionally).
+	onRegionChange(() => {
+		selectedFunction = null;
+		fnVersions = [];
+		fnAliases = [];
+		fnEsms = [];
+		markerHistory = [];
+		nextMarker = '';
+		currentMarker = '';
+		hasNextPage = false;
+		layers = [];
 		loadFunctions();
 		loadLayers();
 	});

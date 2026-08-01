@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getIoTClient } from '$lib/aws-client';
 	import {
 		ListThingsCommand,
@@ -18,7 +19,6 @@
 		AttachPolicyCommand,
 		DetachPolicyCommand,
 		ListAttachedPoliciesCommand,
-		type IoTClient,
 		type ThingAttribute,
 		type GroupNameAndArn,
 		type TopicRuleListItem,
@@ -40,10 +40,7 @@
 		Link2
 	} from 'lucide-svelte';
 
-	let iotClient: IoTClient | undefined;
-	function iot(): IoTClient {
-		return (iotClient ??= getIoTClient());
-	}
+	const iot = regionalClient(getIoTClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'things' | 'groups' | 'rules' | 'policies'>('things');
@@ -401,7 +398,23 @@
 		else await loadPolicies();
 	}
 
-	onMount(() => loadThings());
+	// Selected thing/rule/policy point at resources from whichever region
+	// they were fetched in; clear them (matching onTabChange's behavior)
+	// and reload whichever tab is active rather than only refetching
+	// things. `activeTab` is read via untrack() because onTabChange also
+	// writes it — without untrack, every tab switch would re-trigger this
+	// region effect and double-fetch.
+	onRegionChange(() => {
+		selectedThing = null;
+		selectedRule = null;
+		selectedPolicy = null;
+		editingAttrs = false;
+		const tab = untrack(() => activeTab);
+		if (tab === 'things') void loadThings();
+		else if (tab === 'groups') void loadGroups();
+		else if (tab === 'rules') void loadRules();
+		else void loadPolicies();
+	});
 </script>
 
 <div class="space-y-6">

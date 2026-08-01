@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAppConfigClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -51,7 +52,7 @@
 		ChevronDown, ChevronUp, Eye
 	} from 'lucide-svelte';
 
-	const appconfig = getAppConfigClient();
+	const appconfig = regionalClient(getAppConfigClient);
 
 	// Tabs
 	type Tab = 'applications' | 'strategies' | 'extensions' | 'associations' | 'settings';
@@ -142,7 +143,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const res = await appconfig.send(new ListApplicationsCommand({}));
+			const res = await appconfig().send(new ListApplicationsCommand({}));
 			applications = res.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load applications: ${(err as Error).message}`);
@@ -154,7 +155,7 @@
 	async function loadStrategies() {
 		loadingStrategies = true;
 		try {
-			const res = await appconfig.send(new ListDeploymentStrategiesCommand({}));
+			const res = await appconfig().send(new ListDeploymentStrategiesCommand({}));
 			strategies = res.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load strategies: ${(err as Error).message}`);
@@ -166,7 +167,7 @@
 	async function loadExtensions() {
 		loadingExtensions = true;
 		try {
-			const res = await appconfig.send(new ListExtensionsCommand({}));
+			const res = await appconfig().send(new ListExtensionsCommand({}));
 			extensions = res.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load extensions: ${(err as Error).message}`);
@@ -178,7 +179,7 @@
 	async function loadAssociations() {
 		loadingAssociations = true;
 		try {
-			const res = await appconfig.send(new ListExtensionAssociationsCommand({}));
+			const res = await appconfig().send(new ListExtensionAssociationsCommand({}));
 			associations = res.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load associations: ${(err as Error).message}`);
@@ -190,7 +191,7 @@
 	async function loadAccountSettings() {
 		loadingSettings = true;
 		try {
-			const res = await appconfig.send(new GetAccountSettingsCommand({}));
+			const res = await appconfig().send(new GetAccountSettingsCommand({}));
 			accountSettings = res as typeof accountSettings;
 		} catch (err: unknown) {
 			toast.error(`Failed to load account settings: ${(err as Error).message}`);
@@ -211,8 +212,8 @@
 		loadingDetails = true;
 		try {
 			const [envRes, profRes] = await Promise.all([
-				appconfig.send(new ListEnvironmentsCommand({ ApplicationId: app.Id })),
-				appconfig.send(new ListConfigurationProfilesCommand({ ApplicationId: app.Id })),
+				appconfig().send(new ListEnvironmentsCommand({ ApplicationId: app.Id })),
+				appconfig().send(new ListConfigurationProfilesCommand({ ApplicationId: app.Id })),
 			]);
 			environments = envRes.Items ?? [];
 			profiles = profRes.Items ?? [];
@@ -232,7 +233,7 @@
 		if (!envId) return;
 		loadingDetails = true;
 		try {
-			const depRes = await appconfig.send(new ListDeploymentsCommand({ ApplicationId: appId, EnvironmentId: envId }));
+			const depRes = await appconfig().send(new ListDeploymentsCommand({ ApplicationId: appId, EnvironmentId: envId }));
 			deployments = depRes.Items ?? [];
 		} catch {
 			deployments = [];
@@ -245,7 +246,7 @@
 		if (!profileId) return;
 		loadingVersions = true;
 		try {
-			const res = await appconfig.send(new ListHostedConfigurationVersionsCommand({
+			const res = await appconfig().send(new ListHostedConfigurationVersionsCommand({
 				ApplicationId: appId,
 				ConfigurationProfileId: profileId
 			}));
@@ -262,7 +263,7 @@
 		if (!newAppName.trim()) return;
 		creating = true;
 		try {
-			await appconfig.send(new CreateApplicationCommand({ Name: newAppName.trim() }));
+			await appconfig().send(new CreateApplicationCommand({ Name: newAppName.trim() }));
 			toast.success(`Application "${newAppName}" created`);
 			showCreateModal = false;
 			newAppName = '';
@@ -277,7 +278,7 @@
 	async function deleteApplication(id: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Delete Application', message: 'Delete this AppConfig application? All configuration profiles and environments will be permanently removed.' })) return;
 		try {
-			await appconfig.send(new DeleteApplicationCommand({ ApplicationId: id }));
+			await appconfig().send(new DeleteApplicationCommand({ ApplicationId: id }));
 			toast.success('Application deleted');
 			if (selectedApp?.Id === id) selectedApp = null;
 			await loadApps();
@@ -291,11 +292,11 @@
 		if (!newEnvName.trim() || !selectedApp) return;
 		creatingEnv = true;
 		try {
-			await appconfig.send(new CreateEnvironmentCommand({ ApplicationId: selectedApp.Id, Name: newEnvName.trim() }));
+			await appconfig().send(new CreateEnvironmentCommand({ ApplicationId: selectedApp.Id, Name: newEnvName.trim() }));
 			toast.success(`Environment "${newEnvName}" created`);
 			showCreateEnvModal = false;
 			newEnvName = '';
-			const envRes = await appconfig.send(new ListEnvironmentsCommand({ ApplicationId: selectedApp.Id }));
+			const envRes = await appconfig().send(new ListEnvironmentsCommand({ ApplicationId: selectedApp.Id }));
 			environments = envRes.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed: ${(err as Error).message}`);
@@ -307,9 +308,9 @@
 	async function deleteEnvironment(envId: string | undefined) {
 		if (!envId || !selectedApp || !await confirmDestructive({ title: 'Delete Environment', message: 'Delete this environment?' })) return;
 		try {
-			await appconfig.send(new DeleteEnvironmentCommand({ ApplicationId: selectedApp.Id, EnvironmentId: envId }));
+			await appconfig().send(new DeleteEnvironmentCommand({ ApplicationId: selectedApp.Id, EnvironmentId: envId }));
 			toast.success('Environment deleted');
-			const envRes = await appconfig.send(new ListEnvironmentsCommand({ ApplicationId: selectedApp.Id }));
+			const envRes = await appconfig().send(new ListEnvironmentsCommand({ ApplicationId: selectedApp.Id }));
 			environments = envRes.Items ?? [];
 			if (selectedEnvId === envId) {
 				selectedEnvId = environments[0]?.Id ?? '';
@@ -325,7 +326,7 @@
 		if (!newProfileName.trim() || !selectedApp) return;
 		creatingProfile = true;
 		try {
-			await appconfig.send(new CreateConfigurationProfileCommand({
+			await appconfig().send(new CreateConfigurationProfileCommand({
 				ApplicationId: selectedApp.Id,
 				Name: newProfileName.trim(),
 				LocationUri: newProfileLocationUri || 'hosted',
@@ -334,7 +335,7 @@
 			toast.success(`Profile "${newProfileName}" created`);
 			showCreateProfileModal = false;
 			newProfileName = '';
-			const profRes = await appconfig.send(new ListConfigurationProfilesCommand({ ApplicationId: selectedApp.Id }));
+			const profRes = await appconfig().send(new ListConfigurationProfilesCommand({ ApplicationId: selectedApp.Id }));
 			profiles = profRes.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed: ${(err as Error).message}`);
@@ -346,9 +347,9 @@
 	async function deleteProfile(profileId: string | undefined) {
 		if (!profileId || !selectedApp || !await confirmDestructive({ title: 'Delete Profile', message: 'Delete this configuration profile?' })) return;
 		try {
-			await appconfig.send(new DeleteConfigurationProfileCommand({ ApplicationId: selectedApp.Id, ConfigurationProfileId: profileId }));
+			await appconfig().send(new DeleteConfigurationProfileCommand({ ApplicationId: selectedApp.Id, ConfigurationProfileId: profileId }));
 			toast.success('Profile deleted');
-			const profRes = await appconfig.send(new ListConfigurationProfilesCommand({ ApplicationId: selectedApp.Id }));
+			const profRes = await appconfig().send(new ListConfigurationProfilesCommand({ ApplicationId: selectedApp.Id }));
 			profiles = profRes.Items ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -360,7 +361,7 @@
 		if (!selectedApp || !deployProfileId || !deployStrategyId || !deployVersion) return;
 		deploying = true;
 		try {
-			await appconfig.send(new StartDeploymentCommand({
+			await appconfig().send(new StartDeploymentCommand({
 				ApplicationId: selectedApp.Id,
 				EnvironmentId: selectedEnvId,
 				ConfigurationProfileId: deployProfileId,
@@ -384,7 +385,7 @@
 		if (!depNum || !selectedApp || !selectedEnvId) return;
 		if (!await confirmDestructive({ title: 'Stop Deployment', message: 'Roll back this deployment?' })) return;
 		try {
-			await appconfig.send(new StopDeploymentCommand({
+			await appconfig().send(new StopDeploymentCommand({
 				ApplicationId: selectedApp.Id,
 				EnvironmentId: selectedEnvId,
 				DeploymentNumber: depNum,
@@ -401,7 +402,7 @@
 		if (!newStratName.trim()) return;
 		creatingStrat = true;
 		try {
-			await appconfig.send(new CreateDeploymentStrategyCommand({
+			await appconfig().send(new CreateDeploymentStrategyCommand({
 				Name: newStratName.trim(),
 				Description: newStratDesc.trim() || undefined,
 				DeploymentDurationInMinutes: newStratDuration,
@@ -425,7 +426,7 @@
 	async function deleteStrategy(id: string | undefined, name: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Delete Strategy', message: `Delete deployment strategy "${name}"?` })) return;
 		try {
-			await appconfig.send(new DeleteDeploymentStrategyCommand({ DeploymentStrategyId: id }));
+			await appconfig().send(new DeleteDeploymentStrategyCommand({ DeploymentStrategyId: id }));
 			toast.success('Strategy deleted');
 			await loadStrategies();
 		} catch (err: unknown) {
@@ -438,7 +439,7 @@
 		if (!newExtName.trim()) return;
 		creatingExt = true;
 		try {
-			await appconfig.send(new CreateExtensionCommand({
+			await appconfig().send(new CreateExtensionCommand({
 				Name: newExtName.trim(),
 				Description: newExtDesc.trim() || undefined,
 				Actions: {}
@@ -458,7 +459,7 @@
 	async function deleteExtension(id: string | undefined, name: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Delete Extension', message: `Delete extension "${name}"?` })) return;
 		try {
-			await appconfig.send(new DeleteExtensionCommand({ ExtensionIdentifier: id }));
+			await appconfig().send(new DeleteExtensionCommand({ ExtensionIdentifier: id }));
 			toast.success('Extension deleted');
 			await loadExtensions();
 		} catch (err: unknown) {
@@ -471,7 +472,7 @@
 		if (!newAssocExtId.trim() || !newAssocResource.trim()) return;
 		creatingAssoc = true;
 		try {
-			await appconfig.send(new CreateExtensionAssociationCommand({
+			await appconfig().send(new CreateExtensionAssociationCommand({
 				ExtensionIdentifier: newAssocExtId.trim(),
 				ResourceIdentifier: newAssocResource.trim()
 			}));
@@ -490,7 +491,7 @@
 	async function deleteAssociation(id: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Delete Association', message: 'Delete this extension association?' })) return;
 		try {
-			await appconfig.send(new DeleteExtensionAssociationCommand({ ExtensionAssociationId: id }));
+			await appconfig().send(new DeleteExtensionAssociationCommand({ ExtensionAssociationId: id }));
 			toast.success('Association deleted');
 			await loadAssociations();
 		} catch (err: unknown) {
@@ -514,7 +515,34 @@
 		return 'text-slate-400';
 	}
 
-	onMount(() => { loadApps(); });
+	// selectedApp and its whole detail chain (environments, profiles,
+	// deployments, config versions) reference an application id that is
+	// only unique within the region it was fetched from, and
+	// strategies/extensions/associations/accountSettings are each lazily
+	// loaded once and cached (see handleTabChange) — clear all of it and
+	// reload whichever tab is active. `activeTab` is read via untrack()
+	// because handleTabChange also writes it: without untrack, every tab
+	// switch would re-trigger this region effect and double-fetch.
+	onRegionChange(() => {
+		selectedApp = null;
+		environments = [];
+		profiles = [];
+		deployments = [];
+		configVersions = [];
+		selectedEnvId = '';
+		selectedProfileId = '';
+		appDetailTab = 'envs';
+		strategies = [];
+		extensions = [];
+		associations = [];
+		accountSettings = null;
+		const tab = untrack(() => activeTab);
+		if (tab === 'strategies') void loadStrategies();
+		else if (tab === 'extensions') void loadExtensions();
+		else if (tab === 'associations') void loadAssociations();
+		else if (tab === 'settings') void loadAccountSettings();
+		else void loadApps();
+	});
 </script>
 
 <div class="space-y-6">

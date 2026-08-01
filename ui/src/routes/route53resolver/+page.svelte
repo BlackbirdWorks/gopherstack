@@ -1,6 +1,6 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getRoute53ResolverClient } from '$lib/aws-client';
 import {
 ListResolverEndpointsCommand,
@@ -50,7 +50,7 @@ Copy,
 X
 } from 'lucide-svelte';
 
-const r53r = getRoute53ResolverClient();
+const r53r = regionalClient(getRoute53ResolverClient);
 
 // ── page-level tab ──────────────────────────────────────────────────────────
 let activeTab = $state<'endpoints' | 'rules' | 'firewall' | 'querylog' | 'docs'>('endpoints');
@@ -125,11 +125,11 @@ async function loadData() {
 loading = true;
 try {
 const [epRes, ruleRes, fwgRes, dlRes, qlRes] = await Promise.all([
-r53r.send(new ListResolverEndpointsCommand({})),
-r53r.send(new ListResolverRulesCommand({})),
-r53r.send(new ListFirewallRuleGroupsCommand({})),
-r53r.send(new ListFirewallDomainListsCommand({})),
-r53r.send(new ListResolverQueryLogConfigsCommand({}))
+r53r().send(new ListResolverEndpointsCommand({})),
+r53r().send(new ListResolverRulesCommand({})),
+r53r().send(new ListFirewallRuleGroupsCommand({})),
+r53r().send(new ListFirewallDomainListsCommand({})),
+r53r().send(new ListResolverQueryLogConfigsCommand({}))
 ]);
 endpoints = epRes.ResolverEndpoints ?? [];
 rules = ruleRes.ResolverRules ?? [];
@@ -143,7 +143,16 @@ loading = false;
 }
 }
 
-onMount(loadData);
+// Expanded firewall groups/domain lists cache rules/domains keyed by an id
+// that is only unique within its region; clear them on a region change so
+// a stale expansion from the old region can't be shown.
+onRegionChange(() => {
+	expandedFwGroup = null;
+	expandedFwGroupRules = {};
+	expandedDomainList = null;
+	expandedDomainListDomains = {};
+	loadData();
+});
 
 function copyToClipboard(text: string) {
 navigator.clipboard.writeText(text).then(() => toast.success('Copied!'));
@@ -158,7 +167,7 @@ const sgIds = ceSgIds.split(',').map((s) => s.trim()).filter(Boolean);
 const ipAddresses = ceSubnetId.trim()
 ? [{ SubnetId: ceSubnetId.trim(), Ip: ceIp.trim() || undefined }]
 : [];
-await r53r.send(new CreateResolverEndpointCommand({
+await r53r().send(new CreateResolverEndpointCommand({
 CreatorRequestId: crypto.randomUUID(),
 Name: ceName.trim(),
 Direction: ceDirection,
@@ -183,7 +192,7 @@ ceCreating = false;
 async function deleteEndpoint(id: string, name: string) {
 if (!(await confirmDestructive(`Delete endpoint "${name}"?`))) return;
 try {
-await r53r.send(new DeleteResolverEndpointCommand({ ResolverEndpointId: id }));
+await r53r().send(new DeleteResolverEndpointCommand({ ResolverEndpointId: id }));
 toast.success(`Endpoint "${name}" deleted`);
 await loadData();
 } catch (e) {
@@ -197,7 +206,7 @@ if (!crName.trim() || !crDomainName.trim()) return toast.error('Name and DomainN
 crCreating = true;
 try {
 const targetIps = crTargetIp.trim() ? [{ Ip: crTargetIp.trim(), Port: 53 }] : undefined;
-await r53r.send(new CreateResolverRuleCommand({
+await r53r().send(new CreateResolverRuleCommand({
 CreatorRequestId: crypto.randomUUID(),
 Name: crName.trim(),
 DomainName: crDomainName.trim(),
@@ -222,7 +231,7 @@ crCreating = false;
 async function deleteRule(id: string, name: string) {
 if (!(await confirmDestructive(`Delete rule "${name}"?`))) return;
 try {
-await r53r.send(new DeleteResolverRuleCommand({ ResolverRuleId: id }));
+await r53r().send(new DeleteResolverRuleCommand({ ResolverRuleId: id }));
 toast.success(`Rule "${name}" deleted`);
 await loadData();
 } catch (e) {
@@ -235,7 +244,7 @@ async function createFwGroup() {
 if (!fwgName.trim()) return toast.error('Name is required');
 fwgCreating = true;
 try {
-await r53r.send(new CreateFirewallRuleGroupCommand({ CreatorRequestId: crypto.randomUUID(), Name: fwgName.trim() }));
+await r53r().send(new CreateFirewallRuleGroupCommand({ CreatorRequestId: crypto.randomUUID(), Name: fwgName.trim() }));
 toast.success(`Firewall rule group "${fwgName}" created`);
 showCreateFwGroup = false;
 fwgName = '';
@@ -250,7 +259,7 @@ fwgCreating = false;
 async function deleteFwGroup(id: string, name: string) {
 if (!(await confirmDestructive(`Delete firewall rule group "${name}"? This also deletes its rules.`))) return;
 try {
-await r53r.send(new DeleteFirewallRuleGroupCommand({ FirewallRuleGroupId: id }));
+await r53r().send(new DeleteFirewallRuleGroupCommand({ FirewallRuleGroupId: id }));
 toast.success(`Firewall rule group "${name}" deleted`);
 await loadData();
 } catch (e) {
@@ -266,7 +275,7 @@ return;
 expandedFwGroup = id;
 if (!expandedFwGroupRules[id]) {
 try {
-const res = await r53r.send(new ListFirewallRulesCommand({ FirewallRuleGroupId: id }));
+const res = await r53r().send(new ListFirewallRulesCommand({ FirewallRuleGroupId: id }));
 expandedFwGroupRules = { ...expandedFwGroupRules, [id]: res.FirewallRules ?? [] };
 } catch {
 expandedFwGroupRules = { ...expandedFwGroupRules, [id]: [] };
@@ -291,14 +300,14 @@ const pa = a.Priority ?? 0;
 const pb = b.Priority ?? 0;
 reorderingRule = a.FirewallDomainListId ?? `${groupId}:${index}`;
 try {
-await r53r.send(
+await r53r().send(
 new UpdateFirewallRuleCommand({
 FirewallRuleGroupId: groupId,
 FirewallDomainListId: a.FirewallDomainListId,
 Priority: pb
 })
 );
-await r53r.send(
+await r53r().send(
 new UpdateFirewallRuleCommand({
 FirewallRuleGroupId: groupId,
 FirewallDomainListId: b.FirewallDomainListId,
@@ -306,7 +315,7 @@ Priority: pa
 })
 );
 toast.success('Rule priority updated');
-const res = await r53r.send(new ListFirewallRulesCommand({ FirewallRuleGroupId: groupId }));
+const res = await r53r().send(new ListFirewallRulesCommand({ FirewallRuleGroupId: groupId }));
 expandedFwGroupRules = { ...expandedFwGroupRules, [groupId]: res.FirewallRules ?? [] };
 } catch (e) {
 toast.error('Failed to reorder rule: ' + String(e));
@@ -320,7 +329,7 @@ async function createDomainList() {
 if (!dlName.trim()) return toast.error('Name is required');
 dlCreating = true;
 try {
-await r53r.send(new CreateFirewallDomainListCommand({ CreatorRequestId: crypto.randomUUID(), Name: dlName.trim() }));
+await r53r().send(new CreateFirewallDomainListCommand({ CreatorRequestId: crypto.randomUUID(), Name: dlName.trim() }));
 toast.success(`Domain list "${dlName}" created`);
 showCreateDomainList = false;
 dlName = '';
@@ -335,7 +344,7 @@ dlCreating = false;
 async function deleteDomainList(id: string, name: string) {
 if (!(await confirmDestructive(`Delete firewall domain list "${name}"?`))) return;
 try {
-await r53r.send(new DeleteFirewallDomainListCommand({ FirewallDomainListId: id }));
+await r53r().send(new DeleteFirewallDomainListCommand({ FirewallDomainListId: id }));
 toast.success(`Domain list "${name}" deleted`);
 await loadData();
 } catch (e) {
@@ -351,7 +360,7 @@ return;
 expandedDomainList = id;
 if (!expandedDomainListDomains[id]) {
 try {
-const res = await r53r.send(new ListFirewallDomainsCommand({ FirewallDomainListId: id }));
+const res = await r53r().send(new ListFirewallDomainsCommand({ FirewallDomainListId: id }));
 expandedDomainListDomains = { ...expandedDomainListDomains, [id]: res.Domains ?? [] };
 } catch {
 expandedDomainListDomains = { ...expandedDomainListDomains, [id]: [] };
@@ -364,7 +373,7 @@ async function createQueryLog() {
 if (!qlName.trim() || !qlDestArn.trim()) return toast.error('Name and Destination ARN are required');
 qlCreating = true;
 try {
-await r53r.send(new CreateResolverQueryLogConfigCommand({
+await r53r().send(new CreateResolverQueryLogConfigCommand({
 CreatorRequestId: crypto.randomUUID(),
 Name: qlName.trim(),
 DestinationArn: qlDestArn.trim()
@@ -384,7 +393,7 @@ qlCreating = false;
 async function deleteQueryLog(id: string, name: string) {
 if (!(await confirmDestructive(`Delete query log config "${name}"?`))) return;
 try {
-await r53r.send(new DeleteResolverQueryLogConfigCommand({ ResolverQueryLogConfigId: id }));
+await r53r().send(new DeleteResolverQueryLogConfigCommand({ ResolverQueryLogConfigId: id }));
 toast.success(`Query log config "${name}" deleted`);
 await loadData();
 } catch (e) {

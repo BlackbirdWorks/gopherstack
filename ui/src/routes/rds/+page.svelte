@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getRDSClient } from '$lib/aws-client';
 import {
 	DescribeDBInstancesCommand,
@@ -53,7 +54,7 @@ import {
 	Network
 } from 'lucide-svelte';
 
-const rds = getRDSClient();
+const rds = regionalClient(getRDSClient);
 
 let instances = $state<DBInstance[]>([]);
 let snapshots = $state<DBSnapshot[]>([]);
@@ -84,8 +85,33 @@ let restoreSnapshotId = $state<string | null>(null);
 let restoreInstanceId = $state('');
 let restoring = $state(false);
 
-onMount(async () => {
-	await loadInstances();
+// Expanded rows and in-progress editors reference resources (instance ids,
+// parameter group names, snapshot ids) that are only unique within the
+// region they were fetched from, and every non-instances tab is lazily
+// loaded per-tab (see selectTab/refresh below) rather than up front — so a
+// region change must clear that selection state and reload whichever tab
+// is currently active, not just the instances list. `activeTab` is read
+// via untrack() because selectTab() also writes it: without untrack, every
+// tab switch would re-trigger this region effect and double-fetch.
+onRegionChange(() => {
+	expandedInstance = null;
+	expandedParamGroup = null;
+	pgParameters = [];
+	pgEdits = {};
+	restoreSnapshotId = null;
+	restoreInstanceId = '';
+	instances = [];
+	const tab = untrack(() => activeTab);
+	if (tab === 'snapshots') void loadSnapshots();
+	else if (tab === 'clusters') void loadClusters();
+	else if (tab === 'paramgroups') void loadParamGroups();
+	else if (tab === 'subnetgroups') void loadSubnetGroups();
+	else if (tab === 'bluegreen') void loadBlueGreenDeployments();
+	else if (tab === 'shardgroups') void loadShardGroups();
+	else if (tab === 'integrations') void loadIntegrations();
+	else if (tab === 'tenantdbs') void loadTenantDatabases();
+	// 'instances' and 'pi' (derived from instances) fall through to here.
+	else void loadInstances();
 });
 
 async function toggleParamGroup(name: string) {
@@ -99,7 +125,7 @@ async function toggleParamGroup(name: string) {
 	pgParamSearch = '';
 	pgParamsLoading = true;
 	try {
-		const data = await rds.send(new DescribeDBParametersCommand({ DBParameterGroupName: name, MaxRecords: 100 }));
+		const data = await rds().send(new DescribeDBParametersCommand({ DBParameterGroupName: name, MaxRecords: 100 }));
 		pgParameters = data.Parameters || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load parameters');
@@ -119,7 +145,7 @@ async function savePgParams(name: string) {
 	}
 	savingPgParams = true;
 	try {
-		await rds.send(new ModifyDBParameterGroupCommand({
+		await rds().send(new ModifyDBParameterGroupCommand({
 			DBParameterGroupName: name,
 			Parameters: changed.map(([k, v]) => {
 				const orig = pgParameters.find((p) => p.ParameterName === k);
@@ -143,7 +169,7 @@ async function restoreSnapshot() {
 	}
 	restoring = true;
 	try {
-		await rds.send(new RestoreDBInstanceFromDBSnapshotCommand({
+		await rds().send(new RestoreDBInstanceFromDBSnapshotCommand({
 			DBSnapshotIdentifier: restoreSnapshotId,
 			DBInstanceIdentifier: restoreInstanceId.trim()
 		}));
@@ -161,7 +187,7 @@ async function restoreSnapshot() {
 async function loadBlueGreenDeployments() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeBlueGreenDeploymentsCommand({}));
+		const data = await rds().send(new DescribeBlueGreenDeploymentsCommand({}));
 		blueGreenDeployments = data.BlueGreenDeployments || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load blue/green deployments');
@@ -173,7 +199,7 @@ async function loadBlueGreenDeployments() {
 async function loadShardGroups() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBShardGroupsCommand({}));
+		const data = await rds().send(new DescribeDBShardGroupsCommand({}));
 		shardGroups = data.DBShardGroups || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load DB shard groups');
@@ -185,7 +211,7 @@ async function loadShardGroups() {
 async function loadIntegrations() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeIntegrationsCommand({}));
+		const data = await rds().send(new DescribeIntegrationsCommand({}));
 		integrations = data.Integrations || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load integrations');
@@ -197,7 +223,7 @@ async function loadIntegrations() {
 async function loadTenantDatabases() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeTenantDatabasesCommand({}));
+		const data = await rds().send(new DescribeTenantDatabasesCommand({}));
 		tenantDatabases = data.TenantDatabases || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load tenant databases');
@@ -209,7 +235,7 @@ async function loadTenantDatabases() {
 async function loadInstances() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBInstancesCommand({}));
+		const data = await rds().send(new DescribeDBInstancesCommand({}));
 		instances = data.DBInstances || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load RDS instances');
@@ -221,7 +247,7 @@ async function loadInstances() {
 async function loadSnapshots() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBSnapshotsCommand({ MaxRecords: 100 }));
+		const data = await rds().send(new DescribeDBSnapshotsCommand({ MaxRecords: 100 }));
 		snapshots = data.DBSnapshots || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
@@ -233,7 +259,7 @@ async function loadSnapshots() {
 async function loadClusters() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBClustersCommand({}));
+		const data = await rds().send(new DescribeDBClustersCommand({}));
 		clusters = data.DBClusters || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
@@ -245,7 +271,7 @@ async function loadClusters() {
 async function loadParamGroups() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBParameterGroupsCommand({}));
+		const data = await rds().send(new DescribeDBParameterGroupsCommand({}));
 		paramGroups = data.DBParameterGroups || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load parameter groups');
@@ -257,7 +283,7 @@ async function loadParamGroups() {
 async function loadSubnetGroups() {
 	try {
 		loading = true;
-		const data = await rds.send(new DescribeDBSubnetGroupsCommand({}));
+		const data = await rds().send(new DescribeDBSubnetGroupsCommand({}));
 		subnetGroups = data.DBSubnetGroups || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load subnet groups');
@@ -286,7 +312,7 @@ async function refresh() {
 async function deleteInstance(id: string) {
 	if (!await confirmDestructive({ title: 'Delete RDS Instance', message: `Delete instance ${id}? All data will be permanently lost unless a final snapshot was taken.` })) return;
 	try {
-		await rds.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
+		await rds().send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
 		toast.success(`Instance ${id} deleted`);
 		await loadInstances();
 	} catch (e) {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getELBClient } from '$lib/aws-client';
 	import {
 		DescribeLoadBalancersCommand,
@@ -30,7 +30,7 @@
 	} from '@aws-sdk/client-elastic-load-balancing';
 	import { toast } from 'svelte-sonner';
 
-	const elb = getELBClient();
+	const elb = regionalClient(getELBClient);
 
 	type ActiveTab = 'overview' | 'listeners' | 'healthcheck' | 'attributes' | 'instances' | 'policies';
 
@@ -109,7 +109,7 @@
 	async function loadBalancersList() {
 		loading = true;
 		try {
-			const out = await elb.send(new DescribeLoadBalancersCommand({}));
+			const out = await elb().send(new DescribeLoadBalancersCommand({}));
 			loadBalancers = out.LoadBalancerDescriptions ?? [];
 			if (selectedLB) {
 				const updated = loadBalancers.find((lb) => lb.LoadBalancerName === selectedLB!.LoadBalancerName);
@@ -149,8 +149,8 @@
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
 			const [attrOut, polOut] = await Promise.all([
-				elb.send(new DescribeLoadBalancerAttributesCommand({ LoadBalancerName: selectedLB.LoadBalancerName })),
-				elb.send(new DescribeLoadBalancerPoliciesCommand({ LoadBalancerName: selectedLB.LoadBalancerName }))
+				elb().send(new DescribeLoadBalancerAttributesCommand({ LoadBalancerName: selectedLB.LoadBalancerName })),
+				elb().send(new DescribeLoadBalancerPoliciesCommand({ LoadBalancerName: selectedLB.LoadBalancerName }))
 			]);
 			updateAttributeState(attrOut.LoadBalancerAttributes);
 			updateHealthCheckState(selectedLB?.HealthCheck);
@@ -170,7 +170,7 @@
 	async function createLoadBalancer() {
 		const createdName = newName;
 		try {
-			await elb.send(new CreateLoadBalancerCommand({
+			await elb().send(new CreateLoadBalancerCommand({
 				LoadBalancerName: createdName,
 				AvailabilityZones: [newAZ],
 				Scheme: newScheme,
@@ -194,7 +194,7 @@
 
 	async function deleteLoadBalancer(name: string) {
 		try {
-			await elb.send(new DeleteLoadBalancerCommand({ LoadBalancerName: name }));
+			await elb().send(new DeleteLoadBalancerCommand({ LoadBalancerName: name }));
 			if (selectedLB?.LoadBalancerName === name) selectedLB = null;
 			await loadBalancersList();
 			toast.success('Load balancer deleted');
@@ -206,7 +206,7 @@
 	async function addListener() {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new CreateLoadBalancerListenersCommand({
+			await elb().send(new CreateLoadBalancerListenersCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				Listeners: [{
 					Protocol: listenerProto,
@@ -216,7 +216,7 @@
 				}]
 			}));
 			if (listenerCertARN && (listenerProto === 'HTTPS' || listenerProto === 'SSL')) {
-				await elb.send(new SetLoadBalancerListenerSSLCertificateCommand({
+				await elb().send(new SetLoadBalancerListenerSSLCertificateCommand({
 					LoadBalancerName: selectedLB.LoadBalancerName,
 					LoadBalancerPort: listenerLBPort,
 					SSLCertificateId: listenerCertARN
@@ -233,7 +233,7 @@
 	async function deleteListener(port: number) {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new DeleteLoadBalancerListenersCommand({
+			await elb().send(new DeleteLoadBalancerListenersCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				LoadBalancerPorts: [port]
 			}));
@@ -247,7 +247,7 @@
 	async function saveHealthCheck() {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new ConfigureHealthCheckCommand({
+			await elb().send(new ConfigureHealthCheckCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				HealthCheck: {
 					Target: hcTarget,
@@ -267,7 +267,7 @@
 	async function saveAttributes() {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new ModifyLoadBalancerAttributesCommand({
+			await elb().send(new ModifyLoadBalancerAttributesCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				LoadBalancerAttributes: {
 					CrossZoneLoadBalancing: { Enabled: attrCrossZone },
@@ -285,7 +285,7 @@
 	async function registerInstance() {
 		if (!selectedLB?.LoadBalancerName || !newInstanceId) return;
 		try {
-			await elb.send(new RegisterInstancesWithLoadBalancerCommand({
+			await elb().send(new RegisterInstancesWithLoadBalancerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				Instances: [{ InstanceId: newInstanceId }]
 			}));
@@ -300,7 +300,7 @@
 	async function deregisterInstance(instanceId: string) {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new DeregisterInstancesFromLoadBalancerCommand({
+			await elb().send(new DeregisterInstancesFromLoadBalancerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				Instances: [{ InstanceId: instanceId }]
 			}));
@@ -315,13 +315,13 @@
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
 			if (policyType === 'app-cookie') {
-				await elb.send(new CreateAppCookieStickinessPolicyCommand({
+				await elb().send(new CreateAppCookieStickinessPolicyCommand({
 					LoadBalancerName: selectedLB.LoadBalancerName,
 					PolicyName: policyName,
 					CookieName: policyCookieName
 				}));
 			} else {
-				await elb.send(new CreateLBCookieStickinessPolicyCommand({
+				await elb().send(new CreateLBCookieStickinessPolicyCommand({
 					LoadBalancerName: selectedLB.LoadBalancerName,
 					PolicyName: policyName,
 					CookieExpirationPeriod: policyExpiry > 0 ? policyExpiry : undefined
@@ -341,7 +341,7 @@
 	async function deletePolicy(name: string) {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new DeleteLoadBalancerPolicyCommand({
+			await elb().send(new DeleteLoadBalancerPolicyCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				PolicyName: name
 			}));
@@ -355,7 +355,7 @@
 	async function setSSLCertificate() {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new SetLoadBalancerListenerSSLCertificateCommand({
+			await elb().send(new SetLoadBalancerListenerSSLCertificateCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				LoadBalancerPort: sslPort,
 				SSLCertificateId: sslCertARN
@@ -373,7 +373,7 @@
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
 			const names = lpPolicyInput.split(',').map((s) => s.trim()).filter(Boolean);
-			await elb.send(new SetLoadBalancerPoliciesOfListenerCommand({
+			await elb().send(new SetLoadBalancerPoliciesOfListenerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				LoadBalancerPort: lpPort,
 				PolicyNames: names
@@ -390,7 +390,7 @@
 	async function enableAZ() {
 		if (!selectedLB?.LoadBalancerName || !newAZInput) return;
 		try {
-			await elb.send(new EnableAvailabilityZonesForLoadBalancerCommand({
+			await elb().send(new EnableAvailabilityZonesForLoadBalancerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				AvailabilityZones: [newAZInput]
 			}));
@@ -405,7 +405,7 @@
 	async function disableAZ(az: string) {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new DisableAvailabilityZonesForLoadBalancerCommand({
+			await elb().send(new DisableAvailabilityZonesForLoadBalancerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				AvailabilityZones: [az]
 			}));
@@ -419,7 +419,7 @@
 	async function detachSubnet(subnet: string) {
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
-			await elb.send(new DetachLoadBalancerFromSubnetsCommand({
+			await elb().send(new DetachLoadBalancerFromSubnetsCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				Subnets: [subnet]
 			}));
@@ -433,7 +433,7 @@
 	async function attachSubnet() {
 		if (!selectedLB?.LoadBalancerName || !newSubnetInput.trim()) return;
 		try {
-			await elb.send(new AttachLoadBalancerToSubnetsCommand({
+			await elb().send(new AttachLoadBalancerToSubnetsCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				Subnets: [newSubnetInput.trim()]
 			}));
@@ -449,7 +449,7 @@
 		if (!selectedLB?.LoadBalancerName) return;
 		try {
 			const names = bsdPolicyInput.split(',').map((s) => s.trim()).filter(Boolean);
-			await elb.send(new SetLoadBalancerPoliciesForBackendServerCommand({
+			await elb().send(new SetLoadBalancerPoliciesForBackendServerCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
 				InstancePort: instancePort,
 				PolicyNames: names
@@ -473,7 +473,7 @@
 		if (!selectedLB?.LoadBalancerName) return;
 		healthLoading = true;
 		try {
-			const out = await elb.send(new DescribeInstanceHealthCommand({ LoadBalancerName: selectedLB.LoadBalancerName }));
+			const out = await elb().send(new DescribeInstanceHealthCommand({ LoadBalancerName: selectedLB.LoadBalancerName }));
 			const map: Record<string, string> = {};
 			for (const s of out.InstanceStates ?? []) {
 				if (s.InstanceId) map[s.InstanceId] = s.State ?? 'Unknown';
@@ -494,7 +494,7 @@
 			return;
 		}
 		try {
-			await elb.send(new CreateLoadBalancerCommand({
+			await elb().send(new CreateLoadBalancerCommand({
 				LoadBalancerName: name,
 				AvailabilityZones: ['us-east-1a', 'us-east-1b'],
 				Scheme: 'internet-facing',
@@ -503,11 +503,11 @@
 					{ Protocol: 'HTTPS', LoadBalancerPort: 443, InstanceProtocol: 'HTTP', InstancePort: 8080 }
 				]
 			}));
-			await elb.send(new ConfigureHealthCheckCommand({
+			await elb().send(new ConfigureHealthCheckCommand({
 				LoadBalancerName: name,
 				HealthCheck: { Target: 'HTTP:8080/health', Interval: 30, Timeout: 5, HealthyThreshold: 2, UnhealthyThreshold: 3 }
 			}));
-			await elb.send(new CreateLBCookieStickinessPolicyCommand({ LoadBalancerName: name, PolicyName: 'demo-sticky' }));
+			await elb().send(new CreateLBCookieStickinessPolicyCommand({ LoadBalancerName: name, PolicyName: 'demo-sticky' }));
 			await loadBalancersList();
 			const created = loadBalancers.find((lb) => lb.LoadBalancerName === name);
 			if (created) await selectLB(created);
@@ -549,7 +549,16 @@
 		return 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300';
 	}
 
-	onMount(() => {
+	// selectedLB and its detail data (policies, attributes, instance health)
+	// reference a load balancer name that is only unique within the region
+	// it was fetched from; clear the selection and fall back to the list
+	// rather than only re-listing load balancers.
+	onRegionChange(() => {
+		selectedLB = null;
+		activeTab = 'overview';
+		lbPolicies = [];
+		lbAttributes = null;
+		instanceHealthMap = {};
 		void loadBalancersList();
 	});
 </script>

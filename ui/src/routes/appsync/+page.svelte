@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAppSyncClient } from '$lib/aws-client';
 	import {
 		ListGraphqlApisCommand,
@@ -37,7 +37,7 @@
 		Edit
 	} from 'lucide-svelte';
 
-	const appsync = getAppSyncClient();
+	const appsync = regionalClient(getAppSyncClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'apis' | 'datasources' | 'functions' | 'resolvers' | 'graphql'>('apis');
@@ -111,7 +111,7 @@
 	async function loadApis() {
 		loading = true;
 		try {
-			const res = await appsync.send(new ListGraphqlApisCommand({ maxResults: 100 }));
+			const res = await appsync().send(new ListGraphqlApisCommand({ maxResults: 100 }));
 			apis = res.graphqlApis ?? [];
 		} catch (e) {
 			toast.error(`Failed to load APIs: ${e}`);
@@ -127,7 +127,7 @@
 		selectedApiId = api.apiId;
 		loadingSchema = true;
 		try {
-			const res = await appsync.send(
+			const res = await appsync().send(
 				new GetIntrospectionSchemaCommand({ apiId: api.apiId, format: 'SDL' })
 			);
 			if (res.schema) {
@@ -150,7 +150,7 @@
 			return;
 		}
 		try {
-			const res = await appsync.send(new ListDataSourcesCommand({ apiId: id, maxResults: 100 }));
+			const res = await appsync().send(new ListDataSourcesCommand({ apiId: id, maxResults: 100 }));
 			dataSources = res.dataSources ?? [];
 		} catch (e) {
 			toast.error(`Failed to load data sources: ${e}`);
@@ -179,7 +179,7 @@
 		}
 		creatingDS = true;
 		try {
-			await appsync.send(
+			await appsync().send(
 				new CreateDataSourceCommand({
 					apiId: selectedApiId,
 					name: dsName.trim(),
@@ -224,7 +224,7 @@
 		)
 			return;
 		try {
-			await appsync.send(new DeleteDataSourceCommand({ apiId: selectedApiId, name }));
+			await appsync().send(new DeleteDataSourceCommand({ apiId: selectedApiId, name }));
 			toast.success('Data source deleted');
 			await loadDataSources();
 		} catch (e) {
@@ -244,7 +244,7 @@
 		}
 		uploadingSchema = true;
 		try {
-			await appsync.send(
+			await appsync().send(
 				new StartSchemaCreationCommand({
 					apiId: selectedApiId,
 					definition: new TextEncoder().encode(schemaSdl)
@@ -267,7 +267,7 @@
 			return;
 		}
 		try {
-			const res = await appsync.send(
+			const res = await appsync().send(
 				new ListFunctionsCommand({ apiId: id, maxResults: 100 })
 			);
 			functions = res.functions ?? [];
@@ -287,7 +287,7 @@
 			return;
 		}
 		try {
-			const res = await appsync.send(
+			const res = await appsync().send(
 				new ListResolversCommand({ apiId: id, typeName: type, maxResults: 100 })
 			);
 			resolvers = res.resolvers ?? [];
@@ -338,7 +338,7 @@
 		}
 		savingResolver = true;
 		try {
-			await appsync.send(
+			await appsync().send(
 				new UpdateResolverCommand({
 					apiId: selectedApiId,
 					typeName: editingResolver.typeName,
@@ -403,7 +403,7 @@
 		if (!newApiName.trim()) return;
 		creating = true;
 		try {
-			await appsync.send(
+			await appsync().send(
 				new CreateGraphqlApiCommand({
 					name: newApiName.trim(),
 					authenticationType: newApiAuthType
@@ -423,7 +423,7 @@
 	async function deleteApi(api: GraphqlApi) {
 		if (!api.apiId || !await confirmDestructive({ title: 'Delete AppSync API', message: `Delete API "${api.name}"? All resolvers and schemas will be removed.` })) return;
 		try {
-			await appsync.send(new DeleteGraphqlApiCommand({ apiId: api.apiId }));
+			await appsync().send(new DeleteGraphqlApiCommand({ apiId: api.apiId }));
 			toast.success(`API "${api.name}" deleted`);
 			if (selectedApi?.apiId === api.apiId) selectedApi = null;
 			await loadApis();
@@ -448,7 +448,22 @@
 		// graphql tab needs no initial load
 	}
 
-	onMount(() => loadApis());
+	// Data sources/functions/resolvers are all scoped to selectedApiId, an
+	// API from whichever region it was fetched in — clear the whole
+	// selection chain and reload the APIs list rather than only refetching
+	// apis (the other tabs already render a "select an API" placeholder
+	// when selectedApiId is empty, so no extra reload is needed for them).
+	onRegionChange(() => {
+		selectedApi = null;
+		selectedApiId = '';
+		apiSchema = '';
+		dataSources = [];
+		functions = [];
+		resolvers = [];
+		editingResolver = null;
+		resolverTypeName = '';
+		loadApis();
+	});
 </script>
 
 <div class="space-y-6">
