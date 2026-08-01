@@ -686,24 +686,24 @@
 					<h3 class="mb-4 font-semibold">Create Network</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Network Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-name">Network Name *</label>
+							<input id="new-network-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkName}
 								placeholder="my-network"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-desc">Description</label>
+							<input id="new-network-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkDesc}
 								placeholder="Optional description"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Framework</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-framework">Framework</label>
+							<select id="new-network-framework"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkFramework}
 							>
@@ -712,24 +712,24 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Framework Version</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-version">Framework Version</label>
+							<input id="new-network-version"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkVersion}
 								placeholder="2.2"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Initial Member Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-name">Initial Member Name *</label>
+							<input id="new-member-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberName}
 								placeholder="member1"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Initial Member Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-desc">Initial Member Description</label>
+							<input id="new-member-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberDesc}
 								placeholder="Optional"
@@ -927,6 +927,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="create-member-title"
 					onclick={(e) => e.stopPropagation()}
@@ -935,16 +936,16 @@
 					<h3 id="create-member-title" class="mb-4 font-semibold">Add Member to Network</h3>
 					<div class="space-y-3">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Member Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-form-name">Member Name *</label>
+							<input id="new-member-form-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberFormName}
 								placeholder="member-name"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-form-desc">Description</label>
+							<input id="new-member-form-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberFormDesc}
 								placeholder="Optional"
@@ -981,6 +982,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="edit-member-title"
 					onclick={(e) => e.stopPropagation()}
@@ -988,7 +990,7 @@
 				>
 					<h3 id="edit-member-title" class="mb-4 font-semibold">Update Member</h3>
 					<div>
-						<label class="mb-1 block text-xs text-gray-400">Member ID</label>
+						<div class="mb-1 block text-xs text-gray-400">Member ID</div>
 						<div class="text-sm text-gray-300">{editMemberId}</div>
 					</div>
 					<div class="mt-4 flex justify-end gap-2">
@@ -1021,6 +1023,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="create-node-title"
 					onclick={(e) => e.stopPropagation()}
@@ -1029,8 +1032,8 @@
 					<h3 id="create-node-title" class="mb-4 font-semibold">Create Node</h3>
 					<div class="space-y-3">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Instance Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-node-instance-type">Instance Type</label>
+							<select id="new-node-instance-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNodeInstanceType}
 							>
@@ -1041,8 +1044,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Availability Zone</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-node-az">Availability Zone</label>
+							<input id="new-node-az"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNodeAZ}
 								placeholder="us-east-1a"
@@ -1097,8 +1100,8 @@
 					<h3 class="mb-4 font-semibold">Create Accessor</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Accessor Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-accessor-type">Accessor Type</label>
+							<select id="new-accessor-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newAccessorType}
 							>
@@ -1106,8 +1109,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Network Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-accessor-network-type">Network Type</label>
+							<select id="new-accessor-network-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newAccessorNetworkType}
 							>
@@ -1186,8 +1189,8 @@
 		<div class="space-y-4">
 			<div class="flex items-center gap-4">
 				<div class="flex flex-1 items-center gap-2">
-					<label class="text-sm text-gray-400">Network ID:</label>
-					<input
+					<label class="text-sm text-gray-400" for="proposal-network-id">Network ID:</label>
+					<input id="proposal-network-id"
 						class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 						bind:value={proposalNetworkId}
 						placeholder="Enter network ID"
@@ -1218,16 +1221,16 @@
 					<h3 class="mb-4 font-semibold">Create Proposal</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Proposing Member ID *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-proposal-member-id">Proposing Member ID *</label>
+							<input id="new-proposal-member-id"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newProposalMemberId}
 								placeholder="member-id"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-proposal-desc">Description</label>
+							<input id="new-proposal-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newProposalDesc}
 								placeholder="Optional description"
@@ -1365,6 +1368,7 @@
 					<div
 						class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6"
 						role="dialog"
+						tabindex="-1"
 						aria-modal="true"
 						aria-labelledby="cast-vote-title"
 						onclick={(e) => e.stopPropagation()}
@@ -1373,15 +1377,15 @@
 						<h3 id="cast-vote-title" class="mb-4 font-semibold">Cast Vote</h3>
 						<div class="space-y-3">
 							<div>
-								<label class="mb-1 block text-xs text-gray-400">Voter Member ID *</label>
-								<input
+								<label class="mb-1 block text-xs text-gray-400" for="vote-member-id">Voter Member ID *</label>
+								<input id="vote-member-id"
 									class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 									bind:value={voteMemberId}
 									placeholder="member-id"
 								/>
 							</div>
-							<div>
-								<label class="mb-1 block text-xs text-gray-400">Vote</label>
+							<fieldset class="m-0 border-0 p-0">
+								<legend class="mb-1 block text-xs text-gray-400">Vote</legend>
 								<div class="flex gap-3">
 									<label for="vote-yes" class="flex items-center gap-2 text-sm">
 										<input id="vote-yes" type="radio" bind:group={voteChoice} value="YES" />
@@ -1392,7 +1396,7 @@
 										<span class="text-red-400">NO</span>
 									</label>
 								</div>
-							</div>
+							</fieldset>
 						</div>
 						<div class="mt-4 flex justify-end gap-2">
 							<button

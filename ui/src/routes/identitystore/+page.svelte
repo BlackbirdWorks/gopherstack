@@ -1152,6 +1152,8 @@ style="height:8px; width:{Math.round((count / maxCount) * 100)}%"
 id="create-user-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showCreateUserModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showCreateUserModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="create-user-title"
@@ -1216,6 +1218,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="create-group-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showCreateGroupModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showCreateGroupModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="create-group-title"
@@ -1254,6 +1258,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="membership-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showMembershipModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showMembershipModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="membership-modal-title"
@@ -1350,6 +1356,8 @@ aria-label="Remove from {group.DisplayName}">Remove</button>
 id="edit-user-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showEditUserModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showEditUserModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="edit-user-title"
@@ -1405,7 +1413,7 @@ placeholder="123 Main St, City, State" />
 </div>
 {#if profileUser?.ExternalIds && profileUser.ExternalIds.length > 0}
 <div>
-<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">External IDs</label>
+<div class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">External IDs</div>
 <div class="space-y-1">
 {#each profileUser.ExternalIds as extId}
 <div class="rounded bg-slate-100 px-2 py-1 text-xs font-mono dark:bg-slate-700">
@@ -1432,6 +1440,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="edit-group-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showEditGroupModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showEditGroupModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="edit-group-title"
@@ -1467,6 +1477,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showDeleteUserConfirm = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showDeleteUserConfirm = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="delete-user-title"
@@ -1491,6 +1503,8 @@ class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-r
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showDeleteGroupConfirm = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showDeleteGroupConfirm = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="delete-group-title"
@@ -1515,6 +1529,8 @@ class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-r
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showViewMembersModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showViewMembersModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="view-members-title"

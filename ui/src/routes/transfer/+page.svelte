@@ -822,13 +822,14 @@
 			{ id: 'workflows', label: 'Workflows', icon: GitBranch },
 			{ id: 'certificates', label: 'Certificates', icon: ShieldCheck },
 		] as { id, label, icon }}
+			{@const Icon = icon}
 			<button
 				onclick={() => switchTab(id as TabName)}
 				class="flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap {activeTab === id
 					? 'border-primary text-primary'
 					: 'border-transparent text-muted-foreground hover:text-foreground'}"
 			>
-				<svelte:component this={icon} class="h-4 w-4" />
+				<Icon class="h-4 w-4" />
 				{label}
 			</button>
 		{/each}

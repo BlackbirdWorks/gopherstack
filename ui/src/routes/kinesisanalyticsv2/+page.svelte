@@ -373,24 +373,24 @@
 			<h2 class="font-medium">New Application</h2>
 			<div class="grid grid-cols-3 gap-3">
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Application Name *</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-name">Application Name *</label>
+					<input id="new-app-name"
 						bind:value={newAppName}
 						placeholder="my-flink-app"
 						class="w-full rounded border px-3 py-1.5 text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Runtime Environment *</label>
-					<select bind:value={newAppRuntime} class="w-full rounded border px-3 py-1.5 text-sm">
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-runtime">Runtime Environment *</label>
+					<select id="new-app-runtime" bind:value={newAppRuntime} class="w-full rounded border px-3 py-1.5 text-sm">
 						{#each runtimes as rt}
 							<option value={rt}>{rt}</option>
 						{/each}
 					</select>
 				</div>
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Service Execution Role ARN</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-role">Service Execution Role ARN</label>
+					<input id="new-app-role"
 						bind:value={newAppRole}
 						placeholder="arn:aws:iam::..."
 						class="w-full rounded border px-3 py-1.5 text-sm"

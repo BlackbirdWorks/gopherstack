@@ -438,16 +438,16 @@
 			<h2 class="font-medium">New SQL Application</h2>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Application Name *</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-name">Application Name *</label>
+					<input id="new-app-name"
 						bind:value={newAppName}
 						placeholder="my-sql-app"
 						class="w-full rounded border px-3 py-1.5 text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Description</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-description">Description</label>
+					<input id="new-app-description"
 						bind:value={newAppDescription}
 						placeholder="Optional description"
 						class="w-full rounded border px-3 py-1.5 text-sm"
@@ -455,8 +455,8 @@
 				</div>
 			</div>
 			<div>
-				<label class="block text-xs text-gray-600 mb-1">Application SQL Code</label>
-				<textarea
+				<label class="block text-xs text-gray-600 mb-1" for="new-app-code">Application SQL Code</label>
+				<textarea id="new-app-code"
 					bind:value={newAppCode}
 					placeholder="CREATE OR REPLACE STREAM ..."
 					rows={4}

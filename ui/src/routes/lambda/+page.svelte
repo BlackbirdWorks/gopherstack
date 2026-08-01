@@ -845,8 +845,8 @@
 									<div class="space-y-2">
 										<input type="text" bind:value={newEsmEventArn} placeholder="Event source ARN (SQS/Kinesis/DynamoDB)" class="w-full text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 										<div class="flex gap-2 items-center">
-											<label class="text-xs text-slate-500">Batch size:</label>
-											<input type="number" bind:value={newEsmBatchSize} min="1" max="10000" class="w-20 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+											<label class="text-xs text-slate-500" for="new-esm-batch-size">Batch size:</label>
+											<input id="new-esm-batch-size" type="number" bind:value={newEsmBatchSize} min="1" max="10000" class="w-20 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 											<button onclick={createEsm} disabled={creatingEsm || !newEsmEventArn.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{creatingEsm ? 'Adding…' : 'Add Trigger'}</button>
 										</div>
 									</div>

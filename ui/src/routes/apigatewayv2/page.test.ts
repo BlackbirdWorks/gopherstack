@@ -18,12 +18,9 @@ vi.mock("svelte-sonner", () => ({
 }));
 
 // This page's modals are plain `{#if showX}` divs, not the shared
-// role="dialog" Modal component, and none of the ~20 form <label>s in them
-// are wired to their <input> via for/id (verified by reading the markup --
-// same bug class already fixed in applicationautoscaling/+page.svelte, but
-// left as-is here given the much larger surface: ~20 label/input pairs
-// across 8 modals). getByLabelText will not resolve any of them, so these
-// tests target inputs by placeholder text instead.
+// role="dialog" Modal component. The ~20 form <label>s in them are now wired
+// to their <input> via for/id, so getByLabelText would resolve them, but
+// these tests still target inputs by placeholder text to minimize the diff.
 const exampleApi = {
   ApiId: "api-1",
   Name: "my-api",

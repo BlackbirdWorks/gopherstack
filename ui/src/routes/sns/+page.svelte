@@ -1374,7 +1374,7 @@ required
 </div>
 <div>
 	<div class="flex items-center justify-between mb-1">
-		<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</label>
+		<div class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</div>
 		<button type="button" onclick={() => {
 			if (!pubAttrJsonMode) {
 				pubAttrJson = pubAttrRows.filter(r => r.name.trim()).length

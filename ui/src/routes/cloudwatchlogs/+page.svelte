@@ -1573,18 +1573,18 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Subscription Filter</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Name *</label>
-				<input bind:value={sfFilterName} type="text" placeholder="my-filter"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-filter-name">Filter Name *</label>
+				<input id="sf-filter-name" bind:value={sfFilterName} type="text" placeholder="my-filter"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Pattern</label>
-				<input bind:value={sfFilterPattern} type="text" placeholder="ERROR (empty matches all)"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-filter-pattern">Filter Pattern</label>
+				<input id="sf-filter-pattern" bind:value={sfFilterPattern} type="text" placeholder="ERROR (empty matches all)"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination ARN *</label>
-				<input bind:value={sfDestinationArn} type="text" placeholder="arn:aws:lambda:..."
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-destination-arn">Destination ARN *</label>
+				<input id="sf-destination-arn" bind:value={sfDestinationArn} type="text" placeholder="arn:aws:lambda:..."
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-900 dark:text-white" />
 			</div>
 			<div class="flex gap-3 pt-2">
@@ -1604,13 +1604,13 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Export Task</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Task Name (optional)</label>
-				<input bind:value={etTaskName} type="text" placeholder="my-export"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-task-name">Task Name (optional)</label>
+				<input id="et-task-name" bind:value={etTaskName} type="text" placeholder="my-export"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Group Name *</label>
-				<select bind:value={etLogGroupName}
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-log-group-name">Log Group Name *</label>
+				<select id="et-log-group-name" bind:value={etLogGroupName}
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
 					<option value="">Select...</option>
 					{#each logGroups as group}
@@ -1619,24 +1619,24 @@
 				</select>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 Bucket *</label>
-				<input bind:value={etDestination} type="text" placeholder="my-bucket"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-destination">S3 Bucket *</label>
+				<input id="et-destination" bind:value={etDestination} type="text" placeholder="my-bucket"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prefix (optional)</label>
-				<input bind:value={etDestinationPrefix} type="text" placeholder="exports/my-group"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-destination-prefix">Prefix (optional)</label>
+				<input id="et-destination-prefix" bind:value={etDestinationPrefix} type="text" placeholder="exports/my-group"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From *</label>
-					<input bind:value={etFrom} type="datetime-local"
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-from">From *</label>
+					<input id="et-from" bind:value={etFrom} type="datetime-local"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To *</label>
-					<input bind:value={etTo} type="datetime-local"
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-to">To *</label>
+					<input id="et-to" bind:value={etTo} type="datetime-local"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 			</div>
@@ -1657,8 +1657,8 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Save Query Definition</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-				<input bind:value={newQueryDefName} type="text" placeholder="My error query"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-query-def-name">Name *</label>
+				<input id="new-query-def-name" bind:value={newQueryDefName} type="text" placeholder="My error query"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div class="flex gap-3 pt-2">

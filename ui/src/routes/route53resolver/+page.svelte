@@ -867,36 +867,36 @@ No query log configurations. <button onclick={() => (showCreateQueryLog = true)}
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-<input bind:value={ceName} placeholder="my-inbound-endpoint"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-name">Name *</label>
+<input id="ce-name" bind:value={ceName} placeholder="my-inbound-endpoint"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Direction *</label>
-<select bind:value={ceDirection} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-direction">Direction *</label>
+<select id="ce-direction" bind:value={ceDirection} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
 <option value="INBOUND">INBOUND</option>
 <option value="OUTBOUND">OUTBOUND</option>
 </select>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">VPC ID</label>
-<input bind:value={ceVpcId} placeholder="vpc-12345678 (default: vpc-demo)"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-vpc-id">VPC ID</label>
+<input id="ce-vpc-id" bind:value={ceVpcId} placeholder="vpc-12345678 (default: vpc-demo)"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Security Group IDs (comma-separated)</label>
-<input bind:value={ceSgIds} placeholder="sg-12345678 (default: sg-demo)"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-sg-ids">Security Group IDs (comma-separated)</label>
+<input id="ce-sg-ids" bind:value={ceSgIds} placeholder="sg-12345678 (default: sg-demo)"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div class="grid grid-cols-2 gap-2">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subnet ID</label>
-<input bind:value={ceSubnetId} placeholder="subnet-12345678"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-subnet-id">Subnet ID</label>
+<input id="ce-subnet-id" bind:value={ceSubnetId} placeholder="subnet-12345678"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">IP Address</label>
-<input bind:value={ceIp} placeholder="10.0.0.5"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ce-ip">IP Address</label>
+<input id="ce-ip" bind:value={ceIp} placeholder="10.0.0.5"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 </div>
@@ -922,18 +922,18 @@ class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dis
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-<input bind:value={crName} placeholder="my-forward-rule"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cr-name">Name *</label>
+<input id="cr-name" bind:value={crName} placeholder="my-forward-rule"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Domain Name *</label>
-<input bind:value={crDomainName} placeholder="example.internal."
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cr-domain-name">Domain Name *</label>
+<input id="cr-domain-name" bind:value={crDomainName} placeholder="example.internal."
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Rule Type *</label>
-<select bind:value={crRuleType} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cr-rule-type">Rule Type *</label>
+<select id="cr-rule-type" bind:value={crRuleType} class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white">
 <option value="FORWARD">FORWARD</option>
 <option value="SYSTEM">SYSTEM</option>
 <option value="RECURSIVE">RECURSIVE</option>
@@ -941,13 +941,13 @@ class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gr
 </div>
 {#if crRuleType === 'FORWARD'}
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Resolver Endpoint ID</label>
-<input bind:value={crEndpointId} placeholder="rslvr-out-12345678"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cr-endpoint-id">Resolver Endpoint ID</label>
+<input id="cr-endpoint-id" bind:value={crEndpointId} placeholder="rslvr-out-12345678"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target IP (port 53)</label>
-<input bind:value={crTargetIp} placeholder="10.0.0.2"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="cr-target-ip">Target IP (port 53)</label>
+<input id="cr-target-ip" bind:value={crTargetIp} placeholder="10.0.0.2"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 {/if}
@@ -972,8 +972,8 @@ class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dis
 <button onclick={() => (showCreateFwGroup = false)} class="text-gray-400 hover:text-gray-600"><X class="w-5 h-5" /></button>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-<input bind:value={fwgName} placeholder="my-fw-rule-group"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="fwg-name">Name *</label>
+<input id="fwg-name" bind:value={fwgName} placeholder="my-fw-rule-group"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div class="flex justify-end gap-2 mt-5">
@@ -996,8 +996,8 @@ class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dis
 <button onclick={() => (showCreateDomainList = false)} class="text-gray-400 hover:text-gray-600"><X class="w-5 h-5" /></button>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-<input bind:value={dlName} placeholder="my-domain-blocklist"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="dl-name">Name *</label>
+<input id="dl-name" bind:value={dlName} placeholder="my-domain-blocklist"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div class="flex justify-end gap-2 mt-5">
@@ -1021,13 +1021,13 @@ class="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dis
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-<input bind:value={qlName} placeholder="my-query-log-config"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ql-name">Name *</label>
+<input id="ql-name" bind:value={qlName} placeholder="my-query-log-config"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination ARN * (CloudWatch Logs, S3, or Firehose)</label>
-<input bind:value={qlDestArn} placeholder="arn:aws:logs:us-east-1:000000000000:log-group:/resolver/queries"
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="ql-dest-arn">Destination ARN * (CloudWatch Logs, S3, or Firehose)</label>
+<input id="ql-dest-arn" bind:value={qlDestArn} placeholder="arn:aws:logs:us-east-1:000000000000:log-group:/resolver/queries"
 class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
 </div>
 </div>

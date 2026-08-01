@@ -488,23 +488,23 @@
 					<h3 class="font-medium">Create Wireless Device</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-device-name">Name *</label>
+							<input id="new-device-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-device"
 								bind:value={newDeviceName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Type</label>
-							<select class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDeviceType}>
+							<label class="text-sm font-medium" for="new-device-type">Type</label>
+							<select id="new-device-type" class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDeviceType}>
 								<option value="LoRaWAN">LoRaWAN</option>
 								<option value="Sidewalk">Sidewalk</option>
 							</select>
 						</div>
 						<div class="col-span-2">
-							<label class="text-sm font-medium">Destination Name</label>
-							<input
+							<label class="text-sm font-medium" for="new-device-destination">Destination Name</label>
+							<input id="new-device-destination"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-destination"
 								bind:value={newDeviceDestination}
@@ -593,16 +593,16 @@
 					<h3 class="font-medium">Create Wireless Gateway</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-gateway-name">Name *</label>
+							<input id="new-gateway-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-gateway"
 								bind:value={newGatewayName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Description</label>
-							<input
+							<label class="text-sm font-medium" for="new-gateway-description">Description</label>
+							<input id="new-gateway-description"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="Optional description"
 								bind:value={newGatewayDescription}
@@ -690,8 +690,8 @@
 				<div class="rounded border bg-muted/30 p-4 space-y-3">
 					<h3 class="font-medium">Create Service Profile</h3>
 					<div>
-						<label class="text-sm font-medium">Name *</label>
-						<input
+						<label class="text-sm font-medium" for="new-service-profile-name">Name *</label>
+						<input id="new-service-profile-name"
 							class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm max-w-sm"
 							placeholder="my-service-profile"
 							bind:value={newServiceProfileName}
@@ -777,31 +777,31 @@
 					<h3 class="font-medium">Create Destination</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-name">Name *</label>
+							<input id="new-destination-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-destination"
 								bind:value={newDestinationName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Expression Type</label>
-							<select class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDestinationExpressionType}>
+							<label class="text-sm font-medium" for="new-destination-expression-type">Expression Type</label>
+							<select id="new-destination-expression-type" class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDestinationExpressionType}>
 								<option value="RuleName">RuleName</option>
 								<option value="MqttTopic">MqttTopic</option>
 							</select>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Expression *</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-expression">Expression *</label>
+							<input id="new-destination-expression"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-iot-rule"
 								bind:value={newDestinationExpression}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Role ARN</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-role-arn">Role ARN</label>
+							<input id="new-destination-role-arn"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="arn:aws:iam::..."
 								bind:value={newDestinationRoleArn}
@@ -889,8 +889,8 @@
 				<div class="rounded border bg-muted/30 p-4 space-y-3">
 					<h3 class="font-medium">Create Device Profile</h3>
 					<div>
-						<label class="text-sm font-medium">Name *</label>
-						<input
+						<label class="text-sm font-medium" for="new-device-profile-name">Name *</label>
+						<input id="new-device-profile-name"
 							class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm max-w-sm"
 							placeholder="my-device-profile"
 							bind:value={newDeviceProfileName}
@@ -976,24 +976,24 @@
 					<h3 class="font-medium">Create FUOTA Task</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-name">Name *</label>
+							<input id="new-fuota-task-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-fuota-task"
 								bind:value={newFuotaTaskName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Firmware Update Role ARN</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-firmware-role">Firmware Update Role ARN</label>
+							<input id="new-fuota-task-firmware-role"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="arn:aws:iam::..."
 								bind:value={newFuotaTaskFirmwareRole}
 							/>
 						</div>
 						<div class="col-span-2">
-							<label class="text-sm font-medium">Firmware Image S3 URL *</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-firmware-image">Firmware Image S3 URL *</label>
+							<input id="new-fuota-task-firmware-image"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="s3://my-bucket/firmware.bin"
 								bind:value={newFuotaTaskFirmwareImage}

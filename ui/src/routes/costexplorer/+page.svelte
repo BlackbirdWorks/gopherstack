@@ -708,24 +708,24 @@
 				</h3>
 				<div class="grid grid-cols-2 gap-3">
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Start Date</label>
-						<input
+						<label class="text-xs text-muted-foreground" for="forecast-start">Start Date</label>
+						<input id="forecast-start"
 							type="date"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={forecastStart}
 						/>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">End Date</label>
-						<input
+						<label class="text-xs text-muted-foreground" for="forecast-end">End Date</label>
+						<input id="forecast-end"
 							type="date"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={forecastEnd}
 						/>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Metric</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="forecast-metric">Metric</label>
+						<select id="forecast-metric"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={forecastMetric}
 						>
@@ -736,8 +736,8 @@
 						</select>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Granularity</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="forecast-granularity">Granularity</label>
+						<select id="forecast-granularity"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={forecastGranularity}
 						>
@@ -781,8 +781,8 @@
 				</h3>
 				<div class="grid grid-cols-2 gap-3">
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Service</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="reservation-service">Service</label>
+						<select id="reservation-service"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={reservationService}
 						>
@@ -794,8 +794,8 @@
 						</select>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Lookback Period</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="reservation-lookback">Lookback Period</label>
+						<select id="reservation-lookback"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={reservationLookback}
 						>
@@ -805,8 +805,8 @@
 						</select>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Term</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="reservation-term">Term</label>
+						<select id="reservation-term"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={reservationTerm}
 						>
@@ -815,8 +815,8 @@
 						</select>
 					</div>
 					<div class="space-y-1">
-						<label class="text-xs text-muted-foreground">Payment Option</label>
-						<select
+						<label class="text-xs text-muted-foreground" for="reservation-payment">Payment Option</label>
+						<select id="reservation-payment"
 							class="w-full px-3 py-1.5 text-sm border rounded-md bg-background"
 							bind:value={reservationPayment}
 						>

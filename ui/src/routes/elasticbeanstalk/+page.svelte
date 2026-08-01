@@ -546,9 +546,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Source Environment</label
-						>
-						<select
+							 for="swapping-src">Source Environment</label>
+						<select id="swapping-src"
 							bind:value={swappingSrc}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -563,9 +562,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Destination Environment</label
-						>
-						<select
+							 for="swapping-dst">Destination Environment</label>
+						<select id="swapping-dst"
 							bind:value={swappingDst}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -602,9 +600,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<input
+							 for="new-app-name">Application Name *</label>
+						<input id="new-app-name"
 							bind:value={newAppName}
 							placeholder="my-application"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -612,9 +609,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-app-desc">Description</label>
+						<input id="new-app-desc"
 							bind:value={newAppDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -649,9 +645,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-env-app-name">Application Name *</label>
+						<select id="new-env-app-name"
 							bind:value={newEnvAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -663,9 +658,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Environment Name *</label
-						>
-						<input
+							 for="new-env-name">Environment Name *</label>
+						<input id="new-env-name"
 							bind:value={newEnvName}
 							placeholder="my-env"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -673,9 +667,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Solution Stack</label
-						>
-						<select
+							 for="new-env-solution-stack">Solution Stack</label>
+						<select id="new-env-solution-stack"
 							bind:value={newEnvSolutionStack}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -687,9 +680,8 @@
 					<!-- Tier Type (improvement #1) -->
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Environment Tier</label
-						>
-						<select
+							 for="new-env-tier-type">Environment Tier</label>
+						<select id="new-env-tier-type"
 							bind:value={newEnvTierType}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -701,9 +693,8 @@
 					{#if newEnvTierType === 'WebServer'}
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Load Balancer Type</label
-							>
-							<select
+								 for="new-env-lb-type">Load Balancer Type</label>
+							<select id="new-env-lb-type"
 								bind:value={newEnvLBType}
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 							>
@@ -716,9 +707,8 @@
 					<!-- VPC Config (improvement #15) -->
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>VPC ID</label
-						>
-						<input
+							 for="new-env-vpc-id">VPC ID</label>
+						<input id="new-env-vpc-id"
 							bind:value={newEnvVPCId}
 							placeholder="vpc-xxxxxxxx (optional)"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -726,9 +716,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Subnets</label
-						>
-						<input
+							 for="new-env-subnets">Subnets</label>
+						<input id="new-env-subnets"
 							bind:value={newEnvSubnets}
 							placeholder="subnet-xxx,subnet-yyy (optional)"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -736,9 +725,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-env-desc">Description</label>
+						<input id="new-env-desc"
 							bind:value={newEnvDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -773,9 +761,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-ver-app-name">Application Name *</label>
+						<select id="new-ver-app-name"
 							bind:value={newVerAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -787,9 +774,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Version Label *</label
-						>
-						<input
+							 for="new-ver-label">Version Label *</label>
+						<input id="new-ver-label"
 							bind:value={newVerLabel}
 							placeholder="v1.0.0"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -797,9 +783,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-ver-desc">Description</label>
+						<input id="new-ver-desc"
 							bind:value={newVerDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -850,9 +835,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-tmpl-app-name">Application Name *</label>
+						<select id="new-tmpl-app-name"
 							bind:value={newTmplAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -864,9 +848,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Template Name *</label
-						>
-						<input
+							 for="new-tmpl-name">Template Name *</label>
+						<input id="new-tmpl-name"
 							bind:value={newTmplName}
 							placeholder="my-template"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -874,9 +857,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Solution Stack</label
-						>
-						<select
+							 for="new-tmpl-stack">Solution Stack</label>
+						<select id="new-tmpl-stack"
 							bind:value={newTmplStack}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -915,9 +897,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Platform Name *</label
-						>
-						<input
+							 for="new-platform-name">Platform Name *</label>
+						<input id="new-platform-name"
 							bind:value={newPlatformName}
 							placeholder="MyCustomPlatform"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -925,9 +906,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Platform Version *</label
-						>
-						<input
+							 for="new-platform-version">Platform Version *</label>
+						<input id="new-platform-version"
 							bind:value={newPlatformVersion}
 							placeholder="1.0.0"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"

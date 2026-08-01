@@ -865,7 +865,15 @@
 				{#each filteredApis as api (api.ApiId)}
 					<div
 						class="flex cursor-pointer items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50 {selectedApi?.ApiId === api.ApiId ? 'ring-2 ring-primary' : ''}"
+						role="button"
+						tabindex="0"
 						onclick={() => loadApiDetail(api)}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								loadApiDetail(api);
+							}
+						}}
 					>
 						<div class="flex items-center gap-3 min-w-0">
 							<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-900/30">
@@ -1288,19 +1296,19 @@
 			<h2 class="mb-4 text-lg font-semibold">Create HTTP/WebSocket API</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newApiName} placeholder="my-api" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-api-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-api-name" bind:value={newApiName} placeholder="my-api" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Protocol</label>
-					<select bind:value={newApiProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-api-protocol">Protocol</label>
+					<select id="new-api-protocol" bind:value={newApiProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="HTTP">HTTP</option>
 						<option value="WEBSOCKET">WEBSOCKET</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={newApiDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-api-description">Description</label>
+					<input id="new-api-description" bind:value={newApiDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1320,12 +1328,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Route</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Route Key <span class="text-destructive">*</span></label>
-					<input bind:value={newRouteKey} placeholder="GET /items or $connect" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-route-key">Route Key <span class="text-destructive">*</span></label>
+					<input id="new-route-key" bind:value={newRouteKey} placeholder="GET /items or $connect" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Target (optional)</label>
-					<input bind:value={newRouteTarget} placeholder="integrations/&#123;integrationId&#125;" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-route-target">Target (optional)</label>
+					<input id="new-route-target" bind:value={newRouteTarget} placeholder="integrations/&#123;integrationId&#125;" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1345,12 +1353,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Stage</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Stage Name <span class="text-destructive">*</span></label>
-					<input bind:value={newStageName} placeholder="prod or $default" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-stage-name">Stage Name <span class="text-destructive">*</span></label>
+					<input id="new-stage-name" bind:value={newStageName} placeholder="prod or $default" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={newStageDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-stage-description">Description</label>
+					<input id="new-stage-description" bind:value={newStageDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={newStageAutoDeploy} id="autoDeploy" class="h-4 w-4" />
@@ -1374,8 +1382,8 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Integration</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Integration Type</label>
-					<select bind:value={newIntegType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-integ-type">Integration Type</label>
+					<select id="new-integ-type" bind:value={newIntegType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="AWS_PROXY">AWS_PROXY (Lambda)</option>
 						<option value="HTTP_PROXY">HTTP_PROXY</option>
 						<option value="HTTP">HTTP</option>
@@ -1384,13 +1392,13 @@
 				</div>
 				{#if newIntegType !== 'MOCK'}
 					<div>
-						<label class="mb-1 block text-sm font-medium">Integration URI</label>
-						<input bind:value={newIntegUri} placeholder="arn:aws:lambda:... or https://..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-integ-uri">Integration URI</label>
+						<input id="new-integ-uri" bind:value={newIntegUri} placeholder="arn:aws:lambda:... or https://..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 					{#if newIntegType === 'HTTP' || newIntegType === 'HTTP_PROXY'}
 						<div>
-							<label class="mb-1 block text-sm font-medium">HTTP Method</label>
-							<select bind:value={newIntegMethod} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+							<label class="mb-1 block text-sm font-medium" for="new-integ-method">HTTP Method</label>
+							<select id="new-integ-method" bind:value={newIntegMethod} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 								{#each ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY'] as m (m)}
 									<option>{m}</option>
 								{/each}
@@ -1416,28 +1424,28 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Authorizer</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newAuthName} placeholder="my-jwt-authorizer" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-auth-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-auth-name" bind:value={newAuthName} placeholder="my-jwt-authorizer" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Type</label>
-					<select bind:value={newAuthType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-auth-type">Type</label>
+					<select id="new-auth-type" bind:value={newAuthType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="JWT">JWT</option>
 						<option value="REQUEST">REQUEST (Lambda)</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Identity Source</label>
-					<input bind:value={newAuthIdentitySource} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-auth-identity-source">Identity Source</label>
+					<input id="new-auth-identity-source" bind:value={newAuthIdentitySource} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				{#if newAuthType === 'JWT'}
 					<div>
-						<label class="mb-1 block text-sm font-medium">JWT Issuer</label>
-						<input bind:value={newAuthIssuer} placeholder="https://cognito-idp.us-east-1.amazonaws.com/..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-auth-issuer">JWT Issuer</label>
+						<input id="new-auth-issuer" bind:value={newAuthIssuer} placeholder="https://cognito-idp.us-east-1.amazonaws.com/..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm font-medium">Audience</label>
-						<input bind:value={newAuthAudience} placeholder="my-client-id" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-auth-audience">Audience</label>
+						<input id="new-auth-audience" bind:value={newAuthAudience} placeholder="my-client-id" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 				{/if}
 			</div>
@@ -1458,13 +1466,13 @@
 			<h2 class="mb-4 text-lg font-semibold">Deploy API</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Stage Name</label>
-					<input bind:value={deployStageName} placeholder="$default or prod" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="deploy-stage-name">Stage Name</label>
+					<input id="deploy-stage-name" bind:value={deployStageName} placeholder="$default or prod" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					<p class="mt-1 text-xs text-muted-foreground">Leave as $default for HTTP APIs or choose an existing stage</p>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={deployDescription} placeholder="Optional deployment description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="deploy-description">Description</label>
+					<input id="deploy-description" bind:value={deployDescription} placeholder="Optional deployment description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1484,12 +1492,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Create Custom Domain</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Domain Name <span class="text-destructive">*</span></label>
-					<input bind:value={newDomainName} placeholder="api.example.com" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-domain-name">Domain Name <span class="text-destructive">*</span></label>
+					<input id="new-domain-name" bind:value={newDomainName} placeholder="api.example.com" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Certificate ARN (optional)</label>
-					<input bind:value={newDomainCertArn} placeholder="arn:aws:acm:..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-domain-cert-arn">Certificate ARN (optional)</label>
+					<input id="new-domain-cert-arn" bind:value={newDomainCertArn} placeholder="arn:aws:acm:..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1509,12 +1517,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Create VPC Link</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newVpcLinkName} placeholder="my-vpc-link" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-vpc-link-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-vpc-link-name" bind:value={newVpcLinkName} placeholder="my-vpc-link" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Subnet IDs (comma-separated)</label>
-					<input bind:value={newVpcLinkSubnets} placeholder="subnet-aaa, subnet-bbb" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-vpc-link-subnets">Subnet IDs (comma-separated)</label>
+					<input id="new-vpc-link-subnets" bind:value={newVpcLinkSubnets} placeholder="subnet-aaa, subnet-bbb" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">

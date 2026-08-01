@@ -963,33 +963,33 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Identifier *</label>
-<input bind:value={clusterForm.DBClusterIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-cluster-identifier">Cluster Identifier *</label>
+<input id="db-cluster-identifier" bind:value={clusterForm.DBClusterIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Master Username</label>
-<input bind:value={clusterForm.MasterUsername} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="master-username">Master Username</label>
+<input id="master-username" bind:value={clusterForm.MasterUsername} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Master Password</label>
-<input bind:value={clusterForm.MasterUserPassword} type="password" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="master-user-password">Master Password</label>
+<input id="master-user-password" bind:value={clusterForm.MasterUserPassword} type="password" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine</label>
-<select bind:value={clusterForm.Engine} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine">Engine</label>
+<select id="engine" bind:value={clusterForm.Engine} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
   <option value="docdb">docdb</option>
 </select>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine Version</label>
-<select bind:value={clusterForm.EngineVersion} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine-version">Engine Version</label>
+<select id="engine-version" bind:value={clusterForm.EngineVersion} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
   <option value="4.0.0">4.0.0</option>
   <option value="5.0.0">5.0.0</option>
 </select>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Backup Retention Period (days)</label>
-<input bind:value={clusterForm.BackupRetentionPeriod} type="number" min="1" max="35" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="backup-retention-period">Backup Retention Period (days)</label>
+<input id="backup-retention-period" bind:value={clusterForm.BackupRetentionPeriod} type="number" min="1" max="35" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div class="flex gap-4">
 <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
@@ -1018,16 +1018,16 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Instance Identifier *</label>
-<input bind:value={instanceForm.DBInstanceIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-instance-identifier">Instance Identifier *</label>
+<input id="db-instance-identifier" bind:value={instanceForm.DBInstanceIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster Identifier *</label>
-<input bind:value={instanceForm.DBClusterIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-cluster-identifier-2">Cluster Identifier *</label>
+<input id="db-cluster-identifier-2" bind:value={instanceForm.DBClusterIdentifier} type="text" required class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Instance Class</label>
-<select bind:value={instanceForm.DBInstanceClass} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-instance-class">Instance Class</label>
+<select id="db-instance-class" bind:value={instanceForm.DBInstanceClass} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
 <option value="db.t3.medium">db.t3.medium</option>
 <option value="db.r5.large">db.r5.large</option>
 <option value="db.r5.xlarge">db.r5.xlarge</option>
@@ -1038,8 +1038,8 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </select>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine</label>
-<input bind:value={instanceForm.Engine} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine-2">Engine</label>
+<input id="engine-2" bind:value={instanceForm.Engine} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 </div>
 <div class="flex justify-end gap-3 pt-2">
@@ -1060,12 +1060,12 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Snapshot Identifier</label>
-<input bind:value={snapshotForm.DBClusterSnapshotIdentifier} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-cluster-snapshot-identifier">Snapshot Identifier</label>
+<input id="db-cluster-snapshot-identifier" bind:value={snapshotForm.DBClusterSnapshotIdentifier} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cluster</label>
-<select bind:value={snapshotForm.DBClusterIdentifier} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-cluster-identifier-3">Cluster</label>
+<select id="db-cluster-identifier-3" bind:value={snapshotForm.DBClusterIdentifier} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
 <option value="">Select cluster...</option>
 {#each clusters as c}
 <option value={c.DBClusterIdentifier}>{c.DBClusterIdentifier}</option>
@@ -1091,19 +1091,19 @@ class={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-co
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Group Name</label>
-<input bind:value={paramGroupForm.DBClusterParameterGroupName} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-cluster-parameter-group-name">Group Name</label>
+<input id="db-cluster-parameter-group-name" bind:value={paramGroupForm.DBClusterParameterGroupName} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Family</label>
-<select bind:value={paramGroupForm.DBParameterGroupFamily} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="db-parameter-group-family">Family</label>
+<select id="db-parameter-group-family" bind:value={paramGroupForm.DBParameterGroupFamily} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
   <option value="docdb4.0">docdb4.0</option>
   <option value="docdb5.0">docdb5.0</option>
 </select>
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
-<input bind:value={paramGroupForm.Description} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="description">Description</label>
+<input id="description" bind:value={paramGroupForm.Description} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 </div>
 <div class="flex justify-end gap-3 pt-2">
@@ -1176,16 +1176,16 @@ class="w-full px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-w
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Global Cluster Identifier</label>
-<input bind:value={globalForm.GlobalClusterIdentifier} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="global-cluster-identifier">Global Cluster Identifier</label>
+<input id="global-cluster-identifier" bind:value={globalForm.GlobalClusterIdentifier} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine</label>
-<input bind:value={globalForm.Engine} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine-3">Engine</label>
+<input id="engine-3" bind:value={globalForm.Engine} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Engine Version</label>
-<input bind:value={globalForm.EngineVersion} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="engine-version-2">Engine Version</label>
+<input id="engine-version-2" bind:value={globalForm.EngineVersion} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 </div>
 <div class="flex justify-end gap-3 pt-2">
@@ -1206,16 +1206,16 @@ class="w-full px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-w
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription Name</label>
-<input bind:value={eventForm.SubscriptionName} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="subscription-name">Subscription Name</label>
+<input id="subscription-name" bind:value={eventForm.SubscriptionName} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SNS Topic ARN</label>
-<input bind:value={eventForm.SnsTopicArn} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sns-topic-arn">SNS Topic ARN</label>
+<input id="sns-topic-arn" bind:value={eventForm.SnsTopicArn} type="text" class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 </div>
 <div>
-<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Source Type</label>
-<select bind:value={eventForm.SourceType} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
+<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="source-type">Source Type</label>
+<select id="source-type" bind:value={eventForm.SourceType} class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
 <option value="db-cluster">db-cluster</option>
 <option value="db-instance">db-instance</option>
 <option value="db-cluster-snapshot">db-cluster-snapshot</option>

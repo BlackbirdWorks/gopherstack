@@ -953,15 +953,15 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Add Rule</h4>
 <div class="flex flex-wrap gap-2 items-end">
 <div>
-<label class="block text-xs text-slate-500 mb-1">Direction</label>
-<select bind:value={addRuleDirection} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<label class="block text-xs text-slate-500 mb-1" for="add-rule-direction">Direction</label>
+<select id="add-rule-direction" bind:value={addRuleDirection} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
 <option value="inbound">Inbound</option>
 <option value="outbound">Outbound</option>
 </select>
 </div>
 <div>
-<label class="block text-xs text-slate-500 mb-1">Protocol</label>
-<select bind:value={newRuleProtocol} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-protocol">Protocol</label>
+<select id="new-rule-protocol" bind:value={newRuleProtocol} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
 <option value="tcp">TCP</option>
 <option value="udp">UDP</option>
 <option value="icmp">ICMP</option>
@@ -970,17 +970,17 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </div>
 {#if newRuleProtocol !== 'all'}
 <div>
-<label class="block text-xs text-slate-500 mb-1">From Port</label>
-<input type="number" bind:value={newRuleFromPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-from-port">From Port</label>
+<input id="new-rule-from-port" type="number" bind:value={newRuleFromPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 <div>
-<label class="block text-xs text-slate-500 mb-1">To Port</label>
-<input type="number" bind:value={newRuleToPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-to-port">To Port</label>
+<input id="new-rule-to-port" type="number" bind:value={newRuleToPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 {/if}
 <div>
-<label class="block text-xs text-slate-500 mb-1">CIDR</label>
-<input type="text" bind:value={newRuleCidr} placeholder="0.0.0.0/0" class="w-36 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-cidr">CIDR</label>
+<input id="new-rule-cidr" type="text" bind:value={newRuleCidr} placeholder="0.0.0.0/0" class="w-36 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 <button onclick={addSgRule} disabled={addingRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">{addingRule ? 'Adding…' : 'Add Rule'}</button>
 </div>

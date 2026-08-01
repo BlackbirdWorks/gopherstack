@@ -388,8 +388,8 @@
 				<p class="text-[10px] text-slate-500 italic mb-4 leading-relaxed">Enable Shield Advanced to automatically deploy WAF rules in response to Layer 7 DDoS attacks on a protected resource.</p>
 				<div class="space-y-3">
 					<div>
-						<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block">Resource ARN</label>
-						<input
+						<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block" for="alar-resource-arn">Resource ARN</label>
+						<input id="alar-resource-arn"
 							type="text"
 							bind:value={alarResourceArn}
 							placeholder="arn:aws:elasticloadbalancing:..."
@@ -397,7 +397,7 @@
 						/>
 					</div>
 					<div>
-						<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block">Mitigation Action</label>
+						<div class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block">Mitigation Action</div>
 						<div class="flex gap-2">
 							<button
 								onclick={() => alarAction = 'COUNT'}
@@ -543,8 +543,8 @@
 			</p>
 			<div class="space-y-3">
 				<div>
-					<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block">IAM Role ARN</label>
-					<input
+					<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block" for="drt-role-arn">IAM Role ARN</label>
+					<input id="drt-role-arn"
 						type="text"
 						bind:value={drtRoleArn}
 						placeholder="arn:aws:iam::123456789012:role/ShieldDRTRole"
@@ -585,8 +585,8 @@
 			</p>
 			<div class="space-y-3">
 				<div>
-					<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block">S3 Bucket Name</label>
-					<input
+					<label class="text-[9px] font-black uppercase tracking-widest text-slate-500 italic mb-1 block" for="drt-log-bucket">S3 Bucket Name</label>
+					<input id="drt-log-bucket"
 						type="text"
 						bind:value={drtLogBucket}
 						placeholder="my-shield-flow-logs-bucket"
@@ -623,10 +623,11 @@
 					{ step: '02', title: 'Auto Mitigate', desc: 'Shield applies inline network mitigations automatically. ALAR deploys WAF rules for Layer 7 events if enabled.', icon: Zap, color: 'text-amber-400' },
 					{ step: '03', title: 'DRT Engages', desc: 'If mitigations are insufficient, the Shield Response Team engages using associated IAM role and log access.', icon: PhoneCall, color: 'text-emerald-400' }
 				] as step}
+					{@const StepIcon = step.icon}
 					<div class="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
 						<div class="flex items-center gap-3 mb-3">
 							<span class="text-[9px] font-black text-slate-500 font-mono">STEP {step.step}</span>
-							<svelte:component this={step.icon} class="w-4 h-4 {step.color}" />
+							<StepIcon class="w-4 h-4 {step.color}" />
 						</div>
 						<h4 class="text-sm font-black text-white italic mb-2 tracking-tight">{step.title}</h4>
 						<p class="text-[10px] text-slate-400 italic leading-relaxed">{step.desc}</p>

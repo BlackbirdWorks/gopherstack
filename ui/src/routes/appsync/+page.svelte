@@ -871,8 +871,8 @@
 							{/if}
 
 							<div>
-								<label class="block text-xs font-medium mb-1 text-muted-foreground">Request Mapping Template (VTL)</label>
-								<textarea
+								<label class="block text-xs font-medium mb-1 text-muted-foreground" for="resolver-request-vtl">Request Mapping Template (VTL)</label>
+								<textarea id="resolver-request-vtl"
 									bind:value={resolverRequestVTL}
 									rows={8}
 									placeholder="&#123;&#10;  &quot;version&quot;: &quot;2018-05-29&quot;,&#10;  &quot;operation&quot;: &quot;Invoke&quot;&#10;&#125;"
@@ -881,8 +881,8 @@
 							</div>
 
 							<div>
-								<label class="block text-xs font-medium mb-1 text-muted-foreground">Response Mapping Template (VTL)</label>
-								<textarea
+								<label class="block text-xs font-medium mb-1 text-muted-foreground" for="resolver-response-vtl">Response Mapping Template (VTL)</label>
+								<textarea id="resolver-response-vtl"
 									bind:value={resolverResponseVTL}
 									rows={8}
 									placeholder="$util.toJson($context.result)"
@@ -938,16 +938,16 @@
 
 				<div class="grid grid-cols-2 gap-4">
 					<div class="space-y-2">
-						<label class="block text-sm font-medium">Query / Mutation</label>
-						<textarea
+						<label class="block text-sm font-medium" for="gql-query">Query / Mutation</label>
+						<textarea id="gql-query"
 							bind:value={gqlQuery}
 							rows={14}
 							class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"
 						></textarea>
 					</div>
 					<div class="space-y-2">
-						<label class="block text-sm font-medium">Variables (JSON)</label>
-						<textarea
+						<label class="block text-sm font-medium" for="gql-variables">Variables (JSON)</label>
+						<textarea id="gql-variables"
 							bind:value={gqlVariables}
 							rows={6}
 							class="w-full rounded-md border bg-background px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary resize-y"

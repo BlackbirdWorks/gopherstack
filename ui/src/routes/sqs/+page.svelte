@@ -1028,8 +1028,8 @@ title="Delete message"
 ['ReceiveMessageWaitTimeSeconds', 'Receive Wait Time (s)', '0', '20']
 ] as [attr, label, min, max]}
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
-<input
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="edit-attrs">{label}</label>
+<input id="edit-attrs"
 type="number"
 bind:value={editAttrs[attr]}
 min={min}
@@ -1046,8 +1046,8 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <AlertCircle class="w-4 h-4 text-orange-500" /> Dead Letter Queue (Redrive Policy)
 </h3>
 <div>
-<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">DLQ ARN <span class="text-slate-400 font-normal">(leave blank to remove)</span></label>
-<input
+<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1" for="edit-redrive-target-arn">DLQ ARN <span class="text-slate-400 font-normal">(leave blank to remove)</span></label>
+<input id="edit-redrive-target-arn"
 type="text"
 bind:value={editRedriveTargetArn}
 placeholder="arn:aws:sqs:us-east-1:000000000000:my-dlq"
@@ -1491,8 +1491,8 @@ class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 
 </div>
 <textarea bind:value={msg.body} rows="3" placeholder="Message body" class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
 <div class="flex items-center gap-2">
-<label class="text-xs text-slate-500">Delay (s):</label>
-<input type="number" bind:value={msg.delay} min="0" max="900" class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="text-xs text-slate-500" for="delay">Delay (s):</label>
+<input id="delay" type="number" bind:value={msg.delay} min="0" max="900" class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 </div>
 {/each}

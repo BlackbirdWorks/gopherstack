@@ -848,12 +848,12 @@
 			<h3 class="text-xl font-black text-slate-900 dark:text-white mb-5 uppercase italic">Execute — {selectedSM?.name}</h3>
 			<form onsubmit={(e) => { e.preventDefault(); startExecution(); }} class="space-y-4">
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Name <span class="text-slate-400 normal-case font-normal">(optional)</span></label>
-					<input bind:value={executionName} type="text" placeholder="my-execution" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
+					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="execution-name">Name <span class="text-slate-400 normal-case font-normal">(optional)</span></label>
+					<input id="execution-name" bind:value={executionName} type="text" placeholder="my-execution" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
 				</div>
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Input JSON</label>
-					<textarea bind:value={executionInput} rows="7" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
+					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="execution-input">Input JSON</label>
+					<textarea id="execution-input" bind:value={executionInput} rows="7" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
 				</div>
 				<div class="flex gap-3">
 					<button type="button" onclick={() => showStartModal = false} class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
@@ -875,23 +875,23 @@
 			<form onsubmit={(e) => { e.preventDefault(); createSM(); }} class="space-y-4">
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Name</label>
-						<input bind:value={newSMName} type="text" placeholder="my-workflow" required class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
+						<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="new-sm-name">Name</label>
+						<input id="new-sm-name" bind:value={newSMName} type="text" placeholder="my-workflow" required class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
 					</div>
 					<div>
-						<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Type</label>
-						<select bind:value={newSMType} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm">
+						<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="new-sm-type">Type</label>
+						<select id="new-sm-type" bind:value={newSMType} class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm">
 							<option>STANDARD</option><option>EXPRESS</option>
 						</select>
 					</div>
 				</div>
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Role ARN</label>
-					<input bind:value={newSMRoleArn} type="text" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm font-mono" />
+					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="new-sm-role-arn">Role ARN</label>
+					<input id="new-sm-role-arn" bind:value={newSMRoleArn} type="text" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm font-mono" />
 				</div>
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">ASL Definition</label>
-					<textarea bind:value={newSMDefinition} rows="10" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
+					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="new-sm-definition">ASL Definition</label>
+					<textarea id="new-sm-definition" bind:value={newSMDefinition} rows="10" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
 				</div>
 				<div class="flex gap-3">
 					<button type="button" onclick={() => showCreateModal = false} class="flex-1 px-4 py-3 bg-slate-100 dark:bg-slate-700 rounded-2xl font-black uppercase text-[10px] tracking-widest">Cancel</button>
@@ -912,15 +912,15 @@
 			<h3 class="text-xl font-black text-slate-900 dark:text-white mb-5 uppercase italic">Edit — {selectedSM?.name}</h3>
 			<form onsubmit={(e) => { e.preventDefault(); updateSM(); }} class="space-y-4">
 				<div>
-					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5">Role ARN</label>
-					<input bind:value={editRoleArn} type="text" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm font-mono" />
+					<label class="block text-[10px] font-black text-slate-500 uppercase mb-1.5" for="edit-role-arn">Role ARN</label>
+					<input id="edit-role-arn" bind:value={editRoleArn} type="text" class="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm font-mono" />
 				</div>
 				<div>
 					<div class="flex items-center justify-between mb-1.5">
-						<label class="block text-[10px] font-black text-slate-500 uppercase">ASL Definition</label>
+						<label for="edit-definition" class="block text-[10px] font-black text-slate-500 uppercase">ASL Definition</label>
 						<button type="button" disabled={validating} onclick={validateDefinition} class="px-2 py-1 bg-indigo-600 text-white rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-50">{validating ? 'Validating...' : 'Validate'}</button>
 					</div>
-					<textarea bind:value={editDefinition} rows="12" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
+					<textarea id="edit-definition" bind:value={editDefinition} rows="12" class="w-full px-4 py-3 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl outline-none focus:ring-2 focus:ring-pink-500 font-mono text-xs"></textarea>
 					{#if validationResult}
 						<div class="mt-2 p-2 rounded-lg text-[10px] font-mono whitespace-pre-wrap {validationResult.ok ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-900/50' : 'bg-rose-950/40 text-rose-300 border border-rose-900/50'}">{validationResult.message}</div>
 					{/if}

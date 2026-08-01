@@ -656,29 +656,29 @@
 			</div>
 			<div class="p-6 space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Name <span class="text-red-500">*</span></label>
-					<input bind:value={newName} type="text" placeholder="my-airflow-env" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-name">Name <span class="text-red-500">*</span></label>
+					<input id="new-name" bind:value={newName} type="text" placeholder="my-airflow-env" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">DAGs S3 Path <span class="text-red-500">*</span></label>
-					<input bind:value={newDagS3Path} type="text" placeholder="dags/" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-dag-s3-path">DAGs S3 Path <span class="text-red-500">*</span></label>
+					<input id="new-dag-s3-path" bind:value={newDagS3Path} type="text" placeholder="dags/" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Execution Role ARN <span class="text-red-500">*</span></label>
-					<input bind:value={newExecutionRoleArn} type="text" placeholder="arn:aws:iam::123456789012:role/MyRole" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-execution-role-arn">Execution Role ARN <span class="text-red-500">*</span></label>
+					<input id="new-execution-role-arn" bind:value={newExecutionRoleArn} type="text" placeholder="arn:aws:iam::123456789012:role/MyRole" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Source Bucket ARN <span class="text-red-500">*</span></label>
-					<input bind:value={newSourceBucketArn} type="text" placeholder="arn:aws:s3:::my-airflow-bucket" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-source-bucket-arn">Source Bucket ARN <span class="text-red-500">*</span></label>
+					<input id="new-source-bucket-arn" bind:value={newSourceBucketArn} type="text" placeholder="arn:aws:s3:::my-airflow-bucket" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Airflow Version</label>
-						<input bind:value={newAirflowVersion} type="text" placeholder="2.10.3" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-airflow-version">Airflow Version</label>
+						<input id="new-airflow-version" bind:value={newAirflowVersion} type="text" placeholder="2.10.3" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Environment Class</label>
-						<select bind:value={newEnvClass} class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-env-class">Environment Class</label>
+						<select id="new-env-class" bind:value={newEnvClass} class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
 							<option value="mw1.small">mw1.small</option>
 							<option value="mw1.medium">mw1.medium</option>
 							<option value="mw1.large">mw1.large</option>
@@ -688,20 +688,20 @@
 					</div>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Webserver Access Mode</label>
-					<select bind:value={newAccessMode} class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-access-mode">Webserver Access Mode</label>
+					<select id="new-access-mode" bind:value={newAccessMode} class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
 						<option value="PUBLIC_ONLY">PUBLIC_ONLY</option>
 						<option value="PRIVATE_ONLY">PRIVATE_ONLY</option>
 					</select>
 				</div>
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Min Workers</label>
-						<input bind:value={newMinWorkers} type="number" min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-min-workers">Min Workers</label>
+						<input id="new-min-workers" bind:value={newMinWorkers} type="number" min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Max Workers</label>
-						<input bind:value={newMaxWorkers} type="number" min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-max-workers">Max Workers</label>
+						<input id="new-max-workers" bind:value={newMaxWorkers} type="number" min="1" class="w-full px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
 					</div>
 				</div>
 			</div>

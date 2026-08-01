@@ -802,25 +802,25 @@
 							<h2 class="text-lg font-semibold text-slate-900 dark:text-white">Health Check</h2>
 							<form onsubmit={(e) => { e.preventDefault(); saveHealthCheck(); }} class="space-y-3">
 								<div>
-									<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Target (e.g. HTTP:80/health)</label>
-									<input bind:value={hcTarget} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+									<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="hc-target">Target (e.g. HTTP:80/health)</label>
+									<input id="hc-target" bind:value={hcTarget} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 								</div>
 								<div class="grid grid-cols-2 gap-3">
 									<div>
-										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Interval (s)</label>
-										<input type="number" bind:value={hcInterval} min="5" max="300" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="hc-interval">Interval (s)</label>
+										<input id="hc-interval" type="number" bind:value={hcInterval} min="5" max="300" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 									</div>
 									<div>
-										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Timeout (s)</label>
-										<input type="number" bind:value={hcTimeout} min="2" max="60" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="hc-timeout">Timeout (s)</label>
+										<input id="hc-timeout" type="number" bind:value={hcTimeout} min="2" max="60" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 									</div>
 									<div>
-										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Healthy Threshold</label>
-										<input type="number" bind:value={hcHealthy} min="2" max="10" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="hc-healthy">Healthy Threshold</label>
+										<input id="hc-healthy" type="number" bind:value={hcHealthy} min="2" max="10" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 									</div>
 									<div>
-										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Unhealthy Threshold</label>
-										<input type="number" bind:value={hcUnhealthy} min="2" max="10" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="hc-unhealthy">Unhealthy Threshold</label>
+										<input id="hc-unhealthy" type="number" bind:value={hcUnhealthy} min="2" max="10" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 									</div>
 								</div>
 								<div class="flex justify-end">
@@ -845,13 +845,13 @@
 								</label>
 								{#if attrDraining}
 									<div class="ml-7">
-										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Draining Timeout (s)</label>
-										<input type="number" bind:value={attrDrainingTimeout} min="1" max="3600" class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+										<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="attr-draining-timeout">Draining Timeout (s)</label>
+										<input id="attr-draining-timeout" type="number" bind:value={attrDrainingTimeout} min="1" max="3600" class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 									</div>
 								{/if}
 								<div>
-									<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Idle Timeout (s)</label>
-									<input type="number" bind:value={attrIdleTimeout} min="1" max="3600" class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+									<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="attr-idle-timeout">Idle Timeout (s)</label>
+									<input id="attr-idle-timeout" type="number" bind:value={attrIdleTimeout} min="1" max="3600" class="mt-1 w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 								</div>
 								<div class="flex justify-end">
 									<button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">Save</button>
@@ -984,26 +984,26 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Create Load Balancer</h2>
 			<form onsubmit={(e) => { e.preventDefault(); createLoadBalancer(); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Name</label>
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="name">Name</label>
 					<input id="name" bind:value={newName} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="my-lb" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Availability Zone</label>
-					<input bind:value={newAZ} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="new-az">Availability Zone</label>
+					<input id="new-az" bind:value={newAZ} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">LB Port</label>
-						<input type="number" bind:value={newListenerPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="new-listener-port">LB Port</label>
+						<input id="new-listener-port" type="number" bind:value={newListenerPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Instance Port</label>
-						<input type="number" bind:value={newInstancePort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="new-instance-port">Instance Port</label>
+						<input id="new-instance-port" type="number" bind:value={newInstancePort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 					</div>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Scheme</label>
-					<select bind:value={newScheme} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="new-scheme">Scheme</label>
+					<select id="new-scheme" bind:value={newScheme} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
 						<option value="internet-facing">internet-facing</option>
 						<option value="internal">internal</option>
 					</select>
@@ -1024,8 +1024,8 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Add Listener</h2>
 			<form onsubmit={(e) => { e.preventDefault(); addListener(); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Protocol</label>
-					<select bind:value={listenerProto} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="listener-proto">Protocol</label>
+					<select id="listener-proto" bind:value={listenerProto} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
 						<option>HTTP</option>
 						<option>HTTPS</option>
 						<option>TCP</option>
@@ -1034,18 +1034,18 @@
 				</div>
 				<div class="grid grid-cols-2 gap-3">
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">LB Port</label>
-						<input type="number" bind:value={listenerLBPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="listener-lb-port">LB Port</label>
+						<input id="listener-lb-port" type="number" bind:value={listenerLBPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Instance Port</label>
-						<input type="number" bind:value={listenerInstPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="listener-inst-port">Instance Port</label>
+						<input id="listener-inst-port" type="number" bind:value={listenerInstPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 					</div>
 				</div>
 				{#if listenerProto === 'HTTPS' || listenerProto === 'SSL'}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">SSL Certificate ARN</label>
-						<input bind:value={listenerCertARN} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="arn:aws:acm:…" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="listener-cert-arn">SSL Certificate ARN</label>
+						<input id="listener-cert-arn" bind:value={listenerCertARN} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="arn:aws:acm:…" />
 					</div>
 				{/if}
 				<div class="flex justify-end gap-3 pt-2">
@@ -1064,12 +1064,12 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Set SSL Certificate</h2>
 			<form onsubmit={(e) => { e.preventDefault(); setSSLCertificate(); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Listener Port</label>
-					<input type="number" bind:value={sslPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="ssl-port">Listener Port</label>
+					<input id="ssl-port" type="number" bind:value={sslPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">SSL Certificate ARN</label>
-					<input bind:value={sslCertARN} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="arn:aws:acm:…" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="ssl-cert-arn">SSL Certificate ARN</label>
+					<input id="ssl-cert-arn" bind:value={sslCertARN} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="arn:aws:acm:…" />
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => (showSSLModal = false)} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300">Cancel</button>
@@ -1087,12 +1087,12 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Set Listener Policies</h2>
 			<form onsubmit={(e) => { e.preventDefault(); setListenerPolicies(); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Listener Port</label>
-					<input type="number" bind:value={lpPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="lp-port">Listener Port</label>
+					<input id="lp-port" type="number" bind:value={lpPort} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Policy Names (comma-separated)</label>
-					<input bind:value={lpPolicyInput} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="pol-1, pol-2" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="lp-policy-input">Policy Names (comma-separated)</label>
+					<input id="lp-policy-input" bind:value={lpPolicyInput} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="pol-1, pol-2" />
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => (showListenerPoliciesModal = false)} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300">Cancel</button>
@@ -1110,25 +1110,25 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Create Policy</h2>
 			<form onsubmit={(e) => { e.preventDefault(); addPolicy(); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Type</label>
-					<select bind:value={policyType} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="policy-type">Type</label>
+					<select id="policy-type" bind:value={policyType} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white">
 						<option value="lb-cookie">LB Cookie Stickiness</option>
 						<option value="app-cookie">App Cookie Stickiness</option>
 					</select>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Policy Name</label>
-					<input bind:value={policyName} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="my-policy" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="policy-name">Policy Name</label>
+					<input id="policy-name" bind:value={policyName} required class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="my-policy" />
 				</div>
 				{#if policyType === 'app-cookie'}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Cookie Name</label>
-						<input bind:value={policyCookieName} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="SESSIONID" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="policy-cookie-name">Cookie Name</label>
+						<input id="policy-cookie-name" bind:value={policyCookieName} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="SESSIONID" />
 					</div>
 				{:else}
 					<div>
-						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Cookie Expiry (s, 0 = browser session)</label>
-						<input type="number" bind:value={policyExpiry} min="0" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
+						<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="policy-expiry">Cookie Expiry (s, 0 = browser session)</label>
+						<input id="policy-expiry" type="number" bind:value={policyExpiry} min="0" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" />
 					</div>
 				{/if}
 				<div class="flex justify-end gap-3 pt-2">
@@ -1147,8 +1147,8 @@
 			<h2 class="mb-4 text-lg font-semibold text-slate-900 dark:text-white">Backend Server Policies (port {bsdPort})</h2>
 			<form onsubmit={(e) => { e.preventDefault(); setBackendPolicies(bsdPort); }} class="space-y-3">
 				<div>
-					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Policy Names (comma-separated)</label>
-					<input bind:value={bsdPolicyInput} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="pol-1, pol-2" />
+					<label class="block text-sm font-medium text-slate-700 dark:text-slate-300" for="bsd-policy-input">Policy Names (comma-separated)</label>
+					<input id="bsd-policy-input" bind:value={bsdPolicyInput} class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-900 dark:text-white" placeholder="pol-1, pol-2" />
 				</div>
 				<div class="flex justify-end gap-3 pt-2">
 					<button type="button" onclick={() => (showBackendPoliciesModal = false)} class="px-4 py-2 text-sm text-slate-600 dark:text-slate-300">Cancel</button>

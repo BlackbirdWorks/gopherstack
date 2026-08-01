@@ -1410,7 +1410,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create User Modal ─── -->
 {#if showCreateUser}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateUser = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateUser = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateUser = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM User</h2>
@@ -1418,12 +1418,12 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">User Name *</label>
-<input type="text" bind:value={newUserName} placeholder="e.g. alice" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-user-name">User Name *</label>
+<input id="new-user-name" type="text" bind:value={newUserName} placeholder="e.g. alice" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newUserPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-user-path">Path</label>
+<input id="new-user-path" type="text" bind:value={newUserPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1436,7 +1436,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Role Modal ─── -->
 {#if showCreateRole}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateRole = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateRole = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateRole = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Role</h2>
@@ -1444,16 +1444,16 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role Name *</label>
-<input type="text" bind:value={newRoleName} placeholder="e.g. EC2AdminRole" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-name">Role Name *</label>
+<input id="new-role-name" type="text" bind:value={newRoleName} placeholder="e.g. EC2AdminRole" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newRolePath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-path">Path</label>
+<input id="new-role-path" type="text" bind:value={newRolePath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Trust Policy (JSON)</label>
-<textarea bind:value={newRoleTrustPolicy} rows={6} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-trust-policy">Trust Policy (JSON)</label>
+<textarea id="new-role-trust-policy" bind:value={newRoleTrustPolicy} rows={6} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1466,7 +1466,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Group Modal ─── -->
 {#if showCreateGroup}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateGroup = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateGroup = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateGroup = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Group</h2>
@@ -1474,12 +1474,12 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Group Name *</label>
-<input type="text" bind:value={newGroupName} placeholder="e.g. Developers" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-group-name">Group Name *</label>
+<input id="new-group-name" type="text" bind:value={newGroupName} placeholder="e.g. Developers" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newGroupPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-group-path">Path</label>
+<input id="new-group-path" type="text" bind:value={newGroupPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1492,7 +1492,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Policy Modal ─── -->
 {#if showCreatePolicy}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreatePolicy = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreatePolicy = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreatePolicy = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Policy</h2>
@@ -1500,16 +1500,16 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Policy Name *</label>
-<input type="text" bind:value={newPolicyName} placeholder="e.g. S3ReadOnlyAccess" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-name">Policy Name *</label>
+<input id="new-policy-name" type="text" bind:value={newPolicyName} placeholder="e.g. S3ReadOnlyAccess" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newPolicyPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-path">Path</label>
+<input id="new-policy-path" type="text" bind:value={newPolicyPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Policy Document (JSON)</label>
-<textarea bind:value={newPolicyDoc} rows={8} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-doc">Policy Document (JSON)</label>
+<textarea id="new-policy-doc" bind:value={newPolicyDoc} rows={8} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1533,14 +1533,14 @@ This is the only time you can view the secret access key. Store it securely.
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Access Key ID</label>
+<div class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Access Key ID</div>
 <div class="flex items-center gap-2">
 <code class="flex-1 text-xs font-mono bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-800 dark:text-slate-200">{createdKey.AccessKeyId}</code>
 <button onclick={() => copyToClipboard(createdKey?.AccessKeyId ?? '', 'Copied!')}><Copy class="w-4 h-4 text-slate-400 hover:text-slate-600" /></button>
 </div>
 </div>
 <div>
-<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Secret Access Key</label>
+<div class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Secret Access Key</div>
 <div class="flex items-center gap-2">
 <code class="flex-1 text-xs font-mono bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-800 dark:text-slate-200 break-all">{showSecret ? createdKey.SecretAccessKey : '••••••••••••••••••••••••'}</code>
 <button onclick={() => showSecret = !showSecret}>{#if showSecret}<EyeOff class="w-4 h-4 text-slate-400" />{:else}<Eye class="w-4 h-4 text-slate-400" />{/if}</button>

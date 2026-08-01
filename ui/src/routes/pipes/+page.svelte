@@ -359,6 +359,14 @@
 		}
 	}
 
+	function closeModalOnEscape(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			showCreateModal = false;
+			showEditModal = false;
+			showTagModal = false;
+		}
+	}
+
 	// A pipe name is only unique within a region, so a pipe selected in the
 	// old region must not survive a region switch -- clear it and fall back
 	// to the list.
@@ -822,12 +830,13 @@
 
 <!-- Create Pipe Modal -->
 {#if showCreateModal}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
 		onclick={closeModalOnBackdrop}
+		onkeydown={closeModalOnEscape}
 		role="dialog"
 		aria-modal="true"
+		tabindex="-1"
 	>
 		<div
 			class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg border border-slate-200 dark:border-slate-700/50 overflow-hidden max-h-[90vh] overflow-y-auto"
@@ -910,12 +919,13 @@
 
 <!-- Edit Pipe Modal -->
 {#if showEditModal && selectedPipe}
-	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
 		onclick={closeModalOnBackdrop}
+		onkeydown={closeModalOnEscape}
 		role="dialog"
 		aria-modal="true"
+		tabindex="-1"
 	>
 		<div class="bg-white dark:bg-slate-900 rounded-3xl shadow-2xl w-full max-w-lg border border-slate-200 dark:border-slate-700/50 overflow-hidden">
 			<div class="p-6 border-b border-slate-100 dark:border-slate-800 bg-gradient-to-br from-slate-500/5 to-slate-500/5">

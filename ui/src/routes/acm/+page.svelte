@@ -865,17 +865,17 @@
 			{:else}
 				<div class="space-y-3 max-h-[60vh] overflow-y-auto">
 					<div>
-						<label class="block text-sm font-medium mb-1">Certificate</label>
-						<textarea readonly value={exportResult.Certificate} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
+						<label for="export-cert" class="block text-sm font-medium mb-1">Certificate</label>
+						<textarea id="export-cert" readonly value={exportResult.Certificate} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
 					</div>
 					<div>
-						<label class="block text-sm font-medium mb-1">Private Key (Encrypted)</label>
-						<textarea readonly value={exportResult.PrivateKey} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
+						<label for="export-private-key" class="block text-sm font-medium mb-1">Private Key (Encrypted)</label>
+						<textarea id="export-private-key" readonly value={exportResult.PrivateKey} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
 					</div>
 					{#if exportResult.CertificateChain}
 						<div>
-							<label class="block text-sm font-medium mb-1">Certificate Chain</label>
-							<textarea readonly value={exportResult.CertificateChain} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
+							<label for="export-cert-chain" class="block text-sm font-medium mb-1">Certificate Chain</label>
+							<textarea id="export-cert-chain" readonly value={exportResult.CertificateChain} rows={4} class="w-full font-mono text-xs rounded border bg-muted px-3 py-2"></textarea>
 						</div>
 					{/if}
 				</div>

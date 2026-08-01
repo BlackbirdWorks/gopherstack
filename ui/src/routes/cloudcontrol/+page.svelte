@@ -450,9 +450,14 @@
 
 <!-- Resource Editor Modal (Create / Update) -->
 {#if editorOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={(e) => { if (e.target === e.currentTarget) editorOpen = false; }}>
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		onclick={(e) => { if (e.target === e.currentTarget) editorOpen = false; }}
+		onkeydown={(e) => { if (e.key === 'Escape') editorOpen = false; }}
+	>
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col gap-4 p-6">
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -494,9 +499,14 @@
 
 <!-- Resource Detail Modal -->
 {#if detailOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={(e) => { if (e.target === e.currentTarget) detailOpen = false; }}>
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		onclick={(e) => { if (e.target === e.currentTarget) detailOpen = false; }}
+		onkeydown={(e) => { if (e.key === 'Escape') detailOpen = false; }}
+	>
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-2xl mx-4 flex flex-col gap-4 p-6 max-h-[80vh] overflow-y-auto">
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Resource Properties</h2>
@@ -537,9 +547,14 @@
 
 <!-- Request Detail Modal -->
 {#if requestDetailOpen}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={(e) => { if (e.target === e.currentTarget) requestDetailOpen = false; }}>
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		role="dialog"
+		aria-modal="true"
+		tabindex="-1"
+		onclick={(e) => { if (e.target === e.currentTarget) requestDetailOpen = false; }}
+		onkeydown={(e) => { if (e.key === 'Escape') requestDetailOpen = false; }}
+	>
 		<div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col gap-4 p-6">
 			<div class="flex items-center justify-between">
 				<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Request Progress Detail</h2>

@@ -334,8 +334,8 @@
 				{/if}
 			{:else if activeTab === 'instances'}
 				<div class="mb-4 flex items-center gap-3">
-					<label class="text-sm text-gray-600 dark:text-gray-300 shrink-0">Service:</label>
-					<select bind:value={selectedServiceId} onchange={() => loadInstances(selectedServiceId)}
+					<label class="text-sm text-gray-600 dark:text-gray-300 shrink-0" for="selected-service-id">Service:</label>
+					<select id="selected-service-id" bind:value={selectedServiceId} onchange={() => loadInstances(selectedServiceId)}
 						class="flex-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white px-3 py-1.5">
 						<option value="">— select a service —</option>
 						{#each services as svc}
@@ -412,27 +412,27 @@
 			<h3 id="create-ns-title" class="mb-4 font-semibold text-white">Create Namespace</h3>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Type *</label>
-					<select bind:value={nsType} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
+					<label class="mb-1 block text-xs text-gray-400" for="ns-type">Type *</label>
+					<select id="ns-type" bind:value={nsType} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
 						<option value="HTTP">HTTP</option>
 						<option value="PRIVATE_DNS">Private DNS</option>
 						<option value="PUBLIC_DNS">Public DNS</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Name *</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="ns-name">Name *</label>
+					<input id="ns-name" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={nsName} placeholder="my-namespace" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Description</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="ns-desc">Description</label>
+					<input id="ns-desc" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={nsDesc} placeholder="Optional" />
 				</div>
 				{#if nsType === 'PRIVATE_DNS'}
 					<div>
-						<label class="mb-1 block text-xs text-gray-400">VPC ID</label>
-						<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+						<label class="mb-1 block text-xs text-gray-400" for="ns-vpc">VPC ID</label>
+						<input id="ns-vpc" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 							bind:value={nsVpc} placeholder="vpc-..." />
 					</div>
 				{/if}
@@ -461,13 +461,13 @@
 			<h3 id="create-svc-title" class="mb-4 font-semibold text-white">Create Service</h3>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Name *</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="svc-name">Name *</label>
+					<input id="svc-name" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={svcName} placeholder="my-service" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Namespace</label>
-					<select bind:value={svcNamespaceId} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
+					<label class="mb-1 block text-xs text-gray-400" for="svc-namespace-id">Namespace</label>
+					<select id="svc-namespace-id" bind:value={svcNamespaceId} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
 						<option value="">— none —</option>
 						{#each namespaces as ns}
 							<option value={ns.Id}>{ns.Name} ({ns.Type})</option>
@@ -475,8 +475,8 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Description</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="svc-desc">Description</label>
+					<input id="svc-desc" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={svcDesc} placeholder="Optional" />
 				</div>
 			</div>
@@ -504,8 +504,8 @@
 			<h3 id="register-inst-title" class="mb-4 font-semibold text-white">Register Instance</h3>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Service *</label>
-					<select bind:value={instServiceId} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
+					<label class="mb-1 block text-xs text-gray-400" for="inst-service-id">Service *</label>
+					<select id="inst-service-id" bind:value={instServiceId} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
 						<option value="">— select service —</option>
 						{#each services as svc}
 							<option value={svc.Id}>{svc.Name} ({svc.Id})</option>
@@ -513,18 +513,18 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Instance ID *</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="inst-id">Instance ID *</label>
+					<input id="inst-id" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={instId} placeholder="my-instance-1" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">IPv4 Address</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="inst-i-pv4">IPv4 Address</label>
+					<input id="inst-i-pv4" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={instIPv4} placeholder="192.0.2.44" />
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Port</label>
-					<input class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
+					<label class="mb-1 block text-xs text-gray-400" for="inst-port">Port</label>
+					<input id="inst-port" class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white"
 						bind:value={instPort} placeholder="8080" type="number" />
 				</div>
 			</div>
@@ -553,8 +553,8 @@
 			<p class="text-xs text-gray-400 mb-3">Instance: <span class="text-white font-mono">{healthInstanceId}</span></p>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-gray-400">Status *</label>
-					<select bind:value={healthStatus} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
+					<label class="mb-1 block text-xs text-gray-400" for="health-status">Status *</label>
+					<select id="health-status" bind:value={healthStatus} class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm text-white">
 						<option value="HEALTHY">HEALTHY</option>
 						<option value="UNHEALTHY">UNHEALTHY</option>
 					</select>
