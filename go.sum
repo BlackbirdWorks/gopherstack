@@ -136,6 +136,8 @@ github.com/aws/aws-sdk-go-v2/service/dax v1.32.0 h1:kFx1bxd2ElN5RvuPXV13umOwksqw
 github.com/aws/aws-sdk-go-v2/service/dax v1.32.0/go.mod h1:OrsAa3bOTMhkqWzFgapARP5/4IpfCVxrd1966cWvumo=
 github.com/aws/aws-sdk-go-v2/service/detective v1.41.0 h1:/0X0XvRy4CRz6XqT5gbbgegUKUmeJWVHLga35HKlZqw=
 github.com/aws/aws-sdk-go-v2/service/detective v1.41.0/go.mod h1:tH8bPXmIHlk6dSqp3UjCaxyBj5aam10EET49dGnnUyc=
+github.com/aws/aws-sdk-go-v2/service/directconnect v1.43.3 h1:qb9VXTmbz/qpBKiNsefiMOX3/iDXDLeV0TqZM4kySX4=
+github.com/aws/aws-sdk-go-v2/service/directconnect v1.43.3/go.mod h1:Yu7foqobkK2lURKuj5ELA1TpijRy5EC6LvEmmqwndHw=
 github.com/aws/aws-sdk-go-v2/service/directoryservice v1.41.0 h1:wFBKnPxTtb9/goCvzPgQs+PLrdgIY6t0U5DNDG8xCkw=
 github.com/aws/aws-sdk-go-v2/service/directoryservice v1.41.0/go.mod h1:IhTV2nyFvo3fRfhoK0jaQVaCy5apxhx6QIhAGbo7+K8=
 github.com/aws/aws-sdk-go-v2/service/dlm v1.39.0 h1:oXxeqifF8rFtwJt2TRvXvQwC6qzDPMWLQ1m8ddunf8w=

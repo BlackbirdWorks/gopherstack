@@ -115,6 +115,7 @@ import (
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
@@ -271,6 +272,7 @@ type CLI struct {
 	grafanaHandler                service.Registerable
 	outpostsHandler               service.Registerable
 	resiliencehubHandler          service.Registerable
+	directconnectHandler          service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1460,6 +1462,11 @@ func (c *CLI) GetOutpostsHandler() service.Registerable { return c.outpostsHandl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetResilienceHubHandler() service.Registerable { return c.resiliencehubHandler }
 
+// GetDirectConnectHandler returns the AWS Direct Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDirectConnectHandler() service.Registerable { return c.directconnectHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2585,6 +2592,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.grafanaHandler = byName["Grafana"]
 	cli.outpostsHandler = byName["Outposts"]
 	cli.resiliencehubHandler = byName["ResilienceHub"]
+	cli.directconnectHandler = byName["DirectConnect"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -2807,6 +2815,58 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 		byName["Kinesis"],
 		byName["Firehose"],
 	)
+
+	// Wire Direct Connect → EC2 so DirectConnectGatewayAssociation's
+	// GatewayId/VirtualGatewayId are validated against real (mock) EC2
+	// VpnGateway/TransitGateway records, and DescribeVirtualGateways proxies
+	// EC2's own VpnGateway list instead of maintaining a duplicate store.
+	wireDirectConnectEC2(byName["DirectConnect"], byName["EC2"])
+}
+
+// directConnectEC2ResolverAdapter adapts the EC2 backend to the
+// directconnect.EC2GatewayResolver interface.
+type directConnectEC2ResolverAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *directConnectEC2ResolverAdapter) ResolveVpnGateway(id string) bool {
+	return len(a.backend.DescribeVpnGateways([]string{id})) > 0
+}
+
+func (a *directConnectEC2ResolverAdapter) ResolveTransitGateway(id string) bool {
+	return len(a.backend.DescribeTransitGateways([]string{id})) > 0
+}
+
+func (a *directConnectEC2ResolverAdapter) VirtualGateways() []string {
+	vgws := a.backend.DescribeVpnGateways(nil)
+	ids := make([]string, 0, len(vgws))
+
+	for _, v := range vgws {
+		ids = append(ids, v.VpnGatewayID)
+	}
+
+	return ids
+}
+
+// wireDirectConnectEC2 wires the Direct Connect backend to the EC2 backend
+// -- see directConnectEC2ResolverAdapter.
+func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
+	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
@@ -3173,6 +3233,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&grafanabackend.Provider{},
 		&outpostsbackend.Provider{},
 		&resiliencehubbackend.Provider{},
+		&directconnectbackend.Provider{},
 	}
 }
 
@@ -5347,11 +5408,11 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 32 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 33 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts, resiliencehub). The rest remain unwired -- see PARITY.md's gaps section
+// outposts, resiliencehub, directconnect). The rest remain unwired -- see PARITY.md's gaps section
 // for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
@@ -5417,6 +5478,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingGrafana(bk, byName["Grafana"])
 	wireTaggingOutposts(bk, byName["Outposts"])
 	wireTaggingResilienceHub(bk, byName["ResilienceHub"])
+	wireTaggingDirectConnect(bk, byName["DirectConnect"])
 }
 
 func wireTaggingDDB(
@@ -6821,6 +6883,47 @@ func wireTaggingResilienceHub(
 		},
 		resiliencehubBk.TagResource,
 		resiliencehubBk.UntagResource,
+	)
+}
+
+// wireTaggingDirectConnect wires the AWS Direct Connect backend into the
+// Resource Groups Tagging API. FIVE taggable resource kinds share the one
+// "directconnect" ARN namespace -- Connection ("dxcon/"), Lag ("dxlag/"),
+// Interconnect (reuses "dxcon/", UNCONFIRMED per PARITY.md),
+// VirtualInterface ("dxvif/"), and DirectConnectGateway ("dx-gateway/", a
+// GLOBAL ARN with no region segment -- see pkgs/arn.BuildGlobal) -- so this
+// uses resourceTypeFromARN's multi-kind dispatch (the same pattern
+// wireTaggingOutposts/wireTaggingResilienceHub use for their own two/three
+// kinds) rather than one wiring function per kind.
+func wireTaggingDirectConnect(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	directconnectReg service.Registerable,
+) {
+	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	directconnectBk := directconnectH.Backend
+	if directconnectBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "directconnect",
+		func(arn string) string { return resourceTypeFromARN(arn, "directconnect") },
+		func() []taggedARNEntry {
+			items := directconnectBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		directconnectBk.TagResource,
+		directconnectBk.UntagResource,
 	)
 }
 
