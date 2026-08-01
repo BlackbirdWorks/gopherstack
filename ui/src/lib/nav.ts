@@ -139,10 +139,12 @@ export const implementedDashboardRouteIds = new Set<string>([
   "directoryservice",
   "dlm",
   "forecast",
+  "grafana",
   "macie2",
   "medialive",
   "mediapackage",
   "mediatailor",
+  "outposts",
   "personalize",
   "quicksight",
   "rolesanywhere",
@@ -637,6 +639,7 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "CloudWatch Logs",
         icon: "cloudwatchlogs",
       },
+      { id: "grafana", href: "/dashboard/grafana", label: "Managed Grafana", icon: "grafana" },
       { id: "cloudtrail", href: "/dashboard/cloudtrail", label: "CloudTrail", icon: "cloudtrail" },
       { id: "xray", href: "/dashboard/xray", label: "X-Ray", icon: "xray" },
       {
@@ -686,6 +689,7 @@ export const sidebarCategories: DashboardCategory[] = [
     id: "hybrid-enduser",
     label: "Hybrid & End User Computing",
     routes: [
+      { id: "outposts", href: "/dashboard/outposts", label: "Outposts", icon: "outposts" },
       { id: "appstream", href: "/dashboard/appstream", label: "AppStream 2.0", icon: "appstream" },
       { id: "workspaces", href: "/dashboard/workspaces", label: "WorkSpaces", icon: "workspaces" },
     ],
