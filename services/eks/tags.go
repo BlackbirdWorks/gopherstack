@@ -187,3 +187,75 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 	return t.Clone(), nil
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingEKS).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// appendEKSTaggedEntry appends a TaggedEntry for arn/t to entries when t
+// holds at least one tag.
+func appendEKSTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
+	if t == nil || t.Len() == 0 {
+		return entries
+	}
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: t.Clone()})
+}
+
+// TaggedResources returns every EKS resource ARN that currently has at least
+// one tag, across every taggable EKS resource kind (clusters, nodegroups,
+// access entries, addons, fargate profiles, pod identity associations,
+// capabilities, and Anywhere subscriptions).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	b.clusters.Range(func(c *Cluster) bool {
+		out = appendEKSTaggedEntry(out, c.ARN, c.Tags)
+
+		return true
+	})
+	b.nodegroups.Range(func(ng *Nodegroup) bool {
+		out = appendEKSTaggedEntry(out, ng.ARN, ng.Tags)
+
+		return true
+	})
+	b.accessEntries.Range(func(e *AccessEntry) bool {
+		out = appendEKSTaggedEntry(out, e.ARN, e.Tags)
+
+		return true
+	})
+	b.addons.Range(func(a *Addon) bool {
+		out = appendEKSTaggedEntry(out, a.ARN, a.Tags)
+
+		return true
+	})
+	b.fargateProfiles.Range(func(p *FargateProfile) bool {
+		out = appendEKSTaggedEntry(out, p.ARN, p.Tags)
+
+		return true
+	})
+	b.podIdentityAssociations.Range(func(a *PodIdentityAssociation) bool {
+		out = appendEKSTaggedEntry(out, a.ARN, a.Tags)
+
+		return true
+	})
+	b.capabilities.Range(func(capa *Capability) bool {
+		out = appendEKSTaggedEntry(out, capa.ARN, capa.Tags)
+
+		return true
+	})
+	b.subscriptions.Range(func(sub *AnywhereSubscription) bool {
+		out = appendEKSTaggedEntry(out, sub.ARN, sub.Tags)
+
+		return true
+	})
+
+	return out
+}

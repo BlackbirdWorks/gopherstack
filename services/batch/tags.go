@@ -196,6 +196,72 @@ func (b *InMemoryBackend) initTagsInCoreResources(region, resourceARN string) bo
 	return false
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingBatch).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// appendBatchTaggedEntry appends a TaggedEntry for arn/tagMap to entries when
+// tagMap holds at least one tag.
+func appendBatchTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
+	if len(tagMap) == 0 {
+		return entries
+	}
+
+	out := make(map[string]string, len(tagMap))
+	maps.Copy(out, tagMap)
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: out})
+}
+
+// TaggedResources returns every Batch resource ARN that currently has at
+// least one tag, across every taggable Batch resource kind (compute
+// environments, job queues, job definitions, jobs, consumable resources,
+// scheduling policies, service environments, service jobs).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, ce := range b.computeEnvironments.All() {
+		out = appendBatchTaggedEntry(out, ce.ComputeEnvironmentArn, ce.Tags)
+	}
+
+	for _, jq := range b.jobQueues.All() {
+		out = appendBatchTaggedEntry(out, jq.JobQueueArn, jq.Tags)
+	}
+
+	for _, jd := range b.jobDefinitions.All() {
+		out = appendBatchTaggedEntry(out, jd.JobDefinitionArn, jd.Tags)
+	}
+
+	for _, j := range b.jobs.All() {
+		out = appendBatchTaggedEntry(out, j.JobARN, j.Tags)
+	}
+
+	for _, cr := range b.consumableResources.All() {
+		out = appendBatchTaggedEntry(out, cr.ConsumableResourceArn, cr.Tags)
+	}
+
+	for _, sp := range b.schedulingPolicies.All() {
+		out = appendBatchTaggedEntry(out, sp.Arn, sp.Tags)
+	}
+
+	for _, se := range b.serviceEnvironments.All() {
+		out = appendBatchTaggedEntry(out, se.ServiceEnvironmentArn, se.Tags)
+	}
+
+	for _, sj := range b.serviceJobs.All() {
+		out = appendBatchTaggedEntry(out, sj.JobArn, sj.Tags)
+	}
+
+	return out
+}
+
 func (b *InMemoryBackend) initTagsInPolicyResources(region, resourceARN string) {
 	for _, sp := range b.schedulingPoliciesByRegion.Get(region) {
 		if sp.Arn == resourceARN {

@@ -2915,20 +2915,7 @@ func wireSchedulerAndPipesIntegrations(byName map[string]service.Registerable) {
 func wireGovernanceIntegrations(byName map[string]service.Registerable, services []service.Registerable) {
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
-	wireResourceGroupsTagging(
-		byName["ResourceGroupsTaggingAPI"],
-		byName["DynamoDB"],
-		byName["SQS"],
-		byName["SNS"],
-		byName["Lambda"],
-		byName["KMS"],
-		byName["SecretsManager"],
-		byName["ECS"],
-		byName["Athena"],
-		byName["Glue"],
-		byName["ECR"],
-		byName["Kinesis"],
-	)
+	wireResourceGroupsTagging(byName["ResourceGroupsTaggingAPI"], byName)
 
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
@@ -5332,25 +5319,18 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne): of the ~90 gopherstack services with native
-// TagResource support, this wires 11 (dynamodb, sqs, sns, lambda, kms, secretsmanager,
-// ecs, athena, glue, ecr, kinesis). The rest remain unwired -- see PARITY.md's gaps
-// section for the honest remaining list and why a few (notably s3control, whose
-// taggable ARNs span the "s3"/"s3-object-lambda" service namespaces rather than
-// "s3control" itself) need more than this dispatch shape supports today.
-func wireResourceGroupsTagging(
-	taggingReg service.Registerable,
-	ddbReg service.Registerable,
-	sqsReg service.Registerable,
-	snsReg service.Registerable,
-	lambdaReg service.Registerable,
-	kmsReg service.Registerable,
-	smReg service.Registerable,
-	ecsReg service.Registerable,
-	athenaReg service.Registerable,
-	glueReg service.Registerable,
-	ecrReg service.Registerable,
-	kinesisReg service.Registerable,
-) {
+// TagResource support, this wires 20 (dynamodb, sqs, sns, lambda, kms, secretsmanager,
+// ecs, athena, glue, ecr, kinesis, stepfunctions, cloudfront, eks, batch, wafv2, backup,
+// efs, rds, elasticache). The rest remain unwired -- see PARITY.md's gaps section for the
+// honest remaining list and why a few (notably s3control, whose taggable ARNs span the
+// "s3"/"s3-object-lambda" service namespaces rather than "s3control" itself) need more
+// than this dispatch shape supports today.
+//
+// byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
+// rather than one parameter per service: the wired-service count keeps growing, and a
+// positional parameter list that size (20+ and climbing) is worse to read and extend than
+// one map lookup per wireTaggingXxx call below.
+func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[string]service.Registerable) {
 	taggingH, ok := taggingReg.(*resourcegroupstaggingapibackend.Handler)
 	if !ok {
 		return
@@ -5358,17 +5338,26 @@ func wireResourceGroupsTagging(
 
 	bk := taggingH.Backend
 
-	wireTaggingDDB(bk, ddbReg)
-	wireTaggingSQS(bk, sqsReg)
-	wireTaggingSNS(bk, snsReg)
-	wireTaggingLambda(bk, lambdaReg)
-	wireTaggingKMS(bk, kmsReg)
-	wireTaggingSM(bk, smReg)
-	wireTaggingECS(bk, ecsReg)
-	wireTaggingAthena(bk, athenaReg)
-	wireTaggingGlue(bk, glueReg)
-	wireTaggingECR(bk, ecrReg)
-	wireTaggingKinesis(bk, kinesisReg)
+	wireTaggingDDB(bk, byName["DynamoDB"])
+	wireTaggingSQS(bk, byName["SQS"])
+	wireTaggingSNS(bk, byName["SNS"])
+	wireTaggingLambda(bk, byName["Lambda"])
+	wireTaggingKMS(bk, byName["KMS"])
+	wireTaggingSM(bk, byName["SecretsManager"])
+	wireTaggingECS(bk, byName["ECS"])
+	wireTaggingAthena(bk, byName["Athena"])
+	wireTaggingGlue(bk, byName["Glue"])
+	wireTaggingECR(bk, byName["ECR"])
+	wireTaggingKinesis(bk, byName["Kinesis"])
+	wireTaggingStepFunctions(bk, byName["StepFunctions"])
+	wireTaggingCloudFront(bk, byName["CloudFront"])
+	wireTaggingEKS(bk, byName["EKS"])
+	wireTaggingBatch(bk, byName["Batch"])
+	wireTaggingWAFv2(bk, byName["Wafv2"])
+	wireTaggingBackup(bk, byName["Backup"])
+	wireTaggingEFS(bk, byName["EFS"])
+	wireTaggingRDS(bk, byName["RDS"])
+	wireTaggingElastiCache(bk, byName["ElastiCache"])
 }
 
 func wireTaggingDDB(
@@ -5473,6 +5462,41 @@ func wireTaggingARNResources(
 	)
 }
 
+// wireTaggingCtxARNResources is wireTaggingARNResources for services whose native
+// TagResource/UntagResource take a context.Context as their first parameter (used
+// elsewhere by those services for region or endpoint resolution) instead of the bare
+// (arn, tags)/(arn, keys) shape wireTaggingARNResources expects. Kept as a separate
+// helper (rather than a variant of wireTaggingARNResources) so ctx-less callers keep a
+// ctx-less tagFn/untagFn signature.
+func wireTaggingCtxARNResources(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	arnService string,
+	resourceTypeOf func(arn string) string,
+	listFn func() []taggedARNEntry,
+	tagFn func(context.Context, string, map[string]string) error,
+	untagFn func(context.Context, string, []string) error,
+) {
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := listFn()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: resourceTypeOf(item.ARN),
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		arnService,
+		tagFn,
+		untagFn,
+	)
+}
+
 // constantResourceType returns a resourceTypeOf closure (see wireTaggingARNResources)
 // that ignores the ARN and always returns t, for services whose flat ARN-keyed tag
 // store holds exactly one AWS resource kind.
@@ -5506,6 +5530,33 @@ func resourceTypeFromARN(arn, service string) string {
 
 	return service
 }
+
+// wafv2ResourceType derives the resource-type string for a WAFv2 ARN. Unlike the other
+// services this file wires, WAFv2's resource segment nests the scope one level deeper
+// than resourceTypeFromARN accounts for -- "{regional|global}/{kind}/{name}/{id}" (see
+// InMemoryBackend.buildWebACLARN/ipSetARN/regexPatternSetARN/ruleGroupARN) -- so taking
+// only the first "/"-delimited segment would yield "wafv2:regional" for every kind,
+// silently colliding web ACLs, IP sets, regex pattern sets, and rule groups under one
+// type and never matching AWS's real "wafv2:regional/webacl" style resource-type
+// strings. This takes the first two segments instead.
+func wafv2ResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "wafv2"
+	}
+
+	segs := strings.SplitN(parts[arnResourceFieldCount-1], "/", wafv2ResourceSegmentCount+1)
+	if len(segs) < wafv2ResourceSegmentCount {
+		return "wafv2"
+	}
+
+	return "wafv2:" + segs[0] + "/" + segs[1]
+}
+
+// wafv2ResourceSegmentCount is the number of "/"-delimited segments
+// (scope, kind) wafv2ResourceType needs from a WAFv2 ARN's resource
+// portion before the name/id segments it discards.
+const wafv2ResourceSegmentCount = 2
 
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
@@ -5833,6 +5884,312 @@ func wireTaggingKinesis(bk resourcegroupstaggingapibackend.StorageBackend, kines
 		func(ctx context.Context, arn string, keys []string) error {
 			return kinesisBk.UntagResource(ctx, &kinesisbackend.UntagResourceInput{ResourceARN: arn, TagKeys: keys})
 		},
+	)
+}
+
+// wireTaggingStepFunctions wires the Step Functions backend into the Resource Groups
+// Tagging API. State machines, activities, and state machine aliases share the same
+// ARN-keyed tag store on the Handler itself (not the storage backend -- see
+// stepfunctions.Handler.TaggedResources), and their ARNs use the "states" service
+// namespace (arn:aws:states:{region}:{account}:stateMachine:{name}), not "stepfunctions".
+func wireTaggingStepFunctions(bk resourcegroupstaggingapibackend.StorageBackend, sfnReg service.Registerable) {
+	sfnH, ok := sfnReg.(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(bk, "states",
+		func(arn string) string { return resourceTypeFromARN(arn, "states") },
+		func() []taggedARNEntry {
+			items := sfnH.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		sfnH.TagResourceByARN,
+		sfnH.UntagResourceByARN,
+	)
+}
+
+// wireTaggingCloudFront wires the CloudFront backend into the Resource Groups Tagging
+// API. CloudFront keeps tags for every resource kind it supports (distributions,
+// streaming distributions, trust stores, distribution tenants, connection groups,
+// connection functions, anycast IP lists) behind one taggableTags lookup, so
+// resourceTypeFromARN derives the per-resource type instead of a hand-written wiring
+// function per kind.
+func wireTaggingCloudFront(bk resourcegroupstaggingapibackend.StorageBackend, cfReg service.Registerable) {
+	cfH, ok := cfReg.(*cloudfrontbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfBk := cfH.Backend
+	if cfBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(bk, "cloudfront",
+		func(arn string) string { return resourceTypeFromARN(arn, "cloudfront") },
+		func() []taggedARNEntry {
+			items := cfBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		cfBk.TagResource,
+		cfBk.UntagResource,
+	)
+}
+
+// wireTaggingEKS wires the EKS backend into the Resource Groups Tagging API. EKS keeps
+// tags for every resource kind it supports (clusters, nodegroups, access entries,
+// addons, fargate profiles, pod identity associations, capabilities, Anywhere
+// subscriptions) in typed stores searched by resourceARN, so resourceTypeFromARN
+// derives the per-resource type instead of a hand-written wiring function per kind.
+func wireTaggingEKS(bk resourcegroupstaggingapibackend.StorageBackend, eksReg service.Registerable) {
+	eksH, ok := eksReg.(*eksbackend.Handler)
+	if !ok {
+		return
+	}
+
+	eksBk := eksH.Backend
+	if eksBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(bk, "eks",
+		func(arn string) string { return resourceTypeFromARN(arn, "eks") },
+		func() []taggedARNEntry {
+			items := eksBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		eksBk.TagResource,
+		eksBk.UntagResource,
+	)
+}
+
+// wireTaggingBatch wires the Batch backend into the Resource Groups Tagging API. Batch
+// keeps tags for every resource kind it supports (compute environments, job queues, job
+// definitions, jobs, consumable resources, scheduling policies, service environments,
+// service jobs) in one flat ARN-keyed lookup, so resourceTypeFromARN derives the
+// per-resource type. TagResource/UntagResource take a context (used elsewhere for
+// region resolution), so this uses wireTaggingCtxARNResources rather than the
+// ctx-dropping wireTaggingARNResources helper.
+func wireTaggingBatch(bk resourcegroupstaggingapibackend.StorageBackend, batchReg service.Registerable) {
+	batchH, ok := batchReg.(*batchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	batchBk := batchH.Backend
+	if batchBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "batch",
+		func(arn string) string { return resourceTypeFromARN(arn, "batch") },
+		func() []taggedARNEntry {
+			items := batchBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		batchBk.TagResource,
+		batchBk.UntagResource,
+	)
+}
+
+// wireTaggingWAFv2 wires the WAFv2 backend into the Resource Groups Tagging API. WAFv2
+// keeps tags for every resource kind it supports (web ACLs, IP sets, regex pattern
+// sets, rule groups) behind one lookupTaggedResource lookup, so wafv2ResourceType
+// derives the per-resource type (see its doc comment for why resourceTypeFromARN isn't
+// enough here). TagResource/UntagResource take a context, so this uses
+// wireTaggingCtxARNResources rather than the ctx-dropping wireTaggingARNResources
+// helper.
+func wireTaggingWAFv2(bk resourcegroupstaggingapibackend.StorageBackend, wafReg service.Registerable) {
+	wafH, ok := wafReg.(*wafv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	wafBk, ok := wafH.Backend.(*wafv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "wafv2",
+		wafv2ResourceType,
+		func() []taggedARNEntry {
+			items := wafBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		wafBk.TagResource,
+		wafBk.UntagResource,
+	)
+}
+
+// wireTaggingBackup wires the Backup backend into the Resource Groups Tagging API.
+// Backup keeps tags for every resource kind it supports (backup vaults, backup plans,
+// frameworks, report plans) in typed stores searched by ARN index, so
+// resourceTypeFromARN derives the per-resource type instead of a hand-written wiring
+// function per kind.
+func wireTaggingBackup(bk resourcegroupstaggingapibackend.StorageBackend, backupReg service.Registerable) {
+	backupH, ok := backupReg.(*backupbackend.Handler)
+	if !ok {
+		return
+	}
+
+	backupBk := backupH.Backend
+	if backupBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(bk, "backup",
+		func(arn string) string { return resourceTypeFromARN(arn, "backup") },
+		func() []taggedARNEntry {
+			items := backupBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		backupBk.TagResource,
+		backupBk.UntagResource,
+	)
+}
+
+// wireTaggingEFS wires the EFS backend into the Resource Groups Tagging API. EFS keeps
+// tags for every resource kind it supports (file systems, access points) in typed
+// stores, so resourceTypeFromARN derives the per-resource type. EFS ARNs use the
+// "elasticfilesystem" service namespace, not "efs". TagResource/UntagResource take a
+// context (used elsewhere for region resolution), so this uses wireTaggingCtxARNResources
+// rather than the ctx-dropping wireTaggingARNResources helper.
+func wireTaggingEFS(bk resourcegroupstaggingapibackend.StorageBackend, efsReg service.Registerable) {
+	efsH, ok := efsReg.(*efsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	efsBk := efsH.Backend
+	if efsBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "elasticfilesystem",
+		func(arn string) string { return resourceTypeFromARN(arn, "elasticfilesystem") },
+		func() []taggedARNEntry {
+			items := efsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		efsBk.TagResource,
+		efsBk.UntagResource,
+	)
+}
+
+// wireTaggingRDS wires the RDS backend into the Resource Groups Tagging API. RDS keeps
+// tags for every resource kind it supports (DB instances, clusters, snapshots,
+// parameter groups, and more) in one flat ARN-keyed map, so resourceTypeFromARN derives
+// the per-resource type. AddTagsToResource/RemoveTagsFromResource take []Tag rather
+// than a bare map and return no error, so this adapts them to the
+// wireTaggingARNResources (arn, map) error shape.
+func wireTaggingRDS(bk resourcegroupstaggingapibackend.StorageBackend, rdsReg service.Registerable) {
+	rdsH, ok := rdsReg.(*rdsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	rdsBk := rdsH.Backend
+	if rdsBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(bk, "rds",
+		func(arn string) string { return resourceTypeFromARN(arn, "rds") },
+		func() []taggedARNEntry {
+			items := rdsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, newTags map[string]string) error {
+			tagList := make([]rdsbackend.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagList = append(tagList, rdsbackend.Tag{Key: k, Value: v})
+			}
+
+			rdsBk.AddTagsToResource(arn, tagList)
+
+			return nil
+		},
+		func(arn string, keys []string) error {
+			rdsBk.RemoveTagsFromResource(arn, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingElastiCache wires the ElastiCache backend into the Resource Groups
+// Tagging API. ElastiCache keeps tags for every resource kind it supports (clusters,
+// replication groups, parameter groups, snapshots, security groups, global replication
+// groups, subnet groups, serverless caches, users, user groups) behind one
+// collectTagCandidatesLocked lookup, so resourceTypeFromARN derives the per-resource
+// type. AddTagsToResource/RemoveTagsFromResource take a context, so this uses
+// wireTaggingCtxARNResources rather than the ctx-dropping wireTaggingARNResources
+// helper.
+func wireTaggingElastiCache(bk resourcegroupstaggingapibackend.StorageBackend, ecReg service.Registerable) {
+	ecH, ok := ecReg.(*elasticachebackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecBk, ok := ecH.Backend.(*elasticachebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "elasticache",
+		func(arn string) string { return resourceTypeFromARN(arn, "elasticache") },
+		func() []taggedARNEntry {
+			items := ecBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		ecBk.AddTagsToResource,
+		ecBk.RemoveTagsFromResource,
 	)
 }
 

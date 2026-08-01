@@ -127,3 +127,56 @@ func (h *Handler) stateMachineTagActions() map[string]actionFn {
 		},
 	}
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingStepFunctions). State machines, activities, and state machine
+// aliases share the same ARN-keyed h.tags store, so a single flat walk
+// covers every taggable Step Functions resource kind.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Step Functions resource ARN that currently
+// has at least one tag.
+func (h *Handler) TaggedResources() []TaggedEntry {
+	h.tagsMu.RLock("TaggedResources")
+	defer h.tagsMu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(h.tags))
+
+	for arn, t := range h.tags {
+		if t == nil || t.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: t.Clone()})
+	}
+
+	return out
+}
+
+// TagResourceByARN adds or updates tags on the Step Functions resource
+// identified by ARN, enforcing the same tag-policy constraints as the native
+// TagResource action (see stateMachineTagActions above). Used by cli.go's
+// wireTaggingStepFunctions to let the Resource Groups Tagging API mutate
+// Step Functions tags.
+func (h *Handler) TagResourceByARN(arn string, kv map[string]string) error {
+	existing := h.getTags(arn)
+	if err := validateTags(existing, kv); err != nil {
+		return err
+	}
+
+	h.setTags(arn, kv)
+
+	return nil
+}
+
+// UntagResourceByARN removes the given tag keys from the Step Functions
+// resource identified by ARN. Used by cli.go's wireTaggingStepFunctions.
+func (h *Handler) UntagResourceByARN(arn string, keys []string) error {
+	h.removeTags(arn, keys)
+
+	return nil
+}

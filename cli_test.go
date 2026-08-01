@@ -24,11 +24,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
+	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
+	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
+	efsbackend "github.com/blackbirdworks/gopherstack/services/efs"
+	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
+	elasticachebackend "github.com/blackbirdworks/gopherstack/services/elasticache"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
@@ -710,6 +719,185 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 			},
 			wantResourceType: "kinesis:stream",
 		},
+		{
+			name: "stepfunctions_state_machine",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				sfnBk := sfnbackend.NewInMemoryBackendWithConfig(accountID, region)
+				sm, err := sfnBk.CreateStateMachine(
+					context.Background(),
+					"wiring-test-sm",
+					`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
+					"arn:aws:iam::"+accountID+":role/wiring-test-role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
+
+				sfnH := sfnbackend.NewHandler(sfnBk)
+				require.NoError(t,
+					sfnH.TagResourceByARN(sm.StateMachineArn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingStepFunctions(bk, sfnH)
+
+				return sm.StateMachineArn
+			},
+			wantResourceType: "states:stateMachine",
+		},
+		{
+			name: "cloudfront_distribution",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				cfBk := cloudfrontbackend.NewInMemoryBackend(accountID, region)
+				dist, err := cfBk.CreateDistribution("wiring-test-ref", "wiring-test-dist", true, nil)
+				require.NoError(t, err)
+				require.NoError(t, cfBk.TagResource(dist.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingCloudFront(bk, cloudfrontbackend.NewHandler(cfBk))
+
+				return dist.ARN
+			},
+			wantResourceType: "cloudfront:distribution",
+		},
+		{
+			name: "eks_cluster",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				eksBk := eksbackend.NewInMemoryBackend(context.Background(), accountID, region)
+				cluster, err := eksBk.CreateCluster("wiring-test-cluster", "", "", nil, nil, nil)
+				require.NoError(t, err)
+				require.NoError(t, eksBk.TagResource(cluster.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingEKS(bk, eksbackend.NewHandler(eksBk))
+
+				return cluster.ARN
+			},
+			wantResourceType: "eks:cluster",
+		},
+		{
+			name: "batch_compute_environment",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				batchBk := batchbackend.NewInMemoryBackend(accountID, region)
+				ce, err := batchBk.CreateComputeEnvironment(
+					context.Background(), "wiring-test-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, batchBk.TagResource(
+					context.Background(), ce.ComputeEnvironmentArn, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingBatch(bk, batchbackend.NewHandler(batchBk))
+
+				return ce.ComputeEnvironmentArn
+			},
+			wantResourceType: "batch:compute-environment",
+		},
+		{
+			name: "wafv2_web_acl",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
+				webACL, err := wafBk.CreateWebACL(
+					context.Background(), "wiring-test-acl", "REGIONAL", "",
+					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, wafBk.TagResource(
+					context.Background(), webACL.ARN, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingWAFv2(bk, wafv2backend.NewHandler(wafBk))
+
+				return webACL.ARN
+			},
+			wantResourceType: "wafv2:regional/webacl",
+		},
+		{
+			name: "backup_vault",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				backupBk := backupbackend.NewInMemoryBackend(accountID, region)
+				vault, err := backupBk.CreateBackupVault("wiring-test-vault", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, backupBk.TagResource(
+					vault.BackupVaultArn, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingBackup(bk, backupbackend.NewHandler(backupBk))
+
+				return vault.BackupVaultArn
+			},
+			wantResourceType: "backup:backup-vault",
+		},
+		{
+			name: "efs_file_system",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				efsBk := efsbackend.NewInMemoryBackend(accountID, region)
+				fs, err := efsBk.CreateFileSystem(
+					context.Background(), efsbackend.CreateFileSystemRequest{CreationToken: "wiring-test-token"},
+				)
+				require.NoError(t, err)
+				require.NoError(t, efsBk.TagResource(
+					context.Background(), fs.FileSystemArn, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingEFS(bk, efsbackend.NewHandler(efsBk))
+
+				return fs.FileSystemArn
+			},
+			wantResourceType: "elasticfilesystem:file-system",
+		},
+		{
+			name: "rds_db_instance",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				rdsBk := rdsbackend.NewInMemoryBackend(accountID, region)
+				_, err := rdsBk.CreateDBInstance(
+					"wiring-test-db", "postgres", "db.t3.micro", "", "admin", "", 20, rdsbackend.DBInstanceOptions{},
+				)
+				require.NoError(t, err)
+
+				// DBInstance carries no ARN field of its own; RDS builds it ad hoc
+				// wherever needed (see automated_backups.go/proxies.go) as
+				// "arn:aws:rds:{region}:{account}:db:{id}".
+				resourceARN := "arn:aws:rds:" + region + ":" + accountID + ":db:wiring-test-db"
+				rdsBk.AddTagsToResource(resourceARN, []rdsbackend.Tag{{Key: wantTagKey, Value: wantTagValue}})
+
+				wireTaggingRDS(bk, rdsbackend.NewHandler(rdsBk))
+
+				return resourceARN
+			},
+			wantResourceType: "rds:db",
+		},
+		{
+			name: "elasticache_cluster",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				ecBk := elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, accountID, region, nil)
+				cluster, err := ecBk.CreateCluster(
+					context.Background(), "wiring-test-cache", "redis", "cache.t3.micro", 0,
+				)
+				require.NoError(t, err)
+				require.NoError(t, ecBk.AddTagsToResource(
+					context.Background(), cluster.ARN, map[string]string{wantTagKey: wantTagValue},
+				))
+
+				wireTaggingElastiCache(bk, elasticachebackend.NewHandler(ecBk))
+
+				return cluster.ARN
+			},
+			wantResourceType: "elasticache:cluster",
+		},
 	}
 
 	for _, tt := range tests {
@@ -748,6 +936,276 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 			require.Len(t, found.Tags, 1)
 			assert.Equal(t, wantTagKey, found.Tags[0].Key)
 			assert.Equal(t, wantTagValue, found.Tags[0].Value)
+		})
+	}
+}
+
+// TestWireResourceGroupsTagging_TagResourcesRoundTrip proves the write direction of the
+// gopherstack-3xne fix for the batch of services wired in this pass: mutating a tag via
+// the Resource Groups Tagging API's own TagResources call must reach the owning
+// service's native tag store (not just gopherstack's own copy), and the new tag key/
+// value must surface through GetTagKeys/GetTagValues. A test that only checked
+// TagResources returned no error would pass even if the ARN tagger silently no-opped
+// (arnServiceIs never matching, or the wrong ARN-tagger being registered) -- FailedResourcesMap
+// would still be empty because TagResources treats "no tagger claimed this ARN" as
+// success for that ARN.
+func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const accountID = "123456789012"
+	const region = "us-east-1"
+	const wantTagKey = "env"
+	const wantTagValue = "roundtrip-test"
+
+	tests := []struct {
+		setup func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (
+			resourceARN string, nativeTags func() map[string]string,
+		)
+		name string
+	}{
+		{
+			name: "stepfunctions_state_machine",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				sfnBk := sfnbackend.NewInMemoryBackendWithConfig(accountID, region)
+				sm, err := sfnBk.CreateStateMachine(
+					context.Background(),
+					"roundtrip-sm",
+					`{"StartAt":"S","States":{"S":{"Type":"Pass","End":true}}}`,
+					"arn:aws:iam::"+accountID+":role/roundtrip-role",
+					"STANDARD",
+				)
+				require.NoError(t, err)
+
+				sfnH := sfnbackend.NewHandler(sfnBk)
+				wireTaggingStepFunctions(bk, sfnH)
+
+				return sm.StateMachineArn, func() map[string]string {
+					for _, e := range sfnH.TaggedResources() {
+						if e.ARN == sm.StateMachineArn {
+							return e.Tags
+						}
+					}
+
+					return nil
+				}
+			},
+		},
+		{
+			name: "cloudfront_distribution",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				cfBk := cloudfrontbackend.NewInMemoryBackend(accountID, region)
+				dist, err := cfBk.CreateDistribution("roundtrip-ref", "roundtrip-dist", true, nil)
+				require.NoError(t, err)
+
+				wireTaggingCloudFront(bk, cloudfrontbackend.NewHandler(cfBk))
+
+				return dist.ARN, func() map[string]string {
+					got, tagsErr := cfBk.ListTags(dist.ARN)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "eks_cluster",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				eksBk := eksbackend.NewInMemoryBackend(context.Background(), accountID, region)
+				cluster, err := eksBk.CreateCluster("roundtrip-cluster", "", "", nil, nil, nil)
+				require.NoError(t, err)
+
+				wireTaggingEKS(bk, eksbackend.NewHandler(eksBk))
+
+				return cluster.ARN, func() map[string]string {
+					got, tagsErr := eksBk.ListTagsForResource(cluster.ARN)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "batch_compute_environment",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				batchBk := batchbackend.NewInMemoryBackend(accountID, region)
+				ce, err := batchBk.CreateComputeEnvironment(
+					context.Background(), "roundtrip-ce", "UNMANAGED", "ENABLED", nil, "", nil, nil, nil,
+				)
+				require.NoError(t, err)
+
+				wireTaggingBatch(bk, batchbackend.NewHandler(batchBk))
+
+				return ce.ComputeEnvironmentArn, func() map[string]string {
+					got, tagsErr := batchBk.ListTagsForResource(context.Background(), ce.ComputeEnvironmentArn)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "wafv2_web_acl",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				wafBk := wafv2backend.NewInMemoryBackend(accountID, region)
+				webACL, err := wafBk.CreateWebACL(
+					context.Background(), "roundtrip-acl", "REGIONAL", "",
+					json.RawMessage(`{"Allow":{}}`), nil, nil, nil, nil, nil, nil, nil, nil,
+				)
+				require.NoError(t, err)
+
+				wireTaggingWAFv2(bk, wafv2backend.NewHandler(wafBk))
+
+				return webACL.ARN, func() map[string]string {
+					got, tagsErr := wafBk.ListTagsForResource(context.Background(), webACL.ARN)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "backup_vault",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				backupBk := backupbackend.NewInMemoryBackend(accountID, region)
+				vault, err := backupBk.CreateBackupVault("roundtrip-vault", "", "", nil)
+				require.NoError(t, err)
+
+				wireTaggingBackup(bk, backupbackend.NewHandler(backupBk))
+
+				return vault.BackupVaultArn, func() map[string]string {
+					got, tagsErr := backupBk.ListTags(vault.BackupVaultArn)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "efs_file_system",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				efsBk := efsbackend.NewInMemoryBackend(accountID, region)
+				fs, err := efsBk.CreateFileSystem(
+					context.Background(), efsbackend.CreateFileSystemRequest{CreationToken: "roundtrip-token"},
+				)
+				require.NoError(t, err)
+
+				wireTaggingEFS(bk, efsbackend.NewHandler(efsBk))
+
+				return fs.FileSystemArn, func() map[string]string {
+					got, tagsErr := efsBk.ListTagsForResource(context.Background(), fs.FileSystemArn)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+		{
+			name: "rds_db_instance",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				rdsBk := rdsbackend.NewInMemoryBackend(accountID, region)
+				_, err := rdsBk.CreateDBInstance(
+					"roundtrip-db", "postgres", "db.t3.micro", "", "admin", "", 20, rdsbackend.DBInstanceOptions{},
+				)
+				require.NoError(t, err)
+
+				resourceARN := "arn:aws:rds:" + region + ":" + accountID + ":db:roundtrip-db"
+
+				wireTaggingRDS(bk, rdsbackend.NewHandler(rdsBk))
+
+				return resourceARN, func() map[string]string {
+					tagList := rdsBk.ListTagsForResource(resourceARN)
+					out := make(map[string]string, len(tagList))
+					for _, tg := range tagList {
+						out[tg.Key] = tg.Value
+					}
+
+					return out
+				}
+			},
+		},
+		{
+			name: "elasticache_cluster",
+			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
+				t.Helper()
+
+				ecBk := elasticachebackend.NewInMemoryBackend(elasticachebackend.EngineStub, accountID, region, nil)
+				cluster, err := ecBk.CreateCluster(
+					context.Background(), "roundtrip-cache", "redis", "cache.t3.micro", 0,
+				)
+				require.NoError(t, err)
+
+				wireTaggingElastiCache(bk, elasticachebackend.NewHandler(ecBk))
+
+				return cluster.ARN, func() map[string]string {
+					got, tagsErr := ecBk.ListTagsForResource(context.Background(), cluster.ARN)
+					require.NoError(t, tagsErr)
+
+					return got
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			taggingBk := resourcegroupstaggingapibackend.NewInMemoryBackend(accountID, region)
+
+			resourceARN, nativeTags := tt.setup(t, taggingBk)
+
+			// Mutate through the Resource Groups Tagging API, not the owning
+			// service's native TagResource -- this is the direction
+			// TestWireResourceGroupsTagging_CrossServiceResources does not cover.
+			tagOut, err := taggingBk.TagResources(
+				context.Background(),
+				&resourcegroupstaggingapibackend.TagResourcesInput{
+					ResourceARNList: []string{resourceARN},
+					Tags:            map[string]string{wantTagKey: wantTagValue},
+				},
+			)
+			require.NoError(t, err)
+			require.Emptyf(t, tagOut.FailedResourcesMap,
+				"TagResources for %s must not fail (gopherstack-3xne): %+v", tt.name, tagOut.FailedResourcesMap)
+
+			// The owning service's own native store, not gopherstack's tagging
+			// backend, must show the new tag -- proves the registered ARN tagger
+			// actually reached the service rather than silently matching nothing.
+			got := nativeTags()
+			require.NotNilf(t, got, "%s: owning service reported no tags after TagResources", tt.name)
+			assert.Equalf(t, wantTagValue, got[wantTagKey],
+				"%s: owning service's native tag store must reflect the TagResources call", tt.name)
+
+			keysOut, err := taggingBk.GetTagKeys(
+				context.Background(),
+				&resourcegroupstaggingapibackend.GetTagKeysInput{},
+			)
+			require.NoError(t, err)
+			assert.Containsf(t, keysOut.TagKeys, wantTagKey, "%s: GetTagKeys must surface the new tag key", tt.name)
+
+			tagKey := wantTagKey
+			valuesOut, err := taggingBk.GetTagValues(
+				context.Background(), &resourcegroupstaggingapibackend.GetTagValuesInput{Key: &tagKey},
+			)
+			require.NoError(t, err)
+			assert.Containsf(t, valuesOut.TagValues, wantTagValue,
+				"%s: GetTagValues must surface the new tag value", tt.name)
 		})
 	}
 }
