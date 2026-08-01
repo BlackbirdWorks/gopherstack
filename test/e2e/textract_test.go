@@ -84,6 +84,10 @@ func TestTextractDashboard_Empty(t *testing.T) {
 }
 
 // TestTextractDashboard_VersionsTab verifies the versions tab renders its current empty state.
+// With zero adapters, Adapter Versions has no adapter to scope to, so it shows
+// its "select an adapter" prompt rather than DataTable's empty-rows message
+// (that message only appears once an adapter is selected and it has zero
+// versions -- see TestTextractDashboard for the analogous adapters-empty case).
 func TestTextractDashboard_VersionsTab(t *testing.T) {
 	stack := newStack(t)
 
@@ -112,15 +116,15 @@ func TestTextractDashboard_VersionsTab(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = page.Locator("button:has-text('Adapter Versions')").Click()
+	err = page.Locator("#tab-adapterVersions").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=No adapter versions found").WaitFor(playwright.LocatorWaitForOptions{
+	err = page.Locator("text=Select an adapter to view its versions").WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "No adapter versions found")
+	assert.Contains(t, content, "Select an adapter to view its versions")
 }
