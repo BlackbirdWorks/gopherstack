@@ -210,6 +210,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.2
 	github.com/aws/aws-sdk-go-v2/service/grafana v1.38.3
 	github.com/aws/aws-sdk-go-v2/service/opensearchserverless v1.34.2
+	github.com/aws/aws-sdk-go-v2/service/outposts v1.66.0
 	github.com/aws/aws-sdk-go-v2/service/personalizeruntime v1.36.2
 	github.com/aws/aws-sdk-go-v2/service/schemas v1.37.2
 	github.com/mxschmitt/playwright-go v0.6100.0

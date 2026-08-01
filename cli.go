@@ -173,6 +173,7 @@ import (
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
 	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -267,6 +268,7 @@ type CLI struct {
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
+	outpostsHandler               service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1446,6 +1448,11 @@ func (c *CLI) GetS3TablesHandler() service.Registerable { return c.s3tablesHandl
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetGrafanaHandler() service.Registerable { return c.grafanaHandler }
 
+// GetOutpostsHandler returns the AWS Outposts handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOutpostsHandler() service.Registerable { return c.outpostsHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2569,6 +2576,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.xrayHandler = byName["Xray"]
 	cli.s3tablesHandler = byName["S3tables"]
 	cli.grafanaHandler = byName["Grafana"]
+	cli.outpostsHandler = byName["Outposts"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -3155,6 +3163,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&omicsbackend.Provider{},
 		&bedrockagentbackend.Provider{},
 		&grafanabackend.Provider{},
+		&outpostsbackend.Provider{},
 	}
 }
 
@@ -5329,12 +5338,12 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 30 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 31 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
-// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana). The
-// rest remain unwired -- see PARITY.md's gaps section for the honest remaining list
-// and why a few
+// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
+// outposts). The rest remain unwired -- see PARITY.md's gaps section for the honest
+// remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
@@ -5397,6 +5406,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingMQ(bk, byName["MQ"])
 	wireTaggingEMR(bk, byName["EMR"])
 	wireTaggingGrafana(bk, byName["Grafana"])
+	wireTaggingOutposts(bk, byName["Outposts"])
 }
 
 func wireTaggingDDB(
@@ -6697,6 +6707,45 @@ func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafa
 		},
 		grafanaBk.TagResource,
 		grafanaBk.UntagResource,
+	)
+}
+
+// wireTaggingOutposts wires the AWS Outposts backend into the Resource Groups
+// Tagging API. Unlike Grafana (one taggable resource kind), Outposts has TWO:
+// Outpost.Tags and Site.Tags share the same generic ResourceArn-keyed
+// TagResource/UntagResource/ListTagsForResource surface (there is no
+// dedicated tag API for Sites -- see services/outposts/PARITY.md's "families:
+// tagging" note), so resourceTypeFromARN (rather than a single
+// constantResourceType) derives "outposts:outpost" or "outposts:site" from
+// each ARN's own resource segment. The "outposts" ARN service segment is
+// confirmed (not one of the seven service-name mismatches the broader
+// campaign found) via in-repo test fixtures in services/ec2 and
+// services/route53resolver -- see services/outposts/PARITY.md's ARN section.
+func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outpostsReg service.Registerable) {
+	outpostsH, ok := outpostsReg.(*outpostsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	outpostsBk := outpostsH.Backend
+	if outpostsBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "outposts",
+		func(arn string) string { return resourceTypeFromARN(arn, "outposts") },
+		func() []taggedARNEntry {
+			items := outpostsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		outpostsBk.TagResource,
+		outpostsBk.UntagResource,
 	)
 }
 
