@@ -6,6 +6,7 @@
 		ListHostsCommand,
 		ListRepositoryLinksCommand,
 		ListSyncConfigurationsCommand,
+		GetRepositorySyncStatusCommand,
 		GetSyncBlockerSummaryCommand,
 		GetSyncConfigurationCommand,
 		type Connection,
@@ -103,6 +104,22 @@
 			toast.info(`Sync config: branch=${cfg?.Branch ?? 'N/A'}, file=${cfg?.ConfigFile ?? 'N/A'}`);
 		} catch (e) {
 			toast.error('Failed to get sync config: ' + String(e));
+		}
+	}
+
+	async function checkRepoSyncStatus(linkId: string, branch: string) {
+		try {
+			const resp = await client().send(
+				new GetRepositorySyncStatusCommand({
+					RepositoryLinkId: linkId,
+					Branch: branch,
+					SyncType: 'CFN_STACK_SYNC'
+				})
+			);
+			const status = resp.LatestSync?.Status ?? 'UNKNOWN';
+			toast.info(`Sync status: ${status}`);
+		} catch (e) {
+			toast.error('Failed to get sync status: ' + String(e));
 		}
 	}
 
@@ -322,6 +339,7 @@
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Owner</th>
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Provider</th>
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Link ID</th>
+								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sync Status</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-slate-700">
@@ -331,6 +349,12 @@
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{link.OwnerId}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{link.ProviderType}</td>
 									<td class="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{link.RepositoryLinkId}</td>
+									<td class="px-4 py-3">
+										<button
+											onclick={() => checkRepoSyncStatus(link.RepositoryLinkId ?? '', 'main')}
+											class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+										>Check status</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>

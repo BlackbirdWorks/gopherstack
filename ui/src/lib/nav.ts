@@ -35,7 +35,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "cloudwatch",
   "cloudwatchlogs",
   "codebuild",
-  "cognito",
   "cognitoidentity",
   "cognitoidp",
   "codepipeline",
@@ -61,7 +60,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "kinesis",
   "kms",
   "lambda",
-  "lightsail",
   "msk",
   "opensearch",
   "rds",
@@ -97,7 +95,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "sagemakeruntime",
   "codecommit",
   "codeartifact",
-  "codestarconnections",
   "ram",
   "resources",
   "verifiedpermissions",
@@ -118,15 +115,9 @@ export const implementedDashboardRouteIds = new Set<string>([
   "fsx",
   "glacier",
   "ssoadmin",
-  "networkmanager",
-  "outposts",
-  "directconnect",
-  "resiliencehub",
   "appstream",
   "bedrockruntime",
   "cloudcontrol",
-  "grafana",
-  "mgn",
   "polly",
   "route53resolver",
   "s3control",
@@ -205,13 +196,6 @@ export const sidebarCategories: DashboardCategory[] = [
     label: "Security, Identity & Compliance",
     routes: [
       { id: "iam", href: "/dashboard/iam", label: "IAM", icon: "iam", common: true },
-      {
-        id: "cognito",
-        href: "/dashboard/cognito",
-        label: "Cognito",
-        icon: "cognito",
-        common: true,
-      },
       {
         id: "cognitoidentity",
         href: "/dashboard/cognitoidentity",
@@ -309,7 +293,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "Application Auto Scaling",
         icon: "applicationautoscaling",
       },
-      { id: "lightsail", href: "/dashboard/lightsail", label: "Lightsail", icon: "lightsail" },
       {
         id: "elasticbeanstalk",
         href: "/dashboard/elasticbeanstalk",
@@ -427,12 +410,6 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/codeconnections",
         label: "CodeConnections",
         icon: "codeconnections",
-      },
-      {
-        id: "codestarconnections",
-        href: "/dashboard/codestarconnections",
-        label: "CodeStar Connections",
-        icon: "codestarconnections",
       },
       {
         id: "serverlessrepo",
@@ -634,18 +611,6 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "globalaccelerator",
       },
       {
-        id: "networkmanager",
-        href: "/dashboard/networkmanager",
-        label: "Network Manager",
-        icon: "networkmanager",
-      },
-      {
-        id: "directconnect",
-        href: "/dashboard/directconnect",
-        label: "Direct Connect",
-        icon: "directconnect",
-      },
-      {
         id: "servicediscovery",
         href: "/dashboard/servicediscovery",
         label: "Cloud Map",
@@ -672,7 +637,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "CloudWatch Logs",
         icon: "cloudwatchlogs",
       },
-      { id: "grafana", href: "/dashboard/grafana", label: "Managed Grafana", icon: "grafana" },
       { id: "cloudtrail", href: "/dashboard/cloudtrail", label: "CloudTrail", icon: "cloudtrail" },
       { id: "xray", href: "/dashboard/xray", label: "X-Ray", icon: "xray" },
       {
@@ -702,12 +666,6 @@ export const sidebarCategories: DashboardCategory[] = [
         icon: "resourcegroupstaggingapi",
       },
       {
-        id: "resiliencehub",
-        href: "/dashboard/resiliencehub",
-        label: "Resilience Hub",
-        icon: "resiliencehub",
-      },
-      {
         id: "cloudcontrol",
         href: "/dashboard/cloudcontrol",
         label: "CloudControl",
@@ -728,10 +686,8 @@ export const sidebarCategories: DashboardCategory[] = [
     id: "hybrid-enduser",
     label: "Hybrid & End User Computing",
     routes: [
-      { id: "outposts", href: "/dashboard/outposts", label: "Outposts", icon: "outposts" },
       { id: "appstream", href: "/dashboard/appstream", label: "AppStream 2.0", icon: "appstream" },
       { id: "workspaces", href: "/dashboard/workspaces", label: "WorkSpaces", icon: "workspaces" },
-      { id: "mgn", href: "/dashboard/mgn", label: "Application Migration", icon: "mgn" },
     ],
   },
   {

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import CloudWatchLogsPage from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -39,6 +40,36 @@ describe("CloudWatch Logs Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it("honors ?tab=insights from the URL on load, without needing a click", async () => {
+    setMockPageUrl(new URL("http://localhost/cloudwatchlogs?tab=insights"));
+    mockSend.mockResolvedValue({ logGroups: [], queryDefinitions: [] });
+
+    render(CloudWatchLogsPage);
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Query")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Create Log Group")).not.toBeInTheDocument();
+  });
+
+  it("honors ?q= from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/cloudwatchlogs?q=lambda"));
+    mockSend.mockResolvedValue({
+      logGroups: [
+        { logGroupName: "/aws/lambda/my-function", storedBytes: 1024, retentionInDays: 30 },
+        { logGroupName: "/aws/rds/my-db", storedBytes: 2048 },
+      ],
+    });
+
+    render(CloudWatchLogsPage);
+
+    await waitFor(() => {
+      expect(screen.getByText("/aws/lambda/my-function")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("/aws/rds/my-db")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search log groups...")).toHaveValue("lambda");
   });
 
   it("displays loaded log groups", async () => {

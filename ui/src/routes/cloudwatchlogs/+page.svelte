@@ -2,6 +2,8 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onDestroy, untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { urlState } from '$lib/url-state.svelte';
+	import LiveDot from '$lib/components/LiveDot.svelte';
 	import { getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeLogGroupsCommand,
@@ -64,11 +66,24 @@
 	const cwl = regionalClient(getCloudWatchLogsClient);
 
 	// ─── Top-level page tabs ──────────────────────────────────────────────────
-	let pageTab = $state<'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks'>('groups');
+	type PageTab = 'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks';
+	// URL-backed (?tab=...); see url-state.svelte.ts. Read via untrack() inside
+	// the onRegionChange effect below (switchTab() also writes it): without
+	// untrack, every tab switch would re-trigger the region effect and
+	// double-fetch — the same reasoning that already applied to this
+	// variable before it moved into the URL, now widened to the whole shared
+	// page.url (see url-state.svelte.ts's header comment on the
+	// region-effect hazard).
+	const pageTabParam = urlState<PageTab>('tab', 'groups');
+	let pageTab = $derived(pageTabParam.get());
 
 	// ─── Log Groups / Streams / Events drill-down ─────────────────────────────
 	let activeView = $state<'groups' | 'streams' | 'events'>('groups');
-	let searchQuery = $state('');
+	// URL-backed (?q=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below, so no untrack() is needed at that call
+	// site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
 
 	// Log Groups
 	let logGroups = $state<LogGroup[]>([]);
@@ -770,8 +785,8 @@
 	}
 
 	// ─── Tab change ───────────────────────────────────────────────────────────
-	function switchTab(tab: typeof pageTab) {
-		pageTab = tab;
+	function switchTab(tab: PageTab) {
+		pageTabParam.set(tab);
 		if (tab === 'insights') { loadQueryDefinitions(); }
 		else if (tab === 'export-tasks') { loadExportTasks(); }
 	}
@@ -828,7 +843,10 @@
 		<div class="flex items-center gap-3">
 			<List class="w-7 h-7 text-indigo-500" />
 			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">CloudWatch Logs</h1>
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+					CloudWatch Logs
+					<LiveDot service="cloudwatchlogs" />
+				</h1>
 				<p class="text-sm text-gray-500 dark:text-gray-400">Monitor, query, and manage log data</p>
 			</div>
 		</div>
@@ -887,7 +905,7 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<div class="flex-1 relative min-w-48">
 					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-					<input bind:value={searchQuery} type="text" placeholder="Search log groups..."
+					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search log groups..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<button onclick={() => (showCreateGroup = true)}
@@ -987,7 +1005,7 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<div class="flex-1 relative min-w-48">
 					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-					<input bind:value={searchQuery} type="text" placeholder="Search streams..."
+					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search streams..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<button onclick={() => (showCreateStream = true)}

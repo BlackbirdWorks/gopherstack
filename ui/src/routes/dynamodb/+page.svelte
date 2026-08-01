@@ -4,6 +4,8 @@
 	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { urlState } from '$lib/url-state.svelte';
+import LiveDot from '$lib/components/LiveDot.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -76,7 +78,11 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	let tableDetails = $state<Map<string, TableDescription>>(new Map());
 	let loading = $state(true);
 	let loadTablesError = $state('');
-	let searchQuery = $state('');
+	// URL-backed (?q=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below (loadTables never references it), so no
+	// untrack() is needed at that call site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
 	let showCreateModal = $state(false);
 	let creating = $state(false);
 	let newTableName = $state('');
@@ -88,7 +94,11 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	// Detail State
 	let selectedTable = $state<string | null>(null);
 	let selectedTableDesc = $state<TableDescription | null>(null);
-	let activeTab = $state<string>('overview');
+	// URL-backed (?tab=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below (onRegionChange(loadTables) doesn't
+	// reference it), so no untrack() is needed at that call site.
+	const activeTabParam = urlState<string>('tab', 'overview');
+	let activeTab = $derived(activeTabParam.get());
 	let showTableDetails = $state(false);
 
 	// Query State
@@ -272,7 +282,9 @@ async function execUpdateItem() {
 	let filterItems = $state('');
 
 	// Table Sort
-	let tableSortOrder = $state<'alpha' | 'itemCount'>('alpha');
+	// URL-backed (?sort=...); see url-state.svelte.ts.
+	const tableSortOrderParam = urlState<'alpha' | 'itemCount'>('sort', 'alpha');
+	let tableSortOrder = $derived(tableSortOrderParam.get());
 
 	// Derived
 	const filteredTables = $derived.by(() => {
@@ -490,7 +502,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	let openTableError = $state('');
 	async function openTable(name: string) {
 		selectedTable = name;
-		activeTab = 'overview';
+		activeTabParam.set('overview');
 		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
 		itemsLastKey = null; itemsSelectedKeys = new Set();
 		streamEventsHtml = ''; streamInfo = null;
@@ -1299,7 +1311,7 @@ function setPartiqlExample(query: string) {
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
 				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
-						<button onclick={() => { activeTab = id; }}
+						<button onclick={() => { activeTabParam.set(id); }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
 							{label}
 						</button>
@@ -1923,7 +1935,7 @@ function setPartiqlExample(query: string) {
 				{#if !streamsEnabled}
 					<div class="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
 						<p class="text-sm text-blue-800 dark:text-blue-300 mb-3">DynamoDB Streams are not enabled for this table.</p>
-						<button onclick={() => { activeTab = 'overview'; }} class="text-sm text-blue-600 dark:text-blue-400 underline hover:no-underline">Enable streams in the Overview tab →</button>
+						<button onclick={() => { activeTabParam.set('overview'); }} class="text-sm text-blue-600 dark:text-blue-400 underline hover:no-underline">Enable streams in the Overview tab →</button>
 					</div>
 				{:else if streamBackendUnavailable}
 					<div class="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
@@ -2352,6 +2364,7 @@ function setPartiqlExample(query: string) {
 				<h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
 					<img src="/dashboard/static/icons/dynamodb.svg" class="w-8 h-8 rounded-md shadow-sm" alt="dynamodb" />
 					DynamoDB Tables
+					<LiveDot service="dynamodb" />
 				</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
 					Manage your DynamoDB tables.
@@ -2370,13 +2383,13 @@ function setPartiqlExample(query: string) {
 					<div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
 						<svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 20 20"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z" /></svg>
 					</div>
-					<input type="text" id="table-search" placeholder="Search tables..." bind:value={searchQuery} class="block w-full p-2.5 ps-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
+					<input type="text" id="table-search" placeholder="Search tables..." value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} class="block w-full p-2.5 ps-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
 				</div>
 			</div>
 			<div class="flex items-end gap-2">
 				<div>
 					<label for="table-sort" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort</label>
-					<select id="table-sort" bind:value={tableSortOrder} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+					<select id="table-sort" value={tableSortOrder} onchange={(e) => tableSortOrderParam.set(e.currentTarget.value as 'alpha' | 'itemCount')} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
 						<option value="alpha">A → Z</option>
 						<option value="itemCount">Item Count ↓</option>
 					</select>

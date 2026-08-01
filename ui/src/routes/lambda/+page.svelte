@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { urlState } from '$lib/url-state.svelte';
+	import LiveDot from '$lib/components/LiveDot.svelte';
 	import { getLambdaClient } from '$lib/aws-client';
 	import {
 		ListFunctionsCommand,
@@ -34,8 +36,13 @@
 
 	// State
 	let loading = $state(false);
-	let searchQuery = $state('');
-	let runtimeFilter = $state('');
+	// URL-backed (?q=..., ?runtime=...); see url-state.svelte.ts. Neither is
+	// read inside the onRegionChange effect below, so no untrack() is
+	// needed at that call site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
+	const runtimeFilterParam = urlState<string>('runtime', '');
+	let runtimeFilter = $derived(runtimeFilterParam.get());
 	let functions = $state<FunctionConfiguration[]>([]);
 	let selectedFunction = $state<FunctionConfiguration | null>(null);
 	let nextMarker = $state('');
@@ -432,7 +439,10 @@
 				<Zap class="w-8 h-8 text-orange-500" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Functions</h1>
+				<div class="flex items-center gap-2">
+					<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Functions</h1>
+					<LiveDot service="lambda" />
+				</div>
 				<p class="text-sm text-muted-foreground text-slate-500 dark:text-slate-400 mt-0.5">{functions.length} function{functions.length !== 1 ? 's' : ''}</p>
 				<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Deploy and run serverless code in response to events.</p>
 			</div>
@@ -477,15 +487,17 @@
 					<div class="flex gap-2">
 						<div class="relative flex-1">
 							<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-							<input 
-								type="text" 
-								bind:value={searchQuery}
+							<input
+								type="text"
+								value={searchQuery}
+								oninput={(e) => searchQueryParam.set(e.currentTarget.value)}
 								placeholder="Search functions..."
 								class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
 							/>
 						</div>
 						<select
-							bind:value={runtimeFilter}
+							value={runtimeFilter}
+							onchange={(e) => runtimeFilterParam.set(e.currentTarget.value)}
 							class="px-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
 						>
 							<option value="">All runtimes</option>

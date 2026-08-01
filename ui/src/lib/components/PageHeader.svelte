@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ComponentType, SvelteComponent, Snippet } from 'svelte';
 	import { RefreshCw, type IconProps } from 'lucide-svelte';
+	import LiveDot from './LiveDot.svelte';
 
 	// The icon accent color varies per service (rose, teal, emerald, blue, …) —
 	// see Tabs.svelte, which faces the same per-service-accent problem for its
@@ -34,9 +35,24 @@
 		onRefresh?: () => void;
 		actions?: Snippet;
 		color?: PageHeaderColor;
+		/**
+		 * The service this page is viewing, e.g. `'s3'`. Passed straight
+		 * through to `LiveDot`, which defaults to a grey "not implemented"
+		 * dot for any service (including an omitted one) that hasn't opted
+		 * into real live-update wiring — see LiveDot.svelte.
+		 */
+		service?: string;
 	};
 
-	let { icon: Icon, title, description, onRefresh, actions, color = 'rose' }: Props = $props();
+	let {
+		icon: Icon,
+		title,
+		description,
+		onRefresh,
+		actions,
+		color = 'rose',
+		service
+	}: Props = $props();
 
 	const ICON_CLASSES: Record<PageHeaderColor, string> = {
 		rose: 'text-rose-500',
@@ -62,7 +78,10 @@
 	<div class="flex items-center gap-3">
 		<Icon class="w-7 h-7 {ICON_CLASSES[color]}" />
 		<div>
-			<h1 class="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+			<h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+				{title}
+				<LiveDot {service} />
+			</h1>
 			<p class="text-sm text-gray-500 dark:text-gray-400">{description}</p>
 		</div>
 	</div>

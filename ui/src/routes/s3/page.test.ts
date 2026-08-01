@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import S3Page from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -87,6 +88,26 @@ describe("S3 Page", () => {
     });
     expect(screen.getByText("beta-bucket")).toBeInTheDocument();
     expect(screen.queryByText("gamma-bucket")).not.toBeInTheDocument();
+  });
+
+  it("honors ?q= and ?sort= from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/s3?q=beta&sort=newest"));
+    mockSend.mockResolvedValueOnce({
+      Buckets: [
+        { Name: "alpha-bucket", CreationDate: new Date("2024-01-01") },
+        { Name: "beta-bucket", CreationDate: new Date("2024-06-15") },
+      ],
+    });
+    mockSend.mockResolvedValue({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("beta-bucket")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("alpha-bucket")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search Buckets")).toHaveValue("beta");
+    expect(screen.getByLabelText("Sort by")).toHaveValue("newest");
   });
 
   it("opens and closes create bucket modal", async () => {

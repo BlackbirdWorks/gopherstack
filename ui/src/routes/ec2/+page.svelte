@@ -2,6 +2,8 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 import { untrack } from 'svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { urlState } from '$lib/url-state.svelte';
+import LiveDot from '$lib/components/LiveDot.svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
 	DescribeInstancesCommand,
@@ -76,8 +78,13 @@ type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplate
 
 let instances = $state<EC2Instance[]>([]);
 let loading = $state(true);
-let search = $state('');
-let stateFilter = $state('all');
+// URL-backed (?q=..., ?state=...); see url-state.svelte.ts. Neither is read
+// inside the onRegionChange effect below, so no untrack() is needed at
+// that call site.
+const searchParam = urlState<string>('q', '');
+let search = $derived(searchParam.get());
+const stateFilterParam = urlState<string>('state', 'all');
+let stateFilter = $derived(stateFilterParam.get());
 let vpcFilter = $state('all');
 let showLaunchModal = $state(false);
 let showCreateLTModal = $state(false);
@@ -88,7 +95,14 @@ let newInstanceName = $state('');
 let newLTName = $state('');
 let newLTImageId = $state('ami-0c55b159cbfafe1f0');
 let newLTInstanceType = $state('t3.micro');
-let activeTab = $state<TabName>('instances');
+// URL-backed (?tab=...); see url-state.svelte.ts. Read via untrack() inside
+// the onRegionChange effect below (selectTab() also writes it): without
+// untrack, every tab switch would re-trigger the region effect and
+// double-fetch — the same reasoning that already applied to this variable
+// before it moved into the URL, now widened to the whole shared page.url
+// (see url-state.svelte.ts's header comment on the region-effect hazard).
+const activeTabParam = urlState<TabName>('tab', 'instances');
+let activeTab = $derived(activeTabParam.get());
 let securityGroups = $state<SecurityGroup[]>([]);
 let keyPairs = $state<KeyPairInfo[]>([]);
 let amis = $state<Image[]>([]);
@@ -429,7 +443,7 @@ const tabLoaders: Record<
 };
 
 async function selectTab(t: TabName) {
-	activeTab = t;
+	activeTabParam.set(t);
 	const entry = tabLoaders[t];
 	if (!entry.isLoaded()) await entry.load();
 }
@@ -633,7 +647,10 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 				<Cpu class="w-6 h-6 text-orange-600 dark:text-orange-400" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">EC2</h1>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+					EC2
+					<LiveDot service="ec2" />
+				</h1>
 				<p class="text-slate-600 dark:text-slate-300">Elastic Compute Cloud</p>
 			</div>
 		</div>
@@ -739,11 +756,12 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 			<input
 				type="text"
 				placeholder="Search instances..."
-				bind:value={search}
+				value={search}
+				oninput={(e) => searchParam.set(e.currentTarget.value)}
 				class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
 			/>
 		</div>
-		<select bind:value={stateFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+		<select value={stateFilter} onchange={(e) => stateFilterParam.set(e.currentTarget.value)} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
 			<option value="all">All States</option>
 			<option value="running">Running</option>
 			<option value="stopped">Stopped</option>

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DynamoDBPage from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -78,6 +79,35 @@ describe("DynamoDB Page", () => {
 
     expect(screen.getByText("DynamoDB Tables")).toBeInTheDocument();
     expect(screen.getByText("+ Create Table")).toBeInTheDocument();
+  });
+
+  it("honors ?q= and ?sort= from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/dynamodb?q=Order&sort=alpha"));
+    mockSend.mockResolvedValueOnce({ TableNames: ["Users", "Orders"] });
+    mockSend.mockResolvedValueOnce({
+      Table: {
+        TableName: "Users",
+        TableStatus: "ACTIVE",
+        ItemCount: 42,
+        KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+      },
+    });
+    mockSend.mockResolvedValueOnce({
+      Table: {
+        TableName: "Orders",
+        TableStatus: "ACTIVE",
+        ItemCount: 7,
+        KeySchema: [{ AttributeName: "orderId", KeyType: "HASH" }],
+      },
+    });
+
+    render(DynamoDBPage);
+
+    await waitFor(() => {
+      expect(screen.getByText("Orders")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Users")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search tables...")).toHaveValue("Order");
   });
 
   it("displays loaded tables", async () => {

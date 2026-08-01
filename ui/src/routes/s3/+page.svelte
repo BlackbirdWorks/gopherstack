@@ -4,6 +4,8 @@ import { goto } from '$app/navigation';
 import { getS3Client } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { urlState } from '$lib/url-state.svelte';
+import LiveDot from '$lib/components/LiveDot.svelte';
 import {
 ListBucketsCommand,
 CreateBucketCommand,
@@ -74,7 +76,11 @@ const s3 = regionalClient(getS3Client);
 
 let buckets = $state<Bucket[]>([]);
 let loading = $state(true);
-let searchQuery = $state('');
+// URL-backed: survives a refresh and is linkable (?q=...). See
+// url-state.svelte.ts. Not read inside the onRegionChange effect below, so
+// no untrack() is needed here (loadBuckets never references it).
+const searchQueryParam = urlState<string>('q', '');
+let searchQuery = $derived(searchQueryParam.get());
 let showCreateModal = $state(false);
 let newBucketName = $state('');
 let enableVersioning = $state(false);
@@ -84,7 +90,12 @@ let bucketPage = $state(1);
 
 // Bucket detail state
 let selectedBucket = $state<string | null>(null);
-let activeDetailTab = $state<'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'objectlock' | 'notifications' | 'replication' | 'logging' | 'ownership' | 'analytics' | 'metrics' | 'inventory' | 'tiering'>('objects');
+type DetailTab = 'objects' | 'properties' | 'tagging' | 'permissions' | 'lifecycle' | 'cors' | 'uploads' | 'objectlock' | 'notifications' | 'replication' | 'logging' | 'ownership' | 'analytics' | 'metrics' | 'inventory' | 'tiering';
+// URL-backed (?tab=...); see url-state.svelte.ts. Not read inside the
+// onRegionChange effect below (loadBuckets doesn't reference it), so no
+// untrack() is needed at that call site.
+const activeDetailTabParam = urlState<DetailTab>('tab', 'objects');
+let activeDetailTab = $derived(activeDetailTabParam.get());
 type MultipartUploadEntry = { key: string; uploadId: string; initiated?: Date; partsCompleted: number; bytesUploaded: number; };
 let multipartUploads = $state<MultipartUploadEntry[]>([]);
 let loadingUploads = $state(false);
@@ -167,8 +178,9 @@ let previewTags = $state<Tag[]>([]);
 let previewTagsLoading = $state(false);
 let previewTagsSaving = $state(false);
 
-// Bucket sort state
-let bucketSortOrder = $state<'alpha' | 'newest' | 'largest'>('alpha');
+// Bucket sort state (URL-backed via ?sort=...; see url-state.svelte.ts)
+const bucketSortOrderParam = urlState<'alpha' | 'newest' | 'largest'>('sort', 'alpha');
+let bucketSortOrder = $derived(bucketSortOrderParam.get());
 
 const filteredBuckets = $derived(
 buckets.filter((b) => !searchQuery || (b.Name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false))
@@ -350,7 +362,7 @@ toast.error(`Failed to delete bucket: ${describeError(err)}`);
 
 async function openBucket(name: string) {
   selectedBucket = name;
-  activeDetailTab = 'objects';
+  activeDetailTabParam.set('objects');
   currentPrefix = '';
   selectedObjects = new Set<string>();
   filterObjects = '';
@@ -1030,8 +1042,8 @@ function fileIcon(key: string): string {
   return '📄';
 }
 
-async function switchTab(tab: typeof activeDetailTab) {
-activeDetailTab = tab;
+async function switchTab(tab: DetailTab) {
+activeDetailTabParam.set(tab);
 if (tab === 'properties') { await loadPropertiesTab(); await loadWebsite(); }
 else if (tab === 'tagging') await loadTagsTab();
 else if (tab === 'permissions') { await loadPermissionsTab(); await loadPublicAccessBlock(); await loadAcl(); }
@@ -2207,6 +2219,7 @@ class="w-4 h-4 text-blue-600"
 <h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
 <img src="/dashboard/static/icons/s3.svg" class="w-8 h-8 rounded-md shadow-sm" alt="s3" />
 S3 Buckets
+<LiveDot service="s3" />
 </h1>
 <p class="mt-2 text-sm text-slate-600 dark:text-slate-400">Manage your Object Storage buckets.</p>
 </div>
@@ -2245,14 +2258,16 @@ class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300
 type="text"
 id="bucket-search"
 placeholder="Search buckets..."
-bind:value={searchQuery}
+value={searchQuery}
+oninput={(e) => searchQueryParam.set(e.currentTarget.value)}
 class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500"
 />
 </div>
 </div>
 <div>
   <label for="bucket-sort-order" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort by</label>
-  <select id="bucket-sort-order" bind:value={bucketSortOrder}
+  <select id="bucket-sort-order" value={bucketSortOrder}
+    onchange={(e) => bucketSortOrderParam.set(e.currentTarget.value as 'alpha' | 'newest' | 'largest')}
     class="p-2 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
     <option value="alpha">Alphabetical</option>
     <option value="newest">Newest First</option>
