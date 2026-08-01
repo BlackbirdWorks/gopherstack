@@ -113,7 +113,7 @@
 			const res = await mediaStore().send(new ListContainersCommand({ MaxResults: 100 }));
 			containers = res.Containers ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load containers: ${(err as Error).message}`);
+			toast.error(`Failed to load containers: ${String(err)}`);
 		} finally {
 			loading = false;
 		}
@@ -129,7 +129,7 @@
 			showCreateModal = false;
 			await loadContainers();
 		} catch (err: unknown) {
-			toast.error(`Failed to create container: ${(err as Error).message}`);
+			toast.error(`Failed to create container: ${String(err)}`);
 		} finally {
 			creating = false;
 		}
@@ -144,7 +144,7 @@
 			if (selectedContainer?.Name === name) selectedContainer = null;
 			await loadContainers();
 		} catch (err: unknown) {
-			toast.error(`Delete failed: ${(err as Error).message}`);
+			toast.error(`Delete failed: ${String(err)}`);
 		}
 	}
 
@@ -156,7 +156,7 @@
 			const res = await mediaStore().send(new DescribeContainerCommand({ ContainerName: c.Name! }));
 			selectedContainer = res.Container ?? c;
 		} catch (err: unknown) {
-			toast.error(`Failed to describe container: ${(err as Error).message}`);
+			toast.error(`Failed to describe container: ${String(err)}`);
 		} finally {
 			loadingDetails = false;
 		}
@@ -186,7 +186,7 @@
 			const res = await mediaStore().send(new GetContainerPolicyCommand({ ContainerName: name }));
 			containerPolicy = res.Policy ?? '';
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = String(err);
 			if (msg.includes('PolicyNotFoundException') || msg.includes('not found')) {
 				containerPolicy = '';
 			} else {
@@ -205,7 +205,7 @@
 			editingPolicy = false;
 			toast.success('Container policy saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save policy: ${(err as Error).message}`);
+			toast.error(`Failed to save policy: ${String(err)}`);
 		}
 	}
 
@@ -217,7 +217,7 @@
 			containerPolicy = '';
 			toast.success('Container policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete policy: ${(err as Error).message}`);
+			toast.error(`Failed to delete policy: ${String(err)}`);
 		}
 	}
 
@@ -228,7 +228,7 @@
 			const res = await mediaStore().send(new GetCorsPolicyCommand({ ContainerName: name }));
 			corsRules = res.CorsPolicy ?? [];
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = String(err);
 			if (msg.includes('CorsPolicyNotFoundException') || msg.includes('not found')) {
 				corsRules = [];
 			} else {
@@ -248,7 +248,7 @@
 			editingCors = false;
 			toast.success('CORS policy saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save CORS: ${(err as Error).message}`);
+			toast.error(`Failed to save CORS: ${String(err)}`);
 		}
 	}
 
@@ -260,7 +260,7 @@
 			corsRules = [];
 			toast.success('CORS policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete CORS: ${(err as Error).message}`);
+			toast.error(`Failed to delete CORS: ${String(err)}`);
 		}
 	}
 
@@ -271,7 +271,7 @@
 			const res = await mediaStore().send(new GetLifecyclePolicyCommand({ ContainerName: name }));
 			lifecyclePolicy = res.LifecyclePolicy ?? '';
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = String(err);
 			if (msg.includes('PolicyNotFoundException') || msg.includes('not found')) {
 				lifecyclePolicy = '';
 			} else {
@@ -290,7 +290,7 @@
 			editingLifecycle = false;
 			toast.success('Lifecycle policy saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save lifecycle: ${(err as Error).message}`);
+			toast.error(`Failed to save lifecycle: ${String(err)}`);
 		}
 	}
 
@@ -302,7 +302,7 @@
 			lifecyclePolicy = '';
 			toast.success('Lifecycle policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete lifecycle: ${(err as Error).message}`);
+			toast.error(`Failed to delete lifecycle: ${String(err)}`);
 		}
 	}
 
@@ -313,7 +313,7 @@
 			const res = await mediaStore().send(new GetMetricPolicyCommand({ ContainerName: name }));
 			metricPolicy = res.MetricPolicy ?? null;
 		} catch (err: unknown) {
-			const msg = (err as Error).message;
+			const msg = String(err);
 			if (msg.includes('PolicyNotFoundException') || msg.includes('not found')) {
 				metricPolicy = null;
 			} else {
@@ -333,7 +333,7 @@
 			editingMetrics = false;
 			toast.success('Metric policy saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save metric policy: ${(err as Error).message}`);
+			toast.error(`Failed to save metric policy: ${String(err)}`);
 		}
 	}
 
@@ -345,7 +345,7 @@
 			metricPolicy = null;
 			toast.success('Metric policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete metric policy: ${(err as Error).message}`);
+			toast.error(`Failed to delete metric policy: ${String(err)}`);
 		}
 	}
 
@@ -362,7 +362,7 @@
 			}
 			selectedContainer = { ...selectedContainer, AccessLoggingEnabled: enable };
 		} catch (err: unknown) {
-			toast.error(`Failed to toggle access logging: ${(err as Error).message}`);
+			toast.error(`Failed to toggle access logging: ${String(err)}`);
 		}
 	}
 
@@ -373,7 +373,7 @@
 			const res = await mediaStore().send(new ListTagsForResourceCommand({ Resource: arn }));
 			tags = Object.fromEntries((res.Tags ?? []).map(t => [t.Key!, t.Value ?? '']));
 		} catch (err: unknown) {
-			toast.error(`Failed to load tags: ${(err as Error).message}`);
+			toast.error(`Failed to load tags: ${String(err)}`);
 		} finally {
 			loadingTags = false;
 		}
@@ -389,7 +389,7 @@
 			newTagValue = '';
 			toast.success('Tag added');
 		} catch (err: unknown) {
-			toast.error(`Failed to add tag: ${(err as Error).message}`);
+			toast.error(`Failed to add tag: ${String(err)}`);
 		} finally {
 			taggingInFlight = false;
 		}
@@ -404,7 +404,7 @@
 			tags = next;
 			toast.success('Tag removed');
 		} catch (err: unknown) {
-			toast.error(`Failed to remove tag: ${(err as Error).message}`);
+			toast.error(`Failed to remove tag: ${String(err)}`);
 		}
 	}
 

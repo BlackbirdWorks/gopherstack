@@ -63,7 +63,7 @@
 			const out = await iotAnalytics().send(new ListChannelsCommand({}));
 			channels = out.channelSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load channels: ${(err as Error).message}`);
+			toast.error(`Failed to load channels: ${String(err)}`);
 		} finally {
 			channelsBusy = false;
 		}
@@ -78,7 +78,7 @@
 			await loadChannels();
 			toast.success('Channel created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create channel: ${(err as Error).message}`);
+			toast.error(`Failed to create channel: ${String(err)}`);
 		}
 	}
 
@@ -91,7 +91,7 @@
 			if (batchChannelName === name) batchChannelName = '';
 			toast.success(`Channel "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete channel: ${(err as Error).message}`);
+			toast.error(`Failed to delete channel: ${String(err)}`);
 		} finally {
 			deletingChannel = null;
 		}
@@ -110,7 +110,7 @@
 			toast.success('Message ingested');
 			batchMessageId = 'msg-' + Date.now().toString().slice(-6);
 		} catch (err: unknown) {
-			toast.error(`Ingest failed: ${(err as Error).message}`);
+			toast.error(`Ingest failed: ${String(err)}`);
 		} finally {
 			batchBusy = false;
 		}
@@ -131,7 +131,7 @@
 			});
 			if (sampleResults.length === 0) toast.info('No messages in channel');
 		} catch (err: unknown) {
-			toast.error(`Sample failed: ${(err as Error).message}`);
+			toast.error(`Sample failed: ${String(err)}`);
 		} finally {
 			sampleBusy = false;
 		}
@@ -150,7 +150,7 @@
 			const out = await iotAnalytics().send(new ListDatastoresCommand({}));
 			datastores = out.datastoreSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load datastores: ${(err as Error).message}`);
+			toast.error(`Failed to load datastores: ${String(err)}`);
 		} finally {
 			datastoresBusy = false;
 		}
@@ -165,7 +165,7 @@
 			await loadDatastores();
 			toast.success('Datastore created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create datastore: ${(err as Error).message}`);
+			toast.error(`Failed to create datastore: ${String(err)}`);
 		}
 	}
 
@@ -176,7 +176,7 @@
 			await loadDatastores();
 			toast.success(`Datastore "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete datastore: ${(err as Error).message}`);
+			toast.error(`Failed to delete datastore: ${String(err)}`);
 		} finally {
 			deletingDatastore = null;
 		}
@@ -202,7 +202,7 @@
 			const out = await iotAnalytics().send(new ListDatasetsCommand({}));
 			datasets = out.datasetSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load datasets: ${(err as Error).message}`);
+			toast.error(`Failed to load datasets: ${String(err)}`);
 		} finally {
 			datasetsBusy = false;
 		}
@@ -220,7 +220,7 @@
 			await loadDatasets();
 			toast.success('Dataset created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create dataset: ${(err as Error).message}`);
+			toast.error(`Failed to create dataset: ${String(err)}`);
 		}
 	}
 
@@ -232,7 +232,7 @@
 			await loadDatasets();
 			toast.success(`Dataset "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete dataset: ${(err as Error).message}`);
+			toast.error(`Failed to delete dataset: ${String(err)}`);
 		} finally {
 			deletingDataset = null;
 		}
@@ -254,7 +254,7 @@
 				completionTime: c.completionTime
 			}));
 		} catch (err: unknown) {
-			toast.error(`Failed to load contents: ${(err as Error).message}`);
+			toast.error(`Failed to load contents: ${String(err)}`);
 		} finally {
 			contentsBusy = false;
 		}
@@ -268,7 +268,7 @@
 			if (selectedDataset === name) await loadContents(name);
 			else await selectDataset(name);
 		} catch (err: unknown) {
-			toast.error(`Failed to trigger content: ${(err as Error).message}`);
+			toast.error(`Failed to trigger content: ${String(err)}`);
 		} finally {
 			triggerBusy = null;
 		}
@@ -302,7 +302,7 @@
 			const out = await iotAnalytics().send(new ListPipelinesCommand({}));
 			pipelines = out.pipelineSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load pipelines: ${(err as Error).message}`);
+			toast.error(`Failed to load pipelines: ${String(err)}`);
 		} finally {
 			pipelinesBusy = false;
 		}
@@ -320,7 +320,7 @@
 			await loadPipelines();
 			toast.success('Pipeline created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create pipeline: ${(err as Error).message}`);
+			toast.error(`Failed to create pipeline: ${String(err)}`);
 		}
 	}
 
@@ -332,7 +332,7 @@
 			await loadPipelines();
 			toast.success(`Pipeline "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete pipeline: ${(err as Error).message}`);
+			toast.error(`Failed to delete pipeline: ${String(err)}`);
 		} finally {
 			deletingPipeline = null;
 		}
@@ -346,7 +346,7 @@
 			await loadPipelines();
 			if (expandedPipeline === name) await expandPipeline(name);
 		} catch (err: unknown) {
-			toast.error(`Failed to start reprocessing: ${(err as Error).message}`);
+			toast.error(`Failed to start reprocessing: ${String(err)}`);
 		} finally {
 			reprocessBusy = null;
 		}
@@ -359,7 +359,7 @@
 			toast.success('Reprocessing cancelled');
 			await expandPipeline(pipelineName);
 		} catch (err: unknown) {
-			toast.error(`Failed to cancel: ${(err as Error).message}`);
+			toast.error(`Failed to cancel: ${String(err)}`);
 		} finally {
 			cancelBusy = null;
 		}
@@ -401,7 +401,7 @@
 			loggingEnabled = out.loggingOptions?.enabled ?? false;
 			loggingLoaded = true;
 		} catch (err: unknown) {
-			const msg = (err as Error).message ?? '';
+			const msg = String(err);
 			if (!msg.includes('not found') && !msg.includes('404')) {
 				toast.error(`Failed to load logging options: ${msg}`);
 			}
@@ -419,7 +419,7 @@
 			}));
 			toast.success('Logging options saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save logging options: ${(err as Error).message}`);
+			toast.error(`Failed to save logging options: ${String(err)}`);
 		} finally {
 			loggingBusy = false;
 		}
@@ -667,6 +667,7 @@
 									<td class="px-4 py-3 text-right">
 										<button onclick={() => deleteDatastore(ds.datastoreName ?? '')}
 											disabled={deletingDatastore === ds.datastoreName}
+											title="Delete"
 											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 											{#if deletingDatastore === ds.datastoreName}
 												<RefreshCw class="h-4 w-4 animate-spin" />
@@ -739,6 +740,7 @@
 												</button>
 												<button onclick={(e) => { e.stopPropagation(); deleteDataset(ds.datasetName ?? ''); }}
 													disabled={deletingDataset === ds.datasetName}
+													title="Delete"
 													class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 													{#if deletingDataset === ds.datasetName}
 														<RefreshCw class="h-4 w-4 animate-spin" />
@@ -875,6 +877,7 @@
 											</button>
 											<button onclick={() => deletePipeline(p.pipelineName ?? '')}
 												disabled={deletingPipeline === p.pipelineName}
+												title="Delete"
 												class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 												{#if deletingPipeline === p.pipelineName}
 													<RefreshCw class="h-4 w-4 animate-spin" />
