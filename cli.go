@@ -141,6 +141,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
@@ -265,6 +266,7 @@ type CLI struct {
 	athenaHandler                 service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
+	grafanaHandler                service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1439,6 +1441,11 @@ func (c *CLI) GetXrayHandler() service.Registerable { return c.xrayHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetS3TablesHandler() service.Registerable { return c.s3tablesHandler }
 
+// GetGrafanaHandler returns the Amazon Managed Grafana handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGrafanaHandler() service.Registerable { return c.grafanaHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2561,6 +2568,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.wafv2Handler = byName["Wafv2"]
 	cli.xrayHandler = byName["Xray"]
 	cli.s3tablesHandler = byName["S3tables"]
+	cli.grafanaHandler = byName["Grafana"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -3146,6 +3154,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
 		&bedrockagentbackend.Provider{},
+		&grafanabackend.Provider{},
 	}
 }
 
@@ -5320,11 +5329,12 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 29 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 30 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
-// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr). The rest remain
-// unwired -- see PARITY.md's gaps section for the honest remaining list and why a few
+// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana). The
+// rest remain unwired -- see PARITY.md's gaps section for the honest remaining list
+// and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
@@ -5386,6 +5396,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingCloudWatchLogs(bk, byName["CloudWatchLogs"])
 	wireTaggingMQ(bk, byName["MQ"])
 	wireTaggingEMR(bk, byName["EMR"])
+	wireTaggingGrafana(bk, byName["Grafana"])
 }
 
 func wireTaggingDDB(
@@ -6651,6 +6662,41 @@ func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg se
 			return emrBk.AddTags(ctx, arnStr, tagList)
 		},
 		emrBk.RemoveTags,
+	)
+}
+
+// wireTaggingGrafana wires the Amazon Managed Grafana backend into the
+// Resource Groups Tagging API. Grafana has exactly one taggable resource
+// kind (workspaces), so its resource type is a constant rather than parsed
+// per-ARN -- see grafana.InMemoryBackend.WorkspaceARN's doc comment for how
+// the "grafana" ARN service and "/workspaces/{id}" resource segment were
+// verified (terraform-provider-aws's workspaceARN helper, since the SDK
+// itself never emits a workspace ARN on any of its 25 operations).
+func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafanaReg service.Registerable) {
+	grafanaH, ok := grafanaReg.(*grafanabackend.Handler)
+	if !ok {
+		return
+	}
+
+	grafanaBk := grafanaH.Backend
+	if grafanaBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(bk, "grafana",
+		constantResourceType("grafana:workspace"),
+		func() []taggedARNEntry {
+			items := grafanaBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		grafanaBk.TagResource,
+		grafanaBk.UntagResource,
 	)
 }
 
