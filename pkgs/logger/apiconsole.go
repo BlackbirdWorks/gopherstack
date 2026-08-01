@@ -122,10 +122,88 @@ var GlobalRingBuffer = NewRequestRingBuffer(defaultBufferSize)
 // captured for the console/log so secrets never appear in clear text.
 const redactedHeaderValue = "[REDACTED]"
 
+// skipAPIConsoleCapture reports whether a request should bypass capture
+// entirely: dashboard requests (to avoid recursion/noise) and the
+// health/root checks that would otherwise flood the console with no useful
+// signal.
+func skipAPIConsoleCapture(req *http.Request) bool {
+	if strings.HasPrefix(req.URL.Path, "/dashboard") {
+		return true
+	}
+
+	return req.URL.Path == "/_gopherstack/health" || (req.URL.Path == "/" && req.Method == http.MethodGet)
+}
+
+// captureRequestHeaders copies request headers into a plain map, redacting
+// the values of any header in sensitiveHeaders (auth tokens, SigV4
+// credentials/signatures, cookies, API keys) so secrets are never stored in
+// the console ring buffer or logged in clear text.
+func captureRequestHeaders(header http.Header, sensitiveHeaders map[string]struct{}) map[string]string {
+	headers := make(map[string]string)
+	for k, v := range header {
+		if len(v) == 0 {
+			continue
+		}
+		if _, secret := sensitiveHeaders[k]; secret {
+			headers[k] = redactedHeaderValue
+		} else {
+			headers[k] = v[0]
+		}
+	}
+
+	return headers
+}
+
+// attachBodyCapture wraps req.Body (if present) in a cappedTeeBody so that up
+// to maxCapturedBodyBytes are copied into the returned buffer while every
+// Read still passes through to the underlying body unchanged -- the
+// downstream handler observes the exact same stream it always did, just
+// teed. This avoids io.ReadAll-ing the entire body (which would
+// double-buffer large uploads in memory) and there is nothing to restore
+// afterward because the original body is never fully consumed or replaced,
+// only wrapped. Returns nil if the request has no body.
+func attachBodyCapture(req *http.Request) *bytes.Buffer {
+	if req.Body == nil {
+		return nil
+	}
+
+	bodyBuf := &bytes.Buffer{}
+	req.Body = &cappedTeeBody{src: req.Body, buf: bodyBuf, cap: maxCapturedBodyBytes}
+
+	return bodyBuf
+}
+
+// resolveResponseStatus determines the status code to record for the
+// captured request: 500 when the handler returned an error, otherwise
+// whatever status the echo response writer exposes (falling back to 200 if
+// neither accessor is implemented).
+func resolveResponseStatus(resp http.ResponseWriter, err error) int {
+	if err != nil {
+		return http.StatusInternalServerError
+	}
+	if rw, ok := resp.(interface{ StatusCode() int }); ok {
+		return rw.StatusCode()
+	}
+	if rw, ok := resp.(interface{ Status() int }); ok {
+		return rw.Status()
+	}
+
+	return http.StatusOK
+}
+
+// capturedBodyString returns the bytes captured into buf, resolved after the
+// handler has had a chance to read req.Body. It is "" if nothing was
+// captured (no body, or an empty body).
+func capturedBodyString(buf *bytes.Buffer) string {
+	if buf != nil && buf.Len() > 0 {
+		return buf.String()
+	}
+
+	return ""
+}
+
 // APIConsoleMiddleware captures incoming API requests and stores them in the ring buffer.
 // It should be injected after standard loggers but before request processing.
-//
-//nolint:gocognit // middleware performs explicit filtering, capture, and enrichment in one path.
 func APIConsoleMiddleware() echo.MiddlewareFunc {
 	// sensitiveHeaders is the set of request headers whose values are secrets
 	// (authorization tokens, SigV4 credentials/signatures, session cookies, API
@@ -147,62 +225,20 @@ func APIConsoleMiddleware() echo.MiddlewareFunc {
 		return func(c *echo.Context) error {
 			start := time.Now()
 			req := c.Request()
-			// Skip capturing dashboard requests to avoid recursion or noise
-			if strings.HasPrefix(req.URL.Path, "/dashboard") {
-				return next(c)
-			}
-			if req.URL.Path == "/_gopherstack/health" || (req.URL.Path == "/" && req.Method == http.MethodGet) {
+
+			if skipAPIConsoleCapture(req) {
 				return next(c)
 			}
 
-			// Capture headers. Values of sensitive headers (auth tokens,
-			// SigV4 credentials/signatures, cookies, API keys) are redacted so
-			// secrets are never stored in the console ring buffer or logged in
-			// clear text (see sensitiveHeaders).
-			headers := make(map[string]string)
-			for k, v := range req.Header {
-				if len(v) > 0 {
-					if _, secret := sensitiveHeaders[k]; secret {
-						headers[k] = redactedHeaderValue
-					} else {
-						headers[k] = v[0]
-					}
-				}
-			}
-
-			// Capture body if present. cappedTeeBody copies at most
-			// maxCapturedBodyBytes into bodyBuf while passing the original
-			// stream through to the handler unchanged. This avoids
-			// io.ReadAll-ing the entire body (which would double-buffer
-			// large uploads in memory) and bounds what the ring buffer can
-			// retain per request.
-			var bodyBuf *bytes.Buffer
-			if req.Body != nil {
-				bodyBuf = &bytes.Buffer{}
-				req.Body = &cappedTeeBody{src: req.Body, buf: bodyBuf, cap: maxCapturedBodyBytes}
-			}
+			headers := captureRequestHeaders(req.Header, sensitiveHeaders)
+			bodyBuf := attachBodyCapture(req)
 
 			reqID := c.Response().Header().Get(echo.HeaderXRequestID)
 
 			err := next(c)
 
-			// try to get status code from our httputil or error
-			status := 200
-			if err != nil {
-				status = 500
-			} else if rw, ok := c.Response().(interface{ StatusCode() int }); ok {
-				status = rw.StatusCode()
-			} else if rw, ok2 := c.Response().(interface{ Status() int }); ok2 {
-				status = rw.Status()
-			}
-
-			// Resolve captured body after the handler has read req.Body. The
-			// teed buffer holds at most maxCapturedBodyBytes regardless of how
-			// large the actual request body was.
-			var reqBody string
-			if bodyBuf != nil && bodyBuf.Len() > 0 {
-				reqBody = bodyBuf.String()
-			}
+			status := resolveResponseStatus(c.Response(), err)
+			reqBody := capturedBodyString(bodyBuf)
 
 			// Store in ring buffer
 			GlobalRingBuffer.Add(&CapturedRequest{

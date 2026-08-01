@@ -2562,10 +2562,45 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.s3tablesHandler = byName["S3tables"]
 }
 
-// initializeServices initializes all service providers.
-//
-//nolint:funlen // registers many services; splitting would obscure the dependency wiring
+// initializeServices initializes all service providers, wires the
+// cross-service integrations that need another service's handler, then
+// registers CloudFormation and the dashboard last. The three phases mirror
+// what each step depends on: independent providers, providers needing
+// another service's already-initialized handler, and providers needing the
+// full service registry (CloudFormation, then the dashboard).
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
+	services, err := initIndependentServices(appCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store handlers in CLI so dashboard and CloudFormation can access them.
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		storeCLIHandlers(cli, services)
+	}
+
+	// Build name-based lookup for cross-service wiring.
+	byName := serviceByName(services)
+
+	wireCrossServiceDependencies(appCtx, services, byName)
+
+	services, err = registerCloudFormationAndDashboard(appCtx, services)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record the service count so the metrics dashboard (and Prometheus scrape)
+	// can surface it alongside the health endpoint's "services" field.
+	telemetry.SetServiceCount(len(services))
+
+	// The router sorts services by MatchPriority() at startup, so registration order
+	// does not affect routing correctness.
+	return services, nil
+}
+
+// initIndependentServices constructs every service provider that has no
+// dependency on another service's handler at init time.
+func initIndependentServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	providers := getServiceProviders()
 	services := make([]service.Registerable, 0, len(providers))
 
@@ -2578,14 +2613,38 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Store handlers in CLI so dashboard and CloudFormation can access them.
-	if cli, ok := appCtx.Config.(*CLI); ok {
-		storeCLIHandlers(cli, services)
-	}
+	return services, nil
+}
 
-	// Build name-based lookup for cross-service wiring.
-	byName := serviceByName(services)
+// wireCrossServiceDependencies wires every cross-service integration that
+// needs another service's already-initialized handler. It dispatches, in
+// the original registration order, to helpers grouped by what the
+// dependencies are (messaging/eventing, Step Functions, SSM/Kinesis key and
+// notification wiring, API Gateway, event-source pollers,
+// compute/observability, CloudWatch Logs metric emitters, storage/secrets,
+// AppSync/streams, Scheduler/Pipes, and governance) rather than by an
+// arbitrary line-count split.
+func wireCrossServiceDependencies(
+	appCtx *service.AppContext,
+	services []service.Registerable,
+	byName map[string]service.Registerable,
+) {
+	wireMessagingAndEventingIntegrations(byName)
+	wireStepFunctionsIntegrations(byName)
+	wireParameterAndKeyIntegrations(byName)
+	wireAPIGatewayIntegrations(byName)
+	wireEventSourcePollers(byName)
+	wireComputeAndObservabilityIntegrations(appCtx, byName)
+	wireCWLogsMetricEmitters(byName)
+	wireStorageAndSecretsIntegrations(byName)
+	wireAppSyncAndStreamsIntegrations(byName)
+	wireSchedulerAndPipesIntegrations(byName)
+	wireGovernanceIntegrations(byName, services)
+}
 
+// wireMessagingAndEventingIntegrations wires SNS, SQS, EventBridge, and S3
+// notification delivery.
+func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable) {
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
@@ -2618,7 +2677,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Lambda"],
 		byName["EventBridge"],
 	)
+}
 
+// wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
+// direct service integrations.
+func wireStepFunctionsIntegrations(byName map[string]service.Registerable) {
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
@@ -2633,7 +2696,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["EventBridge"],
 		byName["S3"],
 	)
+}
 
+// wireParameterAndKeyIntegrations wires SSM's KMS and EventBridge
+// dependencies, and Kinesis's KMS dependency.
+func wireParameterAndKeyIntegrations(byName map[string]service.Registerable) {
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
@@ -2642,7 +2709,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Kinesis → KMS so StartStreamEncryption validates KeyId against real key state.
 	wireKinesisKMS(byName["Kinesis"], byName["KMS"])
+}
 
+// wireAPIGatewayIntegrations wires API Gateway's Lambda proxy, Cognito
+// authorizer, Cognito Lambda trigger, and WebSocket Management API
+// integrations.
+func wireAPIGatewayIntegrations(byName map[string]service.Registerable) {
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
@@ -2655,7 +2727,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
+}
 
+// wireEventSourcePollers wires the Kinesis, SQS, and DynamoDB Streams event
+// source mapping pollers that invoke Lambda.
+func wireEventSourcePollers(byName map[string]service.Registerable) {
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
 
@@ -2664,7 +2740,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
+}
 
+// wireComputeAndObservabilityIntegrations wires Lambda async destinations,
+// CloudWatch alarm/infra actions, Auto Scaling/ECS ELBv2 target
+// registration, and CloudWatch Logs delivery from Lambda.
+func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName map[string]service.Registerable) {
 	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
 	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
 
@@ -2701,7 +2782,13 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Kinesis"],
 		byName["Firehose"],
 	)
+}
 
+// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
+// CloudWatch metric data points. The repeated identical calls are preserved
+// verbatim from before this decomposition; collapsing them is a behavior
+// change outside the scope of this refactor.
+func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
 
@@ -2752,7 +2839,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+}
 
+// wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
+// import/export, SecretsManager's Lambda rotation invoker and KMS
+// encryption, and IoT rule action dispatch.
+func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
@@ -2769,7 +2861,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+}
 
+// wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
+// resolvers, and DynamoDB Streams to the DynamoDB backend.
+func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -2778,7 +2874,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+}
 
+// wireSchedulerAndPipesIntegrations wires the Scheduler and Pipes runners
+// to the backends they can target.
+func wireSchedulerAndPipesIntegrations(byName map[string]service.Registerable) {
 	// Wire Scheduler runner → Lambda, SQS, SNS, and StepFunctions backends.
 	wireSchedulerRunner(
 		byName["Scheduler"],
@@ -2807,7 +2907,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Firehose"],
 		byName["DynamoDB"],
 	)
+}
 
+// wireGovernanceIntegrations wires Resource Groups Tagging API aggregation
+// across service backends, IAM→STS validation, and FIS action provider
+// registration.
+func wireGovernanceIntegrations(byName map[string]service.Registerable, services []service.Registerable) {
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
 	wireResourceGroupsTagging(
@@ -2830,7 +2935,18 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
+}
 
+// registerCloudFormationAndDashboard registers CloudFormation and the
+// dashboard, both of which need the full set of already-initialized service
+// handlers: CloudFormation to drive stack resources through their real
+// backends, and the dashboard to expose them. CloudFormation is registered
+// first so its handler is stored before the dashboard, which is
+// initialized last, reads it.
+func registerCloudFormationAndDashboard(
+	appCtx *service.AppContext,
+	services []service.Registerable,
+) ([]service.Registerable, error) {
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -2850,12 +2966,6 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	}
 	services = append(services, dashSvc)
 
-	// Record the service count so the metrics dashboard (and Prometheus scrape)
-	// can surface it alongside the health endpoint's "services" field.
-	telemetry.SetServiceCount(len(services))
-
-	// The router sorts services by MatchPriority() at startup, so registration order
-	// does not affect routing correctness.
 	return services, nil
 }
 
