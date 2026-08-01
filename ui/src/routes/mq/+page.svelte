@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMQClient } from '$lib/aws-client';
 	import {
 		ListBrokersCommand,
@@ -38,7 +39,7 @@
 		X
 	} from 'lucide-svelte';
 
-	const mq = getMQClient();
+	const mq = regionalClient(getMQClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'brokers' | 'configurations'>('brokers');
@@ -133,7 +134,7 @@
 	async function loadBrokers() {
 		loading = true;
 		try {
-			const res = await mq.send(new ListBrokersCommand({ MaxResults: 100 }));
+			const res = await mq().send(new ListBrokersCommand({ MaxResults: 100 }));
 			brokers = res.BrokerSummaries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load brokers: ${(err as Error).message}`);
@@ -145,7 +146,7 @@
 	async function loadConfigurations() {
 		loading = true;
 		try {
-			const res = await mq.send(new ListConfigurationsCommand({ MaxResults: 100 }));
+			const res = await mq().send(new ListConfigurationsCommand({ MaxResults: 100 }));
 			configurations = res.Configurations ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load configurations: ${(err as Error).message}`);
@@ -160,7 +161,7 @@
 		showUsersPanel = false;
 		brokerUsers = [];
 		try {
-			const res = await mq.send(new DescribeBrokerCommand({ BrokerId: brokerId }));
+			const res = await mq().send(new DescribeBrokerCommand({ BrokerId: brokerId }));
 			selectedBroker = res;
 		} catch (err: unknown) {
 			toast.error(`Failed to describe broker: ${(err as Error).message}`);
@@ -187,7 +188,7 @@
 		if (!newBrokerName.trim()) return;
 		creating = true;
 		try {
-			await mq.send(new CreateBrokerCommand({
+			await mq().send(new CreateBrokerCommand({
 				BrokerName: newBrokerName.trim(),
 				DeploymentMode: newBrokerDeployment,
 				EngineType: newBrokerEngine as EngineType,
@@ -217,7 +218,7 @@
 		if (!brokerToDelete?.BrokerId) return;
 		deleting = true;
 		try {
-			await mq.send(new DeleteBrokerCommand({ BrokerId: brokerToDelete.BrokerId }));
+			await mq().send(new DeleteBrokerCommand({ BrokerId: brokerToDelete.BrokerId }));
 			toast.success(`Broker "${brokerToDelete.BrokerName}" deleted`);
 			showDeleteBrokerModal = false;
 			if (selectedBroker?.BrokerId === brokerToDelete.BrokerId) {
@@ -238,7 +239,7 @@
 		if (!selectedBroker?.BrokerId) return;
 		rebooting = true;
 		try {
-			await mq.send(new RebootBrokerCommand({ BrokerId: selectedBroker.BrokerId }));
+			await mq().send(new RebootBrokerCommand({ BrokerId: selectedBroker.BrokerId }));
 			toast.success(`Broker "${selectedBroker.BrokerName}" rebooted`);
 		} catch (err: unknown) {
 			toast.error(`Failed to reboot broker: ${(err as Error).message}`);
@@ -259,7 +260,7 @@
 		if (!selectedBroker?.BrokerId) return;
 		updating = true;
 		try {
-			await mq.send(new UpdateBrokerCommand({
+			await mq().send(new UpdateBrokerCommand({
 				BrokerId: selectedBroker.BrokerId,
 				EngineVersion: updateEngineVersion || undefined,
 				HostInstanceType: updateHostInstanceType || undefined,
@@ -279,7 +280,7 @@
 		if (!selectedBroker?.BrokerId) return;
 		loadingUsers = true;
 		try {
-			const res = await mq.send(new ListUsersCommand({ BrokerId: selectedBroker.BrokerId }));
+			const res = await mq().send(new ListUsersCommand({ BrokerId: selectedBroker.BrokerId }));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			brokerUsers = ((res as any).Users ?? []) as UserSummary[];
 		} catch (err: unknown) {
@@ -308,7 +309,7 @@
 		if (!selectedBroker?.BrokerId || !newUsername.trim()) return;
 		creatingUser = true;
 		try {
-			await mq.send(new CreateUserCommand({
+			await mq().send(new CreateUserCommand({
 				BrokerId: selectedBroker.BrokerId,
 				Username: newUsername.trim(),
 				Password: newUserPassword,
@@ -338,7 +339,7 @@
 		if (!selectedBroker?.BrokerId || !userToEdit?.Username) return;
 		updatingUser = true;
 		try {
-			await mq.send(new UpdateUserCommand({
+			await mq().send(new UpdateUserCommand({
 				BrokerId: selectedBroker.BrokerId,
 				Username: userToEdit.Username,
 				Password: editUserPassword || undefined,
@@ -360,7 +361,7 @@
 		if (!selectedBroker?.BrokerId) return;
 		deletingUser = username;
 		try {
-			await mq.send(new DeleteUserCommand({
+			await mq().send(new DeleteUserCommand({
 				BrokerId: selectedBroker.BrokerId,
 				Username: username,
 			}));
@@ -373,8 +374,19 @@
 		}
 	}
 
-	onMount(() => {
-		loadBrokers();
+	// Broker IDs and configuration names are only unique within a region, so
+	// a broker selected (and its users panel) in the old region must not
+	// survive a region switch -- clear that state and fall back to the list
+	// for whichever tab is active. `activeTab` is read with `untrack` since
+	// selectTab() already reloads directly on tab switch; letting the effect
+	// also depend on it would double-fetch on every subsequent region change.
+	onRegionChange(() => {
+		selectedBroker = null;
+		showUsersPanel = false;
+		brokerUsers = [];
+		brokers = [];
+		configurations = [];
+		untrack(() => refresh());
 	});
 </script>
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getKinesisClient } from '$lib/aws-client';
 import {
 	ListStreamsCommand,
@@ -33,7 +33,7 @@ import {
 	Layers, SplitSquareHorizontal, Merge, Box, Users, Settings, Lock, Unlock
 } from 'lucide-svelte';
 
-const kinesis = getKinesisClient();
+const kinesis = regionalClient(getKinesisClient);
 
 interface StreamDetail {
 	name: string;
@@ -112,7 +112,7 @@ const filteredStreams = $derived(
 async function loadStreams() {
 	loading = true;
 	try {
-		const res = await kinesis.send(new ListStreamsCommand({ Limit: 100 }));
+		const res = await kinesis().send(new ListStreamsCommand({ Limit: 100 }));
 		streams = res.StreamNames ?? [];
 	} catch (err: unknown) {
 		toast.error(`Failed to load streams: ${(err as Error).message}`);
@@ -125,7 +125,7 @@ async function createStream() {
 	if (!newStreamName.trim()) return;
 	creating = true;
 	try {
-		await kinesis.send(new CreateStreamCommand({
+		await kinesis().send(new CreateStreamCommand({
 			StreamName: newStreamName.trim(),
 			// ON_DEMAND streams must not specify a shard count.
 			...(newStreamMode === 'PROVISIONED' ? { ShardCount: newShardCount } : {}),
@@ -147,7 +147,7 @@ async function createStream() {
 async function deleteStream(name: string) {
 	if (!await confirmDestructive({ title: 'Delete Stream', message: `Delete stream "${name}"?` })) return;
 	try {
-		await kinesis.send(new DeleteStreamCommand({ StreamName: name }));
+		await kinesis().send(new DeleteStreamCommand({ StreamName: name }));
 		toast.success(`Stream "${name}" deleted`);
 		if (selectedStream?.name === name) {
 			selectedStream = null;
@@ -162,7 +162,7 @@ async function deleteStream(name: string) {
 
 async function selectStream(name: string) {
 	try {
-		const res = await kinesis.send(new DescribeStreamCommand({ StreamName: name }));
+		const res = await kinesis().send(new DescribeStreamCommand({ StreamName: name }));
 		const desc = res.StreamDescription;
 		if (!desc) return;
 		selectedStream = {
@@ -191,7 +191,7 @@ async function loadShards() {
 	if (!selectedStream) return;
 	loadingShards = true;
 	try {
-		const res = await kinesis.send(new ListShardsCommand({ StreamName: selectedStream.name }));
+		const res = await kinesis().send(new ListShardsCommand({ StreamName: selectedStream.name }));
 		streamShards = res.Shards ?? [];
 	} catch (err: unknown) {
 		toast.error(`Failed to load shards: ${(err as Error).message}`);
@@ -207,7 +207,7 @@ async function loadConsumers() {
 	}
 	loadingConsumers = true;
 	try {
-		const res = await kinesis.send(new ListStreamConsumersCommand({ StreamARN: selectedStream.arn }));
+		const res = await kinesis().send(new ListStreamConsumersCommand({ StreamARN: selectedStream.arn }));
 		consumers = res.Consumers ?? [];
 	} catch (err: unknown) {
 		// A stream with no consumers should simply show an empty list.
@@ -221,7 +221,7 @@ async function putRecord() {
 	if (!selectedStream || !putRecordPartitionKey.trim() || !putRecordData) return;
 	puttingRecord = true;
 	try {
-		const res = await kinesis.send(new PutRecordCommand({
+		const res = await kinesis().send(new PutRecordCommand({
 			StreamName: selectedStream.name,
 			PartitionKey: putRecordPartitionKey.trim(),
 			Data: new TextEncoder().encode(putRecordData)
@@ -253,7 +253,7 @@ async function putRecordsBatch() {
 	if (entries.length === 0) return;
 	puttingBatch = true;
 	try {
-		const res = await kinesis.send(new PutRecordsCommand({
+		const res = await kinesis().send(new PutRecordsCommand({
 			StreamName: selectedStream.name,
 			Records: entries
 		}));
@@ -278,14 +278,14 @@ async function viewRecords(shardId: string) {
 	shardRecords = [];
 	nextShardIterator = null;
 	try {
-		const iterRes = await kinesis.send(new GetShardIteratorCommand({
+		const iterRes = await kinesis().send(new GetShardIteratorCommand({
 			StreamName: selectedStream.name,
 			ShardId: shardId,
 			ShardIteratorType: iteratorType
 		}));
 		const iterator = iterRes.ShardIterator;
 		if (iterator) {
-			const recRes = await kinesis.send(new GetRecordsCommand({
+			const recRes = await kinesis().send(new GetRecordsCommand({
 				ShardIterator: iterator,
 				Limit: 100
 			}));
@@ -306,7 +306,7 @@ async function loadMoreRecords() {
 	if (!nextShardIterator) return;
 	loadingMore = true;
 	try {
-		const recRes = await kinesis.send(new GetRecordsCommand({
+		const recRes = await kinesis().send(new GetRecordsCommand({
 			ShardIterator: nextShardIterator,
 			Limit: 100
 		}));
@@ -367,7 +367,7 @@ async function mergeShardClicked(shard: Shard) {
 	if (!selectedStream) return;
 	merging = true;
 	try {
-		await kinesis.send(new MergeShardsCommand({
+		await kinesis().send(new MergeShardsCommand({
 			StreamName: selectedStream.name,
 			ShardToMerge: shard.ShardId,
 			AdjacentShardToMerge: adjacent
@@ -390,7 +390,7 @@ async function splitShardClicked(shard: Shard) {
 	if (!selectedStream) return;
 	splitting = true;
 	try {
-		await kinesis.send(new SplitShardCommand({
+		await kinesis().send(new SplitShardCommand({
 			StreamName: selectedStream.name,
 			ShardToSplit: shard.ShardId,
 			NewStartingHashKey: mid
@@ -408,7 +408,7 @@ async function reshard() {
 	if (!selectedStream || reshardTarget < 1) return;
 	resharding = true;
 	try {
-		await kinesis.send(new UpdateShardCountCommand({
+		await kinesis().send(new UpdateShardCountCommand({
 			StreamName: selectedStream.name,
 			TargetShardCount: reshardTarget,
 			ScalingType: 'UNIFORM_SCALING'
@@ -435,7 +435,7 @@ async function updateRetention(increase: boolean) {
 				StreamName: selectedStream.name,
 				RetentionPeriodHours: retentionTarget
 			});
-		await kinesis.send(cmd);
+		await kinesis().send(cmd);
 		toast.success(`Retention set to ${retentionTarget} hours`);
 		if (selectedStream) selectedStream = { ...selectedStream, retention: retentionTarget };
 	} catch (err: unknown) {
@@ -460,7 +460,7 @@ async function toggleEncryption(enable: boolean) {
 				EncryptionType: 'KMS',
 				KeyId: selectedStream.keyId || encryptionKeyId.trim() || 'alias/aws/kinesis'
 			});
-		await kinesis.send(cmd);
+		await kinesis().send(cmd);
 		toast.success(enable ? 'Encryption enabled' : 'Encryption disabled');
 		if (selectedStream) {
 			selectedStream = {
@@ -480,7 +480,7 @@ async function updateStreamMode() {
 	if (!selectedStream?.arn) return;
 	updatingMode = true;
 	try {
-		await kinesis.send(new UpdateStreamModeCommand({
+		await kinesis().send(new UpdateStreamModeCommand({
 			StreamARN: selectedStream.arn,
 			StreamModeDetails: { StreamMode: modeTarget }
 		}));
@@ -497,7 +497,7 @@ async function registerConsumer() {
 	if (!selectedStream?.arn || !newConsumerName.trim()) return;
 	registeringConsumer = true;
 	try {
-		await kinesis.send(new RegisterStreamConsumerCommand({
+		await kinesis().send(new RegisterStreamConsumerCommand({
 			StreamARN: selectedStream.arn,
 			ConsumerName: newConsumerName.trim()
 		}));
@@ -514,7 +514,7 @@ async function registerConsumer() {
 async function deregisterConsumer(consumer: Consumer) {
 	if (!selectedStream?.arn || !consumer.ConsumerName) return;
 	try {
-		await kinesis.send(new DeregisterStreamConsumerCommand({
+		await kinesis().send(new DeregisterStreamConsumerCommand({
 			StreamARN: selectedStream.arn,
 			ConsumerName: consumer.ConsumerName,
 			ConsumerARN: consumer.ConsumerARN
@@ -531,7 +531,17 @@ function parseRecordData(data: Uint8Array | undefined): string {
 	return new TextDecoder().decode(data);
 }
 
-onMount(() => {
+// A stream name/ARN is only unique within a region, so a stream selected
+// (and its shards/records/consumers) in the old region must not survive a
+// region switch -- clear that state and fall back to the list.
+onRegionChange(() => {
+	selectedStream = null;
+	streamShards = [];
+	consumers = [];
+	activeTab = 'shards';
+	viewingShardId = null;
+	shardRecords = [];
+	nextShardIterator = null;
 	loadStreams();
 });
 </script>

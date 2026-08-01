@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCloudTrailClient } from '$lib/aws-client';
 	import {
 		DescribeTrailsCommand,
@@ -43,10 +44,7 @@
 		ChevronDown
 	} from 'lucide-svelte';
 
-	let ctClient: import('@aws-sdk/client-cloudtrail').CloudTrailClient | undefined;
-	function ct(): import('@aws-sdk/client-cloudtrail').CloudTrailClient {
-		return (ctClient ??= getCloudTrailClient());
-	}
+	const ct = regionalClient(getCloudTrailClient);
 
 	// Server-side attribute filter (LookupAttributes)
 	const lookupAttributeKeys = [
@@ -347,7 +345,23 @@
 		else await loadDataStores();
 	}
 
-	onMount(() => loadTrails());
+	// Trail ARNs, their statuses, and event data stores are only unique
+	// within a region, so a trail selected (and its cached status/selectors)
+	// in the old region must not survive a region switch -- clear that state
+	// and reload whichever tab is active. `activeTab` is read with `untrack`
+	// since onTabChange() already reloads directly on tab switch; letting the
+	// effect also depend on it would double-fetch on every subsequent region
+	// change.
+	onRegionChange(() => {
+		selectedTrail = null;
+		trailStatuses = {};
+		trailEventSelectors = [];
+		trailAdvancedSelectors = [];
+		trailInsightSelectors = [];
+		events = [];
+		eventDataStores = [];
+		untrack(() => onTabChange(activeTab));
+	});
 </script>
 
 <div class="space-y-6">

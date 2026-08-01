@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { getMediaStoreClient } from '$lib/aws-client';
 	import {
@@ -46,7 +46,7 @@
 		Activity,
 	} from 'lucide-svelte';
 
-	const mediaStore = getMediaStoreClient();
+	const mediaStore = regionalClient(getMediaStoreClient);
 
 	// --- State ---
 	let loading = $state(false);
@@ -110,7 +110,7 @@
 	async function loadContainers() {
 		loading = true;
 		try {
-			const res = await mediaStore.send(new ListContainersCommand({ MaxResults: 100 }));
+			const res = await mediaStore().send(new ListContainersCommand({ MaxResults: 100 }));
 			containers = res.Containers ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load containers: ${(err as Error).message}`);
@@ -123,7 +123,7 @@
 		if (!newContainerName.trim()) return;
 		creating = true;
 		try {
-			await mediaStore.send(new CreateContainerCommand({ ContainerName: newContainerName.trim() }));
+			await mediaStore().send(new CreateContainerCommand({ ContainerName: newContainerName.trim() }));
 			toast.success(`Container "${newContainerName.trim()}" created`);
 			newContainerName = '';
 			showCreateModal = false;
@@ -139,7 +139,7 @@
 		if (!name) return;
 		if (!(await confirmDestructive({ title: 'Delete Container', message: `Delete container "${name}"? This cannot be undone.` }))) return;
 		try {
-			await mediaStore.send(new DeleteContainerCommand({ ContainerName: name }));
+			await mediaStore().send(new DeleteContainerCommand({ ContainerName: name }));
 			toast.success(`Container "${name}" deleted`);
 			if (selectedContainer?.Name === name) selectedContainer = null;
 			await loadContainers();
@@ -153,7 +153,7 @@
 		activeDetailTab = 'overview';
 		loadingDetails = true;
 		try {
-			const res = await mediaStore.send(new DescribeContainerCommand({ ContainerName: c.Name! }));
+			const res = await mediaStore().send(new DescribeContainerCommand({ ContainerName: c.Name! }));
 			selectedContainer = res.Container ?? c;
 		} catch (err: unknown) {
 			toast.error(`Failed to describe container: ${(err as Error).message}`);
@@ -183,7 +183,7 @@
 	async function loadPolicy(name: string) {
 		loadingPolicy = true;
 		try {
-			const res = await mediaStore.send(new GetContainerPolicyCommand({ ContainerName: name }));
+			const res = await mediaStore().send(new GetContainerPolicyCommand({ ContainerName: name }));
 			containerPolicy = res.Policy ?? '';
 		} catch (err: unknown) {
 			const msg = (err as Error).message;
@@ -200,7 +200,7 @@
 	async function savePolicy() {
 		if (!selectedContainer?.Name) return;
 		try {
-			await mediaStore.send(new PutContainerPolicyCommand({ ContainerName: selectedContainer.Name, Policy: policyDraft }));
+			await mediaStore().send(new PutContainerPolicyCommand({ ContainerName: selectedContainer.Name, Policy: policyDraft }));
 			containerPolicy = policyDraft;
 			editingPolicy = false;
 			toast.success('Container policy saved');
@@ -213,7 +213,7 @@
 		if (!selectedContainer?.Name) return;
 		if (!(await confirmDestructive({ title: 'Delete Policy', message: 'Remove the container policy?' }))) return;
 		try {
-			await mediaStore.send(new DeleteContainerPolicyCommand({ ContainerName: selectedContainer.Name }));
+			await mediaStore().send(new DeleteContainerPolicyCommand({ ContainerName: selectedContainer.Name }));
 			containerPolicy = '';
 			toast.success('Container policy deleted');
 		} catch (err: unknown) {
@@ -225,7 +225,7 @@
 	async function loadCors(name: string) {
 		loadingCors = true;
 		try {
-			const res = await mediaStore.send(new GetCorsPolicyCommand({ ContainerName: name }));
+			const res = await mediaStore().send(new GetCorsPolicyCommand({ ContainerName: name }));
 			corsRules = res.CorsPolicy ?? [];
 		} catch (err: unknown) {
 			const msg = (err as Error).message;
@@ -243,7 +243,7 @@
 		if (!selectedContainer?.Name) return;
 		try {
 			const parsed = JSON.parse(corsDraft) as CorsRule[];
-			await mediaStore.send(new PutCorsPolicyCommand({ ContainerName: selectedContainer.Name, CorsPolicy: parsed }));
+			await mediaStore().send(new PutCorsPolicyCommand({ ContainerName: selectedContainer.Name, CorsPolicy: parsed }));
 			corsRules = parsed;
 			editingCors = false;
 			toast.success('CORS policy saved');
@@ -256,7 +256,7 @@
 		if (!selectedContainer?.Name) return;
 		if (!(await confirmDestructive({ title: 'Delete CORS Policy', message: 'Remove the CORS policy?' }))) return;
 		try {
-			await mediaStore.send(new DeleteCorsPolicyCommand({ ContainerName: selectedContainer.Name }));
+			await mediaStore().send(new DeleteCorsPolicyCommand({ ContainerName: selectedContainer.Name }));
 			corsRules = [];
 			toast.success('CORS policy deleted');
 		} catch (err: unknown) {
@@ -268,7 +268,7 @@
 	async function loadLifecycle(name: string) {
 		loadingLifecycle = true;
 		try {
-			const res = await mediaStore.send(new GetLifecyclePolicyCommand({ ContainerName: name }));
+			const res = await mediaStore().send(new GetLifecyclePolicyCommand({ ContainerName: name }));
 			lifecyclePolicy = res.LifecyclePolicy ?? '';
 		} catch (err: unknown) {
 			const msg = (err as Error).message;
@@ -285,7 +285,7 @@
 	async function saveLifecycle() {
 		if (!selectedContainer?.Name) return;
 		try {
-			await mediaStore.send(new PutLifecyclePolicyCommand({ ContainerName: selectedContainer.Name, LifecyclePolicy: lifecycleDraft }));
+			await mediaStore().send(new PutLifecyclePolicyCommand({ ContainerName: selectedContainer.Name, LifecyclePolicy: lifecycleDraft }));
 			lifecyclePolicy = lifecycleDraft;
 			editingLifecycle = false;
 			toast.success('Lifecycle policy saved');
@@ -298,7 +298,7 @@
 		if (!selectedContainer?.Name) return;
 		if (!(await confirmDestructive({ title: 'Delete Lifecycle Policy', message: 'Remove the lifecycle policy?' }))) return;
 		try {
-			await mediaStore.send(new DeleteLifecyclePolicyCommand({ ContainerName: selectedContainer.Name }));
+			await mediaStore().send(new DeleteLifecyclePolicyCommand({ ContainerName: selectedContainer.Name }));
 			lifecyclePolicy = '';
 			toast.success('Lifecycle policy deleted');
 		} catch (err: unknown) {
@@ -310,7 +310,7 @@
 	async function loadMetrics(name: string) {
 		loadingMetrics = true;
 		try {
-			const res = await mediaStore.send(new GetMetricPolicyCommand({ ContainerName: name }));
+			const res = await mediaStore().send(new GetMetricPolicyCommand({ ContainerName: name }));
 			metricPolicy = res.MetricPolicy ?? null;
 		} catch (err: unknown) {
 			const msg = (err as Error).message;
@@ -328,7 +328,7 @@
 		if (!selectedContainer?.Name) return;
 		try {
 			const parsed = JSON.parse(metricsDraft) as MetricPolicy;
-			await mediaStore.send(new PutMetricPolicyCommand({ ContainerName: selectedContainer.Name, MetricPolicy: parsed }));
+			await mediaStore().send(new PutMetricPolicyCommand({ ContainerName: selectedContainer.Name, MetricPolicy: parsed }));
 			metricPolicy = parsed;
 			editingMetrics = false;
 			toast.success('Metric policy saved');
@@ -341,7 +341,7 @@
 		if (!selectedContainer?.Name) return;
 		if (!(await confirmDestructive({ title: 'Delete Metric Policy', message: 'Remove the metric policy?' }))) return;
 		try {
-			await mediaStore.send(new DeleteMetricPolicyCommand({ ContainerName: selectedContainer.Name }));
+			await mediaStore().send(new DeleteMetricPolicyCommand({ ContainerName: selectedContainer.Name }));
 			metricPolicy = null;
 			toast.success('Metric policy deleted');
 		} catch (err: unknown) {
@@ -354,10 +354,10 @@
 		if (!selectedContainer?.Name) return;
 		try {
 			if (enable) {
-				await mediaStore.send(new StartAccessLoggingCommand({ ContainerName: selectedContainer.Name }));
+				await mediaStore().send(new StartAccessLoggingCommand({ ContainerName: selectedContainer.Name }));
 				toast.success('Access logging enabled');
 			} else {
-				await mediaStore.send(new StopAccessLoggingCommand({ ContainerName: selectedContainer.Name }));
+				await mediaStore().send(new StopAccessLoggingCommand({ ContainerName: selectedContainer.Name }));
 				toast.success('Access logging disabled');
 			}
 			selectedContainer = { ...selectedContainer, AccessLoggingEnabled: enable };
@@ -370,7 +370,7 @@
 	async function loadTags(arn: string) {
 		loadingTags = true;
 		try {
-			const res = await mediaStore.send(new ListTagsForResourceCommand({ Resource: arn }));
+			const res = await mediaStore().send(new ListTagsForResourceCommand({ Resource: arn }));
 			tags = Object.fromEntries((res.Tags ?? []).map(t => [t.Key!, t.Value ?? '']));
 		} catch (err: unknown) {
 			toast.error(`Failed to load tags: ${(err as Error).message}`);
@@ -383,7 +383,7 @@
 		if (!selectedContainer?.ARN || !newTagKey.trim()) return;
 		taggingInFlight = true;
 		try {
-			await mediaStore.send(new TagResourceCommand({ Resource: selectedContainer.ARN, Tags: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }] }));
+			await mediaStore().send(new TagResourceCommand({ Resource: selectedContainer.ARN, Tags: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }] }));
 			tags = { ...tags, [newTagKey.trim()]: newTagValue.trim() };
 			newTagKey = '';
 			newTagValue = '';
@@ -398,7 +398,7 @@
 	async function removeTag(key: string) {
 		if (!selectedContainer?.ARN) return;
 		try {
-			await mediaStore.send(new UntagResourceCommand({ Resource: selectedContainer.ARN, TagKeys: [key] }));
+			await mediaStore().send(new UntagResourceCommand({ Resource: selectedContainer.ARN, TagKeys: [key] }));
 			const next = { ...tags };
 			delete next[key];
 			tags = next;
@@ -408,7 +408,18 @@
 		}
 	}
 
-	onMount(() => {
+	// Container names are only unique within a region, so a container
+	// selected in the old region must not survive a region switch -- clear
+	// it (and its policy/CORS/lifecycle/metrics/tags detail state) and fall
+	// back to the list.
+	onRegionChange(() => {
+		selectedContainer = null;
+		activeDetailTab = 'overview';
+		containerPolicy = '';
+		corsRules = [];
+		lifecyclePolicy = '';
+		metricPolicy = null;
+		tags = {};
 		void loadContainers();
 	});
 </script>

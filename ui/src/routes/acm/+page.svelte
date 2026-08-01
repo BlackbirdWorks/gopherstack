@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getACMClient } from '$lib/aws-client';
 	import {
 		ListCertificatesCommand,
@@ -26,7 +26,7 @@
 		AlertTriangle, Eye, Download, Upload, Tag as TagIcon, Mail, Settings, Copy
 	} from 'lucide-svelte';
 
-	const acm = getACMClient();
+	const acm = regionalClient(getACMClient);
 
 	let loading = $state(false);
 	let certificates = $state<CertificateSummary[]>([]);
@@ -127,7 +127,7 @@
 	async function loadCertificates() {
 		loading = true;
 		try {
-			const res = await acm.send(new ListCertificatesCommand({ MaxItems: 100 }));
+			const res = await acm().send(new ListCertificatesCommand({ MaxItems: 100 }));
 			certificates = res.CertificateSummaryList ?? [];
 			// Cleanup selectedArns
 			const currentArns = new Set(certificates.map(c => c.CertificateArn));
@@ -144,7 +144,7 @@
 		selectedCert = null;
 		detailTab = 'overview';
 		try {
-			const res = await acm.send(new DescribeCertificateCommand({ CertificateArn: arn }));
+			const res = await acm().send(new DescribeCertificateCommand({ CertificateArn: arn }));
 			selectedCert = res.Certificate ?? null;
 		} catch (e) {
 			toast.error(`Failed to load certificate details: ${e}`);
@@ -158,7 +158,7 @@
 		requesting = true;
 		try {
 			const sans = newSANs.split(',').map((s) => s.trim()).filter(Boolean);
-			await acm.send(
+			await acm().send(
 				new RequestCertificateCommand({
 					DomainName: newDomain.trim(),
 					SubjectAlternativeNames: sans.length > 0 ? sans : undefined,
@@ -181,7 +181,7 @@
 		if (!importCert.trim() || !importKey.trim()) return;
 		importing = true;
 		try {
-			await acm.send(new ImportCertificateCommand({
+			await acm().send(new ImportCertificateCommand({
 				Certificate: new TextEncoder().encode(importCert.trim()),
 				PrivateKey: new TextEncoder().encode(importKey.trim()),
 				CertificateChain: importChain.trim() ? new TextEncoder().encode(importChain.trim()) : undefined,
@@ -202,7 +202,7 @@
 	async function deleteCertificate(arn: string, domain?: string) {
 		if (!await confirmDestructive({ title: 'Delete Certificate', message: `Delete certificate for "${domain ?? arn}"? This cannot be undone.` })) return;
 		try {
-			await acm.send(new DeleteCertificateCommand({ CertificateArn: arn }));
+			await acm().send(new DeleteCertificateCommand({ CertificateArn: arn }));
 			toast.success('Certificate deleted');
 			if (selectedCert?.CertificateArn === arn) selectedCert = null;
 			await loadCertificates();
@@ -217,7 +217,7 @@
 		let successCount = 0;
 		for (const arn of selectedArns) {
 			try {
-				await acm.send(new DeleteCertificateCommand({ CertificateArn: arn }));
+				await acm().send(new DeleteCertificateCommand({ CertificateArn: arn }));
 				successCount++;
 				if (selectedCert?.CertificateArn === arn) selectedCert = null;
 			} catch (e) {
@@ -230,7 +230,7 @@
 
 	async function renewCertificate(arn: string) {
 		try {
-			await acm.send(new RenewCertificateCommand({ CertificateArn: arn }));
+			await acm().send(new RenewCertificateCommand({ CertificateArn: arn }));
 			toast.success('Certificate renewal initiated');
 			if (selectedCert?.CertificateArn === arn) await viewCertificate(arn);
 		} catch (e) {
@@ -240,7 +240,7 @@
 
 	async function resendValidationEmail(arn: string, domain: string, validationDomain: string) {
 		try {
-			await acm.send(new ResendValidationEmailCommand({
+			await acm().send(new ResendValidationEmailCommand({
 				CertificateArn: arn,
 				Domain: domain,
 				ValidationDomain: validationDomain
@@ -255,7 +255,7 @@
 		if (!selectedCert?.CertificateArn || !exportPassphrase) return;
 		exporting = true;
 		try {
-			const res = await acm.send(new ExportCertificateCommand({
+			const res = await acm().send(new ExportCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Passphrase: new TextEncoder().encode(exportPassphrase)
 			}));
@@ -298,7 +298,7 @@
 
 	async function loadConfig() {
 		try {
-			const res = await acm.send(new GetAccountConfigurationCommand({}));
+			const res = await acm().send(new GetAccountConfigurationCommand({}));
 			configDays = res.ExpiryEvents?.DaysBeforeExpiry ?? 45;
 			showConfigModal = true;
 		} catch (e) {
@@ -309,7 +309,7 @@
 	async function saveConfig() {
 		savingConfig = true;
 		try {
-			await acm.send(new PutAccountConfigurationCommand({
+			await acm().send(new PutAccountConfigurationCommand({
 				ExpiryEvents: { DaysBeforeExpiry: configDays },
 				IdempotencyToken: Date.now().toString()
 			}));
@@ -325,7 +325,7 @@
 	async function loadTags(arn: string) {
 		loadingTags = true;
 		try {
-			const res = await acm.send(new ListTagsForCertificateCommand({ CertificateArn: arn }));
+			const res = await acm().send(new ListTagsForCertificateCommand({ CertificateArn: arn }));
 			tags = res.Tags ?? [];
 		} catch (e) {
 			toast.error(`Failed to load tags: ${e}`);
@@ -337,7 +337,7 @@
 	async function addTag() {
 		if (!selectedCert?.CertificateArn || !newTagKey) return;
 		try {
-			await acm.send(new AddTagsToCertificateCommand({
+			await acm().send(new AddTagsToCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Tags: [{ Key: newTagKey, Value: newTagValue }]
 			}));
@@ -353,7 +353,7 @@
 	async function removeTag(key: string, value?: string) {
 		if (!selectedCert?.CertificateArn) return;
 		try {
-			await acm.send(new RemoveTagsFromCertificateCommand({
+			await acm().send(new RemoveTagsFromCertificateCommand({
 				CertificateArn: selectedCert.CertificateArn,
 				Tags: [{ Key: key, Value: value }]
 			}));
@@ -375,7 +375,16 @@
 		}
 	});
 
-	onMount(() => loadCertificates());
+	// A certificate ARN is only unique within a region, so a certificate
+	// selected (and its tags/bulk selection) in the old region must not
+	// survive a region switch -- clear that state and fall back to the list.
+	onRegionChange(() => {
+		selectedCert = null;
+		selectedArns = new Set();
+		tags = [];
+		detailTab = 'overview';
+		loadCertificates();
+	});
 </script>
 
 <div class="space-y-6">

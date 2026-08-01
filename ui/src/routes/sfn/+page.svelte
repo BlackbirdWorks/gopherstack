@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSFNClient } from '$lib/aws-client';
 	import {
 		ListStateMachinesCommand,
@@ -37,7 +38,7 @@
 		Settings, Copy, ArrowRight
 	} from 'lucide-svelte';
 
-	const sfn = getSFNClient();
+	const sfn = regionalClient(getSFNClient);
 
 	// Page-level tab
 	let pageTab = $state<'workflows' | 'activities' | 'metrics' | 'docs'>('workflows');
@@ -184,7 +185,7 @@
 	async function loadStateMachines() {
 		loading = true;
 		try {
-			const r = await sfn.send(new ListStateMachinesCommand({}));
+			const r = await sfn().send(new ListStateMachinesCommand({}));
 			stateMachines = r.stateMachines ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loading = false; }
@@ -193,8 +194,8 @@
 		loadingDetail = true; selectedExecution = null; historyEvents = []; versions = [];
 		try {
 			const [d, x] = await Promise.all([
-				sfn.send(new DescribeStateMachineCommand({ stateMachineArn: arn })),
-				sfn.send(new ListExecutionsCommand({ stateMachineArn: arn, maxResults: 50 }))
+				sfn().send(new DescribeStateMachineCommand({ stateMachineArn: arn })),
+				sfn().send(new ListExecutionsCommand({ stateMachineArn: arn, maxResults: 50 }))
 			]);
 			selectedSM = d; executions = x.executions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
@@ -204,14 +205,14 @@
 		if (!selectedSM?.stateMachineArn) return;
 		loadingExecutions = true;
 		try {
-			const r = await sfn.send(new ListExecutionsCommand({ stateMachineArn: selectedSM.stateMachineArn, maxResults: 50 }));
+			const r = await sfn().send(new ListExecutionsCommand({ stateMachineArn: selectedSM.stateMachineArn, maxResults: 50 }));
 			executions = r.executions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingExecutions = false; }
 	}
 	async function selectExecution(arn: string) {
 		try {
-			selectedExecution = await sfn.send(new DescribeExecutionCommand({ executionArn: arn }));
+			selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
 			historyEvents = [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 	}
@@ -219,7 +220,7 @@
 		if (!selectedExecution?.executionArn) return;
 		loadingHistory = true;
 		try {
-			const r = await sfn.send(new GetExecutionHistoryCommand({
+			const r = await sfn().send(new GetExecutionHistoryCommand({
 				executionArn: selectedExecution.executionArn,
 				maxResults: 50, nextToken: token
 			}));
@@ -232,10 +233,10 @@
 	async function stopExec(arn: string) {
 		if (!await confirmDestructive({ title: 'Stop Execution', message: 'Stop this execution?' })) return;
 		try {
-			await sfn.send(new StopExecutionCommand({ executionArn: arn, error: 'ManualStop', cause: 'User requested' }));
+			await sfn().send(new StopExecutionCommand({ executionArn: arn, error: 'ManualStop', cause: 'User requested' }));
 			toast.success('Stop requested');
 			if (selectedExecution?.executionArn === arn) {
-				selectedExecution = await sfn.send(new DescribeExecutionCommand({ executionArn: arn }));
+				selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
 			}
 			await refreshExecs();
 		} catch (e: unknown) { toast.error((e as Error).message); }
@@ -243,10 +244,10 @@
 	async function redriveExec(arn: string) {
 		redriving = true;
 		try {
-			await sfn.send(new RedriveExecutionCommand({ executionArn: arn }));
+			await sfn().send(new RedriveExecutionCommand({ executionArn: arn }));
 			toast.success('Redrive requested');
 			if (selectedExecution?.executionArn === arn) {
-				selectedExecution = await sfn.send(new DescribeExecutionCommand({ executionArn: arn }));
+				selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
 			}
 			await refreshExecs();
 		} catch (e: unknown) { toast.error((e as Error).message); }
@@ -256,7 +257,7 @@
 		validating = true;
 		validationResult = null;
 		try {
-			const r = await sfn.send(new ValidateStateMachineDefinitionCommand({ definition: editDefinition }));
+			const r = await sfn().send(new ValidateStateMachineDefinitionCommand({ definition: editDefinition }));
 			if (r.result === 'OK') {
 				validationResult = { ok: true, message: 'Definition is valid.' };
 			} else {
@@ -273,7 +274,7 @@
 		if (!selectedSM) return;
 		starting = true;
 		try {
-			const r = await sfn.send(new StartExecutionCommand({
+			const r = await sfn().send(new StartExecutionCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				name: executionName || undefined,
 				input: executionInput
@@ -287,7 +288,7 @@
 	async function createSM() {
 		creating = true;
 		try {
-			await sfn.send(new CreateStateMachineCommand({
+			await sfn().send(new CreateStateMachineCommand({
 				name: newSMName, definition: newSMDefinition, roleArn: newSMRoleArn, type: newSMType as StateMachineType
 			}));
 			toast.success('Created ' + newSMName);
@@ -306,7 +307,7 @@
 		if (!selectedSM?.stateMachineArn) return;
 		updating = true;
 		try {
-			await sfn.send(new UpdateStateMachineCommand({
+			await sfn().send(new UpdateStateMachineCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				definition: editDefinition, roleArn: editRoleArn
 			}));
@@ -319,7 +320,7 @@
 	async function deleteSM(arn?: string) {
 		if (!arn || !await confirmDestructive({ title: 'Delete State Machine', message: 'Delete this state machine?' })) return;
 		try {
-			await sfn.send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
+			await sfn().send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
 			toast.success('Delete initiated');
 			if (selectedSM?.stateMachineArn === arn) selectedSM = null;
 			await loadStateMachines();
@@ -329,7 +330,7 @@
 		if (!selectedSM?.stateMachineArn) return;
 		loadingVersions = true;
 		try {
-			const r = await sfn.send(new ListStateMachineVersionsCommand({ stateMachineArn: selectedSM.stateMachineArn }));
+			const r = await sfn().send(new ListStateMachineVersionsCommand({ stateMachineArn: selectedSM.stateMachineArn }));
 			versions = (r as { stateMachineVersions?: VersionSummary[] }).stateMachineVersions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingVersions = false; }
@@ -337,7 +338,7 @@
 	async function publishVersion() {
 		if (!selectedSM?.stateMachineArn) return;
 		try {
-			await sfn.send(new PublishStateMachineVersionCommand({
+			await sfn().send(new PublishStateMachineVersionCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				description: 'v' + (versions.length + 1) + ' - ' + new Date().toISOString().slice(0, 10)
 			}));
@@ -354,7 +355,7 @@
 		let c = 0;
 		for (const d of demos) {
 			try {
-				await sfn.send(new CreateStateMachineCommand({name:d.name,definition:d.def,roleArn:'arn:aws:iam::000000000000:role/StepFunctionsRole',type:d.type}));
+				await sfn().send(new CreateStateMachineCommand({name:d.name,definition:d.def,roleArn:'arn:aws:iam::000000000000:role/StepFunctionsRole',type:d.type}));
 				c++;
 			} catch {
 				// skip: state machine may already exist
@@ -368,7 +369,7 @@
 	async function loadActivities() {
 		loadingActivities = true;
 		try {
-			activities = (await sfn.send(new ListActivitiesCommand({}))).activities ?? [];
+			activities = (await sfn().send(new ListActivitiesCommand({}))).activities ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingActivities = false; }
 	}
@@ -376,7 +377,7 @@
 		if (!newActivityName.trim()) return;
 		creatingActivity = true;
 		try {
-			await sfn.send(new CreateActivityCommand({ name: newActivityName.trim() }));
+			await sfn().send(new CreateActivityCommand({ name: newActivityName.trim() }));
 			toast.success('Created ' + newActivityName); newActivityName = '';
 			await loadActivities();
 		} catch (e: unknown) { toast.error((e as Error).message); }
@@ -385,7 +386,7 @@
 	async function deleteActivity(arn: string) {
 		if (!await confirmDestructive({ title: 'Delete Activity', message: 'Delete this activity?' })) return;
 		try {
-			await sfn.send(new DeleteActivityCommand({ activityArn: arn }));
+			await sfn().send(new DeleteActivityCommand({ activityArn: arn }));
 			toast.success('Deleted'); await loadActivities();
 		} catch (e: unknown) { toast.error((e as Error).message); }
 	}
@@ -399,7 +400,24 @@
 		if (tab === 'versions' && selectedSM) await loadVersions();
 	}
 
-	onMount(() => loadStateMachines());
+	// A state machine ARN (and its executions, history, and versions) is only
+	// unique within a region, so a selection from the old region must not
+	// survive a region switch -- clear it and fall back to the list. `pageTab`
+	// is read with `untrack` since switchPageTab() already reloads activities
+	// directly on tab switch; letting the effect also depend on it would
+	// double-fetch on every subsequent region change.
+	onRegionChange(() => {
+		selectedSM = null;
+		selectedExecution = null;
+		executions = [];
+		historyEvents = [];
+		versions = [];
+		activities = [];
+		loadStateMachines();
+		if (untrack(() => pageTab) === 'activities') {
+			loadActivities();
+		}
+	});
 </script>
 
 <div class="space-y-6">

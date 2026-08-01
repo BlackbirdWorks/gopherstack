@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getFirehoseClient } from '$lib/aws-client';
 	import {
 		ListDeliveryStreamsCommand,
@@ -22,7 +22,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Flame, Search, RefreshCw, Plus, Trash2, ChevronRight, Send, Database, Archive, Key, Shield, ShieldOff, Tag, Pencil, X } from 'lucide-svelte';
 
-	const firehose = getFirehoseClient();
+	const firehose = regionalClient(getFirehoseClient);
 
 	let loading = $state(false);
 	let streamNames = $state<string[]>([]);
@@ -90,7 +90,7 @@
 	async function loadStreams() {
 		loading = true;
 		try {
-			const resp = await firehose.send(new ListDeliveryStreamsCommand({ Limit: 50 }));
+			const resp = await firehose().send(new ListDeliveryStreamsCommand({ Limit: 50 }));
 			streamNames = resp.DeliveryStreamNames ?? [];
 		} catch (e) {
 			toast.error('Failed to load streams: ' + String(e));
@@ -102,7 +102,7 @@
 	async function selectStream(name: string) {
 		loadingDetail = true;
 		try {
-			const resp = await firehose.send(new DescribeDeliveryStreamCommand({ DeliveryStreamName: name }));
+			const resp = await firehose().send(new DescribeDeliveryStreamCommand({ DeliveryStreamName: name }));
 			selectedStream = resp.DeliveryStreamDescription ?? null;
 			activeTab = 'overview';
 			tagList = [];
@@ -118,7 +118,7 @@
 		if (!newStreamName.trim() || !newS3Bucket.trim()) return;
 		creatingStream = true;
 		try {
-			await firehose.send(new CreateDeliveryStreamCommand({
+			await firehose().send(new CreateDeliveryStreamCommand({
 				DeliveryStreamName: newStreamName.trim(),
 				DeliveryStreamType: newStreamType,
 				S3DestinationConfiguration: {
@@ -156,7 +156,7 @@
 	async function deleteStream(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Delivery Stream', message: `Delete delivery stream "${name}"? In-flight records may be lost.` })) return;
 		try {
-			await firehose.send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
+			await firehose().send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
 			toast.success(`Stream "${name}" deleted`);
 			if (selectedStream?.DeliveryStreamName === name) selectedStream = null;
 			await loadStreams();
@@ -170,7 +170,7 @@
 		puttingRecord = true;
 		putResult = '';
 		try {
-			const resp = await firehose.send(new PutRecordCommand({
+			const resp = await firehose().send(new PutRecordCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Record: { Data: new TextEncoder().encode(putData.trim()) }
 			}));
@@ -193,7 +193,7 @@
 		puttingRecord = true;
 		batchResult = null;
 		try {
-			const resp = await firehose.send(new PutRecordBatchCommand({
+			const resp = await firehose().send(new PutRecordBatchCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Records: batchLines.map((line) => ({ Data: new TextEncoder().encode(line) }))
 			}));
@@ -215,7 +215,7 @@
 		if (!selectedStream?.DeliveryStreamName) return;
 		managingEncryption = true;
 		try {
-			await firehose.send(new StartDeliveryStreamEncryptionCommand({
+			await firehose().send(new StartDeliveryStreamEncryptionCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				DeliveryStreamEncryptionConfigurationInput: {
 					KeyType: newKmsKeyArn.trim() ? 'CUSTOMER_MANAGED_CMK' : 'AWS_OWNED_CMK',
@@ -237,7 +237,7 @@
 		if (!await confirmDestructive({ title: 'Stop Encryption', message: `Stop encryption for delivery stream "${selectedStream.DeliveryStreamName}"?` })) return;
 		managingEncryption = true;
 		try {
-			await firehose.send(new StopDeliveryStreamEncryptionCommand({
+			await firehose().send(new StopDeliveryStreamEncryptionCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName
 			}));
 			toast.success('Stopped delivery stream encryption');
@@ -267,7 +267,7 @@
 	async function loadTags(name: string) {
 		loadingTags = true;
 		try {
-			const resp = await firehose.send(new ListTagsForDeliveryStreamCommand({ DeliveryStreamName: name }));
+			const resp = await firehose().send(new ListTagsForDeliveryStreamCommand({ DeliveryStreamName: name }));
 			tagList = (resp.Tags ?? []).map((t) => ({ Key: t.Key ?? '', Value: t.Value ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load tags: ' + String(e));
@@ -280,7 +280,7 @@
 		if (!selectedStream?.DeliveryStreamName || !newTagKey.trim()) return;
 		savingTag = true;
 		try {
-			await firehose.send(new TagDeliveryStreamCommand({
+			await firehose().send(new TagDeliveryStreamCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Tags: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }]
 			}));
@@ -298,7 +298,7 @@
 	async function removeTag(key: string) {
 		if (!selectedStream?.DeliveryStreamName) return;
 		try {
-			await firehose.send(new UntagDeliveryStreamCommand({
+			await firehose().send(new UntagDeliveryStreamCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				TagKeys: [key]
 			}));
@@ -351,7 +351,7 @@
 					HECToken: updSplunkToken.trim() || undefined
 				};
 			}
-			await firehose.send(new UpdateDestinationCommand(cmd));
+			await firehose().send(new UpdateDestinationCommand(cmd));
 			toast.success('Destination updated');
 			showUpdateDest = false;
 			await selectStream(selectedStream.DeliveryStreamName);
@@ -369,7 +369,17 @@
 			dest.SplunkDestinationDescription?.RetryOptions?.DurationInSeconds;
 	}
 
-	onMount(loadStreams);
+	// A delivery stream name is only unique within a region, so a stream
+	// selected (and its tags/put-record results) in the old region must not
+	// survive a region switch -- clear that state and fall back to the list.
+	onRegionChange(() => {
+		selectedStream = null;
+		activeTab = 'overview';
+		tagList = [];
+		putResult = '';
+		batchResult = null;
+		loadStreams();
+	});
 </script>
 
 <div class="p-6 space-y-6">

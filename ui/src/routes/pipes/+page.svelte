@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getPipesClient } from '$lib/aws-client';
 	import {
 		ListPipesCommand,
@@ -39,7 +39,7 @@
 		Box
 	} from 'lucide-svelte';
 
-	const pipesClient = getPipesClient();
+	const pipesClient = regionalClient(getPipesClient);
 
 	// --- State ---
 	let loading = $state(false);
@@ -159,7 +159,7 @@
 		try {
 			const params: Record<string, unknown> = { Limit: 50 };
 			if (append && nextToken) params.NextToken = nextToken;
-			const res = await pipesClient.send(new ListPipesCommand(params));
+			const res = await pipesClient().send(new ListPipesCommand(params));
 			if (append) {
 				pipeList = [...pipeList, ...(res.Pipes ?? [])];
 			} else {
@@ -180,7 +180,7 @@
 		selectedPipe = null;
 		activeDetailTab = 'overview';
 		try {
-			const res = await pipesClient.send(new DescribePipeCommand({ Name: name }));
+			const res = await pipesClient().send(new DescribePipeCommand({ Name: name }));
 			selectedPipe = res;
 		} catch (err: unknown) {
 			toast.error(`Failed to load pipe details: ${(err as Error).message}`);
@@ -209,7 +209,7 @@
 				input.TargetParameters = { InputTemplate: newPipeInputTemplate.trim() };
 			}
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			await pipesClient.send(new CreatePipeCommand(input as any));
+			await pipesClient().send(new CreatePipeCommand(input as any));
 			toast.success(`Pipe "${newPipeName}" created`);
 			showCreateModal = false;
 			newPipeName = '';
@@ -237,7 +237,7 @@
 		if (!selectedPipe?.Name) return;
 		editing = true;
 		try {
-			await pipesClient.send(
+			await pipesClient().send(
 				new UpdatePipeCommand({
 					Name: selectedPipe.Name,
 					Target: editTarget || undefined,
@@ -269,7 +269,7 @@
 			return;
 		actionInFlight = 'delete';
 		try {
-			await pipesClient.send(new DeletePipeCommand({ Name: name }));
+			await pipesClient().send(new DeletePipeCommand({ Name: name }));
 			toast.success('Pipe deleted');
 			if (selectedPipe?.Name === name) selectedPipe = null;
 			await loadPipes();
@@ -284,7 +284,7 @@
 		if (!name) return;
 		actionInFlight = 'start';
 		try {
-			await pipesClient.send(new StartPipeCommand({ Name: name }));
+			await pipesClient().send(new StartPipeCommand({ Name: name }));
 			toast.success(`Pipe "${name}" started`);
 			if (selectedPipe?.Name === name) await selectPipe(name);
 			await loadPipes();
@@ -299,7 +299,7 @@
 		if (!name) return;
 		actionInFlight = 'stop';
 		try {
-			await pipesClient.send(new StopPipeCommand({ Name: name }));
+			await pipesClient().send(new StopPipeCommand({ Name: name }));
 			toast.success(`Pipe "${name}" stopped`);
 			if (selectedPipe?.Name === name) await selectPipe(name);
 			await loadPipes();
@@ -314,7 +314,7 @@
 		if (!selectedPipe?.Arn || !newTagKey.trim()) return;
 		taggingInFlight = true;
 		try {
-			await pipesClient.send(
+			await pipesClient().send(
 				new TagResourceCommand({
 					resourceArn: selectedPipe.Arn,
 					tags: { [newTagKey.trim()]: newTagValue.trim() }
@@ -334,7 +334,7 @@
 	async function removeTag(key: string) {
 		if (!selectedPipe?.Arn) return;
 		try {
-			await pipesClient.send(
+			await pipesClient().send(
 				new UntagResourceCommand({
 					resourceArn: selectedPipe.Arn,
 					tagKeys: [key]
@@ -359,7 +359,14 @@
 		}
 	}
 
-	onMount(() => {
+	// A pipe name is only unique within a region, so a pipe selected in the
+	// old region must not survive a region switch -- clear it and fall back
+	// to the list.
+	onRegionChange(() => {
+		selectedPipe = null;
+		activeDetailTab = 'overview';
+		nextToken = undefined;
+		hasMore = false;
 		loadPipes();
 	});
 </script>
