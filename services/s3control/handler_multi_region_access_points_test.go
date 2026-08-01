@@ -265,42 +265,31 @@ func TestHandler_GetMultiRegionAccessPoint(t *testing.T) {
 	}
 }
 
-func TestHandler_DeleteMultiRegionAccessPoint(t *testing.T) {
+// TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved locks in the
+// gopherstack-tir4 removal of the synchronous "DELETE
+// /v20180820/mrap/instances/{Name}" route. It used to be routed to
+// DeleteMultiRegionAccessPoint, but no real aws-sdk-go-v2 client can ever
+// send it: awsRestxml_serializeOpDeleteMultiRegionAccessPoint
+// (s3control@v1.73.0 serializers.go) hardcodes "POST
+// /v20180820/async-requests/mrap/delete" as the op's one and only wire
+// binding, and the only serializer targeting
+// "/v20180820/mrap/instances/{Name+}" is GetMultiRegionAccessPoint's (method
+// GET). The route now correctly falls through to a generic 404, and the
+// resource is left untouched -- proving it is dead surface, not a
+// functioning alternate delete path.
+func TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		setup      func(h *s3control.Handler)
-		name       string
-		mrapName   string
-		wantStatus int
-	}{
-		{
-			name:       "delete_existing",
-			mrapName:   "mymrap",
-			wantStatus: http.StatusNoContent,
-			setup: func(h *s3control.Handler) {
-				h.Backend.CreateMultiRegionAccessPoint("acct1", "mymrap", "")
-			},
-		},
-		{
-			name:       "delete_missing",
-			mrapName:   "nonexistent",
-			wantStatus: http.StatusNotFound,
-			setup:      func(_ *s3control.Handler) {},
-		},
-	}
+	h := newTestS3ControlHandler(t)
+	h.Backend.CreateMultiRegionAccessPoint("acct1", "mymrap", "")
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	rec := doS3Request(t, h, http.MethodDelete, "/v20180820/mrap/instances/mymrap", "")
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-			h := newTestS3ControlHandler(t)
-			tt.setup(h)
-
-			rec := doS3Request(t, h, http.MethodDelete, "/v20180820/mrap/instances/"+tt.mrapName, "")
-			assert.Equal(t, tt.wantStatus, rec.Code)
-		})
-	}
+	// The MRAP must still exist -- the dead route must not have deleted it
+	// via some other code path.
+	getRec := doS3Request(t, h, http.MethodGet, "/v20180820/mrap/instances/mymrap", "")
+	assert.Equal(t, http.StatusOK, getRec.Code)
 }
 
 func TestHandler_DeleteMultiRegionAccessPointAsync(t *testing.T) {

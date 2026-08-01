@@ -1,8 +1,37 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.0
 last_audit_commit: HEAD
-last_audit_date: 2026-07-31
-overall: A            # 2026-07-31 (gopherstack-eje5): found and fixed a severe CreateBucket
+last_audit_date: 2026-08-01
+overall: A            # 2026-08-01 (gopherstack-tir4 close-out): three follow-up items closed.
+                       # (1) DeleteAccessGrantsInstance's precondition enforcement was extended
+                       # from grants/locations-only to also cover the doc comment's third,
+                       # previously-missed precondition -- rejecting delete while an IAM Identity
+                       # Center instance is still associated (a real, provable gap: association
+                       # was already fully modeled via IdentityCenterArn, just never checked on
+                       # delete). See the dedicated precondition section below. (2) The
+                       # synchronous "DELETE /v20180820/mrap/instances/{Name}" route was proven
+                       # dead by reading the real SDK's serializers.go directly (not by trusting
+                       # this file's own prior-pass narrative) -- confirmed no serializer anywhere
+                       # in aws-sdk-go-v2/service/s3control@v1.73.0 emits a DELETE to that path --
+                       # and removed, along with its now-orphaned handler and the opDeleteMRAP
+                       # const. (3) An independent 11-type field-by-field sample re-verification
+                       # (ListAccessGrantsResult, GetAccessGrantResult, ListAccessGrantsLocationsResult,
+                       # ListCallerAccessGrantsResult, ListStorageLensConfigurationsResult,
+                       # ListStorageLensGroupsResult, ListJobsResult, GetJobTaggingResult,
+                       # GetAccessPointForObjectLambdaResult, ListAccessPointsForObjectLambdaResult,
+                       # DescribeMultiRegionAccessPointOperationResult, GetBucketReplicationResult/
+                       # PutBucketReplicationRequest) against the installed SDK's
+                       # deserializers.go/serializers.go directly -- not against this file's prior
+                       # claims -- found all previously-claimed fixes/gaps held up under
+                       # independent re-derivation, plus one new small honest gap:
+                       # ListAccessPointsForObjectLambdaResult's per-item Alias field has no
+                       # backing data and was undocumented (now documented in-code; not fixed --
+                       # see gaps, the real per-op alias-generation algorithm differs from regular
+                       # access points' and was not safe to synthesize). No new wire-shape bugs
+                       # found in the sampled types. Kept at A.
+                       #
+                       # --- prior (2026-07-31, gopherstack-eje5) history, kept for context ---
+                       # found and fixed a severe CreateBucket
                        # account/read round-trip bug (real CreateBucketInput has no AccountId at
                        # all -- the only op in this ~90-op service missing it; every Get/Delete/List
                        # on the same bucket does carry one). Kept at A: fixed in this same pass with
@@ -129,16 +158,17 @@ families:
   bucket-outposts: {status: ok, note: "CRUD + lifecycle + policy + replication + tagging + versioning; lifecycle route bug fixed (see ops above), rest spot-checked ok. THIS PASS (2026-07-30 tir4 follow-up): PutBucketPolicy FIXED -- real PutBucketPolicyInput.Policy is not payload-bound (unlike Lifecycle/Tagging/Versioning/Replication), so raw-body passthrough was wrong: the handler now parses the real '<PutBucketPolicyRequest><Policy>...</Policy></PutBucketPolicyRequest>' envelope and stores only the inner Policy text (see putBucketPolicyRequestXML, handler_bucket.go). GetBucketLifecycleConfiguration's raw-passthrough re-verified genuinely correct this pass by reading the real deserializer directly: it fetches the response root generically (does not check the root element's name) and only requires a 'Rules' child inside it, so returning the exact stored PUT body verbatim on GET carries no root-mismatch risk. Also DeleteBucket ghost-map-row leak fixed (see ops above). THIS PASS (2026-07-31, gopherstack-eje5): the family's 'ok' status as of the note above was WRONG about CreateBucket specifically -- see the dedicated CreateBucket ops row above for the full accounting of a severe create/read account-mismatch round-trip bug, now fixed and locked in by TestHTTP_CreateBucket_RealSDKShape_RoundTrip. Confirmed by an exhaustive scan of every operation's request schema (not just this family) that CreateBucket is the ONLY operation in the entire s3control surface without an AccountId member, so this is not a wider pattern -- no other op in this service needed the same fix. Also changed, while adding the first real end-to-end HTTP test for handleDeleteBucket: it (and handleDeleteBucketLifecycleConfiguration/handleDeleteBucketPolicy/handleDeleteBucketTagging) used c.String(http.StatusNoContent, \"\") instead of c.NoContent(...) (see DeleteBucket ops row above). CORRECTED 2026-07-31: this was originally, and wrongly, described as fixing a bug that returns http.ErrBodyNotAllowed on every real call -- verified false against stdlib (net/http no-ops a zero-length write before the body-allowed check; only httptest.ResponseRecorder rejects it unconditionally). It is a test-observability/hygiene fix, not a client-facing one. The identical c.String(204,\"\") pattern also existed in handler_access_grants.go (4x), handler_object_lambda.go (2x), handler_jobs.go (1x), and handler_access_points.go (1x); those 8 sites were converted to c.NoContent in a later pass this same day (2026-07-31) along with handler-level tests -- see gaps history and the corresponding ops rows."}
   job-batch-ops: {status: ok, note: "CreateJob/DescribeJob/ListJobs/tagging real; UpdateJobPriority/UpdateJobStatus route method bug fixed (see ops above). THIS PASS: fixed 4 instances of the wrong AWS error code (NoSuchPublicAccessBlockConfiguration instead of NoSuchJob) across Get/UpdateJobDetails/UpdateJobPriority/UpdateJobStatus."}
   storage-lens: {status: ok, note: "config + group + tagging CRUD backed by real maps (storageLensConfigs, storageLensConfigTags); routes verified against real SDK paths, no mismatches found. THIS PASS: DeleteStorageLensGroup ghost-map-row leak fixed (generic resourceTags survived delete; storageLensConfigTags for config-tagging was already correctly cascade-cleaned by DeleteStorageLensConfiguration, unaffected)."}
-  multi-region-access-point: {status: ok, note: "async Create/Delete/PutPolicy + Describe + instance CRUD; PutMultiRegionAccessPointPolicy path and GetMultiRegionAccessPointPolicyStatus suffix bugs fixed (see ops above). LEAK FOUND AND FIXED THIS PASS: see leaks below. Also removed the dead/unused mrapPolicies map (declared, reset, but never once written to -- MRAP policy always lived on the MultiRegionAccessPoint.Policy struct field instead; this was pure dead state, not a live bug, but is gone now). Note: gopherstack still also exposes a synchronous DELETE on /mrap/instances/{Name} mapped to the same 'DeleteMultiRegionAccessPoint' op name -- the real API only has the async POST /async-requests/mrap/delete variant. Both routes now correctly delete the resource (the leak fix applies to the shared backend method regardless of which route drives it), but the sync-DELETE route itself remains dead surface from a real client's perspective; left as-is, see gaps."}
-  access-grants: {status: ok, note: "instance + grant + location + identity-center + data-access CRUD; ListAccessGrants/ListAccessGrantsLocations singular-vs-plural route bugs and caller/grants hyphen bug fixed (see ops above). Ghost-map-row leaks fixed on DeleteAccessGrant, DeleteAccessGrantsLocation, and DeleteAccessGrantsInstance (generic resourceTags, and for the instance also accessGrantsInstancePolicies, all previously survived delete forever). DeleteAccessGrantsInstance deliberately does NOT cascade-delete grants/locations, and DOES enforce the real-API precondition that they be deleted first (errAccessGrantsInstanceNotEmpty) -- see the DeleteAccessGrantsInstance ops row above and the dedicated 'precondition -- FIXED' section below."}
+  multi-region-access-point: {status: ok, note: "async Create/Delete/PutPolicy + Describe + instance CRUD; PutMultiRegionAccessPointPolicy path and GetMultiRegionAccessPointPolicyStatus suffix bugs fixed (see ops above). LEAK FOUND AND FIXED prior pass: see leaks below. Also removed the dead/unused mrapPolicies map (declared, reset, but never once written to -- MRAP policy always lived on the MultiRegionAccessPoint.Policy struct field instead; this was pure dead state, not a live bug, but is gone now). 2026-08-01 (gopherstack-tir4 close-out): the synchronous DELETE on /mrap/instances/{Name} (previously mapped to the same 'DeleteMultiRegionAccessPoint' op name) was REMOVED after independently confirming via the SDK serializers that no real client can ever send it -- see gaps for the full accounting. GET on the same path remains the only real op there; DeleteMultiRegionAccessPoint is served exclusively via the async POST route now."}
+  access-grants: {status: ok, note: "instance + grant + location + identity-center + data-access CRUD; ListAccessGrants/ListAccessGrantsLocations singular-vs-plural route bugs and caller/grants hyphen bug fixed (see ops above). Ghost-map-row leaks fixed on DeleteAccessGrant, DeleteAccessGrantsLocation, and DeleteAccessGrantsInstance (generic resourceTags, and for the instance also accessGrantsInstancePolicies, all previously survived delete forever). DeleteAccessGrantsInstance deliberately does NOT cascade-delete grants/locations, and DOES enforce all three real-API preconditions (grants deleted, locations deleted, Identity Center dissociated -- the third added 2026-08-01) via errAccessGrantsInstanceNotEmpty -- see the DeleteAccessGrantsInstance ops row above and the dedicated 'precondition -- FIXED' section below."}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource backed by real resourceTags map, prefix-matched route ok. THIS PASS: every resource-delete path that has a generic ARN (AccessPoint, ObjectLambda AP, Outposts Bucket, AccessGrant, AccessGrantsLocation, AccessGrantsInstance, StorageLensGroup) now cascade-cleans resourceTags[arn] on delete -- previously only AccessPoint's OWN policy map was cleaned by DeleteAccessPoint and nothing else cleaned tags anywhere, so a delete/recreate cycle under the same name/ARN could silently resurrect a prior resource's tags."}
   error-wire-shape: {status: ok, note: "SERVICE-WIDE bug: every error response (handleBackendError + ~30 ad-hoc 'invalid request body'/'not found' sites) returned c.String(status, plainText) instead of the AWS REST-XML <Error><Code>/<Message> envelope. Fixed prior pass via pkgs/awserr.Write. THIS PASS found a SECOND, narrower service-wide bug of the same class: 15 call sites across access_points.go (7), multi_region_access_points.go (4), and jobs.go (4) used the generic `ErrNotFound` sentinel (code \"NoSuchPublicAccessBlockConfiguration\") for AccessPoint-not-found / MRAP-not-found / Job-not-found errors instead of the resource-specific sentinel (errAccessPointNotFound/\"NoSuchAccessPoint\", errMRAPNotFound/\"NoSuchMultiRegionAccessPoint\", errJobNotFound/\"NoSuchJob\"). HTTP status (404) was correct in every case -- only the XML <Code> body was wrong -- so status-code-only tests never caught it; a real SDK client doing typed error matching (err.Code(), errors.As against a specific exception) on any of these paths got the wrong exception class. All 15 fixed; also added a new errAccessPointPolicyNotFound (\"NoSuchAccessPointPolicy\") sentinel to distinguish \"AP doesn't exist\" from \"AP exists but has no policy\" in GetAccessPointPolicy, which the prior pass had conflated under NoSuchAccessPoint."}
   persistence-gap: {status: ok, note: "NEW FAMILY THIS PASS -- found via reading persistence.go against store.go's field list. backendSnapshot only ever round-tripped the 'batch2' raw maps (bucketReplication, storageLensConfigs, storageLensConfigTags, resourceTags, accessPointPolicies) plus the store.Table-backed resources; the 10 'batch1' raw maps (accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, jobTags) were declared on InMemoryBackend and actively read/written by real handlers, but Snapshot() never serialized them and Restore() never restored them -- a Snapshot/Restore cycle (a service restart with persistence enabled) silently dropped access point scopes, Object Lambda AP policies/configs, Outposts bucket policy/tagging/lifecycle/versioning, MRAP routes, Access Grants instance resource policies, and job tags, even though the owning resource itself (e.g. the access point, the bucket) survived intact. Fixed: all 10 fields added to backendSnapshot, wired into Snapshot/Restore (including the version-mismatch discard-and-reset branch), s3controlSnapshotVersion bumped 1 -> 2. New test TestPersistence_Batch1Maps_SnapshotRestore locks in all 10."}
 
 gaps:
-  - The synchronous "DELETE /v20180820/mrap/instances/{Name}" route mapped to DeleteMultiRegionAccessPoint does not exist in the real API (only the async POST variant does). Dead code from a real client's perspective; low-risk cleanup deferred (unlike the fabricated PublicAccessBlock ops, DeleteMultiRegionAccessPoint IS a real op name -- only this one extra HTTP-verb/path combination for it is fake -- so this was judged lower-priority than deleting an entirely invented operation family).
+  - REMOVED 2026-08-01 (gopherstack-tir4 close-out): the synchronous "DELETE /v20180820/mrap/instances/{Name}" route mapped to DeleteMultiRegionAccessPoint was proven genuinely unreachable by any real aws-sdk-go-v2 client (awsRestxml_serializeOpDeleteMultiRegionAccessPoint hardcodes "POST /v20180820/async-requests/mrap/delete" as the op's one and only wire binding; the only serializer targeting "/v20180820/mrap/instances/{Name+}" is GetMultiRegionAccessPoint's, method GET) and deleted from extractMRAPInstanceOp/dispatchMRAPInstanceDispatch (handler_multi_region_access_points.go), along with its now-dead handleDeleteMultiRegionAccessPoint handler and the opDeleteMRAP const. DeleteMultiRegionAccessPoint remains fully served via the real async route. Locked in by TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved (asserts 404 + resource survives) and the updated ExtractOperation dispatch-table case (now expects "Unknown" for this path+method).
   - s3control.ErrAlreadyExists (errors.go) wraps a generic "BucketAlreadyExists" code but is never actually returned by any backend method (verified via repo-wide grep) -- unused/dead sentinel, not a live bug, but worth removing or wiring up correctly if AlreadyExists semantics are ever needed for e.g. CreateAccessPoint on a duplicate name.
   - (CORRECTED 2026-07-30, was previously stale) DeleteAccessGrantsInstance's precondition IS enforced -- see items_still_open.
+  - `ListAccessPointsForObjectLambdaResult`'s per-item `types.ObjectLambdaAccessPoint` entries are missing the real `Alias` field (2026-08-01 sample audit, gopherstack-tir4): ObjectLambdaAccessPoint (models.go) tracks no alias data for these APs at all, and the real AWS alias-generation algorithm for Object Lambda APs is a distinct, undocumented "<random>-ol-s3alias"-style scheme (NOT the same "<name>-<accountid>-s3alias" formula regular access points use, confirmed by inspecting access_points.go's CreateAccessPoint) -- not synthesized to avoid inventing an unverified value. Now documented in-code (handler_object_lambda.go); not fixed.
   - (CLOSED 2026-07-30) Only a modestly larger sample of response XML shapes were spot-checked against deserializers.go this pass ... -- superseded: the remaining "types_not_reached" items were individually diffed this pass, see below and items_still_open.
   - (2026-07-31, gopherstack-eje5, CORRECTED same day) An earlier version of this entry claimed the c.String(http.StatusNoContent, "") -> c.NoContent(http.StatusNoContent) change (handler_bucket.go, 4 handlers) fixed a bug that "returns http.ErrBodyNotAllowed on every real call." That claim is false and was verified wrong against net/http's stdlib source: (*response).write in net/http/server.go no-ops a zero-length write (returns nil) BEFORE reaching the body-allowed check, so a real net/http server never returns that error for an empty body after a 204. Only httptest.ResponseRecorder.Write checks bodyAllowedForStatus unconditionally with no exemption for zero-length writes, so only handler-level tests dispatching through a ResponseRecorder would see the error -- meaning the real defect was a test-observability gap (no such test could exist and pass), not a client-facing bug, and c.String vs c.NoContent was never observable to a real SDK client. The identical c.String(204,"") pattern in 8 more handlers (handler_access_grants.go x4, handler_object_lambda.go x2, handler_jobs.go x1, handler_access_points.go x1) was converted to c.NoContent in a later pass this same day, with handler-level tests added to lock in the nil-error assertion that could not previously exist -- described there as a hygiene/testability change, not a bug fix, consistent with this correction.
 
@@ -480,21 +510,33 @@ what a follow-up pass should still cover.
   call silently stored an empty routing update. Fixed: renamed to `RouteUpdates`, captured as
   raw inner XML on both request and response sides to preserve the real per-route structure.
 
-### `DeleteAccessGrantsInstance` precondition -- FIXED
+### `DeleteAccessGrantsInstance` precondition -- FIXED (grants/locations; extended 2026-08-01 to Identity Center)
 
-Real API doc comment: "You must first delete the access grants and locations before S3 Access
-Grants can delete the instance." Previously unenforced (gopherstack allowed deleting an
-instance with grants/locations still attached). Fixed: `DeleteAccessGrantsInstance` now checks
-for any `AccessGrant`/`AccessGrantsLocation` belonging to the account and rejects with
-`errAccessGrantsInstanceNotEmpty` (aliased to the existing `ErrValidation` / `BadRequestException`
-sentinel) if either exists. No S3 Control typed exception is specific to this conflict
-(verified against the SDK's full `types/errors.go` exception list: `BadRequestException`,
-`BucketAlreadyExists`, `BucketAlreadyOwnedByYou`, `IdempotencyException`,
-`InternalServiceException`, `InvalidNextTokenException`, `InvalidRequestException`,
-`JobStatusException`, `NoSuchPublicAccessBlockConfiguration`, `NotFoundException`,
-`TooManyRequestsException`, `TooManyTagsException` -- none named for this case), so this reuses
-the generic `BadRequestException` sentinel this codebase already uses for other S3 Access
-Grants validation failures, rather than inventing an unverified specific code.
+Real API doc comment (`api_op_DeleteAccessGrantsInstance.go`, generated from AWS's own Smithy
+model): "You must first delete the access grants and locations before S3 Access Grants can
+delete the instance. ... If you have associated an IAM Identity Center instance with your S3
+Access Grants instance, you must first dissassociate the Identity Center instance from the S3
+Access Grants instance before you can delete the S3 Access Grants instance." This is THREE
+preconditions, not one. Previously unenforced (gopherstack allowed deleting an instance with
+grants/locations still attached); a prior pass fixed the grants/locations half. THIS PASS
+(2026-08-01, gopherstack-tir4) found the doc comment's third precondition -- the Identity
+Center dissociation requirement -- was still unenforced despite Identity Center association
+being fully modeled (`AccessGrantsInstance.IdentityCenterArn`, set by
+`AssociateAccessGrantsIdentityCenter`/`CreateAccessGrantsInstance`, cleared by
+`DissociateAccessGrantsIdentityCenter`): a real account rejects deleting an instance with a
+live Identity Center association, but gopherstack silently allowed it. Fixed:
+`DeleteAccessGrantsInstance` now also checks `IdentityCenterArn != ""` on the instance itself
+and rejects with the same `errAccessGrantsInstanceNotEmpty` sentinel. All three preconditions
+(grants / locations / Identity Center) are now enforced, each independently tested (backend-
+and HTTP-level) for both the rejection and the success-once-cleared path. No S3 Control typed
+exception is specific to any of the three conflicts (verified against the SDK's full
+`types/errors.go` exception list: `BadRequestException`, `BucketAlreadyExists`,
+`BucketAlreadyOwnedByYou`, `IdempotencyException`, `InternalServiceException`,
+`InvalidNextTokenException`, `InvalidRequestException`, `JobStatusException`,
+`NoSuchPublicAccessBlockConfiguration`, `NotFoundException`, `TooManyRequestsException`,
+`TooManyTagsException` -- none named for any of them), so this reuses the generic
+`BadRequestException` sentinel this codebase already uses for other S3 Access Grants
+validation failures, rather than inventing an unverified specific code.
 
 ### types_not_reached -- CLOSED 2026-07-30 (follow-up pass, gopherstack-tir4 completion)
 

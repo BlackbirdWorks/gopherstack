@@ -324,10 +324,14 @@ func TestHandler_ExtractOperation(t *testing.T) {
 			wantOp: "GetMultiRegionAccessPoint",
 		},
 		{
-			name:   "delete_mrap_instance",
+			// The sync DELETE variant of this path was removed (gopherstack-tir4):
+			// no real SDK client can send it -- see
+			// TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved. It now
+			// falls through to the generic unmapped-route "Unknown" op.
+			name:   "delete_mrap_instance_unmapped",
 			method: http.MethodDelete,
 			path:   "/v20180820/mrap/instances/mymrap",
-			wantOp: "DeleteMultiRegionAccessPoint",
+			wantOp: "Unknown",
 		},
 		{
 			name:   "submit_mrap_routes",
