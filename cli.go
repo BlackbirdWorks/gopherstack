@@ -185,6 +185,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
+	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -269,6 +270,7 @@ type CLI struct {
 	s3tablesHandler               service.Registerable
 	grafanaHandler                service.Registerable
 	outpostsHandler               service.Registerable
+	resiliencehubHandler          service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1453,6 +1455,11 @@ func (c *CLI) GetGrafanaHandler() service.Registerable { return c.grafanaHandler
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetOutpostsHandler() service.Registerable { return c.outpostsHandler }
 
+// GetResilienceHubHandler returns the AWS Resilience Hub handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetResilienceHubHandler() service.Registerable { return c.resiliencehubHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2577,6 +2584,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.s3tablesHandler = byName["S3tables"]
 	cli.grafanaHandler = byName["Grafana"]
 	cli.outpostsHandler = byName["Outposts"]
+	cli.resiliencehubHandler = byName["ResilienceHub"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -3164,6 +3172,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&bedrockagentbackend.Provider{},
 		&grafanabackend.Provider{},
 		&outpostsbackend.Provider{},
+		&resiliencehubbackend.Provider{},
 	}
 }
 
@@ -5338,12 +5347,12 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 31 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 32 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts). The rest remain unwired -- see PARITY.md's gaps section for the honest
-// remaining list and why a few
+// outposts, resiliencehub). The rest remain unwired -- see PARITY.md's gaps section
+// for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
@@ -5407,6 +5416,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingEMR(bk, byName["EMR"])
 	wireTaggingGrafana(bk, byName["Grafana"])
 	wireTaggingOutposts(bk, byName["Outposts"])
+	wireTaggingResilienceHub(bk, byName["ResilienceHub"])
 }
 
 func wireTaggingDDB(
@@ -5621,7 +5631,8 @@ func wireTaggingSQS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sqs", constantResourceType("sqs:queue"),
+	wireTaggingARNResources(
+		bk, "sqs", constantResourceType("sqs:queue"),
 		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
 			out := make([]taggedARNEntry, 0, len(queues))
@@ -5650,7 +5661,8 @@ func wireTaggingSNS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sns", constantResourceType("sns:topic"),
+	wireTaggingARNResources(
+		bk, "sns", constantResourceType("sns:topic"),
 		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
 			out := make([]taggedARNEntry, 0, len(topics))
@@ -5773,7 +5785,8 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 		return
 	}
 
-	wireTaggingARNResources(bk, "ecs",
+	wireTaggingARNResources(
+		bk, "ecs",
 		func(arn string) string { return resourceTypeFromARN(arn, "ecs") },
 		func() []taggedARNEntry {
 			items := ecsBk.TaggedResources()
@@ -5811,7 +5824,8 @@ func wireTaggingAthena(bk resourcegroupstaggingapibackend.StorageBackend, athena
 		return
 	}
 
-	wireTaggingARNResources(bk, "athena",
+	wireTaggingARNResources(
+		bk, "athena",
 		func(arn string) string { return resourceTypeFromARN(arn, "athena") },
 		func() []taggedARNEntry {
 			items := athenaBk.TaggedResources()
@@ -5843,7 +5857,8 @@ func wireTaggingGlue(bk resourcegroupstaggingapibackend.StorageBackend, glueReg 
 		return
 	}
 
-	wireTaggingARNResources(bk, "glue",
+	wireTaggingARNResources(
+		bk, "glue",
 		func(arn string) string { return resourceTypeFromARN(arn, "glue") },
 		func() []taggedARNEntry {
 			items := glueBk.TaggedResources()
@@ -5947,7 +5962,8 @@ func wireTaggingStepFunctions(bk resourcegroupstaggingapibackend.StorageBackend,
 		return
 	}
 
-	wireTaggingARNResources(bk, "states",
+	wireTaggingARNResources(
+		bk, "states",
 		func(arn string) string { return resourceTypeFromARN(arn, "states") },
 		func() []taggedARNEntry {
 			items := sfnH.TaggedResources()
@@ -5980,7 +5996,8 @@ func wireTaggingCloudFront(bk resourcegroupstaggingapibackend.StorageBackend, cf
 		return
 	}
 
-	wireTaggingARNResources(bk, "cloudfront",
+	wireTaggingARNResources(
+		bk, "cloudfront",
 		func(arn string) string { return resourceTypeFromARN(arn, "cloudfront") },
 		func() []taggedARNEntry {
 			items := cfBk.TaggedResources()
@@ -6012,7 +6029,8 @@ func wireTaggingEKS(bk resourcegroupstaggingapibackend.StorageBackend, eksReg se
 		return
 	}
 
-	wireTaggingARNResources(bk, "eks",
+	wireTaggingARNResources(
+		bk, "eks",
 		func(arn string) string { return resourceTypeFromARN(arn, "eks") },
 		func() []taggedARNEntry {
 			items := eksBk.TaggedResources()
@@ -6046,7 +6064,8 @@ func wireTaggingBatch(bk resourcegroupstaggingapibackend.StorageBackend, batchRe
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "batch",
+	wireTaggingCtxARNResources(
+		bk, "batch",
 		func(arn string) string { return resourceTypeFromARN(arn, "batch") },
 		func() []taggedARNEntry {
 			items := batchBk.TaggedResources()
@@ -6080,7 +6099,8 @@ func wireTaggingWAFv2(bk resourcegroupstaggingapibackend.StorageBackend, wafReg 
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "wafv2",
+	wireTaggingCtxARNResources(
+		bk, "wafv2",
 		wafv2ResourceType,
 		func() []taggedARNEntry {
 			items := wafBk.TaggedResources()
@@ -6112,7 +6132,8 @@ func wireTaggingBackup(bk resourcegroupstaggingapibackend.StorageBackend, backup
 		return
 	}
 
-	wireTaggingARNResources(bk, "backup",
+	wireTaggingARNResources(
+		bk, "backup",
 		func(arn string) string { return resourceTypeFromARN(arn, "backup") },
 		func() []taggedARNEntry {
 			items := backupBk.TaggedResources()
@@ -6145,7 +6166,8 @@ func wireTaggingEFS(bk resourcegroupstaggingapibackend.StorageBackend, efsReg se
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "elasticfilesystem",
+	wireTaggingCtxARNResources(
+		bk, "elasticfilesystem",
 		func(arn string) string { return resourceTypeFromARN(arn, "elasticfilesystem") },
 		func() []taggedARNEntry {
 			items := efsBk.TaggedResources()
@@ -6334,7 +6356,8 @@ func wireTaggingRDS(bk resourcegroupstaggingapibackend.StorageBackend, rdsReg se
 		return
 	}
 
-	wireTaggingARNResources(bk, "rds",
+	wireTaggingARNResources(
+		bk, "rds",
 		func(arn string) string { return resourceTypeFromARN(arn, "rds") },
 		func() []taggedARNEntry {
 			items := rdsBk.TaggedResources()
@@ -6382,7 +6405,8 @@ func wireTaggingElastiCache(bk resourcegroupstaggingapibackend.StorageBackend, e
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "elasticache",
+	wireTaggingCtxARNResources(
+		bk, "elasticache",
 		func(arn string) string { return resourceTypeFromARN(arn, "elasticache") },
 		func() []taggedARNEntry {
 			items := ecBk.TaggedResources()
@@ -6446,7 +6470,8 @@ func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, reds
 		return arn.Build("redshift", redshiftBk.Region(), redshiftBk.AccountID(), "cluster:"+id)
 	}
 
-	wireTaggingARNResources(bk, "redshift",
+	wireTaggingARNResources(
+		bk, "redshift",
 		constantResourceType("redshift:cluster"),
 		func() []taggedARNEntry {
 			all := redshiftBk.DescribeTags()
@@ -6519,7 +6544,8 @@ func wireTaggingFirehose(bk resourcegroupstaggingapibackend.StorageBackend, fire
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "firehose",
+	wireTaggingCtxARNResources(
+		bk, "firehose",
 		constantResourceType("firehose:deliverystream"),
 		func() []taggedARNEntry {
 			items := firehoseBk.TaggedResources()
@@ -6570,7 +6596,8 @@ func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, os
 		return
 	}
 
-	wireTaggingARNResources(bk, "es",
+	wireTaggingARNResources(
+		bk, "es",
 		constantResourceType("es:domain"),
 		func() []taggedARNEntry {
 			domains, err := osBk.DescribeDomains(nil)
@@ -6613,7 +6640,8 @@ func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg serv
 		return
 	}
 
-	wireTaggingARNResources(bk, "mq",
+	wireTaggingARNResources(
+		bk, "mq",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mq") },
 		func() []taggedARNEntry {
 			items := mqBk.TaggedResources()
@@ -6651,7 +6679,8 @@ func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg se
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "elasticmapreduce",
+	wireTaggingCtxARNResources(
+		bk, "elasticmapreduce",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "elasticmapreduce") },
 		func() []taggedARNEntry {
 			items := emrBk.TaggedResources()
@@ -6693,7 +6722,8 @@ func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafa
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "grafana",
+	wireTaggingCtxARNResources(
+		bk, "grafana",
 		constantResourceType("grafana:workspace"),
 		func() []taggedARNEntry {
 			items := grafanaBk.TaggedResources()
@@ -6732,7 +6762,8 @@ func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outp
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "outposts",
+	wireTaggingCtxARNResources(
+		bk, "outposts",
 		func(arn string) string { return resourceTypeFromARN(arn, "outposts") },
 		func() []taggedARNEntry {
 			items := outpostsBk.TaggedResources()
@@ -6746,6 +6777,50 @@ func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outp
 		},
 		outpostsBk.TagResource,
 		outpostsBk.UntagResource,
+	)
+}
+
+// wireTaggingResilienceHub wires the AWS Resilience Hub backend into the
+// Resource Groups Tagging API. Like Outposts (two taggable resource kinds),
+// Resilience Hub has THREE: App, ResiliencyPolicy, and AppAssessment all
+// share the same generic ResourceArn-keyed TagResource/UntagResource/
+// ListTagsForResource surface (confirmed from every ARN-bearing field's own
+// doc comment in aws-sdk-go-v2/service/resiliencehub/types/types.go -- see
+// services/resiliencehub/PARITY.md's tagging section), so resourceTypeFromARN
+// derives "resiliencehub:app", "resiliencehub:resiliency-policy", or
+// "resiliencehub:app-assessment" from each ARN's own resource segment rather
+// than hand-writing one wiring function per kind. The "resiliencehub" ARN
+// service segment is confirmed directly from those doc comments, not one of
+// the seven service-name-mismatch cases the broader campaign found.
+func wireTaggingResilienceHub(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	resiliencehubReg service.Registerable,
+) {
+	resiliencehubH, ok := resiliencehubReg.(*resiliencehubbackend.Handler)
+	if !ok {
+		return
+	}
+
+	resiliencehubBk := resiliencehubH.Backend
+	if resiliencehubBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "resiliencehub",
+		func(arn string) string { return resourceTypeFromARN(arn, "resiliencehub") },
+		func() []taggedARNEntry {
+			items := resiliencehubBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		resiliencehubBk.TagResource,
+		resiliencehubBk.UntagResource,
 	)
 }
 
@@ -6768,7 +6843,8 @@ func wireTaggingCloudWatchLogs(bk resourcegroupstaggingapibackend.StorageBackend
 		return
 	}
 
-	wireTaggingARNResources(bk, "logs",
+	wireTaggingARNResources(
+		bk, "logs",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "logs") },
 		func() []taggedARNEntry {
 			items := cwlH.TaggedResources()
@@ -6816,7 +6892,8 @@ func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smR
 		return
 	}
 
-	wireTaggingCtxARNResources(bk, "sagemaker",
+	wireTaggingCtxARNResources(
+		bk, "sagemaker",
 		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sagemaker") },
 		func() []taggedARNEntry {
 			items := smBk.TaggedResources()
@@ -7864,7 +7941,8 @@ func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc
 			}
 
 			ctx := awsmeta.Set(req.Context(), meta)
-			ctx = logger.AddAttrs(ctx,
+			ctx = logger.AddAttrs(
+				ctx,
 				slog.String("region", meta.Region),
 				slog.String("account", meta.Account),
 				slog.String("request_id", meta.RequestID),

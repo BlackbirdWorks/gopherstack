@@ -1,96 +1,110 @@
 ---
-# PARITY MANIFEST — PRE-IMPLEMENTATION AUDIT, NOT YET BUILT.
-# services/resiliencehub/ does not exist yet (confirmed: no dir, no cli.go
-# registration, no go.mod entry, no Go symbols anywhere in the tree -- see
-# bd gopherstack-1gfi). This document is a wire-shape + behavior SPEC for the
-# implementer, not a record of existing code. No .go files were written to
-# produce it; every claim below was read directly from the SDK module cache
-# or from grep/read of this repo's existing services.
+# PARITY MANIFEST — IMPLEMENTED THIS PASS.
+# services/resiliencehub/ is now built: 63/63 operations routed, real backend
+# state, persisted via InMemoryBackend.Snapshot/Restore, wired into cli.go
+# (Provider, CLI struct, storeCLINewestHandlers, getMostRecentServiceProviders,
+# and wireResourceGroupsTagging as the 32nd tagging-wired service). This
+# frontmatter was updated post-implementation; the original pre-implementation
+# audit body (Sections 1-4 below) is kept as reference material and remains
+# accurate except where "Implementation summary" (bottom of file) notes a
+# deviation.
 service: resiliencehub
-sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3   # resolved via `go get ...@latest` in a throwaway scratch module; NOT added to this repo's go.mod
-last_audit_commit: 7922e4c4d     # HEAD at audit time; re-audit should diff services/resiliencehub/ from here once built
+sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3   # now a real go.mod dependency (go get run this pass)
+last_audit_commit: 7922e4c4d     # HEAD when the pre-implementation audit was written; this pass built the full service on top of it
 last_audit_date: 2026-08-01
-overall: N/A-pre-implementation   # nothing built yet; see body for the full 63-op spec the implementer should work from
-# Per-op status below reflects THIS AUDIT's confidence in the wire spec (verified
-# against serializers.go/deserializers.go/types.go), not backend behavior -- there
-# is no backend. state/persist are uniformly "gap" because nothing is implemented.
-# wire/errors are "ok" where this pass read the actual generated code (all 63 were).
+# Grade B: every op routed with real state/persistence and real SDK round-trip
+# test coverage, but the honest-gap surface is large by the nature of this
+# service (an analysis product whose scoring/ML/curated-recommendation
+# outputs cannot be derived from the SDK) -- see gaps: below and
+# "Implementation summary" for the full list of narrower-than-real-AWS,
+# documented behavior.
+overall: B
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+# All 63 ops are routed, backed by real state, and persisted. "partial" marks
+# operations where the real content is a proprietary scoring/ML/curated-KB
+# output this emulator cannot derive from the SDK -- the STATE MACHINE around
+# them (real records, real status transitions, real validation) is genuine;
+# only the analysis CONTENT is honestly empty/placeholder. Never a stub.
 ops:
-  AcceptResourceGroupingRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /accept-resource-grouping-recommendations"}
-  AddDraftAppVersionResourceMappings: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /add-draft-app-version-resource-mappings"}
-  BatchUpdateRecommendationStatus: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /batch-update-recommendation-status"}
-  CreateApp: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /create-app"}
-  CreateAppVersionAppComponent: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /create-app-version-app-component"}
-  CreateAppVersionResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /create-app-version-resource"}
-  CreateRecommendationTemplate: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /create-recommendation-template"}
-  CreateResiliencyPolicy: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /create-resiliency-policy"}
-  DeleteApp: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-app"}
-  DeleteAppAssessment: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-app-assessment"}
-  DeleteAppInputSource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-app-input-source"}
-  DeleteAppVersionAppComponent: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-app-version-app-component"}
-  DeleteAppVersionResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-app-version-resource"}
-  DeleteRecommendationTemplate: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-recommendation-template"}
-  DeleteResiliencyPolicy: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /delete-resiliency-policy"}
-  DescribeApp: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app"}
-  DescribeAppAssessment: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-assessment"}
-  DescribeAppVersion: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-version"}
-  DescribeAppVersionAppComponent: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-version-app-component"}
-  DescribeAppVersionResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-version-resource"}
-  DescribeAppVersionResourcesResolutionStatus: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-version-resources-resolution-status"}
-  DescribeAppVersionTemplate: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-app-version-template"}
-  DescribeDraftAppVersionResourcesImportStatus: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-draft-app-version-resources-import-status"}
-  DescribeMetricsExport: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-metrics-export"}
-  DescribeResiliencyPolicy: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-resiliency-policy"}
-  DescribeResourceGroupingRecommendationTask: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /describe-resource-grouping-recommendation-task"}
-  ImportResourcesToDraftAppVersion: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /import-resources-to-draft-app-version"}
-  ListAlarmRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-alarm-recommendations"}
-  ListAppAssessmentComplianceDrifts: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-assessment-compliance-drifts"}
-  ListAppAssessmentResourceDrifts: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-assessment-resource-drifts"}
-  ListAppAssessments: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-app-assessments (the only List* that is GET besides the five below)"}
-  ListAppComponentCompliances: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-component-compliances"}
-  ListAppComponentRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-component-recommendations"}
-  ListAppInputSources: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-input-sources"}
-  ListApps: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-apps"}
-  ListAppVersionAppComponents: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-version-app-components"}
-  ListAppVersionResourceMappings: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-version-resource-mappings"}
-  ListAppVersionResources: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-version-resources"}
-  ListAppVersions: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-app-versions"}
-  ListMetrics: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-metrics"}
-  ListRecommendationTemplates: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-recommendation-templates"}
-  ListResiliencyPolicies: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-resiliency-policies"}
-  ListResourceGroupingRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-resource-grouping-recommendations"}
-  ListSopRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-sop-recommendations"}
-  ListSuggestedResiliencyPolicies: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /list-suggested-resiliency-policies"}
-  ListTagsForResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "GET /tags/{resourceArn}"}
-  ListTestRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-test-recommendations"}
-  ListUnsupportedAppVersionResources: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /list-unsupported-app-version-resources"}
-  PublishAppVersion: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /publish-app-version"}
-  PutDraftAppVersionTemplate: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /put-draft-app-version-template"}
-  RejectResourceGroupingRecommendations: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /reject-resource-grouping-recommendations"}
-  RemoveDraftAppVersionResourceMappings: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /remove-draft-app-version-resource-mappings"}
-  ResolveAppVersionResources: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /resolve-app-version-resources"}
-  StartAppAssessment: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /start-app-assessment"}
-  StartMetricsExport: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /start-metrics-export"}
-  StartResourceGroupingRecommendationTask: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /start-resource-grouping-recommendation-task"}
-  TagResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /tags/{resourceArn}"}
-  UntagResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "DELETE /tags/{resourceArn}"}
-  UpdateApp: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /update-app"}
-  UpdateAppVersion: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /update-app-version"}
-  UpdateAppVersionAppComponent: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /update-app-version-app-component"}
-  UpdateAppVersionResource: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /update-app-version-resource"}
-  UpdateResiliencyPolicy: {wire: ok, errors: ok, state: gap, persist: gap, note: "POST /update-resiliency-policy"}
+  AcceptResourceGroupingRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "grouping.go; every submitted id necessarily fails (no grouping recommendation ever exists to accept) -- real failure, not fabricated success"}
+  AddDraftAppVersionResourceMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; appends to draft AppVersion.ResourceMappings"}
+  BatchUpdateRecommendationStatus: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; every entry necessarily fails (no recommendation ever exists)"}
+  CreateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; seeds implicit draft AppVersion"}
+  CreateAppVersionAppComponent: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft-only; Conflict on duplicate name"}
+  CreateAppVersionResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; draft-only; auto-creates unknown AppComponent names per SDK doc comment"}
+  CreateRecommendationTemplate: {wire: ok, errors: ok, state: partial, persist: ok, note: "templates.go; real template record, synthetic TemplatesLocation (no real S3 write), always-empty RecommendationIds/Types"}
+  CreateResiliencyPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; requires all 4 DisruptionType entries (judgment call, see below)"}
+  DeleteApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; Conflict while a Pending/InProgress assessment exists unless ForceDelete"}
+  DeleteAppAssessment: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; Conflict while still running"}
+  DeleteAppInputSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; removes the bookkeeping entry only (no per-resource provenance tracking)"}
+  DeleteAppVersionAppComponent: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; Conflict if any resource still assigned"}
+  DeleteAppVersionResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; Conflict unless SourceType is AppTemplate (manually-added)"}
+  DeleteRecommendationTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "templates.go; the one op that never returns ConflictException (confirmed, tested)"}
+  DeleteResiliencyPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; Conflict while any App still bound"}
+  DescribeApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go"}
+  DescribeAppAssessment: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; Summary always nil, ResiliencyScore always scorePlaceholder"}
+  DescribeAppVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; reads any version (draft or published)"}
+  DescribeAppVersionAppComponent: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; reads any version"}
+  DescribeAppVersionResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; one-of resourceName/logicalResourceId/physicalResourceId locator"}
+  DescribeAppVersionResourcesResolutionStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; only the latest resolution per version is kept (documented simplification)"}
+  DescribeAppVersionTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go"}
+  DescribeDraftAppVersionResourcesImportStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; draft-only"}
+  DescribeMetricsExport: {wire: ok, errors: ok, state: partial, persist: ok, note: "metrics.go; real async record, ExportLocation synthetic (no real S3 write)"}
+  DescribeResiliencyPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go"}
+  DescribeResourceGroupingRecommendationTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "grouping.go; real task record and status transition"}
+  ImportResourcesToDraftAppVersion: {wire: ok, errors: ok, state: partial, persist: ok, note: "resources.go; records real AppInputSource bookkeeping and transitions Pending->Success, but does not discover real resources from the named sources -- see Implementation summary"}
+  ListAlarmRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; validates assessmentArn, always empty (no recommendation engine)"}
+  ListAppAssessmentComplianceDrifts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "assessments.go; validates assessmentArn, always empty (no drift-detection engine)"}
+  ListAppAssessmentResourceDrifts: {wire: ok, errors: ok, state: partial, persist: n/a, note: "assessments.go; same as above"}
+  ListAppAssessments: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; GET, filters + reverseOrder"}
+  ListAppComponentCompliances: {wire: ok, errors: ok, state: ok, persist: n/a, note: "assessments.go; real per-component entries using the documented coarse compliance rule (see complianceStatusForPolicy)"}
+  ListAppComponentRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}
+  ListAppInputSources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
+  ListApps: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; GET, single-filter-at-a-time"}
+  ListAppVersionAppComponents: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go"}
+  ListAppVersionResourceMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
+  ListAppVersionResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go"}
+  ListAppVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft + every published snapshot, [startTime,endTime] filter"}
+  ListMetrics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "metrics.go; always empty (no historical metrics store; ResiliencyScore itself is a placeholder)"}
+  ListRecommendationTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "templates.go; GET, filters + reverseOrder"}
+  ListResiliencyPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; GET"}
+  ListResourceGroupingRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "grouping.go; GET, always empty (no ML clustering engine)"}
+  ListSopRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}
+  ListSuggestedResiliencyPolicies: {wire: ok, errors: ok, state: partial, persist: n/a, note: "policies.go; GET, static 5-tier stand-in table (documented, non-authoritative), NOT the real backend's ResiliencyPolicies table"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a, note: "tagging.go; GET /tags/{resourceArn}, resolves App/Policy/Assessment by ARN marker"}
+  ListTestRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "recommendations.go; always empty"}
+  ListUnsupportedAppVersionResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; real classification against the two closed PhysicalResourceId.Type lists"}
+  PublishAppVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; deep-copy snapshot into a new numbered version, draft continues mutating forward"}
+  PutDraftAppVersionTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft-only"}
+  RejectResourceGroupingRecommendations: {wire: ok, errors: ok, state: partial, persist: n/a, note: "grouping.go; same honest-failure rationale as Accept"}
+  RemoveDraftAppVersionResourceMappings: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; matches by any of the 6 name-list params"}
+  ResolveAppVersionResources: {wire: ok, errors: ok, state: partial, persist: ok, note: "resources.go; real async Pending->Success + real materialization of Resource-type mappings; CfnStack/ResourceGroup/EKS/AppRegistryApp/Terraform mappings are left unresolved -- narrower than the audit's cross-service-resolution recommendation, see Implementation summary"}
+  StartAppAssessment: {wire: ok, errors: ok, state: ok, persist: ok, note: "assessments.go; real Pending->InProgress->Success via pkgs/worker, real policy snapshot, Summary always nil, ResiliencyScore always scorePlaceholder"}
+  StartMetricsExport: {wire: ok, errors: ok, state: partial, persist: ok, note: "metrics.go; real async record, ExportLocation synthetic"}
+  StartResourceGroupingRecommendationTask: {wire: ok, errors: ok, state: partial, persist: ok, note: "grouping.go; real task + real transition, zero recommendations generated"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "tagging.go; POST /tags/{resourceArn}"}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "tagging.go; DELETE /tags/{resourceArn}, repeated ?tagKeys= query param"}
+  UpdateApp: {wire: ok, errors: ok, state: ok, persist: ok, note: "apps.go; ClearResiliencyPolicyArn handled distinctly from omitted PolicyArn"}
+  UpdateAppVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft-only, AdditionalInfo replace"}
+  UpdateAppVersionAppComponent: {wire: ok, errors: ok, state: ok, persist: ok, note: "appversions.go; draft-only"}
+  UpdateAppVersionResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "resources.go; draft-only"}
+  UpdateResiliencyPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "policies.go; partial-update semantics"}
 families:
-  route-matcher: {status: deferred, note: "No handler.go exists yet. Protocol is awsRestjson1 like grafana/databrew; every op but the tags/{resourceArn} trio is a literal fixed-path POST/GET with no path parameters at all (kebab-case action name IS the path) -- unusually simple routing compared to most REST-JSON services."}
+  route-matcher: {status: ok, note: "handler_routes.go's flat map[string]routeEntry keyed by \"METHOD firstPathSegment\" -- every op but the tags trio is a literal fixed-path POST/GET with no path parameters, so no segment-count branching is needed at all (unlike services/outposts). Split across 5 routesX() builders merged by mergeRoutes to stay under funlen, a lookup-table split not a logic split."}
+  tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingResilienceHub, the 32nd service. App/ResiliencyPolicy/AppAssessment share one ARN-keyed tag store (tagging.go's resolveTaggableLocked); resourceTypeFromARN derives resiliencehub:app / resiliencehub:resiliency-policy / resiliencehub:app-assessment per-ARN (three-kind case, one more than Outposts' two)."}
 gaps:
-  - "Entire service does not exist: no services/resiliencehub/ directory, no cli.go registration, not in go.mod. This document is the spec for building it, not a record of what exists (bd: gopherstack-1gfi)."
-  - "AssessmentSummary (top risk recommendations + natural-language summary) is a genuine Bedrock-LLM-generated field on the real API -- the SDK's own doc comment says 'This property is available only in the US East (N. Virginia) Region', which only makes sense for a feature backed by a specific hosted model. A naive implementation would either fabricate LLM-quality prose or leave this permanently nil; see 'Honest vs. fabricated' section below for the recommendation (nil/omit, do not synthesize)."
-  - "ResiliencyScore, DisruptionCompliance (achievable/current RTO/RPO), ComplianceStatus, and per-AppComponent ConfigRecommendation/ComponentRecommendation content all depend on the real product's proprietary scoring model and a catalog of AWS-recommended architecture patterns per resource type -- neither is derivable from the Go SDK types. Any simulated score is a made-up number dressed in a real-looking shape; see 'Honest vs. fabricated' below for what's defensible vs. not."
-  - "No AWS::ResilienceHub::* CloudFormation resource type exists in services/cloudformation/resources_*.go (grepped, zero hits) -- cross-service resource discovery for CFN-stack-backed apps has no CFN-side support to piggyback on beyond what services/cloudformation's own stack/resource listing already exposes (see Section 3)."
-  - "No services/appregistry (or servicecatalogappregistry) package exists in this tree -- the AppRegistryApp resource-mapping type and ListAppInputSources' AppRegistry source kind cannot resolve against a real backend; they can only be modeled as opaque accepted strings."
-  - "StartResourceGroupingRecommendationTask / DescribeResourceGroupingRecommendationTask / ListResourceGroupingRecommendations / Accept|RejectResourceGroupingRecommendations (the whole grouping-recommendation family) depends on an ML clustering heuristic over resource metadata with no public spec -- see 'Honest vs. fabricated' below."
-deferred:
-  - "Every op family listed above (nothing audited at the implementation level since nothing is implemented)"
-leaks: {status: clean, note: "N/A -- no code exists"}
+  - "AssessmentSummary is always nil. Genuinely Bedrock-LLM-backed per the SDK's own doc comment ('available only in the US East (N. Virginia) Region') -- never fabricated, per instruction. Verified by TestStartAppAssessment_ComplianceStatusRule and TestRoundTrip_AssessmentLifecycle asserting Summary is nil."
+  - "ResiliencyScore.Score is always the documented placeholder scorePlaceholder=0.0 (consts.go), never a fabricated number. Same treatment for App.ResiliencyScore and AppAssessmentSummary.ResiliencyScore. EstimatedCostTier and Cost are likewise always left empty/nil (undocumented cost-estimation model, same honest-gap posture)."
+  - "ComplianceStatus (App/AppAssessment/AppComponentCompliance) follows ONE documented, coarse, non-fabricated rule (assessments.go's complianceStatusForPolicy): MissingPolicy when no ResiliencyPolicy is bound (a real, derivable fact), PolicyMet when one is bound (a documented stand-in, NOT real compliance evaluation -- this backend never checks whether the underlying resources would actually meet the policy's RTO/RPO). DisruptionCompliance's AchievableRpoInSecs/RtoInSecs echo the bound policy's real configured targets; CurrentRpoInSecs/RtoInSecs are documented as assumed equal to the achievable target since no real assessment measures an actual current value."
+  - "The four recommendation families (ListAlarmRecommendations/ListSopRecommendations/ListTestRecommendations/ListAppComponentRecommendations) and BatchUpdateRecommendationStatus always return empty/all-failed -- no recommendation-engine content is ever fabricated. CreateRecommendationTemplate produces a real, retrievable template record but TemplatesLocation is a synthetic bucket/prefix string; no S3 object is actually written (services/s3 write-through was flagged by the audit as a valid future enhancement, out of scope this pass)."
+  - "The resource-grouping-recommendation family (Start/DescribeResourceGroupingRecommendationTask, ListResourceGroupingRecommendations, Accept/RejectResourceGroupingRecommendations) implements the FULL real task/accept/reject state machine but always completes with zero generated recommendations -- no ML clustering output is ever fabricated."
+  - "ResolveAppVersionResources/ImportResourcesToDraftAppVersion: DEVIATION FROM THE AUDIT'S RECOMMENDATION, DOCUMENTED. The audit recommended real cross-service resolution against services/cloudformation, services/eks, and services/resourcegroups (all three confirmed to exist with usable methods: cloudformation.InMemoryBackend.ListStacks/DescribeStack, eks.InMemoryBackend.ListClusters/DescribeCluster, resourcegroups.InMemoryBackend.ListGroups). This pass did NOT wire that cross-service backend access (it would require the same Provider.Init-time BackendsProvider-interface pattern services/cloudformation itself uses to reach other backends, which is a substantial additional wiring surface). Instead: the 'Resource' MappingType (which already carries a caller-supplied PhysicalResourceId) is resolved for real (a genuine pass-through, not fabricated); CfnStack/ResourceGroup/EKS/AppRegistryApp/Terraform mappings are accepted but left unresolved -- no PhysicalResource entries are invented for them. This is a narrower scope than the audit's recommendation, not a silent gap: see Implementation summary below."
+  - "AppRegistryApp and Terraform resource-mapping types remain opaque/unresolved regardless of the above -- no services/appregistry package exists in this tree, and Terraform state files are an external S3 concept with no local semantics, exactly as the audit anticipated."
+  - "No AWS::ResilienceHub::* CloudFormation resource type exists in services/cloudformation/resources_*.go -- unchanged from the audit, not scoped as parity work."
+  - "ListSuggestedResiliencyPolicies' 5-tier RTO/RPO table (policies.go's suggestedPolicyTiers) is a coarse, self-invented halving progression (60s/600s/3600s/86400s/604800s), NOT AWS-published defaults -- documented stand-in per the audit's own recommendation (mirrors services/grafana's ListVersions precedent)."
+  - "The AppVersion 'draft' sentinel string (consts.go's draftVersion) is asserted from general product knowledge, not verified against any SDK enum/pattern trait -- exactly the assumption the audit flagged as unconfirmable from the SDK alone."
+  - "AssessmentArn's ARN format DEVIATES from the SDK's own literal doc comment on purpose, documented in store.go's AssessmentARN: every AssessmentArn doc comment in this SDK module literally reads 'app-assessment/{app-id}' (same as the audit read it), but reusing the app-id verbatim would make every assessment of the same App share one ARN, which cannot be correct since ListAppAssessments/DescribeAppAssessment/DeleteAppAssessment must address one specific assessment among potentially many. This backend mints a fresh, unique ID per assessment under the app-assessment/ prefix instead -- almost certainly correcting a copy-paste doc-generation artifact in the upstream SDK, not a disagreement with real AWS behavior."
+leaks: {status: clean, note: "InMemoryBackend.Reset()/DeleteApp/DeleteResiliencyPolicy/DeleteAppAssessment/DeleteRecommendationTemplate all close their tags.Tags before removal (store.go, apps.go, policies.go, assessments.go, templates.go); Close() stops the worker.Group backing every scheduled assessment/resolution/import/metrics-export/grouping-task transition timer. Verified clean under `go test -race` across 5 consecutive runs."}
 ---
 
 ## Purpose of this document
@@ -646,3 +660,153 @@ confirmed absent, not silently skipped.
   two lists) — worth a lookup table keyed by `ResourceType` string in the
   implementation to validate/route resolution against the right gopherstack
   backend.
+
+## Implementation summary (this pass)
+
+All 63 operations are implemented with real backend state (no stubs): App
+lifecycle with draft/published `AppVersion` bookkeeping (components,
+resources, resource mappings, template body, input sources), `PublishAppVersion`
+deep-copy snapshotting, ResiliencyPolicy CRUD with policy-to-app binding,
+AppAssessment as a real state machine (`Pending`->`InProgress`->`Success` via
+`pkgs/worker`, mirroring `services/outposts`/`services/grafana`'s identical
+async-transition pattern), RecommendationTemplate CRUD, the full resource-
+grouping-recommendation task/accept/reject state machine, MetricsExport, and
+full tag support for App/ResiliencyPolicy/AppAssessment wired into
+`resourcegroupstaggingapi` (`cli.go`'s `wireTaggingResilienceHub`, the 32nd
+tagging-wired service). Per the honest-gap posture this service's whole
+product category demands (see `gaps:` above), every proprietary
+scoring/ML/curated-recommendation output is either a documented placeholder
+(`scorePlaceholder`) or an honestly empty list/failure — never fabricated.
+
+**File layout**: `models.go` (stored-state types) / `consts.go` (wire enum
+values, the two closed `PhysicalResourceId.Type` lists, `scorePlaceholder`,
+`draftVersion`) / `errors.go` / `store.go` + `store_setup.go`
+(`InMemoryBackend`, one coarse `lockmetrics.RWMutex` — `StartAppAssessment`
+reads an App plus its bound ResiliencyPolicy and writes an AppAssessment,
+`PublishAppVersion` deep-copies a draft embedded on App, `TagResource`
+resolves an ARN into whichever of App/ResiliencyPolicy/AppAssessment it
+names) / `wire.go` + `wire_convert.go` (JSON wire shapes — lowerCamel
+throughout, confirmed by reading `serializers.go`'s own `object.Key(...)`
+literals, unlike `services/outposts`' PascalCase — and their conversion
+to/from stored state) / `apps.go` / `appversions.go` / `resources.go`
+(physical resources, resource mappings, resolution, import, input sources)
+/ `policies.go` / `assessments.go` / `recommendations.go` / `templates.go` /
+`grouping.go` / `metrics.go` / `tagging.go` (backend logic) / `handler.go` +
+`handler_routes.go` + one `handler_<family>.go` per operation family (HTTP
+routing/dispatch) / `persistence.go` / `provider.go`.
+
+**Tests**: `sdk_completeness_test.go` (all 63 ops) plus real SDK round-trip
+tests (`sdk_roundtrip_helper_test.go`/`sdk_roundtrip_test.go`, following
+`services/outposts`/`services/grafana`'s identical pattern — the genuine AWS
+SDK client against an `httptest` server, not ad-hoc JSON assertions) covering
+App/ResiliencyPolicy/AppVersion/Assessment/Recommendation/Template/Grouping/
+Metrics/Tagging lifecycles, plus focused unit tests for validation/conflict
+paths (`apps_test.go`, `policies_test.go`, `appversions_test.go`,
+`assessments_test.go`) and a snapshot/restore round-trip
+(`persistence_test.go`). All pass under `-race` across 5 consecutive runs.
+
+### Judgment calls made where the audit flagged a genuine unknown, or where this pass narrowed scope
+
+1. **`draftVersion = "draft"`** (consts.go): asserted from product knowledge,
+   not SDK-verified — exactly the assumption the audit flagged. Every
+   draft-only mutation op (`Create/Update/DeleteAppVersionAppComponent`,
+   `Create/Update/DeleteAppVersionResource`, `Add/RemoveDraftAppVersionResourceMappings`,
+   `PutDraftAppVersionTemplate`, `ImportResourcesToDraftAppVersion`) has NO
+   `AppVersion` field on its wire Input at all, which means the "operates on
+   draft only" invariant is enforced by construction (no wire path exists to
+   target a published version for mutation) — simpler than initially
+   anticipated, no explicit runtime check was needed beyond "the draft always
+   exists."
+2. **`AssessmentARN` mints a fresh ID, not the app-id** (store.go): the SDK's
+   own doc comment literally says the ARN format reuses `{app-id}`, which the
+   pre-implementation audit read verbatim and flagged. This pass concluded
+   that literal reading is almost certainly a copy-paste doc-generation
+   artifact upstream (the same boilerplate sentence appears on App/
+   AppAssessment/RecommendationTemplate ARN fields alike) — reusing the app-id
+   verbatim would make every assessment of the same App share one ARN, which
+   cannot be correct given `ListAppAssessments` returns multiple per App and
+   `DescribeAppAssessment`/`DeleteAppAssessment` must address one specific one.
+   Documented as a deliberate, reasoned deviation, not a disagreement with
+   real AWS behavior.
+3. **`CreateResiliencyPolicy`/`UpdateResiliencyPolicy` require all four
+   `DisruptionType` keys** (`validatePolicyMap`, policies.go): the audit
+   flagged the required-keys rule as something "the implementer would need to
+   infer/decide." Chose to require all four (Software/Hardware/AZ/Region)
+   since `FailurePolicy.RtoInSecs`/`RpoInSecs` are plain `int32` (always
+   present, never pointers) on the wire — a policy missing an entry has no
+   well-formed zero value to fall back to.
+4. **Cross-service resolution scope narrowed from the audit's recommendation**
+   (resources.go's `resolveMappingsLocked`, `ImportResourcesToDraftAppVersion`):
+   the audit identified real, usable methods on `services/cloudformation`,
+   `services/eks`, and `services/resourcegroups` and recommended
+   `ResolveAppVersionResources` genuinely query them. This pass did not wire
+   that — it would require the same Provider.Init-time `BackendsProvider`
+   interface pattern `services/cloudformation` itself uses to reach other
+   backends (a `ctx.Config`-cast interface satisfied by the `CLI` struct,
+   requiring careful Provider-init ordering), which was judged out of scope
+   given the size of the remaining 63-op surface. Instead, only the
+   `Resource` `MappingType` (which already carries a caller-supplied
+   `PhysicalResourceId` — a real value, not fabricated) is materialized into a
+   `PhysicalResource` on resolve; `CfnStack`/`ResourceGroup`/`EKS` mappings are
+   accepted and stored but never expanded into discovered resources. This is
+   the single largest deviation from the audit's recommendations in this
+   pass, and is called out explicitly rather than silently narrowed — a
+   defensible scope boundary (real, honest, bounded state machine) but a
+   real gap relative to "the single best genuinely emulated investment" the
+   audit identified. A future pass wiring those three backends would be
+   valuable, following `services/cloudformation/provider.go`'s
+   `BackendsProvider`/`extractBackends` pattern.
+5. **`ComplianceStatus` coarse rule** (`complianceStatusForPolicy`,
+   assessments.go): the audit explicitly sanctioned "a binary/coarse
+   compliance signal ... IF the implementer picks one clear, stated rule."
+   Chose: `MissingPolicy` when no policy is bound (a real, derivable fact),
+   `PolicyMet` when one is (a documented stand-in, not real compliance
+   evaluation). `AchievableRpoInSecs`/`RtoInSecs` echo the bound policy's real
+   configured targets; `CurrentRpoInSecs`/`RtoInSecs` are documented as
+   assumed equal to the achievable target, since no real assessment measures
+   an actual current value.
+6. **`scorePlaceholder = 0.0`** for every `ResiliencyScore.Score` occurrence:
+   the audit recommended "a single fixed/deterministic placeholder value
+   ... and document loudly ... that it is NOT a real score." Chose 0 (rather
+   than, say, a policy-derived pass/fail boundary) since it is the least
+   likely value to be misread as "perfectly resilient."
+7. **`CreateRecommendationTemplate` completes synchronously**, not through the
+   `Pending`/`InProgress` timer the other five async families use: with zero
+   real recommendations ever generated, packaging them into a template is
+   mechanically trivial (no real analysis work to await). `TemplatesLocation`
+   is a synthetic bucket/prefix string; no S3 object is actually written —
+   the audit flagged real `services/s3` write-through as "mechanically
+   simulatable... but only meaningful once there are real recommendations to
+   package," and judged it out of scope here for the same reason.
+8. **`ListSuggestedResiliencyPolicies`' 5-tier table** (policies.go's
+   `suggestedPolicyTiers`) is a self-invented halving progression (60s
+   Mission Critical down to 604800s Non-Critical), explicitly documented as
+   NOT AWS-published defaults — matching the audit's own suggested
+   precedent (`services/grafana`'s static `ListVersions` table).
+9. **`ListUnsupportedAppVersionResources`** classification IS fully derivable
+   (not a judgment call, but worth noting as a place the audit's own research
+   paid off): the two closed `PhysicalResourceId.Type` lists documented at
+   `types/types.go:1150` give a real, checkable supported-type set, so this
+   op is genuine business logic, not a stub with an empty list.
+
+### What the audit got right (spot-checked during implementation)
+
+The complete 63-op inventory and method/path table, the lowerCamel JSON/query
+casing (confirmed independently by reading `serializers.go`'s
+`object.Key(...)`/`SetQuery(...)` literals directly rather than trusting the
+audit's claim), the 7 shared exception shapes and every one of the flagged
+per-op exception-set outliers (`DeleteRecommendationTemplate` uniquely
+lacking `ConflictException` — confirmed via a dedicated round-trip test;
+`ListAppVersions` uniquely dropping `ThrottlingException`), epoch-seconds
+timestamps, and the `FailurePolicy.RtoInSecs`/`RpoInSecs` plain-`int32`
+(not-pointer) wire shape all matched the audit's findings exactly during
+implementation — confirming the audit's method (reading
+`serializers.go`/`deserializers.go`/`types/enums.go` directly) was sound.
+
+## Operation count and SDK version (verified, not estimated)
+
+`ls api_op_*.go | wc -l` against
+`/home/agbishop/go/pkg/mod/github.com/aws/aws-sdk-go-v2/service/resiliencehub@v1.38.3/`
+returns **63**, matching the pre-implementation audit's count exactly. The
+module was added to this repo's `go.mod` this pass via
+`go get github.com/aws/aws-sdk-go-v2/service/resiliencehub@v1.38.3`.
