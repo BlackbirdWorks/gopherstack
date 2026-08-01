@@ -1,5 +1,6 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getCloudFrontClient } from '$lib/aws-client';
 import {
 ListDistributionsCommand,
@@ -36,7 +37,7 @@ type OriginRequestPolicySummary
 import { toast } from 'svelte-sonner';
 import { Globe, Search, RefreshCw, Plus, ChevronRight, Zap, Shield, FileCode, Layout } from 'lucide-svelte';
 
-const cf = getCloudFrontClient();
+const cf = regionalClient(getCloudFrontClient);
 
 // ---- Main navigation tabs ----
 type MainTab = 'distributions' | 'cache-policies' | 'oac' | 'response-headers' | 'functions' | 'origin-request-policies';
@@ -94,7 +95,7 @@ return 'blue';
 async function loadDistributions() {
 loading = true;
 try {
-const resp = await cf.send(new ListDistributionsCommand({}));
+const resp = await cf().send(new ListDistributionsCommand({}));
 distributions = resp.DistributionList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load distributions: ' + String(e));
@@ -107,7 +108,7 @@ async function selectDistribution(id: string) {
 activeTab = 'overview';
 invalidations = [];
 try {
-const resp = await cf.send(new GetDistributionCommand({ Id: id }));
+const resp = await cf().send(new GetDistributionCommand({ Id: id }));
 selectedDist = resp.Distribution ?? null;
 selectedDistEtag = resp.ETag;
 } catch (e) {
@@ -150,7 +151,7 @@ CachedMethods: { Quantity: 2, Items: ['GET', 'HEAD'] }
 MinTTL: editMinTTL,
 DefaultTTL: editDefaultTTL
 };
-await cf.send(new UpdateDistributionCommand({
+await cf().send(new UpdateDistributionCommand({
 Id: selectedDist.Id,
 IfMatch: selectedDistEtag,
 DistributionConfig: config
@@ -176,7 +177,7 @@ async function loadInvalidations() {
 if (!selectedDist) return;
 loadingInvalidations = true;
 try {
-const resp = await cf.send(
+const resp = await cf().send(
 new ListInvalidationsCommand({ DistributionId: selectedDist.Id ?? '' })
 );
 invalidations = resp.InvalidationList?.Items ?? [];
@@ -196,7 +197,7 @@ const paths = invalidationPaths
 if (paths.length === 0) return;
 creatingInvalidation = true;
 try {
-await cf.send(
+await cf().send(
 new CreateInvalidationCommand({
 DistributionId: selectedDist.Id ?? '',
 InvalidationBatch: {
@@ -236,7 +237,7 @@ let creatingCP = $state(false);
 async function loadCachePolicies() {
 loadingCP = true;
 try {
-const resp = await cf.send(new ListCachePoliciesCommand({}));
+const resp = await cf().send(new ListCachePoliciesCommand({}));
 cachePolicies = resp.CachePolicyList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load cache policies: ' + String(e));
@@ -248,7 +249,7 @@ loadingCP = false;
 async function createCachePolicy() {
 creatingCP = true;
 try {
-await cf.send(
+await cf().send(
 new CreateCachePolicyCommand({
 CachePolicyConfig: {
 Name: cpName,
@@ -283,7 +284,7 @@ creatingCP = false;
 
 async function deleteCachePolicy(id: string) {
 try {
-await cf.send(new DeleteCachePolicyCommand({ Id: id, IfMatch: '*' }));
+await cf().send(new DeleteCachePolicyCommand({ Id: id, IfMatch: '*' }));
 toast.success('Cache policy deleted');
 await loadCachePolicies();
 } catch (e) {
@@ -302,7 +303,7 @@ let creatingOAC = $state(false);
 async function loadOACs() {
 loadingOAC = true;
 try {
-const resp = await cf.send(new ListOriginAccessControlsCommand({}));
+const resp = await cf().send(new ListOriginAccessControlsCommand({}));
 oacs = resp.OriginAccessControlList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load origin access controls: ' + String(e));
@@ -314,7 +315,7 @@ loadingOAC = false;
 async function createOAC() {
 creatingOAC = true;
 try {
-await cf.send(
+await cf().send(
 new CreateOriginAccessControlCommand({
 OriginAccessControlConfig: {
 Name: oacName,
@@ -339,7 +340,7 @@ creatingOAC = false;
 
 async function deleteOAC(id: string) {
 try {
-await cf.send(new DeleteOriginAccessControlCommand({ Id: id, IfMatch: '*' }));
+await cf().send(new DeleteOriginAccessControlCommand({ Id: id, IfMatch: '*' }));
 toast.success('Origin access control deleted');
 await loadOACs();
 } catch (e) {
@@ -358,7 +359,7 @@ let creatingRHP = $state(false);
 async function loadRHPs() {
 loadingRHP = true;
 try {
-const resp = await cf.send(new ListResponseHeadersPoliciesCommand({}));
+const resp = await cf().send(new ListResponseHeadersPoliciesCommand({}));
 rhps = resp.ResponseHeadersPolicyList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load response headers policies: ' + String(e));
@@ -370,7 +371,7 @@ loadingRHP = false;
 async function createRHP() {
 creatingRHP = true;
 try {
-await cf.send(
+await cf().send(
 new CreateResponseHeadersPolicyCommand({
 ResponseHeadersPolicyConfig: {
 Name: rhpName,
@@ -392,7 +393,7 @@ creatingRHP = false;
 
 async function deleteRHP(id: string) {
 try {
-await cf.send(new DeleteResponseHeadersPolicyCommand({ Id: id, IfMatch: '*' }));
+await cf().send(new DeleteResponseHeadersPolicyCommand({ Id: id, IfMatch: '*' }));
 toast.success('Response headers policy deleted');
 await loadRHPs();
 } catch (e) {
@@ -430,7 +431,7 @@ let oacSigningBehavior = $state('always');
 async function loadFunctions() {
 loadingFn = true;
 try {
-const resp = await cf.send(new ListFunctionsCommand({}));
+const resp = await cf().send(new ListFunctionsCommand({}));
 cfFunctions = resp.FunctionList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load functions: ' + String(e));
@@ -442,7 +443,7 @@ loadingFn = false;
 async function createCFFunction() {
 creatingFn = true;
 try {
-await cf.send(
+await cf().send(
 new CreateFunctionCommand({
 Name: fnName,
 FunctionConfig: {
@@ -467,7 +468,7 @@ creatingFn = false;
 
 async function publishFunction(name: string) {
 try {
-await cf.send(new PublishFunctionCommand({ Name: name, IfMatch: '*' }));
+await cf().send(new PublishFunctionCommand({ Name: name, IfMatch: '*' }));
 toast.success('Function published (LIVE)');
 await loadFunctions();
 } catch (e) {
@@ -477,7 +478,7 @@ toast.error('Failed to publish function: ' + String(e));
 
 async function deleteCFFunction(name: string) {
 try {
-await cf.send(new DeleteFunctionCommand({ Name: name, IfMatch: '*' }));
+await cf().send(new DeleteFunctionCommand({ Name: name, IfMatch: '*' }));
 toast.success('Function deleted');
 await loadFunctions();
 } catch (e) {
@@ -488,7 +489,7 @@ toast.error('Failed to delete function: ' + String(e));
 async function loadORPs() {
 loadingORP = true;
 try {
-const resp = await cf.send(new ListOriginRequestPoliciesCommand({}));
+const resp = await cf().send(new ListOriginRequestPoliciesCommand({}));
 orps = resp.OriginRequestPolicyList?.Items ?? [];
 } catch (e) {
 toast.error('Failed to load origin request policies: ' + String(e));
@@ -500,7 +501,7 @@ loadingORP = false;
 async function createORP() {
 creatingORP = true;
 try {
-await cf.send(
+await cf().send(
 new CreateOriginRequestPolicyCommand({
 OriginRequestPolicyConfig: {
 Name: orpName,
@@ -525,7 +526,7 @@ creatingORP = false;
 
 async function deleteORP(id: string) {
 try {
-await cf.send(new DeleteOriginRequestPolicyCommand({ Id: id, IfMatch: '*' }));
+await cf().send(new DeleteOriginRequestPolicyCommand({ Id: id, IfMatch: '*' }));
 toast.success('Origin request policy deleted');
 await loadORPs();
 } catch (e) {
@@ -536,7 +537,7 @@ toast.error('Failed to delete origin request policy: ' + String(e));
 async function createDistribution() {
 creatingDist = true;
 try {
-await cf.send(
+await cf().send(
 new CreateDistributionCommand({
 DistributionConfig: {
 CallerReference: `dist-${Date.now()}`,
@@ -592,8 +593,28 @@ if (tab === 'functions' && cfFunctions.length === 0) loadFunctions();
 if (tab === 'origin-request-policies' && orps.length === 0) loadORPs();
 }
 
-onMount(() => {
-loadDistributions();
+// Only one main tab's data is loaded at a time; on a region change reset
+// everything region-scoped and reload whichever tab is active. `mainTab`
+// is read via untrack() because handleMainTabChange() also writes it:
+// without untrack, every tab switch would re-trigger this region effect
+// and double-fetch.
+onRegionChange(() => {
+distributions = [];
+selectedDist = null;
+selectedDistEtag = undefined;
+invalidations = [];
+cachePolicies = [];
+oacs = [];
+rhps = [];
+cfFunctions = [];
+orps = [];
+const tab = untrack(() => mainTab);
+if (tab === 'distributions') void loadDistributions();
+else if (tab === 'cache-policies') void loadCachePolicies();
+else if (tab === 'oac') void loadOACs();
+else if (tab === 'response-headers') void loadRHPs();
+else if (tab === 'functions') void loadFunctions();
+else if (tab === 'origin-request-policies') void loadORPs();
 });
 </script>
 

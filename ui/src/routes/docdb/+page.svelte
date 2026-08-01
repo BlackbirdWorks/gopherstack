@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { confirmDestructive } from '$lib/confirm-dialog';
 import { getDocDBClient } from '$lib/aws-client';
 import {
@@ -58,10 +58,7 @@ Copy,
 
 type TabName = 'clusters' | 'instances' | 'snapshots' | 'parametergroups' | 'globalclusters' | 'eventsubscriptions';
 
-let cachedClient: ReturnType<typeof getDocDBClient> | undefined;
-function client() {
-	return (cachedClient ??= getDocDBClient());
-}
+const client = regionalClient(getDocDBClient);
 
 let loading = $state(false);
 let activeTab = $state<TabName>('clusters');
@@ -184,9 +181,21 @@ await loadAll();
 }
 }
 
-onMount(async () => {
+// selectedCluster and every list are region-scoped; on a region change
+// clear them before reloading (loadAll re-seeds demo data if the new
+// region's lists come back empty, exactly like the initial mount).
+onRegionChange(() => {
+selectedCluster = null;
+clusters = [];
+instances = [];
+snapshots = [];
+paramGroups = [];
+globalClusters = [];
+eventSubs = [];
+void (async () => {
 await loadAll();
 await seedDemo();
+})();
 });
 
 // Cluster actions

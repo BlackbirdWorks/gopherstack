@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
 	DescribeInstancesCommand,
@@ -51,7 +52,7 @@ import {
 import { toast } from 'svelte-sonner';
 import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key, Layers, Route, FileImage, Network, HardDrive, Camera } from 'lucide-svelte';
 
-const ec2 = getEC2Client();
+const ec2 = regionalClient(getEC2Client);
 
 type EC2Instance = {
 	ImageId?: string;
@@ -126,14 +127,25 @@ let natSearch = $state('');
 
 const instanceTypes = ['t3.micro', 't3.small', 't3.medium', 't3.large', 'm5.large', 'c5.large', 'r5.large'];
 
-onMount(async () => {
-	await loadInstances();
+// Every tab caches its list in module state, and selectedInstance/selectedSg
+// point at resources from whichever region was active when they were
+// selected — all of that is region-scoped, so reset every tab's cache (not
+// just the active one) before reloading. `activeTab` is read via untrack()
+// because selectTab() also writes it: without untrack, every tab switch
+// would re-trigger this region effect and double-fetch.
+onRegionChange(() => {
+	selectedInstance = null;
+	selectedSg = null;
+	showSgRules = false;
+	for (const entry of Object.values(tabLoaders)) entry.reset();
+	const tab = untrack(() => activeTab);
+	void tabLoaders[tab].load();
 });
 
 async function loadInstances() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeInstancesCommand({}));
+		const data = await ec2().send(new DescribeInstancesCommand({}));
 		instances = data.Reservations?.flatMap((r) => (r.Instances ?? []) as EC2Instance[]) ?? [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
@@ -145,7 +157,7 @@ async function loadInstances() {
 async function loadSecurityGroups() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({}));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({}));
 		securityGroups = data.SecurityGroups || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load security groups');
@@ -165,12 +177,12 @@ async function addSgRule() {
 			IpRanges: [{ CidrIp: newRuleCidr }]
 		};
 		if (addRuleDirection === 'inbound') {
-			await ec2.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2.send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule added');
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
 		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
 		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
@@ -184,12 +196,12 @@ async function revokeSgRule(direction: 'inbound' | 'outbound', perm: IpPermissio
 	if (!selectedSg?.GroupId) return;
 	try {
 		if (direction === 'inbound') {
-			await ec2.send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2.send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule removed');
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
 		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
 		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
@@ -208,7 +220,7 @@ function formatIpPerm(perm: IpPermission): string {
 async function loadKeyPairs() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeKeyPairsCommand({}));
+		const data = await ec2().send(new DescribeKeyPairsCommand({}));
 		keyPairs = data.KeyPairs || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load key pairs');
@@ -220,7 +232,7 @@ async function loadKeyPairs() {
 async function loadAmis() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeImagesCommand({}));
+		const data = await ec2().send(new DescribeImagesCommand({}));
 		amis = data.Images || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load AMIs');
@@ -232,7 +244,7 @@ async function loadAmis() {
 async function loadLaunchTemplates() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeLaunchTemplatesCommand({}));
+		const data = await ec2().send(new DescribeLaunchTemplatesCommand({}));
 		launchTemplates = data.LaunchTemplates || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load launch templates');
@@ -244,7 +256,7 @@ async function loadLaunchTemplates() {
 async function loadVpcEndpoints() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeVpcEndpointsCommand({}));
+		const data = await ec2().send(new DescribeVpcEndpointsCommand({}));
 		vpcEndpoints = data.VpcEndpoints || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load VPC endpoints');
@@ -256,7 +268,7 @@ async function loadVpcEndpoints() {
 async function loadNetworkAcls() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeNetworkAclsCommand({}));
+		const data = await ec2().send(new DescribeNetworkAclsCommand({}));
 		networkAcls = data.NetworkAcls || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load network ACLs');
@@ -269,8 +281,8 @@ async function loadVpcs() {
 	try {
 		loading = true;
 		const [vpcData, subnetData] = await Promise.all([
-			ec2.send(new DescribeVpcsCommand({})),
-			ec2.send(new DescribeSubnetsCommand({}))
+			ec2().send(new DescribeVpcsCommand({})),
+			ec2().send(new DescribeSubnetsCommand({}))
 		]);
 		vpcs = vpcData.Vpcs || [];
 		subnets = subnetData.Subnets || [];
@@ -284,7 +296,7 @@ async function loadVpcs() {
 async function loadVolumes() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeVolumesCommand({}));
+		const data = await ec2().send(new DescribeVolumesCommand({}));
 		volumes = data.Volumes || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load volumes');
@@ -296,7 +308,7 @@ async function loadVolumes() {
 async function loadSnapshots() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeSnapshotsCommand({}));
+		const data = await ec2().send(new DescribeSnapshotsCommand({}));
 		snapshots = data.Snapshots || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
@@ -308,7 +320,7 @@ async function loadSnapshots() {
 async function loadElasticIPs() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeAddressesCommand({}));
+		const data = await ec2().send(new DescribeAddressesCommand({}));
 		elasticIPs = data.Addresses || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load Elastic IPs');
@@ -320,7 +332,7 @@ async function loadElasticIPs() {
 async function loadInternetGateways() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeInternetGatewaysCommand({}));
+		const data = await ec2().send(new DescribeInternetGatewaysCommand({}));
 		internetGateways = data.InternetGateways || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load internet gateways');
@@ -332,7 +344,7 @@ async function loadInternetGateways() {
 async function loadRouteTables() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeRouteTablesCommand({}));
+		const data = await ec2().send(new DescribeRouteTablesCommand({}));
 		routeTables = data.RouteTables || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load route tables');
@@ -344,7 +356,7 @@ async function loadRouteTables() {
 async function loadNatGateways() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeNatGatewaysCommand({}));
+		const data = await ec2().send(new DescribeNatGatewaysCommand({}));
 		natGateways = data.NatGateways || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load NAT gateways');
@@ -445,7 +457,7 @@ return map[state] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-
 
 async function startInstance(id: string) {
 try {
-await ec2.send(new StartInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new StartInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} starting...`);
 await loadInstances();
 } catch (e) {
@@ -455,7 +467,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to start');
 
 async function stopInstance(id: string) {
 try {
-await ec2.send(new StopInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new StopInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} stopping...`);
 await loadInstances();
 } catch (e) {
@@ -465,7 +477,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to stop');
 
 async function rebootInstance(id: string) {
 try {
-await ec2.send(new RebootInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new RebootInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} rebooting...`);
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to reboot');
@@ -475,7 +487,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to reboot');
 async function terminateInstance(id: string) {
 if (!await confirmDestructive({ title: 'Terminate Instance', message: `Terminate instance ${id}? This cannot be undone.`, confirmLabel: 'Terminate' })) return;
 try {
-await ec2.send(new TerminateInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new TerminateInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} terminated`);
 await loadInstances();
 } catch (e) {
@@ -486,7 +498,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to terminate');
 async function deleteLaunchTemplate(id: string) {
 if (!await confirmDestructive({ title: 'Delete Launch Template', message: `Delete launch template ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
+await ec2().send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
 toast.success('Launch template deleted');
 launchTemplates = []; await loadLaunchTemplates();
 } catch (e) {
@@ -497,7 +509,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete launch template')
 async function deleteVpcEndpoint(id: string) {
 if (!await confirmDestructive({ title: 'Delete VPC Endpoint', message: `Delete endpoint ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
+await ec2().send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
 toast.success('VPC endpoint deleted');
 vpcEndpoints = []; await loadVpcEndpoints();
 } catch (e) {
@@ -508,7 +520,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete endpoint');
 async function deleteSnapshot(id: string) {
 if (!await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteSnapshotCommand({ SnapshotId: id }));
+await ec2().send(new DeleteSnapshotCommand({ SnapshotId: id }));
 toast.success('Snapshot deleted');
 snapshots = []; await loadSnapshots();
 } catch (e) {
@@ -519,7 +531,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete snapshot');
 async function createLaunchTemplate() {
 if (!newLTName) { toast.error('Name is required'); return; }
 try {
-await ec2.send(new CreateLaunchTemplateCommand({
+await ec2().send(new CreateLaunchTemplateCommand({
   LaunchTemplateName: newLTName,
   LaunchTemplateData: {
     ImageId: newLTImageId,
@@ -537,7 +549,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to create launch template')
 
 async function launchInstance() {
 try {
-await ec2.send(new RunInstancesCommand({
+await ec2().send(new RunInstancesCommand({
   ImageId: newInstanceAmi,
   InstanceType: newInstanceType as _InstanceType,
   MinCount: 1,

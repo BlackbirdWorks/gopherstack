@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getElastiCacheClient } from '$lib/aws-client';
 	import {
 		DescribeCacheClustersCommand,
@@ -73,7 +74,7 @@
 		Bookmark
 	} from 'lucide-svelte';
 
-	const ec = getElastiCacheClient();
+	const ec = regionalClient(getElastiCacheClient);
 
 	// ─── Top-level tab ────────────────────────────────────────────────────────
 	type TopTab =
@@ -277,7 +278,7 @@
 	async function loadClusters() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeCacheClustersCommand({ ShowCacheNodeInfo: true }));
+			const res = await ec().send(new DescribeCacheClustersCommand({ ShowCacheNodeInfo: true }));
 			clusters = res.CacheClusters ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load clusters: ${(err as Error).message}`);
@@ -290,7 +291,7 @@
 		if (!newClusterId.trim()) return;
 		creatingCluster = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateCacheClusterCommand({
 					CacheClusterId: newClusterId.trim(),
 					Engine: clusterEngine,
@@ -329,7 +330,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
+			await ec().send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
 			toast.success(`Cluster "${id}" deletion initiated`);
 			if (selectedCluster?.CacheClusterId === id) selectedCluster = null;
 			await loadClusters();
@@ -349,7 +350,7 @@
 		)
 			return;
 		try {
-			await ec.send(
+			await ec().send(
 				new RebootCacheClusterCommand({ CacheClusterId: id, CacheNodeIdsToReboot: ['0001'] })
 			);
 			toast.success(`Cluster "${id}" reboot initiated`);
@@ -363,7 +364,7 @@
 	async function loadReplicationGroups() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeReplicationGroupsCommand({}));
+			const res = await ec().send(new DescribeReplicationGroupsCommand({}));
 			replicationGroups = res.ReplicationGroups ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load replication groups: ${(err as Error).message}`);
@@ -376,7 +377,7 @@
 		if (!newRGId.trim()) return;
 		creatingRG = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateReplicationGroupCommand({
 					ReplicationGroupId: newRGId.trim(),
 					ReplicationGroupDescription: newRGDesc || newRGId.trim()
@@ -403,7 +404,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteReplicationGroupCommand({ ReplicationGroupId: id }));
+			await ec().send(new DeleteReplicationGroupCommand({ ReplicationGroupId: id }));
 			toast.success(`Replication group "${id}" deletion initiated`);
 			await loadReplicationGroups();
 		} catch (err: unknown) {
@@ -415,7 +416,7 @@
 	async function loadParameterGroups() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeCacheParameterGroupsCommand({}));
+			const res = await ec().send(new DescribeCacheParameterGroupsCommand({}));
 			parameterGroups = res.CacheParameterGroups ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load parameter groups: ${(err as Error).message}`);
@@ -428,7 +429,7 @@
 		if (!newPGName.trim()) return;
 		creatingPG = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateCacheParameterGroupCommand({
 					CacheParameterGroupName: newPGName.trim(),
 					CacheParameterGroupFamily: newPGFamily,
@@ -456,7 +457,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteCacheParameterGroupCommand({ CacheParameterGroupName: name }));
+			await ec().send(new DeleteCacheParameterGroupCommand({ CacheParameterGroupName: name }));
 			toast.success(`Parameter group "${name}" deleted`);
 			await loadParameterGroups();
 		} catch (err: unknown) {
@@ -475,7 +476,7 @@
 		pgParamSearch = '';
 		pgParamsLoading = true;
 		try {
-			const res = await ec.send(new DescribeCacheParametersCommand({ CacheParameterGroupName: name, MaxRecords: 100 }));
+			const res = await ec().send(new DescribeCacheParametersCommand({ CacheParameterGroupName: name, MaxRecords: 100 }));
 			pgParams = res.Parameters ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load parameters: ${(err as Error).message}`);
@@ -495,7 +496,7 @@
 		}
 		savingPgParams = true;
 		try {
-			await ec.send(new ModifyCacheParameterGroupCommand({
+			await ec().send(new ModifyCacheParameterGroupCommand({
 				CacheParameterGroupName: name,
 				ParameterNameValues: changed.map(([k, v]) => ({ ParameterName: k, ParameterValue: v }))
 			}));
@@ -516,7 +517,7 @@
 		}
 		failingOver = true;
 		try {
-			await ec.send(new TestFailoverCommand({ ReplicationGroupId: rgId, NodeGroupId: failoverNodeGroup.trim() }));
+			await ec().send(new TestFailoverCommand({ ReplicationGroupId: rgId, NodeGroupId: failoverNodeGroup.trim() }));
 			toast.success(`Failover test started for node group ${failoverNodeGroup.trim()}`);
 			failoverRG = null;
 			failoverNodeGroup = '';
@@ -532,7 +533,7 @@
 	async function loadSubnetGroups() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeCacheSubnetGroupsCommand({}));
+			const res = await ec().send(new DescribeCacheSubnetGroupsCommand({}));
 			subnetGroups = res.CacheSubnetGroups ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load subnet groups: ${(err as Error).message}`);
@@ -549,7 +550,7 @@
 				.split(',')
 				.map((s) => s.trim())
 				.filter(Boolean);
-			await ec.send(
+			await ec().send(
 				new CreateCacheSubnetGroupCommand({
 					CacheSubnetGroupName: newSGName.trim(),
 					CacheSubnetGroupDescription: newSGDesc || newSGName.trim(),
@@ -578,7 +579,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteCacheSubnetGroupCommand({ CacheSubnetGroupName: name }));
+			await ec().send(new DeleteCacheSubnetGroupCommand({ CacheSubnetGroupName: name }));
 			toast.success(`Subnet group "${name}" deleted`);
 			await loadSubnetGroups();
 		} catch (err: unknown) {
@@ -590,7 +591,7 @@
 	async function loadSnapshots() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeSnapshotsCommand({}));
+			const res = await ec().send(new DescribeSnapshotsCommand({}));
 			snapshots = res.Snapshots ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load snapshots: ${(err as Error).message}`);
@@ -603,7 +604,7 @@
 		if (!newSnapName.trim() || !newSnapClusterId.trim()) return;
 		creatingSnap = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateSnapshotCommand({
 					SnapshotName: newSnapName.trim(),
 					CacheClusterId: newSnapClusterId.trim()
@@ -630,7 +631,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteSnapshotCommand({ SnapshotName: name }));
+			await ec().send(new DeleteSnapshotCommand({ SnapshotName: name }));
 			toast.success(`Snapshot "${name}" deleted`);
 			await loadSnapshots();
 		} catch (err: unknown) {
@@ -642,7 +643,7 @@
 	async function loadUsers() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeUsersCommand({}));
+			const res = await ec().send(new DescribeUsersCommand({}));
 			users = res.Users ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load users: ${(err as Error).message}`);
@@ -655,7 +656,7 @@
 		if (!newUserId.trim() || !newUserName.trim()) return;
 		creatingUser = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateUserCommand({
 					UserId: newUserId.trim(),
 					UserName: newUserName.trim(),
@@ -687,7 +688,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteUserCommand({ UserId: id }));
+			await ec().send(new DeleteUserCommand({ UserId: id }));
 			toast.success(`User "${id}" deleted`);
 			await loadUsers();
 		} catch (err: unknown) {
@@ -698,7 +699,7 @@
 	// ─── Serverless Cache actions ─────────────────────────────────────────────
 	async function loadServerlessCaches() {		loading = true;
 		try {
-			const res = await ec.send(new DescribeServerlessCachesCommand({}));
+			const res = await ec().send(new DescribeServerlessCachesCommand({}));
 			serverlessCaches = res.ServerlessCaches ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load serverless caches: ${(err as Error).message}`);
@@ -711,7 +712,7 @@
 		if (!newSLName.trim()) return;
 		creatingSL = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateServerlessCacheCommand({
 					ServerlessCacheName: newSLName.trim(),
 					Engine: newSLEngine
@@ -738,7 +739,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteServerlessCacheCommand({ ServerlessCacheName: name }));
+			await ec().send(new DeleteServerlessCacheCommand({ ServerlessCacheName: name }));
 			toast.success(`Serverless cache "${name}" deleted`);
 			await loadServerlessCaches();
 		} catch (err: unknown) {
@@ -750,7 +751,7 @@
 	async function loadUserGroups() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeUserGroupsCommand({}));
+			const res = await ec().send(new DescribeUserGroupsCommand({}));
 			userGroups = res.UserGroups ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load user groups: ${(err as Error).message}`);
@@ -763,7 +764,7 @@
 		if (!newUGId.trim()) return;
 		creatingUG = true;
 		try {
-			await ec.send(
+			await ec().send(
 				new CreateUserGroupCommand({
 					UserGroupId: newUGId.trim(),
 					Engine: 'Redis'
@@ -790,7 +791,7 @@
 		)
 			return;
 		try {
-			await ec.send(new DeleteUserGroupCommand({ UserGroupId: id }));
+			await ec().send(new DeleteUserGroupCommand({ UserGroupId: id }));
 			toast.success(`User group "${id}" deleted`);
 			await loadUserGroups();
 		} catch (err: unknown) {
@@ -802,7 +803,7 @@
 	async function loadEvents() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeEventsCommand({}));
+			const res = await ec().send(new DescribeEventsCommand({}));
 			events = res.Events ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load events: ${(err as Error).message}`);
@@ -815,7 +816,7 @@
 	async function loadReservedCacheNodes() {
 		loading = true;
 		try {
-			const res = await ec.send(new DescribeReservedCacheNodesCommand({}));
+			const res = await ec().send(new DescribeReservedCacheNodesCommand({}));
 			reservedCacheNodes = res.ReservedCacheNodes ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load reserved cache nodes: ${(err as Error).message}`);
@@ -866,7 +867,7 @@
 		seedingDemo = true;
 		try {
 			await Promise.allSettled([
-				ec.send(
+				ec().send(
 					new CreateCacheClusterCommand({
 						CacheClusterId: 'demo-session-cache',
 						Engine: 'redis',
@@ -874,7 +875,7 @@
 						NumCacheNodes: 1
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateCacheClusterCommand({
 						CacheClusterId: 'demo-api-cache',
 						Engine: 'memcached',
@@ -882,7 +883,7 @@
 						NumCacheNodes: 3
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateCacheClusterCommand({
 						CacheClusterId: 'demo-rate-limiter',
 						Engine: 'redis',
@@ -890,40 +891,40 @@
 						NumCacheNodes: 1
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateReplicationGroupCommand({
 						ReplicationGroupId: 'demo-primary-rg',
 						ReplicationGroupDescription: 'Demo primary replication group'
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateReplicationGroupCommand({
 						ReplicationGroupId: 'demo-readonly-rg',
 						ReplicationGroupDescription: 'Demo read-only replication group'
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateCacheParameterGroupCommand({
 						CacheParameterGroupName: 'demo-redis-params',
 						CacheParameterGroupFamily: 'redis7',
 						Description: 'Demo Redis 7 parameter group'
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateCacheParameterGroupCommand({
 						CacheParameterGroupName: 'demo-memcached-params',
 						CacheParameterGroupFamily: 'memcached1.6',
 						Description: 'Demo Memcached 1.6 parameter group'
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateCacheSubnetGroupCommand({
 						CacheSubnetGroupName: 'demo-subnet-group',
 						CacheSubnetGroupDescription: 'Demo VPC subnet group',
 						SubnetIds: ['subnet-demo1234']
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateUserCommand({
 						UserId: 'demo-admin',
 						UserName: 'demo-admin',
@@ -932,7 +933,7 @@
 						NoPasswordRequired: true
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateUserCommand({
 						UserId: 'demo-readonly',
 						UserName: 'demo-readonly',
@@ -941,13 +942,13 @@
 						NoPasswordRequired: false
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateUserGroupCommand({
 						UserGroupId: 'demo-admin-group',
 						Engine: 'Redis'
 					})
 				),
-				ec.send(
+				ec().send(
 					new CreateServerlessCacheCommand({
 						ServerlessCacheName: 'demo-serverless',
 						Engine: 'redis'
@@ -963,8 +964,29 @@
 		}
 	}
 
-	onMount(() => {
-		loadClusters();
+	// Every tab's list, the selected cluster, and the expanded parameter-group
+	// detail (name + params + pending edits) are region-scoped. `activeTab`
+	// is read via untrack() because onTabChange() also writes it: without
+	// untrack, every tab switch would re-trigger this region effect and
+	// double-fetch.
+	onRegionChange(() => {
+		selectedCluster = null;
+		expandedPG = null;
+		pgParams = [];
+		pgEdits = {};
+		failoverRG = null;
+		clusters = [];
+		replicationGroups = [];
+		parameterGroups = [];
+		subnetGroups = [];
+		snapshots = [];
+		users = [];
+		userGroups = [];
+		serverlessCaches = [];
+		events = [];
+		reservedCacheNodes = [];
+		const tab = untrack(() => activeTab);
+		void onTabChange(tab);
 	});
 
 	// ─── Tab button classes ───────────────────────────────────────────────────

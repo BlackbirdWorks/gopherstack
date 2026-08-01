@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeLogGroupsCommand,
@@ -60,7 +61,7 @@
 		BookOpen
 	} from 'lucide-svelte';
 
-	const cwl = getCloudWatchLogsClient();
+	const cwl = regionalClient(getCloudWatchLogsClient);
 
 	// ─── Top-level page tabs ──────────────────────────────────────────────────
 	let pageTab = $state<'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks'>('groups');
@@ -261,7 +262,7 @@
 	async function loadLogGroups(append = false) {
 		loading = true;
 		try {
-			const resp = await cwl.send(new DescribeLogGroupsCommand({
+			const resp = await cwl().send(new DescribeLogGroupsCommand({
 				limit: 50,
 				nextToken: append ? groupNextToken : undefined
 			}));
@@ -289,7 +290,7 @@
 	async function loadStreams(groupName: string) {
 		loadingStreams = true;
 		try {
-			const resp = await cwl.send(new DescribeLogStreamsCommand({
+			const resp = await cwl().send(new DescribeLogStreamsCommand({
 				logGroupName: groupName,
 				orderBy: streamSortField === 'lastEventTime' ? 'LastEventTime' : 'LogStreamName',
 				descending: streamSortDesc,
@@ -326,7 +327,7 @@
 			if (filterPattern) params.filterPattern = filterPattern;
 			if (startTime) params.startTime = new Date(startTime).getTime();
 			if (endTime) params.endTime = new Date(endTime).getTime();
-			const resp = await cwl.send(new FilterLogEventsCommand(params));
+			const resp = await cwl().send(new FilterLogEventsCommand(params));
 			logEvents = resp.events ?? [];
 		} catch (e) {
 			toast.error('Failed to load events: ' + String(e));
@@ -359,9 +360,9 @@
 		if (!newGroupName.trim()) return;
 		creatingGroup = true;
 		try {
-			await cwl.send(new CreateLogGroupCommand({ logGroupName: newGroupName.trim() }));
+			await cwl().send(new CreateLogGroupCommand({ logGroupName: newGroupName.trim() }));
 			if (newGroupRetention > 0) {
-				await cwl.send(new PutRetentionPolicyCommand({
+				await cwl().send(new PutRetentionPolicyCommand({
 					logGroupName: newGroupName.trim(),
 					retentionInDays: newGroupRetention
 				}));
@@ -382,7 +383,7 @@
 		if (!await confirmDestructive({ title: 'Delete Log Group', message: `Delete log group "${name}"? All log streams and retained data will be permanently removed.` })) return;
 		deletingGroup = name;
 		try {
-			await cwl.send(new DeleteLogGroupCommand({ logGroupName: name }));
+			await cwl().send(new DeleteLogGroupCommand({ logGroupName: name }));
 			toast.success(`Log group "${name}" deleted`);
 			if (selectedGroup?.logGroupName === name) {
 				selectedGroup = null;
@@ -399,9 +400,9 @@
 	async function updateRetention(groupName: string, days: number) {
 		try {
 			if (days === 0) {
-				await cwl.send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
+				await cwl().send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
 			} else {
-				await cwl.send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
+				await cwl().send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
 			}
 			toast.success('Retention policy updated');
 			await loadLogGroups();
@@ -415,7 +416,7 @@
 		if (!newStreamName.trim() || !selectedGroup) return;
 		creatingStream = true;
 		try {
-			await cwl.send(new CreateLogStreamCommand({
+			await cwl().send(new CreateLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: newStreamName.trim()
 			}));
@@ -435,7 +436,7 @@
 		if (!await confirmDestructive({ title: 'Delete Log Stream', message: `Delete stream "${streamName}"? All retained log events will be removed.` })) return;
 		deletingStream = streamName;
 		try {
-			await cwl.send(new DeleteLogStreamCommand({
+			await cwl().send(new DeleteLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: streamName
 			}));
@@ -474,7 +475,7 @@
 		try {
 			const startMs = insightsStartTime ? new Date(insightsStartTime).getTime() : Date.now() - 3600000;
 			const endMs = insightsEndTime ? new Date(insightsEndTime).getTime() : Date.now();
-			const resp = await cwl.send(new StartQueryCommand({
+			const resp = await cwl().send(new StartQueryCommand({
 				logGroupNames: insightsGroups,
 				queryString: insightsQuery,
 				startTime: Math.floor(startMs / 1000),
@@ -492,7 +493,7 @@
 	async function pollInsightsResults() {
 		if (!insightsQueryId) return;
 		try {
-			const resp = await cwl.send(new GetQueryResultsCommand({ queryId: insightsQueryId }));
+			const resp = await cwl().send(new GetQueryResultsCommand({ queryId: insightsQueryId }));
 			insightsStatus = resp.status ?? '';
 			if (resp.status === 'Complete' || resp.status === 'Failed' || resp.status === 'Cancelled') {
 				if (insightsPollInterval) { clearInterval(insightsPollInterval); insightsPollInterval = null; }
@@ -515,7 +516,7 @@
 	async function stopInsightsQuery() {
 		if (!insightsQueryId) return;
 		try {
-			await cwl.send(new StopQueryCommand({ queryId: insightsQueryId }));
+			await cwl().send(new StopQueryCommand({ queryId: insightsQueryId }));
 			if (insightsPollInterval) { clearInterval(insightsPollInterval); insightsPollInterval = null; }
 			insightsRunning = false;
 			insightsStatus = 'Cancelled';
@@ -527,7 +528,7 @@
 	async function loadQueryDefinitions() {
 		loadingQueryDefs = true;
 		try {
-			const resp = await cwl.send(new DescribeQueryDefinitionsCommand({}));
+			const resp = await cwl().send(new DescribeQueryDefinitionsCommand({}));
 			queryDefinitions = resp.queryDefinitions ?? [];
 		} catch (e) {
 			toast.error('Failed to load query definitions: ' + String(e));
@@ -539,7 +540,7 @@
 	async function saveQueryDefinition() {
 		if (!newQueryDefName.trim()) { toast.error('Enter a name'); return; }
 		try {
-			await cwl.send(new PutQueryDefinitionCommand({
+			await cwl().send(new PutQueryDefinitionCommand({
 				name: newQueryDefName.trim(),
 				queryString: insightsQuery,
 				logGroupNames: insightsGroups.length > 0 ? insightsGroups : undefined
@@ -556,7 +557,7 @@
 	async function deleteQueryDefinition(id: string) {
 		if (!await confirmDestructive({ title: 'Delete Query Definition', message: 'Delete this saved query definition?' })) return;
 		try {
-			await cwl.send(new DeleteQueryDefinitionCommand({ queryDefinitionId: id }));
+			await cwl().send(new DeleteQueryDefinitionCommand({ queryDefinitionId: id }));
 			toast.success('Query definition deleted');
 			await loadQueryDefinitions();
 		} catch (e) {
@@ -577,7 +578,7 @@
 		if (!mfGroup) { metricFilters = []; return; }
 		loadingMf = true;
 		try {
-			const resp = await cwl.send(new DescribeMetricFiltersCommand({ logGroupName: mfGroup }));
+			const resp = await cwl().send(new DescribeMetricFiltersCommand({ logGroupName: mfGroup }));
 			metricFilters = resp.metricFilters ?? [];
 		} catch (e) {
 			toast.error('Failed to load metric filters: ' + String(e));
@@ -593,7 +594,7 @@
 		}
 		creatingMf = true;
 		try {
-			await cwl.send(new PutMetricFilterCommand({
+			await cwl().send(new PutMetricFilterCommand({
 				logGroupName: mfGroup,
 				filterName: mfFilterName.trim(),
 				filterPattern: mfFilterPattern,
@@ -618,7 +619,7 @@
 		if (!await confirmDestructive({ title: 'Delete Metric Filter', message: `Delete metric filter "${filterName}"?` })) return;
 		deletingMf = filterName;
 		try {
-			await cwl.send(new DeleteMetricFilterCommand({ logGroupName: mfGroup, filterName }));
+			await cwl().send(new DeleteMetricFilterCommand({ logGroupName: mfGroup, filterName }));
 			toast.success(`Metric filter "${filterName}" deleted`);
 			await loadMetricFilters();
 		} catch (e) {
@@ -634,7 +635,7 @@
 		if (messages.length === 0) { toast.error('Enter at least one test event'); return; }
 		testingMf = true;
 		try {
-			const resp = await cwl.send(new TestMetricFilterCommand({
+			const resp = await cwl().send(new TestMetricFilterCommand({
 				filterPattern: mfTestPattern,
 				logEventMessages: messages
 			}));
@@ -659,7 +660,7 @@
 		if (!sfGroup) { subFilters = []; return; }
 		loadingSf = true;
 		try {
-			const resp = await cwl.send(new DescribeSubscriptionFiltersCommand({ logGroupName: sfGroup }));
+			const resp = await cwl().send(new DescribeSubscriptionFiltersCommand({ logGroupName: sfGroup }));
 			subFilters = resp.subscriptionFilters ?? [];
 		} catch (e) {
 			toast.error('Failed to load subscription filters: ' + String(e));
@@ -675,7 +676,7 @@
 		}
 		creatingSf = true;
 		try {
-			await cwl.send(new PutSubscriptionFilterCommand({
+			await cwl().send(new PutSubscriptionFilterCommand({
 				logGroupName: sfGroup,
 				filterName: sfFilterName.trim(),
 				filterPattern: sfFilterPattern,
@@ -696,7 +697,7 @@
 		if (!await confirmDestructive({ title: 'Delete Subscription Filter', message: `Delete filter "${filterName}"?` })) return;
 		deletingSf = filterName;
 		try {
-			await cwl.send(new DeleteSubscriptionFilterCommand({ logGroupName: sfGroup, filterName }));
+			await cwl().send(new DeleteSubscriptionFilterCommand({ logGroupName: sfGroup, filterName }));
 			toast.success(`Filter "${filterName}" deleted`);
 			await loadSubFilters();
 		} catch (e) {
@@ -710,7 +711,7 @@
 	async function loadExportTasks() {
 		loadingExport = true;
 		try {
-			const resp = await cwl.send(new DescribeExportTasksCommand({}));
+			const resp = await cwl().send(new DescribeExportTasksCommand({}));
 			exportTasks = resp.exportTasks ?? [];
 		} catch (e) {
 			toast.error('Failed to load export tasks: ' + String(e));
@@ -726,7 +727,7 @@
 		}
 		creatingExport = true;
 		try {
-			await cwl.send(new CreateExportTaskCommand({
+			await cwl().send(new CreateExportTaskCommand({
 				taskName: etTaskName.trim() || undefined,
 				logGroupName: etLogGroupName.trim(),
 				destination: etDestination.trim(),
@@ -748,7 +749,7 @@
 	async function cancelExportTask(taskId: string) {
 		cancellingExport = taskId;
 		try {
-			await cwl.send(new CancelExportTaskCommand({ taskId }));
+			await cwl().send(new CancelExportTaskCommand({ taskId }));
 			toast.success('Export task cancelled');
 			await loadExportTasks();
 		} catch (e) {
@@ -776,7 +777,44 @@
 	}
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────
-	onMount(loadLogGroups);
+	// Log groups/streams/events, insights results, metric/subscription filters,
+	// and export tasks are all region-scoped, as are the two in-flight timers
+	// (events auto-refresh, insights polling) — both close over state that
+	// belongs to the old region, so stop them before resetting. `pageTab` is
+	// read via untrack() because switchTab() also writes it: without untrack,
+	// every tab switch would re-trigger this region effect and double-fetch.
+	onRegionChange(() => {
+		if (autoRefreshInterval !== null) {
+			clearInterval(autoRefreshInterval);
+			autoRefreshInterval = null;
+		}
+		autoRefresh = false;
+		if (insightsPollInterval !== null) {
+			clearInterval(insightsPollInterval);
+			insightsPollInterval = null;
+		}
+		insightsRunning = false;
+		insightsQueryId = null;
+		insightsStatus = '';
+		insightsResults = [];
+		queryDefinitions = [];
+		logGroups = [];
+		groupNextToken = undefined;
+		selectedGroup = null;
+		selectedStream = null;
+		logStreams = [];
+		logEvents = [];
+		activeView = 'groups';
+		mfGroup = '';
+		metricFilters = [];
+		sfGroup = '';
+		subFilters = [];
+		exportTasks = [];
+		const tab = untrack(() => pageTab);
+		void loadLogGroups();
+		if (tab === 'insights') void loadQueryDefinitions();
+		else if (tab === 'export-tasks') void loadExportTasks();
+	});
 
 	onDestroy(() => {
 		if (autoRefreshInterval !== null) clearInterval(autoRefreshInterval);

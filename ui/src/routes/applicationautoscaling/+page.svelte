@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getApplicationAutoScalingClient } from '$lib/aws-client';
 	import {
 		DescribeScalableTargetsCommand,
@@ -42,7 +42,7 @@
 		Settings2
 	} from 'lucide-svelte';
 
-	const aas = getApplicationAutoScalingClient();
+	const aas = regionalClient(getApplicationAutoScalingClient);
 
 	// ── State ────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -192,7 +192,7 @@
 	async function loadTargets() {
 		loading = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalableTargetsCommand({
 					ServiceNamespace: (namespaceFilter as ServiceNamespace) || ServiceNamespace.ECS
 				})
@@ -211,7 +211,7 @@
 		await Promise.allSettled(
 			namespaceOptions.map(async ({ value }) => {
 				try {
-					const res = await aas.send(
+					const res = await aas().send(
 						new DescribeScalableTargetsCommand({ ServiceNamespace: value as ServiceNamespace })
 					);
 					all.push(...(res.ScalableTargets ?? []));
@@ -246,7 +246,7 @@
 		if (!selectedTarget) return;
 		loadingPolicies = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalingPoliciesCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -265,7 +265,7 @@
 		if (!selectedTarget) return;
 		loadingScheduled = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScheduledActionsCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -284,7 +284,7 @@
 		if (!selectedTarget) return;
 		loadingActivities = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalingActivitiesCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -304,7 +304,7 @@
 		if (!selectedTarget?.ScalableTargetARN) return;
 		loadingTags = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new ListTagsForResourceCommand({ ResourceARN: selectedTarget.ScalableTargetARN })
 			);
 			tags = res.Tags ?? {};
@@ -328,7 +328,7 @@
 		if (!regResourceId.trim()) return;
 		registering = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new RegisterScalableTargetCommand({
 					ServiceNamespace: regNamespace as ServiceNamespace,
 					ResourceId: regResourceId.trim(),
@@ -354,7 +354,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeregisterScalableTargetCommand({
 					ServiceNamespace: t.ServiceNamespace,
 					ResourceId: t.ResourceId,
@@ -374,7 +374,7 @@
 		if (!selectedTarget) return;
 		const suspend = !suspendedTarget;
 		try {
-			await aas.send(
+			await aas().send(
 				new RegisterScalableTargetCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -404,7 +404,7 @@
 		if (!selectedTarget || !policyName.trim()) return;
 		creatingPolicy = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new PutScalingPolicyCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -453,7 +453,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeleteScalingPolicyCommand({
 					ServiceNamespace: p.ServiceNamespace,
 					ResourceId: p.ResourceId,
@@ -473,7 +473,7 @@
 		if (!selectedTarget || !scheduledName.trim()) return;
 		creatingScheduled = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new PutScheduledActionCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -504,7 +504,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeleteScheduledActionCommand({
 					ServiceNamespace: a.ServiceNamespace!,
 					ResourceId: a.ResourceId!,
@@ -524,7 +524,7 @@
 		if (!selectedTarget?.ScalableTargetARN || !tagKey.trim()) return;
 		addingTag = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new TagResourceCommand({
 					ResourceARN: selectedTarget.ScalableTargetARN,
 					Tags: { [tagKey.trim()]: tagValue.trim() }
@@ -545,7 +545,7 @@
 	async function removeTag(key: string) {
 		if (!selectedTarget?.ScalableTargetARN) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new UntagResourceCommand({
 					ResourceARN: selectedTarget.ScalableTargetARN,
 					TagKeys: [key]
@@ -563,7 +563,7 @@
 		if (!selectedTarget || !forecastPolicyName.trim()) return;
 		loadingForecast = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new GetPredictiveScalingForecastCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -587,7 +587,21 @@
 
 	const forecastMax = $derived(Math.max(...forecastCapacity, 1));
 
-	onMount(() => loadAllNamespaces());
+	// selectedTarget and its detail lists (policies, scheduled actions,
+	// activities, tags, forecast) are region-scoped: a target ARN from the
+	// old region is meaningless in the new one, so clear them before
+	// reloading the full cross-namespace target list.
+	onRegionChange(() => {
+		selectedTarget = null;
+		targets = [];
+		policies = [];
+		scheduledActions = [];
+		activities = [];
+		tags = {};
+		forecastCapacity = [];
+		forecastTimestamps = [];
+		void loadAllNamespaces();
+	});
 </script>
 
 <div class="flex h-full overflow-hidden">

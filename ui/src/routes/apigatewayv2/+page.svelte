@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import {
 		Globe,
 		Plus,
@@ -63,7 +64,7 @@
 		VpcLink,
 	} from '@aws-sdk/client-apigatewayv2';
 
-	const apigwv2 = getAPIGatewayV2Client();
+	const apigwv2 = regionalClient(getAPIGatewayV2Client);
 
 	// ─── Top-level state ──────────────────────────────────────────────────────────
 	type TopTab = 'apis' | 'domainnames' | 'vpclinkstab' | 'metrics' | 'docs';
@@ -196,7 +197,7 @@
 	async function loadApis() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetApisCommand({}));
+			const res = await apigwv2().send(new GetApisCommand({}));
 			apis = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load APIs: ${e}`);
@@ -218,11 +219,11 @@
 		try {
 			const [routesRes, stagesRes, integrationsRes, authorizersRes, deploymentsRes] =
 				await Promise.all([
-					apigwv2.send(new GetRoutesCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetStagesCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetRoutesCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetStagesCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
 				]);
 			apiRoutes = routesRes.Items ?? [];
 			apiStages = stagesRes.Items ?? [];
@@ -239,7 +240,7 @@
 	async function loadDomainNames() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetDomainNamesCommand({}));
+			const res = await apigwv2().send(new GetDomainNamesCommand({}));
 			domainNames = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load domain names: ${e}`);
@@ -251,7 +252,7 @@
 	async function loadVpcLinks() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetVpcLinksCommand({}));
+			const res = await apigwv2().send(new GetVpcLinksCommand({}));
 			vpcLinks = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load VPC links: ${e}`);
@@ -265,7 +266,7 @@
 		if (!newApiName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateApiCommand({
 					Name: newApiName.trim(),
 					Description: newApiDescription.trim() || undefined,
@@ -291,7 +292,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteApiCommand({ ApiId: api.ApiId }));
+			await apigwv2().send(new DeleteApiCommand({ ApiId: api.ApiId }));
 			toast.success(`API "${api.Name}" deleted`);
 			if (selectedApi?.ApiId === api.ApiId) selectedApi = null;
 			await loadApis();
@@ -304,7 +305,7 @@
 		if (!selectedApi?.ApiId || !newRouteKey.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateRouteCommand({
 					ApiId: selectedApi.ApiId,
 					RouteKey: newRouteKey.trim(),
@@ -328,7 +329,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Route', message: `Delete route "${route.RouteKey}"?` })))
 			return;
 		try {
-			await apigwv2.send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
+			await apigwv2().send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
 			toast.success(`Route "${route.RouteKey}" deleted`);
 			await loadApiDetail(selectedApi);
 		} catch (e) {
@@ -340,7 +341,7 @@
 		if (!selectedApi?.ApiId || !newStageName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateStageCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: newStageName.trim(),
@@ -371,7 +372,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteStageCommand({ ApiId: selectedApi.ApiId, StageName: stage.StageName })
 			);
 			toast.success(`Stage "${stage.StageName}" deleted`);
@@ -385,7 +386,7 @@
 		if (!selectedApi?.ApiId) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateIntegrationCommand({
 					ApiId: selectedApi.ApiId,
 					IntegrationType: newIntegType,
@@ -414,7 +415,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteIntegrationCommand({ ApiId: selectedApi.ApiId, IntegrationId: integ.IntegrationId })
 			);
 			toast.success('Integration deleted');
@@ -428,7 +429,7 @@
 		if (!selectedApi?.ApiId || !newAuthName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateAuthorizerCommand({
 					ApiId: selectedApi.ApiId,
 					Name: newAuthName.trim(),
@@ -466,7 +467,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteAuthorizerCommand({ ApiId: selectedApi.ApiId, AuthorizerId: auth.AuthorizerId })
 			);
 			toast.success(`Authorizer "${auth.Name}" deleted`);
@@ -480,7 +481,7 @@
 		if (!selectedApi?.ApiId || !deployStageName.trim()) return;
 		deploying = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDeploymentCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: deployStageName.trim() || undefined,
@@ -504,7 +505,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Deployment', message: `Delete deployment ${depl.DeploymentId}?` })))
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteDeploymentCommand({ ApiId: selectedApi.ApiId, DeploymentId: depl.DeploymentId })
 			);
 			toast.success('Deployment deleted');
@@ -518,7 +519,7 @@
 		if (!newDomainName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDomainNameCommand({
 					DomainName: newDomainName.trim(),
 					DomainNameConfigurations: newDomainCertArn
@@ -545,7 +546,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
+			await apigwv2().send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
 			toast.success(`Domain "${dn.DomainName}" deleted`);
 			await loadDomainNames();
 		} catch (e) {
@@ -558,7 +559,7 @@
 		creating = true;
 		try {
 			const subnets = newVpcLinkSubnets.split(',').map((s) => s.trim()).filter(Boolean);
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateVpcLinkCommand({
 					Name: newVpcLinkName.trim(),
 					SubnetIds: subnets.length > 0 ? subnets : ['subnet-default'],
@@ -583,7 +584,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
+			await apigwv2().send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
 			toast.success(`VPC Link "${vl.Name}" deleted`);
 			await loadVpcLinks();
 		} catch (e) {
@@ -596,7 +597,7 @@
 		creating = true;
 		try {
 			// Create a demo HTTP API
-			const httpApi = await apigwv2.send(
+			const httpApi = await apigwv2().send(
 				new CreateApiCommand({
 					Name: 'petstore-http-api',
 					ProtocolType: 'HTTP',
@@ -610,7 +611,7 @@
 			);
 			if (httpApi.ApiId) {
 				// Create a default stage with auto-deploy
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateStageCommand({
 						ApiId: httpApi.ApiId,
 						StageName: '$default',
@@ -618,17 +619,17 @@
 					})
 				);
 				// Create routes
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'GET /pets' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'POST /pets' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'DELETE /pets/{petId}' })
 				);
 				// Create an AWS_PROXY integration
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateIntegrationCommand({
 						ApiId: httpApi.ApiId,
 						IntegrationType: 'AWS_PROXY',
@@ -638,7 +639,7 @@
 					})
 				);
 				// Create a JWT authorizer
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateAuthorizerCommand({
 						ApiId: httpApi.ApiId,
 						Name: 'cognito-jwt',
@@ -651,7 +652,7 @@
 					})
 				);
 				// Tag the API
-				await apigwv2.send(
+				await apigwv2().send(
 					new TagResourceCommand({
 						ResourceArn: `arn:aws:apigateway:us-east-1::/apis/${httpApi.ApiId}`,
 						Tags: { env: 'demo', team: 'platform' },
@@ -660,7 +661,7 @@
 			}
 
 			// Create a demo WebSocket API
-			const wsApi = await apigwv2.send(
+			const wsApi = await apigwv2().send(
 				new CreateApiCommand({
 					Name: 'chat-websocket-api',
 					ProtocolType: 'WEBSOCKET',
@@ -668,16 +669,16 @@
 				})
 			);
 			if (wsApi.ApiId) {
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: '$connect' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: '$disconnect' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: 'sendmessage' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateStageCommand({
 						ApiId: wsApi.ApiId,
 						StageName: 'prod',
@@ -687,7 +688,7 @@
 			}
 
 			// Create a demo domain
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDomainNameCommand({
 					DomainName: 'api.demo.example.com',
 					DomainNameConfigurations: [
@@ -697,7 +698,7 @@
 			);
 
 			// Create a demo VPC link
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateVpcLinkCommand({
 					Name: 'private-backend-link',
 					SubnetIds: ['subnet-aaa111', 'subnet-bbb222'],
@@ -731,7 +732,26 @@
 		else if (tab === 'vpclinkstab') await loadVpcLinks();
 	}
 
-	onMount(() => loadApis());
+	// Only one top-level tab's data is loaded at a time; on a region change
+	// reset everything region-scoped and reload whichever tab is active.
+	// `topTab` is read via untrack() because switchTopTab() also writes it:
+	// without untrack, every tab switch would re-trigger this region effect
+	// and double-fetch.
+	onRegionChange(() => {
+		apis = [];
+		selectedApi = null;
+		apiRoutes = [];
+		apiStages = [];
+		apiIntegrations = [];
+		apiAuthorizers = [];
+		apiDeployments = [];
+		domainNames = [];
+		vpcLinks = [];
+		const tab = untrack(() => topTab);
+		if (tab === 'apis') void loadApis();
+		else if (tab === 'domainnames') void loadDomainNames();
+		else if (tab === 'vpclinkstab') void loadVpcLinks();
+	});
 </script>
 
 <div class="space-y-4">

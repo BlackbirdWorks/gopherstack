@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getElasticBeanstalkClient } from '$lib/aws-client';
 	import {
 		DescribeApplicationsCommand,
@@ -42,7 +42,7 @@
 		Layout
 	} from 'lucide-svelte';
 
-	const eb = getElasticBeanstalkClient();
+	const eb = regionalClient(getElasticBeanstalkClient);
 
 	type TabName = 'applications' | 'environments' | 'versions' | 'templates' | 'platforms';
 
@@ -142,11 +142,11 @@
 		loading = true;
 		try {
 			const [appsResp, envsResp, versResp, stacksResp, pvResp] = await Promise.all([
-				eb.send(new DescribeApplicationsCommand({})),
-				eb.send(new DescribeEnvironmentsCommand({})),
-				eb.send(new DescribeApplicationVersionsCommand({})),
-				eb.send(new ListAvailableSolutionStacksCommand({})),
-				eb.send(new ListPlatformVersionsCommand({}))
+				eb().send(new DescribeApplicationsCommand({})),
+				eb().send(new DescribeEnvironmentsCommand({})),
+				eb().send(new DescribeApplicationVersionsCommand({})),
+				eb().send(new ListAvailableSolutionStacksCommand({})),
+				eb().send(new ListPlatformVersionsCommand({}))
 			]);
 			applications = appsResp.Applications ?? [];
 			environments = envsResp.Environments ?? [];
@@ -170,7 +170,7 @@
 		}
 		creatingApp = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateApplicationCommand({
 					ApplicationName: newAppName.trim(),
 					Description: newAppDesc.trim() || undefined
@@ -194,7 +194,7 @@
 		);
 		if (!ok) return;
 		try {
-			await eb.send(new DeleteApplicationCommand({ ApplicationName: appName }));
+			await eb().send(new DeleteApplicationCommand({ ApplicationName: appName }));
 			toast.success(`Application "${appName}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -213,7 +213,7 @@
 		}
 		creatingEnv = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateEnvironmentCommand({
 					ApplicationName: newEnvAppName.trim(),
 					EnvironmentName: newEnvName.trim(),
@@ -259,7 +259,7 @@
 		const ok = await confirmDestructive(`Terminate environment "${envName}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(new TerminateEnvironmentCommand({ EnvironmentName: envName }));
+			await eb().send(new TerminateEnvironmentCommand({ EnvironmentName: envName }));
 			toast.success(`Environment "${envName}" terminating`);
 			await loadData();
 		} catch (e) {
@@ -288,7 +288,7 @@
 		}
 		creatingVersion = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateApplicationVersionCommand({
 					ApplicationName: newVerAppName.trim(),
 					VersionLabel: newVerLabel.trim(),
@@ -318,7 +318,7 @@
 		const ok = await confirmDestructive(`Delete version "${versionLabel}" from "${appName}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(
+			await eb().send(
 				new DeleteApplicationVersionCommand({ ApplicationName: appName, VersionLabel: versionLabel })
 			);
 			toast.success(`Version "${versionLabel}" deleted`);
@@ -336,7 +336,7 @@
 		}
 		creatingTemplate = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateConfigurationTemplateCommand({
 					ApplicationName: newTmplAppName.trim(),
 					TemplateName: newTmplName.trim(),
@@ -363,7 +363,7 @@
 		);
 		if (!ok) return;
 		try {
-			await eb.send(
+			await eb().send(
 				new DeleteConfigurationTemplateCommand({ ApplicationName: appName, TemplateName: templateName })
 			);
 			toast.success(`Template "${templateName}" deleted`);
@@ -384,7 +384,7 @@
 		}
 		creatingPlatform = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreatePlatformVersionCommand({
 					PlatformName: newPlatformName.trim(),
 					PlatformVersion: newPlatformVersion.trim(),
@@ -407,7 +407,7 @@
 		const ok = await confirmDestructive(`Delete platform version "${platformArn}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(new DeletePlatformVersionCommand({ PlatformArn: platformArn }));
+			await eb().send(new DeletePlatformVersionCommand({ PlatformArn: platformArn }));
 			toast.success('Platform version deleted');
 			await loadData();
 		} catch (e) {
@@ -423,7 +423,7 @@
 		}
 		swapping = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new SwapEnvironmentCNAMEsCommand({
 					SourceEnvironmentName: swappingSrc,
 					DestinationEnvironmentName: swappingDst
@@ -441,7 +441,19 @@
 		}
 	}
 
-	onMount(loadData);
+	// Applications, environments, versions, solution stacks, and platform
+	// versions are all region-scoped; clear them before reloading so stale
+	// data from the old region never lingers.
+	onRegionChange(() => {
+		applications = [];
+		environments = [];
+		versions = [];
+		solutionStacks = [];
+		platformVersions = [];
+		configTemplates = [];
+		expandedEnvs = new Set();
+		void loadData();
+	});
 </script>
 
 <div class="p-6 space-y-6">
