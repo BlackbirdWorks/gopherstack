@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDAXClient } from '$lib/aws-client';
 	import {
@@ -45,15 +46,20 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'clusters') {
+			// activeTab is read via untrack() because switchTab() also writes
+			// it: without untrack, every tab switch would re-trigger the
+			// onRegionChange effect below (since it calls loadData directly)
+			// and double-fetch the newly selected tab's data.
+			const tab = untrack(() => activeTab);
+			if (tab === 'clusters') {
 				const resp = await client().send(new DescribeClustersCommand({}));
 				clustersData = resp.Clusters ?? [];
 			}
-			if (activeTab === 'paramgroups') {
+			if (tab === 'paramgroups') {
 				const resp = await client().send(new DescribeParameterGroupsCommand({}));
 				paramgroupsData = resp.ParameterGroups ?? [];
 			}
-			if (activeTab === 'subnetgroups') {
+			if (tab === 'subnetgroups') {
 				const resp = await client().send(new DescribeSubnetGroupsCommand({}));
 				subnetgroupsData = resp.SubnetGroups ?? [];
 			}
