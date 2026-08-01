@@ -115,6 +115,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "fsx",
   "glacier",
   "ssoadmin",
+  "resiliencehub",
   "appstream",
   "bedrockruntime",
   "cloudcontrol",
@@ -667,6 +668,12 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/resourcegroupstaggingapi",
         label: "Tagging API",
         icon: "resourcegroupstaggingapi",
+      },
+      {
+        id: "resiliencehub",
+        href: "/dashboard/resiliencehub",
+        label: "Resilience Hub",
+        icon: "resiliencehub",
       },
       {
         id: "cloudcontrol",
