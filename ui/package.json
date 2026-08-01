@@ -127,6 +127,7 @@
     "@aws-sdk/client-organizations": "3.1094.0",
     "@aws-sdk/client-outposts": "3.1094.0",
     "@aws-sdk/client-personalize": "3.1094.0",
+    "@aws-sdk/client-personalize-runtime": "3.1094.0",
     "@aws-sdk/client-pinpoint": "3.1094.0",
     "@aws-sdk/client-pipes": "3.1094.0",
     "@aws-sdk/client-polly": "3.1094.0",

@@ -83,6 +83,7 @@ import { MediaLiveClient } from "@aws-sdk/client-medialive";
 import { MediaPackageClient } from "@aws-sdk/client-mediapackage";
 import { MediaTailorClient } from "@aws-sdk/client-mediatailor";
 import { PersonalizeClient } from "@aws-sdk/client-personalize";
+import { PersonalizeRuntimeClient } from "@aws-sdk/client-personalize-runtime";
 import { QuickSightClient } from "@aws-sdk/client-quicksight";
 import { RolesAnywhereClient } from "@aws-sdk/client-rolesanywhere";
 import { WorkMailClient } from "@aws-sdk/client-workmail";
@@ -763,6 +764,10 @@ export function getMediaTailorClient(region?: string): MediaTailorClient {
 
 export function getPersonalizeClient(region?: string): PersonalizeClient {
   return new PersonalizeClient(clientConfig(region));
+}
+
+export function getPersonalizeRuntimeClient(region?: string): PersonalizeRuntimeClient {
+  return new PersonalizeRuntimeClient(clientConfig(region));
 }
 
 export function getQuickSightClient(region?: string): QuickSightClient {
