@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getVerifiedPermissionsClient } from '$lib/aws-client';
 	import {
 		ListPolicyStoresCommand,
@@ -46,7 +46,7 @@
 		Layout
 	} from 'lucide-svelte';
 
-	const vp = getVerifiedPermissionsClient();
+	const vp = regionalClient(getVerifiedPermissionsClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'stores' | 'policies' | 'templates' | 'identity' | 'schema' | 'authz'>(
@@ -157,7 +157,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await vp.send(new ListPolicyStoresCommand({}));
+			const resp = await vp().send(new ListPolicyStoresCommand({}));
 			stores = resp.policyStores ?? [];
 		} catch (e) {
 			toast.error('Failed to load Verified Permissions data: ' + String(e));
@@ -173,9 +173,9 @@
 		schemaCached = null;
 		try {
 			const [polResp, idResp, tmplResp] = await Promise.all([
-				vp.send(new ListPoliciesCommand({ policyStoreId: storeId })),
-				vp.send(new ListIdentitySourcesCommand({ policyStoreId: storeId })),
-				vp.send(new ListPolicyTemplatesCommand({ policyStoreId: storeId }))
+				vp().send(new ListPoliciesCommand({ policyStoreId: storeId })),
+				vp().send(new ListIdentitySourcesCommand({ policyStoreId: storeId })),
+				vp().send(new ListPolicyTemplatesCommand({ policyStoreId: storeId }))
 			]);
 			policies = polResp.policies ?? [];
 			identitySources = idResp.identitySources ?? [];
@@ -189,7 +189,7 @@
 	async function loadPolicyStatement(policyId: string) {
 		if (!selectedStoreId || policyStatements[policyId] !== undefined) return;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new GetPolicyCommand({ policyStoreId: selectedStoreId, policyId })
 			);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -240,7 +240,7 @@
 		policyEditorSaving = true;
 		try {
 			if (policyEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						definition: {
@@ -253,7 +253,7 @@
 				);
 				toast.success('Policy created');
 			} else if (policyEditorMode === 'create-template-linked') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						definition: {
@@ -271,7 +271,7 @@
 				);
 				toast.success('Template-linked policy created');
 			} else {
-				await vp.send(
+				await vp().send(
 					new UpdatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						policyId: policyEditorId,
@@ -296,7 +296,7 @@
 		if (!selectedStoreId) return;
 		deletingPolicyId = null;
 		try {
-			await vp.send(new DeletePolicyCommand({ policyStoreId: selectedStoreId, policyId }));
+			await vp().send(new DeletePolicyCommand({ policyStoreId: selectedStoreId, policyId }));
 			toast.success('Policy deleted');
 			await loadPolicies(selectedStoreId);
 		} catch (e) {
@@ -326,7 +326,7 @@
 		templateEditorSaving = true;
 		try {
 			if (templateEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyTemplateCommand({
 						policyStoreId: selectedStoreId,
 						statement: templateEditorStatement,
@@ -348,7 +348,7 @@
 		if (!selectedStoreId) return;
 		deletingTemplateId = null;
 		try {
-			await vp.send(
+			await vp().send(
 				new DeletePolicyTemplateCommand({
 					policyStoreId: selectedStoreId,
 					policyTemplateId: templateId
@@ -386,7 +386,7 @@
 		storeEditorSaving = true;
 		try {
 			if (storeEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyStoreCommand({
 						description: storeEditorDescription || undefined,
 						validationSettings: { mode: storeEditorValidationMode as 'OFF' | 'STRICT' },
@@ -398,7 +398,7 @@
 				);
 				toast.success('Policy store created');
 			} else {
-				await vp.send(
+				await vp().send(
 					new UpdatePolicyStoreCommand({
 						policyStoreId: storeEditorId,
 						description: storeEditorDescription,
@@ -426,7 +426,7 @@
 					.split(',')
 					.map((s) => s.trim())
 					.filter(Boolean);
-				await vp.send(
+				await vp().send(
 					new CreateIdentitySourceCommand({
 						policyStoreId: selectedStoreId,
 						principalEntityType: identitySourceEditorPrincipalType || undefined,
@@ -442,7 +442,7 @@
 					})
 				);
 			} else {
-				await vp.send(
+				await vp().send(
 					new CreateIdentitySourceCommand({
 						policyStoreId: selectedStoreId,
 						principalEntityType: identitySourceEditorPrincipalType || undefined,
@@ -472,7 +472,7 @@
 		if (!selectedStoreId) return;
 		deletingIdentitySourceId = null;
 		try {
-			await vp.send(
+			await vp().send(
 				new DeleteIdentitySourceCommand({
 					policyStoreId: selectedStoreId,
 					identitySourceId
@@ -493,7 +493,7 @@
 		}
 		schemaLoading = true;
 		try {
-			const resp = await vp.send(new GetSchemaCommand({ policyStoreId: selectedStoreId }));
+			const resp = await vp().send(new GetSchemaCommand({ policyStoreId: selectedStoreId }));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const raw = (resp as any).schema ?? (resp as any).definition?.cedarJson ?? '';
 			schemaText = raw;
@@ -534,7 +534,7 @@
 		if (!selectedStoreId) return;
 		schemaSaving = true;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new PutSchemaCommand({
 					policyStoreId: selectedStoreId,
 					definition: { cedarJson: schemaDraft }
@@ -558,7 +558,7 @@
 		authzLoading = true;
 		authzResult = null;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new IsAuthorizedCommand({
 					policyStoreId: selectedStoreId,
 					principal: authzPrincipalType
@@ -584,7 +584,32 @@
 		}
 	}
 
-	onMount(loadData);
+	// Policy stores and every store-scoped resource (policies, identity
+	// sources, templates, schema, authz results) are region-scoped, so a
+	// region switch must clear them (not just reload) rather than keep
+	// showing the old region's selected store.
+	onRegionChange(() => {
+		stores = [];
+		policies = [];
+		identitySources = [];
+		policyTemplates = [];
+		selectedStoreId = null;
+		selectedStore = null;
+		expandedPolicyId = null;
+		policyStatements = {};
+		schemaText = '';
+		schemaNamespaces = [];
+		schemaCached = null;
+		schemaDraft = '';
+		schemaEditing = false;
+		authzResult = null;
+		policyEditorOpen = false;
+		templateEditorOpen = false;
+		storeEditorOpen = false;
+		identitySourceEditorOpen = false;
+		activeTab = 'stores';
+		void loadData();
+	});
 </script>
 
 <div class="p-6 space-y-6">

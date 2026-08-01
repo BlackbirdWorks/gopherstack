@@ -1,5 +1,6 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getKMSClient } from '$lib/aws-client';
 import {
 	ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand,
@@ -16,7 +17,7 @@ import {
 import { toast } from 'svelte-sonner';
 import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, BarChart3, BookOpen, Shield, RotateCcw, Trash2, CheckCircle, XCircle, Edit2, Database } from 'lucide-svelte';
 
-const kms = getKMSClient();
+const kms = regionalClient(getKMSClient);
 
 type KMSKey = {
 	CreationDate?: Date | string;
@@ -167,17 +168,43 @@ let policyTabSaving = $state(false);
 let originFilter = $state('all');
 let seedingDemo = $state(false);
 
-onMount(async () => { await loadKeys(); });
+// Keys, aliases, grants, and every key-scoped modal/tab selection below are
+// region-scoped (KMS keys are regional), so a region switch must clear them
+// (not just reload) and then reload whichever tab is currently active.
+// `activeTab` is read via `untrack` because `selectTab` also writes it —
+// without that, this effect would depend on `activeTab` too and re-clear/
+// re-fetch everything on every tab click, not just on a region change.
+onRegionChange(() => {
+	keys = [];
+	aliases = [];
+	selectedKey = null;
+	grantsTabKeyId = '';
+	grantsTabGrants = [];
+	policyTabContent = '';
+	showCreateModal = false;
+	showCryptoModal = false;
+	showSignModal = false;
+	showRotationModal = false;
+	showDeletionModal = false;
+	showAliasCreateModal = false;
+	showAliasUpdateModal = false;
+	showTagModal = false;
+	showPolicyModal = false;
+	showGrantModal = false;
+	const tab = untrack(() => activeTab);
+	if (tab === 'aliases') void loadAliases();
+	else void loadKeys();
+});
 
 async function loadKeys() {
 	try {
 		loading = true;
-		const listData = await kms.send(new ListKeysCommand({}));
+		const listData = await kms().send(new ListKeysCommand({}));
 		const rawKeys = listData.Keys || [];
 		const details = await Promise.all(
 			rawKeys.slice(0, 50).map(async (k) => {
 				try {
-					const d = await kms.send(new DescribeKeyCommand({ KeyId: k.KeyId }));
+					const d = await kms().send(new DescribeKeyCommand({ KeyId: k.KeyId }));
 					return d.KeyMetadata;
 				} catch {
 					return { KeyId: k.KeyId, KeyArn: k.KeyArn, Description: '', KeyState: 'Unknown', KeyUsage: 'Unknown' };
@@ -195,7 +222,7 @@ async function loadKeys() {
 async function loadAliases() {
 	try {
 		loading = true;
-		const data = await kms.send(new ListAliasesCommand({ Limit: 100 }));
+		const data = await kms().send(new ListAliasesCommand({ Limit: 100 }));
 		aliases = data.Aliases || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
@@ -224,7 +251,7 @@ async function loadGrantsForTab() {
 	if (!grantsTabKeyId) return;
 	grantsTabLoading = true;
 	try {
-		const res = await kms.send(new ListGrantsCommand({ KeyId: grantsTabKeyId }));
+		const res = await kms().send(new ListGrantsCommand({ KeyId: grantsTabKeyId }));
 		grantsTabGrants = (res.Grants ?? []) as Grant[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load grants');
@@ -237,7 +264,7 @@ async function loadPolicyForTab() {
 	if (!grantsTabKeyId) return;
 	policyTabLoading = true;
 	try {
-		const res = await kms.send(new GetKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default' }));
+		const res = await kms().send(new GetKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default' }));
 		policyTabContent = res.Policy ? JSON.stringify(JSON.parse(res.Policy), null, 2) : '{}';
 	} catch (e) {
 		policyTabContent = '{}';
@@ -258,7 +285,7 @@ async function savePolicyForTab() {
 		return;
 	}
 	try {
-		await kms.send(new PutKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default', Policy: policyTabContent }));
+		await kms().send(new PutKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default', Policy: policyTabContent }));
 		toast.success('Key policy saved');
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to save policy');
@@ -274,7 +301,7 @@ async function createGrantInTab() {
 	}
 	grantsTabCreating = true;
 	try {
-		await kms.send(new CreateGrantCommand({
+		await kms().send(new CreateGrantCommand({
 			KeyId: grantsTabKeyId,
 			GranteePrincipal: grantsTabPrincipal.trim(),
 			Operations: [...grantsTabSelectedOps],
@@ -295,7 +322,7 @@ async function createGrantInTab() {
 async function revokeGrantInTab(grantId: string) {
 	if (!grantsTabKeyId) return;
 	try {
-		await kms.send(new RevokeGrantCommand({ KeyId: grantsTabKeyId, GrantId: grantId }));
+		await kms().send(new RevokeGrantCommand({ KeyId: grantsTabKeyId, GrantId: grantId }));
 		toast.success('Grant revoked');
 		grantsTabGrants = grantsTabGrants.filter(g => g.GrantId !== grantId);
 	} catch (e) {
@@ -310,7 +337,7 @@ async function copyId(id: string) {
 
 async function disableKey(keyId: string) {
 	try {
-		await kms.send(new DisableKeyCommand({ KeyId: keyId }));
+		await kms().send(new DisableKeyCommand({ KeyId: keyId }));
 		toast.success(`Key ${keyId} disabled`);
 		await loadKeys();
 	} catch (e) {
@@ -320,7 +347,7 @@ async function disableKey(keyId: string) {
 
 async function enableKey(keyId: string) {
 	try {
-		await kms.send(new EnableKeyCommand({ KeyId: keyId }));
+		await kms().send(new EnableKeyCommand({ KeyId: keyId }));
 		toast.success(`Key ${keyId} enabled`);
 		await loadKeys();
 	} catch (e) {
@@ -331,7 +358,7 @@ async function enableKey(keyId: string) {
 async function createKey() {
 	try {
 		creatingKey = true;
-		await kms.send(new CreateKeyCommand({
+		await kms().send(new CreateKeyCommand({
 			Description: newKeyDescription,
 			KeySpec: newKeySpec as KeySpec,
 			KeyUsage: newKeyUsage as KeyUsageType,
@@ -396,7 +423,7 @@ async function encrypt() {
 	if (!plaintext) return;
 	try {
 		encrypting = true;
-		const res = await kms.send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
+		const res = await kms().send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
 		if (res.CiphertextBlob) {
 			ciphertext = bytesToCipher(res.CiphertextBlob);
 		}
@@ -412,7 +439,7 @@ async function decrypt() {
 	if (!ciphertext) return;
 	try {
 		decrypting = true;
-		const res = await kms.send(new DecryptCommand({ CiphertextBlob: cipherToBytes(ciphertext) }));
+		const res = await kms().send(new DecryptCommand({ CiphertextBlob: cipherToBytes(ciphertext) }));
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
@@ -442,7 +469,7 @@ async function reEncrypt() {
 	if (!ciphertext || !reEncryptDestKeyId) return;
 	try {
 		reEncrypting = true;
-		const res = await kms.send(new ReEncryptCommand({
+		const res = await kms().send(new ReEncryptCommand({
 			CiphertextBlob: cipherToBytes(ciphertext),
 			DestinationKeyId: reEncryptDestKeyId
 		}));
@@ -467,7 +494,7 @@ async function openSignModal(key: KMSKey) {
 	verifySig = '';
 	verifyResult = null;
 	try {
-		const pub = await kms.send(new GetPublicKeyCommand({ KeyId: signKeyId }));
+		const pub = await kms().send(new GetPublicKeyCommand({ KeyId: signKeyId }));
 		if (pub.SigningAlgorithms && pub.SigningAlgorithms.length > 0) {
 			signAlgorithm = pub.SigningAlgorithms[0];
 		}
@@ -479,7 +506,7 @@ async function signData() {
 	if (!signMessage) return;
 	try {
 		signing = true;
-		const res = await kms.send(new SignCommand({
+		const res = await kms().send(new SignCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(signMessage),
 			MessageType: signMessageType,
@@ -495,7 +522,7 @@ async function verifyData() {
 	if (!verifyMessage || !verifySig) return;
 	try {
 		verifying = true;
-		const res = await kms.send(new VerifyCommand({
+		const res = await kms().send(new VerifyCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(verifyMessage),
 			MessageType: signMessageType,
@@ -513,7 +540,7 @@ async function openRotationModal(key: KMSKey) {
 	rotationStatus = null;
 	rotationHistory = [];
 	try {
-		const res = await kms.send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const res = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationEnabled = res.KeyRotationEnabled ?? false;
 		rotationPeriodDays = res.RotationPeriodInDays ?? 365;
 		rotationStatus = {
@@ -528,7 +555,7 @@ async function openRotationModal(key: KMSKey) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load rotation status');
 	}
 	try {
-		const hist = await kms.send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		const hist = await kms().send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
 		rotationHistory = (hist.Rotations ?? []).map(r => ({
 			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
 			RotationType: (r as { RotationType?: string }).RotationType,
@@ -542,15 +569,15 @@ async function toggleRotation() {
 	try {
 		togglingRotation = true;
 		if (rotationEnabled) {
-			await kms.send(new DisableKeyRotationCommand({ KeyId: rotationKeyId }));
+			await kms().send(new DisableKeyRotationCommand({ KeyId: rotationKeyId }));
 			rotationEnabled = false;
 			toast.success('Rotation disabled');
 		} else {
-			await kms.send(new EnableKeyRotationCommand({ KeyId: rotationKeyId, RotationPeriodInDays: rotationPeriodDays }));
+			await kms().send(new EnableKeyRotationCommand({ KeyId: rotationKeyId, RotationPeriodInDays: rotationPeriodDays }));
 			rotationEnabled = true;
 			toast.success('Rotation enabled');
 		}
-		const s = await kms.send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const s = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
@@ -567,9 +594,9 @@ async function toggleRotation() {
 async function rotateOnDemand() {
 	try {
 		rotatingOnDemand = true;
-		await kms.send(new RotateKeyOnDemandCommand({ KeyId: rotationKeyId }));
+		await kms().send(new RotateKeyOnDemandCommand({ KeyId: rotationKeyId }));
 		toast.success('Key material rotated on demand');
-		const s = await kms.send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const s = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
@@ -578,7 +605,7 @@ async function rotateOnDemand() {
 				? ((s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate!.getTime() / 1000)
 				: undefined
 		};
-		const hist = await kms.send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		const hist = await kms().send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
 		rotationHistory = (hist.Rotations ?? []).map(r => ({
 			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
 			RotationType: (r as { RotationType?: string }).RotationType,
@@ -600,13 +627,13 @@ async function scheduleOrCancelDeletion() {
 	try {
 		schedulingDeletion = true;
 		if (deletionKeyState === 'PendingDeletion') {
-			const res = await kms.send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
+			const res = await kms().send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
 			// Update the key state from the response if available.
 			const newState = (res as { KeyState?: string }).KeyState;
 			if (newState) { deletionKeyState = newState; }
 			toast.success('Key deletion cancelled');
 		} else {
-			await kms.send(new ScheduleKeyDeletionCommand({ KeyId: deletionKeyId, PendingWindowInDays: pendingWindowDays }));
+			await kms().send(new ScheduleKeyDeletionCommand({ KeyId: deletionKeyId, PendingWindowInDays: pendingWindowDays }));
 			toast.success(`Key scheduled for deletion in ${pendingWindowDays} days`);
 		}
 		showDeletionModal = false;
@@ -628,7 +655,7 @@ async function seedDemoData() {
 			{ Description: 'Demo: ECC Sign Key', KeySpec: 'ECC_NIST_P256', KeyUsage: 'SIGN_VERIFY' },
 		];
 		for (const k of demoKeys) {
-			await kms.send(new CreateKeyCommand(k));
+			await kms().send(new CreateKeyCommand(k));
 		}
 		toast.success(`Seeded ${demoKeys.length} demo KMS keys`);
 		await loadKeys();
@@ -641,7 +668,7 @@ async function createAlias() {
 	if (!newAliasName || !newAliasKeyId) return;
 	try {
 		creatingAlias = true;
-		await kms.send(new CreateAliasCommand({ AliasName: newAliasName, TargetKeyId: newAliasKeyId }));
+		await kms().send(new CreateAliasCommand({ AliasName: newAliasName, TargetKeyId: newAliasKeyId }));
 		toast.success(`Alias created`);
 		showAliasCreateModal = false;
 		newAliasName = '';
@@ -662,7 +689,7 @@ async function updateAlias() {
 	if (!editAliasName || !editAliasTargetKeyId) return;
 	try {
 		updatingAlias = true;
-		await kms.send(new UpdateAliasCommand({ AliasName: editAliasName, TargetKeyId: editAliasTargetKeyId }));
+		await kms().send(new UpdateAliasCommand({ AliasName: editAliasName, TargetKeyId: editAliasTargetKeyId }));
 		toast.success('Alias updated');
 		showAliasUpdateModal = false;
 		await loadAliases();
@@ -673,7 +700,7 @@ async function updateAlias() {
 
 async function deleteAlias(aliasName: string) {
 	try {
-		await kms.send(new DeleteAliasCommand({ AliasName: aliasName }));
+		await kms().send(new DeleteAliasCommand({ AliasName: aliasName }));
 		toast.success('Alias deleted');
 		await loadAliases();
 	} catch (e) {
@@ -687,7 +714,7 @@ async function openTagModal(key: KMSKey) {
 	newTagKey = '';
 	newTagValue = '';
 	try {
-		const res = await kms.send(new ListResourceTagsCommand({ KeyId: tagKeyId }));
+		const res = await kms().send(new ListResourceTagsCommand({ KeyId: tagKeyId }));
 		keyTags = (res.Tags ?? []).map(t => ({ TagKey: t.TagKey ?? '', TagValue: t.TagValue ?? '' }));
 	} catch { keyTags = []; }
 	showTagModal = true;
@@ -697,7 +724,7 @@ async function addTag() {
 	if (!newTagKey) return;
 	try {
 		savingTags = true;
-		await kms.send(new TagResourceCommand({ KeyId: tagKeyId, Tags: [{ TagKey: newTagKey, TagValue: newTagValue }] }));
+		await kms().send(new TagResourceCommand({ KeyId: tagKeyId, Tags: [{ TagKey: newTagKey, TagValue: newTagValue }] }));
 		keyTags = [...keyTags, { TagKey: newTagKey, TagValue: newTagValue }];
 		newTagKey = '';
 		newTagValue = '';
@@ -709,7 +736,7 @@ async function addTag() {
 
 async function removeTag(tagKey: string) {
 	try {
-		await kms.send(new UntagResourceCommand({ KeyId: tagKeyId, TagKeys: [tagKey] }));
+		await kms().send(new UntagResourceCommand({ KeyId: tagKeyId, TagKeys: [tagKey] }));
 		keyTags = keyTags.filter(t => t.TagKey !== tagKey);
 		toast.success('Tag removed');
 	} catch (e) {
@@ -721,7 +748,7 @@ async function openPolicyModal(key: KMSKey) {
 	policyKeyId = key.KeyId ?? '';
 	policyContent = '';
 	try {
-		const res = await kms.send(new GetKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default' }));
+		const res = await kms().send(new GetKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default' }));
 		policyContent = res.Policy ? JSON.stringify(JSON.parse(res.Policy), null, 2) : '{}';
 	} catch { policyContent = '{}'; }
 	showPolicyModal = true;
@@ -730,7 +757,7 @@ async function openPolicyModal(key: KMSKey) {
 async function savePolicy() {
 	try {
 		savingPolicy = true;
-		await kms.send(new PutKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default', Policy: policyContent }));
+		await kms().send(new PutKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default', Policy: policyContent }));
 		toast.success('Key policy updated');
 		showPolicyModal = false;
 	} catch (e) {
@@ -744,7 +771,7 @@ async function openGrantModal(key: KMSKey) {
 	newGrantPrincipal = '';
 	newGrantOps = 'Decrypt,Encrypt';
 	try {
-		const res = await kms.send(new ListGrantsCommand({ KeyId: grantKeyId }));
+		const res = await kms().send(new ListGrantsCommand({ KeyId: grantKeyId }));
 		keyGrants = (res.Grants ?? []) as Grant[];
 	} catch { keyGrants = []; }
 	showGrantModal = true;
@@ -755,9 +782,9 @@ async function createGrant() {
 	try {
 		creatingGrant = true;
 		const ops = newGrantOps.split(',').map((s: string) => s.trim()).filter((s): s is GrantOperation => s.length > 0);
-		await kms.send(new CreateGrantCommand({ KeyId: grantKeyId, GranteePrincipal: newGrantPrincipal, Operations: ops }));
+		await kms().send(new CreateGrantCommand({ KeyId: grantKeyId, GranteePrincipal: newGrantPrincipal, Operations: ops }));
 		toast.success('Grant created');
-		const res = await kms.send(new ListGrantsCommand({ KeyId: grantKeyId }));
+		const res = await kms().send(new ListGrantsCommand({ KeyId: grantKeyId }));
 		keyGrants = (res.Grants ?? []) as Grant[];
 		newGrantPrincipal = '';
 	} catch (e) {
@@ -767,7 +794,7 @@ async function createGrant() {
 
 async function revokeGrant(grantId: string) {
 	try {
-		await kms.send(new RevokeGrantCommand({ KeyId: grantKeyId, GrantId: grantId }));
+		await kms().send(new RevokeGrantCommand({ KeyId: grantKeyId, GrantId: grantId }));
 		toast.success('Grant revoked');
 		keyGrants = keyGrants.filter(g => g.GrantId !== grantId);
 	} catch (e) {

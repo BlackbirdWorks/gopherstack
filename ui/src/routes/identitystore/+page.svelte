@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getIdentityStoreClient } from '$lib/aws-client';
 import {
 CreateGroupCommand,
@@ -18,7 +19,7 @@ UpdateUserCommand
 import { toast } from 'svelte-sonner';
 import { Copy, RefreshCw, Beaker, ChevronUp, ChevronDown, X, Users, Layers } from 'lucide-svelte';
 
-const identityStore = getIdentityStoreClient();
+const identityStore = regionalClient(getIdentityStoreClient);
 const defaultStoreID = 'd-0000000000';
 
 type IdentityUser = {
@@ -182,14 +183,14 @@ groupSortAsc = true;
 // ---- Data loading ----
 
 async function loadUsers() {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListUsersCommand({ IdentityStoreId: effectiveStoreID() })
 );
 users = (out.Users ?? []) as IdentityUser[];
 }
 
 async function loadGroups() {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupsCommand({ IdentityStoreId: effectiveStoreID() })
 );
 groups = (out.Groups ?? []) as IdentityGroup[];
@@ -200,7 +201,7 @@ const entries = await Promise.all(
 grps.map(async (g) => {
 if (!g.GroupId) return [g.GroupId ?? '', 0] as [string, number];
 try {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: g.GroupId
@@ -220,7 +221,7 @@ if (!user.UserId) {
 membershipsForUser = {};
 return;
 }
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsForMemberCommand({
 IdentityStoreId: effectiveStoreID(),
 MemberId: { UserId: user.UserId }
@@ -256,7 +257,7 @@ loading = false;
 
 async function createUser() {
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserName: userName,
@@ -286,7 +287,7 @@ toast.error(`Failed to create user: ${(err as Error).message}`);
 
 async function createGroup() {
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 DisplayName: groupDisplayName,
@@ -324,7 +325,7 @@ async function addMembership() {
 if (!membershipUser?.UserId || !selectedMembershipGroupID) return;
 membershipLoading = true;
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: selectedMembershipGroupID,
@@ -346,7 +347,7 @@ async function removeMembership(membershipID?: string) {
 if (!membershipID || !membershipUser?.UserId) return;
 membershipLoading = true;
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 MembershipId: membershipID
@@ -379,7 +380,7 @@ if (!profileUser?.UserId) return;
 const id = profileUser.UserId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new UpdateUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserId: profileUser.UserId,
@@ -426,7 +427,7 @@ if (!deleteUserTarget?.UserId) return;
 const id = deleteUserTarget.UserId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserId: deleteUserTarget.UserId
@@ -451,7 +452,7 @@ if (!deleteGroupTarget?.GroupId) return;
 const id = deleteGroupTarget.GroupId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: deleteGroupTarget.GroupId
@@ -483,7 +484,7 @@ if (!editGroupTarget?.GroupId) return;
 const id = editGroupTarget.GroupId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new UpdateGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: editGroupTarget.GroupId,
@@ -512,7 +513,7 @@ membersOfGroup = [];
 membershipsOfGroup = [];
 showViewMembersModal = true;
 try {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: group.GroupId!
@@ -533,7 +534,7 @@ if (!membershipID || !viewMembersGroup) return;
 const id = membershipID;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 MembershipId: membershipID
@@ -569,7 +570,7 @@ const demoUsers = [
 const createdUserIDs: string[] = [];
 for (const u of demoUsers) {
 try {
-const r = await identityStore.send(new CreateUserCommand({
+const r = await identityStore().send(new CreateUserCommand({
 IdentityStoreId: storeID,
 UserName: u.userName,
 DisplayName: `${u.givenName} ${u.familyName}`,
@@ -593,7 +594,7 @@ const demoGroups = [
 const createdGroupIDs: string[] = [];
 for (const g of demoGroups) {
 try {
-const r = await identityStore.send(new CreateGroupCommand({
+const r = await identityStore().send(new CreateGroupCommand({
 IdentityStoreId: storeID,
 DisplayName: g.name,
 Description: g.description
@@ -609,7 +610,7 @@ const plan: Array<[number, number]> = [[0,0],[3,0],[1,1],[2,2],[3,2]];
 for (const [ui, gi] of plan) {
 if (createdUserIDs[ui] && createdGroupIDs[gi]) {
 try {
-await identityStore.send(new CreateGroupMembershipCommand({
+await identityStore().send(new CreateGroupMembershipCommand({
 IdentityStoreId: storeID,
 GroupId: createdGroupIDs[gi],
 MemberId: { UserId: createdUserIDs[ui] }
@@ -646,8 +647,30 @@ function handleKeydown(event: KeyboardEvent) {
 if (event.key === 'Escape') closeAllModals();
 }
 
-onMount(() => {
+// Users, groups, and every user/group-scoped selection below are looked up
+// by ID in the emulator via a region-composite key (services/identitystore:
+// regionKey(region, id)), so they are region-scoped and must be cleared (not
+// just reloaded) on a region switch, along with any open modal referencing
+// them. The keydown listener is genuine setup, so it stays in onMount;
+// only the load path moves to onRegionChange.
+onRegionChange(() => {
+users = [];
+groups = [];
+membershipsForUser = {};
+groupMemberCounts = {};
+membershipUser = null;
+profileUser = null;
+editGroupTarget = null;
+deleteUserTarget = null;
+deleteGroupTarget = null;
+viewMembersGroup = null;
+membersOfGroup = [];
+membershipsOfGroup = [];
+closeAllModals();
 void refresh();
+});
+
+onMount(() => {
 window.addEventListener('keydown', handleKeydown);
 return () => window.removeEventListener('keydown', handleKeydown);
 });

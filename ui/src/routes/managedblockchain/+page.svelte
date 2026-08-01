@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getManagedBlockchainClient } from '$lib/aws-client';
 	import {
 		ListNetworksCommand,
@@ -54,7 +55,7 @@
 		Activity
 	} from 'lucide-svelte';
 
-	const client = getManagedBlockchainClient();
+	const client = regionalClient(getManagedBlockchainClient);
 
 	type Tab = 'networks' | 'accessors' | 'proposals' | 'invitations' | 'topology';
 	let activeTab = $state<Tab>('networks');
@@ -178,7 +179,7 @@
 	async function loadNetworks() {
 		loadingNetworks = true;
 		try {
-			const r = await client.send(new ListNetworksCommand({}));
+			const r = await client().send(new ListNetworksCommand({}));
 			networks = r.Networks ?? [];
 		} catch (e) {
 			toast.error('Failed to load networks: ' + String(e));
@@ -190,7 +191,7 @@
 	async function loadMembers(networkId: string) {
 		loadingMembers = { ...loadingMembers, [networkId]: true };
 		try {
-			const r = await client.send(new ListMembersCommand({ NetworkId: networkId }));
+			const r = await client().send(new ListMembersCommand({ NetworkId: networkId }));
 			membersByNetwork = { ...membersByNetwork, [networkId]: r.Members ?? [] };
 		} catch (e) {
 			toast.error('Failed to load members: ' + String(e));
@@ -203,7 +204,7 @@
 		const key = nodeKey(networkId, memberId);
 		loadingNodes = { ...loadingNodes, [key]: true };
 		try {
-			const r = await client.send(new ListNodesCommand({ NetworkId: networkId, MemberId: memberId }));
+			const r = await client().send(new ListNodesCommand({ NetworkId: networkId, MemberId: memberId }));
 			nodesByMember = { ...nodesByMember, [key]: r.Nodes ?? [] };
 		} catch (e) {
 			toast.error('Failed to load nodes: ' + String(e));
@@ -215,7 +216,7 @@
 	async function loadAccessors() {
 		loadingAccessors = true;
 		try {
-			const r = await client.send(new ListAccessorsCommand({}));
+			const r = await client().send(new ListAccessorsCommand({}));
 			accessors = r.Accessors ?? [];
 		} catch (e) {
 			toast.error('Failed to load accessors: ' + String(e));
@@ -228,7 +229,7 @@
 		if (!proposalNetworkId) return;
 		loadingProposals = true;
 		try {
-			const r = await client.send(new ListProposalsCommand({ NetworkId: proposalNetworkId }));
+			const r = await client().send(new ListProposalsCommand({ NetworkId: proposalNetworkId }));
 			proposals = r.Proposals ?? [];
 		} catch (e) {
 			toast.error('Failed to load proposals: ' + String(e));
@@ -242,8 +243,8 @@
 		try {
 			const proposalId = p.ProposalId ?? '';
 			const [fullR, votesR] = await Promise.all([
-				client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
-				client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+				client().send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+				client().send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
 			]);
 			selectedProposal = fullR.Proposal ?? null;
 			proposalVotes = votesR.ProposalVotes ?? [];
@@ -257,7 +258,7 @@
 	async function loadInvitations() {
 		loadingInvitations = true;
 		try {
-			const r = await client.send(new ListInvitationsCommand({}));
+			const r = await client().send(new ListInvitationsCommand({}));
 			invitations = r.Invitations ?? [];
 		} catch (e) {
 			toast.error('Failed to load invitations: ' + String(e));
@@ -269,12 +270,12 @@
 	async function loadTopology() {
 		loadingTopo = true;
 		try {
-			const r = await client.send(new ListNetworksCommand({}));
+			const r = await client().send(new ListNetworksCommand({}));
 			const nets = r.Networks ?? [];
 			const results = await Promise.all(
 				nets.map(async (n) => {
 					try {
-						const m = await client.send(new ListMembersCommand({ NetworkId: n.Id! }));
+						const m = await client().send(new ListMembersCommand({ NetworkId: n.Id! }));
 						return { id: n.Id!, name: n.Name!, status: n.Status!, memberCount: (m.Members ?? []).length };
 					} catch {
 						return { id: n.Id!, name: n.Name!, status: n.Status!, memberCount: 0 };
@@ -297,7 +298,7 @@
 		}
 		creatingNetwork = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateNetworkCommand({
 					Name: newNetworkName,
 					Description: newNetworkDesc,
@@ -359,7 +360,7 @@
 		}
 		creatingMember = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateMemberCommand({
 					NetworkId: createMemberNetworkId,
 					InvitationId: 'N/A',
@@ -390,7 +391,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteMemberCommand({ NetworkId: networkId, MemberId: memberId }));
+			await client().send(new DeleteMemberCommand({ NetworkId: networkId, MemberId: memberId }));
 			toast.success('Member deleted');
 			await loadMembers(networkId);
 		} catch (e) {
@@ -401,7 +402,7 @@
 	async function updateMember() {
 		editingMember = true;
 		try {
-			await client.send(
+			await client().send(
 				new UpdateMemberCommand({
 					NetworkId: editMemberNetworkId,
 					MemberId: editMemberId
@@ -424,7 +425,7 @@
 		}
 		creatingNode = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateNodeCommand({
 					NetworkId: createNodeNetworkId,
 					MemberId: createNodeMemberId,
@@ -451,7 +452,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(
+			await client().send(
 				new DeleteNodeCommand({ NetworkId: networkId, MemberId: memberId, NodeId: nodeId })
 			);
 			toast.success('Node deleted');
@@ -463,7 +464,7 @@
 
 	async function patchNode(networkId: string, memberId: string, nodeId: string) {
 		try {
-			await client.send(
+			await client().send(
 				new UpdateNodeCommand({ NetworkId: networkId, MemberId: memberId, NodeId: nodeId })
 			);
 			toast.success('Node updated');
@@ -475,7 +476,7 @@
 	async function createAccessor() {
 		creatingAccessor = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateAccessorCommand({
 					AccessorType: newAccessorType as 'BILLING_TOKEN',
 					NetworkType: newAccessorNetworkType
@@ -499,7 +500,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteAccessorCommand({ AccessorId: accessorId }));
+			await client().send(new DeleteAccessorCommand({ AccessorId: accessorId }));
 			toast.success('Accessor deleted');
 			await loadAccessors();
 		} catch (e) {
@@ -514,7 +515,7 @@
 		}
 		creatingProposal = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateProposalCommand({
 					NetworkId: proposalNetworkId,
 					MemberId: newProposalMemberId,
@@ -541,7 +542,7 @@
 		}
 		castingVote = true;
 		try {
-			await client.send(
+			await client().send(
 				new VoteOnProposalCommand({
 					NetworkId: proposalNetworkId,
 					ProposalId: voteProposalId,
@@ -555,8 +556,8 @@
 			if (selectedProposal?.ProposalId) {
 				const proposalId = selectedProposal.ProposalId;
 				const [fullR, votesR] = await Promise.all([
-					client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
-					client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+					client().send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+					client().send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
 				]);
 				if (fullR.Proposal) selectedProposal = fullR.Proposal;
 				proposalVotes = votesR.ProposalVotes ?? [];
@@ -576,7 +577,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new RejectInvitationCommand({ InvitationId: invitationId }));
+			await client().send(new RejectInvitationCommand({ InvitationId: invitationId }));
 			toast.success('Invitation rejected');
 			await loadInvitations();
 		} catch (e) {
@@ -585,8 +586,39 @@
 	}
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
-	onMount(() => {
-		loadNetworks();
+	// Networks and everything nested under them (members, nodes), plus
+	// accessors, proposals, invitations, and topology, are all region-scoped,
+	// so a region switch must clear them (not just reload) and re-run whatever
+	// tab is currently active. `activeTab` is read with `untrack` because it is
+	// also written by the tab-switch buttons below: without it, this effect
+	// would depend on `activeTab` too and wipe all this state on every tab
+	// click, not just on a region change.
+	onRegionChange(() => {
+		networks = [];
+		membersByNetwork = {};
+		nodesByMember = {};
+		expandedNetworks = new Set();
+		expandedMembers = new Set();
+		selectedNetworkId = null;
+		accessors = [];
+		proposalNetworkId = '';
+		proposals = [];
+		selectedProposal = null;
+		proposalVotes = [];
+		invitations = [];
+		topoNetworks = [];
+		showCreateNetwork = false;
+		showCreateMember = false;
+		showEditMember = false;
+		showCreateNode = false;
+		showCreateAccessor = false;
+		showCreateProposal = false;
+		showVoteForm = false;
+		void loadNetworks();
+		const tab = untrack(() => activeTab);
+		if (tab === 'accessors') void loadAccessors();
+		else if (tab === 'invitations') void loadInvitations();
+		else if (tab === 'topology') void loadTopology();
 	});
 
 	$effect(() => {

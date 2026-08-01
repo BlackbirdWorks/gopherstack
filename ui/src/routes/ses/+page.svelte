@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSESClient } from '$lib/aws-client';
 	import {
 		ListIdentitiesCommand,
@@ -20,7 +21,6 @@
 		DeleteReceiptRuleSetCommand,
 		DescribeReceiptRuleSetCommand,
 		TestRenderTemplateCommand,
-		type SESClient,
 		type IdentityVerificationAttributes
 	} from '@aws-sdk/client-ses';
 	import { toast } from 'svelte-sonner';
@@ -40,10 +40,7 @@
 		Filter
 	} from 'lucide-svelte';
 
-	let sesClient: SESClient | undefined;
-	function ses(): SESClient {
-		return (sesClient ??= getSESClient());
-	}
+	const ses = regionalClient(getSESClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'identities' | 'templates' | 'send' | 'configsets' | 'receiptrules' | 'emails'>('identities');
@@ -467,7 +464,34 @@
 		else if (tab === 'emails') await loadEmails();
 	}
 
-	onMount(() => loadIdentities());
+	// Every tab's data (identities, templates, config sets, receipt rule sets,
+	// sent emails) is region-scoped, so a region switch must clear it (not
+	// just reload) and then reload whichever tab is currently active.
+	// `activeTab` is read via `untrack` because the tab buttons below also
+	// write it — without that, this effect would depend on `activeTab` too
+	// and re-clear/re-fetch everything on every tab click, not just on a
+	// region change.
+	onRegionChange(() => {
+		identities = [];
+		verificationAttrs = {};
+		templates = [];
+		selectedTemplate = null;
+		testRenderResult = '';
+		configSets = [];
+		receiptRuleSets = [];
+		selectedRuleSet = null;
+		emails = [];
+		showVerifyModal = false;
+		showCreateTemplateModal = false;
+		showCreateConfigSetModal = false;
+		showCreateRuleSetModal = false;
+		const tab = untrack(() => activeTab);
+		if (tab === 'templates') void loadTemplates();
+		else if (tab === 'configsets') void loadConfigSets();
+		else if (tab === 'receiptrules') void loadReceiptRuleSets();
+		else if (tab === 'emails') void loadEmails();
+		else void loadIdentities();
+	});
 </script>
 
 <div class="space-y-6">

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getGlacierClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -60,7 +61,7 @@
 		Filter,
 	} from 'lucide-svelte';
 
-	const glacier = getGlacierClient();
+	const glacier = regionalClient(getGlacierClient);
 
 	// Known Glacier SNS event types
 	const KNOWN_SNS_EVENTS = [
@@ -240,7 +241,7 @@
 	async function loadVaults() {
 		loading = true;
 		try {
-			const res = await glacier.send(new ListVaultsCommand({ accountId: '-' }));
+			const res = await glacier().send(new ListVaultsCommand({ accountId: '-' }));
 			vaults = res.VaultList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load vaults: ${extractErrorMessage(err)}`);
@@ -253,7 +254,7 @@
 		if (!newVaultName.trim()) return;
 		creating = true;
 		try {
-			await glacier.send(new CreateVaultCommand({ accountId: '-', vaultName: newVaultName.trim() }));
+			await glacier().send(new CreateVaultCommand({ accountId: '-', vaultName: newVaultName.trim() }));
 			toast.success(`Vault "${newVaultName.trim()}" created`);
 			newVaultName = '';
 			showCreateModal = false;
@@ -276,7 +277,7 @@
 			message: `Delete vault "${name}"?${archiveWarning} This cannot be undone.`
 		}))) return;
 		try {
-			await glacier.send(new DeleteVaultCommand({ accountId: '-', vaultName: name }));
+			await glacier().send(new DeleteVaultCommand({ accountId: '-', vaultName: name }));
 			toast.success(`Vault "${name}" deleted`);
 			if (selectedVault?.VaultName === name) selectedVault = null;
 			await loadVaults();
@@ -288,7 +289,7 @@
 	async function refreshVaultDetails() {
 		if (!selectedVault?.VaultName) return;
 		try {
-			const res = await glacier.send(new DescribeVaultCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
+			const res = await glacier().send(new DescribeVaultCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
 			selectedVault = res;
 			// Also update the vault in the list
 			vaults = vaults.map(v => v.VaultName === res.VaultName ? res : v);
@@ -299,7 +300,7 @@
 
 	async function selectVault(v: DescribeVaultOutput) {
 		try {
-			const res = await glacier.send(new DescribeVaultCommand({ accountId: '-', vaultName: v.VaultName! }));
+			const res = await glacier().send(new DescribeVaultCommand({ accountId: '-', vaultName: v.VaultName! }));
 			selectedVault = res;
 		} catch {
 			selectedVault = v;
@@ -342,7 +343,7 @@
 		uploading = true;
 		try {
 			const body = new Uint8Array(await uploadFile.arrayBuffer());
-			const res = await glacier.send(new UploadArchiveCommand({
+			const res = await glacier().send(new UploadArchiveCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				body,
@@ -365,7 +366,7 @@
 		if (!deleteArchiveId.trim() || !selectedVault?.VaultName) return;
 		deletingArchive = true;
 		try {
-			await glacier.send(new DeleteArchiveCommand({
+			await glacier().send(new DeleteArchiveCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				archiveId: deleteArchiveId.trim(),
@@ -386,7 +387,7 @@
 	async function loadJobs(name: string) {
 		loadingJobs = true;
 		try {
-			const res = await glacier.send(new ListJobsCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new ListJobsCommand({ accountId: '-', vaultName: name }));
 			jobs = res.JobList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load jobs: ${extractErrorMessage(err)}`);
@@ -431,7 +432,7 @@
 			if (jobType === 'inventory-retrieval') params.Format = inventoryFormat;
 			if (jobDescription.trim()) params.Description = jobDescription.trim();
 
-			await glacier.send(new InitiateJobCommand({
+			await glacier().send(new InitiateJobCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				jobParameters: params,
@@ -453,7 +454,7 @@
 		loadingJobDetails = true;
 		jobDetails = null;
 		try {
-			const res = await glacier.send(new DescribeJobCommand({
+			const res = await glacier().send(new DescribeJobCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				jobId,
@@ -474,7 +475,7 @@
 		await describeJob(job.JobId);
 		loadingJobOutput = true;
 		try {
-			const res = await glacier.send(new GetJobOutputCommand({
+			const res = await glacier().send(new GetJobOutputCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				jobId: job.JobId,
@@ -506,7 +507,7 @@
 	async function loadTags(name: string) {
 		loadingTags = true;
 		try {
-			const res = await glacier.send(new ListTagsForVaultCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new ListTagsForVaultCommand({ accountId: '-', vaultName: name }));
 			tags = res.Tags ?? {};
 		} catch (err: unknown) {
 			toast.error(`Failed to load tags: ${extractErrorMessage(err)}`);
@@ -521,7 +522,7 @@
 		if (newTagValue.length > 256) { toast.error('Tag value must be ≤ 256 characters'); return; }
 		taggingInFlight = true;
 		try {
-			await glacier.send(new AddTagsToVaultCommand({
+			await glacier().send(new AddTagsToVaultCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				Tags: { [newTagKey.trim()]: newTagValue.trim() },
@@ -541,7 +542,7 @@
 		if (!selectedVault?.VaultName) return;
 		taggingInFlight = true;
 		try {
-			await glacier.send(new RemoveTagsFromVaultCommand({
+			await glacier().send(new RemoveTagsFromVaultCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				TagKeys: [key],
@@ -559,7 +560,7 @@
 	async function loadPolicy(name: string) {
 		loadingPolicy = true;
 		try {
-			const res = await glacier.send(new GetVaultAccessPolicyCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new GetVaultAccessPolicyCommand({ accountId: '-', vaultName: name }));
 			accessPolicy = res.policy?.Policy ?? '';
 		} catch (err: unknown) {
 			const msg = extractErrorMessage(err);
@@ -580,7 +581,7 @@
 		policyError = '';
 		savingPolicy = true;
 		try {
-			await glacier.send(new SetVaultAccessPolicyCommand({
+			await glacier().send(new SetVaultAccessPolicyCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				policy: { Policy: policyDraft },
@@ -599,7 +600,7 @@
 		if (!selectedVault?.VaultName) return;
 		if (!(await confirmDestructive({ title: 'Delete Policy', message: 'Remove the vault access policy?' }))) return;
 		try {
-			await glacier.send(new DeleteVaultAccessPolicyCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
+			await glacier().send(new DeleteVaultAccessPolicyCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
 			accessPolicy = '';
 			editingPolicy = false;
 			toast.success('Policy deleted');
@@ -612,7 +613,7 @@
 	async function loadNotifications(name: string) {
 		loadingNotifications = true;
 		try {
-			const res = await glacier.send(new GetVaultNotificationsCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new GetVaultNotificationsCommand({ accountId: '-', vaultName: name }));
 			snsTopic = res.vaultNotificationConfig?.SNSTopic ?? '';
 			snsEvents = res.vaultNotificationConfig?.Events ?? [];
 		} catch (err: unknown) {
@@ -640,7 +641,7 @@
 		if (!selectedVault?.VaultName) return;
 		savingNotifications = true;
 		try {
-			await glacier.send(new SetVaultNotificationsCommand({
+			await glacier().send(new SetVaultNotificationsCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				vaultNotificationConfig: { SNSTopic: snsTopicDraft.trim(), Events: snsEventsDraft },
@@ -660,7 +661,7 @@
 		if (!selectedVault?.VaultName) return;
 		if (!(await confirmDestructive({ title: 'Delete Notifications', message: 'Remove vault notification config?' }))) return;
 		try {
-			await glacier.send(new DeleteVaultNotificationsCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
+			await glacier().send(new DeleteVaultNotificationsCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
 			snsTopic = '';
 			snsEvents = [];
 			toast.success('Notifications removed');
@@ -673,7 +674,7 @@
 	async function loadVaultLock(name: string) {
 		loadingLock = true;
 		try {
-			const res = await glacier.send(new GetVaultLockCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new GetVaultLockCommand({ accountId: '-', vaultName: name }));
 			vaultLock = {
 				Policy: res.Policy,
 				State: res.State,
@@ -696,7 +697,7 @@
 		if (!selectedVault?.VaultName) return;
 		lockActionInFlight = true;
 		try {
-			const res = await glacier.send(new InitiateVaultLockCommand({
+			const res = await glacier().send(new InitiateVaultLockCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				policy: lockPolicyDraft.trim() ? { Policy: lockPolicyDraft.trim() } : undefined,
@@ -717,7 +718,7 @@
 		if (!selectedVault?.VaultName || !lockIdInput.trim()) return;
 		lockActionInFlight = true;
 		try {
-			await glacier.send(new CompleteVaultLockCommand({
+			await glacier().send(new CompleteVaultLockCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				lockId: lockIdInput.trim(),
@@ -738,7 +739,7 @@
 		if (!(await confirmDestructive({ title: 'Abort Vault Lock', message: 'Abort the in-progress vault lock? The lock ID will be invalidated.' }))) return;
 		lockActionInFlight = true;
 		try {
-			await glacier.send(new AbortVaultLockCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
+			await glacier().send(new AbortVaultLockCommand({ accountId: '-', vaultName: selectedVault.VaultName }));
 			toast.success('Vault lock aborted');
 			lastLockId = '';
 			await loadVaultLock(selectedVault.VaultName);
@@ -753,7 +754,7 @@
 	async function loadMultipartUploads(name: string) {
 		loadingMultipart = true;
 		try {
-			const res = await glacier.send(new ListMultipartUploadsCommand({ accountId: '-', vaultName: name }));
+			const res = await glacier().send(new ListMultipartUploadsCommand({ accountId: '-', vaultName: name }));
 			multipartUploads = res.UploadsList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load multipart uploads: ${extractErrorMessage(err)}`);
@@ -766,7 +767,7 @@
 		if (!uploadId || !selectedVault?.VaultName) return;
 		if (!(await confirmDestructive({ title: 'Abort Upload', message: `Abort multipart upload ${uploadId.slice(0, 16)}…? All uploaded parts will be discarded.` }))) return;
 		try {
-			await glacier.send(new AbortMultipartUploadCommand({
+			await glacier().send(new AbortMultipartUploadCommand({
 				accountId: '-',
 				vaultName: selectedVault.VaultName,
 				uploadId,
@@ -782,7 +783,7 @@
 	async function loadDataRetrievalPolicy() {
 		loadingDataPolicy = true;
 		try {
-			const res = await glacier.send(new GetDataRetrievalPolicyCommand({ accountId: '-' }));
+			const res = await glacier().send(new GetDataRetrievalPolicyCommand({ accountId: '-' }));
 			dataRetrievalPolicy = res.Policy ?? null;
 		} catch (err: unknown) {
 			toast.error(`Failed to load data retrieval policy: ${extractErrorMessage(err)}`);
@@ -796,7 +797,7 @@
 		if (validationError) { toast.error(`Invalid JSON: ${validationError}`); return; }
 		savingDataPolicy = true;
 		try {
-			await glacier.send(new SetDataRetrievalPolicyCommand({
+			await glacier().send(new SetDataRetrievalPolicyCommand({
 				accountId: '-',
 				Policy: JSON.parse(dataPolicyDraft) as DataRetrievalPolicy,
 			}));
@@ -810,9 +811,25 @@
 		}
 	}
 
-	onMount(async () => {
-		await loadVaults();
-		await loadDataRetrievalPolicy();
+	// Vault list, selected vault, and every tab's cached data are region-scoped;
+	// a region switch must clear them (not just reload) so stale data from the
+	// old region never lingers, and must stop any in-flight auto-refresh timer
+	// (it closes over the old vault).
+	onRegionChange(() => {
+		selectedVault = null;
+		vaults = [];
+		jobs = [];
+		tags = {};
+		accessPolicy = '';
+		snsTopic = '';
+		snsEvents = [];
+		vaultLock = null;
+		multipartUploads = [];
+		lastUploadedArchiveId = '';
+		dataRetrievalPolicy = null;
+		stopAutoRefresh();
+		void loadVaults();
+		void loadDataRetrievalPolicy();
 	});
 
 	onDestroy(stopAutoRefresh);

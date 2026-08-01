@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getServerlessRepoClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -51,7 +51,7 @@
 		Clock
 	} from 'lucide-svelte';
 
-	const slr = getServerlessRepoClient();
+	const slr = regionalClient(getServerlessRepoClient);
 
 	// ── State ────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -126,7 +126,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const res = await slr.send(new ListApplicationsCommand({}));
+			const res = await slr().send(new ListApplicationsCommand({}));
 			applications = res.Applications ?? [];
 		} catch (err) {
 			toast.error(`Failed to load applications: ${String(err)}`);
@@ -144,7 +144,7 @@
 	async function loadVersions(app: ApplicationSummary) {
 		loadingVersions = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new ListApplicationVersionsCommand({ ApplicationId: app.ApplicationId })
 			);
 			versions = res.Versions ?? [];
@@ -158,7 +158,7 @@
 	async function loadPolicy(app: ApplicationSummary) {
 		loadingPolicy = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new GetApplicationPolicyCommand({ ApplicationId: app.ApplicationId })
 			);
 			policyStatements = res.Statements ?? [];
@@ -176,7 +176,7 @@
 		templateId = '';
 		try {
 			// Create a template, then poll for it
-			const createRes = await slr.send(
+			const createRes = await slr().send(
 				new CreateCloudFormationTemplateCommand({ ApplicationId: app.ApplicationId })
 			);
 			const tid = createRes.TemplateId ?? '';
@@ -186,7 +186,7 @@
 			if (tid && templateStatus === 'ACTIVE') return;
 			// Poll once more
 			if (tid) {
-				const getRes = await slr.send(
+				const getRes = await slr().send(
 					new GetCloudFormationTemplateCommand({
 						ApplicationId: app.ApplicationId,
 						TemplateId: tid
@@ -205,7 +205,7 @@
 	async function loadDependencies(app: ApplicationSummary) {
 		loadingDeps = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new ListApplicationDependenciesCommand({ ApplicationId: app.ApplicationId })
 			);
 			dependencies = res.Dependencies ?? [];
@@ -233,7 +233,7 @@
 		}
 		creating = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new CreateApplicationCommand({
 					Name: newName,
 					Description: newDesc,
@@ -276,7 +276,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await slr.send(new DeleteApplicationCommand({ ApplicationId: app.ApplicationId }));
+			await slr().send(new DeleteApplicationCommand({ ApplicationId: app.ApplicationId }));
 			toast.success(`Application "${app.Name}" deleted`);
 			if (selectedApp?.ApplicationId === app.ApplicationId) selectedApp = null;
 			await loadApps();
@@ -297,7 +297,7 @@
 		if (!selectedApp) return;
 		editing = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new UpdateApplicationCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Description: editDesc || undefined,
@@ -326,7 +326,7 @@
 		}
 		creatingVersion = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new CreateApplicationVersionCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					SemanticVersion: newVersionSemver,
@@ -360,7 +360,7 @@
 				...policyStatements,
 				{ Actions: policyActions, Principals: principals }
 			];
-			const res = await slr.send(
+			const res = await slr().send(
 				new PutApplicationPolicyCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Statements: newStmts
@@ -382,7 +382,7 @@
 		if (!selectedApp) return;
 		const newStmts = policyStatements.filter((_, i) => i !== idx);
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new PutApplicationPolicyCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Statements: newStmts
@@ -395,8 +395,23 @@
 		}
 	}
 
-	onMount(() => {
-		loadApps();
+	// Applications and every selected-app-scoped tab (versions, policy,
+	// template, dependencies) are region-scoped, so a region switch must clear
+	// them (not just reload) rather than keep showing the old region's app.
+	onRegionChange(() => {
+		applications = [];
+		selectedApp = null;
+		versions = [];
+		policyStatements = [];
+		templateStatus = '';
+		templateUrl = '';
+		templateId = '';
+		dependencies = [];
+		showCreate = false;
+		showCreateVersion = false;
+		showEdit = false;
+		showAddPolicy = false;
+		void loadApps();
 	});
 </script>
 

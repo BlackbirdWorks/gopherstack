@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSESv2Client } from '$lib/aws-client';
 	import {
 		CreateEmailIdentityCommand,
@@ -22,7 +23,6 @@
 		CreateContactCommand,
 		DeleteContactCommand,
 		UpdateContactCommand,
-		type SESv2Client,
 		type Contact
 	} from '@aws-sdk/client-sesv2';
 	import { toast } from 'svelte-sonner';
@@ -43,10 +43,7 @@
 		Pencil
 	} from 'lucide-svelte';
 
-	let sesv2Client: SESv2Client | undefined;
-	function sesv2(): SESv2Client {
-		return (sesv2Client ??= getSESv2Client());
-	}
+	const sesv2 = regionalClient(getSESv2Client);
 
 	type Tab = 'identities' | 'contact-lists' | 'suppression' | 'templates' | 'send' | 'account';
 
@@ -515,7 +512,28 @@
 		void onTabChange(activeTab);
 	}
 
-	onMount(() => loadIdentities());
+	// Every tab's data (identities, contact lists + their contacts,
+	// suppression list, templates, account info) is region-scoped, so a
+	// region switch must clear it (not just reload) and then reload whichever
+	// tab is currently active. `activeTab` is read via `untrack` because
+	// `onTabChange` also writes it — without that, this effect would depend
+	// on `activeTab` too and re-clear/re-fetch everything on every tab click,
+	// not just on a region change.
+	onRegionChange(() => {
+		identities = [];
+		contactLists = [];
+		suppressedAddresses = [];
+		templates = [];
+		accountInfo = null;
+		selectedContactList = null;
+		contacts = [];
+		showAddIdentityModal = false;
+		showAddContactListModal = false;
+		showAddSuppressionModal = false;
+		showCreateTemplateModal = false;
+		showAddContactModal = false;
+		void onTabChange(untrack(() => activeTab));
+	});
 </script>
 
 <div class="space-y-6">

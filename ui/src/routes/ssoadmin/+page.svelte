@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import {
 		AddRegionCommand,
 		CreateAccountAssignmentCommand,
@@ -29,18 +29,14 @@
 		PutInlinePolicyToPermissionSetCommand,
 		DeleteInlinePolicyFromPermissionSetCommand,
 		RemoveRegionCommand,
-		UpdateApplicationCommand,
-		type SSOAdminClient
+		UpdateApplicationCommand
 	} from '@aws-sdk/client-sso-admin';
 	import { toast } from 'svelte-sonner';
 
 	import { getSSOAdminClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 
-	let ssoadminClient: SSOAdminClient | undefined;
-	function ssoadmin(): SSOAdminClient {
-		return (ssoadminClient ??= getSSOAdminClient());
-	}
+	const ssoadmin = regionalClient(getSSOAdminClient);
 	const defaultAccountID = '123456789012';
 	const defaultProviderArn = 'arn:aws:sso::123456789012:applicationProvider/custom';
 
@@ -816,7 +812,15 @@
 		}
 	});
 
-	onMount(() => {
+	// SSO Admin's backend (services/ssoadmin) is a single shared instance
+	// constructed once at startup with a fixed default region — Provider.Init
+	// never threads the incoming request's region into store lookups the way
+	// identitystore's regionKey(region, id) does, so instances/permission
+	// sets/applications/etc. are account-scoped, not region-scoped, in this
+	// emulator. A region switch therefore doesn't need to clear this state,
+	// only rebuild the client (so a stale signing region isn't reused) and
+	// re-run the same initial load.
+	onRegionChange(() => {
 		void refreshAll();
 	});
 </script>
