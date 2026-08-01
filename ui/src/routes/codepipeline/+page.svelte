@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodePipelineClient } from '$lib/aws-client';
 	import {
 		ListPipelinesCommand,
@@ -13,7 +13,6 @@
 		ListWebhooksCommand,
 		PutApprovalResultCommand,
 		ListActionExecutionsCommand,
-		type CodePipelineClient,
 		type PipelineDeclaration,
 		type GetPipelineStateCommandOutput,
 		type StageState,
@@ -34,10 +33,7 @@
 		Database, Terminal
 	} from 'lucide-svelte';
 
-	let codepipelineClient: CodePipelineClient | undefined;
-	function codepipeline(): CodePipelineClient {
-		return (codepipelineClient ??= getCodePipelineClient());
-	}
+	const codepipeline = regionalClient(getCodePipelineClient);
 
 	// State
 	let loading = $state(false);
@@ -238,9 +234,7 @@
 		return 'text-slate-400';
 	}
 
-	onMount(() => {
-		loadPipelines();
-	});
+	onRegionChange(loadPipelines);
 </script>
 
 <div class="space-y-6">

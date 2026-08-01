@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCloudControlClient } from '$lib/aws-client';
 	import {
 		ListResourcesCommand,
@@ -14,7 +15,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Settings, RefreshCw, Search, Box, Activity, Edit, Plus, Eye, ChevronDown, ChevronRight, Info } from 'lucide-svelte';
 
-	const cc = getCloudControlClient();
+	const cc = regionalClient(getCloudControlClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'resources' | 'requests' | 'types'>('resources');
@@ -156,10 +157,14 @@
 
 	async function loadData() {
 		loading = true;
+		// `resourceType` is read with `untrack` so it never becomes a
+		// dependency of the `onRegionChange` effect below -- the resource
+		// type <select>'s onchange already calls loadData directly.
+		const currentResourceType = untrack(() => resourceType);
 		try {
 			const [resResp, reqResp] = await Promise.all([
-				cc.send(new ListResourcesCommand({ TypeName: resourceType })),
-				cc.send(new ListResourceRequestsCommand({}))
+				cc().send(new ListResourcesCommand({ TypeName: currentResourceType })),
+				cc().send(new ListResourceRequestsCommand({}))
 			]);
 			resources = resResp.ResourceDescriptions ?? [];
 			requests = reqResp.ResourceRequestStatusSummaries ?? [];
@@ -200,13 +205,13 @@
 		editorLoading = true;
 		try {
 			if (editorMode === 'create') {
-				const resp = await cc.send(
+				const resp = await cc().send(
 					new CreateResourceCommand({ TypeName: resourceType, DesiredState: editorJson })
 				);
 				const token = resp.ProgressEvent?.RequestToken;
 				toast.success(`Resource creation initiated${token ? ` (token: ${token.slice(0, 8)}…)` : ''}`);
 			} else {
-				await cc.send(
+				await cc().send(
 					new UpdateResourceCommand({
 						TypeName: resourceType,
 						Identifier: editorResourceId,
@@ -229,7 +234,7 @@
 		detailOpen = true;
 		detailResource = null;
 		try {
-			const resp = await cc.send(new GetResourceCommand({ TypeName: resourceType, Identifier: identifier }));
+			const resp = await cc().send(new GetResourceCommand({ TypeName: resourceType, Identifier: identifier }));
 			const desc = resp.ResourceDescription;
 			if (desc) {
 				detailResource = { identifier: desc.Identifier ?? identifier, properties: desc.Properties ?? '{}' };
@@ -247,7 +252,7 @@
 		requestDetailOpen = true;
 		requestDetail = null;
 		try {
-			const resp = await cc.send(new GetResourceRequestStatusCommand({ RequestToken: requestToken }));
+			const resp = await cc().send(new GetResourceRequestStatusCommand({ RequestToken: requestToken }));
 			requestDetail = resp.ProgressEvent ?? null;
 		} catch (e) {
 			toast.error('Failed to load request status: ' + String(e));
@@ -278,7 +283,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

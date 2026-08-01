@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getShieldClient } from '$lib/aws-client';
 	import {
 		ListProtectionsCommand,
@@ -33,7 +33,7 @@
 		PhoneCall, FileText, UserCheck, Siren
 	} from 'lucide-svelte';
 
-	const shield = getShieldClient();
+	const shield = regionalClient(getShieldClient);
 
 	// State
 	let loading = $state(false);
@@ -65,21 +65,21 @@
 	async function loadShield() {
 		loading = true;
 		try {
-			const res = await shield.send(new ListProtectionsCommand({}));
+			const res = await shield().send(new ListProtectionsCommand({}));
 			protections = res.Protections ?? [];
 
-			const subRes = await shield.send(new DescribeSubscriptionCommand({}));
+			const subRes = await shield().send(new DescribeSubscriptionCommand({}));
 			subscription = subRes.Subscription ?? null;
 
-			const stateRes = await shield.send(new GetSubscriptionStateCommand({}));
+			const stateRes = await shield().send(new GetSubscriptionStateCommand({}));
 			subscriptionState = stateRes.SubscriptionState || 'INACTIVE';
 
 			// Load attack timeline
-			const attackRes = await shield.send(new ListAttacksCommand({}));
+			const attackRes = await shield().send(new ListAttacksCommand({}));
 			attacks = attackRes.AttackSummaries ?? [];
 
 			// Load attack statistics
-			const statsRes = await shield.send(new DescribeAttackStatisticsCommand({}));
+			const statsRes = await shield().send(new DescribeAttackStatisticsCommand({}));
 			const items = statsRes.DataItems ?? [];
 			const range = statsRes.TimeRange;
 			const total = items.reduce((sum: number, item: { AttackCount?: number }) => sum + (item.AttackCount ?? 0), 0);
@@ -98,7 +98,7 @@
 	async function activateSubscription() {
 		loadingState = true;
 		try {
-			await shield.send(new CreateSubscriptionCommand({}));
+			await shield().send(new CreateSubscriptionCommand({}));
 			toast.success(`Shield Advanced subscription activated`);
 			await loadShield();
 		} catch (err: unknown) {
@@ -111,7 +111,7 @@
 	async function deleteProtection(id: string | undefined) {
 		if (!id || !await confirmDestructive({ title: 'Remove DDoS Protection', message: 'Remove Shield Advanced protection from this resource? The resource will no longer be monitored.', confirmLabel: 'Remove' })) return;
 		try {
-			await shield.send(new DeleteProtectionCommand({ ProtectionId: id }));
+			await shield().send(new DeleteProtectionCommand({ ProtectionId: id }));
 			toast.success(`Protection removed`);
 			await loadShield();
 		} catch (err: unknown) {
@@ -127,7 +127,7 @@
 		alarLoading = true;
 		try {
 			const action = alarAction === 'BLOCK' ? { Block: {} } : { Count: {} };
-			await shield.send(new EnableApplicationLayerAutomaticResponseCommand({
+			await shield().send(new EnableApplicationLayerAutomaticResponseCommand({
 				ResourceArn: alarResourceArn.trim(),
 				Action: action
 			}));
@@ -148,7 +148,7 @@
 		if (!await confirmDestructive({ title: 'Disable ALAR', message: 'Disable automatic layer 7 response for this resource?', confirmLabel: 'Disable' })) return;
 		alarLoading = true;
 		try {
-			await shield.send(new DisableApplicationLayerAutomaticResponseCommand({
+			await shield().send(new DisableApplicationLayerAutomaticResponseCommand({
 				ResourceArn: alarResourceArn.trim()
 			}));
 			toast.success('ALAR disabled for resource');
@@ -167,7 +167,7 @@
 		}
 		drtLoading = true;
 		try {
-			await shield.send(new AssociateDRTRoleCommand({ RoleArn: drtRoleArn.trim() }));
+			await shield().send(new AssociateDRTRoleCommand({ RoleArn: drtRoleArn.trim() }));
 			toast.success('DRT IAM role associated');
 			drtRoleArn = '';
 		} catch (err: unknown) {
@@ -184,7 +184,7 @@
 		}
 		drtLoading = true;
 		try {
-			await shield.send(new AssociateDRTLogBucketCommand({ LogBucket: drtLogBucket.trim() }));
+			await shield().send(new AssociateDRTLogBucketCommand({ LogBucket: drtLogBucket.trim() }));
 			toast.success('DRT log bucket associated');
 			drtLogBucket = '';
 		} catch (err: unknown) {
@@ -194,9 +194,7 @@
 		}
 	}
 
-	onMount(() => {
-		loadShield();
-	});
+	onRegionChange(loadShield);
 </script>
 
 <div class="space-y-6">

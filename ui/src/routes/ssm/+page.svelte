@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSSMClient } from '$lib/aws-client';
 	import {
 		DescribeParametersCommand,
@@ -17,7 +18,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Settings, Search, RefreshCw, Plus, Trash2, Eye, EyeOff, Edit2, Check, X, Calendar, FileText, Folder, ChevronRight, ChevronDown } from 'lucide-svelte';
 
-	const ssm = getSSMClient();
+	const ssm = regionalClient(getSSMClient);
 
 	let loading = $state(false);
 	let parameters = $state<ParameterMetadata[]>([]);
@@ -82,11 +83,16 @@
 
 	async function loadParameters() {
 		loading = true;
+		// `searchPath` is read with `untrack` so it never becomes a dependency
+		// of the `onRegionChange` effect below -- otherwise every keystroke in
+		// the bound search input would re-trigger that effect too, since the
+		// effect would end up reading `searchPath` on every run.
+		const currentSearchPath = untrack(() => searchPath.trim());
 		try {
-			if (searchPath.trim().startsWith('/')) {
+			if (currentSearchPath.startsWith('/')) {
 				// Path-based search
-				const res = await ssm.send(new GetParametersByPathCommand({
-					Path: searchPath.trim(),
+				const res = await ssm().send(new GetParametersByPathCommand({
+					Path: currentSearchPath,
 					Recursive: true,
 					WithDecryption: false,
 					MaxResults: 50
@@ -100,10 +106,10 @@
 					Version: p.Version
 				}));
 			} else {
-				const filters = searchPath.trim()
-					? [{ Key: 'Name', Option: 'Contains', Values: [searchPath.trim()] }]
+				const filters = currentSearchPath
+					? [{ Key: 'Name', Option: 'Contains', Values: [currentSearchPath] }]
 					: undefined;
-				const res = await ssm.send(new DescribeParametersCommand({
+				const res = await ssm().send(new DescribeParametersCommand({
 					ParameterFilters: filters,
 					MaxResults: 50
 				}));
@@ -122,7 +128,7 @@
 		showValue = false;
 		loadingValue = true;
 		try {
-			const res = await ssm.send(new GetParameterCommand({
+			const res = await ssm().send(new GetParameterCommand({
 				Name: param.Name,
 				WithDecryption: true
 			}));
@@ -160,7 +166,7 @@
 		if (!modalName.trim() || !modalValue.trim()) return;
 		saving = true;
 		try {
-			await ssm.send(new PutParameterCommand({
+			await ssm().send(new PutParameterCommand({
 				Name: modalName.trim(),
 				Value: modalValue,
 				Type: modalType,
@@ -181,7 +187,7 @@
 	async function deleteParameter(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Parameter', message: `Delete parameter "${name}"? Any applications reading this parameter will receive an error.` })) return;
 		try {
-			await ssm.send(new DeleteParameterCommand({ Name: name }));
+			await ssm().send(new DeleteParameterCommand({ Name: name }));
 			toast.success(`Parameter "${name}" deleted`);
 			if (selectedParam?.Name === name) { selectedParam = null; selectedValue = null; }
 			await loadParameters();
@@ -212,7 +218,7 @@
 	async function loadMaintenanceWindows() {
 		mwLoading = true;
 		try {
-			const res = await ssm.send(new DescribeMaintenanceWindowsCommand({ MaxResults: 50 }));
+			const res = await ssm().send(new DescribeMaintenanceWindowsCommand({ MaxResults: 50 }));
 			maintenanceWindows = (res.WindowIdentities ?? []) as MaintenanceWindowIdentity[];
 		} catch (err: unknown) {
 			toast.error(`Failed to load maintenance windows: ${(err as Error).message}`);
@@ -235,7 +241,7 @@
 		if (!mwName.trim() || !mwSchedule.trim()) return;
 		mwSaving = true;
 		try {
-			await ssm.send(new CreateMaintenanceWindowCommand({
+			await ssm().send(new CreateMaintenanceWindowCommand({
 				Name: mwName.trim(),
 				Description: mwDescription || undefined,
 				Schedule: mwSchedule.trim(),
@@ -256,7 +262,7 @@
 	async function deleteMW(windowId: string, name: string) {
 		if (!await confirmDestructive({ title: 'Delete Maintenance Window', message: `Delete maintenance window "${name}"?` })) return;
 		try {
-			await ssm.send(new DeleteMaintenanceWindowCommand({ WindowId: windowId }));
+			await ssm().send(new DeleteMaintenanceWindowCommand({ WindowId: windowId }));
 			toast.success(`Maintenance window "${name}" deleted`);
 			await loadMaintenanceWindows();
 		} catch (err: unknown) {
@@ -264,7 +270,7 @@
 		}
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadParameters();
 		loadMaintenanceWindows();
 	});

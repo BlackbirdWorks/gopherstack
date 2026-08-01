@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getPinpointClient } from '$lib/aws-client';
 	import {
 		GetAppsCommand,
@@ -14,7 +14,6 @@
 		DeleteJourneyCommand,
 		GetApplicationDateRangeKpiCommand,
 		UpdateCampaignCommand,
-		type PinpointClient,
 		type ApplicationResponse,
 		type CampaignResponse,
 		type SegmentResponse,
@@ -24,10 +23,7 @@
 	import { toast } from 'svelte-sonner';
 	import { MapPin, RefreshCw, Search, Megaphone, Users, Activity, GitBranch, Plus, Trash2, BarChart2, CalendarClock } from 'lucide-svelte';
 
-	let ppClient: PinpointClient | undefined;
-	function pp(): PinpointClient {
-		return (ppClient ??= getPinpointClient());
-	}
+	const pp = regionalClient(getPinpointClient);
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -264,7 +260,18 @@
 		}
 	}
 
-	onMount(loadData);
+	// `campaigns`/`segments`/`journeys`/`kpiData` are all drilled from
+	// `selectedAppId`, which belongs to the previous region -- clear it (and
+	// its dependent lists) so no stale cross-region data lingers, then
+	// reload the app list itself.
+	onRegionChange(() => {
+		selectedAppId = null;
+		campaigns = [];
+		segments = [];
+		journeys = [];
+		kpiData = null;
+		loadData();
+	});
 </script>
 
 <div class="p-6 space-y-6">

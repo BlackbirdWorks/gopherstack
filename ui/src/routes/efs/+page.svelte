@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getEFSClient } from '$lib/aws-client';
 	import {
 		CreateFileSystemCommand,
@@ -17,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2 } from 'lucide-svelte';
 
-	const client = getEFSClient();
+	const client = regionalClient(getEFSClient);
 
 	let loading = $state(false);
 	let fileSystems = $state<FileSystemDescription[]>([]);
@@ -65,10 +65,10 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const fsResp = await client.send(new DescribeFileSystemsCommand({}));
+			const fsResp = await client().send(new DescribeFileSystemsCommand({}));
 			fileSystems = fsResp.FileSystems ?? [];
 			if (fileSystems.length > 0) {
-				const mtResp = await client.send(
+				const mtResp = await client().send(
 					new DescribeMountTargetsCommand({ FileSystemId: fileSystems[0].FileSystemId })
 				);
 				mountTargets = mtResp.MountTargets ?? [];
@@ -84,7 +84,7 @@
 
 	async function loadMountTargets(fsId: string) {
 		try {
-			const mtResp = await client.send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
+			const mtResp = await client().send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
 			mountTargets = mtResp.MountTargets ?? [];
 		} catch (e) {
 			toast.error('Failed to load mount targets: ' + String(e));
@@ -94,7 +94,7 @@
 	async function loadAccessPoints(fsId: string) {
 		loadingAccessPoints = true;
 		try {
-			const res = await client.send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
+			const res = await client().send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
 			accessPoints = res.AccessPoints ?? [];
 		} catch (e) {
 			toast.error('Failed to load access points: ' + String(e));
@@ -110,7 +110,7 @@
 		}
 		creating = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateFileSystemCommand({
 					CreationToken: newCreationToken.trim(),
 					PerformanceMode: newPerformanceMode as 'generalPurpose' | 'maxIO',
@@ -143,7 +143,7 @@
 		)
 			return;
 		try {
-			await client.send(new DeleteFileSystemCommand({ FileSystemId: id }));
+			await client().send(new DeleteFileSystemCommand({ FileSystemId: id }));
 			toast.success(`File system ${id} deleted`);
 			if (selectedFS?.FileSystemId === id) { selectedFS = null; accessPoints = []; }
 			await loadData();
@@ -160,7 +160,7 @@
 		}
 		creatingMT = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateMountTargetCommand({
 					FileSystemId: selectedFS.FileSystemId,
 					SubnetId: newMTSubnetId.trim()
@@ -187,7 +187,7 @@
 		)
 			return;
 		try {
-			await client.send(new DeleteMountTargetCommand({ MountTargetId: id }));
+			await client().send(new DeleteMountTargetCommand({ MountTargetId: id }));
 			toast.success(`Mount target ${id} deleted`);
 			if (selectedFS?.FileSystemId) await loadMountTargets(selectedFS.FileSystemId);
 		} catch (e) {
@@ -195,7 +195,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

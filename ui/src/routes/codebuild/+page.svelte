@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodeBuildClient } from '$lib/aws-client';
 	import {
 		ListProjectsCommand,
@@ -35,7 +36,7 @@
 		ArrowRight, ExternalLink, Shield, History, Package
 	} from 'lucide-svelte';
 
-	const codebuild = getCodeBuildClient();
+	const codebuild = regionalClient(getCodeBuildClient);
 
 	// State
 	let loading = $state(false);
@@ -67,11 +68,11 @@
 	async function loadProjects() {
 		loading = true;
 		try {
-			const listRes = await codebuild.send(new ListProjectsCommand({}));
+			const listRes = await codebuild().send(new ListProjectsCommand({}));
 			const names = listRes.projects ?? [];
 			
 			if (names.length > 0) {
-				const batchRes = await codebuild.send(new BatchGetProjectsCommand({ names }));
+				const batchRes = await codebuild().send(new BatchGetProjectsCommand({ names }));
 				projects = batchRes.projects ?? [];
 			}
 		} catch (err: unknown) {
@@ -86,11 +87,11 @@
 		builds = [];
 		loadingDetails = true;
 		try {
-			const listRes = await codebuild.send(new ListBuildsForProjectCommand({ projectName: project.name }));
+			const listRes = await codebuild().send(new ListBuildsForProjectCommand({ projectName: project.name }));
 			const ids = listRes.ids ?? [];
 
 			if (ids.length > 0) {
-				const batchRes = await codebuild.send(new BatchGetBuildsCommand({ ids }));
+				const batchRes = await codebuild().send(new BatchGetBuildsCommand({ ids }));
 				builds = batchRes.builds ?? [];
 			}
 		} catch (err: unknown) {
@@ -104,7 +105,7 @@
 		if (!newProjectName.trim()) return;
 		creating = true;
 		try {
-			await codebuild.send(new CreateProjectCommand({
+			await codebuild().send(new CreateProjectCommand({
 				name: newProjectName.trim(),
 				serviceRole: 'arn:aws:iam::000000000000:role/codebuild-role',
 				source: { type: SourceType.NO_SOURCE },
@@ -132,7 +133,7 @@
 		if (!selectedProject?.name) return;
 		startingBuild = true;
 		try {
-			const res = await codebuild.send(new StartBuildCommand({ projectName: selectedProject.name }));
+			const res = await codebuild().send(new StartBuildCommand({ projectName: selectedProject.name }));
 			toast.success(`Build started: ${res.build?.id?.split(':').pop() ?? 'OK'}`);
 			await selectProject(selectedProject);
 		} catch (err: unknown) {
@@ -145,7 +146,7 @@
 	async function stopBuild(id: string | undefined) {
 		if (!id) return;
 		try {
-			await codebuild.send(new StopBuildCommand({ id }));
+			await codebuild().send(new StopBuildCommand({ id }));
 			toast.success('Build stopped');
 			if (selectedProject) await selectProject(selectedProject);
 		} catch (err: unknown) {
@@ -156,7 +157,7 @@
 	async function deleteProject(name: string | undefined) {
 		if (!name || !await confirmDestructive({ title: 'Delete Build Project', message: `Delete project "${name}"? All build history and artifacts will be lost.` })) return;
 		try {
-			await codebuild.send(new DeleteProjectCommand({ name }));
+			await codebuild().send(new DeleteProjectCommand({ name }));
 			toast.success(`Project deleted`);
 			if (selectedProject?.name === name) selectedProject = null;
 			await loadProjects();
@@ -182,10 +183,10 @@
 	async function loadFleets() {
 		loadingFleets = true;
 		try {
-			const listRes = await codebuild.send(new ListFleetsCommand({}));
+			const listRes = await codebuild().send(new ListFleetsCommand({}));
 			const arns = listRes.fleets ?? [];
 			if (arns.length > 0) {
-				const batchRes = await codebuild.send(new BatchGetFleetsCommand({ names: arns }));
+				const batchRes = await codebuild().send(new BatchGetFleetsCommand({ names: arns }));
 				fleets = batchRes.fleets ?? [];
 			} else {
 				fleets = [];
@@ -200,10 +201,10 @@
 	async function loadReportGroups() {
 		loadingReportGroups = true;
 		try {
-			const listRes = await codebuild.send(new ListReportGroupsCommand({}));
+			const listRes = await codebuild().send(new ListReportGroupsCommand({}));
 			const arns = listRes.reportGroups ?? [];
 			if (arns.length > 0) {
-				const batchRes = await codebuild.send(new BatchGetReportGroupsCommand({ reportGroupArns: arns }));
+				const batchRes = await codebuild().send(new BatchGetReportGroupsCommand({ reportGroupArns: arns }));
 				reportGroups = batchRes.reportGroups ?? [];
 			} else {
 				reportGroups = [];
@@ -221,8 +222,22 @@
 		if (v === 'reportgroups' && reportGroups.length === 0) loadReportGroups();
 	}
 
-	onMount(() => {
-		loadProjects();
+	// `onMount` used to unconditionally load Projects because that's always
+	// the view active at first mount. On a region change the user may be on
+	// any of the three views, so refresh whichever is actually visible --
+	// read via `untrack` so switching views (which already reloads its own
+	// data through switchView) doesn't also re-trigger this effect.
+	onRegionChange(() => {
+		const view = untrack(() => mainView);
+		selectedProject = null;
+		builds = [];
+		if (view === 'projects') {
+			loadProjects();
+		} else if (view === 'fleets') {
+			loadFleets();
+		} else {
+			loadReportGroups();
+		}
 	});
 </script>
 

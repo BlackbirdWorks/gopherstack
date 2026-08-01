@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getElasticsearchServiceClient } from '$lib/aws-client';
 	import {
 		ListDomainNamesCommand,
@@ -22,7 +22,7 @@
 	} from '@aws-sdk/client-elasticsearch-service';
 	import { Search, RefreshCw, Plus, Trash2, ChevronRight, Database, Tag, Package } from 'lucide-svelte';
 
-	const elasticsearch = getElasticsearchServiceClient();
+	const elasticsearch = regionalClient(getElasticsearchServiceClient);
 
 	let loading = $state(false);
 	let domainNames = $state<{ DomainName: string }[]>([]);
@@ -73,7 +73,7 @@
 	async function loadDomains() {
 		loading = true;
 		try {
-			const resp = await elasticsearch.send(new ListDomainNamesCommand({}));
+			const resp = await elasticsearch().send(new ListDomainNamesCommand({}));
 			domainNames = (resp.DomainNames ?? []).map((d) => ({ DomainName: d.DomainName ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load domains: ' + String(e));
@@ -87,7 +87,7 @@
 		activeTab = 'overview';
 		tags = [];
 		try {
-			const resp = await elasticsearch.send(new DescribeElasticsearchDomainCommand({ DomainName: name }));
+			const resp = await elasticsearch().send(new DescribeElasticsearchDomainCommand({ DomainName: name }));
 			selectedDomain = resp.DomainStatus ?? null;
 			updateInstanceType = selectedDomain?.ElasticsearchClusterConfig?.InstanceType ?? '';
 			updateInstanceCount = selectedDomain?.ElasticsearchClusterConfig?.InstanceCount ?? 1;
@@ -107,7 +107,7 @@
 	async function loadPackages() {
 		loadingPackages = true;
 		try {
-			const resp = await elasticsearch.send(new DescribePackagesCommand({}));
+			const resp = await elasticsearch().send(new DescribePackagesCommand({}));
 			packages = (resp.PackageDetailsList ?? []).map((p) => ({
 				PackageID: p.PackageID ?? '',
 				PackageName: p.PackageName ?? '',
@@ -126,7 +126,7 @@
 		if (!newPackageName.trim()) return;
 		creatingPackage = true;
 		try {
-			await elasticsearch.send(new CreatePackageCommand({
+			await elasticsearch().send(new CreatePackageCommand({
 				PackageName: newPackageName.trim(),
 				PackageType: newPackageType as 'TXT-DICTIONARY',
 				PackageDescription: newPackageDescription.trim(),
@@ -148,7 +148,7 @@
 	async function deletePackage(packageID: string, packageName: string) {
 		if (!await confirmDestructive({ title: 'Delete Package', message: `Delete package "${packageName}"?` })) return;
 		try {
-			await elasticsearch.send(new DeletePackageCommand({ PackageID: packageID }));
+			await elasticsearch().send(new DeletePackageCommand({ PackageID: packageID }));
 			toast.success(`Package "${packageName}" deleted`);
 			packages = [];
 			await loadPackages();
@@ -160,7 +160,7 @@
 	async function associatePackage(packageID: string) {
 		if (!selectedDomain?.DomainName) return;
 		try {
-			await elasticsearch.send(new AssociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			await elasticsearch().send(new AssociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
 			toast.success('Package associated with domain');
 		} catch (e) {
 			toast.error('Failed to associate package: ' + String(e));
@@ -170,7 +170,7 @@
 	async function dissociatePackage(packageID: string) {
 		if (!selectedDomain?.DomainName) return;
 		try {
-			await elasticsearch.send(new DissociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
+			await elasticsearch().send(new DissociatePackageCommand({ PackageID: packageID, DomainName: selectedDomain.DomainName }));
 			toast.success('Package dissociated from domain');
 		} catch (e) {
 			toast.error('Failed to dissociate package: ' + String(e));
@@ -181,7 +181,7 @@
 		if (!selectedDomain?.ARN) return;
 		loadingTags = true;
 		try {
-			const resp = await elasticsearch.send(new ListTagsCommand({ ARN: selectedDomain.ARN }));
+			const resp = await elasticsearch().send(new ListTagsCommand({ ARN: selectedDomain.ARN }));
 			tags = (resp.TagList ?? []).map((t) => ({ Key: t.Key ?? '', Value: t.Value ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load tags: ' + String(e));
@@ -193,7 +193,7 @@
 	async function addTag() {
 		if (!selectedDomain?.ARN || !newTagKey.trim()) return;
 		try {
-			await elasticsearch.send(new AddTagsCommand({
+			await elasticsearch().send(new AddTagsCommand({
 				ARN: selectedDomain.ARN,
 				TagList: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }]
 			}));
@@ -212,7 +212,7 @@
 		if (!newDomainName.trim()) return;
 		creatingDomain = true;
 		try {
-			await elasticsearch.send(new CreateElasticsearchDomainCommand({
+			await elasticsearch().send(new CreateElasticsearchDomainCommand({
 				DomainName: newDomainName.trim(),
 				ElasticsearchVersion: newEsVersion,
 				ElasticsearchClusterConfig: {
@@ -250,7 +250,7 @@
 		if (!selectedDomain) return;
 		updatingConfig = true;
 		try {
-			await elasticsearch.send(new UpdateElasticsearchDomainConfigCommand({
+			await elasticsearch().send(new UpdateElasticsearchDomainConfigCommand({
 				DomainName: selectedDomain.DomainName ?? '',
 				ElasticsearchClusterConfig: {
 					// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -271,7 +271,7 @@
 	async function deleteDomain(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Elasticsearch Domain', message: `Delete domain "${name}"? All indices and data will be permanently lost.` })) return;
 		try {
-			await elasticsearch.send(new DeleteElasticsearchDomainCommand({ DomainName: name }));
+			await elasticsearch().send(new DeleteElasticsearchDomainCommand({ DomainName: name }));
 			toast.success(`Domain "${name}" deletion initiated`);
 			if (selectedDomain?.DomainName === name) selectedDomain = null;
 			await loadDomains();
@@ -287,7 +287,16 @@
 		'c5.large.elasticsearch', 'c5.xlarge.elasticsearch'
 	];
 
-	onMount(loadDomains);
+	// Reset the drill-down state on a region change -- `selectedDomain`,
+	// `tags`, and `packages` all belong to the previous region, and the
+	// template's `{#if selectedDomain}` guard falls back to the domain list
+	// as soon as it's cleared, so there's nothing stale left visible.
+	onRegionChange(() => {
+		selectedDomain = null;
+		tags = [];
+		packages = [];
+		loadDomains();
+	});
 </script>
 
 <div class="p-6 space-y-6">

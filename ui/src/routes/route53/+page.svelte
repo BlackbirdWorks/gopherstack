@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRoute53Client } from '$lib/aws-client';
 	import {
 		ListHostedZonesCommand,
@@ -32,7 +32,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Globe, Search, RefreshCw, Plus, Trash2, ChevronRight } from 'lucide-svelte';
 
-	const r53 = getRoute53Client();
+	const r53 = regionalClient(getRoute53Client);
 
 	let activeTab = $state<'zones' | 'advanced'>('zones');
 	let loading = $state(false);
@@ -117,7 +117,7 @@
 	async function loadZones() {
 		loading = true;
 		try {
-			const resp = await r53.send(new ListHostedZonesCommand({ MaxItems: 50 }));
+			const resp = await r53().send(new ListHostedZonesCommand({ MaxItems: 50 }));
 			zones = resp.HostedZones ?? [];
 		} catch (e) {
 			toast.error('Failed to load hosted zones: ' + String(e));
@@ -135,8 +135,8 @@
 		try {
 			const zoneId = (zone.Id ?? '').replace('/hostedzone/', '');
 			const [recordsResp, zoneResp] = await Promise.all([
-				r53.send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: 300 })),
-				r53.send(new GetHostedZoneCommand({ Id: zoneId }))
+				r53().send(new ListResourceRecordSetsCommand({ HostedZoneId: zoneId, MaxItems: 300 })),
+				r53().send(new GetHostedZoneCommand({ Id: zoneId }))
 			]);
 			records = recordsResp.ResourceRecordSets ?? [];
 			delegationSet = zoneResp.DelegationSet ?? null;
@@ -152,7 +152,7 @@
 		loadingHealthChecks = true;
 		showHealthChecks = true;
 		try {
-			const resp = await r53.send(new ListHealthChecksCommand({ MaxItems: 100 }));
+			const resp = await r53().send(new ListHealthChecksCommand({ MaxItems: 100 }));
 			healthChecks = resp.HealthChecks ?? [];
 		} catch (e) {
 			toast.error('Failed to load health checks: ' + String(e));
@@ -165,7 +165,7 @@
 		if (!newZoneName.trim()) return;
 		creatingZone = true;
 		try {
-			await r53.send(new CreateHostedZoneCommand({
+			await r53().send(new CreateHostedZoneCommand({
 				Name: newZoneName.trim(),
 				CallerReference: `create-${Date.now()}`,
 				HostedZoneConfig: {
@@ -190,7 +190,7 @@
 		if (!await confirmDestructive({ title: 'Delete Hosted Zone', message: `Delete hosted zone "${zoneName}"? All DNS records will be permanently removed.` })) return;
 		try {
 			const id = zoneId.replace('/hostedzone/', '');
-			await r53.send(new DeleteHostedZoneCommand({ Id: id }));
+			await r53().send(new DeleteHostedZoneCommand({ Id: id }));
 			toast.success(`Zone "${zoneName}" deleted`);
 			if (selectedZone?.Id === zoneId) selectedZone = null;
 			await loadZones();
@@ -225,7 +225,7 @@
 				rrs.TTL = newRecordTTL;
 				rrs.ResourceRecords = newRecordValues.split('\n').filter((v) => v.trim()).map((v) => ({ Value: v.trim() }));
 			}
-			await r53.send(new ChangeResourceRecordSetsCommand({
+			await r53().send(new ChangeResourceRecordSetsCommand({
 				HostedZoneId: zoneId,
 				ChangeBatch: {
 					Changes: [{ Action: 'CREATE', ResourceRecordSet: rrs }]
@@ -250,7 +250,7 @@
 		if (!selectedZone || !await confirmDestructive({ title: 'Delete DNS Record', message: `Delete ${record.Type} record "${record.Name}"? DNS resolution for this record will stop immediately.` })) return;
 		try {
 			const zoneId = (selectedZone.Id ?? '').replace('/hostedzone/', '');
-			await r53.send(new ChangeResourceRecordSetsCommand({
+			await r53().send(new ChangeResourceRecordSetsCommand({
 				HostedZoneId: zoneId,
 				ChangeBatch: {
 					Changes: [{
@@ -268,7 +268,19 @@
 
 	const recordTypes = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'PTR', 'SRV', 'CAA', 'DS', 'HTTPS', 'SVCB', 'SSHFP', 'TLSA', 'NAPTR', 'SPF'];
 
-	onMount(loadZones);
+	// Reset the drill-down state on a region change -- `selectedZone` and
+	// everything derived from it (`records`, `delegationSet`,
+	// `healthChecks`) belong to the previous region, and the template's
+	// `{#if selectedZone}` guard falls back to the zone list as soon as
+	// it's cleared, so there's nothing stale left visible.
+	onRegionChange(() => {
+		selectedZone = null;
+		records = [];
+		delegationSet = null;
+		healthChecks = [];
+		showHealthChecks = false;
+		loadZones();
+	});
 </script>
 
 <div class="p-6 space-y-6">
@@ -305,7 +317,7 @@
 				<button onclick={loadHealthChecks} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Health Checks</button>
 				<button onclick={async () => {
 					try {
-						await r53.send(new CreateHealthCheckCommand({ CallerReference: 'ui-'+Date.now(), HealthCheckConfig: { Type: 'HTTP', FullyQualifiedDomainName: 'example.com' } }));
+						await r53().send(new CreateHealthCheckCommand({ CallerReference: 'ui-'+Date.now(), HealthCheckConfig: { Type: 'HTTP', FullyQualifiedDomainName: 'example.com' } }));
 						toast.success('Created HealthCheck');
 					} catch(e) { toast.error(String(e)); }
 				}} class="ml-2 px-4 py-2 border rounded text-sm">Create Dummy</button>
@@ -316,7 +328,7 @@
 						<li class="flex justify-between items-center text-sm">
 							<span>{hc.Id}</span>
 							<button onclick={async () => {
-								await r53.send(new DeleteHealthCheckCommand({ HealthCheckId: hc.Id }));
+								await r53().send(new DeleteHealthCheckCommand({ HealthCheckId: hc.Id }));
 								toast.success('Deleted HealthCheck');
 								loadHealthChecks();
 							}} class="text-red-500">Delete</button>
@@ -331,7 +343,7 @@
 				<h2 class="text-lg font-semibold mb-4">Traffic Policies</h2>
 				<button onclick={async () => {
 					try {
-						await r53.send(new ListTrafficPoliciesCommand({}));
+						await r53().send(new ListTrafficPoliciesCommand({}));
 						toast.success('Listed Traffic Policies (check console)');
 					} catch(e) { toast.error(String(e)); }
 				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Policies</button>
@@ -342,7 +354,7 @@
 				<h2 class="text-lg font-semibold mb-4">CIDR Collections</h2>
 				<button onclick={async () => {
 					try {
-						await r53.send(new ListCidrCollectionsCommand({}));
+						await r53().send(new ListCidrCollectionsCommand({}));
 						toast.success('Listed CIDR Collections (check console)');
 					} catch(e) { toast.error(String(e)); }
 				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List CIDR Collections</button>
@@ -353,7 +365,7 @@
 				<h2 class="text-lg font-semibold mb-4">Delegation Sets</h2>
 				<button onclick={async () => {
 					try {
-						await r53.send(new ListReusableDelegationSetsCommand({}));
+						await r53().send(new ListReusableDelegationSetsCommand({}));
 						toast.success('Listed Delegation Sets (check console)');
 					} catch(e) { toast.error(String(e)); }
 				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Delegation Sets</button>
@@ -364,7 +376,7 @@
 				<h2 class="text-lg font-semibold mb-4">Query Logging Configs</h2>
 				<button onclick={async () => {
 					try {
-						await r53.send(new ListQueryLoggingConfigsCommand({}));
+						await r53().send(new ListQueryLoggingConfigsCommand({}));
 						toast.success('Listed Query Logging Configs (check console)');
 					} catch(e) { toast.error(String(e)); }
 				}} class="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">List Configs</button>

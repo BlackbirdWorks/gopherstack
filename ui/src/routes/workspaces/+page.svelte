@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getWorkSpacesClient } from '$lib/aws-client';
 	import {
 		DescribeWorkspacesCommand,
@@ -11,7 +11,6 @@
 		StopWorkspacesCommand,
 		RebootWorkspacesCommand,
 		RebuildWorkspacesCommand,
-		type WorkSpacesClient,
 		type Workspace,
 		type WorkspaceBundle
 	} from '@aws-sdk/client-workspaces';
@@ -44,10 +43,7 @@
 		Square, RotateCcw, Wrench
 	} from 'lucide-svelte';
 
-	let workspacesClient: WorkSpacesClient | undefined;
-	function workspaces(): WorkSpacesClient {
-		return (workspacesClient ??= getWorkSpacesClient());
-	}
+	const workspaces = regionalClient(getWorkSpacesClient);
 
 	let showBundleCompare = $state(false);
 
@@ -203,9 +199,7 @@
 		return 'bg-slate-400';
 	}
 
-	onMount(() => {
-		loadWorkSpaces();
-	});
+	onRegionChange(loadWorkSpaces);
 </script>
 
 <div class="space-y-6">
