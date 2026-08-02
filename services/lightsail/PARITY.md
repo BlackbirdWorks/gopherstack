@@ -15,46 +15,50 @@ sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.3   # confirmed unchanged in g
 # scratch module) and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks
 # against.
 last_audit_commit: c397a0243   # the commit that actually implemented all 161 ops, registered the
-# handler, and wired cli.go -- this re-audit's HEAD. The prior manifest cited 7922e4c4d (pre-
-# implementation); that commit no longer describes this directory's contents.
+# handler, and wired cli.go. A follow-up pass on top of that HEAD (same day) closed the
+# CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go diff, which
+# is the only .go-file change this follow-up pass made (plus errors.go's disclosure comment).
 last_audit_date: 2026-08-01
-overall: A-   # all 161 ops routed (sdk_completeness_test.go passes with an empty exception list),
-# real per-op InMemoryBackend state (not stub echoes), real Operation-model Started->Succeeded async
-# transitions (operations.go), a real 7-state/9-detail-code/4-deployment-state container-service
-# machine that walks its documented intermediate steps on real wall-clock timers rather than jumping
-# straight to RUNNING, cli.go registration AND resourcegroupstaggingapi tag-bridge wiring both
-# already present (wireTaggingLightsail, cli.go:7061) -- unlike mgn's original pass, there is no
-# service-registration or tag-bridge gap to close here. `go build`/`go vet`/`go test -race -count=1`
-# all clean (3 consecutive race runs); `golangci-lint run ./services/lightsail/...` reports 0
-# issues; `grep -rnE '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/lightsail/` is empty --
-# no banned complexity suppressions. The six MetricData ops, GetCostEstimate, GetContainerLog, and
+overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
+# above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
+# registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
+# isn't registered yet when that runs), wiring a real cfnLightsailStackAdapter that calls the real
+# services/cloudformation backend's CreateStack. Verified end-to-end (not just compiled) via a
+# throwaway root-package test, since deleted, that drove this repo's own
+# initializeServices/wireCrossServiceDependencies/serviceByName path with a real CLI/AppContext,
+# created a real Lightsail instance/snapshot/export record, called the real
+# CreateCloudFormationStack, and confirmed (a) the CloudFormationStackRecord's DestinationInfoID was
+# populated and its State was SUCCEEDED, and (b) the real services/cloudformation backend's
+# ListAll() returned exactly one real Stack whose StackName matched the record. This closes the
+# wire-reachability gap that kept this package off A -- directly mirroring how mgn's own B+->A-
+# follow-up pass closed its identical SetS3Backend-never-called gap. The second re-audit finding (5
+# of 8 wire exception shapes never constructed by any call site) is not fixed -- this backend
+# genuinely has no permission, account-setup, or region-setup state model to hang a real
+# AccessDeniedException/AccountSetupInProgressException/OperationFailureException/
+# RegionSetupInProgressException/UnauthenticatedException trigger off of, and inventing one purely
+# to exercise a constructor would be exactly the fabrication parity-principles.md forbids -- but it
+# is now DISCLOSED directly in errors.go (mirroring mgn/errors.go's identical disclosure of its own
+# unused errAccessDenied/errQuotaExceeded/errThrottling), which was the specific thing this package
+# was previously docked for not doing (mgn's own analogous gap was already disclosed and did not by
+# itself keep mgn below A-). All 161 ops routed (sdk_completeness_test.go passes with an empty
+# exception list), real per-op InMemoryBackend state (not stub echoes), real Operation-model
+# Started->Succeeded async transitions (operations.go), a real 7-state/9-detail-code/
+# 4-deployment-state container-service machine that walks its documented intermediate steps on real
+# wall-clock timers rather than jumping straight to RUNNING, cli.go registration AND
+# resourcegroupstaggingapi tag-bridge wiring both already present (wireTaggingLightsail,
+# cli.go:7061). `go build`/`go vet`/`go test -race -count=1` all clean (3+ consecutive race runs
+# across both services/lightsail/... and services/cloudformation/..., since this pass touches
+# cloudformation's cli.go wiring too); `golangci-lint run` reports 0 issues; `grep -rnE
+# '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/lightsail/` is empty -- no banned complexity
+# suppressions. The six MetricData ops, GetCostEstimate, GetContainerLog, and
 # GetRelationalDatabaseLogEvents all genuinely return real, well-formed, EMPTY payloads (verified by
 # reading every one of those handler bodies directly, not inferred from doc comments) -- exactly the
 # honest non-fabrication this audit's own brief called for, so these do NOT count against the grade.
-# Held at A- rather than A for two real findings THIS re-audit made that neither the original
-# pre-implementation audit nor the implementing commit's own file comments disclose: (1)
-# CreateCloudFormationStack's one confirmed genuine cross-service handoff (to a real
-# services/cloudformation backend via the CloudFormationBackend interface, store.go) is never wired
-# -- `grep -rn SetCloudFormationBackend` across the whole repo (excluding its own definition/doc
-# comments) returns ZERO call sites, in cli.go or anywhere else, including this package's own tests
-# -- so in the actual running application b.cfnBackend is always nil and this op always takes its
-# honest "no backend wired" fallback path, never the real handoff its own doc comment advertises;
-# (2) 5 of the 8 wire exception shapes this service's error classifier correctly maps
-# (AccessDeniedException, AccountSetupInProgressException, OperationFailureException,
-# RegionSetupInProgressException, UnauthenticatedException -- errors.go's classifyLightsailError)
-# are never actually constructed by any business-logic call site anywhere in this package (confirmed
-# by grepping each of errAccessDenied/errAccountSetup/errOperationFailure/errRegionSetup/
-# errUnauthenticated across every non-generated .go file, tests included: zero hits outside
-# errors.go's own definitions) -- meaning this emulator's real observable error surface is only
-# {InvalidInputException, NotFoundException, ServiceException}, not the fuller per-op signatures the
-# family tables below list, and unlike mgn's own analogous finding (documented in mgn's own
-# errors.go), this package's errors.go does not disclose the gap itself. Neither finding is
-# fabrication and neither breaks a working flow (CreateCloudFormationStack still returns a real,
-# well-formed CloudFormationStackRecord/Operation on its fallback path; the 5 unused exception
-# shapes are dead code, not wrong responses), which is why this sits at A- rather than lower --
-# directly comparable to mgn's own A- calibration (wire-reachability essentially complete, one real
-# but bounded gap left standing) rather than mgn's earlier B/B+ (a load-bearing 70-of-95-op
-# surface completely unreachable).
+# No fabrication anywhere in this pass: the CloudFormation handoff creates a real Stack from real
+# instance/export data (no invented template resources -- see cfnLightsailStackAdapter's own doc
+# comment in cli.go for why an empty template body was the honest choice over fabricating EC2
+# resources Lightsail's export never actually described), and the 5 unused error shapes are
+# disclosed, not silently missing or wrongly triggered.
 families:
   reference_data: {status: ok, note: "9 ops, referencedata.go/handler_referencedata.go. Real filtering (appCategory/IncludeInactive/pagination) over small, explicitly-labeled-SYNTHETIC seed tables (seedBlueprints/seedBundles/seedRDSBlueprints/seedRDSBundles/seedBucketBundles/seedDistributionBundles/seedContainerServicePowers) -- an emulator decision, not a claim about AWS's real current catalog/pricing, exactly as the pre-implementation audit recommended. GetRegions is genuinely SDK-derived (types.RegionName's own Values()), the one part of this family sourced from the SDK rather than invented. GetContainerAPIMetadata correctly omits InvalidInputException (its own zero-field input)."}
   instances_core: {status: ok, note: "9 ops, instances.go. Real create/delete/list/reboot/start/stop with a genuine Pending->Running->Stopped state walk on real timers (asyncTransitionDelay). InstanceStateCode* constants (consts.go) are the conventional EC2 numeric mapping, EXPLICITLY commented UNCONFIRMED since this SDK module publishes no typed enum/numeric mapping for Lightsail instance state at all -- not presented as SDK-confirmed."}
@@ -66,7 +70,7 @@ families:
   static_ips: {status: ok, note: "6 ops, keypairs_staticips.go. Real attach/detach against a named instance, no ENI concept, as spec'd."}
   disks: {status: ok, note: "7 ops, disks.go. DiskState is a real typed 5-value enum (consts.go) driving genuine available<->in-use transitions on Attach/Detach; AutoMounting/AutoMountStatus bookkeeping-only by explicit design (no real guest OS to mount into), documented at the call site."}
   disk_snapshots: {status: ok, note: "5 ops incl. CopySnapshot, disks.go. CopySnapshot is an honest, documented scoped-down same-process record copy, never claiming a real second-region call (disks.go:357-358's own comment)."}
-  export_cloudformation: {status: partial, note: "4 ops, exportcfn.go. ExportSnapshot/GetExportSnapshotRecords/GetCloudFormationStackRecords are fully real. CreateCloudFormationStack's real cross-service handoff (CloudFormationBackend.CreateStackFromLightsail, store.go) is CORRECTLY IMPLEMENTED but never wired -- SetCloudFormationBackend has zero call sites anywhere in this repo including cli.go, so b.cfnBackend is always nil in the running app and this op always takes its own honest fallback path (a real CloudFormationStackRecord with no backing stack ARN), never the real handoff its file-level doc comment describes as 'the one confirmed genuine cross-service handoff in this whole 161-op surface.' A genuine, previously-undocumented finding of this re-audit -- see overall: comment and gaps below."}
+  export_cloudformation: {status: ok, note: "4 ops, exportcfn.go. ExportSnapshot/GetExportSnapshotRecords/GetCloudFormationStackRecords are fully real. CreateCloudFormationStack's real cross-service handoff (CloudFormationBackend.CreateStackFromLightsail, store.go) is now WIRED: cli.go's registerCloudFormationAndDashboard calls wireLightsailCloudFormation(byName[\"Lightsail\"], cfnSvc) right after CloudFormation is registered (it cannot run from wireStorageAndSecretsIntegrations/wireCrossServiceDependencies like wireMGNS3/wireDynamoDBS3 do, since those run before CloudFormation exists), handing off to a cfnLightsailStackAdapter that calls the real services/cloudformation backend's CreateStack with an empty template body (no fabricated EC2 resources -- Lightsail's export gives instance names, not a template) and one Parameter per source instance name. Verified end-to-end via a throwaway root-package test (since deleted) that drove real initializeServices, created a real instance/snapshot/export, called CreateCloudFormationStack, and confirmed a real Stack now exists in the CloudFormation backend with DestinationInfoID populated and State SUCCEEDED. Previously the one confirmed genuine cross-service handoff in this whole 161-op surface was unreachable in the running application; that gap is now closed."}
   load_balancers: {status: partial, note: "9 ops, loadbalancers.go/handler_loadbalancers.go. 8/9 fully real (create/delete/attach/detach/UpdateLoadBalancerAttribute/SetIpAddressType, real InstanceHealthState per-instance tracking). GetLoadBalancerMetricData deliberately returns real, well-formed, EMPTY MetricData (loadbalancers.go:298) after existence validation -- same honest non-fabrication pattern as family E."}
   lb_tls_certs: {status: ok, note: "5 ops, loadbalancers.go. Real cert lifecycle distinct from the CDN-facing Certificate family, GetLoadBalancerTlsPolicies a real static policy catalog."}
   relational_databases_core: {status: ok, note: "9 ops, databases.go. Real Creating->Available/Starting/Stopping/Rebooting state walk. RelationalDatabaseState string constants (consts.go) EXPLICITLY commented UNCONFIRMED (no typed SDK enum exists at all), matching the pre-implementation audit's own flagged unknown -- not presented as SDK-confirmed."}
@@ -85,8 +89,8 @@ families:
   gui_sessions: {status: ok, note: "3 ops, tagging_vpc_misc.go. Real SettingUp->Ready timer-driven state walk per instance, real Stop/restart bookkeeping."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
 gaps:
-  - "CreateCloudFormationStack's real cross-service handoff to services/cloudformation (CloudFormationBackend.CreateStackFromLightsail) is implemented correctly but UNREACHABLE in the running application: SetCloudFormationBackend (store.go) is never called from cli.go or anywhere else in this repo (confirmed: `grep -rn SetCloudFormationBackend` across the whole tree returns only its own definition and its own doc-comment references, zero call sites, including this package's own test files). Every real caller therefore always exercises the honest no-backend-wired fallback (a real CloudFormationStackRecord with no backing stack ARN), never the real CloudFormation stack creation this op's own file header advertises as the one genuine cross-service handoff in the whole 161-op surface. This is directly analogous to mgn's own original SetS3Backend-never-called gap (mgn's PARITY.md, 'gopherstack-i6oz follow-up pass'), which needed a dedicated follow-up pass to close by adding a wireLightsailCloudFormation-equivalent call to cli.go's wiring functions -- not done by this re-audit pass, which touched only this file. (bd: not yet filed by this pass -- filing is the next session's responsibility.)"
-  - "5 of the 8 wire exception shapes this service's classifyLightsailError (errors.go) correctly maps to the right HTTP status/`__type` string -- AccessDeniedException, AccountSetupInProgressException, OperationFailureException, RegionSetupInProgressException, UnauthenticatedException -- are never actually returned by any business-logic call site in this package (confirmed: grepping errAccessDenied/errAccountSetup/errOperationFailure/errRegionSetup/errUnauthenticated across every non-generated .go file in services/lightsail/, tests included, returns zero hits outside their own five one-line definitions in errors.go). This means the family tables below, which list e.g. '+AcctSetup +NotFound +OpFailure +RegionSetup' as the real per-op AWS error signature for 103 of 161 ops, describe what the REAL AWS API returns, not what THIS emulator will ever actually produce -- this emulator's real observable error surface, for every op, is limited to {InvalidInputException, NotFoundException, ServiceException}. Not fabrication (no wrong response is ever returned) and not silently undisclosed by this re-audit, but unlike mgn's own identical finding (which mgn's errors.go documents about itself: 'errAccessDenied/errQuotaExceeded/errThrottling are never actually constructed... documented explicitly in errors.go as a real, deliberate gap'), this package's own errors.go does not disclose this about itself -- a documentation gap this re-audit is now recording here instead."
+  - "RESOLVED this pass: CreateCloudFormationStack's real cross-service handoff to services/cloudformation (CloudFormationBackend.CreateStackFromLightsail) was implemented correctly but UNREACHABLE (SetCloudFormationBackend, store.go, had zero call sites anywhere in this repo). Fixed by adding cli.go's cfnLightsailStackAdapter + wireLightsailCloudFormation, called from registerCloudFormationAndDashboard (the only place both Lightsail and a just-constructed CloudFormation handler are simultaneously available -- wireStorageAndSecretsIntegrations/wireCrossServiceDependencies run before CloudFormation is registered, so wiring from there, as first attempted, is a silent no-op; this matters for anyone repeating this fix pattern elsewhere). Verified end-to-end via a throwaway root-package test (since deleted per this task's own instructions): real initializeServices, a real Lightsail instance -> snapshot -> ExportSnapshot -> CreateCloudFormationStack chain, and confirmed the real services/cloudformation backend's ListAll() now returns the created Stack, with the CloudFormationStackRecord's DestinationInfoID populated and State SUCCEEDED. Directly analogous to mgn's own original SetS3Backend-never-called gap and its dedicated follow-up-pass fix (mgn's PARITY.md, 'gopherstack-i6oz follow-up pass')."
+  - "PARTIALLY ADDRESSED this pass: 5 of the 8 wire exception shapes this service's classifyLightsailError (errors.go) correctly maps to the right HTTP status/`__type` string -- AccessDeniedException, AccountSetupInProgressException, OperationFailureException, RegionSetupInProgressException, UnauthenticatedException -- are still never actually returned by any business-logic call site in this package (unchanged: grepping errAccessDenied/errAccountSetup/errOperationFailure/errRegionSetup/errUnauthenticated still returns zero hits outside errors.go's own definitions). Checked this pass whether any had an unambiguous correct call site per the SDK's own doc comments (aws-sdk-go-v2/service/lightsail/types/errors.go): none do -- AccessDeniedException/UnauthenticatedException need a caller-identity/permission model this backend doesn't have; AccountSetupInProgressException/RegionSetupInProgressException need an account/region provisioning-state model (like mgn's InitializeService) this backend doesn't have either; OperationFailureException's own doc comment ('an operation fails to execute') names no specific operation to hang a trigger off of. Wiring any of them would mean inventing a state/permission model purely to exercise a constructor -- fabrication, not a genuine fix -- so none were wired. What WAS fixed: errors.go itself now discloses this gap directly (mirroring mgn/errors.go's identical disclosure of its own unused errAccessDenied/errQuotaExceeded/errThrottling), which is the specific thing this package was previously docked for not doing relative to mgn's otherwise-identical situation. This means the family tables below, which list e.g. '+AcctSetup +NotFound +OpFailure +RegionSetup' as the real per-op AWS error signature for 103 of 161 ops, still describe what the REAL AWS API returns, not what THIS emulator will ever actually produce -- this emulator's real observable error surface, for every op, remains {InvalidInputException, NotFoundException, ServiceException}."
   - "InstanceState (GetInstanceState, embedded in Instance) has no typed SDK enum (confirmed unchanged from the pre-implementation audit); this backend's InstanceStateCode*/InstanceStateName* constants (consts.go) are the conventional EC2 numeric mapping, EXPLICITLY commented as an UNCONFIRMED, non-SDK-sourced convention at the const block itself -- carried through correctly from audit to implementation, not silently presented as confirmed."
   - "RelationalDatabaseState has no typed SDK enum (confirmed unchanged); this backend's RelationalDatabaseState* constants (consts.go) are similarly commented UNCONFIRMED, following general AWS RDS-family convention rather than anything this SDK module actually publishes -- carried through correctly."
   - "No AWS::Lightsail::* CloudFormation resource type exists in this repo's services/cloudformation/ (not independently re-checked this pass; the original audit's `grep -rli lightsail services/cloudformation/*.go` zero-hit finding was not disputed by anything read this pass)."
@@ -156,35 +160,64 @@ frontmatter above now corrects.
   latter run 3 times, all 3 clean (0 races). `grep -rnE
   '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/lightsail/` is empty.
 
-### Two real gaps this re-audit found (neither claimed by the implementing commit)
+### Two real gaps the prior re-audit found -- both addressed by this follow-up pass
 
-1. **`CreateCloudFormationStack`'s cross-service handoff is unreachable.** `exportcfn.go`'s own file
-   header calls this "the one confirmed genuine cross-service handoff in this whole 161-op surface,"
-   and the code path (`b.cfnBackend.CreateStackFromLightsail`, gated on `b.cfnBackend != nil`) is
-   correctly implemented. But `SetCloudFormationBackend` (`store.go`) has zero call sites anywhere in
-   this repo outside its own definition and doc comments -- not in `cli.go`, not in this package's
-   own tests. In the actual running application, `b.cfnBackend` is always `nil`, so this op always
-   takes its own honest fallback (a real `CloudFormationStackRecord`, no backing stack ARN), never
-   the real hand-off. This is structurally identical to mgn's own original `SetS3Backend`-never-
-   called gap, which mgn's PARITY.md documents needing a dedicated follow-up pass
-   (`gopherstack-i6oz`) to close. Fixing this would mean adding a `wireLightsailCloudFormation`-style
-   call (mirroring `wireMGNS3`/`wireDynamoDBS3`) to one of `cli.go`'s wiring functions -- out of scope
-   for this documentation-only pass, which touched no `.go` file.
-2. **5 of 8 wire exception shapes are dead code.** `errors.go`'s `classifyLightsailError` correctly
-   maps all 8 Lightsail exception shapes to their HTTP status/`__type` string, but
+1. **`CreateCloudFormationStack`'s cross-service handoff was unreachable -- FIXED.** `exportcfn.go`'s
+   own file header calls this "the one confirmed genuine cross-service handoff in this whole 161-op
+   surface," and the code path (`b.cfnBackend.CreateStackFromLightsail`, gated on `b.cfnBackend !=
+   nil`) was already correctly implemented. But `SetCloudFormationBackend` (`store.go`) had zero call
+   sites anywhere in this repo outside its own definition and doc comments -- not in `cli.go`, not in
+   this package's own tests -- so `b.cfnBackend` was always `nil` in the running application. This
+   pass added `cli.go`'s `cfnLightsailStackAdapter` (adapts the real `services/cloudformation`
+   backend's `CreateStack` to the narrow `CreateStackFromLightsail(stackName string, instanceNames
+   []string) (string, error)` shape `CloudFormationBackend` expects, with an empty template body --
+   Lightsail's export gives instance names, not a CloudFormation template, so fabricating EC2/AMI
+   resources would be worse than the honest empty-template stack) and `wireLightsailCloudFormation`.
+   The call site is `registerCloudFormationAndDashboard`, not one of the `wire*Integrations` helpers
+   `wireCrossServiceDependencies` dispatches to: those all run *before* CloudFormation is registered
+   (`cli.go`'s `initializeServices` explicitly registers CloudFormation only after cross-service
+   wiring, so its own dashboard can see every other handler), so wiring from there is a silent no-op
+   -- confirmed the hard way, by trying it first and watching the throwaway verification test still
+   see a `nil` `DestinationInfoID`. Verified end-to-end (not just compiled) via a throwaway
+   root-package test, deleted afterward per this task's brief: it drove this repo's real
+   `initializeServices`/`wireCrossServiceDependencies`/`serviceByName` path with a real
+   `CLI`/`AppContext`, created a real Lightsail instance, snapshot, and export record, called the
+   real `CreateCloudFormationStack`, and confirmed the `CloudFormationStackRecord`'s
+   `DestinationInfoID` was populated with `State` `SUCCEEDED`, and that the real
+   `services/cloudformation` backend's `ListAll()` returned exactly one `Stack` whose `StackName`
+   matched. Directly analogous to mgn's own original `SetS3Backend`-never-called gap and its
+   dedicated follow-up-pass fix (mgn's PARITY.md, `gopherstack-i6oz` follow-up pass).
+2. **5 of 8 wire exception shapes are dead code -- not fixed, now disclosed.** `errors.go`'s
+   `classifyLightsailError` correctly maps all 8 Lightsail exception shapes to their HTTP
+   status/`__type` string, but
    `errAccessDenied`/`errAccountSetup`/`errOperationFailure`/`errRegionSetup`/`errUnauthenticated` are
-   never actually constructed by any call site in this package (confirmed by grepping each identifier
-   across every non-generated `.go` file, tests included). This emulator's real, observable error
-   surface for every one of the 161 ops is limited to `{InvalidInputException, NotFoundException,
-   ServiceException}`, regardless of what richer per-op signature the family tables below (preserved
-   from the original audit) list as AWS's real behavior. mgn hit the identical situation for its own
-   3 unused exception constructors and disclosed it directly in its own `errors.go`; this package's
-   `errors.go` does not disclose it about itself -- recorded here instead.
+   still never actually constructed by any call site in this package (confirmed by grepping each
+   identifier across every non-generated `.go` file, tests included). This pass checked each of the
+   five against the real SDK's own doc comments
+   (`aws-sdk-go-v2/service/lightsail@v1.58.3/types/errors.go`) for an unambiguous correct call site
+   and found none: `AccessDeniedException`/`UnauthenticatedException` both require a caller-identity/
+   permission model this backend, like directconnect/mgn, does not simulate;
+   `AccountSetupInProgressException`/`RegionSetupInProgressException` both require an account/region
+   provisioning-state model (something like mgn's `InitializeService`) this package has no equivalent
+   of; `OperationFailureException`'s own doc comment ("Lightsail throws this exception when an
+   operation fails to execute") names no specific operation or precondition to hang a real trigger
+   off. Wiring any of the five would mean inventing a permission or provisioning-state model this
+   backend does not otherwise have, purely to exercise an otherwise-unused constructor -- exactly the
+   fabrication `parity-principles.md` forbids, so none were wired. What this pass DID fix: `errors.go`
+   itself now carries a disclosure comment naming all five and explaining why each is unwired,
+   mirroring `mgn/errors.go`'s identical disclosure of its own unused
+   `errAccessDenied`/`errQuotaExceeded`/`errThrottling` -- the specific thing this package was
+   previously docked for not doing relative to mgn's otherwise-identical situation. This emulator's
+   real, observable error surface for every one of the 161 ops therefore remains
+   `{InvalidInputException, NotFoundException, ServiceException}`, regardless of what richer per-op
+   signature the family tables below (preserved from the original audit) list as AWS's real behavior.
 
-Neither finding is fabrication, and neither breaks a currently-working flow end-to-end (both fall
-back to honest, well-formed behavior rather than a wrong response) -- which is why this sits at
-**A-**, directly comparable to mgn's own A- calibration (wire-reachability essentially complete, one
-real but bounded gap left standing), rather than lower.
+Finding 1 was the load-bearing wire-reachability gap keeping this package off **A** -- with it closed
+and verified end-to-end, and finding 2 now disclosed rather than silently missing (matching mgn's own
+A-calibrated posture, where an identical disclosed-and-legitimate gap does not itself cost a grade),
+this package moves from **A-** to **A**. Neither finding was ever fabrication, and finding 2 still
+isn't: no wrong response is ever returned, only an honestly narrower error surface than the real AWS
+API's, clearly disclosed at both the `errors.go` call site and here.
 
 ## Purpose of this document
 

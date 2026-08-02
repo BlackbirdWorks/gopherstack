@@ -2641,7 +2641,7 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	wireCrossServiceDependencies(appCtx, services, byName)
 
-	services, err = registerCloudFormationAndDashboard(appCtx, services)
+	services, err = registerCloudFormationAndDashboard(appCtx, services, byName)
 	if err != nil {
 		return nil, err
 	}
@@ -2951,8 +2951,8 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
-// import/export, SecretsManager's Lambda rotation invoker and KMS
-// encryption, and IoT rule action dispatch.
+// import/export, MGN→S3 import, SecretsManager's Lambda rotation invoker
+// and KMS encryption, and IoT rule action dispatch.
 func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
@@ -3042,10 +3042,15 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 // handlers: CloudFormation to drive stack resources through their real
 // backends, and the dashboard to expose them. CloudFormation is registered
 // first so its handler is stored before the dashboard, which is
-// initialized last, reads it.
+// initialized last, reads it. byName is the pre-CloudFormation lookup built
+// before wireCrossServiceDependencies -- used here to wire the one
+// direction that depends on CloudFormation existing (Lightsail ->
+// CloudFormation), which wireCrossServiceDependencies itself runs too early
+// for since CloudFormation isn't registered yet at that point.
 func registerCloudFormationAndDashboard(
 	appCtx *service.AppContext,
 	services []service.Registerable,
+	byName map[string]service.Registerable,
 ) ([]service.Registerable, error) {
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
@@ -3054,6 +3059,13 @@ func registerCloudFormationAndDashboard(
 	}
 
 	services = append(services, cfnSvc)
+
+	// Wire Lightsail -> CloudFormation so CreateCloudFormationStack's real
+	// cross-service handoff actually creates a stack instead of always
+	// falling back to a record-only stub. Must happen here, not in
+	// wireStorageAndSecretsIntegrations, because CloudFormation does not
+	// exist yet when that runs.
+	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc
@@ -7849,6 +7861,60 @@ func wireMGNS3(mgnReg, s3Reg service.Registerable) {
 	}
 
 	mgnH.Backend.SetS3Backend(s3Bk)
+}
+
+// cfnLightsailStackAdapter adapts the CloudFormation backend's real
+// CreateStack to the lightsailbackend.CloudFormationBackend interface so
+// Lightsail's CreateCloudFormationStack (services/lightsail/exportcfn.go)
+// hands off to a real services/cloudformation stack instead of always
+// taking its honest no-backend-wired fallback (a CloudFormationStackRecord
+// with no backing stack ARN). No template body is synthesized -- Lightsail
+// gives us instance names, not a CloudFormation template, so fabricating
+// resources (AMIs, subnets, etc.) the export didn't actually provide would
+// be worse than not wiring this at all. Instead each source instance name
+// becomes a stack parameter, and the resulting stack is real: a genuine
+// Stack record in the cloudformation backend with a real StackID/ARN.
+type cfnLightsailStackAdapter struct {
+	backend cfnbackend.StorageBackend
+}
+
+func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, instanceNames []string) (string, error) {
+	params := make([]cfnbackend.Parameter, 0, len(instanceNames))
+
+	for i, name := range instanceNames {
+		params = append(params, cfnbackend.Parameter{
+			ParameterKey:   fmt.Sprintf("LightsailSourceInstance%d", i+1),
+			ParameterValue: name,
+		})
+	}
+
+	stack, err := a.backend.CreateStack(context.Background(), stackName, "", params, cfnbackend.StackOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return stack.StackID, nil
+}
+
+// wireLightsailCloudFormation connects the Lightsail backend to the
+// CloudFormation backend so CreateCloudFormationStack's cross-service
+// handoff (services/lightsail/store.go's CloudFormationBackend interface)
+// actually fires -- see cfnLightsailStackAdapter. Called from
+// registerCloudFormationAndDashboard, not one of the wire*Integrations
+// helpers under wireCrossServiceDependencies, because CloudFormation is
+// registered after those helpers run.
+func wireLightsailCloudFormation(lightsailReg, cfnReg service.Registerable) {
+	lightsailH, ok := lightsailReg.(*lightsailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfnH, cfnOk := cfnReg.(*cfnbackend.Handler)
+	if !cfnOk || lightsailH.Backend == nil || cfnH.Backend == nil {
+		return
+	}
+
+	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{backend: cfnH.Backend})
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

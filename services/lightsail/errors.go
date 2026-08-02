@@ -56,6 +56,31 @@ func serviceError(msg string) error {
 	return &apiError{cause: errServiceFault, message: msg}
 }
 
+// errAccessDenied/errAccountSetup/errOperationFailure/errRegionSetup/
+// errUnauthenticated (declared above) back classifyLightsailError's wire-shape
+// classification for AccessDeniedException/AccountSetupInProgressException/
+// OperationFailureException/RegionSetupInProgressException/
+// UnauthenticatedException, even though no call site in this package
+// currently constructs any of them -- confirmed by re-reading the SDK's own
+// doc comments (aws-sdk-go-v2/service/lightsail/types/errors.go): each names
+// a precondition this backend has no model for. AccessDeniedException and
+// UnauthenticatedException both require a caller-identity/permission model
+// this backend, like directconnect/mgn, does not simulate.
+// AccountSetupInProgressException and RegionSetupInProgressException both
+// require an account/region provisioning-state model (something like mgn's
+// InitializeService/serviceinit.go) that this package has no equivalent
+// of -- Lightsail resources here are created immediately, never gated on an
+// account or opt-in-region setup step. OperationFailureException's own doc
+// comment ("Lightsail throws this exception when an operation fails to
+// execute") names no specific operation or precondition to hang a real
+// trigger off of. Wiring any of the five would mean inventing a state
+// machine or permission model this backend does not otherwise have, purely
+// to exercise an otherwise-unused constructor -- exactly the fabrication
+// parity-principles.md warns against. Documented here as a real, deliberate
+// gap -- not silently missing -- matching mgn/errors.go's identical
+// disclosure of its own unused errAccessDenied/errQuotaExceeded/
+// errThrottling shapes.
+
 // classifyLightsailError maps err to its HTTP status and wire exception
 // type.
 func classifyLightsailError(err error) (int, string) {
