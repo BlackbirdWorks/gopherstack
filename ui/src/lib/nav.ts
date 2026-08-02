@@ -89,6 +89,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "mediaconvert",
   "memorydb",
   "dms",
+  "directconnect",
   "docdb",
   "efs",
   "sagemaker",
@@ -607,6 +608,12 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "cloudfront", href: "/dashboard/cloudfront", label: "CloudFront", icon: "cloudfront" },
       { id: "elb", href: "/dashboard/elb", label: "ELB", icon: "elb" },
       { id: "elbv2", href: "/dashboard/elbv2", label: "ELB v2", icon: "elbv2", common: true },
+      {
+        id: "directconnect",
+        href: "/dashboard/directconnect",
+        label: "Direct Connect",
+        icon: "directconnect",
+      },
       {
         id: "globalaccelerator",
         href: "/dashboard/globalaccelerator",
