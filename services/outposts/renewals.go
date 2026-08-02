@@ -2,9 +2,13 @@ package outposts
 
 import "time"
 
-// createRenewalResult is CreateRenewal's flat response shape (also the
-// idempotency-cache value type -- see store.go's renewalIdempotency).
-type createRenewalResult struct {
+// CreateRenewalResult is CreateRenewal's flat response shape (also the
+// idempotency-cache value type -- see store.go's renewalIdempotency). It is
+// exported (unlike CreateRenewal's unexported request type) to match this
+// package's convention: CreateOutpost, CreateQuote, CreateSite, and
+// StartConnection all return an exported result type while taking an
+// unexported request DTO.
+type CreateRenewalResult struct {
 	Currency              string
 	OutpostID             string
 	PaymentOption         string
@@ -36,7 +40,7 @@ func isValidPaymentTerm(v string) bool {
 // idempotency key (see PARITY.md trap #8): a retried request with the same
 // (Outpost, ClientToken) pair replays the original response without
 // recomputing or re-recording a new subscription.
-func (b *InMemoryBackend) CreateRenewal(idOrARN string, req *createRenewalRequest) (*createRenewalResult, error) {
+func (b *InMemoryBackend) CreateRenewal(idOrARN string, req *createRenewalRequest) (*CreateRenewalResult, error) {
 	if !isValidPaymentOption(req.PaymentOption) {
 		return nil, validationError("invalid PaymentOption: " + req.PaymentOption)
 	}
@@ -78,7 +82,7 @@ func (b *InMemoryBackend) CreateRenewal(idOrARN string, req *createRenewalReques
 		UpfrontPrice:          float64(upfront),
 	})
 
-	result := createRenewalResult{
+	result := CreateRenewalResult{
 		Currency:              currencyUSD,
 		OutpostID:             o.ID,
 		PaymentOption:         req.PaymentOption,

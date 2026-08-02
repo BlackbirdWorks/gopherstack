@@ -52,7 +52,7 @@ type InMemoryBackend struct {
 	// computes a fresh (but numerically identical, since pricing is
 	// deterministic) response rather than reusing the cached one, which is
 	// harmless. See renewals.go.
-	renewalIdempotency map[string]createRenewalResult
+	renewalIdempotency map[string]CreateRenewalResult
 
 	mu        *lockmetrics.RWMutex
 	work      *worker.Group
@@ -68,7 +68,7 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		region:             region,
 		mu:                 lockmetrics.New("outposts"),
 		work:               worker.NewGroup(ctx, "outposts"),
-		renewalIdempotency: make(map[string]createRenewalResult),
+		renewalIdempotency: make(map[string]CreateRenewalResult),
 	}
 	registerAllTables(b)
 
