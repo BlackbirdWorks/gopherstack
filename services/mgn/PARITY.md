@@ -1,5 +1,8 @@
 ---
-# PARITY MANIFEST — PRE-IMPLEMENTATION AUDIT, NOT YET BUILT.
+# PARITY MANIFEST — IMPLEMENTED THIS PASS. See "Implementation summary (this pass)" below the
+# frontmatter for the hard-design-problem decisions, corrections found, and gate results. The
+# original pre-implementation audit prose (everything from "## Purpose of this document" onward)
+# is left otherwise unmodified as the wire-shape ground truth the implementation was built from.
 # services/mgn/ does not exist yet (confirmed: no dir before this file was written, no cli.go
 # registration, no go.mod entry, zero Go symbols anywhere in the tree -- grepped case-insensitively
 # for "\bmgn\b" across services/ and cli.go: zero hits after excluding false positives; grepped for
@@ -18,8 +21,10 @@ last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is n
 # the tree at all, so this is a from-scratch pre-implementation audit, matching the directconnect/
 # outposts/resiliencehub audits done in the same pass.
 last_audit_date: 2026-08-01
-overall: gap   # pre-implementation inventory; every op below is status "gap" -- routed nowhere, no
-# backend, no wire code. Not a regression signal; it is the expected starting state.
+overall: B   # implemented this pass, all 95 ops routed/backed/persisted; see "Implementation
+# summary" section immediately below for the hard-design-problem decisions (SeedSourceServer/
+# SeedVcenterClient, NetworkMigrationExecutionID auto-vivification, mapper segments left genuinely
+# empty), two corrections this pass found in its own pre-implementation audit, and gate results.
 # All 95 ops confirmed present in aws-sdk-go-v2/service/mgn@v1.48.3 (`ls api_op_*.go | grep -v
 # _test.go | wc -l` => 95, matching this task's ~95 estimate exactly). None are implemented.
 # Method/path verified by parsing every awsRestjson1_serializeOp<Op>.HandleSerialize's
@@ -60,6 +65,140 @@ deferred:
   - "Nothing implemented yet, so nothing has been implementation-level-audited beyond the wire-shape/error-set inventory above."
 leaks: {status: clean, note: "N/A -- nothing implemented yet, so there is nothing to leak. Next pass (implementation) must revisit this per parity-principles.md: DataReplicationState progression (INITIATING->INITIAL_SYNC->BACKLOG->CONTINUOUS, or ->RESCAN/STALLED/DISCONNECTED), Job status progression (PENDING->STARTED->COMPLETED) for StartTest/StartCutover/TerminateTargetInstances, and any LifeCycleState timer-driven auto-advance (following services/eks's scheduleClusterActivation / services/grafana's analogous pattern, both using pkgs/worker) all need Close()/Reset() wiring, same as every other timer-driven service in this tree."}
 ---
+
+## Implementation summary (this pass)
+
+All 95 operations implemented: routed via a flat method+operation-name dispatch table
+(`handler.go`'s `routes()`, merged from 8 per-family `handler_*.go` builder functions, matching
+`operationSegment`'s handling of the `/network-migration/` prefix and the `/tags/{resourceArn}`
+trio), backed by real `InMemoryBackend` state (`pkgs/store.Table`/`Index` per resource kind, one
+coarse `lockmetrics.RWMutex`), and persisted via `Snapshot`/`Restore` (`persistence.go`).
+`sdk_completeness_test.go` passes with an empty exception list. A real `aws-sdk-go-v2/service/mgn`
+client round-trips against every major flow (`sdk_roundtrip_test.go`, 13 tests) — this caught two
+real wire-shape bugs before they shipped (see "Corrected during implementation" below), not after.
+
+### The hard design problem — decision made
+
+**SourceServer/VcenterClient creation**: `StartImport`/`StartExport` are implemented as fully
+honest bookkeeping (`ImportTask`/`ExportTask` progress `PENDING -> STARTED -> SUCCEEDED` on the
+same deterministic timer every other async resource in this package uses); `StartImport`'s
+`Summary` counts are always zero and `StartExport`'s are a real live count of this account's
+Applications/Waves/SourceServers — neither ever reads or fabricates real S3 object content, since
+no schema for that content exists anywhere in this SDK to derive one from. Given that leaves the
+entire 70-op replication surface unreachable through the public API (the actual point of this
+service), this package adds `SeedSourceServer` (`sourceservers.go`) and `SeedVcenterClient`
+(`vcenterclients.go`): EXPORTED, non-SDK Go functions, reachable only by calling into this package
+directly, never routed by `handler.go`, never described as SDK operations in
+`GetSupportedOperations()`. They are the explicit, documented emulator decision the task asked
+for — this package's own round-trip tests use them to seed a server before exercising StartTest/
+StartCutover/FinalizeCutover/etc. A newly seeded SourceServer starts `NOT_READY`/`INITIATING` and
+progresses to `READY_FOR_TEST`/`CONTINUOUS` over 3 `asyncTransitionDelay` ticks
+(`sourceservers.go`'s `scheduleReplicationLocked`) — the same honest, deterministic, time-based
+walk a real `StartImport`-seeded server would need, just reachable without inventing an S3
+file-format schema.
+
+**NetworkMigrationExecutionID**: no op creates one; all 5 `StartNetworkMigration*` ops require one
+as input. This package's decision: `resolveOrCreateExecutionLocked` (`networkmigrationjobs.go`)
+auto-vivifies a `NetworkMigrationExecution` the first time any of the 5 Start* ops references an
+(DefinitionID, ExecutionID) pair not previously seen — generalizing the task's own suggested
+convention ("minting one automatically the first time StartNetworkMigrationMapping is called") to
+all five entry points, since none is more privileged than the others as a creation trigger. Every
+subsequent Start* call against the same pair updates that execution's Activity/Stage/Status in
+place rather than minting a second record.
+
+**Mapper segments/constructs**: deliberately the OTHER option the task weighed — "leave the
+families genuinely empty and record it as a gap" — rather than a third synthetic seeding seam.
+`ListNetworkMigrationMapperSegments`/`ListNetworkMigrationMapperSegmentConstructs` always return
+empty (after validating the (definition, execution) scope exists);
+`GetNetworkMigrationMapperSegmentConstruct`/`UpdateNetworkMigrationMapperSegment` always 404. No
+segment is ever produced by any op (there is no real network-analysis engine to produce one from),
+and mapper segments back only bookkeeping display within the already-honest-gapped Network
+Migration analysis sub-feature, not the primary 70-op replication surface — a smaller payoff than
+SourceServer/VcenterClient's seam, so a second `Seed*` convenience was not added for it.
+
+**Network Migration analysis/codegen/deployment content**: `StartNetworkMigrationAnalysis`/
+`CodeGeneration`/`Deployment` progress a shared internal `NetworkMigrationJob` bookkeeping record
+(one generic type backing all 5 real job-details SDK shapes, which are byte-identical in field
+layout — `networkmigrationjobs.go`) through `PENDING -> STARTED -> SUCCEEDED`, and the parent
+execution's own `Status` mirrors it on completion. `ListNetworkMigrationAnalysisResults`/
+`ListNetworkMigrationCodeGenerationSegments`/`ListNetworkMigrationDeployedStacks` always return
+empty `Items`, even after the parent job SUCCEEDS — real analysis findings, generated
+infrastructure code, and deployed CloudFormation stacks all require engines this repo does not
+have, and PARITY.md's own honest-gap section is explicit that fabricating this content "would
+misrepresent what the emulator actually did."
+
+**Two error generations**: implemented as documented, per-op — `requireInitializedLocked` gates
+every legacy op (69 of 95, confirmed by direct per-op extraction — see below), never called by the
+tagging trio or any `/network-migration/` op; `classifyMGNError` (`handler.go`) maps all 8 wire
+exception shapes, but `errAccessDenied`/`errQuotaExceeded`/`errThrottling` are never actually
+constructed by any call site in this pass (no permission/quota/rate-limiter model exists to trigger
+them honestly) — documented explicitly in `errors.go` as a real, deliberate gap rather than a
+forced fake trigger just to exercise the constructor.
+
+**Flattened-vs-nested outputs**: `sourceServerWire`/`toSourceServerWire` back the 11
+flattened-SourceServer ops; `StartTest`/`StartCutover`/`TerminateTargetInstances` return a nested
+`jobEnvelope{Job: ...}` instead (`handler_sourceservers.go`); `GetLaunchConfiguration`/
+`GetReplicationConfiguration` flatten their own distinct wire shapes with no backing named SDK type
+at all, matching internal `LaunchConfiguration`/`ReplicationConfiguration` types this package
+invented for exactly that purpose (`models.go`).
+
+**EC2 cutover scope**: narrowed, explicitly. `LaunchedInstance.Ec2InstanceID` is a synthetic,
+gopherstack-format ID (`"i-"` + hex, `jobs.go`'s `newSyntheticInstanceID`), never cross-checked
+against a real `services/ec2` instance. Real EC2 instance launch on cutover (the directconnect
+precedent this task asked to weigh) was assessed and NOT done this pass — flagged explicitly as a
+follow-on, not silently skipped.
+
+### Corrected during implementation
+
+1. **`UpdateNetworkMigrationMapperSegmentInput` has only one mutable field, `ScopeTags`** — the
+   pre-implementation audit's family-M table said "rest optional (ScopeTags, TargetAccount)",
+   but direct re-read of the real Input struct during implementation found no `TargetAccount`
+   field on it at all (confirmed: `TargetAccount` only appears on the *segment's own* stored shape,
+   never as an input the caller can set via this op) — documented at `networkmigration.go`'s
+   `UpdateNetworkMigrationMapperSegment`.
+2. **`types.ManagedAccount.AccountId` wire-serializes as `"accountId"` (lowercase `d`), not
+   `"accountID"`** — every other `AccountID`-suffixed field in this SDK (69 legacy ops' own
+   `AccountID *string`) is the Go field `AccountID` (capital ID) wire-keyed `"accountID"`, but
+   `ManagedAccount`'s field is spelled `AccountId` (lowercase `d`) in the Go source itself, which
+   this SDK's own lowercase-first-rune convention serializes to `"accountId"`. First caught by
+   `TestRoundTrip_ManagedAccounts` failing against the real SDK client, not by static inspection —
+   exactly the class of bug this campaign's SDK-round-trip-test standard exists to catch. Fixed in
+   `wire.go`'s `managedAccountWire`.
+
+### Judgment calls, each documented at its call site
+
+- ARN resource-path segments (`store.go`'s ARN builders) are this package's best-effort,
+  UNCONFIRMED guesses from AWS naming convention (e.g. `"source-server/"`, `"application/"`,
+  `"vcenter-client/"`) — Terraform's AWS provider has zero MGN resources to corroborate against
+  (confirmed by the pre-implementation audit), so unlike directconnect/outposts there is no
+  Terraform-source cross-check available at all for any of the 12 taggable kinds.
+- ID formats (`store.go`'s `new*ID` functions) are similarly UNCONFIRMED hex-suffix conventions
+  (e.g. `"s-"` + 16 hex for SourceServer) — no doc-comment ID-shape examples exist anywhere in this
+  SDK module to confirm against, unlike directconnect's own published `"dxcon-ffabc123"` examples.
+- `LifeCycleState`/`DataReplicationState` transition tables (`sourceservers.go`'s package doc
+  comment) are this package's own inference from field/enum semantics, not independently
+  SDK-confirmed — AWS's real state machine is not published anywhere in this SDK.
+- Application/Wave `AggregatedStatus` rollup rules (`applications.go`'s `rollupHealthStatus`/
+  `rollupProgressStatus`, `waves.go`'s analogous pair) are documented, invented aggregation rules
+  (e.g. a Wave is `LAGGING` if any member Application is `LAGGING`), not SDK-specified.
+- Job progression (`jobs.go`) is a deterministic, always-succeeds 4-tick simulation — no
+  `JobLogEvent` describing failure/skip/cancel is ever emitted, since no real launch engine exists
+  to fail; `JobStatus` itself has no `FAILED` value at all, confirmed by direct SDK read.
+- Timestamps: every SDK member typed as a `*string` "DateTime"-suffixed field (confirmed via direct
+  read to deserialize via a bare `value.(string)` type assertion, not `smithytime`) is wire-coded as
+  an RFC3339 string by this package's own convention (`store.go`'s `nowRFC3339`); every real smithy
+  `*time.Time` field (the Network Migration family's `CreatedAt`/`UpdatedAt`/`EndedAt`) is
+  epoch-seconds via `pkgs/awstime.Epoch`, confirmed against the SDK's own
+  `smithytime.ParseEpochSeconds` deserializer call.
+
+### Gate results (see final report for full output)
+
+`go build ./...`, `go vet ./...`, `go vet -tags e2e ./test/e2e/...`, `gofmt -l`, and
+`golangci-lint run ./services/mgn/... .` (0 issues) all clean. `go test -race -count=1
+./services/mgn/...` run 3 times, all 3 clean. `grep -rnE '//nolint:.*(funlen|gocyclo|gocognit|cyclop)'
+services/mgn/` empty — every complexity issue golangci-lint's `cyclop`/`gocognit` flagged during
+this pass (`UpdateLaunchConfigurationTemplate`, `scheduleJobLocked`, `scheduleReplicationLocked`)
+was fixed by decomposing into named helper functions, never suppressed.
 
 ## Purpose of this document
 

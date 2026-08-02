@@ -167,6 +167,7 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
@@ -273,6 +274,7 @@ type CLI struct {
 	outpostsHandler               service.Registerable
 	resiliencehubHandler          service.Registerable
 	directconnectHandler          service.Registerable
+	mgnHandler                    service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1467,6 +1469,11 @@ func (c *CLI) GetResilienceHubHandler() service.Registerable { return c.resilien
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetDirectConnectHandler() service.Registerable { return c.directconnectHandler }
 
+// GetMGNHandler returns the AWS Application Migration Service handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMGNHandler() service.Registerable { return c.mgnHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2593,6 +2600,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.outpostsHandler = byName["Outposts"]
 	cli.resiliencehubHandler = byName["ResilienceHub"]
 	cli.directconnectHandler = byName["DirectConnect"]
+	cli.mgnHandler = byName["MGN"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -3234,6 +3242,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&outpostsbackend.Provider{},
 		&resiliencehubbackend.Provider{},
 		&directconnectbackend.Provider{},
+		&mgnbackend.Provider{},
 	}
 }
 
@@ -5408,11 +5417,11 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 33 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 34 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts, resiliencehub, directconnect). The rest remain unwired -- see PARITY.md's gaps section
+// outposts, resiliencehub, directconnect, mgn). The rest remain unwired -- see PARITY.md's gaps section
 // for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
@@ -5479,6 +5488,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingOutposts(bk, byName["Outposts"])
 	wireTaggingResilienceHub(bk, byName["ResilienceHub"])
 	wireTaggingDirectConnect(bk, byName["DirectConnect"])
+	wireTaggingMGN(bk, byName["MGN"])
 }
 
 func wireTaggingDDB(
@@ -6924,6 +6934,46 @@ func wireTaggingDirectConnect(
 		},
 		directconnectBk.TagResource,
 		directconnectBk.UntagResource,
+	)
+}
+
+// wireTaggingMGN wires the AWS Application Migration Service backend into the
+// Resource Groups Tagging API. 12 taggable resource kinds share the one "mgn"
+// ARN namespace (Application, Wave, SourceServer, Job, Connector,
+// VcenterClient, LaunchConfigurationTemplate, ReplicationConfigurationTemplate,
+// ExportTask, ImportTask, NetworkMigrationDefinition, NetworkMigrationExecution
+// -- richer than directconnect's 5 or outposts'/resiliencehub's 2/3), so this
+// uses resourceTypeFromARN's multi-kind dispatch, same as
+// wireTaggingDirectConnect above.
+func wireTaggingMGN(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	mgnReg service.Registerable,
+) {
+	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	mgnBk := mgnH.Backend
+	if mgnBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "mgn",
+		func(arn string) string { return resourceTypeFromARN(arn, "mgn") },
+		func() []taggedARNEntry {
+			items := mgnBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		mgnBk.TagResource,
+		mgnBk.UntagResource,
 	)
 }
 
