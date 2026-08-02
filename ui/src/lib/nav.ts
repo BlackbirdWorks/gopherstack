@@ -153,6 +153,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "rolesanywhere",
   "workmail",
   "mgn",
+  "lightsail",
 ]);
 
 // The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
@@ -283,6 +284,7 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "batch", href: "/dashboard/batch", label: "Batch", icon: "batch" },
       { id: "ec2", href: "/dashboard/ec2", label: "EC2", icon: "ec2", common: true },
+      { id: "lightsail", href: "/dashboard/lightsail", label: "Lightsail", icon: "lightsail" },
       { id: "ecr", href: "/dashboard/ecr", label: "ECR", icon: "ecr", common: true },
       { id: "ecs", href: "/dashboard/ecs", label: "ECS", icon: "ecs", common: true },
       { id: "eks", href: "/dashboard/eks", label: "EKS", icon: "eks", common: true },
