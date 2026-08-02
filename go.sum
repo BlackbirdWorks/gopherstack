@@ -228,6 +228,8 @@ github.com/aws/aws-sdk-go-v2/service/lakeformation v1.50.0 h1:MXgrtpNxdCcqODC3sT
 github.com/aws/aws-sdk-go-v2/service/lakeformation v1.50.0/go.mod h1:/h0HxYdKI6NIBfMBZcUO5eNdGZ4DqCCwH7/P74k+5hk=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.100.0 h1:+yo2c/jxcKL9QTNd9kXuHnqQadTAGbLu0Gd6UpgHR/E=
 github.com/aws/aws-sdk-go-v2/service/lambda v1.100.0/go.mod h1:MqXYA1KLFNcpHpxuCtn9ozip1D/xoGBY5oUOTFsjl4I=
+github.com/aws/aws-sdk-go-v2/service/lightsail v1.58.3 h1:7tvWmVXID7QRiFCYy40abnHU2tavf9BdGhOS4td9ui8=
+github.com/aws/aws-sdk-go-v2/service/lightsail v1.58.3/go.mod h1:eonsXZMn2388qFdn1sRkwOxYm3I7xpVQe2gcMV/t7bg=
 github.com/aws/aws-sdk-go-v2/service/macie2 v1.54.0 h1:N9K51ZTQmFBGOrgRDiw3KiRO3iyUI6EuRx5K6+zRib8=
 github.com/aws/aws-sdk-go-v2/service/macie2 v1.54.0/go.mod h1:X+aUaqpL6Okxlf/S35NXt7O+raZyNuOo+xqI2mDZnn0=
 github.com/aws/aws-sdk-go-v2/service/managedblockchain v1.34.0 h1:ZC+U+1wom2qBWyQs7gh5qMU3xCApdt1fdHlvAUQVQLU=

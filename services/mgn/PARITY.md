@@ -21,15 +21,21 @@ last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is n
 # the tree at all, so this is a from-scratch pre-implementation audit, matching the directconnect/
 # outposts/resiliencehub audits done in the same pass.
 last_audit_date: 2026-08-01
-overall: B+   # raised from B by the 2026-08-01 gopherstack-i6oz follow-up pass (see "gopherstack-i6oz
-# follow-up pass" section below, after "Implementation summary"): StartImport now genuinely reads a
-# real S3 object (via a new cross-service S3Accessor seam, s3import.go) and parses it as a
-# documented CSV schema to create real SourceServers -- the wire-reachability gap this service was
-# originally docked a full letter grade for. Not raised further than B+: this package's OWN code and
-# tests are done and passing, but end-to-end reachability for a real caller additionally needs a
-# one-line cli.go wiring call (wireMGNS3(byName["MGN"], byName["S3"])) that this pass could not make
-# itself (another agent held cli.go) and that had NOT been applied as of this note -- see that
-# section for the exact line needed. All 95 ops routed/backed/persisted; see "Implementation
+overall: A-   # raised from B+ by a second 2026-08-01 follow-up pass that applied the one remaining
+# piece the gopherstack-i6oz pass above could not: cli.go wiring. wireMGNS3(byName["MGN"],
+# byName["S3"]) is now called from wireStorageAndSecretsIntegrations (mirroring wireDynamoDBS3
+# exactly), and was verified end-to-end -- not just compiled -- via a throwaway test that ran this
+# repo's own initializeServices/wireCrossServiceDependencies, put a real object through the real S3
+# backend, and confirmed StartImport created real SourceServers from it (see "cli.go wiring" section
+# below). That closes the wire-reachability gap this service was originally docked a full letter
+# grade for, both in this package's own code and in the actual running application. Not raised to A:
+# everything else about this service is unchanged from the gopherstack-i6oz pass -- StartImport's
+# CSV schema is still this emulator's own best-effort invention (AWS never published a real one),
+# ModifiedCount is still always zero, and the two corrections/simplifications noted in the original
+# "Implementation summary" (NetworkMigrationExecutionID auto-vivification, mapper segments left
+# genuinely empty) still stand -- none of those are wire-reachability problems, but they are real,
+# documented gaps against a hypothetical perfect emulator, which is what keeps this at A- rather than
+# higher. All 95 ops routed/backed/persisted; see "Implementation
 # summary" section immediately below for the ORIGINAL hard-design-problem decisions (SeedSourceServer/
 # SeedVcenterClient, NetworkMigrationExecutionID auto-vivification, mapper segments left genuinely
 # empty -- SeedSourceServer itself was REMOVED by the follow-up pass, see below), two corrections
@@ -226,8 +232,9 @@ unpublished real one; keep scope small ("niche, do not over-engineer").
   just `GetObject`, since StartImport only ever reads a single object — satisfied by the in-process
   S3 backend, same cross-service pattern `services/dynamodb`'s `ImportTable`/
   `ExportTableToPointInTime` already use for their own `S3Accessor`) plus `SetS3Backend`/
-  `s3Backend()`. **cli.go wiring is NOT yet applied** (this pass could not touch `cli.go` — another
-  agent held it) — see "Pending cli.go wiring" below for the exact one-line call needed.
+  `s3Backend()`. **cli.go wiring applied by a later pass** (this pass could not touch `cli.go` —
+  another agent held it at the time) — see "cli.go wiring" below for what was added and how it was
+  verified.
 - **A documented, best-effort CSV schema**, since AWS does not publish StartImport's real column set
   anywhere in this SDK (`types.SourceServer`/`types.SourceProperties` are the wire OUTPUT shape, not
   an input format). Header row required; the ONLY required column is `hostname`
@@ -281,49 +288,25 @@ unpublished real one; keep scope small ("niche, do not over-engineer").
   `VcenterClient` into the backend at all, exactly the "no import path exists" case the task
   flagged as the reason to keep it.
 
-### Pending cli.go wiring (NOT applied this pass — another agent held cli.go)
+### cli.go wiring (now applied and verified end-to-end)
 
-`services/mgn/InMemoryBackend.SetS3Backend(S3Accessor)` is defined and tested but never called
-outside `services/mgn`'s own test files. To make `StartImport` reachable end-to-end for a real
-caller (AWS CLI/SDK/Terraform, not just this package's own tests), `cli.go` needs the same
-one-function-plus-one-call pattern `wireDynamoDBS3` already uses for the identical DynamoDB<->S3
-seam:
+`services/mgn/InMemoryBackend.SetS3Backend(S3Accessor)` is now actually called from `cli.go`.
+`wireMGNS3` was added next to `wireDynamoDBS3` (same one-function-plus-one-call pattern, same
+`mgnbackend`/`s3backend` imports `wireTaggingMGN`/`wireDynamoDBS3` already used — no new import
+needed) and is called from `wireStorageAndSecretsIntegrations` as `wireMGNS3(byName["MGN"],
+byName["S3"])`, alongside `wireDynamoDBS3`.
 
-```go
-// wireMGNS3 connects the MGN backend to the S3 backend so StartImport can
-// read its caller-supplied S3 object and actually create SourceServers.
-func wireMGNS3(mgnReg, s3Reg service.Registerable) {
-	mgnH, ok := mgnReg.(*mgnbackend.Handler)
-	if !ok {
-		return
-	}
-
-	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
-	if !s3Ok {
-		return
-	}
-
-	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
-	if !bkOk || mgnH.Backend == nil {
-		return
-	}
-
-	mgnH.Backend.SetS3Backend(s3Bk)
-}
-```
-
-...called from `wireStorageAndSecretsIntegrations` (where `wireDynamoDBS3` itself is called) with:
-
-```go
-wireMGNS3(byName["MGN"], byName["S3"])
-```
-
-`mgnbackend`/`s3backend` are already imported under those names in `cli.go` (used by
-`wireTaggingMGN`/`wireDynamoDBS3` respectively) — no new import needed. Until this lands, a real
-caller's `StartImport` will genuinely FAIL every `ImportTask` (no S3 backend configured), which is
-honest behavior, not a regression hidden as a fabricated success — but it does mean the
-wire-reachability gap is closed IN THIS PACKAGE'S CODE, not yet end-to-end in the running
-application.
+Verified end-to-end, not just by compiling: a throwaway test (written outside this package, run
+once, then deleted — never committed) called this repo's own `initializeServices` /
+`wireCrossServiceDependencies` / `serviceByName` exactly as the real running server does, pulled
+out the resulting `*mgnbackend.Handler` and `*s3backend.S3Handler`, created a real bucket and put a
+real CSV object via the S3 backend's own `CreateBucket`/`PutObject` (real `aws-sdk-go-v2/service/s3`
+input types, not a mock), called `InitializeService()` then `StartImport` against that object, and
+polled `DescribeSourceServers` until real `SourceServer`s appeared. It passed: two `SourceServer`s
+were created from the two CSV rows, confirming `wireMGNS3` binds the exact `S3Accessor` interface
+this package's own round-trip tests already exercise — the wire-reachability gap this service was
+originally docked a full letter grade for is now closed both in this package's code AND in the
+actual application wiring a real caller (AWS CLI/SDK/Terraform) goes through.
 
 ### Gate results (this follow-up pass)
 
@@ -334,6 +317,16 @@ application.
 whole-repo level fail, but only in `services/networkmanager/` — pre-existing, unrelated, uncommitted
 work from another concurrently-running agent (this pass never touched anything outside
 `services/mgn/`).
+
+### Gate results (cli.go-wiring pass)
+
+Full whole-repo gates, run after adding `wireMGNS3` to `cli.go` (the only file this pass touched
+outside `services/mgn/`): `go build ./...`, `go vet ./...`, `go vet -tags e2e ./test/e2e/...`,
+`gofmt -l services/mgn/ cli.go` (empty), `golangci-lint run ./services/mgn/... .` (0 issues), and
+`grep -rnE '//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/mgn/` (empty) all clean —
+`services/networkmanager/` no longer fails, since the concurrent work referenced above had landed by
+this point. `go test -race -count=1 ./services/mgn/...` run 3 times, all 3 clean. The end-to-end
+wiring verification described above in "cli.go wiring" passed on its first run.
 
 ## Purpose of this document
 

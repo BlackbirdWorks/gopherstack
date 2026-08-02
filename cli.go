@@ -158,6 +158,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
@@ -277,6 +278,7 @@ type CLI struct {
 	directconnectHandler          service.Registerable
 	mgnHandler                    service.Registerable
 	networkmanagerHandler         service.Registerable
+	lightsailHandler              service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1481,6 +1483,11 @@ func (c *CLI) GetMGNHandler() service.Registerable { return c.mgnHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetNetworkManagerHandler() service.Registerable { return c.networkmanagerHandler }
 
+// GetLightsailHandler returns the Amazon Lightsail handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLightsailHandler() service.Registerable { return c.lightsailHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2609,6 +2616,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.directconnectHandler = byName["DirectConnect"]
 	cli.mgnHandler = byName["MGN"]
 	cli.networkmanagerHandler = byName["NetworkManager"]
+	cli.lightsailHandler = byName["Lightsail"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -2953,6 +2961,10 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
 
+	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
+	// actually creates SourceServers.
+	wireMGNS3(byName["MGN"], byName["S3"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -3252,6 +3264,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&directconnectbackend.Provider{},
 		&mgnbackend.Provider{},
 		&networkmanagerbackend.Provider{},
+		&lightsailbackend.Provider{},
 	}
 }
 
@@ -5426,12 +5439,13 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 35 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 36 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts, resiliencehub, directconnect, mgn, networkmanager). The rest remain unwired -- see PARITY.md's gaps section
-// for the honest remaining list and why a few
+// outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail). The
+// rest remain unwired -- see PARITY.md's gaps section for the honest
+// remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
@@ -5499,6 +5513,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingDirectConnect(bk, byName["DirectConnect"])
 	wireTaggingMGN(bk, byName["MGN"])
 	wireTaggingNetworkManager(bk, byName["NetworkManager"])
+	wireTaggingLightsail(bk, byName["Lightsail"])
 }
 
 func wireTaggingDDB(
@@ -7029,6 +7044,52 @@ func wireTaggingNetworkManager(
 	)
 }
 
+// wireTaggingLightsail wires the Amazon Lightsail backend into the Resource
+// Groups Tagging API. 16 of Lightsail's 20 ResourceType kinds carry a Tags
+// field and share the one "lightsail" ARN namespace (see
+// services/lightsail/tagging_vpc_misc.go's tagsNotSupportedKinds for the 4
+// that do not: StaticIp, PeeredVpc, ExportSnapshotRecord,
+// CloudFormationStackRecord). Lightsail's OWN wire-level TagResource/
+// UntagResource ops are ResourceName-first (ResourceArn merely optional) --
+// the reverse of resourceGroupsTagging's ARN-first convention every other
+// wired service here follows (PARITY.md 5.1) -- so this uses the backend's
+// TagResourceByARN/UntagResourceByARN adapters (services/lightsail/
+// tagging_vpc_misc.go), which resolve an ARN back to the ResourceName the
+// real op needs before delegating to the same resolution path, rather than
+// wireTaggingCtxARNResources/wireTaggingARNResources needing a
+// name-first variant of their own.
+func wireTaggingLightsail(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	lightsailReg service.Registerable,
+) {
+	lightsailH, ok := lightsailReg.(*lightsailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	lightsailBk := lightsailH.Backend
+	if lightsailBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "lightsail",
+		func(arn string) string { return resourceTypeFromARN(arn, "lightsail") },
+		func() []taggedARNEntry {
+			items := lightsailBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		lightsailBk.TagResourceByARN,
+		lightsailBk.UntagResourceByARN,
+	)
+}
+
 // wireTaggingCloudWatchLogs wires the CloudWatch Logs backend into the Resource
 // Groups Tagging API. Unlike every other service wired in this file, CloudWatch
 // Logs' tag store (h.tags/h.tagsMu) lives on the *Handler itself, not on a Backend --
@@ -7767,6 +7828,27 @@ func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
 	if ddbBk, ddbBkOk := ddbH.Backend.(*ddbbackend.InMemoryDB); ddbBkOk {
 		ddbBk.SetS3Backend(s3Bk)
 	}
+}
+
+// wireMGNS3 connects the MGN backend to the S3 backend so StartImport can
+// read its caller-supplied S3 object and actually create SourceServers.
+func wireMGNS3(mgnReg, s3Reg service.Registerable) {
+	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk || mgnH.Backend == nil {
+		return
+	}
+
+	mgnH.Backend.SetS3Backend(s3Bk)
 }
 
 // extractServiceName finds the service name for a given Echo context by checking
