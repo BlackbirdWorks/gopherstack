@@ -1,5 +1,6 @@
 import { flushSync, untrack } from "svelte";
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { goto, replaceState } from "$app/navigation";
 import { withEffectRoot } from "./region-effect.harness.svelte";
 import { getMockPage, setMockPageUrl, resetMockPage, fakeRegionEffect } from "./mock-page.svelte";
 
@@ -40,13 +41,25 @@ describe("urlState", () => {
     expect(tab.get()).toBe("objects");
   });
 
-  it("writes the new value into the URL via replaceState, not goto/pushState", () => {
+  it("writes the new value into the URL via goto({ replaceState: true }), not standalone replaceState", () => {
     const tab = urlState<"objects" | "properties">("tab", "objects");
     tab.set("properties");
 
     expect(getMockPage().url.searchParams.get("tab")).toBe("properties");
     // The value is reflected back on the next read.
     expect(tab.get()).toBe("properties");
+
+    // Standalone `replaceState` from `$app/navigation` looks like the more
+    // obvious tool for this job, but the real `@sveltejs/kit` client runtime
+    // never reassigns `page.url` from it — only the navigation pipeline
+    // `goto` drives does. Assert the call went through `goto`, configured so
+    // it behaves like a replace (no new history entry, no scroll, no lost
+    // focus), and that standalone `replaceState` was never touched.
+    expect(vi.mocked(goto)).toHaveBeenCalledWith(
+      expect.any(URL),
+      expect.objectContaining({ replaceState: true, noScroll: true, keepFocus: true }),
+    );
+    expect(vi.mocked(replaceState)).not.toHaveBeenCalled();
   });
 
   it("removes the param when set back to the initial value, keeping shared links clean", () => {

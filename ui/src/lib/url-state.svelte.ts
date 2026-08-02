@@ -10,9 +10,26 @@
 // exactly like reading any other rune — no separate mirrored `$state` to
 // keep in sync or drift from the address bar.
 //
-// `set()` writes through SvelteKit's `replaceState` (not `goto`/`pushState`),
-// so choosing a tab or typing a filter never pushes a history entry or
-// triggers a navigation/load — only the address bar and `page.url` change.
+// `set()` writes through SvelteKit's `goto()` with `replaceState: true` (not
+// `$app/navigation`'s standalone `replaceState`, despite that being the more
+// obvious-looking name for this job). Reading the actual shipped
+// `@sveltejs/kit` client runtime settles which one to use: standalone
+// `replaceState(url, state)` calls `history.replaceState(...)` — updating
+// the address bar and `page.state` — but does NOT reassign `page.url`; only
+// the navigation pipeline that `goto` drives does that
+// (`current.url = page.url = url` in `@sveltejs/kit`'s client.js). Every page
+// on this branch was originally wired to standalone `replaceState`, which
+// left the address bar looking right while every `$derived` reading
+// `activeTabParam.get()`/`searchQueryParam.get()` kept rendering the OLD
+// value forever — invisible in component tests because their `$app/navigation`
+// mock's fake `replaceState` (incorrectly) wrote straight into the mock's
+// reactive `page.url`, masking the exact gap the real implementation leaves.
+// `goto(url, { replaceState: true, noScroll: true, keepFocus: true, state })`
+// gets the address-bar/`page.state` behavior of standalone `replaceState`
+// (no new history entry, no scroll, no lost focus while typing a filter)
+// while actually updating `page.url` too. This repo has no `+page.ts`/
+// `+page.server.ts` load functions anywhere, so the navigation `goto` triggers
+// has nothing to re-fetch — it is exactly as cheap as the standalone call.
 // Back/forward still works exactly as before: it wasn't touched.
 //
 // ## The region-effect hazard
@@ -36,19 +53,21 @@
 // read does not re-fire when a sibling key is written, while the tracked
 // read does.
 import { page } from "$app/state";
-import { replaceState } from "$app/navigation";
+import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
 
 export type UrlState<T extends string> = {
   /** Current value: the URL's `key` param if present, else `initial`. */
   get(): T;
   /**
-   * Writes `value` into the URL under `key` via `replaceState` (no
-   * navigation, no scroll, no history entry). Setting `value === initial`
-   * removes the param instead of writing it, so a page's default state
-   * never clutters a shared link. Every other query parameter already
-   * present is preserved untouched. No-op outside the browser (SSR /
-   * prerender), where there is no address bar to update.
+   * Writes `value` into the URL under `key` via `goto(url, { replaceState:
+   * true, ... })` (no new history entry, no scroll, no lost focus — see the
+   * file header for why this has to be `goto` and not standalone
+   * `replaceState`). Setting `value === initial` removes the param instead
+   * of writing it, so a page's default state never clutters a shared link.
+   * Every other query parameter already present is preserved untouched.
+   * No-op outside the browser (SSR / prerender), where there is no address
+   * bar to update.
    */
   set(value: T): void;
 };
@@ -69,7 +88,7 @@ export function urlState<T extends string>(key: string, initial: T): UrlState<T>
       url.searchParams.set(key, value);
     }
 
-    replaceState(url, page.state);
+    void goto(url, { replaceState: true, noScroll: true, keepFocus: true, state: page.state });
   }
 
   return { get, set };
