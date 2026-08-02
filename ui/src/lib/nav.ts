@@ -151,6 +151,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "quicksight",
   "rolesanywhere",
   "workmail",
+  "mgn",
 ]);
 
 // The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
@@ -706,6 +707,7 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "outposts", href: "/dashboard/outposts", label: "Outposts", icon: "outposts" },
       { id: "appstream", href: "/dashboard/appstream", label: "AppStream 2.0", icon: "appstream" },
       { id: "workspaces", href: "/dashboard/workspaces", label: "WorkSpaces", icon: "workspaces" },
+      { id: "mgn", href: "/dashboard/mgn", label: "Application Migration", icon: "mgn" },
     ],
   },
   {

@@ -33,6 +33,12 @@
       "rules": {
         "import/max-dependencies": "off"
       }
+    },
+    {
+      "files": ["src/routes/**/_components/**/*.svelte"],
+      "rules": {
+        "import/max-dependencies": "off"
+      }
     }
   ]
 }
