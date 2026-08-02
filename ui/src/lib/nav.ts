@@ -117,6 +117,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "glacier",
   "ssoadmin",
   "resiliencehub",
+  "networkmanager",
   "appstream",
   "bedrockruntime",
   "cloudcontrol",
@@ -620,6 +621,12 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/globalaccelerator",
         label: "Global Accelerator",
         icon: "globalaccelerator",
+      },
+      {
+        id: "networkmanager",
+        href: "/dashboard/networkmanager",
+        label: "Network Manager",
+        icon: "networkmanager",
       },
       {
         id: "servicediscovery",
