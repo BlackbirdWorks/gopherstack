@@ -84,6 +84,61 @@ func TestDeleteConnection_AfterTestConnection(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, del2Rec.Code)
 }
 
+// TestDescribeConnections_Pagination asserts DescribeConnections honors
+// MaxRecords/Marker like every other Describe op in this service (real AWS
+// DescribeConnectionsResponse carries a Marker field). Previously this
+// handler ignored both and always returned every connection in one page.
+func TestDescribeConnections_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+
+	riRec := doDMS(t, h, "CreateReplicationInstance", map[string]any{
+		"ReplicationInstanceIdentifier": "page-ri",
+		"ReplicationInstanceClass":      "dms.t3.medium",
+	})
+	require.Equal(t, http.StatusOK, riRec.Code)
+	riArn := parseJSON(t, riRec)["ReplicationInstance"].(map[string]any)["ReplicationInstanceArn"].(string)
+
+	epArns := make([]string, 0, 2)
+	for _, id := range []string{"page-ep-1", "page-ep-2"} {
+		epRec := doDMS(t, h, "CreateEndpoint", map[string]any{
+			"EndpointIdentifier": id,
+			"EndpointType":       "source",
+			"EngineName":         "mysql",
+		})
+		require.Equal(t, http.StatusOK, epRec.Code)
+		epArns = append(epArns, parseJSON(t, epRec)["Endpoint"].(map[string]any)["EndpointArn"].(string))
+	}
+
+	for _, epArn := range epArns {
+		testRec := doDMS(t, h, "TestConnection", map[string]any{
+			"ReplicationInstanceArn": riArn,
+			"EndpointArn":            epArn,
+		})
+		require.Equal(t, http.StatusOK, testRec.Code)
+	}
+
+	// Page 1: MaxRecords=1 must return exactly one connection and a non-empty Marker.
+	page1Rec := doDMS(t, h, "DescribeConnections", map[string]any{"MaxRecords": 1})
+	require.Equal(t, http.StatusOK, page1Rec.Code)
+	page1 := parseJSON(t, page1Rec)
+	conns1, ok := page1["Connections"].([]any)
+	require.True(t, ok)
+	require.Len(t, conns1, 1)
+	marker, ok := page1["Marker"].(string)
+	require.True(t, ok, "Marker must be set when more records remain")
+	assert.NotEmpty(t, marker)
+
+	// Page 2: following Marker must return the remaining connection.
+	page2Rec := doDMS(t, h, "DescribeConnections", map[string]any{"MaxRecords": 1, "Marker": marker})
+	require.Equal(t, http.StatusOK, page2Rec.Code)
+	page2 := parseJSON(t, page2Rec)
+	conns2, ok := page2["Connections"].([]any)
+	require.True(t, ok)
+	require.Len(t, conns2, 1)
+}
+
 func TestHandler_TestConnectionAndDescribeConnections(t *testing.T) {
 	t.Parallel()
 

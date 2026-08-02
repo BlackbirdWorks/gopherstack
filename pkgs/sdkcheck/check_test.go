@@ -2,6 +2,8 @@ package sdkcheck_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -319,12 +321,38 @@ func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is not a pointer")
 }
 
+// TestCheckCompleteness_ReportsPhantomOpNonFatally verifies that
+// CheckCompleteness catches the reverse defect — a supportedOps entry that
+// does not correspond to any real method on the SDK client (a "phantom"
+// operation) — and reports it via Logf, without failing the test. This
+// mirrors the real-world EMR bug where GetSupportedOperations() listed
+// ListTagsForResource even though no such operation exists on the AWS SDK's
+// emr client. The check is currently non-fatal (see the rollout note in
+// check.go): a repo-wide sweep found phantom entries across a meaningful
+// fraction of services on first run, so this is reporting-only until each
+// service's findings are triaged.
+func TestCheckCompleteness_ReportsPhantomOpNonFatally(t *testing.T) {
+	t.Parallel()
+
+	spy := newSpyT(t)
+	sdkcheck.CheckCompleteness(
+		spy, &fakeClient{},
+		[]string{"GetItem", "PutItem", "DeleteItem", "ListTagsForResource"},
+		nil,
+	)
+	require.False(t, spy.Failed(),
+		"CheckCompleteness should not fail the test for a phantom op — it is reporting-only for now")
+	require.True(t, spy.loggedContains("ListTagsForResource"),
+		"CheckCompleteness should log the phantom op name so it's discoverable in verbose test output")
+}
+
 // spyT wraps a [testing.TB] to intercept failure calls so we can test that
 // [sdkcheck.CheckCompleteness] correctly reports errors for bad inputs, without
 // propagating the failures to the parent test.
 type spyT struct {
 	testing.TB
 
+	logs   []string
 	failed bool
 }
 
@@ -332,6 +360,17 @@ func newSpyT(tb testing.TB) *spyT {
 	tb.Helper()
 
 	return &spyT{TB: tb}
+}
+
+// loggedContains reports whether any captured Logf/Log call contains substr.
+func (s *spyT) loggedContains(substr string) bool {
+	for _, l := range s.logs {
+		if strings.Contains(l, substr) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (s *spyT) Helper()                   {}
@@ -342,16 +381,18 @@ func (s *spyT) Fatal(_ ...any)            { s.failed = true }
 func (s *spyT) Error(_ ...any)            { s.failed = true }
 func (s *spyT) Fail()                     { s.failed = true }
 func (s *spyT) Failed() bool              { return s.failed }
-func (s *spyT) Log(_ ...any)              {}
-func (s *spyT) Logf(_ string, _ ...any)   {}
-func (s *spyT) Name() string              { return s.TB.Name() }
-func (s *spyT) Cleanup(f func())          { s.TB.Cleanup(f) }
-func (s *spyT) Skip(_ ...any)             {}
-func (s *spyT) Skipf(_ string, _ ...any)  {}
-func (s *spyT) SkipNow()                  {}
-func (s *spyT) Skipped() bool             { return false }
-func (s *spyT) TempDir() string           { return s.TB.TempDir() }
-func (s *spyT) Setenv(_, _ string)        {}
-func (s *spyT) Unsetenv(_ string)         {}
-func (s *spyT) Chdir(dir string)          { s.TB.Chdir(dir) }
-func (s *spyT) Context() context.Context  { return context.Background() }
+func (s *spyT) Log(args ...any)           { s.logs = append(s.logs, fmt.Sprint(args...)) }
+func (s *spyT) Logf(format string, args ...any) {
+	s.logs = append(s.logs, fmt.Sprintf(format, args...))
+}
+func (s *spyT) Name() string             { return s.TB.Name() }
+func (s *spyT) Cleanup(f func())         { s.TB.Cleanup(f) }
+func (s *spyT) Skip(_ ...any)            {}
+func (s *spyT) Skipf(_ string, _ ...any) {}
+func (s *spyT) SkipNow()                 {}
+func (s *spyT) Skipped() bool            { return false }
+func (s *spyT) TempDir() string          { return s.TB.TempDir() }
+func (s *spyT) Setenv(_, _ string)       {}
+func (s *spyT) Unsetenv(_ string)        {}
+func (s *spyT) Chdir(dir string)         { s.TB.Chdir(dir) }
+func (s *spyT) Context() context.Context { return context.Background() }

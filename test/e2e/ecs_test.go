@@ -87,8 +87,12 @@ func TestECSDashboard_Empty(t *testing.T) {
 
 	content, err := page.Content()
 	require.NoError(t, err)
-	assert.Contains(t, content, "ECS Clusters")
-	assert.Contains(t, content, "No ECS clusters found")
+	// Rebuilt page titles the header "Amazon ECS" (not "ECS Clusters") and the
+	// Clusters tab's empty state reads "No clusters found" (not "No ECS
+	// clusters found") — same page heading and empty-state protections, new
+	// wording.
+	assert.Contains(t, content, "Amazon ECS")
+	assert.Contains(t, content, "No clusters found")
 }
 
 // TestECSDashboard_CapacityProvidersTab verifies the Capacity Providers tab renders.

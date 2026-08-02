@@ -264,7 +264,12 @@ func (b *InMemoryBackend) validateCapacityProviderStrategyLocked(
 	return nil
 }
 
-// UpdateCapacityProvider updates tags or status of a capacity provider.
+// UpdateCapacityProvider updates the managed-scaling settings of an
+// ASG-backed capacity provider. Unlike CreateCapacityProvider, the ASG the
+// provider wraps cannot be changed here (there is no ARN field on the real
+// UpdateCapacityProviderRequest's AutoScalingGroupProviderUpdate) -- only
+// ManagedScaling/ManagedTerminationProtection/ManagedDraining are merged
+// onto the existing AutoScalingGroupProvider, so its ARN is preserved.
 func (b *InMemoryBackend) UpdateCapacityProvider(
 	input UpdateCapacityProviderInput,
 ) (*CapacityProvider, error) {
@@ -280,16 +285,14 @@ func (b *InMemoryBackend) UpdateCapacityProvider(
 		return nil, fmt.Errorf("%w: %s", ErrCapacityProviderNotFound, input.Name)
 	}
 
-	if input.Status != "" {
-		cp.Status = input.Status
-	}
-
 	if input.AutoScalingGroupProvider != nil {
-		cp.AutoScalingGroupProvider = input.AutoScalingGroupProvider
-	}
+		if cp.AutoScalingGroupProvider == nil {
+			cp.AutoScalingGroupProvider = &AutoScalingGroupProvider{}
+		}
 
-	if input.Tags != nil {
-		cp.Tags = copyTags(input.Tags)
+		cp.AutoScalingGroupProvider.ManagedScaling = input.AutoScalingGroupProvider.ManagedScaling
+		cp.AutoScalingGroupProvider.ManagedTerminationProtection = input.AutoScalingGroupProvider.ManagedTerminationProtection
+		cp.AutoScalingGroupProvider.ManagedDraining = input.AutoScalingGroupProvider.ManagedDraining
 	}
 
 	out := *cp

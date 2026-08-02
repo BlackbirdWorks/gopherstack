@@ -16,6 +16,7 @@ type deleteCertificateInput struct {
 type certificateJSON struct {
 	CertificateIdentifier string `json:"CertificateIdentifier"`
 	CertificateArn        string `json:"CertificateArn"`
+	CertificatePem        string `json:"CertificatePem,omitempty"`
 }
 
 type deleteCertificateOutput struct {
@@ -26,6 +27,7 @@ func certToJSON(c *Certificate) certificateJSON {
 	return certificateJSON{
 		CertificateIdentifier: c.CertificateIdentifier,
 		CertificateArn:        c.CertificateArn,
+		CertificatePem:        c.CertificatePem,
 	}
 }
 

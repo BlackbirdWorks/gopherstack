@@ -1,6 +1,7 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getBatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
 import { GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import {
@@ -31,14 +32,17 @@ type DescribeServiceEnvironmentsCommandOutput
 import { toast } from 'svelte-sonner';
 import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, Server, BookOpen, Terminal } from 'lucide-svelte';
 
-const batch = getBatchClient();
+const batch = regionalClient(getBatchClient);
 
 // Lazily constructed CloudWatch Logs client for streaming container logs.
 // Created only when the user opens a job's logs so component init never
-// depends on the CloudWatch Logs SDK being available (e.g. under test mocks).
-let cwl: ReturnType<typeof getCloudWatchLogsClient> | null = null;
+// depends on the CloudWatch Logs SDK being available (e.g. under test
+// mocks). The regionalClient() wrapper itself is built lazily too — it
+// resolves its factory once on first call, so building it eagerly at
+// module scope would defeat the point.
+let cwlAccessor: (() => ReturnType<typeof getCloudWatchLogsClient>) | undefined;
 function cwlClient() {
-return (cwl ??= getCloudWatchLogsClient());
+return (cwlAccessor ??= regionalClient(getCloudWatchLogsClient))();
 }
 
 type ActiveTab = 'queues' | 'compute-environments' | 'service-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
@@ -138,7 +142,7 @@ jobs.filter((j) => !searchQuery || (j.jobName ?? '').toLowerCase().includes(sear
 async function loadComputeEnvironments() {
 loadingCEs = true;
 try {
-const resp = await batch.send(new DescribeComputeEnvironmentsCommand({ maxResults: 50 }));
+const resp = await batch().send(new DescribeComputeEnvironmentsCommand({ maxResults: 50 }));
 computeEnvironments = resp.computeEnvironments ?? [];
 } catch (e) {
 toast.error('Failed to load compute environments: ' + String(e));
@@ -150,7 +154,7 @@ loadingCEs = false;
 async function loadQueues() {
 loading = true;
 try {
-const resp = await batch.send(new DescribeJobQueuesCommand({ maxResults: 50 }));
+const resp = await batch().send(new DescribeJobQueuesCommand({ maxResults: 50 }));
 queues = resp.jobQueues ?? [];
 } catch (e) {
 toast.error('Failed to load queues: ' + String(e));
@@ -162,7 +166,7 @@ loading = false;
 async function loadDefinitions() {
 loadingDefinitions = true;
 try {
-const resp = await batch.send(new DescribeJobDefinitionsCommand({ maxResults: 50, status: 'ACTIVE' }));
+const resp = await batch().send(new DescribeJobDefinitionsCommand({ maxResults: 50, status: 'ACTIVE' }));
 definitions = resp.jobDefinitions ?? [];
 } catch (e) {
 toast.error('Failed to load definitions: ' + String(e));
@@ -179,7 +183,7 @@ jobStatus: jobStatusFilter,
 maxResults: 50
 };
 if (queueArn) params.jobQueue = queueArn;
-const resp = await batch.send(new ListJobsCommand(params));
+const resp = await batch().send(new ListJobsCommand(params));
 jobs = resp.jobSummaryList ?? [];
 } catch (e) {
 toast.error('Failed to load jobs: ' + String(e));
@@ -215,7 +219,7 @@ try {
 const computeEnvOrder: ComputeEnvironmentOrder[] = newComputeEnvArn.trim()
 ? [{ order: 1, computeEnvironment: newComputeEnvArn.trim() }]
 : [];
-await batch.send(new CreateJobQueueCommand({
+await batch().send(new CreateJobQueueCommand({
 jobQueueName: newQueueName.trim(),
 priority: newQueuePriority,
 computeEnvironmentOrder: computeEnvOrder,
@@ -237,7 +241,7 @@ creatingQueue = false;
 async function deleteQueue(name: string) {
 if (!await confirmDestructive({ title: 'Delete Job Queue', message: `Delete job queue "${name}"? All pending jobs will be removed.` })) return;
 try {
-await batch.send(new DeleteJobQueueCommand({ jobQueue: name }));
+await batch().send(new DeleteJobQueueCommand({ jobQueue: name }));
 toast.success(`Queue "${name}" deleted`);
 await loadQueues();
 } catch (e) {
@@ -256,7 +260,7 @@ if (Object.keys(parsed).length > 0) containerOverrides = parsed;
 } catch {
 // Ignore invalid overrides and submit without them.
 }
-const resp = await batch.send(new SubmitJobCommand({
+const resp = await batch().send(new SubmitJobCommand({
 jobName: submitJobName.trim(),
 jobQueue: submitJobQueue.trim(),
 jobDefinition: submitJobDef.trim(),
@@ -276,7 +280,7 @@ submittingJob = false;
 
 async function cancelJob(jobId: string) {
 try {
-await batch.send(new CancelJobCommand({ jobId, reason: 'Cancelled by user' }));
+await batch().send(new CancelJobCommand({ jobId, reason: 'Cancelled by user' }));
 toast.success('Job cancelled');
 await loadJobs();
 } catch (e) {
@@ -287,7 +291,7 @@ toast.error('Failed to cancel job: ' + String(e));
 async function terminateJob(jobId: string) {
 if (!await confirmDestructive({ title: 'Terminate Job', message: 'Terminate this job? This cannot be undone.', confirmLabel: 'Terminate' })) return;
 try {
-await batch.send(new TerminateJobCommand({ jobId, reason: 'Terminated by user' }));
+await batch().send(new TerminateJobCommand({ jobId, reason: 'Terminated by user' }));
 toast.success('Job terminated');
 await loadJobs();
 } catch (e) {
@@ -298,7 +302,7 @@ toast.error('Failed to terminate job: ' + String(e));
 async function loadServiceEnvironments() {
 loadingSEs = true;
 try {
-const resp = await batch.send(new DescribeServiceEnvironmentsCommand({ maxResults: 50 }));
+const resp = await batch().send(new DescribeServiceEnvironmentsCommand({ maxResults: 50 }));
 serviceEnvironments = (resp as DescribeServiceEnvironmentsCommandOutput).serviceEnvironments ?? [];
 } catch (e) {
 toast.error('Failed to load service environments: ' + String(e));
@@ -311,7 +315,7 @@ async function createComputeEnvironment() {
 if (!newCEName.trim()) return;
 creatingCE = true;
 try {
-await batch.send(new CreateComputeEnvironmentCommand({
+await batch().send(new CreateComputeEnvironmentCommand({
 computeEnvironmentName: newCEName.trim(),
 type: newCEType as 'MANAGED' | 'UNMANAGED',
 state: newCEState as 'ENABLED' | 'DISABLED'
@@ -332,8 +336,8 @@ creatingCE = false;
 async function deleteCE(name: string) {
 if (!await confirmDestructive({ title: 'Delete Compute Environment', message: `Delete compute environment "${name}"?` })) return;
 try {
-await batch.send(new UpdateComputeEnvironmentCommand({ computeEnvironment: name, state: 'DISABLED' }));
-await batch.send(new DeleteComputeEnvironmentCommand({ computeEnvironment: name }));
+await batch().send(new UpdateComputeEnvironmentCommand({ computeEnvironment: name, state: 'DISABLED' }));
+await batch().send(new DeleteComputeEnvironmentCommand({ computeEnvironment: name }));
 toast.success(`Compute environment "${name}" deleted`);
 await loadComputeEnvironments();
 } catch (e) {
@@ -344,7 +348,7 @@ toast.error('Failed to delete compute environment: ' + String(e));
 async function toggleQueueState(queue: JobQueueDetail) {
 const newState = queue.state === 'ENABLED' ? 'DISABLED' : 'ENABLED';
 try {
-await batch.send(new UpdateJobQueueCommand({ jobQueue: queue.jobQueueName!, state: newState as 'ENABLED' | 'DISABLED' }));
+await batch().send(new UpdateJobQueueCommand({ jobQueue: queue.jobQueueName!, state: newState as 'ENABLED' | 'DISABLED' }));
 toast.success(`Queue "${queue.jobQueueName}" ${newState.toLowerCase()}`);
 await loadQueues();
 } catch (e) {
@@ -357,7 +361,7 @@ loadingJobDetail = true;
 jobLogEvents = [];
 jobLogError = '';
 try {
-const resp = await batch.send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
+const resp = await batch().send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
 selectedJob = (resp.jobs ?? [])[0] ?? null;
 } catch (e) {
 toast.error('Failed to load job details: ' + String(e));
@@ -403,7 +407,7 @@ const counts: Record<string, number> = {};
 for (const q of queues) {
 if (!q.jobQueueName) continue;
 try {
-const resp = await batch.send(new ListJobsCommand({ jobQueue: q.jobQueueName, maxResults: 100 }));
+const resp = await batch().send(new ListJobsCommand({ jobQueue: q.jobQueueName, maxResults: 100 }));
 counts[q.jobQueueName] = (resp.jobSummaryList ?? []).length;
 } catch {
 counts[q.jobQueueName] = 0;
@@ -422,7 +426,7 @@ const statuses = ['PENDING', 'RUNNABLE', 'STARTING', 'RUNNING', 'SUCCEEDED', 'FA
 const counts: Record<string, number> = {};
 await Promise.all(statuses.map(async (status) => {
 	try {
-		const r = await batch.send(new ListJobsCommand({ jobQueue: queueName, jobStatus: status, maxResults: 100 }));
+		const r = await batch().send(new ListJobsCommand({ jobQueue: queueName, jobStatus: status, maxResults: 100 }));
 		counts[status] = (r.jobSummaryList ?? []).length;
 	} catch {
 		counts[status] = 0;
@@ -431,7 +435,42 @@ await Promise.all(statuses.map(async (status) => {
 queueJobCounts = counts;
 }
 
-onMount(async () => { await Promise.all([loadQueues(), loadJobCounts()]); });
+// Selected queue/CE/job and the per-queue job-count caches all reference
+// resources (and are keyed by names) from whichever region they were
+// fetched in; clear everything and reload whichever tab is active rather
+// than only the queues list. The whole dispatch below is wrapped in
+// untrack(): `activeTab` is read because handleTabChange also writes it,
+// and — critically — loadJobCounts() reads `queues` synchronously (its
+// `for` loop, before any `await`) and loadMetrics() synchronously reads
+// `.length` off computeEnvironments/queues/definitions/jobs. Every one of
+// those is also written (asynchronously) by a loader started from this
+// same effect, so without untrack those synchronous reads become tracked
+// dependencies and the resulting write re-triggers this effect — an
+// infinite loop that only manifested here because no other migrated page
+// reads list state synchronously inside a loader called from the effect.
+onRegionChange(() => {
+selectedQueue = null;
+selectedCE = null;
+selectedJob = null;
+jobLogEvents = [];
+jobLogError = '';
+jobCountByQueue = {};
+queueJobCounts = {};
+computeEnvironments = [];
+serviceEnvironments = [];
+definitions = [];
+jobs = [];
+queues = [];
+untrack(() => {
+if (activeTab === 'compute-environments') void loadComputeEnvironments();
+else if (activeTab === 'service-environments') void loadServiceEnvironments();
+else if (activeTab === 'definitions') void loadDefinitions();
+else if (activeTab === 'jobs') void loadJobs();
+else if (activeTab === 'metrics') void loadMetrics();
+// 'queues' and 'docs' fall through to here.
+else void Promise.all([loadQueues(), loadJobCounts()]);
+});
+});
 </script>
 
 <div class="p-6 space-y-6">

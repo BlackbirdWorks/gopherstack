@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSchedulerClient } from '$lib/aws-client';
 	import {
 		ListSchedulesCommand,
@@ -26,7 +27,7 @@
 		Pencil
 	} from 'lucide-svelte';
 
-	const scheduler = getSchedulerClient();
+	const scheduler = regionalClient(getSchedulerClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'schedules' | 'groups'>('schedules');
@@ -88,8 +89,14 @@
 	async function loadSchedules() {
 		loading = true;
 		try {
-			const res = await scheduler.send(
-				new ListSchedulesCommand({ GroupName: selectedGroup === 'all' ? undefined : selectedGroup, MaxResults: 100 })
+			// `selectedGroup` is read with `untrack` so it never becomes a
+			// dependency of the `onRegionChange` effect below -- the group
+			// <select>'s onchange already writes selectedGroup and calls
+			// loadSchedules() directly, so letting the effect also depend on
+			// selectedGroup would double-fetch on every group change.
+			const group = untrack(() => selectedGroup);
+			const res = await scheduler().send(
+				new ListSchedulesCommand({ GroupName: group === 'all' ? undefined : group, MaxResults: 100 })
 			);
 			schedules = res.Schedules ?? [];
 		} catch (e) {
@@ -102,7 +109,7 @@
 	async function loadGroups() {
 		loading = true;
 		try {
-			const res = await scheduler.send(new ListScheduleGroupsCommand({ MaxResults: 100 }));
+			const res = await scheduler().send(new ListScheduleGroupsCommand({ MaxResults: 100 }));
 			groups = res.ScheduleGroups ?? [];
 		} catch (e) {
 			toast.error(`Failed to load groups: ${e}`);
@@ -114,7 +121,7 @@
 	async function deleteSchedule(schedule: ScheduleSummary) {
 		if (!schedule.Name || !await confirmDestructive({ title: 'Delete Schedule', message: `Delete schedule "${schedule.Name}"? The associated target will no longer be invoked.` })) return;
 		try {
-			await scheduler.send(
+			await scheduler().send(
 				new DeleteScheduleCommand({
 					Name: schedule.Name,
 					GroupName: schedule.GroupName
@@ -130,7 +137,7 @@
 	async function openEditModal(schedule: ScheduleSummary) {
 		// Fetch full schedule details to populate the edit form
 		try {
-			const res = await scheduler.send(
+			const res = await scheduler().send(
 				new GetScheduleCommand({ Name: schedule.Name, GroupName: schedule.GroupName })
 			);
 			editScheduleName = res.Name ?? '';
@@ -154,7 +161,7 @@
 		}
 		editing = true;
 		try {
-			await scheduler.send(
+			await scheduler().send(
 				new UpdateScheduleCommand({
 					Name: editScheduleName,
 					GroupName: editScheduleGroupName === 'default' ? undefined : editScheduleGroupName,
@@ -185,7 +192,7 @@
 		}
 		creating = true;
 		try {
-			await scheduler.send(
+			await scheduler().send(
 				new CreateScheduleCommand({
 					Name: newScheduleName.trim(),
 					GroupName: selectedGroup === 'all' ? undefined : selectedGroup,
@@ -220,7 +227,7 @@
 		else await loadGroups();
 	}
 
-	onMount(async () => {
+	onRegionChange(async () => {
 		await Promise.all([loadSchedules(), loadGroups()]);
 	});
 </script>

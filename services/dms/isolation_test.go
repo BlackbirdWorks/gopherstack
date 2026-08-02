@@ -63,9 +63,9 @@ func TestDMSRegionIsolation(t *testing.T) {
 	require.Len(t, westAll, 1)
 
 	// 4. Endpoints with the same identifier are isolated too.
-	_, err = backend.CreateEndpoint(ctxEast, "shared-ep", "source", "mysql", "", "", "", 0, nil)
+	_, err = backend.CreateEndpoint(ctxEast, "shared-ep", "source", "mysql", "", "", "", "", 0, nil)
 	require.NoError(t, err)
-	_, err = backend.CreateEndpoint(ctxWest, "shared-ep", "target", "postgres", "", "", "", 0, nil)
+	_, err = backend.CreateEndpoint(ctxWest, "shared-ep", "target", "postgres", "", "", "", "", 0, nil)
 	require.NoError(t, err)
 
 	eastEP, err := backend.DescribeEndpoints(ctxEast, "shared-ep")
@@ -108,7 +108,7 @@ func TestDMSTagAndConnectionRegionIsolation(t *testing.T) {
 		ctxEast, "conn-ri", "dms.t3.medium", "", "", 0, false, false, false, nil,
 	)
 	require.NoError(t, err)
-	eastEP, err := backend.CreateEndpoint(ctxEast, "conn-ep", "source", "mysql", "", "", "", 0, nil)
+	eastEP, err := backend.CreateEndpoint(ctxEast, "conn-ep", "source", "mysql", "", "", "", "", 0, nil)
 	require.NoError(t, err)
 
 	// TestConnection in us-east-1 succeeds.

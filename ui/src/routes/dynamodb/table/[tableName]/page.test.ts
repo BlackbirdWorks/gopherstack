@@ -5,15 +5,24 @@ import TableDetailPage from "./+page.svelte";
 const mockSend = vi.fn();
 let mockParams = { tableName: "TestTable" };
 
+function commandName(command: unknown): string {
+  return (command as { constructor: { name: string } }).constructor.name;
+}
+
+function findCall(name: string, index = 0): { input: Record<string, unknown> } {
+  const calls = mockSend.mock.calls.filter((c) => commandName(c[0]) === name);
+  return calls[index][0] as { input: Record<string, unknown> };
+}
+
 vi.mock("$app/state", () => ({
   get page() {
     return { params: mockParams };
   },
 }));
 
-vi.mock("$lib/aws/client", () => ({
-  newDynamoDBClient: () => ({ send: mockSend }),
-  getStoredRegion: () => "us-east-1",
+vi.mock("$lib/aws-client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getDynamoDBClient: () => ({ send: mockSend }),
 }));
 
 vi.mock("$lib/dynamodb", () => ({
@@ -389,13 +398,19 @@ describe("DynamoDB Table Detail Page", () => {
     );
   });
 
-  it("shows error with retry button on load failure", async () => {
-    mockSend.mockRejectedValueOnce(new Error("network error"));
+  it("shows the AWS error code and status in the inline banner on load failure", async () => {
+    const err = Object.assign(new Error("Requested resource not found"), {
+      name: "ResourceNotFoundException",
+      $metadata: { httpStatusCode: 400 },
+    });
+    mockSend.mockRejectedValueOnce(err);
 
     render(TableDetailPage);
     await waitFor(
       () => {
-        expect(screen.getByText("network error")).toBeInTheDocument();
+        expect(
+          screen.getByText("ResourceNotFoundException (HTTP 400): Requested resource not found"),
+        ).toBeInTheDocument();
       },
       { timeout: 3000 },
     );
@@ -490,5 +505,266 @@ describe("DynamoDB Table Detail Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it("sends the exact UpdateTimeToLive input when enabling TTL", async () => {
+    defaultMocks();
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce(ttlEnabledResponse);
+    mockSend.mockResolvedValueOnce(tableResponse);
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Update TTL")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+
+    await fireEvent.input(document.querySelector('input[name="attributeName"]')!, {
+      target: { value: "expiry" },
+    });
+    await fireEvent.click(document.querySelector("#ttl-enabled")!);
+    await fireEvent.click(screen.getByText("Update TTL"));
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.some((c) => commandName(c[0]) === "UpdateTimeToLiveCommand")).toBe(
+        true,
+      );
+    });
+    const call = findCall("UpdateTimeToLiveCommand");
+    expect(call.input).toEqual({
+      TableName: "TestTable",
+      TimeToLiveSpecification: { AttributeName: "expiry", Enabled: true },
+    });
+  });
+
+  it("sends the exact UpdateTable StreamSpecification when enabling streams", async () => {
+    defaultMocks();
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce(ttlDisabledResponse);
+    mockSend.mockResolvedValueOnce(tableResponse);
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Update Streams")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+
+    await fireEvent.click(document.querySelector("#streams-enabled")!);
+    await fireEvent.click(screen.getByText("Update Streams"));
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.some((c) => commandName(c[0]) === "UpdateTableCommand")).toBe(
+        true,
+      );
+    });
+    const call = findCall("UpdateTableCommand");
+    expect(call.input).toEqual({
+      TableName: "TestTable",
+      StreamSpecification: { StreamEnabled: true, StreamViewType: "NEW_AND_OLD_IMAGES" },
+    });
+  });
+
+  it("shows the AWS error code in a toast when UpdateTable (streams) fails", async () => {
+    defaultMocks();
+    const err = Object.assign(new Error("Streaming is already enabled"), {
+      name: "ResourceInUseException",
+      $metadata: { httpStatusCode: 400 },
+    });
+    mockSend.mockRejectedValueOnce(err);
+    mockSend.mockResolvedValueOnce(ttlDisabledResponse);
+    mockSend.mockResolvedValueOnce(tableResponse);
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Update Streams")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("Update Streams"));
+
+    const { toast } = await import("svelte-sonner");
+    await waitFor(() => {
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+        "ResourceInUseException (HTTP 400): Streaming is already enabled",
+      );
+    });
+  });
+
+  it("sends the exact CreateBackup input and shows the created backup", async () => {
+    defaultMocks();
+    // loadBackups() on tab switch
+    mockSend.mockResolvedValueOnce({ BackupSummaries: [] });
+    // CreateBackup response
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({
+      BackupSummaries: [{ BackupName: "nightly-1", BackupStatus: "AVAILABLE" }],
+      // loadBackups() after create
+    });
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Backups")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("Backups"));
+
+    const nameInput = screen.getByPlaceholderText("Backup name (optional)");
+    await fireEvent.input(nameInput, { target: { value: "nightly-1" } });
+    await fireEvent.click(screen.getByText("Create Backup"));
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.some((c) => commandName(c[0]) === "CreateBackupCommand")).toBe(
+        true,
+      );
+    });
+    const call = findCall("CreateBackupCommand");
+    expect(call.input).toEqual({ TableName: "TestTable", BackupName: "nightly-1" });
+
+    await waitFor(() => expect(screen.getByText("nightly-1")).toBeInTheDocument());
+  });
+
+  it("shows the AWS error code in a toast when CreateBackup fails", async () => {
+    defaultMocks();
+    // loadBackups() on tab switch
+    mockSend.mockResolvedValueOnce({ BackupSummaries: [] });
+    const err = Object.assign(new Error("Backup already exists"), {
+      name: "BackupInUseException",
+      $metadata: { httpStatusCode: 400 },
+    });
+    mockSend.mockRejectedValueOnce(err);
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Backups")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("Backups"));
+    await fireEvent.input(screen.getByPlaceholderText("Backup name (optional)"), {
+      target: { value: "dup" },
+    });
+    await fireEvent.click(screen.getByText("Create Backup"));
+
+    const { toast } = await import("svelte-sonner");
+    await waitFor(() => {
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+        "BackupInUseException (HTTP 400): Backup already exists",
+      );
+    });
+  });
+
+  it("sends the exact key-typed Query input (Number partition key) and shows results", async () => {
+    const numericTable = {
+      Table: {
+        ...tableResponse.Table,
+        AttributeDefinitions: [{ AttributeName: "id", AttributeType: "N" }],
+      },
+    };
+    mockSend.mockResolvedValueOnce(ttlDisabledResponse);
+    mockSend.mockResolvedValueOnce(numericTable);
+    mockSend.mockResolvedValueOnce({ Items: [{ id: { N: "42" } }], Count: 1 });
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Query")).toBeInTheDocument(), { timeout: 3000 });
+    await fireEvent.click(screen.getByText("Query"));
+
+    const pkInput = screen.getAllByPlaceholderText("value")[0];
+    await fireEvent.input(pkInput, { target: { value: "42" } });
+    await fireEvent.click(screen.getByText("Run Query"));
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.some((c) => commandName(c[0]) === "QueryCommand")).toBe(true);
+    });
+    const call = findCall("QueryCommand");
+    expect(call.input).toEqual({
+      TableName: "TestTable",
+      IndexName: undefined,
+      KeyConditionExpression: "#pk = :pkVal",
+      ExpressionAttributeNames: { "#pk": "id" },
+      ExpressionAttributeValues: { ":pkVal": { N: "42" } },
+    });
+  });
+
+  it("shows the AWS error code in a toast when Query fails", async () => {
+    defaultMocks();
+    const err = Object.assign(new Error("KeyConditionExpression is invalid"), {
+      name: "ValidationException",
+      $metadata: { httpStatusCode: 400 },
+    });
+    mockSend.mockRejectedValueOnce(err);
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Query")).toBeInTheDocument(), { timeout: 3000 });
+    await fireEvent.click(screen.getByText("Query"));
+    await fireEvent.input(screen.getAllByPlaceholderText("value")[0], {
+      target: { value: "x" },
+    });
+    await fireEvent.click(screen.getByText("Run Query"));
+
+    const { toast } = await import("svelte-sonner");
+    await waitFor(() => {
+      expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+        "ValidationException (HTTP 400): KeyConditionExpression is invalid",
+      );
+    });
+  });
+
+  it("paginates Items via Load more: sends ExclusiveStartKey and appends rather than replaces", async () => {
+    defaultMocks();
+    mockSend.mockResolvedValueOnce({
+      Items: [{ id: { S: "item-1" } }],
+      LastEvaluatedKey: { id: { S: "item-1" } },
+    });
+    mockSend.mockResolvedValueOnce({
+      Items: [{ id: { S: "item-2" } }],
+      LastEvaluatedKey: undefined,
+    });
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Items")).toBeInTheDocument(), { timeout: 3000 });
+    await fireEvent.click(screen.getByText("Items"));
+    await waitFor(() => expect(screen.getByText("item-1")).toBeInTheDocument());
+
+    const loadMore = screen.getByText("Load more");
+    await fireEvent.click(loadMore);
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.filter((c) => commandName(c[0]) === "ScanCommand").length).toBe(2);
+    });
+    const secondScan = findCall("ScanCommand", 1);
+    expect(secondScan.input).toEqual({
+      TableName: "TestTable",
+      Limit: 50,
+      ExclusiveStartKey: { id: { S: "item-1" } },
+    });
+
+    // Both pages' items are visible -- appended, not replaced.
+    expect(screen.getByText("item-1")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("item-2")).toBeInTheDocument());
+    expect(screen.queryByText("Load more")).not.toBeInTheDocument();
+  });
+
+  it("submits DeleteTable with the exact TableName once the name is typed to confirm", async () => {
+    defaultMocks();
+    mockSend.mockResolvedValueOnce({});
+    const originalLocation = window.location;
+    // jsdom's window.location isn't directly assignable; stub it for this test so the
+    // page's `window.location.href = ...` redirect after delete doesn't throw.
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, href: "" },
+    });
+
+    render(TableDetailPage);
+    await waitFor(() => expect(screen.getByText("Delete Table")).toBeInTheDocument(), {
+      timeout: 3000,
+    });
+    await fireEvent.click(screen.getByText("Delete Table"));
+
+    const input = screen.getByPlaceholderText("TestTable");
+    await fireEvent.input(input, { target: { value: "TestTable" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+
+    await waitFor(() => {
+      expect(mockSend.mock.calls.some((c) => commandName(c[0]) === "DeleteTableCommand")).toBe(
+        true,
+      );
+    });
+    expect(findCall("DeleteTableCommand").input).toEqual({ TableName: "TestTable" });
+
+    Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
   });
 });

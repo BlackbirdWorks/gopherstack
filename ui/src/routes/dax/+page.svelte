@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDAXClient } from '$lib/aws-client';
-	import { getStoredRegion } from '$lib/aws/client';
 	import {
 		DescribeClustersCommand,
 		DescribeParameterGroupsCommand,
@@ -25,8 +25,7 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { RefreshCw, Search, Zap, Plus, Trash2 } from 'lucide-svelte';
 
-	let currentRegion = $state(getStoredRegion());
-	let client = $state(getDAXClient(currentRegion));
+	const client = regionalClient(getDAXClient);
 
 	const activeStatuses = new Set<string>(['ACTIVE', 'AVAILABLE', 'ENABLED', 'RUNNING', 'COMPLETE', 'COMPLETED', 'IDLE', 'Active', 'opt-in-not-required', 'ENABLED_BY_DEFAULT']);
 	function statusClass(s: unknown): string {
@@ -47,16 +46,21 @@
 	async function loadData() {
 		loading = true;
 		try {
-			if (activeTab === 'clusters') {
-				const resp = await client.send(new DescribeClustersCommand({}));
+			// activeTab is read via untrack() because switchTab() also writes
+			// it: without untrack, every tab switch would re-trigger the
+			// onRegionChange effect below (since it calls loadData directly)
+			// and double-fetch the newly selected tab's data.
+			const tab = untrack(() => activeTab);
+			if (tab === 'clusters') {
+				const resp = await client().send(new DescribeClustersCommand({}));
 				clustersData = resp.Clusters ?? [];
 			}
-			if (activeTab === 'paramgroups') {
-				const resp = await client.send(new DescribeParameterGroupsCommand({}));
+			if (tab === 'paramgroups') {
+				const resp = await client().send(new DescribeParameterGroupsCommand({}));
 				paramgroupsData = resp.ParameterGroups ?? [];
 			}
-			if (activeTab === 'subnetgroups') {
-				const resp = await client.send(new DescribeSubnetGroupsCommand({}));
+			if (tab === 'subnetgroups') {
+				const resp = await client().send(new DescribeSubnetGroupsCommand({}));
 				subnetgroupsData = resp.SubnetGroups ?? [];
 			}
 		} catch (e) {
@@ -72,30 +76,14 @@
 		loadData();
 	}
 
-	function handleRegionChange(e: Event) {
-		const ce = e as CustomEvent<string>;
-		currentRegion = ce.detail;
-		client = getDAXClient(currentRegion);
-		loadData();
-	}
-
-	onMount(() => {
-		loadData();
-		window.addEventListener('gopherstack:region-change', handleRegionChange);
-	});
-
-	onDestroy(() => {
-		if (typeof window !== 'undefined') {
-			window.removeEventListener('gopherstack:region-change', handleRegionChange);
-		}
-	});
+	onRegionChange(loadData);
 
 	async function createCluster() {
 		// eslint-disable-next-line no-alert
 		const name = prompt("Cluster Name:");
 		if (!name) return;
 		try {
-			await client.send(new CreateClusterCommand({
+			await client().send(new CreateClusterCommand({
 				ClusterName: name,
 				NodeType: "dax.r4.large",
 				ReplicationFactor: 1,
@@ -110,7 +98,7 @@
 	async function deleteCluster(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete ${name}?` })) return;
 		try {
-			await client.send(new DeleteClusterCommand({ ClusterName: name }));
+			await client().send(new DeleteClusterCommand({ ClusterName: name }));
 			toast.success("Cluster deleted");
 			loadData();
 		} catch (e) {
@@ -122,7 +110,7 @@
 		const desc = prompt("New Description:");
 		if (desc === null) return;
 		try {
-			await client.send(new UpdateClusterCommand({ ClusterName: name, Description: desc }));
+			await client().send(new UpdateClusterCommand({ ClusterName: name, Description: desc }));
 			toast.success("Cluster updated");
 			loadData();
 		} catch (e) {
@@ -133,7 +121,7 @@
 		try {
 			const c = clustersData.find(x => x.ClusterName === name);
 			if (!c) return;
-			await client.send(new IncreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: (c.TotalNodes ?? 1) + 1 }));
+			await client().send(new IncreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: (c.TotalNodes ?? 1) + 1 }));
 			toast.success("Replication factor increased");
 			loadData();
 		} catch (e) {
@@ -146,7 +134,7 @@
 			if (!c) return;
 			const n = (c.TotalNodes ?? 1) - 1;
 			if (n < 1) return toast.error("Cannot decrease below 1");
-			await client.send(new DecreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: n }));
+			await client().send(new DecreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: n }));
 			toast.success("Replication factor decreased");
 			loadData();
 		} catch (e) {
@@ -159,7 +147,7 @@
 		const name = prompt("Parameter Group Name:");
 		if (!name) return;
 		try {
-			await client.send(new CreateParameterGroupCommand({ ParameterGroupName: name }));
+			await client().send(new CreateParameterGroupCommand({ ParameterGroupName: name }));
 			toast.success("Parameter Group created");
 			loadData();
 		} catch (e) {
@@ -169,7 +157,7 @@
 	async function deleteParamGroup(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Parameter Group', message: `Delete ${name}?` })) return;
 		try {
-			await client.send(new DeleteParameterGroupCommand({ ParameterGroupName: name }));
+			await client().send(new DeleteParameterGroupCommand({ ParameterGroupName: name }));
 			toast.success("Parameter Group deleted");
 			loadData();
 		} catch (e) {
@@ -184,7 +172,7 @@
 		const pValue = prompt("Parameter Value:");
 		if (!pValue) return;
 		try {
-			await client.send(new UpdateParameterGroupCommand({
+			await client().send(new UpdateParameterGroupCommand({
 				ParameterGroupName: name,
 				ParameterNameValues: [{ ParameterName: pName, ParameterValue: pValue }]
 			}));
@@ -200,7 +188,7 @@
 		const name = prompt("Subnet Group Name:");
 		if (!name) return;
 		try {
-			await client.send(new CreateSubnetGroupCommand({ SubnetGroupName: name, SubnetIds: ["subnet-12345"] }));
+			await client().send(new CreateSubnetGroupCommand({ SubnetGroupName: name, SubnetIds: ["subnet-12345"] }));
 			toast.success("Subnet Group created");
 			loadData();
 		} catch (e) {
@@ -210,7 +198,7 @@
 	async function deleteSubnetGroup(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Subnet Group', message: `Delete ${name}?` })) return;
 		try {
-			await client.send(new DeleteSubnetGroupCommand({ SubnetGroupName: name }));
+			await client().send(new DeleteSubnetGroupCommand({ SubnetGroupName: name }));
 			toast.success("Subnet Group deleted");
 			loadData();
 		} catch (e) {
@@ -222,7 +210,7 @@
 		const desc = prompt("New Description:");
 		if (desc === null) return;
 		try {
-			await client.send(new UpdateSubnetGroupCommand({ SubnetGroupName: name, Description: desc }));
+			await client().send(new UpdateSubnetGroupCommand({ SubnetGroupName: name, Description: desc }));
 			toast.success("Subnet Group updated");
 			loadData();
 		} catch (e) {

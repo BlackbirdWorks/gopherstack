@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getTranscribeClient } from '$lib/aws-client';
 	import {
 		ListTranscriptionJobsCommand,
@@ -11,7 +11,6 @@
 		StartCallAnalyticsJobCommand,
 		DeleteCallAnalyticsJobCommand,
 		GetTranscriptionJobCommand,
-		type TranscribeClient,
 		type TranscriptionJobSummary,
 		type VocabularyInfo,
 		type CallAnalyticsJobSummary
@@ -30,10 +29,7 @@
 		Download
 	} from 'lucide-svelte';
 
-	let tr: TranscribeClient | undefined;
-	function client(): TranscribeClient {
-		return (tr ??= getTranscribeClient());
-	}
+	const client = regionalClient(getTranscribeClient);
 
 	let downloadingJob = $state<string | null>(null);
 
@@ -227,7 +223,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

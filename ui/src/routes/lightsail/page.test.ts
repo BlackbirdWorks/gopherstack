@@ -1,6 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import LightsailPage from "./+page.svelte";
+
+// Only the ACTIVE tab's panel is ever mounted (+page.svelte's `{#if}` chain,
+// not CSS visibility -- see its own doc comment), so at most one dialog
+// exists at a time. Still scope to the open one, matching every other
+// page.test.ts in this codebase, since a closed <dialog> just loses its
+// `open` attribute rather than unmounting.
+function openDialog(): HTMLElement {
+  const dialog = document.querySelector("dialog[open]");
+  if (!dialog) throw new Error("no open dialog found");
+  return dialog as HTMLElement;
+}
 
 const mockSend = vi.fn();
 
@@ -8,175 +19,215 @@ vi.mock("$lib/aws-client", () => ({
   getLightsailClient: () => ({ send: mockSend }),
 }));
 
-vi.mock("svelte-sonner", () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 
-describe("Lightsail Page", () => {
+vi.mock("svelte-sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), message: vi.fn() },
+}));
+
+describe("Lightsail page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
   });
 
-  it("renders page title and create button", () => {
+  it("renders page title", () => {
     mockSend.mockResolvedValueOnce({ instances: [] });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-
     render(LightsailPage);
-
-    expect(screen.getByText("Lightsail Compute Deck")).toBeInTheDocument();
-    expect(screen.getByText("Launch Flare")).toBeInTheDocument();
+    expect(screen.getByText("Amazon Lightsail")).toBeInTheDocument();
   });
 
-  it("displays loaded instances", async () => {
-    mockSend.mockResolvedValueOnce({
-      instances: [
-        { name: "my-vps", state: { name: "running" }, blueprintId: "amazon_linux_2023" },
-        { name: "staging-server", state: { name: "running" }, blueprintId: "ubuntu_22_04" },
-      ],
-    });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-
+  it("shows every tab group and defaults to the Instances tab", () => {
+    mockSend.mockResolvedValueOnce({ instances: [] });
     render(LightsailPage);
-
-    await waitFor(
-      () => {
-        expect(screen.getByText("my-vps")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-    expect(screen.getByText("staging-server")).toBeInTheDocument();
+    expect(screen.getByText("Compute")).toBeInTheDocument();
+    expect(screen.getByText("Storage")).toBeInTheDocument();
+    expect(screen.getByText("Networking")).toBeInTheDocument();
+    expect(screen.getByText("Databases")).toBeInTheDocument();
+    expect(screen.getByText("Containers")).toBeInTheDocument();
+    expect(screen.getByText("Distributions")).toBeInTheDocument();
+    expect(screen.getByText("Domains")).toBeInTheDocument();
+    expect(screen.getByText("Monitoring")).toBeInTheDocument();
+    expect(screen.getAllByText("Instances").length).toBeGreaterThan(0);
   });
 
-  it("filters instances via search input", async () => {
+  it("shows empty state when there are no instances", async () => {
+    mockSend.mockResolvedValueOnce({ instances: [] });
+    render(LightsailPage);
+    await waitFor(() => {
+      expect(screen.getByText("No instances found")).toBeInTheDocument();
+    });
+  });
+
+  it("lists instances", async () => {
     mockSend.mockResolvedValueOnce({
       instances: [
-        { name: "prod-server", state: { name: "running" }, blueprintId: "amazon_linux_2023" },
-        { name: "dev-instance", state: { name: "running" }, blueprintId: "ubuntu_22_04" },
-        { name: "test-box", state: { name: "stopped" }, blueprintId: "ubuntu_22_04" },
+        {
+          name: "my-instance",
+          state: { name: "running", code: 16 },
+          blueprintId: "amazon_linux_2023",
+        },
       ],
     });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-
     render(LightsailPage);
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "my-instance" })).toBeInTheDocument();
+    });
+  });
 
-    await waitFor(
-      () => {
-        expect(screen.getByText("prod-server")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
+  it("creates an instance via the modal", async () => {
+    mockSend.mockResolvedValueOnce({ instances: [] });
+    render(LightsailPage);
+    await waitFor(() => screen.getByText("No instances found"));
 
-    const searchInput = screen.getByPlaceholderText("Search compute flares...");
-    await fireEvent.input(searchInput, { target: { value: "dev" } });
+    await fireEvent.click(screen.getByRole("button", { name: "Create instance" }));
+    const dialog = openDialog();
+    await fireEvent.input(within(dialog).getByLabelText("Name"), {
+      target: { value: "new-instance" },
+    });
+    await fireEvent.input(within(dialog).getByLabelText(/Blueprint ID/), {
+      target: { value: "amazon_linux_2023" },
+    });
+    await fireEvent.input(within(dialog).getByLabelText(/Bundle ID/), {
+      target: { value: "nano_3_0" },
+    });
+
+    mockSend.mockResolvedValueOnce({ operations: [{ id: "op-1" }] });
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "new-instance", state: { name: "pending", code: 0 } }],
+    });
+
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
 
     await waitFor(() => {
-      expect(screen.queryByText("prod-server")).not.toBeInTheDocument();
+      expect(screen.getByRole("cell", { name: "new-instance" })).toBeInTheDocument();
     });
-    expect(screen.getByText("dev-instance")).toBeInTheDocument();
-    expect(screen.queryByText("test-box")).not.toBeInTheDocument();
   });
 
-  it("opens create modal when button is clicked", async () => {
-    mockSend.mockResolvedValueOnce({ instances: [] });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-
+  it("deletes an instance after confirming", async () => {
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "doomed-instance", state: { name: "running", code: 16 } }],
+    });
     render(LightsailPage);
+    await waitFor(() => screen.getByRole("cell", { name: "doomed-instance" }));
 
-    // There are two "Launch Flare" elements (button + modal title), click the button
-    const createButtons = screen.getAllByText("Launch Flare");
-    await fireEvent.click(createButtons[0]);
+    mockSend.mockResolvedValueOnce({ operations: [{ id: "op-2" }] });
+    mockSend.mockResolvedValueOnce({ instances: [] });
 
-    expect(screen.getByPlaceholderText("e.g. bishop-test-vps")).toBeInTheDocument();
+    await fireEvent.click(screen.getByText("Delete"));
+
+    expect(confirmDestructive).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByText("No instances found")).toBeInTheDocument();
+    });
   });
 
-  it("closes create modal on abort click", async () => {
-    mockSend.mockResolvedValueOnce({ instances: [] });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
+  it("shows an inline error with the AWS error code and message when a load fails", async () => {
+    const error = Object.assign(new Error("Rate exceeded."), {
+      name: "ThrottlingException",
+      $metadata: { httpStatusCode: 429 },
+    });
+    mockSend.mockRejectedValueOnce(error);
 
     render(LightsailPage);
-
-    const createButtons = screen.getAllByText("Launch Flare");
-    await fireEvent.click(createButtons[0]);
-
-    expect(screen.getByPlaceholderText("e.g. bishop-test-vps")).toBeInTheDocument();
-
-    await fireEvent.click(screen.getByText("Abort"));
 
     await waitFor(() => {
-      expect(screen.queryByPlaceholderText("e.g. bishop-test-vps")).not.toBeInTheDocument();
+      expect(screen.getByText("Failed to load data")).toBeInTheDocument();
+      expect(
+        screen.getByText("ThrottlingException (HTTP 429): Rate exceeded."),
+      ).toBeInTheDocument();
     });
   });
 
-  it("creates an instance via the modal form", async () => {
+  it("switches to the Storage group and shows the Disks tab", async () => {
     mockSend.mockResolvedValueOnce({ instances: [] });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-    mockSend.mockResolvedValueOnce({ operations: [] });
+    render(LightsailPage);
+    await waitFor(() => screen.getByText("No instances found"));
+
     mockSend.mockResolvedValueOnce({
-      instances: [
-        { name: "new-vps", state: { name: "running" }, blueprintId: "amazon_linux_2023" },
+      disks: [{ name: "disk-1", state: "available", sizeInGb: 32 }],
+    });
+    await fireEvent.click(screen.getByText("Storage"));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "disk-1" })).toBeInTheDocument();
+    });
+  });
+
+  it("switches to the Monitoring group and lists recent operations", async () => {
+    mockSend.mockResolvedValueOnce({ instances: [] });
+    render(LightsailPage);
+    await waitFor(() => screen.getByText("No instances found"));
+
+    mockSend.mockResolvedValueOnce({
+      alarms: [{ name: "alarm-1", state: "OK" }],
+    });
+    await fireEvent.click(screen.getByText("Monitoring"));
+    await waitFor(() => screen.getByText("Alarms"));
+
+    mockSend.mockResolvedValueOnce({
+      operations: [
+        {
+          id: "op-3",
+          operationType: "CreateInstance",
+          resourceName: "my-instance",
+          resourceType: "Instance",
+          status: "Succeeded",
+        },
       ],
     });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
+    await fireEvent.click(screen.getByText("Operations"));
 
-    render(LightsailPage);
-
-    const createButtons = screen.getAllByText("Launch Flare");
-    await fireEvent.click(createButtons[0]);
-
-    const nameInput = screen.getByPlaceholderText("e.g. bishop-test-vps");
-    await fireEvent.input(nameInput, { target: { value: "new-vps" } });
-
-    const form = nameInput.closest("form")!;
-    await fireEvent.submit(form);
-
-    await waitFor(
-      () => {
-        expect(mockSend).toHaveBeenCalledTimes(7);
-      },
-      { timeout: 3000 },
-    );
-
-    const { toast } = await import("svelte-sonner");
-    expect(toast.success).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "CreateInstance" })).toBeInTheDocument();
+    });
   });
 
-  it("shows empty state when no instances exist", async () => {
+  it("labels the Reference Data tab as synthetic seed data, never AWS's real catalog", async () => {
     mockSend.mockResolvedValueOnce({ instances: [] });
-    mockSend.mockResolvedValueOnce({ relationalDatabases: [] });
-    mockSend.mockResolvedValueOnce({ staticIps: [] });
-
     render(LightsailPage);
+    await waitFor(() => screen.getByText("No instances found"));
 
-    await waitFor(
-      () => {
-        expect(screen.getByText("No active compute flares detected.")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
+    mockSend.mockResolvedValueOnce({ alarms: [] });
+    await fireEvent.click(screen.getByText("Monitoring"));
+    await waitFor(() => screen.getByText("Reference Data"));
+
+    mockSend.mockResolvedValueOnce({ blueprints: [] });
+    await fireEvent.click(screen.getByText("Reference Data"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/not AWS's real, authoritative/)).toBeInTheDocument();
+    });
   });
 
-  it("shows error toast on load failure", async () => {
-    mockSend.mockRejectedValueOnce(new Error("access denied"));
-
+  it("does not offer a StaticIp release without loading the Static IPs tab, and never fabricates metric charts", async () => {
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "with-metrics", state: { name: "running", code: 16 } }],
+    });
     render(LightsailPage);
+    await waitFor(() => screen.getByRole("cell", { name: "with-metrics" }));
 
-    const { toast } = await import("svelte-sonner");
-    await waitFor(
-      () => {
-        expect(vi.mocked(toast.error)).toHaveBeenCalled();
-      },
-      { timeout: 3000 },
-    );
+    mockSend.mockResolvedValueOnce({
+      instance: { name: "with-metrics", state: { name: "running", code: 16 } },
+    });
+    mockSend.mockResolvedValueOnce({ portStates: [] });
+    mockSend.mockResolvedValueOnce({ autoSnapshots: [] });
+    await fireEvent.click(screen.getByText("View"));
+    const dialog = openDialog();
+    await waitFor(() => within(dialog).getByText("Metrics"));
+
+    mockSend.mockResolvedValueOnce({ metricData: [] });
+    await fireEvent.click(within(dialog).getByText("Check CPU utilization"));
+
+    await waitFor(() => {
+      expect(
+        within(dialog).getByText(/does not produce real metric datapoints/),
+      ).toBeInTheDocument();
+    });
   });
 });

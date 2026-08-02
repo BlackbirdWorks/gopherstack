@@ -1,163 +1,180 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	// AWS Network Manager dashboard.
+	//
+	// Network Manager genuinely spans two related but historically distinct
+	// products (services/networkmanager/PARITY.md): "Global Networks" is the
+	// on-premises modeling half (sites, devices, links, customer-gateway/
+	// transit-gateway registrations); "Cloud WAN" is the managed-backbone
+	// half (core networks, policy lifecycle, segments, attachments,
+	// peerings, Connect peers). This page keeps them as two distinct tab
+	// GROUPS, matching mgn's own Replication/Network-Migration split, rather
+	// than merging 95 operations' worth of tabs into one flat bar. The one
+	// real structural bridge between the halves -- AssociateConnectPeer/
+	// DisassociateConnectPeer, which binds a Cloud WAN ConnectPeer to an
+	// on-prem Device/Link -- lives inside the Global Networks group's
+	// Associations tab (it is fundamentally a Device/Link-scoped
+	// association, same shape as its four siblings there), with an inline
+	// note pointing at the Cloud WAN Connect Peers tab for the other side.
+	//
+	// Composition + shared chrome only, same as mgn/+page.svelte: every
+	// tab's own state, data fetching and markup live in
+	// ./_components/*Panel.svelte. Only the ACTIVE tab's panel is ever
+	// mounted via a real `{#if}`/`{:else if}` chain (not a CSS `hidden`
+	// class -- this app's test environment does not load Tailwind, so
+	// `hidden` has no effect in jsdom and would leave every tab
+	// simultaneously queryable, breaking `getByText`/`getByRole` isolation).
+	// Switching tabs destroys the previous panel and mounts a new one, which
+	// fetches on its own via `onRegionChange` (or, for panels scoped under a
+	// user-picked Global Network, a plain `$effect` reacting to that pick).
+	import { regionalClient } from '$lib/region-effect.svelte';
+	import { urlState } from '$lib/url-state.svelte';
 	import { getNetworkManagerClient } from '$lib/aws-client';
-	import {
-		DescribeGlobalNetworksCommand,
-		GetDevicesCommand,
-		GetLinksCommand,
-		type GlobalNetwork,
-		type Device,
-		type Link
-	} from '@aws-sdk/client-networkmanager';
-	import { toast } from 'svelte-sonner';
-	import { Globe, RefreshCw, Search, Router, Link as LinkIcon, Monitor } from 'lucide-svelte';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import { Network } from 'lucide-svelte';
+	import GlobalNetworksPanel from './_components/GlobalNetworksPanel.svelte';
+	import SitesPanel from './_components/SitesPanel.svelte';
+	import DevicesPanel from './_components/DevicesPanel.svelte';
+	import LinksPanel from './_components/LinksPanel.svelte';
+	import ConnectionsPanel from './_components/ConnectionsPanel.svelte';
+	import AssociationsPanel from './_components/AssociationsPanel.svelte';
+	import CoreNetworksPanel from './_components/CoreNetworksPanel.svelte';
+	import ConnectPeersPanel from './_components/ConnectPeersPanel.svelte';
+	import AttachmentsPanel from './_components/AttachmentsPanel.svelte';
+	import PeeringsPanel from './_components/PeeringsPanel.svelte';
+	import RouteAnalysisPanel from './_components/RouteAnalysisPanel.svelte';
+	import NetworkInsightsPanel from './_components/NetworkInsightsPanel.svelte';
+	import AdminPanel from './_components/AdminPanel.svelte';
 
-	const nm = getNetworkManagerClient();
+	type GlobalNetworksTabId = 'globalNetworks' | 'sites' | 'devices' | 'links' | 'connections' | 'associations';
+	type CloudWanTabId =
+		| 'coreNetworks'
+		| 'connectPeers'
+		| 'attachments'
+		| 'peerings'
+		| 'routeAnalysis'
+		| 'networkInsights'
+		| 'admin';
+	type TabId = GlobalNetworksTabId | CloudWanTabId;
+	type Group = 'globalNetworks' | 'cloudWan';
 
-	let loading = $state(false);
-	let activeTab = $state<'networks' | 'devices' | 'links'>('networks');
+	const CLOUD_WAN_TAB_IDS: readonly CloudWanTabId[] = [
+		'coreNetworks',
+		'connectPeers',
+		'attachments',
+		'peerings',
+		'routeAnalysis',
+		'networkInsights',
+		'admin'
+	];
+
+	function groupOf(tab: TabId): Group {
+		return (CLOUD_WAN_TAB_IDS as readonly TabId[]).includes(tab) ? 'cloudWan' : 'globalNetworks';
+	}
+
+	const groupTabs: TabDef[] = [
+		{ id: 'globalNetworks', label: 'Global Networks' },
+		{ id: 'cloudWan', label: 'Cloud WAN' }
+	];
+	const globalNetworksTabs: TabDef[] = [
+		{ id: 'globalNetworks', label: 'Global Networks' },
+		{ id: 'sites', label: 'Sites' },
+		{ id: 'devices', label: 'Devices' },
+		{ id: 'links', label: 'Links' },
+		{ id: 'connections', label: 'Connections' },
+		{ id: 'associations', label: 'Associations' }
+	];
+	const cloudWanTabs: TabDef[] = [
+		{ id: 'coreNetworks', label: 'Core Networks' },
+		{ id: 'connectPeers', label: 'Connect Peers' },
+		{ id: 'attachments', label: 'Attachments' },
+		{ id: 'peerings', label: 'Peerings' },
+		{ id: 'routeAnalysis', label: 'Route Analysis' },
+		{ id: 'networkInsights', label: 'Network Insights' },
+		{ id: 'admin', label: 'Admin' }
+	];
+
+	const client = regionalClient(getNetworkManagerClient);
+
+	// URL-backed (?tab=...). See url-state.svelte.ts.
+	const pageTabParam = urlState<TabId>('tab', 'globalNetworks');
+	let activeTab = $derived(pageTabParam.get());
+	let activeGroup = $derived(groupOf(activeTab));
 	let searchQuery = $state('');
-	let globalNetworks = $state<GlobalNetwork[]>([]);
-	let devices = $state<Device[]>([]);
-	let links = $state<Link[]>([]);
-	let selectedNetworkId = $state<string | null>(null);
 
-	const filteredNetworks = $derived(globalNetworks.filter((n) => (n.GlobalNetworkId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
-	const filteredDevices = $derived(devices.filter((d) => (d.DeviceId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
-	const filteredLinks = $derived(links.filter((l) => (l.LinkId ?? '').toLowerCase().includes(searchQuery.toLowerCase())));
+	// Bound to whichever panel is currently mounted, so the shared
+	// PageHeader Refresh button can force a reload without each panel
+	// needing to be individually wired here.
+	let activePanelRef = $state<{ refresh: () => Promise<void> } | null>(null);
 
-	async function loadData() {
-		loading = true;
-		try {
-			const resp = await nm.send(new DescribeGlobalNetworksCommand({}));
-			globalNetworks = resp.GlobalNetworks ?? [];
-		} catch (e) {
-			toast.error('Failed to load Network Manager data: ' + String(e));
-		} finally {
-			loading = false;
-		}
+	function switchTab(id: string): void {
+		pageTabParam.set(id as TabId);
+		searchQuery = '';
 	}
 
-	async function loadNetworkResources(networkId: string) {
-		selectedNetworkId = networkId;
-		try {
-			const [devResp, linkResp] = await Promise.all([
-				nm.send(new GetDevicesCommand({ GlobalNetworkId: networkId })),
-				nm.send(new GetLinksCommand({ GlobalNetworkId: networkId }))
-			]);
-			devices = devResp.Devices ?? [];
-			links = linkResp.Links ?? [];
-			activeTab = 'devices';
-		} catch (e) {
-			toast.error('Failed to load network resources: ' + String(e));
-		}
+	function switchGroup(id: string): void {
+		const g = id as Group;
+		const first = g === 'cloudWan' ? cloudWanTabs[0] : globalNetworksTabs[0];
+		switchTab(first.id);
 	}
 
-	onMount(loadData);
+	function handleRefresh(): void {
+		void activePanelRef?.refresh();
+	}
 </script>
 
 <div class="p-6 space-y-6">
-	<div class="flex items-center justify-between">
-		<div class="flex items-center gap-3">
-			<Globe class="w-7 h-7 text-blue-500" />
-			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">AWS Network Manager</h1>
-				<p class="text-sm text-gray-500 dark:text-gray-400">Centrally manage your global network across AWS and on-premises</p>
-			</div>
-		</div>
-		<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-			<RefreshCw class="w-4 h-4" /> Refresh
-		</button>
-	</div>
-
-	<div class="grid grid-cols-2 sm:grid-cols-3 gap-4">
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
-			<div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg"><Globe class="w-5 h-5 text-blue-600 dark:text-blue-400" /></div>
-			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{globalNetworks.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Global Networks</p></div>
-		</div>
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
-			<div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg"><Router class="w-5 h-5 text-green-600 dark:text-green-400" /></div>
-			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{devices.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Devices</p></div>
-		</div>
-		<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-3">
-			<div class="p-2 bg-purple-100 dark:bg-purple-900/30 rounded-lg"><LinkIcon class="w-5 h-5 text-purple-600 dark:text-purple-400" /></div>
-			<div><p class="text-2xl font-bold text-gray-900 dark:text-white">{links.length}</p><p class="text-sm text-gray-500 dark:text-gray-400">Links</p></div>
-		</div>
-	</div>
+	<PageHeader
+		icon={Network}
+		title="AWS Network Manager"
+		description="Global Networks (on-premises sites, devices, links) and Cloud WAN (managed core network backbone)"
+		onRefresh={handleRefresh}
+		color="cyan"
+		service="networkmanager"
+	/>
 
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
-			<div class="flex gap-2">
-				{#each [['networks', 'Global Networks'], ['devices', 'Devices'], ['links', 'Links']] as [tab, label]}
-					<button onclick={() => { activeTab = tab as typeof activeTab; searchQuery = ''; }}
-						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
-						{label}
-					</button>
-				{/each}
-			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
+		<div class="p-4 border-b border-slate-200 dark:border-slate-700 space-y-3">
+			<Tabs tabs={groupTabs} active={activeGroup} onSelect={switchGroup} color="indigo" />
+			<div class="flex flex-col sm:flex-row gap-3 justify-between">
+				{#if activeGroup === 'globalNetworks'}
+					<Tabs tabs={globalNetworksTabs} active={activeTab} onSelect={switchTab} color="cyan" />
+				{:else}
+					<Tabs tabs={cloudWanTabs} active={activeTab} onSelect={switchTab} color="violet" />
+				{/if}
+				<SearchInput bind:value={searchQuery} />
 			</div>
 		</div>
-		<div class="p-4">
-			{#if loading}
-				<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</div>
-			{:else if activeTab === 'networks'}
-				{#if filteredNetworks.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No global networks found</div>
-				{:else}
-					<div class="space-y-2">
-						{#each filteredNetworks as network}
-							<button onclick={() => loadNetworkResources(network.GlobalNetworkId ?? '')}
-								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left">
-								<div class="flex items-center gap-3">
-									<Globe class="w-5 h-5 text-blue-500" />
-									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{network.GlobalNetworkId}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{network.Description ?? 'No description'}</p>
-									</div>
-								</div>
-								<span class="text-xs px-2 py-1 rounded-full {network.State === 'AVAILABLE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}">{network.State}</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
+
+		<div class="p-4 space-y-4">
+			{#if activeTab === 'globalNetworks'}
+				<GlobalNetworksPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'sites'}
+				<SitesPanel bind:this={activePanelRef} {client} {searchQuery} />
 			{:else if activeTab === 'devices'}
-				{#if filteredDevices.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No devices found. Select a global network to view its devices.</div>
-				{:else}
-					<div class="space-y-2">
-						{#each filteredDevices as device}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3">
-									<Router class="w-5 h-5 text-green-500" />
-									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{device.DeviceId}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">{device.Description ?? device.Type ?? 'Device'}</p>
-									</div>
-								</div>
-								<span class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400">{device.State}</span>
-							</div>
-						{/each}
-					</div>
-				{/if}
+				<DevicesPanel bind:this={activePanelRef} {client} {searchQuery} />
 			{:else if activeTab === 'links'}
-				{#if filteredLinks.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No links found. Select a global network to view its links.</div>
-				{:else}
-					<div class="space-y-2">
-						{#each filteredLinks as link}
-							<div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<LinkIcon class="w-5 h-5 text-purple-500" />
-								<div>
-									<p class="font-medium text-gray-900 dark:text-white">{link.LinkId}</p>
-									<p class="text-xs text-gray-500 dark:text-gray-400">{link.Type} · {link.Bandwidth?.UploadSpeed} Mbps upload</p>
-								</div>
-							</div>
-						{/each}
-					</div>
-				{/if}
+				<LinksPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'connections'}
+				<ConnectionsPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'associations'}
+				<AssociationsPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'coreNetworks'}
+				<CoreNetworksPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'connectPeers'}
+				<ConnectPeersPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'attachments'}
+				<AttachmentsPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'peerings'}
+				<PeeringsPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'routeAnalysis'}
+				<RouteAnalysisPanel {client} {searchQuery} />
+			{:else if activeTab === 'networkInsights'}
+				<NetworkInsightsPanel bind:this={activePanelRef} {client} {searchQuery} />
+			{:else if activeTab === 'admin'}
+				<AdminPanel bind:this={activePanelRef} {client} {searchQuery} />
 			{/if}
 		</div>
 	</div>

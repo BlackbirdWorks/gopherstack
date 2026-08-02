@@ -803,18 +803,26 @@ type listExperimentTargetAccountConfigurationsResponseDTO struct {
 
 // ExperimentResolvedTarget holds the resolved resources for a single target group.
 type ExperimentResolvedTarget struct {
-	ResourceType         string
-	TargetName           string
-	ResolvedArns         []string
-	TargetResourcesCount int
+	ResourceType string
+	TargetName   string
 }
 
-// resolvedTargetDTO is the JSON representation of a resolved target.
+// resolvedTargetDTO is the JSON representation of a resolved target. The real AWS FIS
+// wire shape (types.ResolvedTarget) has exactly three fields: resourceType, targetName,
+// and targetInformation (a generic string-to-string map whose documented contents are
+// not specified by AWS beyond length/pattern constraints and vary by resource type).
+// gopherstack previously emitted invented "resolvedArns"/"targetResourcesCount" fields
+// that do not exist on the real type -- a real SDK client deserializing this response
+// would see none of that data (unknown JSON keys are dropped) and an always-empty
+// targetInformation. Fixed to the real three fields. Because AWS does not publish the
+// key schema for targetInformation and gopherstack does not model per-resource-type
+// target metadata, targetInformation is honestly left empty here rather than inventing
+// a key structure (e.g. stuffing ARNs under a made-up "resourceArn" key) that would look
+// official without being verified against real AWS behavior.
 type resolvedTargetDTO struct {
-	ResourceType         string   `json:"resourceType"`
-	TargetName           string   `json:"targetName"`
-	ResolvedArns         []string `json:"resolvedArns,omitempty"`
-	TargetResourcesCount int      `json:"targetResourcesCount"`
+	TargetInformation map[string]string `json:"targetInformation,omitempty"`
+	ResourceType      string            `json:"resourceType"`
+	TargetName        string            `json:"targetName"`
 }
 
 // listExperimentResolvedTargetsResponseDTO is the outer envelope for ListExperimentResolvedTargets.

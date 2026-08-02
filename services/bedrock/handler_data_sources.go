@@ -55,19 +55,54 @@ func (h *AgentsHandler) dispatchDataSourceIDRoutes(
 		return true, h.handleUpdateDataSource(c, kbID, dsID, body)
 	case dsSuffix == "" && method == http.MethodDelete:
 		return true, h.handleDeleteDataSource(c, kbID, dsID)
+	case strings.HasPrefix(dsSuffix, "/ingestionjobs"):
+		return h.dispatchDataSourceIngestionRoutes(c, kbID, dsID, dsSuffix, method, body)
+	case strings.HasPrefix(dsSuffix, "/documents"):
+		return h.dispatchDataSourceDocumentRoutes(c, kbID, dsID, dsSuffix, method, body)
+	}
+
+	return false, nil
+}
+
+// dispatchDataSourceIngestionRoutes handles the .../ingestionjobs[...] suffix
+// family, split out of dispatchDataSourceIDRoutes to keep its cyclomatic
+// complexity down.
+func (h *AgentsHandler) dispatchDataSourceIngestionRoutes(
+	c *echo.Context,
+	kbID, dsID, dsSuffix, method string,
+	body []byte,
+) (bool, error) {
+	switch {
 	case dsSuffix == "/ingestionjobs" && method == http.MethodPost:
 		return true, h.handleStartIngestionJob(c, kbID, dsID, body)
 	case dsSuffix == "/ingestionjobs" && method == http.MethodGet:
 		return true, h.handleListIngestionJobs(c, kbID, dsID)
 	case strings.HasPrefix(dsSuffix, "/ingestionjobs/"):
 		return true, h.dispatchIngestionJobRoutes(c, kbID, dsID, dsSuffix, method)
-	case dsSuffix == "/documents/getDocuments" && method == http.MethodPost:
-		return true, h.handleGetKBDocuments(c, kbID, dsID, body)
-	case strings.HasPrefix(dsSuffix, "/documents"):
-		return true, h.dispatchDocumentOps(c, kbID, dsID, method, body)
 	}
 
 	return false, nil
+}
+
+// dispatchDataSourceDocumentRoutes handles the .../documents[...] suffix
+// family, split out of dispatchDataSourceIDRoutes to keep its cyclomatic
+// complexity down. GetKnowledgeBaseDocuments (POST .../getDocuments) and
+// DeleteKnowledgeBaseDocuments (POST .../deleteDocuments) are carved out
+// here by their real sub-paths; the base .../documents collection path
+// (Ingest=PUT, List=POST) is handled by dispatchDocumentOps.
+func (h *AgentsHandler) dispatchDataSourceDocumentRoutes(
+	c *echo.Context,
+	kbID, dsID, dsSuffix, method string,
+	body []byte,
+) (bool, error) {
+	switch {
+	case dsSuffix == "/documents/getDocuments" && method == http.MethodPost:
+		return true, h.handleGetKBDocuments(c, kbID, dsID, body)
+	case dsSuffix == "/documents/deleteDocuments" && method == http.MethodPost:
+		return true, h.handleDeleteKBDocuments(c, kbID, dsID, body)
+	default:
+		return true, h.dispatchDocumentOps(c, kbID, dsID, dsSuffix, method, body)
+	}
 }
 
 func (h *AgentsHandler) handleCreateDataSource(c *echo.Context, kbID string, body []byte) error {

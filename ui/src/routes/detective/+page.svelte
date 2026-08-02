@@ -1,98 +1,1200 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange } from '$lib/region-effect.svelte';
 	import { getDetectiveClient } from '$lib/aws-client';
 	import {
 		ListGraphsCommand,
-		type Graph
+		CreateGraphCommand,
+		DeleteGraphCommand,
+		ListMembersCommand,
+		CreateMembersCommand,
+		DeleteMembersCommand,
+		GetMembersCommand,
+		ListInvitationsCommand,
+		AcceptInvitationCommand,
+		RejectInvitationCommand,
+		ListInvestigationsCommand,
+		StartInvestigationCommand,
+		GetInvestigationCommand,
+		ListIndicatorsCommand,
+		type Graph,
+		type MemberDetail,
+		type InvestigationDetail,
+		type Indicator
 	} from '@aws-sdk/client-detective';
 	import { toast } from 'svelte-sonner';
-	import { RefreshCw, Search } from 'lucide-svelte';
+	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { createTabLoader } from '$lib/tab-loader.svelte';
+	import { formatDate } from '$lib/format';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Tabs from '$lib/components/Tabs.svelte';
+	import type { Tab as TabDef } from '$lib/components/Tabs.svelte';
+	import SearchInput from '$lib/components/SearchInput.svelte';
+	import DataTable from '$lib/components/DataTable.svelte';
+	import { defineColumns } from '$lib/components/data-table';
+	import LoadMore from '$lib/components/LoadMore.svelte';
+	import Modal from '$lib/components/Modal.svelte';
+	import { Search, Plus, Trash2, Eye, Check, X } from 'lucide-svelte';
 
 	const client = getDetectiveClient();
 
-	let loading = $state(false);
-	let activeTab = $state<'graphs'>('graphs');
+	type TabId = 'graphs' | 'members' | 'invitations' | 'investigations';
+
+	const tabs: TabDef[] = [
+		{ id: 'graphs', label: 'Behavior Graphs' },
+		{ id: 'members', label: 'Members' },
+		{ id: 'invitations', label: 'Invitations' },
+		{ id: 'investigations', label: 'Investigations' }
+	];
+
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so both the toast and the inline
+	// error banner show the actual code, not just a generic message.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
+
+	let activeTab = $state<TabId>('graphs');
 	let searchQuery = $state('');
-	let graphsData = $state<Graph[]>([]);
 
-	const filteredGraphs = $derived(graphsData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
+	let graphs = $state<Graph[]>([]);
+	let graphsNextToken = $state<string | undefined>();
+	let loadingMoreGraphs = $state(false);
 
-	async function loadData() {
-		loading = true;
-		try {
-			if (activeTab === 'graphs') {
-				const resp = await client.send(new ListGraphsCommand({}));
-				graphsData = resp.GraphList ?? [];
-			}
-		} catch (e) {
-			toast.error('Failed to load Amazon Detective data: ' + String(e));
-		} finally {
-			loading = false;
+	let selectedGraphArn = $state('');
+
+	let members = $state<MemberDetail[]>([]);
+	let membersNextToken = $state<string | undefined>();
+	let loadingMoreMembers = $state(false);
+
+	let invitations = $state<MemberDetail[]>([]);
+	let invitationsNextToken = $state<string | undefined>();
+	let loadingMoreInvitations = $state(false);
+
+	let investigations = $state<InvestigationDetail[]>([]);
+	let investigationsNextToken = $state<string | undefined>();
+	let loadingMoreInvestigations = $state(false);
+
+	async function fetchGraphs(reset: boolean): Promise<void> {
+		const resp = await client.send(
+			new ListGraphsCommand({ NextToken: reset ? undefined : graphsNextToken })
+		);
+		graphs = reset ? (resp.GraphList ?? []) : [...graphs, ...(resp.GraphList ?? [])];
+		graphsNextToken = resp.NextToken;
+		if (!selectedGraphArn && graphs.length > 0) {
+			selectedGraphArn = graphs[0].Arn ?? '';
 		}
 	}
 
-	function switchTab(tab: typeof activeTab) {
-		activeTab = tab;
-		searchQuery = '';
-		loadData();
+	async function fetchMembers(reset: boolean): Promise<void> {
+		if (!selectedGraphArn) {
+			members = [];
+			membersNextToken = undefined;
+			return;
+		}
+		const resp = await client.send(
+			new ListMembersCommand({
+				GraphArn: selectedGraphArn,
+				NextToken: reset ? undefined : membersNextToken
+			})
+		);
+		members = reset ? (resp.MemberDetails ?? []) : [...members, ...(resp.MemberDetails ?? [])];
+		membersNextToken = resp.NextToken;
 	}
 
-	onMount(loadData);
+	async function fetchInvitations(reset: boolean): Promise<void> {
+		const resp = await client.send(
+			new ListInvitationsCommand({ NextToken: reset ? undefined : invitationsNextToken })
+		);
+		invitations = reset ? (resp.Invitations ?? []) : [...invitations, ...(resp.Invitations ?? [])];
+		invitationsNextToken = resp.NextToken;
+	}
+
+	async function fetchInvestigations(reset: boolean): Promise<void> {
+		if (!selectedGraphArn) {
+			investigations = [];
+			investigationsNextToken = undefined;
+			return;
+		}
+		const resp = await client.send(
+			new ListInvestigationsCommand({
+				GraphArn: selectedGraphArn,
+				NextToken: reset ? undefined : investigationsNextToken
+			})
+		);
+		investigations = reset
+			? (resp.InvestigationDetails ?? [])
+			: [...investigations, ...(resp.InvestigationDetails ?? [])];
+		investigationsNextToken = resp.NextToken;
+	}
+
+	// Wrap so a failure's message (captured by tab-loader as err.message)
+	// already contains the AWS error code/status rather than a bare string.
+	function rethrowDescribed(e: unknown): never {
+		throw new Error(describeError(e));
+	}
+
+	const tabLoader = createTabLoader<TabId>({
+		graphs: () => fetchGraphs(true).catch(rethrowDescribed),
+		members: () => fetchMembers(true).catch(rethrowDescribed),
+		invitations: () => fetchInvitations(true).catch(rethrowDescribed),
+		investigations: () => fetchInvestigations(true).catch(rethrowDescribed)
+	});
+
+	function switchTab(id: string): void {
+		activeTab = id as TabId;
+		searchQuery = '';
+		tabLoader.load(activeTab);
+	}
+
+	function handleRefresh(): void {
+		tabLoader.refresh(activeTab);
+	}
+
+	function onGraphSelect(arn: string): void {
+		selectedGraphArn = arn;
+		if (activeTab === 'members' || activeTab === 'investigations') {
+			tabLoader.refresh(activeTab);
+		}
+	}
+
+	// Behavior graphs are the parent resource for Members/Investigations: on a
+	// region change the previously selected GraphArn belongs to the old
+	// region and must not be reused, so reload graphs first (which
+	// re-selects a graph for the new region) before reloading whichever tab
+	// is active.
+	onRegionChange(() => {
+		selectedGraphArn = '';
+		graphs = [];
+		graphsNextToken = undefined;
+		void tabLoader.refresh('graphs').then(() => {
+			if (activeTab !== 'graphs') {
+				tabLoader.refresh(activeTab);
+			}
+		});
+	});
+
+	const filteredGraphs = $derived(
+		graphs.filter((g) => (g.Arn ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+	);
+	const filteredMembers = $derived(
+		members.filter((m) => {
+			const q = searchQuery.toLowerCase();
+			return (
+				(m.AccountId ?? '').toLowerCase().includes(q) ||
+				(m.EmailAddress ?? '').toLowerCase().includes(q) ||
+				(m.Status ?? '').toLowerCase().includes(q)
+			);
+		})
+	);
+	const filteredInvitations = $derived(
+		invitations.filter((i) => {
+			const q = searchQuery.toLowerCase();
+			return (
+				(i.GraphArn ?? '').toLowerCase().includes(q) ||
+				(i.AdministratorId ?? '').toLowerCase().includes(q) ||
+				(i.Status ?? '').toLowerCase().includes(q)
+			);
+		})
+	);
+	const filteredInvestigations = $derived(
+		investigations.filter((inv) => {
+			const q = searchQuery.toLowerCase();
+			return (
+				(inv.InvestigationId ?? '').toLowerCase().includes(q) ||
+				(inv.EntityArn ?? '').toLowerCase().includes(q) ||
+				(inv.Status ?? '').toLowerCase().includes(q) ||
+				(inv.State ?? '').toLowerCase().includes(q) ||
+				(inv.Severity ?? '').toLowerCase().includes(q)
+			);
+		})
+	);
+	const activeTabError = $derived(tabLoader.getError(activeTab));
+
+	async function loadMoreGraphs(): Promise<void> {
+		loadingMoreGraphs = true;
+		try {
+			await fetchGraphs(false);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			loadingMoreGraphs = false;
+		}
+	}
+
+	async function loadMoreMembers(): Promise<void> {
+		loadingMoreMembers = true;
+		try {
+			await fetchMembers(false);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			loadingMoreMembers = false;
+		}
+	}
+
+	async function loadMoreInvitations(): Promise<void> {
+		loadingMoreInvitations = true;
+		try {
+			await fetchInvitations(false);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			loadingMoreInvitations = false;
+		}
+	}
+
+	async function loadMoreInvestigations(): Promise<void> {
+		loadingMoreInvestigations = true;
+		try {
+			await fetchInvestigations(false);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			loadingMoreInvestigations = false;
+		}
+	}
+
+	// --- Behavior graphs: create / delete / detail ---
+
+	let createGraphModal = $state<Modal | null>(null);
+	let creatingGraph = $state(false);
+	let createGraphError = $state<string | null>(null);
+
+	function openCreateGraphModal(): void {
+		createGraphError = null;
+		createGraphModal?.open();
+	}
+
+	async function submitCreateGraph(): Promise<void> {
+		creatingGraph = true;
+		createGraphError = null;
+		try {
+			await client.send(new CreateGraphCommand({}));
+			toast.success('Behavior graph created');
+			createGraphModal?.close();
+			await tabLoader.refresh('graphs');
+		} catch (e) {
+			const msg = describeError(e);
+			createGraphError = msg;
+			toast.error(msg);
+		} finally {
+			creatingGraph = false;
+		}
+	}
+
+	async function handleDeleteGraph(g: Graph): Promise<void> {
+		if (!g.Arn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Delete behavior graph',
+			message: `Delete behavior graph ${g.Arn}? This removes all of its members, investigations, and datasource state.`
+		});
+		if (!confirmed) return;
+		try {
+			await client.send(new DeleteGraphCommand({ GraphArn: g.Arn }));
+			toast.success('Behavior graph deleted');
+			if (selectedGraphArn === g.Arn) {
+				selectedGraphArn = '';
+			}
+			await tabLoader.refresh('graphs');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	let graphDetailModal = $state<Modal | null>(null);
+	let viewedGraph = $state<Graph | null>(null);
+
+	function openGraphDetail(g: Graph): void {
+		viewedGraph = g;
+		graphDetailModal?.open();
+	}
+
+	// --- Members: create (invite) / delete (remove) / detail ---
+
+	let createMemberModal = $state<Modal | null>(null);
+	let creatingMember = $state(false);
+	let createMemberError = $state<string | null>(null);
+	let newMemberAccountId = $state('');
+	let newMemberEmail = $state('');
+	let newMemberMessage = $state('');
+	let newMemberDisableEmail = $state(false);
+
+	function openCreateMemberModal(): void {
+		createMemberError = selectedGraphArn ? null : 'Select or create a behavior graph first.';
+		newMemberAccountId = '';
+		newMemberEmail = '';
+		newMemberMessage = '';
+		newMemberDisableEmail = false;
+		createMemberModal?.open();
+	}
+
+	async function submitCreateMember(): Promise<void> {
+		if (!selectedGraphArn) {
+			createMemberError = 'Select or create a behavior graph first.';
+			return;
+		}
+		if (!newMemberAccountId || !newMemberEmail) {
+			createMemberError = 'Account ID and email address are required.';
+			return;
+		}
+		creatingMember = true;
+		createMemberError = null;
+		try {
+			const resp = await client.send(
+				new CreateMembersCommand({
+					GraphArn: selectedGraphArn,
+					Accounts: [{ AccountId: newMemberAccountId, EmailAddress: newMemberEmail }],
+					Message: newMemberMessage || undefined,
+					DisableEmailNotification: newMemberDisableEmail
+				})
+			);
+			const unprocessed = resp.UnprocessedAccounts ?? [];
+			if (unprocessed.length > 0) {
+				const reason = unprocessed[0].Reason ?? 'unknown reason';
+				createMemberError = `Account not processed: ${reason}`;
+				toast.error(`Member invite failed: ${reason}`);
+				return;
+			}
+			toast.success('Member invited');
+			createMemberModal?.close();
+			await tabLoader.refresh('members');
+		} catch (e) {
+			const msg = describeError(e);
+			createMemberError = msg;
+			toast.error(msg);
+		} finally {
+			creatingMember = false;
+		}
+	}
+
+	async function handleDeleteMember(m: MemberDetail): Promise<void> {
+		if (!m.AccountId || !selectedGraphArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Remove member',
+			message: `Remove account ${m.AccountId} from this behavior graph?`
+		});
+		if (!confirmed) return;
+		try {
+			await client.send(
+				new DeleteMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
+			);
+			toast.success('Member removed');
+			await tabLoader.refresh('members');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	let memberDetailModal = $state<Modal | null>(null);
+	let viewedMember = $state<MemberDetail | null>(null);
+	let memberDetailLoading = $state(false);
+	let memberDetailError = $state<string | null>(null);
+
+	async function openMemberDetail(m: MemberDetail): Promise<void> {
+		viewedMember = m;
+		memberDetailError = null;
+		memberDetailModal?.open();
+		if (!m.AccountId || !selectedGraphArn) return;
+		memberDetailLoading = true;
+		try {
+			const resp = await client.send(
+				new GetMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
+			);
+			const unprocessed = resp.UnprocessedAccounts ?? [];
+			if (unprocessed.length > 0) {
+				memberDetailError = unprocessed[0].Reason ?? 'Unable to load full member detail.';
+			}
+			viewedMember = resp.MemberDetails?.[0] ?? m;
+		} catch (e) {
+			memberDetailError = describeError(e);
+		} finally {
+			memberDetailLoading = false;
+		}
+	}
+
+	// --- Invitations: list / accept / reject / detail ---
+
+	let invitationDetailModal = $state<Modal | null>(null);
+	let viewedInvitation = $state<MemberDetail | null>(null);
+
+	function openInvitationDetail(i: MemberDetail): void {
+		viewedInvitation = i;
+		invitationDetailModal?.open();
+	}
+
+	async function handleAcceptInvitation(i: MemberDetail): Promise<void> {
+		if (!i.GraphArn) return;
+		try {
+			await client.send(new AcceptInvitationCommand({ GraphArn: i.GraphArn }));
+			toast.success('Invitation accepted');
+			await tabLoader.refresh('invitations');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function handleRejectInvitation(i: MemberDetail): Promise<void> {
+		if (!i.GraphArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Reject invitation',
+			message: `Reject the invitation to join ${i.GraphArn}?`
+		});
+		if (!confirmed) return;
+		try {
+			await client.send(new RejectInvitationCommand({ GraphArn: i.GraphArn }));
+			toast.success('Invitation rejected');
+			await tabLoader.refresh('invitations');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	// --- Investigations: start / list / detail (with indicators) ---
+
+	let startInvestigationModal = $state<Modal | null>(null);
+	let startingInvestigation = $state(false);
+	let startInvestigationError = $state<string | null>(null);
+	let newEntityArn = $state('');
+	let newScopeStart = $state('');
+	let newScopeEnd = $state('');
+
+	function openStartInvestigationModal(): void {
+		startInvestigationError = selectedGraphArn
+			? null
+			: 'Select or create a behavior graph first.';
+		newEntityArn = '';
+		newScopeStart = '';
+		newScopeEnd = '';
+		startInvestigationModal?.open();
+	}
+
+	async function submitStartInvestigation(): Promise<void> {
+		if (!selectedGraphArn) {
+			startInvestigationError = 'Select or create a behavior graph first.';
+			return;
+		}
+		if (!newEntityArn || !newScopeStart || !newScopeEnd) {
+			startInvestigationError = 'Entity ARN, scope start, and scope end are required.';
+			return;
+		}
+		startingInvestigation = true;
+		startInvestigationError = null;
+		try {
+			await client.send(
+				new StartInvestigationCommand({
+					GraphArn: selectedGraphArn,
+					EntityArn: newEntityArn,
+					ScopeStartTime: new Date(newScopeStart),
+					ScopeEndTime: new Date(newScopeEnd)
+				})
+			);
+			toast.success('Investigation started');
+			startInvestigationModal?.close();
+			await tabLoader.refresh('investigations');
+		} catch (e) {
+			const msg = describeError(e);
+			startInvestigationError = msg;
+			toast.error(msg);
+		} finally {
+			startingInvestigation = false;
+		}
+	}
+
+	let investigationDetailModal = $state<Modal | null>(null);
+	let viewedInvestigation = $state<InvestigationDetail | null>(null);
+	let viewedIndicators = $state<Indicator[]>([]);
+	let investigationDetailLoading = $state(false);
+	let investigationDetailError = $state<string | null>(null);
+
+	async function openInvestigationDetail(inv: InvestigationDetail): Promise<void> {
+		viewedInvestigation = inv;
+		viewedIndicators = [];
+		investigationDetailError = null;
+		investigationDetailModal?.open();
+		if (!inv.InvestigationId || !selectedGraphArn) return;
+		investigationDetailLoading = true;
+		try {
+			const [detailResp, indicatorsResp] = await Promise.all([
+				client.send(
+					new GetInvestigationCommand({
+						GraphArn: selectedGraphArn,
+						InvestigationId: inv.InvestigationId
+					})
+				),
+				client.send(
+					new ListIndicatorsCommand({
+						GraphArn: selectedGraphArn,
+						InvestigationId: inv.InvestigationId
+					})
+				)
+			]);
+			viewedInvestigation = { ...inv, ...detailResp };
+			viewedIndicators = indicatorsResp.Indicators ?? [];
+		} catch (e) {
+			investigationDetailError = describeError(e);
+		} finally {
+			investigationDetailLoading = false;
+		}
+	}
+
+	type IndicatorDetailValue = NonNullable<Indicator['IndicatorDetail']>;
+
+	function flaggedIpSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.FlaggedIpAddressDetail) return undefined;
+		return `IP ${d.FlaggedIpAddressDetail.IpAddress ?? '—'} (${d.FlaggedIpAddressDetail.Reason ?? '—'})`;
+	}
+
+	function impossibleTravelSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.ImpossibleTravelDetail) return undefined;
+		return `${d.ImpossibleTravelDetail.StartingLocation ?? '—'} → ${d.ImpossibleTravelDetail.EndingLocation ?? '—'}`;
+	}
+
+	function newAsoSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewAsoDetail) return undefined;
+		return `ASO ${d.NewAsoDetail.Aso ?? '—'}`;
+	}
+
+	function newGeolocationSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewGeolocationDetail) return undefined;
+		return `Location ${d.NewGeolocationDetail.Location ?? '—'}`;
+	}
+
+	function newUserAgentSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.NewUserAgentDetail) return undefined;
+		return `User agent ${d.NewUserAgentDetail.UserAgent ?? '—'}`;
+	}
+
+	function relatedFindingSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.RelatedFindingDetail) return undefined;
+		return `Finding ${d.RelatedFindingDetail.Type ?? '—'}`;
+	}
+
+	function relatedFindingGroupSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.RelatedFindingGroupDetail) return undefined;
+		return `Finding group ${d.RelatedFindingGroupDetail.Id ?? '—'}`;
+	}
+
+	function ttpsObservedSummary(d: IndicatorDetailValue): string | undefined {
+		if (!d.TTPsObservedDetail) return undefined;
+		return `${d.TTPsObservedDetail.Tactic ?? '—'} / ${d.TTPsObservedDetail.Technique ?? '—'}`;
+	}
+
+	function indicatorSummary(ind: Indicator): string {
+		const d = ind.IndicatorDetail;
+		if (!d) return '—';
+		return (
+			flaggedIpSummary(d) ??
+			impossibleTravelSummary(d) ??
+			newAsoSummary(d) ??
+			newGeolocationSummary(d) ??
+			newUserAgentSummary(d) ??
+			relatedFindingSummary(d) ??
+			relatedFindingGroupSummary(d) ??
+			ttpsObservedSummary(d) ??
+			'—'
+		);
+	}
 </script>
 
 <div class="p-6 space-y-6">
-	<div class="flex items-center justify-between flex-wrap gap-3">
-		<div class="flex items-center gap-3">
-			<Search class="w-7 h-7 text-rose-500" />
-			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">Amazon Detective</h1>
-				<p class="text-sm text-gray-500 dark:text-gray-400">Investigate and analyze security findings</p>
-			</div>
-		</div>
-		<div class="flex items-center gap-2 flex-wrap">
-			<button onclick={loadData} title="Refresh" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
-				<RefreshCw class="w-4 h-4" /> Refresh
-			</button>
-		</div>
-	</div>
+	<PageHeader
+		icon={Search}
+		title="Amazon Detective"
+		description="Investigate and analyze security findings"
+		onRefresh={handleRefresh}
+		color="rose"
+	>
+		{#snippet actions()}
+			{#if activeTab === 'graphs'}
+				<button
+					onclick={openCreateGraphModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Create graph
+				</button>
+			{:else if activeTab === 'members'}
+				<button
+					onclick={openCreateMemberModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Invite member
+				</button>
+			{:else if activeTab === 'investigations'}
+				<button
+					onclick={openStartInvestigationModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Start investigation
+				</button>
+			{/if}
+		{/snippet}
+	</PageHeader>
 
 	<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
-		<div class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between">
-			<div class="flex gap-2 flex-wrap">
-				{#each [['graphs', 'Behavior Graphs']] as [tab, label]}
-					<button onclick={() => switchTab(tab as typeof activeTab)}
-						class="px-4 py-2 rounded-lg text-sm font-medium {activeTab === tab ? 'bg-rose-600 text-white' : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600'}">
-						{label}
-					</button>
-				{/each}
-			</div>
-			<div class="relative">
-				<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-				<input bind:value={searchQuery} placeholder="Search..." class="pl-9 pr-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white w-full sm:w-64" />
-			</div>
+		<div
+			class="p-4 border-b border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row gap-3 justify-between"
+		>
+			<Tabs {tabs} active={activeTab} onSelect={switchTab} color="rose" />
+			<SearchInput bind:value={searchQuery} />
 		</div>
-		<div class="p-4">
-			{#if loading}
-				<div class="text-center py-8 text-gray-500 dark:text-gray-400">Loading...</div>
-			{:else if activeTab === 'graphs'}
-				{#if filteredGraphs.length === 0}
-					<div class="text-center py-8 text-gray-500 dark:text-gray-400">No behavior graphs found</div>
-				{:else}
-					<div class="space-y-2">
-						{#each filteredGraphs as a}
-							<div class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
-								<div class="flex items-center gap-3 min-w-0">
-									<Search class="w-5 h-5 text-rose-500 shrink-0" />
-									<div class="min-w-0">
-										<p class="font-medium text-gray-900 dark:text-white truncate">{a.Arn ?? '(unnamed)'}</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{`Created: ${a.CreatedTime ? new Date(a.CreatedTime).toLocaleString() : '-'}`}</p>
-									</div>
-								</div>
-							</div>
+
+		<div class="p-4 space-y-4">
+			{#if activeTab === 'members' || activeTab === 'investigations'}
+				<div class="flex items-center gap-2 flex-wrap">
+					<label for="graph-select" class="text-sm text-gray-500 dark:text-gray-400"
+						>Behavior graph</label
+					>
+					<select
+						id="graph-select"
+						value={selectedGraphArn}
+						onchange={(e) => onGraphSelect((e.target as HTMLSelectElement).value)}
+						class="px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white max-w-full sm:max-w-md truncate"
+					>
+						{#if graphs.length === 0}
+							<option value="">No behavior graphs</option>
+						{/if}
+						{#each graphs as g (g.Arn)}
+							<option value={g.Arn}>{g.Arn}</option>
 						{/each}
+					</select>
+				</div>
+			{/if}
+
+			{#if activeTabError}
+				<div
+					role="alert"
+					class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300"
+				>
+					<p class="font-medium">Failed to load data</p>
+					<p>{activeTabError}</p>
+				</div>
+			{/if}
+
+			{#if activeTab === 'graphs'}
+				{#snippet graphCreatedCell(g: Graph)}
+					{formatDate(g.CreatedTime)}
+				{/snippet}
+				{#snippet graphActionsCell(g: Graph)}
+					<div class="flex items-center gap-2 justify-end">
+						<button
+							onclick={() => openGraphDetail(g)}
+							title="View"
+							aria-label="View graph {g.Arn}"
+							class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button
+						>
+						<button
+							onclick={() => handleDeleteGraph(g)}
+							title="Delete"
+							aria-label="Delete graph {g.Arn}"
+							class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button
+						>
 					</div>
-				{/if}
+				{/snippet}
+				{@const graphColumns = defineColumns<Graph>([
+					{ key: 'Arn', label: 'ARN' },
+					{ key: 'CreatedTime', label: 'Created', render: graphCreatedCell },
+					{ key: 'actions', label: '', render: graphActionsCell }
+				])}
+				<DataTable
+					rows={filteredGraphs}
+					rowKey={(g) => g.Arn ?? ''}
+					columns={graphColumns}
+					loading={tabLoader.isLoading('graphs')}
+					emptyMessage="No behavior graphs found"
+				/>
+				<LoadMore
+					hasMore={!!graphsNextToken}
+					loading={loadingMoreGraphs}
+					onLoadMore={loadMoreGraphs}
+				/>
+			{:else if activeTab === 'members'}
+				{#snippet memberStatusCell(m: MemberDetail)}
+					<span
+						class="text-xs px-2 py-1 rounded-full {m.Status === 'ENABLED'
+							? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+							: m.Status === 'VERIFICATION_FAILED'
+								? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+								: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+						>{m.Status ?? '—'}</span
+					>
+				{/snippet}
+				{#snippet memberInvitedCell(m: MemberDetail)}
+					{formatDate(m.InvitedTime)}
+				{/snippet}
+				{#snippet memberActionsCell(m: MemberDetail)}
+					<div class="flex items-center gap-2 justify-end">
+						<button
+							onclick={() => openMemberDetail(m)}
+							title="View"
+							aria-label="View member {m.AccountId}"
+							class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button
+						>
+						<button
+							onclick={() => handleDeleteMember(m)}
+							title="Remove"
+							aria-label="Remove member {m.AccountId}"
+							class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button
+						>
+					</div>
+				{/snippet}
+				{@const memberColumns = defineColumns<MemberDetail>([
+					{ key: 'AccountId', label: 'Account ID' },
+					{ key: 'EmailAddress', label: 'Email' },
+					{ key: 'Status', label: 'Status', render: memberStatusCell },
+					{ key: 'InvitedTime', label: 'Invited', render: memberInvitedCell },
+					{ key: 'actions', label: '', render: memberActionsCell }
+				])}
+				<DataTable
+					rows={filteredMembers}
+					rowKey={(m) => m.AccountId ?? ''}
+					columns={memberColumns}
+					loading={tabLoader.isLoading('members')}
+					emptyMessage="No member accounts found"
+				/>
+				<LoadMore
+					hasMore={!!membersNextToken}
+					loading={loadingMoreMembers}
+					onLoadMore={loadMoreMembers}
+				/>
+			{:else if activeTab === 'invitations'}
+				{#snippet invitationStatusCell(i: MemberDetail)}
+					<span
+						class="text-xs px-2 py-1 rounded-full {i.Status === 'ENABLED'
+							? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+							: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+						>{i.Status ?? '—'}</span
+					>
+				{/snippet}
+				{#snippet invitationInvitedCell(i: MemberDetail)}
+					{formatDate(i.InvitedTime)}
+				{/snippet}
+				{#snippet invitationActionsCell(i: MemberDetail)}
+					<div class="flex items-center gap-2 justify-end">
+						<button
+							onclick={() => openInvitationDetail(i)}
+							title="View"
+							aria-label="View invitation to {i.GraphArn}"
+							class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button
+						>
+						{#if i.Status === 'INVITED'}
+							<button
+								onclick={() => handleAcceptInvitation(i)}
+								title="Accept"
+								aria-label="Accept invitation to {i.GraphArn}"
+								class="text-gray-400 hover:text-green-500"><Check class="w-4 h-4" /></button
+							>
+							<button
+								onclick={() => handleRejectInvitation(i)}
+								title="Reject"
+								aria-label="Reject invitation to {i.GraphArn}"
+								class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+							>
+						{/if}
+					</div>
+				{/snippet}
+				{@const invitationColumns = defineColumns<MemberDetail>([
+					{ key: 'GraphArn', label: 'Behavior Graph' },
+					{ key: 'AdministratorId', label: 'Administrator' },
+					{ key: 'Status', label: 'Status', render: invitationStatusCell },
+					{ key: 'InvitedTime', label: 'Invited', render: invitationInvitedCell },
+					{ key: 'actions', label: '', render: invitationActionsCell }
+				])}
+				<DataTable
+					rows={filteredInvitations}
+					rowKey={(i) => i.GraphArn ?? ''}
+					columns={invitationColumns}
+					loading={tabLoader.isLoading('invitations')}
+					emptyMessage="No invitations found"
+				/>
+				<LoadMore
+					hasMore={!!invitationsNextToken}
+					loading={loadingMoreInvitations}
+					onLoadMore={loadMoreInvitations}
+				/>
+			{:else if activeTab === 'investigations'}
+				{#snippet investigationCreatedCell(inv: InvestigationDetail)}
+					{formatDate(inv.CreatedTime)}
+				{/snippet}
+				{#snippet investigationSeverityCell(inv: InvestigationDetail)}
+					<span
+						class="text-xs px-2 py-1 rounded-full {inv.Severity === 'CRITICAL' ||
+						inv.Severity === 'HIGH'
+							? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
+							: inv.Severity === 'MEDIUM'
+								? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+								: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+						>{inv.Severity ?? '—'}</span
+					>
+				{/snippet}
+				{#snippet investigationActionsCell(inv: InvestigationDetail)}
+					<div class="flex items-center justify-end">
+						<button
+							onclick={() => openInvestigationDetail(inv)}
+							title="View"
+							aria-label="View investigation {inv.InvestigationId}"
+							class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button
+						>
+					</div>
+				{/snippet}
+				{@const investigationColumns = defineColumns<InvestigationDetail>([
+					{ key: 'InvestigationId', label: 'Investigation ID' },
+					{ key: 'EntityArn', label: 'Entity' },
+					{ key: 'Severity', label: 'Severity', render: investigationSeverityCell },
+					{ key: 'Status', label: 'Status' },
+					{ key: 'State', label: 'State' },
+					{ key: 'CreatedTime', label: 'Created', render: investigationCreatedCell },
+					{ key: 'actions', label: '', render: investigationActionsCell }
+				])}
+				<DataTable
+					rows={filteredInvestigations}
+					rowKey={(inv) => inv.InvestigationId ?? ''}
+					columns={investigationColumns}
+					loading={tabLoader.isLoading('investigations')}
+					emptyMessage="No investigations found"
+				/>
+				<LoadMore
+					hasMore={!!investigationsNextToken}
+					loading={loadingMoreInvestigations}
+					onLoadMore={loadMoreInvestigations}
+				/>
 			{/if}
 		</div>
 	</div>
 </div>
+
+<Modal bind:this={createGraphModal} title="Create Behavior Graph">
+	{#snippet children()}
+		<p class="text-sm text-slate-600 dark:text-slate-300">
+			Create a new Detective behavior graph for this account. Detective is idempotent per
+			account: if one already exists, its ARN is returned instead of creating a duplicate.
+		</p>
+		{#if createGraphError}
+			<p class="text-sm text-red-600 dark:text-red-400">{createGraphError}</p>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => createGraphModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitCreateGraph}
+			disabled={creatingGraph}
+			class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+			>{creatingGraph ? 'Creating…' : 'Create'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={graphDetailModal} title="Behavior Graph">
+	{#snippet children()}
+		{#if viewedGraph}
+			<dl class="text-sm space-y-2">
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">ARN</dt>
+					<dd class="break-all text-slate-900 dark:text-white">{viewedGraph.Arn ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
+					<dd class="text-slate-900 dark:text-white">{formatDate(viewedGraph.CreatedTime)}</dd>
+				</div>
+			</dl>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => graphDetailModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Close</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={createMemberModal} title="Invite Member Account">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="member-account-id" class="text-sm text-slate-600 dark:text-slate-300"
+					>Account ID</label
+				>
+				<input
+					id="member-account-id"
+					bind:value={newMemberAccountId}
+					placeholder="123456789012"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="member-email" class="text-sm text-slate-600 dark:text-slate-300"
+					>Email address</label
+				>
+				<input
+					id="member-email"
+					type="email"
+					bind:value={newMemberEmail}
+					placeholder="admin@example.com"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div>
+				<label for="member-message" class="text-sm text-slate-600 dark:text-slate-300"
+					>Invitation message (optional)</label
+				>
+				<textarea
+					id="member-message"
+					bind:value={newMemberMessage}
+					rows="2"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				></textarea>
+			</div>
+			<label class="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+				<input type="checkbox" bind:checked={newMemberDisableEmail} />
+				Do not send an email notification
+			</label>
+			{#if createMemberError}
+				<p class="text-sm text-red-600 dark:text-red-400">{createMemberError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => createMemberModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitCreateMember}
+			disabled={creatingMember}
+			class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+			>{creatingMember ? 'Inviting…' : 'Invite'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={memberDetailModal} title="Member Account">
+	{#snippet children()}
+		{#if memberDetailLoading}
+			<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+		{:else if viewedMember}
+			<dl class="text-sm space-y-2">
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Account ID</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedMember.AccountId ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Email</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedMember.EmailAddress ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Status</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedMember.Status ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Administrator account</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedMember.AdministratorId ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Invitation type</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedMember.InvitationType ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Invited</dt>
+					<dd class="text-slate-900 dark:text-white">{formatDate(viewedMember.InvitedTime)}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Last updated</dt>
+					<dd class="text-slate-900 dark:text-white">{formatDate(viewedMember.UpdatedTime)}</dd>
+				</div>
+			</dl>
+			{#if memberDetailError}
+				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{memberDetailError}</p>
+			{/if}
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => memberDetailModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Close</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={invitationDetailModal} title="Invitation">
+	{#snippet children()}
+		{#if viewedInvitation}
+			<dl class="text-sm space-y-2">
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Behavior graph</dt>
+					<dd class="break-all text-slate-900 dark:text-white">
+						{viewedInvitation.GraphArn ?? '—'}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Administrator account</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedInvitation.AdministratorId ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Status</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedInvitation.Status ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Invited</dt>
+					<dd class="text-slate-900 dark:text-white">
+						{formatDate(viewedInvitation.InvitedTime)}
+					</dd>
+				</div>
+			</dl>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => invitationDetailModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Close</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={startInvestigationModal} title="Start Investigation">
+	{#snippet children()}
+		<div class="space-y-3">
+			<div>
+				<label for="investigation-entity-arn" class="text-sm text-slate-600 dark:text-slate-300"
+					>Entity ARN (IAM user or role)</label
+				>
+				<input
+					id="investigation-entity-arn"
+					bind:value={newEntityArn}
+					placeholder="arn:aws:iam::123456789012:user/example"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+				<div>
+					<label for="investigation-scope-start" class="text-sm text-slate-600 dark:text-slate-300"
+						>Scope start</label
+					>
+					<input
+						id="investigation-scope-start"
+						type="datetime-local"
+						bind:value={newScopeStart}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for="investigation-scope-end" class="text-sm text-slate-600 dark:text-slate-300"
+						>Scope end</label
+					>
+					<input
+						id="investigation-scope-end"
+						type="datetime-local"
+						bind:value={newScopeEnd}
+						class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+					/>
+				</div>
+			</div>
+			{#if startInvestigationError}
+				<p class="text-sm text-red-600 dark:text-red-400">{startInvestigationError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => startInvestigationModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitStartInvestigation}
+			disabled={startingInvestigation}
+			class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+			>{startingInvestigation ? 'Starting…' : 'Start'}</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={investigationDetailModal} title="Investigation">
+	{#snippet children()}
+		{#if investigationDetailLoading}
+			<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+		{:else if viewedInvestigation}
+			<dl class="text-sm space-y-2">
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Investigation ID</dt>
+					<dd class="text-slate-900 dark:text-white">
+						{viewedInvestigation.InvestigationId ?? '—'}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Entity</dt>
+					<dd class="break-all text-slate-900 dark:text-white">
+						{viewedInvestigation.EntityArn ?? '—'}
+					</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Severity</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedInvestigation.Severity ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Status</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedInvestigation.Status ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">State</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedInvestigation.State ?? '—'}</dd>
+				</div>
+				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
+					<dd class="text-slate-900 dark:text-white">
+						{formatDate(viewedInvestigation.CreatedTime)}
+					</dd>
+				</div>
+			</dl>
+			<div class="mt-4">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white">Indicators</h3>
+				{#if investigationDetailError}
+					<p class="text-sm text-red-600 dark:text-red-400">{investigationDetailError}</p>
+				{:else if viewedIndicators.length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400">No indicators found.</p>
+				{:else}
+					<ul class="mt-2 space-y-1 text-sm">
+						{#each viewedIndicators as ind, index (index)}
+							<li class="text-slate-700 dark:text-slate-300">
+								<span class="font-medium">{ind.IndicatorType ?? 'UNKNOWN'}</span>: {indicatorSummary(
+									ind
+								)}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+		{/if}
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => investigationDetailModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Close</button
+		>
+	{/snippet}
+</Modal>

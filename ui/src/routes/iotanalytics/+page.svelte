@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getIoTAnalyticsClient } from '$lib/aws-client';
 	import {
 		ListChannelsCommand,
@@ -28,7 +28,7 @@
 	import { toast } from 'svelte-sonner';
 	import { RefreshCw, Trash2, Plus, Database, GitBranch, Radio, BarChart2, Settings, Send, Eye } from 'lucide-svelte';
 
-	const iotAnalytics = getIoTAnalyticsClient();
+	const iotAnalytics = regionalClient(getIoTAnalyticsClient);
 
 	type Tab = 'channels' | 'datastores' | 'datasets' | 'pipelines' | 'logging';
 	let activeTab = $state<Tab>('channels');
@@ -60,10 +60,10 @@
 	async function loadChannels() {
 		channelsBusy = true;
 		try {
-			const out = await iotAnalytics.send(new ListChannelsCommand({}));
+			const out = await iotAnalytics().send(new ListChannelsCommand({}));
 			channels = out.channelSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load channels: ${(err as Error).message}`);
+			toast.error(`Failed to load channels: ${String(err)}`);
 		} finally {
 			channelsBusy = false;
 		}
@@ -72,26 +72,26 @@
 	async function createChannel() {
 		if (!newChannelName.trim()) { toast.error('Channel name is required'); return; }
 		try {
-			await iotAnalytics.send(new CreateChannelCommand({ channelName: newChannelName.trim() }));
+			await iotAnalytics().send(new CreateChannelCommand({ channelName: newChannelName.trim() }));
 			showCreateChannel = false;
 			newChannelName = '';
 			await loadChannels();
 			toast.success('Channel created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create channel: ${(err as Error).message}`);
+			toast.error(`Failed to create channel: ${String(err)}`);
 		}
 	}
 
 	async function deleteChannel(name: string) {
 		deletingChannel = name;
 		try {
-			await iotAnalytics.send(new DeleteChannelCommand({ channelName: name }));
+			await iotAnalytics().send(new DeleteChannelCommand({ channelName: name }));
 			await loadChannels();
 			if (sampleChannelTarget === name) sampleChannelTarget = '';
 			if (batchChannelName === name) batchChannelName = '';
 			toast.success(`Channel "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete channel: ${(err as Error).message}`);
+			toast.error(`Failed to delete channel: ${String(err)}`);
 		} finally {
 			deletingChannel = null;
 		}
@@ -103,14 +103,14 @@
 		batchBusy = true;
 		try {
 			const encoder = new TextEncoder();
-			await iotAnalytics.send(new BatchPutMessageCommand({
+			await iotAnalytics().send(new BatchPutMessageCommand({
 				channelName: batchChannelName.trim(),
 				messages: [{ messageId: batchMessageId.trim(), payload: encoder.encode(batchPayload) }]
 			}));
 			toast.success('Message ingested');
 			batchMessageId = 'msg-' + Date.now().toString().slice(-6);
 		} catch (err: unknown) {
-			toast.error(`Ingest failed: ${(err as Error).message}`);
+			toast.error(`Ingest failed: ${String(err)}`);
 		} finally {
 			batchBusy = false;
 		}
@@ -121,7 +121,7 @@
 		sampleBusy = true;
 		sampleResults = [];
 		try {
-			const out = await iotAnalytics.send(new SampleChannelDataCommand({
+			const out = await iotAnalytics().send(new SampleChannelDataCommand({
 				channelName: sampleChannelTarget.trim(),
 				maxMessages: sampleMaxMessages
 			}));
@@ -131,7 +131,7 @@
 			});
 			if (sampleResults.length === 0) toast.info('No messages in channel');
 		} catch (err: unknown) {
-			toast.error(`Sample failed: ${(err as Error).message}`);
+			toast.error(`Sample failed: ${String(err)}`);
 		} finally {
 			sampleBusy = false;
 		}
@@ -147,10 +147,10 @@
 	async function loadDatastores() {
 		datastoresBusy = true;
 		try {
-			const out = await iotAnalytics.send(new ListDatastoresCommand({}));
+			const out = await iotAnalytics().send(new ListDatastoresCommand({}));
 			datastores = out.datastoreSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load datastores: ${(err as Error).message}`);
+			toast.error(`Failed to load datastores: ${String(err)}`);
 		} finally {
 			datastoresBusy = false;
 		}
@@ -159,24 +159,24 @@
 	async function createDatastore() {
 		if (!newDatastoreName.trim()) { toast.error('Datastore name is required'); return; }
 		try {
-			await iotAnalytics.send(new CreateDatastoreCommand({ datastoreName: newDatastoreName.trim() }));
+			await iotAnalytics().send(new CreateDatastoreCommand({ datastoreName: newDatastoreName.trim() }));
 			showCreateDatastore = false;
 			newDatastoreName = '';
 			await loadDatastores();
 			toast.success('Datastore created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create datastore: ${(err as Error).message}`);
+			toast.error(`Failed to create datastore: ${String(err)}`);
 		}
 	}
 
 	async function deleteDatastore(name: string) {
 		deletingDatastore = name;
 		try {
-			await iotAnalytics.send(new DeleteDatastoreCommand({ datastoreName: name }));
+			await iotAnalytics().send(new DeleteDatastoreCommand({ datastoreName: name }));
 			await loadDatastores();
 			toast.success(`Datastore "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete datastore: ${(err as Error).message}`);
+			toast.error(`Failed to delete datastore: ${String(err)}`);
 		} finally {
 			deletingDatastore = null;
 		}
@@ -199,10 +199,10 @@
 	async function loadDatasets() {
 		datasetsBusy = true;
 		try {
-			const out = await iotAnalytics.send(new ListDatasetsCommand({}));
+			const out = await iotAnalytics().send(new ListDatasetsCommand({}));
 			datasets = out.datasetSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load datasets: ${(err as Error).message}`);
+			toast.error(`Failed to load datasets: ${String(err)}`);
 		} finally {
 			datasetsBusy = false;
 		}
@@ -211,7 +211,7 @@
 	async function createDataset() {
 		if (!newDatasetName.trim()) { toast.error('Dataset name is required'); return; }
 		try {
-			await iotAnalytics.send(new CreateDatasetCommand({
+			await iotAnalytics().send(new CreateDatasetCommand({
 				datasetName: newDatasetName.trim(),
 				actions: [{ actionName: 'default' }]
 			}));
@@ -220,19 +220,19 @@
 			await loadDatasets();
 			toast.success('Dataset created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create dataset: ${(err as Error).message}`);
+			toast.error(`Failed to create dataset: ${String(err)}`);
 		}
 	}
 
 	async function deleteDataset(name: string) {
 		deletingDataset = name;
 		try {
-			await iotAnalytics.send(new DeleteDatasetCommand({ datasetName: name }));
+			await iotAnalytics().send(new DeleteDatasetCommand({ datasetName: name }));
 			if (selectedDataset === name) { selectedDataset = null; datasetContents = []; }
 			await loadDatasets();
 			toast.success(`Dataset "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete dataset: ${(err as Error).message}`);
+			toast.error(`Failed to delete dataset: ${String(err)}`);
 		} finally {
 			deletingDataset = null;
 		}
@@ -246,7 +246,7 @@
 	async function loadContents(name: string) {
 		contentsBusy = true;
 		try {
-			const out = await iotAnalytics.send(new ListDatasetContentsCommand({ datasetName: name }));
+			const out = await iotAnalytics().send(new ListDatasetContentsCommand({ datasetName: name }));
 			datasetContents = (out.datasetContentSummaries ?? []).map((c) => ({
 				version: c.version,
 				status: c.status ? { state: c.status.state } : undefined,
@@ -254,7 +254,7 @@
 				completionTime: c.completionTime
 			}));
 		} catch (err: unknown) {
-			toast.error(`Failed to load contents: ${(err as Error).message}`);
+			toast.error(`Failed to load contents: ${String(err)}`);
 		} finally {
 			contentsBusy = false;
 		}
@@ -263,12 +263,12 @@
 	async function triggerContent(name: string) {
 		triggerBusy = name;
 		try {
-			await iotAnalytics.send(new CreateDatasetContentCommand({ datasetName: name }));
+			await iotAnalytics().send(new CreateDatasetContentCommand({ datasetName: name }));
 			toast.success('Content generation triggered');
 			if (selectedDataset === name) await loadContents(name);
 			else await selectDataset(name);
 		} catch (err: unknown) {
-			toast.error(`Failed to trigger content: ${(err as Error).message}`);
+			toast.error(`Failed to trigger content: ${String(err)}`);
 		} finally {
 			triggerBusy = null;
 		}
@@ -299,10 +299,10 @@
 	async function loadPipelines() {
 		pipelinesBusy = true;
 		try {
-			const out = await iotAnalytics.send(new ListPipelinesCommand({}));
+			const out = await iotAnalytics().send(new ListPipelinesCommand({}));
 			pipelines = out.pipelineSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load pipelines: ${(err as Error).message}`);
+			toast.error(`Failed to load pipelines: ${String(err)}`);
 		} finally {
 			pipelinesBusy = false;
 		}
@@ -311,7 +311,7 @@
 	async function createPipeline() {
 		if (!newPipelineName.trim()) { toast.error('Pipeline name is required'); return; }
 		try {
-			await iotAnalytics.send(new CreatePipelineCommand({
+			await iotAnalytics().send(new CreatePipelineCommand({
 				pipelineName: newPipelineName.trim(),
 				pipelineActivities: [{ channel: { name: 'channel', channelName: 'default', next: '' } }]
 			}));
@@ -320,19 +320,19 @@
 			await loadPipelines();
 			toast.success('Pipeline created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create pipeline: ${(err as Error).message}`);
+			toast.error(`Failed to create pipeline: ${String(err)}`);
 		}
 	}
 
 	async function deletePipeline(name: string) {
 		deletingPipeline = name;
 		try {
-			await iotAnalytics.send(new DeletePipelineCommand({ pipelineName: name }));
+			await iotAnalytics().send(new DeletePipelineCommand({ pipelineName: name }));
 			if (expandedPipeline === name) expandedPipeline = null;
 			await loadPipelines();
 			toast.success(`Pipeline "${name}" deleted`);
 		} catch (err: unknown) {
-			toast.error(`Failed to delete pipeline: ${(err as Error).message}`);
+			toast.error(`Failed to delete pipeline: ${String(err)}`);
 		} finally {
 			deletingPipeline = null;
 		}
@@ -341,12 +341,12 @@
 	async function startReprocessing(name: string) {
 		reprocessBusy = name;
 		try {
-			const out = await iotAnalytics.send(new StartPipelineReprocessingCommand({ pipelineName: name }));
+			const out = await iotAnalytics().send(new StartPipelineReprocessingCommand({ pipelineName: name }));
 			toast.success(`Reprocessing started: ${out.reprocessingId}`);
 			await loadPipelines();
 			if (expandedPipeline === name) await expandPipeline(name);
 		} catch (err: unknown) {
-			toast.error(`Failed to start reprocessing: ${(err as Error).message}`);
+			toast.error(`Failed to start reprocessing: ${String(err)}`);
 		} finally {
 			reprocessBusy = null;
 		}
@@ -355,11 +355,11 @@
 	async function cancelReprocessing(pipelineName: string, reprocessingId: string) {
 		cancelBusy = reprocessingId;
 		try {
-			await iotAnalytics.send(new CancelPipelineReprocessingCommand({ pipelineName, reprocessingId }));
+			await iotAnalytics().send(new CancelPipelineReprocessingCommand({ pipelineName, reprocessingId }));
 			toast.success('Reprocessing cancelled');
 			await expandPipeline(pipelineName);
 		} catch (err: unknown) {
-			toast.error(`Failed to cancel: ${(err as Error).message}`);
+			toast.error(`Failed to cancel: ${String(err)}`);
 		} finally {
 			cancelBusy = null;
 		}
@@ -395,13 +395,13 @@
 	async function loadLogging() {
 		loggingBusy = true;
 		try {
-			const out = await iotAnalytics.send(new DescribeLoggingOptionsCommand({}));
+			const out = await iotAnalytics().send(new DescribeLoggingOptionsCommand({}));
 			loggingRoleArn = out.loggingOptions?.roleArn ?? '';
 			loggingLevel = out.loggingOptions?.level ?? 'ERROR';
 			loggingEnabled = out.loggingOptions?.enabled ?? false;
 			loggingLoaded = true;
 		} catch (err: unknown) {
-			const msg = (err as Error).message ?? '';
+			const msg = String(err);
 			if (!msg.includes('not found') && !msg.includes('404')) {
 				toast.error(`Failed to load logging options: ${msg}`);
 			}
@@ -414,18 +414,29 @@
 	async function saveLogging() {
 		loggingBusy = true;
 		try {
-			await iotAnalytics.send(new PutLoggingOptionsCommand({
+			await iotAnalytics().send(new PutLoggingOptionsCommand({
 				loggingOptions: { roleArn: loggingRoleArn, level: loggingLevel as LoggingLevel, enabled: loggingEnabled }
 			}));
 			toast.success('Logging options saved');
 		} catch (err: unknown) {
-			toast.error(`Failed to save logging options: ${(err as Error).message}`);
+			toast.error(`Failed to save logging options: ${String(err)}`);
 		} finally {
 			loggingBusy = false;
 		}
 	}
 
-	onMount(() => {
+	// Selected dataset / expanded pipeline are only meaningful within the
+	// region they were fetched in, and the pre-filled channel-name inputs
+	// point at channels from the old region — clear all of it on a region
+	// change rather than just re-listing.
+	onRegionChange(() => {
+		selectedDataset = null;
+		datasetContents = [];
+		expandedPipeline = null;
+		pipelineReprocessings = {};
+		batchChannelName = '';
+		sampleChannelTarget = '';
+		sampleResults = [];
 		void loadChannels();
 		void loadDatastores();
 		void loadDatasets();
@@ -656,6 +667,7 @@
 									<td class="px-4 py-3 text-right">
 										<button onclick={() => deleteDatastore(ds.datastoreName ?? '')}
 											disabled={deletingDatastore === ds.datastoreName}
+											title="Delete"
 											class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 											{#if deletingDatastore === ds.datastoreName}
 												<RefreshCw class="h-4 w-4 animate-spin" />
@@ -728,6 +740,7 @@
 												</button>
 												<button onclick={(e) => { e.stopPropagation(); deleteDataset(ds.datasetName ?? ''); }}
 													disabled={deletingDataset === ds.datasetName}
+													title="Delete"
 													class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 													{#if deletingDataset === ds.datasetName}
 														<RefreshCw class="h-4 w-4 animate-spin" />
@@ -864,6 +877,7 @@
 											</button>
 											<button onclick={() => deletePipeline(p.pipelineName ?? '')}
 												disabled={deletingPipeline === p.pipelineName}
+												title="Delete"
 												class="rounded p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
 												{#if deletingPipeline === p.pipelineName}
 													<RefreshCw class="h-4 w-4 animate-spin" />

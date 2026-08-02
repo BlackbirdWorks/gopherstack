@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCloudWatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeAlarmsCommand,
@@ -38,8 +39,8 @@
 	import { toast } from 'svelte-sonner';
 	import { Activity, Search, RefreshCw, Plus, Trash2, Bell, BarChart2, Layout, Filter, Radio, ScanLine, Edit2, ToggleLeft, ToggleRight, Clock, ChevronDown, ChevronUp } from 'lucide-svelte';
 
-	const cw = getCloudWatchClient();
-	const cwLogs = getCloudWatchLogsClient();
+	const cw = regionalClient(getCloudWatchClient);
+	const cwLogs = regionalClient(getCloudWatchLogsClient);
 	type PutMetricAlarmInput = ConstructorParameters<typeof PutMetricAlarmCommand>[0];
 	type TabId = 'alarms' | 'metrics' | 'dashboards' | 'streams' | 'anomaly' | 'filters';
 
@@ -122,7 +123,7 @@
 		try {
 			const end = new Date();
 			const start = new Date(end.getTime() - chartRangeHours * 3600 * 1000);
-			const res = await cw.send(
+			const res = await cw().send(
 				new GetMetricStatisticsCommand({
 					Namespace: chartMetric.Namespace,
 					MetricName: chartMetric.MetricName,
@@ -303,7 +304,7 @@
 		// Attempt to push demo data via API (best-effort)
 		try {
 			await Promise.all([
-				cw.send(new PutMetricAlarmCommand({
+				cw().send(new PutMetricAlarmCommand({
 					AlarmName: 'demo-high-cpu',
 					MetricName: 'CPUUtilization',
 					Namespace: 'AWS/EC2',
@@ -315,7 +316,7 @@
 					DatapointsToAlarm: 2,
 					TreatMissingData: 'missing'
 				})),
-				cwLogs.send(new PutMetricFilterCommand({
+				cwLogs().send(new PutMetricFilterCommand({
 					logGroupName: '/aws/lambda/my-function',
 					filterName: 'demo-error-filter',
 					filterPattern: '[ERROR]',
@@ -328,23 +329,23 @@
 	}
 
 	async function loadAlarmsForTab() {
-		const res = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
+		const res = await cw().send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
 		alarms = res.MetricAlarms ?? [];
 		if (alarms.length === 0) await loadDemoData();
 	}
 
 	async function loadMetricsForTab() {
-		const res = await cw.send(new ListMetricsCommand({}));
+		const res = await cw().send(new ListMetricsCommand({}));
 		metrics = res.Metrics ?? [];
 	}
 
 	async function loadDashboardsForTab() {
-		const res = await cw.send(new ListDashboardsCommand({}));
+		const res = await cw().send(new ListDashboardsCommand({}));
 		dashboards = res.DashboardEntries ?? [];
 	}
 
 	async function loadStreamsForTab() {
-		const res = await cw.send(new ListMetricStreamsCommand({}));
+		const res = await cw().send(new ListMetricStreamsCommand({}));
 		streams = res.Entries ?? [];
 		if (streams.length === 0) {
 			streams = [
@@ -355,7 +356,7 @@
 	}
 
 	async function loadAnomalyForTab() {
-		const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
+		const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
 		anomalyDetectors = res.AnomalyDetectors ?? [];
 		if (anomalyDetectors.length === 0) {
 			anomalyDetectors = [
@@ -366,7 +367,7 @@
 	}
 
 	async function loadFiltersForTab() {
-		const res = await cwLogs.send(new DescribeMetricFiltersCommand({}));
+		const res = await cwLogs().send(new DescribeMetricFiltersCommand({}));
 		metricFilters = res.metricFilters ?? [];
 		if (metricFilters.length === 0) {
 			metricFilters = [
@@ -399,7 +400,7 @@
 	async function loadAlarms() {
 		loading = true;
 		try {
-			const res = await cw.send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
+			const res = await cw().send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
 			alarms = res.MetricAlarms ?? [];
 			if (alarms.length === 0) await loadDemoData();
 		} catch (err: unknown) {
@@ -421,7 +422,7 @@
 		historyAlarmName = alarmName;
 		loadingHistory = true;
 		try {
-			const res = await cw.send(new DescribeAlarmHistoryCommand({ AlarmName: alarmName, MaxRecords: 20 }));
+			const res = await cw().send(new DescribeAlarmHistoryCommand({ AlarmName: alarmName, MaxRecords: 20 }));
 			alarmHistory = res.AlarmHistoryItems ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load history: ${(err as Error).message}`);
@@ -434,7 +435,7 @@
 		if (!newAlarmName.trim() || !newMetricName.trim()) return;
 		creatingAlarm = true;
 		try {
-			await cw.send(
+			await cw().send(
 				new PutMetricAlarmCommand({
 					AlarmName: newAlarmName.trim(),
 					MetricName: newMetricName.trim(),
@@ -469,7 +470,7 @@
 	async function deleteAlarm(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Alarm', message: `Delete alarm "${name}"? No further alerts will be triggered.` })) return;
 		try {
-			await cw.send(new DeleteAlarmsCommand({ AlarmNames: [name] }));
+			await cw().send(new DeleteAlarmsCommand({ AlarmNames: [name] }));
 			toast.success(`Alarm "${name}" deleted`);
 			await loadAlarms();
 		} catch (err: unknown) {
@@ -488,7 +489,7 @@
 		if (!editStateAlarmName || !editStateReason.trim()) return;
 		editingState = true;
 		try {
-			await cw.send(new SetAlarmStateCommand({
+			await cw().send(new SetAlarmStateCommand({
 				AlarmName: editStateAlarmName,
 				StateValue: editStateValue,
 				StateReason: editStateReason.trim()
@@ -507,10 +508,10 @@
 		const name = alarm.AlarmName ?? '';
 		try {
 			if (alarm.ActionsEnabled) {
-				await cw.send(new DisableAlarmActionsCommand({ AlarmNames: [name] }));
+				await cw().send(new DisableAlarmActionsCommand({ AlarmNames: [name] }));
 				toast.success(`Actions disabled for "${name}"`);
 			} else {
-				await cw.send(new EnableAlarmActionsCommand({ AlarmNames: [name] }));
+				await cw().send(new EnableAlarmActionsCommand({ AlarmNames: [name] }));
 				toast.success(`Actions enabled for "${name}"`);
 			}
 			await loadAlarms();
@@ -522,9 +523,9 @@
 	async function deleteStream(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Metric Stream', message: `Delete metric stream "${name}"?` })) return;
 		try {
-			await cw.send(new DeleteMetricStreamCommand({ Name: name }));
+			await cw().send(new DeleteMetricStreamCommand({ Name: name }));
 			toast.success(`Metric stream "${name}" deleted`);
-			const res = await cw.send(new ListMetricStreamsCommand({}));
+			const res = await cw().send(new ListMetricStreamsCommand({}));
 			streams = res.Entries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -535,7 +536,7 @@
 		if (!newStreamName.trim() || !newStreamFirehoseArn.trim()) return;
 		creatingStream = true;
 		try {
-			await cw.send(new PutMetricStreamCommand({
+			await cw().send(new PutMetricStreamCommand({
 				Name: newStreamName.trim(),
 				FirehoseArn: newStreamFirehoseArn.trim(),
 				OutputFormat: newStreamOutputFormat as 'json' | 'opentelemetry1.0' | 'opentelemetry0.7',
@@ -546,7 +547,7 @@
 			newStreamName = '';
 			newStreamFirehoseArn = '';
 			newStreamOutputFormat = 'json';
-			const res = await cw.send(new ListMetricStreamsCommand({}));
+			const res = await cw().send(new ListMetricStreamsCommand({}));
 			streams = res.Entries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Create stream failed: ${(err as Error).message}`);
@@ -559,11 +560,11 @@
 		const label = detector.SingleMetricAnomalyDetector?.MetricName ?? 'detector';
 		if (!await confirmDestructive({ title: 'Delete Anomaly Detector', message: `Delete anomaly detector for "${label}"?` })) return;
 		try {
-			await cw.send(new DeleteAnomalyDetectorCommand({
+			await cw().send(new DeleteAnomalyDetectorCommand({
 				SingleMetricAnomalyDetector: detector.SingleMetricAnomalyDetector
 			}));
 			toast.success(`Anomaly detector for "${label}" deleted`);
-			const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
+			const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
 			anomalyDetectors = res.AnomalyDetectors ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -574,7 +575,7 @@
 		if (!newAnomalyNamespace.trim() || !newAnomalyMetric.trim()) return;
 		creatingAnomaly = true;
 		try {
-			await cw.send(new PutAnomalyDetectorCommand({
+			await cw().send(new PutAnomalyDetectorCommand({
 				SingleMetricAnomalyDetector: {
 					Namespace: newAnomalyNamespace.trim(),
 					MetricName: newAnomalyMetric.trim(),
@@ -586,7 +587,7 @@
 			newAnomalyNamespace = 'AWS/EC2';
 			newAnomalyMetric = 'CPUUtilization';
 			newAnomalyStat = 'Average';
-			const res = await cw.send(new DescribeAnomalyDetectorsCommand({}));
+			const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
 			anomalyDetectors = res.AnomalyDetectors ?? [];
 		} catch (err: unknown) {
 			toast.error(`Create anomaly detector failed: ${(err as Error).message}`);
@@ -600,9 +601,9 @@
 		const logGroup = filter.logGroupName ?? '';
 		if (!await confirmDestructive({ title: 'Delete Metric Filter', message: `Delete metric filter "${name}"?` })) return;
 		try {
-			await cwLogs.send(new DeleteMetricFilterCommand({ filterName: name, logGroupName: logGroup }));
+			await cwLogs().send(new DeleteMetricFilterCommand({ filterName: name, logGroupName: logGroup }));
 			toast.success(`Metric filter "${name}" deleted`);
-			const res = await cwLogs.send(new DescribeMetricFiltersCommand({}));
+			const res = await cwLogs().send(new DescribeMetricFiltersCommand({}));
 			metricFilters = res.metricFilters ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -613,14 +614,14 @@
 		if (!newDashboardName.trim()) return;
 		creatingDashboard = true;
 		try {
-			await cw.send(new PutDashboardCommand({
+			await cw().send(new PutDashboardCommand({
 				DashboardName: newDashboardName.trim(),
 				DashboardBody: JSON.stringify({ widgets: [] })
 			}));
 			toast.success(`Dashboard "${newDashboardName}" created`);
 			showCreateDashboard = false;
 			newDashboardName = '';
-			const res = await cw.send(new ListDashboardsCommand({}));
+			const res = await cw().send(new ListDashboardsCommand({}));
 			dashboards = res.DashboardEntries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Create dashboard failed: ${(err as Error).message}`);
@@ -632,9 +633,9 @@
 	async function deleteDashboard(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Dashboard', message: `Delete dashboard "${name}"? All widgets and layout settings will be lost.` })) return;
 		try {
-			await cw.send(new DeleteDashboardsCommand({ DashboardNames: [name] }));
+			await cw().send(new DeleteDashboardsCommand({ DashboardNames: [name] }));
 			toast.success(`Dashboard "${name}" deleted`);
-			const res = await cw.send(new ListDashboardsCommand({}));
+			const res = await cw().send(new ListDashboardsCommand({}));
 			dashboards = res.DashboardEntries ?? [];
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -645,7 +646,27 @@
 		void loadData();
 	});
 
-	onMount(() => { loadAlarms(); });
+	// Every tab's list is region-scoped, as is the alarm-history/chart detail
+	// state (an alarm or metric name from the old region is meaningless in
+	// the new one). `activeTab` is read via untrack() because the tab
+	// buttons' onclick also writes it: without untrack, every tab switch
+	// would re-trigger this region effect and double-fetch.
+	onRegionChange(() => {
+		alarms = [];
+		metrics = [];
+		dashboards = [];
+		streams = [];
+		anomalyDetectors = [];
+		metricFilters = [];
+		alarmHistory = [];
+		historyAlarmName = '';
+		showHistory = false;
+		chartMetric = null;
+		chartDatapoints = [];
+		showMetricChart = false;
+		const tab = untrack(() => activeTab);
+		void loadData(tab);
+	});
 </script>
 
 <div class="space-y-6">

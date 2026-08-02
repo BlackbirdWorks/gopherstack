@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCloudFormationClient } from '$lib/aws-client';
 	import {
 		DescribeStacksCommand,
@@ -48,7 +49,7 @@
 		Server
 	} from 'lucide-svelte';
 
-	const cfn = getCloudFormationClient();
+	const cfn = regionalClient(getCloudFormationClient);
 
 	// Main view: 'stacks' | 'stacksets'
 	let mainView = $state<'stacks' | 'stacksets'>('stacks');
@@ -153,7 +154,7 @@
 	async function loadStacks() {
 		loading = true;
 		try {
-			const resp = await cfn.send(new DescribeStacksCommand({}));
+			const resp = await cfn().send(new DescribeStacksCommand({}));
 			stacks = resp.Stacks ?? [];
 		} catch (e) {
 			toast.error('Failed to load stacks: ' + String(e));
@@ -165,7 +166,7 @@
 	async function loadStackSets() {
 		loadingStackSets = true;
 		try {
-			const resp = await cfn.send(new ListStackSetsCommand({}));
+			const resp = await cfn().send(new ListStackSetsCommand({}));
 			stackSets = resp.Summaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load stack sets: ' + String(e));
@@ -183,7 +184,7 @@
 	async function loadResources(stackName: string) {
 		loadingResources = true;
 		try {
-			const resp = await cfn.send(new ListStackResourcesCommand({ StackName: stackName }));
+			const resp = await cfn().send(new ListStackResourcesCommand({ StackName: stackName }));
 			resources = resp.StackResourceSummaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load resources: ' + String(e));
@@ -195,7 +196,7 @@
 	async function loadEvents(stackName: string) {
 		loadingEvents = true;
 		try {
-			const resp = await cfn.send(new DescribeStackEventsCommand({ StackName: stackName }));
+			const resp = await cfn().send(new DescribeStackEventsCommand({ StackName: stackName }));
 			events = resp.StackEvents ?? [];
 		} catch (e) {
 			toast.error('Failed to load events: ' + String(e));
@@ -207,7 +208,7 @@
 	async function loadTemplate(stackName: string) {
 		loadingTemplate = true;
 		try {
-			const resp = await cfn.send(new GetTemplateCommand({ StackName: stackName }));
+			const resp = await cfn().send(new GetTemplateCommand({ StackName: stackName }));
 			template = resp.TemplateBody ?? '';
 		} catch (e) {
 			toast.error('Failed to load template: ' + String(e));
@@ -219,7 +220,7 @@
 	async function loadChangeSets(stackName: string) {
 		loadingChangeSets = true;
 		try {
-			const resp = await cfn.send(new ListChangeSetsCommand({ StackName: stackName }));
+			const resp = await cfn().send(new ListChangeSetsCommand({ StackName: stackName }));
 			changeSets = resp.Summaries ?? [];
 		} catch (e) {
 			toast.error('Failed to load change sets: ' + String(e));
@@ -231,7 +232,7 @@
 	async function selectChangeSet(changeSetName: string) {
 		if (!selectedStack) return;
 		try {
-			const resp = await cfn.send(
+			const resp = await cfn().send(
 				new DescribeChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -254,7 +255,7 @@
 		)
 			return;
 		try {
-			await cfn.send(
+			await cfn().send(
 				new ExecuteChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -272,7 +273,7 @@
 	async function deleteChangeSet(changeSetName: string) {
 		if (!selectedStack) return;
 		try {
-			await cfn.send(
+			await cfn().send(
 				new DeleteChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: changeSetName
@@ -290,7 +291,7 @@
 		if (!selectedStack || !newChangeSetName.trim() || !newChangeSetTemplate.trim()) return;
 		creatingChangeSet = true;
 		try {
-			await cfn.send(
+			await cfn().send(
 				new CreateChangeSetCommand({
 					StackName: selectedStack.StackName ?? '',
 					ChangeSetName: newChangeSetName.trim(),
@@ -315,7 +316,7 @@
 		driftStatus = '';
 		driftResourceDrifts = [];
 		try {
-			const resp = await cfn.send(
+			const resp = await cfn().send(
 				new DetectStackDriftCommand({ StackName: selectedStack.StackName ?? '' })
 			);
 			driftDetectionID = resp.StackDriftDetectionId ?? '';
@@ -323,7 +324,7 @@
 			let attempts = 0;
 			const poll = async () => {
 				attempts++;
-				const statusResp = await cfn.send(
+				const statusResp = await cfn().send(
 					new DescribeStackDriftDetectionStatusCommand({
 						StackDriftDetectionId: driftDetectionID
 					})
@@ -351,7 +352,7 @@
 		if (!selectedStack) return;
 		loadingDrift = true;
 		try {
-			const resp = await cfn.send(
+			const resp = await cfn().send(
 				new DescribeStackResourceDriftsCommand({ StackName: selectedStack.StackName ?? '' })
 			);
 			driftResourceDrifts = resp.StackResourceDrifts ?? [];
@@ -379,7 +380,7 @@
 		loadingPolicy = true;
 		stackPolicy = '';
 		try {
-			const resp = await cfn.send(new GetStackPolicyCommand({ StackName: stackName }));
+			const resp = await cfn().send(new GetStackPolicyCommand({ StackName: stackName }));
 			if (resp.StackPolicyBody) {
 				try {
 					stackPolicy = JSON.stringify(JSON.parse(resp.StackPolicyBody), null, 2);
@@ -405,7 +406,7 @@
 		}
 		savingPolicy = true;
 		try {
-			await cfn.send(new SetStackPolicyCommand({ StackName: selectedStack.StackName ?? '', StackPolicyBody: body }));
+			await cfn().send(new SetStackPolicyCommand({ StackName: selectedStack.StackName ?? '', StackPolicyBody: body }));
 			toast.success('Stack policy saved');
 		} catch (e) {
 			toast.error('Failed to save stack policy: ' + String(e));
@@ -429,7 +430,7 @@
 					// Ignore invalid JSON and submit without parameters.
 				}
 			}
-			await cfn.send(new CreateStackCommand(params));
+			await cfn().send(new CreateStackCommand(params));
 			toast.success(`Stack "${newStackName}" creation initiated`);
 			showCreateStack = false;
 			newStackName = '';
@@ -447,7 +448,7 @@
 		if (!selectedStack || !updateTemplateBody.trim()) return;
 		updatingStack = true;
 		try {
-			await cfn.send(
+			await cfn().send(
 				new UpdateStackCommand({
 					StackName: selectedStack.StackName ?? '',
 					TemplateBody: updateTemplateBody.trim()
@@ -474,7 +475,7 @@
 			return;
 		deletingStack = name;
 		try {
-			await cfn.send(new DeleteStackCommand({ StackName: name }));
+			await cfn().send(new DeleteStackCommand({ StackName: name }));
 			toast.success(`Stack "${name}" deletion initiated`);
 			if (selectedStack?.StackName === name) selectedStack = null;
 			await loadStacks();
@@ -489,7 +490,7 @@
 		if (!newStackSetName.trim() || !newStackSetTemplate.trim()) return;
 		creatingStackSet = true;
 		try {
-			await cfn.send(
+			await cfn().send(
 				new CreateStackSetCommand({
 					StackSetName: newStackSetName.trim(),
 					TemplateBody: newStackSetTemplate.trim()
@@ -516,7 +517,7 @@
 		)
 			return;
 		try {
-			await cfn.send(new DeleteStackSetCommand({ StackSetName: name }));
+			await cfn().send(new DeleteStackSetCommand({ StackSetName: name }));
 			toast.success(`StackSet "${name}" deleted`);
 			await loadStackSets();
 		} catch (e) {
@@ -529,7 +530,7 @@
 		validatingTemplate = true;
 		validationResult = '';
 		try {
-			const resp = await cfn.send(
+			const resp = await cfn().send(
 				new ValidateTemplateCommand({ TemplateBody: newTemplateBody.trim() })
 			);
 			validationResult = `Valid! Parameters: ${(resp.Parameters ?? []).map((p) => p.ParameterKey).join(', ') || 'none'}`;
@@ -545,7 +546,30 @@
 		return d.toLocaleString();
 	}
 
-	onMount(loadStacks);
+	// selectedStack and all of its per-tab data (resources, events, template,
+	// change sets, drift, policy) reference a stack name that is only
+	// unique within the region it was fetched from — clear the whole
+	// selection chain and fall back to the list. `mainView` is read via
+	// untrack() because the view-toggle buttons also write it — without
+	// untrack, switching views would re-trigger this region effect and
+	// double-fetch.
+	onRegionChange(() => {
+		selectedStack = null;
+		activeTab = 'overview';
+		resources = [];
+		events = [];
+		template = '';
+		changeSets = [];
+		selectedChangeSet = null;
+		changeSetChanges = [];
+		driftDetectionID = '';
+		driftStatus = '';
+		driftResourceDrifts = [];
+		stackPolicy = '';
+		stackSets = [];
+		loadStacks();
+		if (untrack(() => mainView) === 'stacksets') loadStackSets();
+	});
 </script>
 
 <div class="p-6 space-y-6">

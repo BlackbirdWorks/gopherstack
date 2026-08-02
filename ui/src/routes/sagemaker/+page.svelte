@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSageMakerClient } from '$lib/aws-client';
 	import {
 		ListNotebookInstancesCommand,
@@ -22,7 +22,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Brain, RefreshCw, Search, Server, Activity, Box, BookOpen, Plus, X, GitBranch, ChevronRight } from 'lucide-svelte';
 
-	const sm = getSageMakerClient();
+	const sm = regionalClient(getSageMakerClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints' | 'pipelines'>('notebooks');
@@ -87,11 +87,11 @@
 		loading = true;
 		try {
 			const [nb, tj, mo, ep, pl] = await Promise.all([
-				sm.send(new ListNotebookInstancesCommand({})),
-				sm.send(new ListTrainingJobsCommand({})),
-				sm.send(new ListModelsCommand({})),
-				sm.send(new ListEndpointsCommand({})),
-				sm.send(new ListPipelinesCommand({}))
+				sm().send(new ListNotebookInstancesCommand({})),
+				sm().send(new ListTrainingJobsCommand({})),
+				sm().send(new ListModelsCommand({})),
+				sm().send(new ListEndpointsCommand({})),
+				sm().send(new ListPipelinesCommand({}))
 			]);
 			notebooks = nb.NotebookInstances ?? [];
 			trainingJobs = tj.TrainingJobSummaries ?? [];
@@ -112,7 +112,7 @@
 		}
 		creatingEndpoint = true;
 		try {
-			await sm.send(
+			await sm().send(
 				new CreateEndpointCommand({
 					EndpointName: newEndpointName.trim(),
 					EndpointConfigName: newEndpointConfigName.trim()
@@ -137,7 +137,7 @@
 		}
 		creatingTraining = true;
 		try {
-			await sm.send(
+			await sm().send(
 				new CreateTrainingJobCommand({
 					TrainingJobName: newTrainingJobName.trim(),
 					RoleArn: newTrainingRoleArn.trim() || undefined,
@@ -171,7 +171,7 @@
 		loadingEndpointDetail = true;
 		selectedEndpoint = null;
 		try {
-			const resp = await sm.send(new DescribeEndpointCommand({ EndpointName: name }));
+			const resp = await sm().send(new DescribeEndpointCommand({ EndpointName: name }));
 			selectedEndpoint = resp;
 		} catch (e) {
 			toast.error('Failed to load endpoint detail: ' + String(e));
@@ -184,7 +184,7 @@
 		loadingTrainingDetail = true;
 		selectedTrainingJob = null;
 		try {
-			const resp = await sm.send(new DescribeTrainingJobCommand({ TrainingJobName: name }));
+			const resp = await sm().send(new DescribeTrainingJobCommand({ TrainingJobName: name }));
 			selectedTrainingJob = resp;
 		} catch (e) {
 			toast.error('Failed to load training job detail: ' + String(e));
@@ -198,7 +198,7 @@
 		return d.toLocaleString();
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

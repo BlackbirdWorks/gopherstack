@@ -32,16 +32,30 @@ const (
 	segJobRun         = "jobRun"
 	nextTokenKey      = "NextToken"
 
-	opCreateDataset    = "CreateDataset"
-	opDescribeDataset  = "DescribeDataset"
-	opListDatasets     = "ListDatasets"
-	opUpdateDataset    = "UpdateDataset"
-	opDeleteDataset    = "DeleteDataset"
-	opCreateRecipe     = "CreateRecipe"
-	opDescribeRecipe   = "DescribeRecipe"
-	opListRecipes      = "ListRecipes"
-	opPublishRecipe    = "PublishRecipe"
-	opUpdateRecipe     = "UpdateRecipe"
+	opCreateDataset   = "CreateDataset"
+	opDescribeDataset = "DescribeDataset"
+	opListDatasets    = "ListDatasets"
+	opUpdateDataset   = "UpdateDataset"
+	opDeleteDataset   = "DeleteDataset"
+	opCreateRecipe    = "CreateRecipe"
+	opDescribeRecipe  = "DescribeRecipe"
+	opListRecipes     = "ListRecipes"
+	opPublishRecipe   = "PublishRecipe"
+	opUpdateRecipe    = "UpdateRecipe"
+	// opDeleteRecipe is an internal route label for bare "DELETE /recipes/{name}".
+	// It is NOT a real AWS DataBrew SDK operation — the real API has no DeleteRecipe
+	// method at all (verified against botocore's databrew service-2.json: the only
+	// DELETE recipe route is "DELETE /recipes/{name}/recipeVersion/{recipeVersion}",
+	// i.e. DeleteRecipeVersion). To delete an entire recipe, a real client calls
+	// BatchDeleteRecipeVersion with every version including LATEST_WORKING — there is
+	// no single-shot delete-the-recipe call. parseRecipeOp checks the real
+	// "recipeVersion/{version}" suffix first, so this fallback never shadows a real
+	// client's DeleteRecipeVersion/BatchDeleteRecipeVersion call; it is kept wired as
+	// internal test/tooling convenience only and deliberately excluded from
+	// GetSupportedOperations() so gopherstack does not claim SDK support for an
+	// operation AWS does not have — see gopherstack-vhw2 category A, and the same
+	// resolution for CloudFront's GetFunctionAssociations/SetFunctionAssociations and
+	// EMR's ListTagsForResource.
 	opDeleteRecipe     = "DeleteRecipe"
 	opCreateProject    = "CreateProject"
 	opDescribeProject  = "DescribeProject"
@@ -128,7 +142,9 @@ var _ service.Shutdowner = (*Handler)(nil)
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opCreateDataset, opDescribeDataset, opListDatasets, opUpdateDataset, opDeleteDataset,
-		opCreateRecipe, opDescribeRecipe, opListRecipes, opPublishRecipe, opUpdateRecipe, opDeleteRecipe,
+		// opDeleteRecipe is deliberately NOT advertised — see its doc comment above;
+		// it is not a real DataBrew SDK operation.
+		opCreateRecipe, opDescribeRecipe, opListRecipes, opPublishRecipe, opUpdateRecipe,
 		opCreateProject, opDescribeProject, opListProjects, opUpdateProject, opDeleteProject,
 		opCreateProfileJob, opCreateRecipeJob, opDescribeJob, opListJobs,
 		opUpdateProfileJob, opUpdateRecipeJob, opDeleteJob, opStartJobRun, opListJobRuns,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getIoTDataPlaneClient } from '$lib/aws-client';
 	import {
 		PublishCommand,
@@ -28,7 +28,7 @@
 		ChevronRight
 	} from 'lucide-svelte';
 
-	const client = getIoTDataPlaneClient();
+	const client = regionalClient(getIoTDataPlaneClient);
 
 	type Tab = 'publish' | 'shadows' | 'retained' | 'connections';
 	let activeTab = $state<Tab>('publish');
@@ -81,7 +81,7 @@
 		pubBusy = true;
 		pubResult = null;
 		try {
-			await client.send(new PublishCommand({
+			await client().send(new PublishCommand({
 				topic: pubTopic.trim(),
 				payload: new TextEncoder().encode(pubPayload),
 				qos: pubQos,
@@ -124,7 +124,7 @@
 		if (!shadowThing.trim()) { toast.error('Thing name required'); return; }
 		shadowBusy = true; shadowResult = null;
 		try {
-			const res = await client.send(new GetThingShadowCommand({
+			const res = await client().send(new GetThingShadowCommand({
 				thingName: shadowThing.trim(),
 				shadowName: shadowName.trim() || undefined
 			}));
@@ -144,7 +144,7 @@
 		if (!shadowThing.trim()) { toast.error('Thing name required'); return; }
 		shadowBusy = true; shadowResult = null;
 		try {
-			const res = await client.send(new UpdateThingShadowCommand({
+			const res = await client().send(new UpdateThingShadowCommand({
 				thingName: shadowThing.trim(),
 				shadowName: shadowName.trim() || undefined,
 				payload: new TextEncoder().encode(shadowPayload)
@@ -166,7 +166,7 @@
 		if (!shadowThing.trim()) { toast.error('Thing name required'); return; }
 		shadowBusy = true; shadowResult = null;
 		try {
-			const res = await client.send(new DeleteThingShadowCommand({
+			const res = await client().send(new DeleteThingShadowCommand({
 				thingName: shadowThing.trim(),
 				shadowName: shadowName.trim() || undefined
 			}));
@@ -187,7 +187,7 @@
 		if (!shadowThing.trim()) { toast.error('Thing name required'); return; }
 		shadowBusy = true; shadowResult = null;
 		try {
-			const res = await client.send(new ListNamedShadowsForThingCommand({
+			const res = await client().send(new ListNamedShadowsForThingCommand({
 				thingName: shadowThing.trim()
 			}));
 			shadowList = res.results ?? [];
@@ -255,7 +255,7 @@
 	async function listRetained() {
 		retainedBusy = true; retainedDetail = null;
 		try {
-			const res = await client.send(new ListRetainedMessagesCommand({}));
+			const res = await client().send(new ListRetainedMessagesCommand({}));
 			retainedMessages = (res.retainedTopics ?? []).map((t) => ({
 				topic: t.topic ?? '',
 				payloadSize: t.payloadSize ? Number(t.payloadSize) : undefined,
@@ -275,7 +275,7 @@
 		retainedRowBusy = topic;
 		retainedDetail = null;
 		try {
-			const res = await client.send(new GetRetainedMessageCommand({ topic }));
+			const res = await client().send(new GetRetainedMessageCommand({ topic }));
 			const text = res.payload ? new TextDecoder().decode(res.payload) : '';
 			const pretty = tryPrettyJson(text);
 			retainedDetail = `Topic: ${res.topic}\nQoS: ${res.qos}\nPayload:\n${pretty}`;
@@ -293,7 +293,7 @@
 		retainedRowBusy = topic;
 		try {
 			// Publish empty payload with retain=true to clear the retained message.
-			await client.send(new PublishCommand({
+			await client().send(new PublishCommand({
 				topic,
 				payload: new Uint8Array(0),
 				retain: true
@@ -363,7 +363,7 @@
 	async function deleteConnection(clientId: string) {
 		connRowBusy = clientId;
 		try {
-			await client.send(new DeleteConnectionCommand({ clientId }));
+			await client().send(new DeleteConnectionCommand({ clientId }));
 			toast.success(`Disconnected: ${clientId}`);
 			logOp('DeleteConnection', clientId, true);
 			await listConnections();
@@ -382,7 +382,7 @@
 		}
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		listRetained();
 		listConnections();
 	});

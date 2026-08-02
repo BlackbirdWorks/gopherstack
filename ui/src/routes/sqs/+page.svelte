@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getSQSClient } from '$lib/aws-client';
 import {
 ListQueuesCommand,
@@ -33,7 +33,7 @@ Flame, ChevronDown, ChevronUp, Copy, Settings, Tag, X, Eye,
 ArrowRightLeft, BookOpen, AlertCircle
 } from 'lucide-svelte';
 
-const sqs = getSQSClient();
+const sqs = regionalClient(getSQSClient);
 
 // ──────────────── State ────────────────
 let loading = $state(false);
@@ -148,12 +148,12 @@ return new Date(ts).toLocaleString();
 async function loadQueues() {
 loading = true;
 try {
-const res = await sqs.send(new ListQueuesCommand({ MaxResults: 100 }));
+const res = await sqs().send(new ListQueuesCommand({ MaxResults: 100 }));
 const urls = res.QueueUrls ?? [];
 const enriched = await Promise.all(
 urls.map(async (url) => {
 try {
-const attrs = await sqs.send(new GetQueueAttributesCommand({
+const attrs = await sqs().send(new GetQueueAttributesCommand({
 QueueUrl: url,
 AttributeNames: ['All']
 }));
@@ -192,7 +192,7 @@ if (newQueueFifo) {
 attrs.FifoQueue = 'true';
 attrs.ContentBasedDeduplication = newContentBasedDedup ? 'true' : 'false';
 }
-await sqs.send(new CreateQueueCommand({ QueueName: name, Attributes: attrs }));
+await sqs().send(new CreateQueueCommand({ QueueName: name, Attributes: attrs }));
 toast.success(`Queue "${name}" created`);
 showCreateModal = false;
 resetCreateForm();
@@ -219,7 +219,7 @@ async function deleteQueue(url: string) {
 const name = queueName(url);
 if (!await confirmDestructive({ title: 'Delete Queue', message: `Delete queue "${name}"? All messages will be lost and the URL will be unavailable for 60 seconds.` })) return;
 try {
-await sqs.send(new DeleteQueueCommand({ QueueUrl: url }));
+await sqs().send(new DeleteQueueCommand({ QueueUrl: url }));
 toast.success(`Queue "${name}" deleted`);
 if (selectedQueue?.url === url) { selectedQueue = null; messages = []; }
 await loadQueues();
@@ -268,7 +268,7 @@ if (row.key.trim()) {
 messageAttributes[row.key.trim()] = { DataType: row.dataType, StringValue: row.value };
 }
 }
-await sqs.send(new SendMessageCommand({
+await sqs().send(new SendMessageCommand({
 QueueUrl: selectedQueue.url,
 MessageBody: msgBody,
 MessageGroupId: isFifo(selectedQueue.url) ? (msgGroupId || 'default') : undefined,
@@ -301,7 +301,7 @@ const nonEmpty = batchMessages.filter(m => m.body.trim());
 if (nonEmpty.length === 0) { toast.error('Add at least one message body'); return; }
 sendingBatch = true;
 try {
-await sqs.send(new SendMessageBatchCommand({
+await sqs().send(new SendMessageBatchCommand({
 QueueUrl: selectedQueue.url,
 Entries: nonEmpty.map(m => ({
 Id: m.id,
@@ -333,7 +333,7 @@ async function receiveMessages() {
 if (!selectedQueue) return;
 receivingMessages = true;
 try {
-const res = await sqs.send(new ReceiveMessageCommand({
+const res = await sqs().send(new ReceiveMessageCommand({
 QueueUrl: selectedQueue.url,
 MaxNumberOfMessages: receiveMaxMessages,
 WaitTimeSeconds: 1,
@@ -354,7 +354,7 @@ async function deleteMessage(msg: Message) {
 if (!selectedQueue || !msg.ReceiptHandle) return;
 deletingReceipt = msg.ReceiptHandle;
 try {
-await sqs.send(new DeleteMessageCommand({
+await sqs().send(new DeleteMessageCommand({
 QueueUrl: selectedQueue.url,
 ReceiptHandle: msg.ReceiptHandle
 }));
@@ -382,7 +382,7 @@ async function applyVisibilityChange() {
 		return;
 	}
 	try {
-		await sqs.send(new ChangeMessageVisibilityCommand({
+		await sqs().send(new ChangeMessageVisibilityCommand({
 			QueueUrl: selectedQueue.url,
 			ReceiptHandle: msg.ReceiptHandle,
 			VisibilityTimeout: seconds,
@@ -400,7 +400,7 @@ async function applyVisibilityChange() {
 async function purgeQueue(url: string) {
 if (!await confirmDestructive({ title: 'Purge Queue', message: `Delete all messages from "${queueName(url)}"? This cannot be undone.`, confirmLabel: 'Purge' })) return;
 try {
-await sqs.send(new PurgeQueueCommand({ QueueUrl: url }));
+await sqs().send(new PurgeQueueCommand({ QueueUrl: url }));
 toast.success('Queue purged');
 messages = [];
 await refreshSelectedQueueStats();
@@ -413,7 +413,7 @@ toast.error(`Purge failed: ${(err as Error).message}`);
 async function refreshSelectedQueueStats() {
 if (!selectedQueue) return;
 try {
-const attrs = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: selectedQueue.url, AttributeNames: ['All'] }));
+const attrs = await sqs().send(new GetQueueAttributesCommand({ QueueUrl: selectedQueue.url, AttributeNames: ['All'] }));
 selectedQueue = { ...selectedQueue, attrs: attrs.Attributes ?? {} };
 // keep editAttrs in sync
 editAttrs = {
@@ -441,7 +441,7 @@ deadLetterTargetArn: editRedriveTargetArn.trim(),
 maxReceiveCount: parseInt(editRedriveMaxReceiveCount, 10) || 3
 });
 }
-await sqs.send(new SetQueueAttributesCommand({
+await sqs().send(new SetQueueAttributesCommand({
 QueueUrl: selectedQueue.url,
 Attributes: attrsToSave
 }));
@@ -468,7 +468,7 @@ async function loadTags() {
 if (!selectedQueue) return;
 loadingTags = true;
 try {
-const res = await sqs.send(new ListQueueTagsCommand({ QueueUrl: selectedQueue.url }));
+const res = await sqs().send(new ListQueueTagsCommand({ QueueUrl: selectedQueue.url }));
 queueTags = res.Tags ?? {};
 tagRows = Object.entries(queueTags).map(([key, value]) => ({ key, value }));
 } catch (err: unknown) {
@@ -485,7 +485,7 @@ try {
 // Remove old tags
 const oldKeys = Object.keys(queueTags);
 if (oldKeys.length > 0) {
-await sqs.send(new UntagQueueCommand({ QueueUrl: selectedQueue.url, TagKeys: oldKeys }));
+await sqs().send(new UntagQueueCommand({ QueueUrl: selectedQueue.url, TagKeys: oldKeys }));
 }
 // Apply new tags
 const newTags: Record<string, string> = {};
@@ -493,7 +493,7 @@ for (const row of tagRows) {
 if (row.key.trim()) newTags[row.key.trim()] = row.value;
 }
 if (Object.keys(newTags).length > 0) {
-await sqs.send(new TagQueueCommand({ QueueUrl: selectedQueue.url, Tags: newTags }));
+await sqs().send(new TagQueueCommand({ QueueUrl: selectedQueue.url, Tags: newTags }));
 }
 queueTags = newTags;
 toast.success('Tags saved');
@@ -524,7 +524,7 @@ async function loadPermissions() {
 	if (!selectedQueue) return;
 	permissionsLoading = true;
 	try {
-		const res = await sqs.send(new GetQueueAttributesCommand({
+		const res = await sqs().send(new GetQueueAttributesCommand({
 			QueueUrl: selectedQueue.url,
 			AttributeNames: ['Policy'],
 		}));
@@ -560,7 +560,7 @@ async function addPermission() {
 			toast.error('Principal and Actions are required');
 			return;
 		}
-		await sqs.send(new AddPermissionCommand({
+		await sqs().send(new AddPermissionCommand({
 			QueueUrl: selectedQueue.url,
 			Label: newPermission.label.trim(),
 			AWSAccountIds: accountIDs,
@@ -578,7 +578,7 @@ async function removePermission(label: string) {
 	if (!selectedQueue || !label) return;
 	if (!await confirmDestructive({ title: 'Remove Permission', message: `Remove permission "${label}"?`, confirmLabel: 'Remove' })) return;
 	try {
-		await sqs.send(new RemovePermissionCommand({ QueueUrl: selectedQueue.url, Label: label }));
+		await sqs().send(new RemovePermissionCommand({ QueueUrl: selectedQueue.url, Label: label }));
 		toast.success('Permission removed');
 		await loadPermissions();
 	} catch (err: unknown) {
@@ -613,7 +613,7 @@ async function loadDlqSourceQueues() {
 if (!selectedQueue) return;
 loadingDlqSources = true;
 try {
-const res = await sqs.send(new ListDeadLetterSourceQueuesCommand({ QueueUrl: selectedQueue.url }));
+const res = await sqs().send(new ListDeadLetterSourceQueuesCommand({ QueueUrl: selectedQueue.url }));
 dlqSourceQueues = res.queueUrls ?? [];
 } catch {
 dlqSourceQueues = [];
@@ -629,7 +629,7 @@ loadingMoveTasks = true;
 try {
 const arn = selectedQueue.attrs.QueueArn;
 if (!arn) { moveTasks = []; return; }
-const res = await sqs.send(new ListMessageMoveTasksCommand({ SourceArn: arn }));
+const res = await sqs().send(new ListMessageMoveTasksCommand({ SourceArn: arn }));
 moveTasks = res.Results ?? [];
 } catch {
 moveTasks = [];
@@ -644,7 +644,7 @@ const sourceArn = selectedQueue.attrs.QueueArn;
 if (!sourceArn) { toast.error('Queue ARN not available'); return; }
 startingMoveTask = true;
 try {
-await sqs.send(new StartMessageMoveTaskCommand({
+await sqs().send(new StartMessageMoveTaskCommand({
 SourceArn: sourceArn,
 DestinationArn: moveTaskDestArn.trim() || undefined
 }));
@@ -660,7 +660,7 @@ startingMoveTask = false;
 
 async function cancelMoveTask(taskHandle: string) {
 try {
-await sqs.send(new CancelMessageMoveTaskCommand({ TaskHandle: taskHandle }));
+await sqs().send(new CancelMessageMoveTaskCommand({ TaskHandle: taskHandle }));
 toast.success('Move task cancelled');
 await loadMoveTasks();
 } catch (err: unknown) {
@@ -668,7 +668,30 @@ toast.error(`Cancel failed: ${(err as Error).message}`);
 }
 }
 
-onMount(() => { loadQueues(); });
+// Queues and every queue-scoped detail (messages, edited attributes, tags,
+// dead-letter sources, move tasks, permissions) are region-scoped, so a
+// region switch must clear them (not just reload) rather than keep showing
+// the old region's selected queue.
+onRegionChange(() => {
+	queues = [];
+	selectedQueue = null;
+	messages = [];
+	expandedMsg = null;
+	editAttrs = {};
+	editRedriveTargetArn = '';
+	editRedriveMaxReceiveCount = '3';
+	queueTags = {};
+	tagRows = [];
+	dlqSourceQueues = [];
+	moveTasks = [];
+	moveTaskDestArn = '';
+	permissions = [];
+	visibilityModal = { msg: null, seconds: 30 };
+	showCreateModal = false;
+	showSendModal = false;
+	showBatchSendModal = false;
+	void loadQueues();
+});
 </script>
 
 <div class="space-y-6">
@@ -1005,8 +1028,8 @@ title="Delete message"
 ['ReceiveMessageWaitTimeSeconds', 'Receive Wait Time (s)', '0', '20']
 ] as [attr, label, min, max]}
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">{label}</label>
-<input
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="edit-attrs">{label}</label>
+<input id="edit-attrs"
 type="number"
 bind:value={editAttrs[attr]}
 min={min}
@@ -1023,8 +1046,8 @@ class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-700 border border-slate-200 da
 <AlertCircle class="w-4 h-4 text-orange-500" /> Dead Letter Queue (Redrive Policy)
 </h3>
 <div>
-<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">DLQ ARN <span class="text-slate-400 font-normal">(leave blank to remove)</span></label>
-<input
+<label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1" for="edit-redrive-target-arn">DLQ ARN <span class="text-slate-400 font-normal">(leave blank to remove)</span></label>
+<input id="edit-redrive-target-arn"
 type="text"
 bind:value={editRedriveTargetArn}
 placeholder="arn:aws:sqs:us-east-1:000000000000:my-dlq"
@@ -1468,8 +1491,8 @@ class="flex-1 px-2 py-1.5 bg-slate-50 dark:bg-slate-700 border border-slate-200 
 </div>
 <textarea bind:value={msg.body} rows="3" placeholder="Message body" class="w-full text-sm font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"></textarea>
 <div class="flex items-center gap-2">
-<label class="text-xs text-slate-500">Delay (s):</label>
-<input type="number" bind:value={msg.delay} min="0" max="900" class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="text-xs text-slate-500" for="delay">Delay (s):</label>
+<input id="delay" type="number" bind:value={msg.delay} min="0" max="900" class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-1.5 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 </div>
 {/each}

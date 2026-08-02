@@ -2,8 +2,9 @@
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.87.3
 last_audit_commit: 911ff167
-last_audit_date: 2026-07-24
-overall: A            # genuine wire-breaking bugs found and fixed this pass
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
+                      # 2026-07-31: pkgs/sdkcheck reverse check re-flagged UpdateJob, which the 2026-07-24 pass had already correctly identified as not-a-real-op (see Notes) but left ADVERTISED in GetSupportedOperations()/ChaosOperations() -- i.e. the finding was documented but not actually corrected. Now removed from the advertised list; route stays wired as internal test scaffolding, unreachable by real clients either way. See its Notes entry and handler.go's opUpdateJob comment.
 ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was reading arn from URL path (always empty since real client sends POST /tags with arn in JSON body); fixed to read arn from body"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "was routed on DELETE with tagKeys from query string; real op is PUT with tagKeys in JSON body -- real SDK calls 404'd before this fix"}
@@ -42,7 +43,7 @@ ops:
 families:
   queue: {status: ok, note: "CreateQueue/GetQueue/ListQueues/UpdateQueue/DeleteQueue verified op-by-op against restjson1 serializers; reservationPlanSettings wire-name bug fixed on both create and update"}
   jobTemplate: {status: ok, note: "verified op-by-op; this pass closed the AccelerationSettings/HopDestinations/StatusUpdateInterval gap on both Create and Update (CreateJobTemplateFull/UpdateJobTemplateFull) -- family is now full field parity, no open gaps"}
-  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, see notes"}
+  job: {status: ok, note: "CreateJob/GetJob/ListJobs/CancelJob verified; jobEngineVersion wire-name bug fixed; this pass also fixed CreateJob silently overriding statusUpdateInterval/simulateReservedQueue with hardcoded defaults instead of applying the caller's request values; UpdateJob is a gopherstack-only extension, unadvertised as of 2026-07-31 (see notes)"}
   preset: {status: ok, note: "verified op-by-op, full field parity"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource: two critical wire bugs fixed (see gaps->fixed above); this is the class of bug parity-principles.md warns about (ARN routing) but the actual defect here was ARN-in-body vs ARN-in-URL and DELETE-vs-PUT method, not slash-escaping"}
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
@@ -96,11 +97,19 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   synchronously inside `GetJobsQueryResults`, not asynchronously like real AWS).
 - **`UpdateJob` is not a real MediaConvert operation** (confirmed by grepping the
   `aws-sdk-go-v2/service/mediaconvert` SDK: no `UpdateJobInput`/`UpdateJobOutput`/
-  `Client.UpdateJob` exist). gopherstack still routes `PUT /2017-08-29/jobs/{id}` to
+  `Client.UpdateJob` exist, and botocore's mediaconvert service-2.json has no PUT
+  route under `/jobs/{id}`). gopherstack still routes `PUT /2017-08-29/jobs/{id}` to
   an `UpdateJob` handler. This is harmless (no real SDK client can ever construct such
-  a call, since the SDK exposes no method for it) but is a gopherstack-only extension,
-  not AWS parity surface. Left in place (not a bug -- unreachable by real clients,
-  and removing it would be gratuitous churn outside this audit's bug-fixing scope).
+  a call, since the SDK exposes no method for it) and is a gopherstack-only extension,
+  not AWS parity surface. **2026-07-31 correction:** this note correctly identified the
+  problem back in 2026-07-24 but the "left in place" resolution was incomplete --
+  `GetSupportedOperations()`/`ChaosOperations()` still *advertised* `UpdateJob` as
+  supported SDK surface, which pkgs/sdkcheck's reverse check (commit 12cfe14d5;
+  gopherstack-vhw2 category A) correctly re-flagged. The route itself stays wired as
+  internal test scaffolding (still unreachable by real clients, still not gratuitous
+  churn to delete), but it is no longer advertised — see handler.go's opUpdateJob
+  comment. Same resolution as EMR's ListTagsForResource and CloudFront's
+  GetFunctionAssociations/SetFunctionAssociations.
 - `ListJobsOutput`/`SearchJobsOutput`: gopherstack's `ListJobs` response includes an
   extra `totalCount` field not present in the real API shape. This is additive-only
   (unknown JSON fields are ignored by `aws-sdk-go-v2`'s deserializer) so it does not

@@ -58,6 +58,16 @@ const (
 	attrInitiatedEvID   = "initiatedEventId"
 	attrWorkflowExec    = "workflowExecution"
 	causeOpNotPermitted = "OPERATION_NOT_PERMITTED"
+
+	// Child policy values, shared by StartWorkflowExecution/registration
+	// defaulting (store.go, workflow_types.go) and the TerminateWorkflowExecution
+	// child-policy cascade (workflow_executions.go).
+	childPolicyTerminate     = "TERMINATE"
+	childPolicyRequestCancel = "REQUEST_CANCEL"
+	childPolicyAbandon       = "ABANDON"
+
+	causeChildPolicyApplied = "CHILD_POLICY_APPLIED"
+	causeOperatorInitiated  = "OPERATOR_INITIATED"
 )
 
 // WorkflowTypeDefaults holds the registered defaults for a workflow type.

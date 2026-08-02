@@ -109,10 +109,17 @@ func (b *InMemoryBackend) ListStudios(ctx context.Context, marker string) ([]Stu
 	return p.Data, p.Next
 }
 
-// UpdateStudio updates mutable fields on an EMR Studio.
+// UpdateStudio updates mutable fields on an EMR Studio. Real
+// UpdateStudioInput.SubnetIds doc: "The list can include new subnet IDs, but
+// must also include all of the subnet IDs previously associated with the
+// Studio" -- i.e. it is a full replace, not a merge, so an empty/absent
+// subnetIDs leaves the existing set untouched (same "empty string means
+// unset" convention already used for name/description/defaultS3Location)
+// while a non-empty one replaces it wholesale.
 func (b *InMemoryBackend) UpdateStudio(
 	ctx context.Context,
-	studioID, name, description, defaultS3Location, subnetIDsJSON string,
+	studioID, name, description, defaultS3Location string,
+	subnetIDs []string,
 ) error {
 	region := getRegion(ctx, b.region)
 
@@ -136,7 +143,11 @@ func (b *InMemoryBackend) UpdateStudio(
 		studio.DefaultS3Location = defaultS3Location
 	}
 
-	_ = subnetIDsJSON
+	if len(subnetIDs) > 0 {
+		cp := make([]string, len(subnetIDs))
+		copy(cp, subnetIDs)
+		studio.SubnetIDs = cp
+	}
 
 	return nil
 }
@@ -220,7 +231,7 @@ func (b *InMemoryBackend) UpdateStudioSessionMapping(
 // CreateStudio creates a new EMR Studio.
 func (b *InMemoryBackend) CreateStudio(
 	ctx context.Context,
-	name, authMode, defaultS3Location, engineSGID, serviceRole, vpcID, workspaceSGID string,
+	name, description, authMode, defaultS3Location, engineSGID, serviceRole, vpcID, workspaceSGID string,
 	subnetIDs []string, tags []Tag,
 ) (*Studio, error) {
 	if name == "" {
@@ -251,6 +262,7 @@ func (b *InMemoryBackend) CreateStudio(
 		StudioID:                 id,
 		StudioArn:                studioARN,
 		Name:                     name,
+		Description:              description,
 		AuthMode:                 authMode,
 		DefaultS3Location:        defaultS3Location,
 		EngineSecurityGroupID:    engineSGID,

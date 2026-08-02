@@ -8,6 +8,7 @@ import (
 
 type createStudioInput struct {
 	Name                     string   `json:"Name"`
+	Description              string   `json:"Description,omitempty"`
 	AuthMode                 string   `json:"AuthMode"`
 	DefaultS3Location        string   `json:"DefaultS3Location"`
 	EngineSecurityGroupID    string   `json:"EngineSecurityGroupId"`
@@ -28,6 +29,7 @@ func (h *Handler) handleCreateStudio(
 	in *createStudioInput,
 ) (*createStudioOutput, error) {
 	studio, err := h.Backend.CreateStudio(ctx, in.Name,
+		in.Description,
 		in.AuthMode,
 		in.DefaultS3Location,
 		in.EngineSecurityGroupID,
@@ -146,7 +148,9 @@ type updateStudioInput struct {
 type updateStudioOutput struct{}
 
 func (h *Handler) handleUpdateStudio(ctx context.Context, in *updateStudioInput) (*updateStudioOutput, error) {
-	if err := h.Backend.UpdateStudio(ctx, in.StudioID, in.Name, in.Description, in.DefaultS3Location, ""); err != nil {
+	if err := h.Backend.UpdateStudio(
+		ctx, in.StudioID, in.Name, in.Description, in.DefaultS3Location, in.SubnetIDs,
+	); err != nil {
 		return nil, err
 	}
 

@@ -147,20 +147,29 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 		page.GetByText("INSERT").First().WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 
-	// 8f. Verify filter buttons are present using role-based locators
+	// 8f. Verify filter buttons are present using role-based locators.
+	// Name must be exact: the sidebar's persistent "show all services" toggle
+	// (#sidebar-show-all-toggle, present on every dashboard page) has an
+	// accessible name/title of "Showing common services only — click to show
+	// all services", which contains "all" as a substring of "show all
+	// services" -- Playwright's default substring+case-insensitive role-name
+	// matching resolves getByRole('button', {Name: "ALL"}) to BOTH that
+	// sidebar toggle and the actual "ALL" stream-event filter button, a
+	// strict-mode violation. Exact:true scopes the match to the literal
+	// "ALL" filter button only.
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "ALL"}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "ALL", Exact: playwright.Bool(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "MODIFY"}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "MODIFY", Exact: playwright.Bool(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "REMOVE"}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "REMOVE", Exact: playwright.Bool(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 

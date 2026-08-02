@@ -61,9 +61,10 @@ func TestQuickSight_VPCConnectionCRUD(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "VPC1", vc["Name"])
 	assert.Equal(t, "vpc-abc123", vc["VPCId"])
-	subnetIDs, ok := vc["SubnetIds"].([]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"subnet-1", "subnet-2"}, subnetIDs)
+	// Real DescribeVPCConnectionOutput never echoes SubnetIds back (confirmed against
+	// types.VPCConnection): it's accepted on Create/UpdateVPCConnectionRequest but not
+	// part of the read-path wire shape. Assert its absence, not its presence.
+	assert.NotContains(t, vc, "SubnetIds")
 
 	// Describe missing -> 404.
 	missingRec := doRequest(t, h, http.MethodGet, accountPath("/vpc-connections/notexist"), nil)
@@ -89,7 +90,8 @@ func TestQuickSight_VPCConnectionCRUD(t *testing.T) {
 	describeAfterUpdate := doRequest(t, h, http.MethodGet, accountPath("/vpc-connections/vc1"), nil)
 	afterVC := parseBody(t, describeAfterUpdate)["VPCConnection"].(map[string]any)
 	assert.Equal(t, "VPC1Renamed", afterVC["Name"])
-	assert.Equal(t, []any{"subnet-3"}, afterVC["SubnetIds"])
+	// Still not echoed back after Update either -- same read-path wire shape as Describe.
+	assert.NotContains(t, afterVC, "SubnetIds")
 
 	// Update missing -> 404.
 	updateMissingRec := doRequest(

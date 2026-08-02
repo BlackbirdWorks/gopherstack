@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getACMPCAClient } from '$lib/aws-client';
 	import {
 		ListCertificateAuthoritiesCommand,
@@ -30,7 +30,7 @@
 		Copy, Settings
 	} from 'lucide-svelte';
 
-	const acmpca = getACMPCAClient();
+	const acmpca = regionalClient(getACMPCAClient);
 
 	// State
 	let loading = $state(false);
@@ -82,7 +82,7 @@
 	async function loadCAs() {
 		loading = true;
 		try {
-			const res = await acmpca.send(new ListCertificateAuthoritiesCommand({}));
+			const res = await acmpca().send(new ListCertificateAuthoritiesCommand({}));
 			cas = res.CertificateAuthorities ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load Private CAs: ${(err as Error).message}`);
@@ -99,7 +99,7 @@
 		permissions = [];
 		policy = '';
 		try {
-			const res = await acmpca.send(new DescribeCertificateAuthorityCommand({ CertificateAuthorityArn: ca.Arn }));
+			const res = await acmpca().send(new DescribeCertificateAuthorityCommand({ CertificateAuthorityArn: ca.Arn }));
 			selectedCA = res.CertificateAuthority || ca;
 		} catch (err: unknown) {
 			toast.error(`Failed to load CA details: ${(err as Error).message}`);
@@ -112,7 +112,7 @@
 		if (!newCAName.trim()) return;
 		creating = true;
 		try {
-			await acmpca.send(new CreateCertificateAuthorityCommand({
+			await acmpca().send(new CreateCertificateAuthorityCommand({
 				CertificateAuthorityType: CertificateAuthorityType[caType as keyof typeof CertificateAuthorityType],
 				CertificateAuthorityConfiguration: {
 					KeyAlgorithm: 'RSA_2048',
@@ -134,7 +134,7 @@
 	async function deleteCA(arn: string | undefined) {
 		if (!arn || !await confirmDestructive({ title: 'Delete Private CA', message: 'Delete this Private Certificate Authority? All issued certificates may be invalidated.' })) return;
 		try {
-			await acmpca.send(new DeleteCertificateAuthorityCommand({ CertificateAuthorityArn: arn }));
+			await acmpca().send(new DeleteCertificateAuthorityCommand({ CertificateAuthorityArn: arn }));
 			toast.success(`CA deletion initiated`);
 			if (selectedCA?.Arn === arn) selectedCA = null;
 			await loadCAs();
@@ -148,7 +148,7 @@
 		loadingCsr = true;
 		csrPem = '';
 		try {
-			const res = await acmpca.send(new GetCertificateAuthorityCsrCommand({ CertificateAuthorityArn: selectedCA.Arn }));
+			const res = await acmpca().send(new GetCertificateAuthorityCsrCommand({ CertificateAuthorityArn: selectedCA.Arn }));
 			csrPem = res.Csr ?? '';
 		} catch (err: unknown) {
 			toast.error(`Failed to retrieve CSR: ${(err as Error).message}`);
@@ -167,7 +167,7 @@
 		if (!selectedCA?.Arn) return;
 		loadingPermissions = true;
 		try {
-			const res = await acmpca.send(new ListPermissionsCommand({ CertificateAuthorityArn: selectedCA.Arn }));
+			const res = await acmpca().send(new ListPermissionsCommand({ CertificateAuthorityArn: selectedCA.Arn }));
 			permissions = res.Permissions ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load permissions: ${(err as Error).message}`);
@@ -180,7 +180,7 @@
 		if (!selectedCA?.Arn || !newPermPrincipal.trim()) return;
 		addingPermission = true;
 		try {
-			await acmpca.send(new CreatePermissionCommand({
+			await acmpca().send(new CreatePermissionCommand({
 				CertificateAuthorityArn: selectedCA.Arn,
 				Principal: newPermPrincipal.trim(),
 				SourceAccount: newPermSourceAccount.trim() || undefined,
@@ -202,7 +202,7 @@
 	async function revokePermission(principal: string, sourceAccount: string | undefined) {
 		if (!selectedCA?.Arn || !await confirmDestructive({ title: 'Revoke Permission', message: `Revoke all permissions for ${principal}?` })) return;
 		try {
-			await acmpca.send(new DeletePermissionCommand({
+			await acmpca().send(new DeletePermissionCommand({
 				CertificateAuthorityArn: selectedCA.Arn,
 				Principal: principal,
 				SourceAccount: sourceAccount
@@ -219,7 +219,7 @@
 		loadingPolicy = true;
 		policy = '';
 		try {
-			const res = await acmpca.send(new GetPolicyCommand({ ResourceArn: selectedCA.Arn }));
+			const res = await acmpca().send(new GetPolicyCommand({ ResourceArn: selectedCA.Arn }));
 			policy = res.Policy ?? '';
 		} catch (err: unknown) {
 			// NoSuchPolicyException is expected if no policy set
@@ -236,7 +236,7 @@
 		if (!selectedCA?.Arn) return;
 		savingPolicy = true;
 		try {
-			await acmpca.send(new PutPolicyCommand({ ResourceArn: selectedCA.Arn, Policy: policyDraft }));
+			await acmpca().send(new PutPolicyCommand({ ResourceArn: selectedCA.Arn, Policy: policyDraft }));
 			policy = policyDraft;
 			editingPolicy = false;
 			toast.success('Resource policy saved');
@@ -275,7 +275,7 @@
 		return 'bg-slate-400';
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadCAs();
 	});
 </script>

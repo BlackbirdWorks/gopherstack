@@ -1,6 +1,7 @@
 <script lang="ts">
 import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getSNSClient } from '$lib/aws-client';
 import {
 ListTopicsCommand,
@@ -32,7 +33,7 @@ X, Copy, Tag, BarChart3, BookOpen, Smartphone, CheckCircle2,
 Settings
 } from 'lucide-svelte';
 
-const sns = getSNSClient();
+const sns = regionalClient(getSNSClient);
 
 // ─── Page tabs ───────────────────────────────────────────────────────────────
 let pageTab = $state<'topics' | 'platform-apps'>('topics');
@@ -149,12 +150,12 @@ toast.success(`${label} copied`);
 async function loadTopics() {
 loading = true;
 try {
-const res = await sns.send(new ListTopicsCommand({}));
+const res = await sns().send(new ListTopicsCommand({}));
 const raw = res.Topics ?? [];
 topics = await Promise.all(
 raw.slice(0, 50).map(async (t) => {
 try {
-const attrs = await sns.send(new GetTopicAttributesCommand({ TopicArn: t.TopicArn }));
+const attrs = await sns().send(new GetTopicAttributesCommand({ TopicArn: t.TopicArn }));
 return { ...t, Attributes: attrs.Attributes ?? {} };
 } catch {
 return { ...t, Attributes: {} };
@@ -180,7 +181,7 @@ attrs['FifoTopic'] = 'true';
 attrs['ContentBasedDeduplication'] = newTopicContentBasedDedup ? 'true' : 'false';
 }
 if (newTopicDisplayName.trim()) attrs['DisplayName'] = newTopicDisplayName.trim();
-await sns.send(new CreateTopicCommand({
+await sns().send(new CreateTopicCommand({
 Name: name,
 Attributes: Object.keys(attrs).length > 0 ? attrs : undefined
 }));
@@ -206,7 +207,7 @@ title: 'Delete Topic',
 message: `Delete topic "${name}"? All subscriptions will be removed.`
 })) return;
 try {
-await sns.send(new DeleteTopicCommand({ TopicArn: arn }));
+await sns().send(new DeleteTopicCommand({ TopicArn: arn }));
 toast.success(`Topic "${name}" deleted`);
 if (selectedTopic?.TopicArn === arn) selectedTopic = null;
 await loadTopics();
@@ -229,7 +230,7 @@ loadTopicTags(topic.TopicArn ?? '')
 async function loadSubscriptions(topicArn: string) {
 loadingSubscriptions = true;
 try {
-const res = await sns.send(new ListSubscriptionsByTopicCommand({ TopicArn: topicArn }));
+const res = await sns().send(new ListSubscriptionsByTopicCommand({ TopicArn: topicArn }));
 subscriptions = res.Subscriptions ?? [];
 await loadSubscriptionDetails(subscriptions);
 } catch (err: unknown) {
@@ -246,7 +247,7 @@ subs
 .filter((s) => s.SubscriptionArn && s.SubscriptionArn !== 'PendingConfirmation')
 .map(async (sub) => {
 try {
-const attrs = await sns.send(
+const attrs = await sns().send(
 new GetSubscriptionAttributesCommand({ SubscriptionArn: sub.SubscriptionArn })
 );
 loaded[sub.SubscriptionArn!] = attrs.Attributes ?? {};
@@ -268,7 +269,7 @@ if (subFilterPolicy.trim() && subFilterPolicy.trim() !== '{}') {
 subAttrs['FilterPolicy'] = subFilterPolicy.trim();
 }
 if (subRawMessageDelivery) subAttrs['RawMessageDelivery'] = 'true';
-await sns.send(new SubscribeCommand({
+await sns().send(new SubscribeCommand({
 TopicArn: selectedTopic.TopicArn,
 Protocol: subProtocol,
 Endpoint: subEndpoint.trim(),
@@ -295,7 +296,7 @@ message: 'Remove this SNS subscription?',
 confirmLabel: 'Remove'
 })) return;
 try {
-await sns.send(new UnsubscribeCommand({ SubscriptionArn: arn }));
+await sns().send(new UnsubscribeCommand({ SubscriptionArn: arn }));
 toast.success('Subscription removed');
 if (selectedTopic) await loadSubscriptions(selectedTopic.TopicArn ?? '');
 } catch (err: unknown) {
@@ -306,7 +307,7 @@ toast.error(`Unsubscribe failed: ${(err as Error).message}`);
 // ─── Confirm Subscription ─────────────────────────────────────────────────────
 async function confirmSubscription(topicArn: string) {
 try {
-await sns.send(new ConfirmSubscriptionCommand({
+await sns().send(new ConfirmSubscriptionCommand({
 TopicArn: topicArn,
 Token: 'mock-confirm-token'
 }));
@@ -337,13 +338,13 @@ return;
 }
 savingFilterPolicy = true;
 try {
-await sns.send(new SetSubscriptionAttributesCommand({
+await sns().send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: selectedSubscriptionArn,
 AttributeName: 'FilterPolicy',
 AttributeValue: value === '{}' ? '' : value
 }));
 if (editFilterPolicyScope) {
-await sns.send(new SetSubscriptionAttributesCommand({
+await sns().send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: selectedSubscriptionArn,
 AttributeName: 'FilterPolicyScope',
 AttributeValue: editFilterPolicyScope
@@ -370,7 +371,7 @@ savingFilterPolicy = false;
 async function toggleRawDelivery(subArn: string) {
 const current = subscriptionDetails[subArn]?.['RawMessageDelivery'] === 'true';
 try {
-await sns.send(new SetSubscriptionAttributesCommand({
+await sns().send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: subArn,
 AttributeName: 'RawMessageDelivery',
 AttributeValue: current ? 'false' : 'true'
@@ -408,7 +409,7 @@ try {
 const policy = editRedriveArn.trim()
 ? JSON.stringify({ deadLetterTargetArn: editRedriveArn.trim() })
 : '';
-await sns.send(new SetSubscriptionAttributesCommand({
+await sns().send(new SetSubscriptionAttributesCommand({
 SubscriptionArn: redriveSubArn,
 AttributeName: 'RedrivePolicy',
 AttributeValue: policy
@@ -448,7 +449,7 @@ async function publish() {
 if (!selectedTopic || !pubMessage.trim()) return;
 publishing = true;
 try {
-await sns.send(new PublishCommand({
+await sns().send(new PublishCommand({
 TopicArn: selectedTopic.TopicArn,
 Subject: pubSubject || undefined,
 Message: pubMessage,
@@ -475,7 +476,7 @@ publishing = false;
 // ─── Topic Tags ───────────────────────────────────────────────────────────────
 async function loadTopicTags(topicArn: string) {
 try {
-const res = await sns.send(new ListTagsForResourceCommand({ ResourceArn: topicArn }));
+const res = await sns().send(new ListTagsForResourceCommand({ ResourceArn: topicArn }));
 topicTags = Object.fromEntries((res.Tags ?? []).map((t) => [t.Key!, t.Value!]));
 } catch {
 topicTags = {};
@@ -486,7 +487,7 @@ async function addTag() {
 if (!tagKey.trim() || !selectedTopic) return;
 savingTag = true;
 try {
-await sns.send(new TagResourceCommand({
+await sns().send(new TagResourceCommand({
 ResourceArn: selectedTopic.TopicArn,
 Tags: [{ Key: tagKey.trim(), Value: tagValue.trim() }]
 }));
@@ -504,7 +505,7 @@ savingTag = false;
 async function removeTag(key: string) {
 if (!selectedTopic) return;
 try {
-await sns.send(new UntagResourceCommand({
+await sns().send(new UntagResourceCommand({
 ResourceArn: selectedTopic.TopicArn,
 TagKeys: [key]
 }));
@@ -522,7 +523,7 @@ async function toggleContentBasedDedup() {
 if (!selectedTopic?.TopicArn) return;
 const current = selectedTopic.Attributes?.ContentBasedDeduplication === 'true';
 try {
-await sns.send(new SetTopicAttributesCommand({
+await sns().send(new SetTopicAttributesCommand({
 TopicArn: selectedTopic.TopicArn,
 AttributeName: 'ContentBasedDeduplication',
 AttributeValue: current ? 'false' : 'true'
@@ -544,7 +545,7 @@ toast.error(`Failed: ${(err as Error).message}`);
 async function loadPlatformApps() {
 loadingApps = true;
 try {
-const res = await sns.send(new ListPlatformApplicationsCommand({}));
+const res = await sns().send(new ListPlatformApplicationsCommand({}));
 platformApps = res.PlatformApplications ?? [];
 } catch (err: unknown) {
 toast.error(`Failed to load platform apps: ${(err as Error).message}`);
@@ -559,7 +560,7 @@ creatingApp = true;
 try {
 const attrs: Record<string, string> = { PlatformCredential: newAppCredential.trim() };
 if (newAppPrincipal.trim()) attrs['PlatformPrincipal'] = newAppPrincipal.trim();
-await sns.send(new CreatePlatformApplicationCommand({
+await sns().send(new CreatePlatformApplicationCommand({
 Name: newAppName.trim(),
 Platform: newAppPlatform,
 Attributes: attrs
@@ -584,7 +585,7 @@ title: 'Delete Platform Application',
 message: `Delete "${name}"? All endpoints will be removed.`
 })) return;
 try {
-await sns.send(new DeletePlatformApplicationCommand({ PlatformApplicationArn: arn }));
+await sns().send(new DeletePlatformApplicationCommand({ PlatformApplicationArn: arn }));
 toast.success('Platform application deleted');
 await loadPlatformApps();
 } catch (err: unknown) {
@@ -598,7 +599,28 @@ pageTab = tab;
 if (tab === 'platform-apps') await loadPlatformApps();
 }
 
-onMount(() => { loadTopics(); });
+// Topics, subscriptions, tags, and platform applications are all
+// region-scoped, so a region switch must clear them (not just reload) and
+// then reload whichever page tab is currently active. `pageTab` is read via
+// `untrack` because `switchPageTab` also writes it — without that, this
+// effect would depend on `pageTab` too and re-clear/re-fetch everything on
+// every tab click, not just on a region change.
+onRegionChange(() => {
+	topics = [];
+	selectedTopic = null;
+	subscriptions = [];
+	subscriptionDetails = {};
+	topicTags = {};
+	platformApps = [];
+	showCreateModal = false;
+	showSubscribeModal = false;
+	showFilterPolicyModal = false;
+	showRedriveModal = false;
+	showPublishModal = false;
+	showCreateAppModal = false;
+	void loadTopics();
+	if (untrack(() => pageTab) === 'platform-apps') void loadPlatformApps();
+});
 </script>
 
 <div class="space-y-6">
@@ -1352,7 +1374,7 @@ required
 </div>
 <div>
 	<div class="flex items-center justify-between mb-1">
-		<label class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</label>
+		<div class="block text-sm font-medium text-slate-700 dark:text-slate-300">Message Attributes</div>
 		<button type="button" onclick={() => {
 			if (!pubAttrJsonMode) {
 				pubAttrJson = pubAttrRows.filter(r => r.name.trim()).length

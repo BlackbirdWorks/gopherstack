@@ -86,7 +86,6 @@ func (h *Handler) GetSupportedOperations() []string {
 		"GetPolicy",
 		"GetProvisionedConcurrencyConfig",
 		"GetRuntimeManagementConfig",
-		"InvokeFunction",
 		"ListAliases",
 		"ListCapacityProviders",
 		"ListCodeSigningConfigs",

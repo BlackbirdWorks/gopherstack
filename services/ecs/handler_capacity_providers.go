@@ -247,16 +247,56 @@ func (h *Handler) handleDescribeCapacityProviders(
 }
 
 // ----- UpdateCapacityProvider -----
+//
+// The real UpdateCapacityProviderRequest has only name, cluster,
+// autoScalingGroupProvider, and managedInstancesProvider -- no status or
+// tags (status only ever transitions via CreateCapacityProvider/
+// DeleteCapacityProvider; tags go through TagResource/UntagResource like
+// every other taggable ECS resource). autoScalingGroupProvider is also
+// narrower than the create-time shape: it has no autoScalingGroupArn,
+// because the ASG a capacity provider wraps cannot be swapped after
+// creation. managedInstancesProvider is not modeled by this backend (no
+// Managed Instances feature).
+
+type autoScalingGroupProviderUpdateInput struct {
+	ManagedScaling               *managedScalingInput `json:"managedScaling,omitempty"`
+	ManagedTerminationProtection string               `json:"managedTerminationProtection,omitempty"`
+	ManagedDraining              string               `json:"managedDraining,omitempty"`
+}
 
 type updateCapacityProviderInput struct {
-	Name                     string                         `json:"name"`
-	Status                   string                         `json:"status,omitempty"`
-	AutoScalingGroupProvider *autoScalingGroupProviderInput `json:"autoScalingGroupProvider,omitempty"`
-	Tags                     []Tag                          `json:"tags,omitempty"`
+	AutoScalingGroupProvider *autoScalingGroupProviderUpdateInput `json:"autoScalingGroupProvider,omitempty"`
+	Name                     string                               `json:"name"`
 }
 
 type updateCapacityProviderOutput struct {
 	CapacityProvider capacityProviderView `json:"capacityProvider"`
+}
+
+func toAutoScalingGroupProviderUpdate(
+	in *autoScalingGroupProviderUpdateInput,
+) *AutoScalingGroupProviderUpdate {
+	if in == nil {
+		return nil
+	}
+
+	upd := &AutoScalingGroupProviderUpdate{
+		ManagedTerminationProtection: in.ManagedTerminationProtection,
+		ManagedDraining:              in.ManagedDraining,
+	}
+
+	if in.ManagedScaling != nil {
+		upd.ManagedScaling = &ManagedScaling{
+			Status:                    in.ManagedScaling.Status,
+			TargetCapacityPercent:     in.ManagedScaling.TargetCapacityPercent,
+			MinimumScalingStepSize:    in.ManagedScaling.MinimumScalingStepSize,
+			MaximumScalingStepSize:    in.ManagedScaling.MaximumScalingStepSize,
+			InstanceWarmupPeriod:      in.ManagedScaling.InstanceWarmupPeriod,
+			TargetCapacityUtilization: in.ManagedScaling.TargetCapacityUtilization,
+		}
+	}
+
+	return upd
 }
 
 func (h *Handler) handleUpdateCapacityProvider(
@@ -265,9 +305,7 @@ func (h *Handler) handleUpdateCapacityProvider(
 ) (*updateCapacityProviderOutput, error) {
 	cp, err := h.Backend.UpdateCapacityProvider(UpdateCapacityProviderInput{
 		Name:                     in.Name,
-		Status:                   in.Status,
-		AutoScalingGroupProvider: toAutoScalingGroupProvider(in.AutoScalingGroupProvider),
-		Tags:                     in.Tags,
+		AutoScalingGroupProvider: toAutoScalingGroupProviderUpdate(in.AutoScalingGroupProvider),
 	})
 	if err != nil {
 		return nil, err

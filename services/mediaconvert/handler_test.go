@@ -94,11 +94,16 @@ func TestMediaConvert_GetSupportedOperations(t *testing.T) {
 	wantOps := []string{
 		"CreateQueue", "GetQueue", "ListQueues", "UpdateQueue", "DeleteQueue",
 		"CreateJobTemplate", "GetJobTemplate", "ListJobTemplates", "UpdateJobTemplate", "DeleteJobTemplate",
-		"CreateJob", "GetJob", "ListJobs", "CancelJob", "UpdateJob", "DescribeEndpoints",
+		"CreateJob", "GetJob", "ListJobs", "CancelJob", "DescribeEndpoints",
 		"AssociateCertificate", "CreatePreset", "CreateResourceShare", "DeletePolicy", "DeletePreset",
 		"DisassociateCertificate", "GetJobsQueryResults", "GetPolicy", "GetPreset", "ListPresets",
 		"PutPolicy", "UpdatePreset",
 	}
+
+	// "UpdateJob" is deliberately NOT advertised: it is not a real MediaConvert
+	// SDK operation (no UpdateJobInput/UpdateJobOutput/Client.UpdateJob exist) —
+	// see opUpdateJob's doc comment in handler.go.
+	assert.NotContains(t, ops, "UpdateJob")
 
 	for _, op := range wantOps {
 		assert.Contains(t, ops, op, "GetSupportedOperations should include %s", op)

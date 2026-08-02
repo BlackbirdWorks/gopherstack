@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getManagedBlockchainClient } from '$lib/aws-client';
 	import {
 		ListNetworksCommand,
@@ -54,7 +55,7 @@
 		Activity
 	} from 'lucide-svelte';
 
-	const client = getManagedBlockchainClient();
+	const client = regionalClient(getManagedBlockchainClient);
 
 	type Tab = 'networks' | 'accessors' | 'proposals' | 'invitations' | 'topology';
 	let activeTab = $state<Tab>('networks');
@@ -178,7 +179,7 @@
 	async function loadNetworks() {
 		loadingNetworks = true;
 		try {
-			const r = await client.send(new ListNetworksCommand({}));
+			const r = await client().send(new ListNetworksCommand({}));
 			networks = r.Networks ?? [];
 		} catch (e) {
 			toast.error('Failed to load networks: ' + String(e));
@@ -190,7 +191,7 @@
 	async function loadMembers(networkId: string) {
 		loadingMembers = { ...loadingMembers, [networkId]: true };
 		try {
-			const r = await client.send(new ListMembersCommand({ NetworkId: networkId }));
+			const r = await client().send(new ListMembersCommand({ NetworkId: networkId }));
 			membersByNetwork = { ...membersByNetwork, [networkId]: r.Members ?? [] };
 		} catch (e) {
 			toast.error('Failed to load members: ' + String(e));
@@ -203,7 +204,7 @@
 		const key = nodeKey(networkId, memberId);
 		loadingNodes = { ...loadingNodes, [key]: true };
 		try {
-			const r = await client.send(new ListNodesCommand({ NetworkId: networkId, MemberId: memberId }));
+			const r = await client().send(new ListNodesCommand({ NetworkId: networkId, MemberId: memberId }));
 			nodesByMember = { ...nodesByMember, [key]: r.Nodes ?? [] };
 		} catch (e) {
 			toast.error('Failed to load nodes: ' + String(e));
@@ -215,7 +216,7 @@
 	async function loadAccessors() {
 		loadingAccessors = true;
 		try {
-			const r = await client.send(new ListAccessorsCommand({}));
+			const r = await client().send(new ListAccessorsCommand({}));
 			accessors = r.Accessors ?? [];
 		} catch (e) {
 			toast.error('Failed to load accessors: ' + String(e));
@@ -228,7 +229,7 @@
 		if (!proposalNetworkId) return;
 		loadingProposals = true;
 		try {
-			const r = await client.send(new ListProposalsCommand({ NetworkId: proposalNetworkId }));
+			const r = await client().send(new ListProposalsCommand({ NetworkId: proposalNetworkId }));
 			proposals = r.Proposals ?? [];
 		} catch (e) {
 			toast.error('Failed to load proposals: ' + String(e));
@@ -242,8 +243,8 @@
 		try {
 			const proposalId = p.ProposalId ?? '';
 			const [fullR, votesR] = await Promise.all([
-				client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
-				client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+				client().send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+				client().send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
 			]);
 			selectedProposal = fullR.Proposal ?? null;
 			proposalVotes = votesR.ProposalVotes ?? [];
@@ -257,7 +258,7 @@
 	async function loadInvitations() {
 		loadingInvitations = true;
 		try {
-			const r = await client.send(new ListInvitationsCommand({}));
+			const r = await client().send(new ListInvitationsCommand({}));
 			invitations = r.Invitations ?? [];
 		} catch (e) {
 			toast.error('Failed to load invitations: ' + String(e));
@@ -269,12 +270,12 @@
 	async function loadTopology() {
 		loadingTopo = true;
 		try {
-			const r = await client.send(new ListNetworksCommand({}));
+			const r = await client().send(new ListNetworksCommand({}));
 			const nets = r.Networks ?? [];
 			const results = await Promise.all(
 				nets.map(async (n) => {
 					try {
-						const m = await client.send(new ListMembersCommand({ NetworkId: n.Id! }));
+						const m = await client().send(new ListMembersCommand({ NetworkId: n.Id! }));
 						return { id: n.Id!, name: n.Name!, status: n.Status!, memberCount: (m.Members ?? []).length };
 					} catch {
 						return { id: n.Id!, name: n.Name!, status: n.Status!, memberCount: 0 };
@@ -297,7 +298,7 @@
 		}
 		creatingNetwork = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateNetworkCommand({
 					Name: newNetworkName,
 					Description: newNetworkDesc,
@@ -359,7 +360,7 @@
 		}
 		creatingMember = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateMemberCommand({
 					NetworkId: createMemberNetworkId,
 					InvitationId: 'N/A',
@@ -390,7 +391,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteMemberCommand({ NetworkId: networkId, MemberId: memberId }));
+			await client().send(new DeleteMemberCommand({ NetworkId: networkId, MemberId: memberId }));
 			toast.success('Member deleted');
 			await loadMembers(networkId);
 		} catch (e) {
@@ -401,7 +402,7 @@
 	async function updateMember() {
 		editingMember = true;
 		try {
-			await client.send(
+			await client().send(
 				new UpdateMemberCommand({
 					NetworkId: editMemberNetworkId,
 					MemberId: editMemberId
@@ -424,7 +425,7 @@
 		}
 		creatingNode = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateNodeCommand({
 					NetworkId: createNodeNetworkId,
 					MemberId: createNodeMemberId,
@@ -451,7 +452,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(
+			await client().send(
 				new DeleteNodeCommand({ NetworkId: networkId, MemberId: memberId, NodeId: nodeId })
 			);
 			toast.success('Node deleted');
@@ -463,7 +464,7 @@
 
 	async function patchNode(networkId: string, memberId: string, nodeId: string) {
 		try {
-			await client.send(
+			await client().send(
 				new UpdateNodeCommand({ NetworkId: networkId, MemberId: memberId, NodeId: nodeId })
 			);
 			toast.success('Node updated');
@@ -475,7 +476,7 @@
 	async function createAccessor() {
 		creatingAccessor = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateAccessorCommand({
 					AccessorType: newAccessorType as 'BILLING_TOKEN',
 					NetworkType: newAccessorNetworkType
@@ -499,7 +500,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteAccessorCommand({ AccessorId: accessorId }));
+			await client().send(new DeleteAccessorCommand({ AccessorId: accessorId }));
 			toast.success('Accessor deleted');
 			await loadAccessors();
 		} catch (e) {
@@ -514,7 +515,7 @@
 		}
 		creatingProposal = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateProposalCommand({
 					NetworkId: proposalNetworkId,
 					MemberId: newProposalMemberId,
@@ -541,7 +542,7 @@
 		}
 		castingVote = true;
 		try {
-			await client.send(
+			await client().send(
 				new VoteOnProposalCommand({
 					NetworkId: proposalNetworkId,
 					ProposalId: voteProposalId,
@@ -555,8 +556,8 @@
 			if (selectedProposal?.ProposalId) {
 				const proposalId = selectedProposal.ProposalId;
 				const [fullR, votesR] = await Promise.all([
-					client.send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
-					client.send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
+					client().send(new GetProposalCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId })),
+					client().send(new ListProposalVotesCommand({ NetworkId: proposalNetworkId, ProposalId: proposalId }))
 				]);
 				if (fullR.Proposal) selectedProposal = fullR.Proposal;
 				proposalVotes = votesR.ProposalVotes ?? [];
@@ -576,7 +577,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new RejectInvitationCommand({ InvitationId: invitationId }));
+			await client().send(new RejectInvitationCommand({ InvitationId: invitationId }));
 			toast.success('Invitation rejected');
 			await loadInvitations();
 		} catch (e) {
@@ -585,8 +586,39 @@
 	}
 
 	// ── Lifecycle ─────────────────────────────────────────────────────────────
-	onMount(() => {
-		loadNetworks();
+	// Networks and everything nested under them (members, nodes), plus
+	// accessors, proposals, invitations, and topology, are all region-scoped,
+	// so a region switch must clear them (not just reload) and re-run whatever
+	// tab is currently active. `activeTab` is read with `untrack` because it is
+	// also written by the tab-switch buttons below: without it, this effect
+	// would depend on `activeTab` too and wipe all this state on every tab
+	// click, not just on a region change.
+	onRegionChange(() => {
+		networks = [];
+		membersByNetwork = {};
+		nodesByMember = {};
+		expandedNetworks = new Set();
+		expandedMembers = new Set();
+		selectedNetworkId = null;
+		accessors = [];
+		proposalNetworkId = '';
+		proposals = [];
+		selectedProposal = null;
+		proposalVotes = [];
+		invitations = [];
+		topoNetworks = [];
+		showCreateNetwork = false;
+		showCreateMember = false;
+		showEditMember = false;
+		showCreateNode = false;
+		showCreateAccessor = false;
+		showCreateProposal = false;
+		showVoteForm = false;
+		void loadNetworks();
+		const tab = untrack(() => activeTab);
+		if (tab === 'accessors') void loadAccessors();
+		else if (tab === 'invitations') void loadInvitations();
+		else if (tab === 'topology') void loadTopology();
 	});
 
 	$effect(() => {
@@ -654,24 +686,24 @@
 					<h3 class="mb-4 font-semibold">Create Network</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Network Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-name">Network Name *</label>
+							<input id="new-network-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkName}
 								placeholder="my-network"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-desc">Description</label>
+							<input id="new-network-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkDesc}
 								placeholder="Optional description"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Framework</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-framework">Framework</label>
+							<select id="new-network-framework"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkFramework}
 							>
@@ -680,24 +712,24 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Framework Version</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-network-version">Framework Version</label>
+							<input id="new-network-version"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNetworkVersion}
 								placeholder="2.2"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Initial Member Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-name">Initial Member Name *</label>
+							<input id="new-member-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberName}
 								placeholder="member1"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Initial Member Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-desc">Initial Member Description</label>
+							<input id="new-member-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberDesc}
 								placeholder="Optional"
@@ -895,6 +927,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="create-member-title"
 					onclick={(e) => e.stopPropagation()}
@@ -903,16 +936,16 @@
 					<h3 id="create-member-title" class="mb-4 font-semibold">Add Member to Network</h3>
 					<div class="space-y-3">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Member Name *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-form-name">Member Name *</label>
+							<input id="new-member-form-name"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberFormName}
 								placeholder="member-name"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-member-form-desc">Description</label>
+							<input id="new-member-form-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newMemberFormDesc}
 								placeholder="Optional"
@@ -949,6 +982,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="edit-member-title"
 					onclick={(e) => e.stopPropagation()}
@@ -956,7 +990,7 @@
 				>
 					<h3 id="edit-member-title" class="mb-4 font-semibold">Update Member</h3>
 					<div>
-						<label class="mb-1 block text-xs text-gray-400">Member ID</label>
+						<div class="mb-1 block text-xs text-gray-400">Member ID</div>
 						<div class="text-sm text-gray-300">{editMemberId}</div>
 					</div>
 					<div class="mt-4 flex justify-end gap-2">
@@ -989,6 +1023,7 @@
 				<div
 					class="w-96 rounded-lg border border-gray-700 bg-gray-800 p-6"
 					role="dialog"
+					tabindex="-1"
 					aria-modal="true"
 					aria-labelledby="create-node-title"
 					onclick={(e) => e.stopPropagation()}
@@ -997,8 +1032,8 @@
 					<h3 id="create-node-title" class="mb-4 font-semibold">Create Node</h3>
 					<div class="space-y-3">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Instance Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-node-instance-type">Instance Type</label>
+							<select id="new-node-instance-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNodeInstanceType}
 							>
@@ -1009,8 +1044,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Availability Zone</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-node-az">Availability Zone</label>
+							<input id="new-node-az"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newNodeAZ}
 								placeholder="us-east-1a"
@@ -1065,8 +1100,8 @@
 					<h3 class="mb-4 font-semibold">Create Accessor</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Accessor Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-accessor-type">Accessor Type</label>
+							<select id="new-accessor-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newAccessorType}
 							>
@@ -1074,8 +1109,8 @@
 							</select>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Network Type</label>
-							<select
+							<label class="mb-1 block text-xs text-gray-400" for="new-accessor-network-type">Network Type</label>
+							<select id="new-accessor-network-type"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newAccessorNetworkType}
 							>
@@ -1154,8 +1189,8 @@
 		<div class="space-y-4">
 			<div class="flex items-center gap-4">
 				<div class="flex flex-1 items-center gap-2">
-					<label class="text-sm text-gray-400">Network ID:</label>
-					<input
+					<label class="text-sm text-gray-400" for="proposal-network-id">Network ID:</label>
+					<input id="proposal-network-id"
 						class="flex-1 rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 						bind:value={proposalNetworkId}
 						placeholder="Enter network ID"
@@ -1186,16 +1221,16 @@
 					<h3 class="mb-4 font-semibold">Create Proposal</h3>
 					<div class="grid grid-cols-2 gap-4">
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Proposing Member ID *</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-proposal-member-id">Proposing Member ID *</label>
+							<input id="new-proposal-member-id"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newProposalMemberId}
 								placeholder="member-id"
 							/>
 						</div>
 						<div>
-							<label class="mb-1 block text-xs text-gray-400">Description</label>
-							<input
+							<label class="mb-1 block text-xs text-gray-400" for="new-proposal-desc">Description</label>
+							<input id="new-proposal-desc"
 								class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 								bind:value={newProposalDesc}
 								placeholder="Optional description"
@@ -1333,6 +1368,7 @@
 					<div
 						class="w-80 rounded-lg border border-gray-700 bg-gray-800 p-6"
 						role="dialog"
+						tabindex="-1"
 						aria-modal="true"
 						aria-labelledby="cast-vote-title"
 						onclick={(e) => e.stopPropagation()}
@@ -1341,15 +1377,15 @@
 						<h3 id="cast-vote-title" class="mb-4 font-semibold">Cast Vote</h3>
 						<div class="space-y-3">
 							<div>
-								<label class="mb-1 block text-xs text-gray-400">Voter Member ID *</label>
-								<input
+								<label class="mb-1 block text-xs text-gray-400" for="vote-member-id">Voter Member ID *</label>
+								<input id="vote-member-id"
 									class="w-full rounded border border-gray-600 bg-gray-900 px-3 py-1.5 text-sm"
 									bind:value={voteMemberId}
 									placeholder="member-id"
 								/>
 							</div>
-							<div>
-								<label class="mb-1 block text-xs text-gray-400">Vote</label>
+							<fieldset class="m-0 border-0 p-0">
+								<legend class="mb-1 block text-xs text-gray-400">Vote</legend>
 								<div class="flex gap-3">
 									<label for="vote-yes" class="flex items-center gap-2 text-sm">
 										<input id="vote-yes" type="radio" bind:group={voteChoice} value="YES" />
@@ -1360,7 +1396,7 @@
 										<span class="text-red-400">NO</span>
 									</label>
 								</div>
-							</div>
+							</fieldset>
 						</div>
 						<div class="mt-4 flex justify-end gap-2">
 							<button

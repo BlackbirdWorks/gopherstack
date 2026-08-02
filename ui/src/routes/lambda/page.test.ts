@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import LambdaPage from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -29,6 +30,34 @@ describe("Lambda Page", () => {
 
     expect(screen.getByText("Lambda Functions")).toBeInTheDocument();
     expect(screen.getByText("Create Function")).toBeInTheDocument();
+  });
+
+  it("honors ?q= and ?runtime= from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/lambda?q=api&runtime=python"));
+    mockSend.mockResolvedValueOnce({
+      Functions: [
+        {
+          FunctionName: "my-handler",
+          FunctionArn: "arn:1",
+          Runtime: "nodejs20.x",
+          MemorySize: 128,
+        },
+        {
+          FunctionName: "api-processor",
+          FunctionArn: "arn:2",
+          Runtime: "python3.12",
+          MemorySize: 256,
+        },
+      ],
+    });
+
+    render(LambdaPage);
+
+    await waitFor(() => {
+      expect(screen.getByText("api-processor")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("my-handler")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search functions...")).toHaveValue("api");
   });
 
   it("displays loaded functions", async () => {

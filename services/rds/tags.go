@@ -57,3 +57,38 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) []Tag {
 
 	return cp
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingRDS). RDS keeps tags for every taggable resource kind (DB
+// instances, clusters, snapshots, parameter groups, and more) in one flat
+// ARN-keyed map rather than inline per typed resource, so this is a direct
+// walk of that map instead of one per-kind loop.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every RDS resource ARN that currently has at
+// least one tag.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arn, tagList := range b.tags {
+		if len(tagList) == 0 {
+			continue
+		}
+
+		kv := make(map[string]string, len(tagList))
+		for _, t := range tagList {
+			kv[t.Key] = t.Value
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: kv})
+	}
+
+	return out
+}

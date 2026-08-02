@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMediaConvertClient } from '$lib/aws-client';
 	import {
 		ListJobsCommand,
@@ -14,7 +15,6 @@
 		DeleteQueueCommand,
 		DeleteJobTemplateCommand,
 		CancelJobCommand,
-		type MediaConvertClient,
 		type Job,
 		type Queue,
 		type JobTemplate,
@@ -40,10 +40,7 @@
 		Package
 	} from 'lucide-svelte';
 
-	let mediaConvertClient: MediaConvertClient | undefined;
-	function mediaConvert(): MediaConvertClient {
-		return (mediaConvertClient ??= getMediaConvertClient());
-	}
+	const mediaConvert = regionalClient(getMediaConvertClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'jobs' | 'queues' | 'templates' | 'presets'>('queues');
@@ -475,8 +472,27 @@
 		}
 	}
 
-	onMount(() => {
-		loadQueues();
+	// Each tab's list is only loaded when first visited and cached
+	// thereafter (see selectTab above), and every selected*
+	// (job/queue/template/preset) points at a resource name from whatever
+	// region it was fetched in — clear the selection and every cached list,
+	// then reload whichever tab is active. `activeTab` is read via
+	// untrack() because selectTab also writes it: without untrack, every
+	// tab switch would re-trigger this region effect and double-fetch.
+	onRegionChange(() => {
+		selectedJob = null;
+		selectedQueue = null;
+		selectedTemplate = null;
+		selectedPreset = null;
+		jobs = [];
+		queues = [];
+		templates = [];
+		presets = [];
+		const tab = untrack(() => activeTab);
+		if (tab === 'jobs') void loadJobs();
+		else if (tab === 'templates') void loadTemplates();
+		else if (tab === 'presets') void loadPresets();
+		else void loadQueues();
 	});
 </script>
 

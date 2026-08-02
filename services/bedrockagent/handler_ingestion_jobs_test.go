@@ -71,7 +71,7 @@ func (f ingestionFixture) ingestDocs(t *testing.T, docIDs ...string) {
 		})
 	}
 
-	rec := doRequest(t, f.h, f.e, http.MethodPost,
+	rec := doRequest(t, f.h, f.e, http.MethodPut,
 		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents",
 		map[string]any{"documents": docs})
 	if rec.Code != http.StatusAccepted {
@@ -242,6 +242,69 @@ func checkListIngestionJobsSummariesIncludeStats(t *testing.T) {
 
 	if got := stats["numberOfDocumentsScanned"]; got != float64(2) {
 		t.Errorf("numberOfDocumentsScanned = %v, want 2", got)
+	}
+}
+
+// TestKBDocumentsRealWireRouting locks in the real bedrock-agent wire shapes
+// for the two operations sharing the .../documents collection path:
+// IngestKnowledgeBaseDocuments is PUT, ListKnowledgeBaseDocuments is POST.
+// Verified against the vendored SDK's request snapshots
+// (aws-sdk-go-v2/service/bedrockagent's IngestKnowledgeBaseDocuments.request.snap
+// and ListKnowledgeBaseDocuments.request.snap): Ingest sends PUT with a
+// "documents" body; List sends POST with only maxResults/nextToken. A real SDK
+// client issuing either request must reach its own handler, not the other
+// operation's.
+func TestKBDocumentsRealWireRouting(t *testing.T) {
+	t.Parallel()
+
+	f := newIngestionFixture(t)
+
+	// A real IngestKnowledgeBaseDocuments call is PUT to the base
+	// .../documents path and returns 202 with the ingested document's details.
+	putRec := doRequest(t, f.h, f.e, http.MethodPut,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents",
+		map[string]any{"documents": []map[string]any{
+			{"documentId": "wire-doc-1", "content": map[string]any{"type": "TEXT"}},
+		}})
+	if putRec.Code != http.StatusAccepted {
+		t.Fatalf("PUT .../documents (real Ingest wire shape): got %d %s, want %d (IngestKnowledgeBaseDocuments)",
+			putRec.Code, putRec.Body.String(), http.StatusAccepted)
+	}
+
+	var ingestResp map[string]any
+
+	if err := json.Unmarshal(putRec.Body.Bytes(), &ingestResp); err != nil {
+		t.Fatalf("unmarshal PUT response: %v", err)
+	}
+
+	if _, ok := ingestResp["documentDetails"]; !ok {
+		t.Fatalf("PUT .../documents response missing documentDetails: %#v", ingestResp)
+	}
+
+	// A real ListKnowledgeBaseDocuments call is POST to the same base
+	// .../documents path and returns 200 with the previously-ingested
+	// document's details -- it must NOT be treated as an ingest of an empty
+	// payload (which would also 20x but with a zero-length result and the
+	// wrong status code).
+	postRec := doRequest(t, f.h, f.e, http.MethodPost,
+		"/knowledgebases/"+f.kbID+"/datasources/"+f.dsID+"/documents", nil)
+	if postRec.Code != http.StatusOK {
+		t.Fatalf("POST .../documents (real List wire shape): got %d %s, want %d (ListKnowledgeBaseDocuments)",
+			postRec.Code, postRec.Body.String(), http.StatusOK)
+	}
+
+	var listResp struct {
+		DocumentDetails []map[string]any `json:"documentDetails"`
+	}
+
+	if err := json.Unmarshal(postRec.Body.Bytes(), &listResp); err != nil {
+		t.Fatalf("unmarshal POST response: %v", err)
+	}
+
+	if len(listResp.DocumentDetails) != 1 {
+		t.Fatalf("POST .../documents (List): got %d document(s), want 1 (the doc ingested via PUT above); "+
+			"a length of 0 means the request was silently treated as an empty Ingest instead of a List",
+			len(listResp.DocumentDetails))
 	}
 }
 

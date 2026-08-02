@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { urlState } from '$lib/url-state.svelte';
+	import LiveDot from '$lib/components/LiveDot.svelte';
 	import { getLambdaClient } from '$lib/aws-client';
 	import {
 		ListFunctionsCommand,
@@ -30,12 +32,17 @@
 		Code, Cpu, Clock, Terminal, Globe, Sliders, ChevronRight, X
 	} from 'lucide-svelte';
 
-	const lambda = getLambdaClient();
+	const lambda = regionalClient(getLambdaClient);
 
 	// State
 	let loading = $state(false);
-	let searchQuery = $state('');
-	let runtimeFilter = $state('');
+	// URL-backed (?q=..., ?runtime=...); see url-state.svelte.ts. Neither is
+	// read inside the onRegionChange effect below, so no untrack() is
+	// needed at that call site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
+	const runtimeFilterParam = urlState<string>('runtime', '');
+	let runtimeFilter = $derived(runtimeFilterParam.get());
 	let functions = $state<FunctionConfiguration[]>([]);
 	let selectedFunction = $state<FunctionConfiguration | null>(null);
 	let nextMarker = $state('');
@@ -133,7 +140,7 @@
 	async function loadFunctions(marker = '') {
 		loading = true;
 		try {
-			const res = await lambda.send(new ListFunctionsCommand({ Marker: marker || undefined }));
+			const res = await lambda().send(new ListFunctionsCommand({ Marker: marker || undefined }));
 			functions = res.Functions ?? [];
 			nextMarker = res.NextMarker ?? '';
 			hasNextPage = !!res.NextMarker;
@@ -148,7 +155,7 @@
 	async function deleteFunction(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${name}"? All versions, aliases, and event source mappings will be removed.` })) return;
 		try {
-			await lambda.send(new DeleteFunctionCommand({ FunctionName: name }));
+			await lambda().send(new DeleteFunctionCommand({ FunctionName: name }));
 			toast.success(`Function "${name}" deleted`);
 			if (selectedFunction?.FunctionName === name) selectedFunction = null;
 			await loadFunctions();
@@ -163,7 +170,7 @@
 		invokeResponse = null;
 		try {
 			const payload = new TextEncoder().encode(invokePayload);
-			const res = await lambda.send(new InvokeCommand({
+			const res = await lambda().send(new InvokeCommand({
 				FunctionName: selectedFunction.FunctionName,
 				InvocationType: invokeType,
 				LogType: 'Tail',
@@ -200,7 +207,7 @@
 		creating = true;
 		try {
 			const imageUri = runtimeImageMap[newFnRuntime] ?? 'public.ecr.aws/lambda/python:3.12';
-			await lambda.send(new CreateFunctionCommand({
+			await lambda().send(new CreateFunctionCommand({
 				FunctionName: newFnName.trim(),
 				PackageType: 'Image',
 				Code: { ImageUri: imageUri },
@@ -246,7 +253,7 @@
 	async function loadVersions(fnName: string) {
 		versionsLoading = true;
 		try {
-			const res = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListVersionsByFunctionCommand({ FunctionName: fnName }));
 			fnVersions = res.Versions ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load versions');
@@ -259,7 +266,7 @@
 		if (!selectedFunction?.FunctionName) return;
 		publishing = true;
 		try {
-			await lambda.send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
+			await lambda().send(new PublishVersionCommand({ FunctionName: selectedFunction.FunctionName, Description: publishDesc || undefined }));
 			toast.success('Version published');
 			publishDesc = '';
 			await loadVersions(selectedFunction.FunctionName);
@@ -273,7 +280,7 @@
 	async function loadAliases(fnName: string) {
 		aliasesLoading = true;
 		try {
-			const res = await lambda.send(new ListAliasesCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListAliasesCommand({ FunctionName: fnName }));
 			fnAliases = res.Aliases ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
@@ -286,7 +293,7 @@
 		if (!selectedFunction?.FunctionName || !newAliasName.trim()) return;
 		creatingAlias = true;
 		try {
-			await lambda.send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
+			await lambda().send(new CreateAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: newAliasName.trim(), FunctionVersion: newAliasFnVersion }));
 			toast.success(`Alias "${newAliasName.trim()}" created`);
 			newAliasName = '';
 			await loadAliases(selectedFunction.FunctionName);
@@ -300,7 +307,7 @@
 	async function deleteAlias(name: string) {
 		if (!selectedFunction?.FunctionName || !await confirmDestructive({ title: 'Delete Alias', message: `Delete alias "${name}"?`, confirmLabel: 'Delete' })) return;
 		try {
-			await lambda.send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
+			await lambda().send(new DeleteAliasCommand({ FunctionName: selectedFunction.FunctionName, Name: name }));
 			toast.success('Alias deleted');
 			await loadAliases(selectedFunction.FunctionName);
 		} catch (e) {
@@ -311,7 +318,7 @@
 	async function loadEsms(fnName: string) {
 		esmsLoading = true;
 		try {
-			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
+			const res = await lambda().send(new ListEventSourceMappingsCommand({ FunctionName: fnName }));
 			fnEsms = res.EventSourceMappings ?? [];
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : 'Failed to load event sources');
@@ -324,7 +331,7 @@
 		if (!selectedFunction?.FunctionArn || !newEsmEventArn.trim()) return;
 		creatingEsm = true;
 		try {
-			await lambda.send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
+			await lambda().send(new CreateEventSourceMappingCommand({ FunctionName: selectedFunction.FunctionArn, EventSourceArn: newEsmEventArn.trim(), BatchSize: newEsmBatchSize, Enabled: true }));
 			toast.success('Event source mapping created');
 			newEsmEventArn = '';
 			await loadEsms(selectedFunction.FunctionName!);
@@ -338,7 +345,7 @@
 	async function deleteEsm(uuid: string) {
 		if (!await confirmDestructive({ title: 'Delete Trigger', message: 'Remove this event source mapping?', confirmLabel: 'Remove' })) return;
 		try {
-			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
+			await lambda().send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
 			toast.success('Event source mapping removed');
 			if (selectedFunction?.FunctionName) await loadEsms(selectedFunction.FunctionName);
 		} catch (e) {
@@ -353,10 +360,10 @@
 		updatingCode = true;
 		try {
 			if (updateCodeMode === 'image') {
-				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
+				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ImageUri: updateCodeImageUri.trim() }));
 			} else {
 				const buf = await updateCodeZipFile!.arrayBuffer();
-				await lambda.send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
+				await lambda().send(new UpdateFunctionCodeCommand({ FunctionName: selectedFunction.FunctionName, ZipFile: new Uint8Array(buf) }));
 			}
 			toast.success('Function code updated');
 			updateCodeImageUri = '';
@@ -372,7 +379,7 @@
 	async function loadLayers() {
 		layersLoading = true;
 		try {
-			const res = await lambda.send(new ListLayersCommand({}));
+			const res = await lambda().send(new ListLayersCommand({}));
 			layers = res.Layers ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load layers: ${(err as Error).message}`);
@@ -390,7 +397,7 @@
 		if (!selectedFunction) return;
 		savingEnvVars = true;
 		try {
-			await lambda.send(new UpdateFunctionConfigurationCommand({
+			await lambda().send(new UpdateFunctionConfigurationCommand({
 				FunctionName: selectedFunction.FunctionName,
 				Environment: { Variables: envVarDraft }
 			}));
@@ -404,7 +411,21 @@
 		}
 	}
 
-	onMount(() => {
+	// selectedFunction and its versions/aliases/triggers, plus the list-page
+	// pagination markers and the layers list, all reference resources or
+	// tokens from whichever region they were fetched in — clear the whole
+	// selection chain and reload, mirroring the original mount sequence
+	// (both functions and layers load unconditionally).
+	onRegionChange(() => {
+		selectedFunction = null;
+		fnVersions = [];
+		fnAliases = [];
+		fnEsms = [];
+		markerHistory = [];
+		nextMarker = '';
+		currentMarker = '';
+		hasNextPage = false;
+		layers = [];
 		loadFunctions();
 		loadLayers();
 	});
@@ -418,7 +439,10 @@
 				<Zap class="w-8 h-8 text-orange-500" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Functions</h1>
+				<div class="flex items-center gap-2">
+					<h1 class="text-3xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 dark:from-orange-400 dark:to-amber-400 bg-clip-text text-transparent">Lambda Functions</h1>
+					<LiveDot service="lambda" />
+				</div>
 				<p class="text-sm text-muted-foreground text-slate-500 dark:text-slate-400 mt-0.5">{functions.length} function{functions.length !== 1 ? 's' : ''}</p>
 				<p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Deploy and run serverless code in response to events.</p>
 			</div>
@@ -463,15 +487,17 @@
 					<div class="flex gap-2">
 						<div class="relative flex-1">
 							<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-							<input 
-								type="text" 
-								bind:value={searchQuery}
+							<input
+								type="text"
+								value={searchQuery}
+								oninput={(e) => searchQueryParam.set(e.currentTarget.value)}
 								placeholder="Search functions..."
 								class="w-full pl-10 pr-4 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
 							/>
 						</div>
 						<select
-							bind:value={runtimeFilter}
+							value={runtimeFilter}
+							onchange={(e) => runtimeFilterParam.set(e.currentTarget.value)}
 							class="px-3 py-2 bg-white/50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-orange-500 outline-none transition-all"
 						>
 							<option value="">All runtimes</option>
@@ -819,8 +845,8 @@
 									<div class="space-y-2">
 										<input type="text" bind:value={newEsmEventArn} placeholder="Event source ARN (SQS/Kinesis/DynamoDB)" class="w-full text-xs font-mono border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 										<div class="flex gap-2 items-center">
-											<label class="text-xs text-slate-500">Batch size:</label>
-											<input type="number" bind:value={newEsmBatchSize} min="1" max="10000" class="w-20 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+											<label class="text-xs text-slate-500" for="new-esm-batch-size">Batch size:</label>
+											<input id="new-esm-batch-size" type="number" bind:value={newEsmBatchSize} min="1" max="10000" class="w-20 text-xs border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 											<button onclick={createEsm} disabled={creatingEsm || !newEsmEventArn.trim()} class="text-white bg-orange-600 hover:bg-orange-700 font-medium rounded-lg text-xs px-3 py-2 disabled:opacity-50">{creatingEsm ? 'Adding…' : 'Add Trigger'}</button>
 										</div>
 									</div>

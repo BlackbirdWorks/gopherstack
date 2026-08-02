@@ -92,13 +92,13 @@ func TestEMRResourceRegionIsolation(t *testing.T) {
 
 	// Same-named studio in both regions.
 	eastStudio, err := backend.CreateStudio(
-		ctxEast, "shared-studio", "IAM", "s3://east", "sg-east", "role-east", "vpc-east", "sg-w-east", nil, nil,
+		ctxEast, "shared-studio", "", "IAM", "s3://east", "sg-east", "role-east", "vpc-east", "sg-w-east", nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastStudio.StudioArn, "us-east-1")
 
 	westStudio, err := backend.CreateStudio(
-		ctxWest, "shared-studio", "IAM", "s3://west", "sg-west", "role-west", "vpc-west", "sg-w-west", nil, nil,
+		ctxWest, "shared-studio", "", "IAM", "s3://west", "sg-west", "role-west", "vpc-west", "sg-w-west", nil, nil,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westStudio.StudioArn, "us-west-2")

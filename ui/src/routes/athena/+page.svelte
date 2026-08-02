@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAthenaClient } from '$lib/aws-client';
 	import {
 		ListWorkGroupsCommand,
@@ -33,7 +34,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Search, RefreshCw, Play, XCircle, Database, Clock, ChevronRight, Table, BookOpen, Terminal, Save, Trash2, Bookmark, BarChart2, Download } from 'lucide-svelte';
 
-	const athena = getAthenaClient();
+	const athena = regionalClient(getAthenaClient);
 
 	let activeTab = $state<'query' | 'workgroups' | 'catalogs' | 'history' | 'sessions' | 'notebooks' | 'prepared' | 'saved'>('query');
 
@@ -104,7 +105,7 @@
 		showRuntimeStats = false;
 		currentQueryId = null;
 		try {
-			const resp = await athena.send(new StartQueryExecutionCommand({
+			const resp = await athena().send(new StartQueryExecutionCommand({
 				QueryString: queryText.trim(),
 				WorkGroup: queryWorkgroup || 'primary',
 				QueryExecutionContext: { Database: queryDatabase || undefined },
@@ -126,7 +127,7 @@
 		const poll = async () => {
 			attempts++;
 			try {
-				const resp = await athena.send(new GetQueryExecutionCommand({ QueryExecutionId: queryId }));
+				const resp = await athena().send(new GetQueryExecutionCommand({ QueryExecutionId: queryId }));
 				queryStatus = resp.QueryExecution ?? null;
 				const state = queryStatus?.Status?.State;
 				if (state === 'SUCCEEDED') {
@@ -155,7 +156,7 @@
 
 	async function loadResults(queryId: string) {
 		try {
-			const resp = await athena.send(new GetQueryResultsCommand({ QueryExecutionId: queryId, MaxResults: 100 }));
+			const resp = await athena().send(new GetQueryResultsCommand({ QueryExecutionId: queryId, MaxResults: 100 }));
 			queryResults = resp.ResultSet ?? null;
 		} catch (e) {
 			toast.error('Failed to load results: ' + String(e));
@@ -164,7 +165,7 @@
 
 	async function loadRuntimeStats(queryId: string) {
 		try {
-			const resp = await athena.send(new GetQueryRuntimeStatisticsCommand({ QueryExecutionId: queryId }));
+			const resp = await athena().send(new GetQueryRuntimeStatisticsCommand({ QueryExecutionId: queryId }));
 			queryRuntimeStats = resp.QueryRuntimeStatistics ?? null;
 		} catch {
 			// non-critical, ignore
@@ -174,7 +175,7 @@
 	async function stopQuery() {
 		if (!currentQueryId) return;
 		try {
-			await athena.send(new StopQueryExecutionCommand({ QueryExecutionId: currentQueryId }));
+			await athena().send(new StopQueryExecutionCommand({ QueryExecutionId: currentQueryId }));
 			toast.success('Query stop requested');
 			clearInterval(pollingInterval);
 			queryExecuting = false;
@@ -217,7 +218,7 @@
 	async function loadWorkgroups() {
 		loadingWorkgroups = true;
 		try {
-			const resp = await athena.send(new ListWorkGroupsCommand({}));
+			const resp = await athena().send(new ListWorkGroupsCommand({}));
 			workgroups = resp.WorkGroups ?? [];
 		} catch (e) {
 			toast.error('Failed to load workgroups: ' + String(e));
@@ -229,7 +230,7 @@
 	async function loadCatalogs() {
 		loadingCatalogs = true;
 		try {
-			const resp = await athena.send(new ListDataCatalogsCommand({}));
+			const resp = await athena().send(new ListDataCatalogsCommand({}));
 			catalogs = resp.DataCatalogsSummary ?? [];
 		} catch (e) {
 			toast.error('Failed to load catalogs: ' + String(e));
@@ -241,11 +242,11 @@
 	async function loadHistory() {
 		loadingHistory = true;
 		try {
-			const resp = await athena.send(new ListQueryExecutionsCommand({ MaxResults: 20 }));
+			const resp = await athena().send(new ListQueryExecutionsCommand({ MaxResults: 20 }));
 			queryHistory = resp.QueryExecutionIds ?? [];
 			// Load details for each
 			const details = await Promise.allSettled(
-				queryHistory.map((id) => athena.send(new GetQueryExecutionCommand({ QueryExecutionId: id })).then((r) => r.QueryExecution))
+				queryHistory.map((id) => athena().send(new GetQueryExecutionCommand({ QueryExecutionId: id })).then((r) => r.QueryExecution))
 			);
 			historyDetail = details.filter((r) => r.status === 'fulfilled').map((r) => (r as PromiseFulfilledResult<QueryExecution | undefined>).value!).filter(Boolean);
 		} catch (e) {
@@ -258,7 +259,7 @@
 	async function loadSessions() {
 		loadingSessions = true;
 		try {
-			const resp = await athena.send(new ListSessionsCommand({ WorkGroup: newSessionWorkgroup }));
+			const resp = await athena().send(new ListSessionsCommand({ WorkGroup: newSessionWorkgroup }));
 			sessions = resp.Sessions ?? [];
 		} catch (e) {
 			toast.error('Failed to load sessions: ' + String(e));
@@ -269,7 +270,7 @@
 
 	async function startSession() {
 		try {
-			await athena.send(new StartSessionCommand({
+			await athena().send(new StartSessionCommand({
 				WorkGroup: newSessionWorkgroup,
 				EngineConfiguration: { MaxConcurrentDpus: 2 }
 			}));
@@ -282,7 +283,7 @@
 
 	async function terminateSession(sessionId: string) {
 		try {
-			await athena.send(new TerminateSessionCommand({ SessionId: sessionId }));
+			await athena().send(new TerminateSessionCommand({ SessionId: sessionId }));
 			toast.success('Session terminating');
 			await loadSessions();
 		} catch (e) {
@@ -293,7 +294,7 @@
 	async function loadNotebooks() {
 		loadingNotebooks = true;
 		try {
-			const resp = await athena.send(new ListNotebookMetadataCommand({ WorkGroup: newNotebookWorkgroup }));
+			const resp = await athena().send(new ListNotebookMetadataCommand({ WorkGroup: newNotebookWorkgroup }));
 			notebooks = resp.NotebookMetadataList ?? [];
 		} catch (e) {
 			toast.error('Failed to load notebooks: ' + String(e));
@@ -305,7 +306,7 @@
 	async function createNotebook() {
 		if (!newNotebookName.trim()) return;
 		try {
-			await athena.send(new CreateNotebookCommand({
+			await athena().send(new CreateNotebookCommand({
 				WorkGroup: newNotebookWorkgroup,
 				Name: newNotebookName.trim()
 			}));
@@ -320,7 +321,7 @@
 	async function loadPreparedStatements() {
 		loadingPrepared = true;
 		try {
-			const resp = await athena.send(new ListPreparedStatementsCommand({ WorkGroup: queryWorkgroup || 'primary' }));
+			const resp = await athena().send(new ListPreparedStatementsCommand({ WorkGroup: queryWorkgroup || 'primary' }));
 			preparedStatements = resp.PreparedStatements ?? [];
 		} catch (e) {
 			toast.error('Failed to load prepared statements: ' + String(e));
@@ -332,12 +333,12 @@
 	async function loadSavedQueries() {
 		loadingSaved = true;
 		try {
-			const list = await athena.send(new ListNamedQueriesCommand({ WorkGroup: queryWorkgroup || 'primary' }));
+			const list = await athena().send(new ListNamedQueriesCommand({ WorkGroup: queryWorkgroup || 'primary' }));
 			const ids = list.NamedQueryIds ?? [];
 			if (ids.length === 0) {
 				savedQueries = [];
 			} else {
-				const detail = await athena.send(new BatchGetNamedQueryCommand({ NamedQueryIds: ids }));
+				const detail = await athena().send(new BatchGetNamedQueryCommand({ NamedQueryIds: ids }));
 				savedQueries = detail.NamedQueries ?? [];
 			}
 		} catch (e) {
@@ -351,7 +352,7 @@
 		if (!saveQueryName.trim() || !queryText.trim()) return;
 		savingQuery = true;
 		try {
-			await athena.send(new CreateNamedQueryCommand({
+			await athena().send(new CreateNamedQueryCommand({
 				Name: saveQueryName.trim(),
 				Description: saveQueryDescription.trim() || undefined,
 				Database: queryDatabase || 'default',
@@ -373,7 +374,7 @@
 	async function deleteNamedQuery(id: string | undefined) {
 		if (!id) return;
 		try {
-			await athena.send(new DeleteNamedQueryCommand({ NamedQueryId: id }));
+			await athena().send(new DeleteNamedQueryCommand({ NamedQueryId: id }));
 			toast.success('Saved query deleted');
 			await loadSavedQueries();
 		} catch (e) {
@@ -427,8 +428,41 @@
 		(queryResults?.Rows ?? []).slice(1).map((r) => (r.Data ?? []).map((d) => d.VarCharValue ?? ''))
 	);
 
-	onMount(() => {
+	// Workgroups, catalogs, sessions, notebooks, prepared statements, saved
+	// queries, and query history are all region-scoped, and a query already
+	// in flight (and its poll loop) belongs to the old region's execution --
+	// clear all of that and reload. `activeTab` is read with `untrack` since
+	// switching tabs already reloads its own data via handleTabChange();
+	// letting the effect also depend on it would double-fetch on every
+	// subsequent region change. Workgroups are always reloaded because the
+	// query editor's workgroup selector needs them regardless of which tab
+	// is active, mirroring the original mount behavior.
+	onRegionChange(() => {
+		if (pollingInterval !== undefined) {
+			clearInterval(pollingInterval);
+			pollingInterval = undefined;
+		}
+		queryExecuting = false;
+		currentQueryId = null;
+		queryResults = null;
+		queryStatus = null;
+		queryRuntimeStats = null;
+		showRuntimeStats = false;
+		catalogs = [];
+		queryHistory = [];
+		historyDetail = [];
+		sessions = [];
+		notebooks = [];
+		preparedStatements = [];
+		savedQueries = [];
 		loadWorkgroups();
+		const tab = untrack(() => activeTab);
+		if (tab === 'catalogs') loadCatalogs();
+		else if (tab === 'history') loadHistory();
+		else if (tab === 'sessions') loadSessions();
+		else if (tab === 'notebooks') loadNotebooks();
+		else if (tab === 'prepared') loadPreparedStatements();
+		else if (tab === 'saved') loadSavedQueries();
 	});
 
 	onDestroy(() => {

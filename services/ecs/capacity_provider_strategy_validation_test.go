@@ -33,18 +33,11 @@ func TestCapacityProviderStrategy_RejectsUnknownProvider(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, resp.Code)
 	})
 
-	t.Run("UpdateCluster", func(t *testing.T) {
-		t.Parallel()
-
-		h := newTestHandler(t)
-		doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "upd-bad-cps-cluster"})
-
-		resp := doECSRequest(t, h, "UpdateCluster", map[string]any{
-			"cluster":                         "upd-bad-cps-cluster",
-			"defaultCapacityProviderStrategy": badStrategy,
-		})
-		assert.Equal(t, http.StatusBadRequest, resp.Code)
-	})
+	// UpdateCluster is deliberately not covered here: the real
+	// UpdateClusterRequest has no defaultCapacityProviderStrategy field (see
+	// TestUpdateCluster_DoesNotAcceptCapacityProviders in
+	// handler_clusters_test.go), so there is nothing for it to validate.
+	// PutClusterCapacityProviders is the real operation for this.
 
 	t.Run("PutClusterCapacityProviders", func(t *testing.T) {
 		t.Parallel()

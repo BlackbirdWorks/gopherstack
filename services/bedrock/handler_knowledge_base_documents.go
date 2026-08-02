@@ -7,18 +7,25 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// dispatchDocumentOps handles the .../documents collection path. The real
+// bedrock-agent wire distinguishes IngestKnowledgeBaseDocuments and
+// ListKnowledgeBaseDocuments by HTTP method alone (both share this exact
+// path): Ingest is PUT, List is POST. GET is accepted too as harmless extra
+// leniency (no real client sends it). GetKnowledgeBaseDocuments and
+// DeleteKnowledgeBaseDocuments are real, but on the /getDocuments and
+// /deleteDocuments sub-paths respectively -- both are carved out by the
+// caller (dispatchDataSourceIDRoutes, handler_data_sources.go) before this
+// function is ever reached, so dsSuffix here is always exactly "/documents".
 func (h *AgentsHandler) dispatchDocumentOps(
-	c *echo.Context, kbID, dsID, method string, body []byte,
+	c *echo.Context, kbID, dsID, dsSuffix, method string, body []byte,
 ) error {
-	switch method {
-	case http.MethodGet:
-		return h.handleListKBDocuments(c, kbID, dsID)
-	case http.MethodPost:
-		return h.handleIngestKBDocuments(c, kbID, dsID, body)
-	case http.MethodPut:
-		return h.handleUpdateKBDocuments(c, kbID, dsID, body)
-	case http.MethodDelete:
-		return h.handleDeleteKBDocuments(c, kbID, dsID, body)
+	if dsSuffix == "/documents" {
+		switch method {
+		case http.MethodPut:
+			return h.handleIngestKBDocuments(c, kbID, dsID, body)
+		case http.MethodPost, http.MethodGet:
+			return h.handleListKBDocuments(c, kbID, dsID)
+		}
 	}
 
 	return c.JSON(
@@ -98,26 +105,4 @@ func (h *AgentsHandler) handleDeleteKBDocuments(
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
-}
-
-func (h *AgentsHandler) handleUpdateKBDocuments(
-	c *echo.Context, kbID, dsID string, body []byte,
-) error {
-	var req struct {
-		DocumentIDs []string `json:"documentIds"`
-	}
-
-	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			agentErrResp("ValidationException", "invalid request body"),
-		)
-	}
-
-	docs, err := h.Backend.UpdateKnowledgeBaseDocuments(kbID, dsID, req.DocumentIDs)
-	if err != nil {
-		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{"documents": docs})
 }

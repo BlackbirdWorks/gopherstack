@@ -1,8 +1,11 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount, onDestroy } from 'svelte';
-	import { newDynamoDBClient, getStoredRegion } from '$lib/aws/client';
-import { getDynamoDBStreamsClient } from '$lib/aws-client';
+	import { onDestroy } from 'svelte';
+	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
+import { currentRegion } from '$lib/region.svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { urlState } from '$lib/url-state.svelte';
+import LiveDot from '$lib/components/LiveDot.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
 		ListTablesCommand,
@@ -12,6 +15,8 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 		DeleteItemCommand,
 		BatchWriteItemCommand,
 		ScanCommand,
+		type ScanCommandInput,
+		type ScanCommandOutput,
 		QueryCommand,
 		PutItemCommand,
 		ExecuteStatementCommand,
@@ -51,14 +56,33 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	import { toast } from 'svelte-sonner';
 	import { avToJson, itemToJson, jsonToAv, jsonToItem, getColumns, getKeySchema, resolveKeySchema, buildKeyCondition } from '$lib/dynamodb';
 
-	let ddb = $state(newDynamoDBClient());
-	let currentRegion = $state(getStoredRegion());
+	const ddb = regionalClient(getDynamoDBClient);
+
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so both the toast and the inline
+	// error banner show the actual code, not just a generic message.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
 
 	// Table List State
 	let tableNames = $state<string[]>([]);
 	let tableDetails = $state<Map<string, TableDescription>>(new Map());
 	let loading = $state(true);
-	let searchQuery = $state('');
+	let loadTablesError = $state('');
+	// URL-backed (?q=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below (loadTables never references it), so no
+	// untrack() is needed at that call site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
 	let showCreateModal = $state(false);
 	let creating = $state(false);
 	let newTableName = $state('');
@@ -70,7 +94,11 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	// Detail State
 	let selectedTable = $state<string | null>(null);
 	let selectedTableDesc = $state<TableDescription | null>(null);
-	let activeTab = $state<string>('overview');
+	// URL-backed (?tab=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below (onRegionChange(loadTables) doesn't
+	// reference it), so no untrack() is needed at that call site.
+	const activeTabParam = urlState<string>('tab', 'overview');
+	let activeTab = $derived(activeTabParam.get());
 	let showTableDetails = $state(false);
 
 	// Query State
@@ -80,6 +108,7 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	let querySKValue = $state('');
 	let querySKValue2 = $state('');
 	let queryFilterExp = $state('');
+	let queryFilterValues = $state('');
 	let queryLimit = $state(100);
 	let queryResults = $state<Record<string, unknown>[]>([]);
 let queryLastKey = $state<unknown>(null);
@@ -89,6 +118,7 @@ let queryLastKey = $state<unknown>(null);
 
 	// Scan State
 	let scanFilterExp = $state('');
+	let scanFilterValues = $state('');
 	let scanProjectionExp = $state('');
 	let scanLimit = $state(100);
 	let scanResults = $state<Record<string, unknown>[]>([]);
@@ -135,7 +165,7 @@ let scanLastKey = $state<unknown>(null);
 	let streamEventsHtml = $state('');
 	let streamEventsLoading = $state(false);
 	let streamBackendUnavailable = $state(false);
-let ddbStreams = $state(getDynamoDBStreamsClient());
+const ddbStreams = regionalClient(getDynamoDBStreamsClient);
 	let streamPollTimer: ReturnType<typeof setInterval> | undefined;
 	let streamFetchController: AbortController | undefined;
 
@@ -168,7 +198,7 @@ let editWcu = $state(5);
 async function updateCapacity() {
   if (!selectedTable) return;
   try {
-    await ddb.send(new UpdateTableCommand({
+    await ddb().send(new UpdateTableCommand({
       TableName: selectedTable,
       BillingMode: editBillingMode as 'PROVISIONED' | 'PAY_PER_REQUEST',
       ...(editBillingMode === 'PROVISIONED' ? {
@@ -177,7 +207,7 @@ async function updateCapacity() {
     }));
     toast.success("Capacity updated");
     loadTables();
-  } catch (e) { toast.error(String(e)); }
+  } catch (e) { toast.error(describeError(e)); }
 }
 
 
@@ -190,28 +220,46 @@ async function updateCapacity() {
 	let editItemJson = $state('');
 let updateExp = $state('');
 let updateCond = $state('');
+let updateExpValues = $state('');
 let batchGetKeys = $state('');
+let batchGetResultsJson = $state('');
 async function execBatchGet() {
-  if (!selectedTable) return;
+  if (!selectedTable || !batchGetKeys.trim()) return;
   try {
-    const res = await ddb.send(new BatchGetItemCommand({
-      RequestItems: { [selectedTable]: { Keys: JSON.parse(batchGetKeys).map((k: unknown) => jsonToItem(k as Record<string, unknown>)) } }
+    const keys = JSON.parse(batchGetKeys);
+    if (!Array.isArray(keys)) throw new Error('Expected a JSON array of key objects');
+    const res = await ddb().send(new BatchGetItemCommand({
+      RequestItems: { [selectedTable]: { Keys: keys.map((k: unknown) => buildItemKey(k as Record<string, unknown>)) } }
     }));
-    toast.success("BatchGet completed. Found: " + (res.Responses?.[selectedTable]?.length || 0));
-  } catch (e) { toast.error(String(e)); }
+    const found = (res.Responses?.[selectedTable] ?? []).map((item) => itemToJson(item));
+    batchGetResultsJson = JSON.stringify(found, null, 2);
+    toast.success(`BatchGet completed. Found: ${found.length}`);
+  } catch (e) { toast.error(describeError(e)); }
 }
+// execUpdateItem applies a partial UpdateExpression (SET/REMOVE/ADD/DELETE) rather than
+// overwriting the whole item like saveEditItem's PutItem path. Any ":placeholder" in
+// updateExp/updateCond must be resolvable or DynamoDB rejects the request with
+// ValidationException, so ExpressionAttributeValues is threaded through here too --
+// omitting it (as an earlier version of this function did) meant every non-trivial
+// expression using a value placeholder could never actually succeed.
 async function execUpdateItem() {
-  if (!selectedTable || !editItemJson) return;
+  if (!selectedTable || !editItemJson || !updateExp.trim()) return;
   try {
-    await ddb.send(new UpdateItemCommand({
+    const values = updateExpValues.trim() ? jsonToItem(JSON.parse(updateExpValues)) : undefined;
+    await ddb().send(new UpdateItemCommand({
       TableName: selectedTable,
       Key: buildItemKey(JSON.parse(editItemJson)),
-      UpdateExpression: updateExp || undefined,
-      ConditionExpression: updateCond || undefined
+      UpdateExpression: updateExp,
+      ConditionExpression: updateCond || undefined,
+      ExpressionAttributeValues: values
     }));
     toast.success("UpdateItem success");
     showEditModal = false;
-  } catch (e) { toast.error(String(e)); }
+    updateExp = ''; updateCond = ''; updateExpValues = '';
+    if (activeTab === 'scan') await executeScan();
+    else if (activeTab === 'query') await executeQuery();
+    else if (activeTab === 'items') await loadItems(true);
+  } catch (e) { toast.error(describeError(e)); }
 }
 
 	// GSI Create Modal State
@@ -234,7 +282,9 @@ async function execUpdateItem() {
 	let filterItems = $state('');
 
 	// Table Sort
-	let tableSortOrder = $state<'alpha' | 'itemCount'>('alpha');
+	// URL-backed (?sort=...); see url-state.svelte.ts.
+	const tableSortOrderParam = urlState<'alpha' | 'itemCount'>('sort', 'alpha');
+	let tableSortOrder = $derived(tableSortOrderParam.get());
 
 	// Derived
 	const filteredTables = $derived.by(() => {
@@ -278,30 +328,38 @@ async function execUpdateItem() {
 	}
 
 	
-let s3Exports: unknown[] = $state([]);
-let s3Imports: unknown[] = $state([]);
+let s3Exports = $state<{ ExportArn?: string; ExportStatus?: string }[]>([]);
+let s3Imports = $state<{ ImportArn?: string; ImportStatus?: string }[]>([]);
+let s3ExportsImportsLoading = $state(false);
 async function loadExportsImports() {
   if (!selectedTable) return;
+  s3ExportsImportsLoading = true;
   try {
-    const e = await ddb.send(new ListExportsCommand({TableArn: selectedTableDesc?.TableArn}));
-    s3Exports = e.ExportSummaries || [];
-    const i = await ddb.send(new ListImportsCommand({}));
-    // Needs filter by table if supported
-    s3Imports = i.ImportSummaryList || [];
-  } catch(e){}
+    const e = await ddb().send(new ListExportsCommand({ TableArn: selectedTableDesc?.TableArn }));
+    s3Exports = e.ExportSummaries ?? [];
+    // ListImports supports filtering server-side by the target table's ARN (matching what
+    // ListExports already does above); passing it avoids showing imports for every other
+    // table in the account when viewing this table's Backups tab.
+    const i = await ddb().send(new ListImportsCommand({ TableArn: selectedTableDesc?.TableArn }));
+    s3Imports = i.ImportSummaryList ?? [];
+  } catch (e) {
+    toast.error(`Failed to load S3 exports/imports: ${describeError(e)}`);
+  } finally {
+    s3ExportsImportsLoading = false;
+  }
 }
 async function nativeExport() {
   // eslint-disable-next-line no-alert
   const bucket = prompt("S3 Bucket Name:");
   if (!bucket || !selectedTableDesc?.TableArn) return;
   try {
-    await ddb.send(new ExportTableToPointInTimeCommand({
+    await ddb().send(new ExportTableToPointInTimeCommand({
       TableArn: selectedTableDesc.TableArn,
       S3Bucket: bucket,
       ExportFormat: "DYNAMODB_JSON"
     }));
     toast.success("Export started");
-  } catch (e) { toast.error(String(e)); }
+  } catch (e) { toast.error(describeError(e)); }
 }
 async function nativeImport() {
   // eslint-disable-next-line no-alert
@@ -310,7 +368,7 @@ async function nativeImport() {
   const table = prompt("Target Table Name:");
   if (!bucket || !table) return;
   try {
-    await ddb.send(new ImportTableCommand({
+    await ddb().send(new ImportTableCommand({
       S3BucketSource: { S3Bucket: bucket },
       InputFormat: "DYNAMODB_JSON",
       TableCreationParameters: {
@@ -321,7 +379,7 @@ async function nativeImport() {
       }
     }));
     toast.success("Import started");
-  } catch (e) { toast.error(String(e)); }
+  } catch (e) { toast.error(describeError(e)); }
 }
 function exportJson(data: Record<string, unknown>[], filename: string): void {
 		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -333,16 +391,43 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 		URL.revokeObjectURL(url);
 	}
 
+	// The "Export JSON" button used to be a plain <a href="/dashboard/dynamodb/table/{name}/export">
+	// link, but no such route is registered anywhere in the backend (dashboard/ui.go only
+	// registers .../stream-info and .../stream-events for this resource) -- it 404'd on click.
+	// Replace it with a real client-side export: page through the whole table via Scan and
+	// download the results the same way the Query/Scan/PartiQL tabs already do.
+	let exportingTable = $state(false);
+	async function exportAllTableItems(): Promise<void> {
+		if (!selectedTable) return;
+		exportingTable = true;
+		try {
+			const all: Record<string, unknown>[] = [];
+			let startKey: Record<string, AttributeValue> | undefined;
+			do {
+				const res = await ddb().send(new ScanCommand({ TableName: selectedTable, ExclusiveStartKey: startKey }));
+				all.push(...(res.Items ?? []).map((item) => itemToJson(item)));
+				startKey = res.LastEvaluatedKey;
+			} while (startKey);
+			exportJson(all, `${selectedTable}-export.json`);
+			toast.success(`Exported ${all.length} item${all.length === 1 ? '' : 's'}`);
+		} catch (err: unknown) {
+			toast.error(`Export failed: ${describeError(err)}`);
+		} finally {
+			exportingTable = false;
+		}
+	}
+
 	// Table List Operations
 	async function loadTables() {
 		loading = true;
+		loadTablesError = '';
 		try {
-			const res = await ddb.send(new ListTablesCommand({}));
+			const res = await ddb().send(new ListTablesCommand({}));
 			tableNames = res.TableNames ?? [];
 			const details = new Map<string, TableDescription>();
 			for (const name of tableNames) {
 				try {
-					const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
+					const desc = await ddb().send(new DescribeTableCommand({ TableName: name }));
 					if (desc.Table) details.set(name, desc.Table);
 				} catch {
                                     // skip
@@ -351,7 +436,8 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 			tableDetails = details;
 			tablePage = 0;
 		} catch (err: unknown) {
-			toast.error(`Failed to list tables: ${(err as Error).message}`);
+			loadTablesError = describeError(err);
+			toast.error(`Failed to list tables: ${loadTablesError}`);
 		} finally {
 			loading = false;
 		}
@@ -367,7 +453,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 				ks.push({ AttributeName: sortKey.trim(), KeyType: 'RANGE' });
 				ad.push({ AttributeName: sortKey.trim(), AttributeType: sortKeyType });
 			}
-			await ddb.send(new CreateTableCommand({
+			await ddb().send(new CreateTableCommand({
 				TableName: newTableName.trim(),
 				KeySchema: ks,
 				AttributeDefinitions: ad,
@@ -382,7 +468,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 			createTableBillingMode = 'PAY_PER_REQUEST'; createTableRcu = 5; createTableWcu = 5;
 			await loadTables();
 		} catch (err: unknown) {
-			toast.error(`Failed to create table: ${(err as Error).message}`);
+			toast.error(`Failed to create table: ${describeError(err)}`);
 		} finally {
 			creating = false;
 		}
@@ -391,40 +477,42 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	async function purgeAll() {
 		if (!await confirmDestructive({ title: 'Delete All Tables', message: 'Delete ALL DynamoDB tables? This cannot be undone.', confirmLabel: 'Delete All' })) return;
 		try {
-			for (const name of tableNames) await ddb.send(new DeleteTableCommand({ TableName: name }));
+			for (const name of tableNames) await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
 			selectedTable = null;
 			await loadTables();
 		} catch (err: unknown) {
-			toast.error(`Failed to purge: ${(err as Error).message}`);
+			toast.error(`Failed to purge: ${describeError(err)}`);
 		}
 	}
 
 	async function deleteTable(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Table', message: `Delete table "${name}"? All items and indexes will be permanently removed.` })) return;
 		try {
-			await ddb.send(new DeleteTableCommand({ TableName: name }));
+			await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
 			if (selectedTable === name) { selectedTable = null; selectedTableDesc = null; }
 			await loadTables();
 		} catch (err: unknown) {
-			toast.error(`Failed to delete table: ${(err as Error).message}`);
+			toast.error(`Failed to delete table: ${describeError(err)}`);
 		}
 	}
 
 	// Detail Operations
+	let openTableError = $state('');
 	async function openTable(name: string) {
 		selectedTable = name;
-		activeTab = 'overview';
+		activeTabParam.set('overview');
 		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
 		itemsLastKey = null; itemsSelectedKeys = new Set();
 		streamEventsHtml = ''; streamInfo = null;
+		openTableError = '';
 		partiqlStatement = `SELECT * FROM "${name}"`;
 		try {
-			const desc = await ddb.send(new DescribeTableCommand({ TableName: name }));
+			const desc = await ddb().send(new DescribeTableCommand({ TableName: name }));
 			selectedTableDesc = desc.Table ?? null;
 			try {
-				const ttl = await ddb.send(new DescribeTimeToLiveCommand({ TableName: name }));
+				const ttl = await ddb().send(new DescribeTimeToLiveCommand({ TableName: name }));
 				ttlEnabled = ttl.TimeToLiveDescription?.TimeToLiveStatus === 'ENABLED';
 				ttlAttribute = ttl.TimeToLiveDescription?.AttributeName ?? '';
 			} catch {
@@ -433,8 +521,12 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 			streamsEnabled = desc.Table?.StreamSpecification?.StreamEnabled ?? false;
 			streamsViewType = desc.Table?.StreamSpecification?.StreamViewType ?? 'NEW_AND_OLD_IMAGES';
 			streamARN = desc.Table?.LatestStreamArn ?? '';
+			editBillingMode = desc.Table?.BillingModeSummary?.BillingMode ?? 'PAY_PER_REQUEST';
+			editRcu = desc.Table?.ProvisionedThroughput?.ReadCapacityUnits ?? 5;
+			editWcu = desc.Table?.ProvisionedThroughput?.WriteCapacityUnits ?? 5;
 		} catch (err: unknown) {
-			toast.error(`Failed to describe table: ${(err as Error).message}`);
+			openTableError = describeError(err);
+			toast.error(`Failed to describe table: ${openTableError}`);
 		}
 	}
 
@@ -443,51 +535,79 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	}
 
 	// Query
-	async function executeQuery() {
+	// reset=true (the default) starts a fresh search from page 1; reset=false ("Load More")
+	// carries ExclusiveStartKey forward from the previous page's LastEvaluatedKey and appends
+	// the new page's results instead of replacing them. Previously this always sent
+	// `ExclusiveStartKey: queryLastKey` even on a first-ever call (queryLastKey starts out
+	// `null`, not `undefined`), which put a literal `ExclusiveStartKey: null` on the wire.
+	async function executeQuery(reset = true) {
 		if (!selectedTable || !queryPKValue) return;
 		queryLoading = true;
+		if (reset) queryLastKey = null;
 		try {
 			const { pkName, skName, pkType, skType } = currentKeySchema;
 			const kc = buildKeyCondition(pkName, queryPKValue, pkType, skName, querySKOperator, querySKValue, querySKValue2, skType);
+			// FilterExpression placeholders (":val") must be defined in ExpressionAttributeValues
+			// or DynamoDB rejects the request with ValidationException; merge in whatever the
+			// user supplied for the filter alongside the key-condition's own placeholders.
+			const filterValues = queryFilterValues.trim() ? jsonToItem(JSON.parse(queryFilterValues)) : {};
 			const input = {
 				TableName: selectedTable,
 				KeyConditionExpression: kc.expression,
 				ExpressionAttributeNames: kc.names,
-				ExpressionAttributeValues: kc.values,
+				ExpressionAttributeValues: { ...kc.values, ...filterValues },
 				Limit: queryLimit,
 				ScanIndexForward: querySortOrder === 'ASC',
 				...(queryIndexName ? { IndexName: queryIndexName } : {}),
-				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {})
+				...(queryFilterExp ? { FilterExpression: queryFilterExp } : {}),
+				...(queryLastKey ? { ExclusiveStartKey: queryLastKey as Record<string, AttributeValue> } : {})
 			};
-			const res = await ddb.send(new QueryCommand({...input, ExclusiveStartKey: queryLastKey as Record<string, AttributeValue>}));
-queryLastKey = res.LastEvaluatedKey;
-			queryResults = (res.Items ?? []).map((item) => itemToJson(item));
-			queryCount = res.Count ?? 0;
+			const res = await ddb().send(new QueryCommand(input));
+			queryLastKey = res.LastEvaluatedKey;
+			const newItems = (res.Items ?? []).map((item) => itemToJson(item));
+			queryResults = reset ? newItems : [...queryResults, ...newItems];
+			queryCount = reset ? (res.Count ?? 0) : queryCount + (res.Count ?? 0);
 		} catch (err: unknown) {
-			toast.error(`Query failed: ${(err as Error).message}`);
+			toast.error(`Query failed: ${describeError(err)}`);
 		} finally {
 			queryLoading = false;
 		}
 	}
 
 	// Scan
-	async function executeScan() {
+	// Takes the table name rather than reading selectedTable, so the caller's
+	// null guard still narrows it -- reading the nullable state here would
+	// widen TableName to string | null, which ScanCommandInput rejects.
+	function buildScanInput(tableName: string): ScanCommandInput {
+		const filterValues = scanFilterValues.trim() ? jsonToItem(JSON.parse(scanFilterValues)) : undefined;
+		return {
+			TableName: tableName,
+			Limit: scanLimit,
+			...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
+			...(filterValues ? { ExpressionAttributeValues: filterValues } : {}),
+			...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {}),
+			...(scanLastKey ? { ExclusiveStartKey: scanLastKey as Record<string, AttributeValue> } : {})
+		};
+	}
+
+	function applyScanResults(res: ScanCommandOutput, reset: boolean): void {
+		scanLastKey = res.LastEvaluatedKey;
+		const newItems = (res.Items ?? []).map((item) => itemToJson(item));
+		scanResults = reset ? newItems : [...scanResults, ...newItems];
+		scanCount = reset ? (res.Count ?? 0) : scanCount + (res.Count ?? 0);
+		scanScannedCount = reset ? (res.ScannedCount ?? 0) : scanScannedCount + (res.ScannedCount ?? 0);
+	}
+
+	async function executeScan(reset = true) {
 		if (!selectedTable) return;
 		scanLoading = true;
+		if (reset) scanLastKey = null;
 		try {
-			const input = {
-				TableName: selectedTable,
-				Limit: scanLimit,
-				...(scanFilterExp ? { FilterExpression: scanFilterExp } : {}),
-				...(scanProjectionExp ? { ProjectionExpression: scanProjectionExp } : {})
-			};
-			const res = await ddb.send(new ScanCommand({...input, ExclusiveStartKey: scanLastKey as Record<string, AttributeValue>}));
-scanLastKey = res.LastEvaluatedKey;
-			scanResults = (res.Items ?? []).map((item) => itemToJson(item));
-			scanCount = res.Count ?? 0;
-			scanScannedCount = res.ScannedCount ?? 0;
+			const input = buildScanInput(selectedTable);
+			const res = await ddb().send(new ScanCommand(input));
+			applyScanResults(res, reset);
 		} catch (err: unknown) {
-			toast.error(`Scan failed: ${(err as Error).message}`);
+			toast.error(`Scan failed: ${describeError(err)}`);
 		} finally {
 			scanLoading = false;
 		}
@@ -503,7 +623,7 @@ scanLastKey = res.LastEvaluatedKey;
 			itemsSelectedKeys = new Set();
 		}
 		try {
-			const res = await ddb.send(new ScanCommand({
+			const res = await ddb().send(new ScanCommand({
 				TableName: selectedTable,
 				Limit: 25,
 				...(itemsLastKey && !reset ? { ExclusiveStartKey: itemsLastKey } : {})
@@ -512,7 +632,7 @@ scanLastKey = res.LastEvaluatedKey;
 			itemsResults = reset ? newItems : [...itemsResults, ...newItems];
 			itemsLastKey = res.LastEvaluatedKey ?? null;
 		} catch (err: unknown) {
-			toast.error(`Failed to load items: ${(err as Error).message}`);
+			toast.error(`Failed to load items: ${describeError(err)}`);
 		} finally {
 			itemsLoading = false;
 		}
@@ -544,13 +664,13 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		if (!await confirmDestructive({ title: 'Delete Item', message: 'Delete this item? This cannot be undone.', confirmLabel: 'Delete Item' })) return;
 		try {
-			await ddb.send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
+			await ddb().send(new DeleteItemCommand({ TableName: selectedTable, Key: buildItemKey(item) }));
 			toast.success('Item deleted');
 			if (activeTab === 'items') await loadItems(true);
 			else if (activeTab === 'scan') await executeScan();
 			else if (activeTab === 'query') await executeQuery();
 		} catch (err: unknown) {
-			toast.error(`Delete failed: ${(err as Error).message}`);
+			toast.error(`Delete failed: ${describeError(err)}`);
 		}
 	}
 
@@ -572,7 +692,7 @@ scanLastKey = res.LastEvaluatedKey;
 			for (let i = 0; i < targets.length; i += 25) {
 				const chunk = targets.slice(i, i + 25);
 				const requests = chunk.map((it) => ({ DeleteRequest: { Key: buildItemKey(it) } }));
-				const out = await ddb.send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
+				const out = await ddb().send(new BatchWriteItemCommand({ RequestItems: { [tableName]: requests } }));
 				const unprocessed = out.UnprocessedItems?.[tableName]?.length ?? 0;
 				deleted += chunk.length - unprocessed;
 			}
@@ -582,7 +702,7 @@ scanLastKey = res.LastEvaluatedKey;
 			else if (activeTab === 'scan') await executeScan();
 			else if (activeTab === 'query') await executeQuery();
 		} catch (err: unknown) {
-			toast.error(`Batch delete failed: ${(err as Error).message}`);
+			toast.error(`Batch delete failed: ${describeError(err)}`);
 		}
 	}
 
@@ -591,10 +711,10 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		backupsLoading = true;
 		try {
-			const res = await ddb.send(new ListBackupsCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new ListBackupsCommand({ TableName: selectedTable }));
 			backups = res.BackupSummaries ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load backups: ${(err as Error).message}`);
+			toast.error(`Failed to load backups: ${describeError(err)}`);
 		} finally {
 			backupsLoading = false;
 		}
@@ -605,10 +725,10 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!arn) return;
 		tagsLoading = true;
 		try {
-			const res = await ddb.send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
+			const res = await ddb().send(new ListTagsOfResourceCommand({ ResourceArn: arn }));
 			tags = res.Tags ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load tags: ${(err as Error).message}`);
+			toast.error(`Failed to load tags: ${describeError(err)}`);
 		} finally {
 			tagsLoading = false;
 		}
@@ -618,13 +738,13 @@ scanLastKey = res.LastEvaluatedKey;
 		const arn = selectedTableDesc?.TableArn;
 		if (!arn || !newTagKey) return;
 		try {
-			await ddb.send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
+			await ddb().send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: newTagKey, Value: newTagValue }] }));
 			newTagKey = '';
 			newTagValue = '';
 			toast.success('Tag added');
 			await loadTags();
 		} catch (err: unknown) {
-			toast.error(`Failed to add tag: ${(err as Error).message}`);
+			toast.error(`Failed to add tag: ${describeError(err)}`);
 		}
 	}
 
@@ -632,34 +752,34 @@ scanLastKey = res.LastEvaluatedKey;
 		const arn = selectedTableDesc?.TableArn;
 		if (!arn) return;
 		try {
-			await ddb.send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
+			await ddb().send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
 			toast.success('Tag removed');
 			await loadTags();
 		} catch (err: unknown) {
-			toast.error(`Failed to remove tag: ${(err as Error).message}`);
+			toast.error(`Failed to remove tag: ${describeError(err)}`);
 		}
 	}
 
 	async function createBackup(): Promise<void> {
 		if (!selectedTable || !newBackupName.trim()) return;
 		try {
-			await ddb.send(new CreateBackupCommand({ TableName: selectedTable, BackupName: newBackupName.trim() }));
+			await ddb().send(new CreateBackupCommand({ TableName: selectedTable, BackupName: newBackupName.trim() }));
 			toast.success(`Backup "${newBackupName.trim()}" created`);
 			newBackupName = '';
 			await loadBackups();
 		} catch (err: unknown) {
-			toast.error(`Create backup failed: ${(err as Error).message}`);
+			toast.error(`Create backup failed: ${describeError(err)}`);
 		}
 	}
 
 	async function deleteBackup(arn: string): Promise<void> {
 		if (!await confirmDestructive({ title: 'Delete Backup', message: 'Delete this backup? This cannot be undone.' })) return;
 		try {
-			await ddb.send(new DeleteBackupCommand({ BackupArn: arn }));
+			await ddb().send(new DeleteBackupCommand({ BackupArn: arn }));
 			toast.success('Backup deleted');
 			await loadBackups();
 		} catch (err: unknown) {
-			toast.error(`Delete backup failed: ${(err as Error).message}`);
+			toast.error(`Delete backup failed: ${describeError(err)}`);
 		}
 	}
 
@@ -668,7 +788,7 @@ scanLastKey = res.LastEvaluatedKey;
 		if (!selectedTable) return;
 		pitrLoading = true;
 		try {
-			const res = await ddb.send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
 			const pitr = res.ContinuousBackupsDescription?.PointInTimeRecoveryDescription;
 			pitrStatus = (pitr?.PointInTimeRecoveryStatus as 'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING') ?? 'DISABLED';
 			pitrEarliestRestoreDate = pitr?.EarliestRestorableDateTime ?? null;
@@ -684,26 +804,26 @@ scanLastKey = res.LastEvaluatedKey;
   const name = prompt("New Table Name:");
   if (!name || !selectedTable) return;
   try {
-    await ddb.send(new RestoreTableToPointInTimeCommand({
+    await ddb().send(new RestoreTableToPointInTimeCommand({
       SourceTableName: selectedTable,
       TargetTableName: name,
       UseLatestRestorableTime: true
     }));
     toast.success("Restoring table...");
-  } catch (e) { toast.error(String(e)); }
+  } catch (e) { toast.error(describeError(e)); }
 }
 async function togglePitr(): Promise<void> {
 		if (!selectedTable) return;
 		const enable = pitrStatus !== 'ENABLED';
 		try {
-			await ddb.send(new UpdateContinuousBackupsCommand({
+			await ddb().send(new UpdateContinuousBackupsCommand({
 				TableName: selectedTable,
 				PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: enable }
 			}));
 			toast.success(`PITR ${enable ? 'enabled' : 'disabled'}`);
 			await loadPitr();
 		} catch (err: unknown) {
-			toast.error(`PITR update failed: ${(err as Error).message}`);
+			toast.error(`PITR update failed: ${describeError(err)}`);
 		}
 	}
 
@@ -712,7 +832,7 @@ async function togglePitr(): Promise<void> {
 		if (!selectedTable) return;
 		replicasLoading = true;
 		try {
-			const res = await ddb.send(new DescribeTableReplicaAutoScalingCommand({ TableName: selectedTable }));
+			const res = await ddb().send(new DescribeTableReplicaAutoScalingCommand({ TableName: selectedTable }));
 			tableReplicas = (res.TableAutoScalingDescription?.Replicas ?? []).map(r => ({
 				RegionName: r.RegionName,
 				ReplicaStatus: r.ReplicaStatus as string
@@ -731,7 +851,7 @@ async function togglePitr(): Promise<void> {
 	async function addReplica(): Promise<void> {
 		if (!selectedTable || !newReplicaRegion.trim()) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				ReplicaUpdates: [{ Create: { RegionName: newReplicaRegion.trim() } }]
 			}));
@@ -739,21 +859,21 @@ async function togglePitr(): Promise<void> {
 			newReplicaRegion = '';
 			await loadReplicas();
 		} catch (err: unknown) {
-			toast.error(`Add replica failed: ${(err as Error).message}`);
+			toast.error(`Add replica failed: ${describeError(err)}`);
 		}
 	}
 
 	async function removeReplica(region: string): Promise<void> {
 		if (!selectedTable || !await confirmDestructive({ title: 'Remove Replica', message: `Remove replica in ${region}? This deletes the table copy in that region.`, confirmLabel: 'Remove' })) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				ReplicaUpdates: [{ Delete: { RegionName: region } }]
 			}));
 			toast.success(`Replica in ${region} is being removed`);
 			await loadReplicas();
 		} catch (err: unknown) {
-			toast.error(`Remove replica failed: ${(err as Error).message}`);
+			toast.error(`Remove replica failed: ${describeError(err)}`);
 		}
 	}
 
@@ -766,7 +886,7 @@ async function togglePitr(): Promise<void> {
 		try {
 			const now = Math.floor(Date.now() / 1000);
 			const oneHourFromNow = now + 3600;
-			const res = await ddb.send(new ScanCommand({
+			const res = await ddb().send(new ScanCommand({
 				TableName: selectedTable,
 				FilterExpression: '#ttlAttr BETWEEN :now AND :plus1h',
 				ExpressionAttributeNames: { '#ttlAttr': ttlAttribute },
@@ -775,7 +895,7 @@ async function togglePitr(): Promise<void> {
 			const count = res.Count ?? 0;
 			toast.success(`${count} item${count === 1 ? '' : 's'} will expire in the next hour`);
 		} catch (err: unknown) {
-			toast.error(`TTL test failed: ${(err as Error).message}`);
+			toast.error(`TTL test failed: ${describeError(err)}`);
 		}
 	}
 
@@ -787,12 +907,12 @@ async function togglePitr(): Promise<void> {
 		partiqlDuration = 0;
 		const t0 = Date.now();
 		try {
-			const res = await ddb.send(new ExecuteStatementCommand({ Statement: partiqlStatement }));
+			const res = await ddb().send(new ExecuteStatementCommand({ Statement: partiqlStatement }));
 			partiqlDuration = Date.now() - t0;
 			partiqlResults = (res.Items ?? []).map((item) => itemToJson(item));
 			partiqlCount = res.Items?.length ?? 0;
 		} catch (err: unknown) {
-			toast.error(`PartiQL failed: ${(err as Error).message}`);
+			toast.error(`PartiQL failed: ${describeError(err)}`);
 		} finally {
 			partiqlLoading = false;
 		}
@@ -803,18 +923,18 @@ async function togglePitr(): Promise<void> {
 async function loadNativeStreams() {
   if (!streamARN) return;
   try {
-    const desc = await ddbStreams.send(new DescribeStreamCommand({StreamArn: streamARN}));
+    const desc = await ddbStreams().send(new DescribeStreamCommand({StreamArn: streamARN}));
     if (!desc.StreamDescription?.Shards) return;
     let recordsHtml = '';
     for (const shard of desc.StreamDescription.Shards) {
       if (!shard.ShardId) continue;
-      const it = await ddbStreams.send(new GetShardIteratorCommand({
+      const it = await ddbStreams().send(new GetShardIteratorCommand({
         StreamArn: streamARN,
         ShardId: shard.ShardId,
         ShardIteratorType: "TRIM_HORIZON"
       }));
       if (!it.ShardIterator) continue;
-      const recs = await ddbStreams.send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
+      const recs = await ddbStreams().send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
       if (recs.Records) {
          for (const r of recs.Records) {
            recordsHtml += `<div>Native Stream Record: ${r.eventName} ${JSON.stringify(r.dynamodb)}</div>`;
@@ -896,13 +1016,19 @@ async function loadStreamEvents() {
 		if (!selectedTable || !newItemJson.trim()) return;
 		try {
 			const json = JSON.parse(newItemJson);
-			await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
+			await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
 			toast.success('Item created');
 			showNewItemModal = false;
 			newItemJson = '';
+			// Refresh whichever view is currently on screen -- previously this only refreshed
+			// on the Scan tab, so creating an item while browsing the Items tab (the primary
+			// items browser, with selection + batch delete) silently left the new item missing
+			// until the user clicked Reload by hand.
 			if (activeTab === 'scan') await executeScan();
+			else if (activeTab === 'items') await loadItems(true);
+			else if (activeTab === 'query') await executeQuery();
 		} catch (err: unknown) {
-			toast.error(`Failed: ${(err as Error).message}`);
+			toast.error(`Failed: ${describeError(err)}`);
 		}
 	}
 
@@ -912,14 +1038,16 @@ async function loadStreamEvents() {
 			const items: unknown[] = JSON.parse(importJson);
 			if (!Array.isArray(items)) throw new Error('Expected a JSON array');
 			for (const item of items) {
-				await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
+				await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(item as Record<string, unknown>) }));
 			}
 			toast.success(`${items.length} items imported`);
 			showImportModal = false;
 			importJson = '';
 			if (activeTab === 'scan') await executeScan();
+			else if (activeTab === 'items') await loadItems(true);
+			else if (activeTab === 'query') await executeQuery();
 		} catch (err: unknown) {
-			toast.error(`Import failed: ${(err as Error).message}`);
+			toast.error(`Import failed: ${describeError(err)}`);
 		}
 	}
 
@@ -927,7 +1055,7 @@ async function loadStreamEvents() {
 		if (!selectedTable || !editItemJson.trim()) return;
 		try {
 			const json = JSON.parse(editItemJson);
-			await ddb.send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
+			await ddb().send(new PutItemCommand({ TableName: selectedTable, Item: jsonToItem(json) }));
 			toast.success('Item updated');
 			showEditModal = false;
 			editItemJson = '';
@@ -935,7 +1063,7 @@ async function loadStreamEvents() {
 			else if (activeTab === 'query') await executeQuery();
 			else if (activeTab === 'items') await loadItems(true);
 		} catch (err: unknown) {
-			toast.error(`Failed: ${(err as Error).message}`);
+			toast.error(`Failed: ${describeError(err)}`);
 		}
 	}
 
@@ -945,8 +1073,8 @@ async function loadStreamEvents() {
 	}
 
 	
-function nextQueryPage() { if (queryLastKey) executeQuery(); }
-function nextScanPage() { if (scanLastKey) executeScan(); }
+function nextQueryPage() { if (queryLastKey) executeQuery(false); }
+function nextScanPage() { if (scanLastKey) executeScan(false); }
 function setPartiqlExample(query: string) {
 		partiqlStatement = query;
 	}
@@ -955,13 +1083,13 @@ function setPartiqlExample(query: string) {
 	async function updateTTL() {
 		if (!selectedTable || !ttlAttribute.trim()) return;
 		try {
-			await ddb.send(new UpdateTimeToLiveCommand({
+			await ddb().send(new UpdateTimeToLiveCommand({
 				TableName: selectedTable,
 				TimeToLiveSpecification: { Enabled: ttlEnabled, AttributeName: ttlAttribute.trim() }
 			}));
 			toast.success(`TTL ${ttlEnabled ? 'enabled successfully' : 'disabled successfully'}`);
 		} catch (err: unknown) {
-			toast.error(`TTL update failed: ${(err as Error).message}`);
+			toast.error(`TTL update failed: ${describeError(err)}`);
 		}
 	}
 
@@ -970,27 +1098,27 @@ function setPartiqlExample(query: string) {
 		try {
 			const spec: StreamSpecification = { StreamEnabled: streamsEnabled };
 			if (streamsEnabled) spec.StreamViewType = streamsViewType as StreamViewType;
-			await ddb.send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec }));
+			await ddb().send(new UpdateTableCommand({ TableName: selectedTable, StreamSpecification: spec }));
 			toast.success(`Streams ${streamsEnabled ? 'enabled successfully' : 'disabled successfully'}`);
-			const desc = await ddb.send(new DescribeTableCommand({ TableName: selectedTable }));
+			const desc = await ddb().send(new DescribeTableCommand({ TableName: selectedTable }));
 			selectedTableDesc = desc.Table ?? null;
 			streamARN = desc.Table?.LatestStreamArn ?? '';
 		} catch (err: unknown) {
-			toast.error(`Streams update failed: ${(err as Error).message}`);
+			toast.error(`Streams update failed: ${describeError(err)}`);
 		}
 	}
 
 	async function updateDeletionProtection(enabled: boolean): Promise<void> {
 		if (!selectedTable) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				DeletionProtectionEnabled: enabled,
 			}));
 			toast.success(`Deletion protection ${enabled ? 'enabled' : 'disabled'}`);
 			await refreshTable();
 		} catch (err: unknown) {
-			toast.error(`Deletion protection update failed: ${(err as Error).message}`);
+			toast.error(`Deletion protection update failed: ${describeError(err)}`);
 		}
 	}
 
@@ -1032,14 +1160,14 @@ function setPartiqlExample(query: string) {
 		if (!selectedTable) return;
 		if (!await confirmDestructive({ title: 'Delete Global Secondary Index', message: `Delete GSI "${indexName}"? This cannot be undone and will impact existing queries.` })) return;
 		try {
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				GlobalSecondaryIndexUpdates: [{ Delete: { IndexName: indexName } }]
 			}));
 			toast.success(`GSI "${indexName}" deletion initiated`);
 			await refreshTable();
 		} catch (err: unknown) {
-			toast.error(`Delete GSI failed: ${(err as Error).message}`);
+			toast.error(`Delete GSI failed: ${describeError(err)}`);
 		}
 	}
 
@@ -1056,7 +1184,7 @@ function setPartiqlExample(query: string) {
 			const projection = gsiProjection === 'INCLUDE'
 				? { ProjectionType: gsiProjection as 'INCLUDE', NonKeyAttributes: gsiNonKeyAttrs.split(',').map(s => s.trim()).filter(Boolean) }
 				: { ProjectionType: gsiProjection as 'ALL' | 'KEYS_ONLY' };
-			await ddb.send(new UpdateTableCommand({
+			await ddb().send(new UpdateTableCommand({
 				TableName: selectedTable,
 				AttributeDefinitions: attrDefs,
 				GlobalSecondaryIndexUpdates: [{
@@ -1069,40 +1197,13 @@ function setPartiqlExample(query: string) {
 			gsiProjection = 'ALL'; gsiNonKeyAttrs = '';
 			await refreshTable();
 		} catch (err: unknown) {
-			toast.error(`Create GSI failed: ${(err as Error).message}`);
+			toast.error(`Create GSI failed: ${describeError(err)}`);
 		} finally {
 			creatingGsi = false;
 		}
 	}
 
-	onMount(() => {
-		currentRegion = getStoredRegion();
-		loadTables();
-
-		function refreshRegionClient(region: string | null | undefined): void {
-			if (!region || region === currentRegion) return;
-			currentRegion = region;
-			ddb = newDynamoDBClient(region);
-			void loadTables();
-		}
-
-		const handleStorage = (e: StorageEvent) => {
-			if (e.key === 'gopherstack_region') refreshRegionClient(e.newValue);
-		};
-		const handleRegionChange = (e: Event) => {
-			const region = e instanceof CustomEvent && typeof e.detail === 'string'
-				? e.detail
-				: getStoredRegion();
-			refreshRegionClient(region);
-		};
-
-		window.addEventListener('storage', handleStorage);
-		window.addEventListener('gopherstack:region-change', handleRegionChange);
-		return () => {
-			window.removeEventListener('storage', handleStorage);
-			window.removeEventListener('gopherstack:region-change', handleRegionChange);
-		};
-	});
+	onRegionChange(loadTables);
 	onDestroy(() => { stopStreamPolling(); });
 
 	$effect(() => {
@@ -1192,16 +1293,25 @@ function setPartiqlExample(query: string) {
 			<div class="flex gap-2 flex-wrap">
 				<button onclick={() => { showNewItemModal = true; }} class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">New Item</button>
 				<button onclick={() => { showImportModal = true; }} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Import JSON</button>
-				<a href="/dashboard/dynamodb/table/{selectedTable}/export" target="_blank" class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Export JSON</a>
+				<button onclick={exportAllTableItems} disabled={exportingTable} class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">{exportingTable ? 'Exporting...' : 'Export JSON'}</button>
+				<button onclick={nativeExport} title="Export this table to an S3 bucket via ExportTableToPointInTime" class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Export to S3</button>
+				<button onclick={nativeImport} title="Import a table from an S3 bucket via ImportTable" class="py-2 px-4 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 hover:text-blue-700 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-600 dark:hover:text-white dark:hover:bg-slate-700">Import from S3</button>
 				<button onclick={() => deleteTable(selectedTable!)} class="text-white bg-red-700 hover:bg-red-800 focus:ring-4 focus:ring-red-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-red-600 dark:hover:bg-red-700 dark:focus:ring-red-900">Delete Table</button>
 			</div>
 		</div>
+
+		{#if openTableError}
+			<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+				<p class="font-medium">Failed to load table details</p>
+				<p>{openTableError}</p>
+			</div>
+		{/if}
 
 		<div class="mb-4 border-b border-slate-200 dark:border-slate-700">
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
 				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
-						<button onclick={() => { activeTab = id; }}
+						<button onclick={() => { activeTabParam.set(id); }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
 							{label}
 						</button>
@@ -1383,6 +1493,32 @@ function setPartiqlExample(query: string) {
 					{/if}
 				</div>
 				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<h2 class="mb-4 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">Capacity Mode</h2>
+					<form onsubmit={(e) => { e.preventDefault(); updateCapacity(); }} class="space-y-3">
+						<div class="flex gap-6">
+							<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+								<input type="radio" bind:group={editBillingMode} value="PAY_PER_REQUEST" class="w-4 h-4 text-blue-600" /> On-Demand
+							</label>
+							<label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300 cursor-pointer">
+								<input type="radio" bind:group={editBillingMode} value="PROVISIONED" class="w-4 h-4 text-blue-600" /> Provisioned
+							</label>
+						</div>
+						{#if editBillingMode === 'PROVISIONED'}
+							<div class="flex gap-4">
+								<div class="flex-1">
+									<label for="edit-rcu" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">Read Capacity Units</label>
+									<input type="number" id="edit-rcu" bind:value={editRcu} min="1" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+								</div>
+								<div class="flex-1">
+									<label for="edit-wcu" class="block mb-2 text-xs font-medium text-slate-900 dark:text-white">Write Capacity Units</label>
+									<input type="number" id="edit-wcu" bind:value={editWcu} min="1" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
+								</div>
+							</div>
+						{/if}
+						<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 focus:outline-none dark:focus:ring-blue-800">Update Capacity</button>
+					</form>
+				</div>
+				<div class="p-6 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 					<h2 class="mb-3 text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">Deletion Protection</h2>
 					<p class="text-xs text-slate-500 dark:text-slate-400 mb-3">When enabled, DeleteTable will be rejected with ValidationException.</p>
 					<div class="flex items-center gap-3">
@@ -1509,8 +1645,14 @@ function setPartiqlExample(query: string) {
 					{/if}
 					<div>
 						<label for="q-filter" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Expression (Optional)</label>
-						<textarea id="q-filter" bind:value={queryFilterExp} rows="2" placeholder="attribute_exists(email)" class="block p-2.5 w-full text-sm text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white"></textarea>
+						<textarea id="q-filter" bind:value={queryFilterExp} rows="2" placeholder="attribute_exists(email) or age > :minAge" class="block p-2.5 w-full text-sm text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white"></textarea>
 					</div>
+					{#if queryFilterExp.includes(':')}
+						<div>
+							<label for="q-filter-values" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Expression Values (JSON, for any <code>:placeholder</code> above)</label>
+							<textarea id="q-filter-values" bind:value={queryFilterValues} rows="2" placeholder={'{":minAge": 18}'} class="block p-2.5 w-full text-sm font-mono text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white"></textarea>
+						</div>
+					{/if}
 					<div>
 						<label for="q-limit" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Limit</label>
 						<input type="number" id="q-limit" bind:value={queryLimit} min="1" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white" />
@@ -1534,12 +1676,17 @@ function setPartiqlExample(query: string) {
 					<div class="flex items-center justify-between">
 						<p class="text-sm text-slate-600 dark:text-slate-400">Showing {queryResults.length} of {queryCount} result{queryCount !== 1 ? 's' : ''}</p>
 						<div class="flex gap-2">
-							<button onclick={() => { queryResults = []; queryCount = 0; }} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Clear</button>
+							<button onclick={() => { queryResults = []; queryCount = 0; queryLastKey = null; }} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Clear</button>
 							<button onclick={() => exportJson(queryResults, `${selectedTable ?? 'query'}-results.json`)} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Export JSON</button>
 						</div>
 					</div>
 				{/if}
 				{@render resultsTable(queryResults)}
+				{#if queryLastKey}
+					<button onclick={nextQueryPage} disabled={queryLoading} class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:opacity-50">
+						{queryLoading ? 'Loading...' : 'Load More'}
+					</button>
+				{/if}
 			</div>
 		{:else if activeTab === 'scan'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
@@ -1552,6 +1699,12 @@ function setPartiqlExample(query: string) {
 						<label for="s-filter" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Expression (Optional)</label>
 						<textarea id="s-filter" bind:value={scanFilterExp} rows="2" placeholder="age > :minAge" class="block p-2.5 w-full text-sm text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white"></textarea>
 					</div>
+					{#if scanFilterExp.includes(':')}
+						<div>
+							<label for="s-filter-values" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Filter Expression Values (JSON, for any <code>:placeholder</code> above)</label>
+							<textarea id="s-filter-values" bind:value={scanFilterValues} rows="2" placeholder={'{":minAge": 18}'} class="block p-2.5 w-full text-sm font-mono text-slate-900 bg-slate-50 rounded-lg border border-slate-300 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white"></textarea>
+						</div>
+					{/if}
 					<div>
 						<label for="s-proj" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Projection Expression (Optional)</label>
 						<input type="text" id="s-proj" bind:value={scanProjectionExp} placeholder="id, name, email" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
@@ -1568,12 +1721,17 @@ function setPartiqlExample(query: string) {
 					<div class="flex items-center justify-between">
 						<p class="text-sm text-slate-600 dark:text-slate-400">{scanCount} matched / {scanScannedCount} scanned</p>
 						<div class="flex gap-2">
-							<button onclick={() => { scanResults = []; scanCount = 0; scanScannedCount = 0; }} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Clear</button>
+							<button onclick={() => { scanResults = []; scanCount = 0; scanScannedCount = 0; scanLastKey = null; }} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Clear</button>
 							<button onclick={() => exportJson(scanResults, `${selectedTable ?? 'scan'}-results.json`)} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Export JSON</button>
 						</div>
 					</div>
 				{/if}
 				{@render resultsTable(scanResults)}
+				{#if scanLastKey}
+					<button onclick={nextScanPage} disabled={scanLoading} class="text-white bg-blue-700 hover:bg-blue-800 font-medium rounded-lg text-sm px-4 py-2 dark:bg-blue-600 dark:hover:bg-blue-700 disabled:opacity-50">
+						{scanLoading ? 'Loading...' : 'Load More'}
+					</button>
+				{/if}
 			</div>
 		{:else if activeTab === 'items'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-4">
@@ -1598,6 +1756,17 @@ function setPartiqlExample(query: string) {
 				<div>
 					<input type="text" bind:value={filterItems} placeholder="Filter items..." class="block w-full p-2.5 text-sm text-slate-900 border border-slate-300 rounded-lg bg-white focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
 				</div>
+				<details class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+					<summary class="text-sm font-medium text-slate-700 dark:text-slate-300 cursor-pointer select-none">Batch Get by Keys</summary>
+					<div class="mt-3 space-y-2">
+						<label for="batch-get-keys" class="block text-xs font-medium text-slate-600 dark:text-slate-400">Keys (JSON array of plain key objects)</label>
+						<textarea id="batch-get-keys" bind:value={batchGetKeys} rows="2" placeholder={'[{"id": "1"}, {"id": "2"}]'} class="block p-2 w-full text-xs font-mono text-slate-900 bg-slate-50 rounded-lg border border-slate-300 dark:bg-slate-700 dark:border-slate-600 dark:text-white"></textarea>
+						<button type="button" onclick={execBatchGet} class="py-1.5 px-4 text-xs font-medium text-white bg-slate-700 hover:bg-slate-800 rounded-lg dark:bg-slate-600 dark:hover:bg-slate-500">Run BatchGetItem</button>
+						{#if batchGetResultsJson}
+							<pre class="text-xs font-mono bg-slate-100 dark:bg-slate-800 rounded-lg p-2 overflow-x-auto max-h-48 overflow-y-auto">{batchGetResultsJson}</pre>
+						{/if}
+					</div>
+				</details>
 				{#if itemsLoading && itemsResults.length === 0}
 					<div class="flex justify-center p-8">
 						<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
@@ -1766,7 +1935,7 @@ function setPartiqlExample(query: string) {
 				{#if !streamsEnabled}
 					<div class="p-6 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-xl">
 						<p class="text-sm text-blue-800 dark:text-blue-300 mb-3">DynamoDB Streams are not enabled for this table.</p>
-						<button onclick={() => { activeTab = 'overview'; }} class="text-sm text-blue-600 dark:text-blue-400 underline hover:no-underline">Enable streams in the Overview tab →</button>
+						<button onclick={() => { activeTabParam.set('overview'); }} class="text-sm text-blue-600 dark:text-blue-400 underline hover:no-underline">Enable streams in the Overview tab →</button>
 					</div>
 				{:else if streamBackendUnavailable}
 					<div class="p-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
@@ -2038,8 +2207,35 @@ function setPartiqlExample(query: string) {
 						</table>
 					</div>
 				{/if}
+				<details class="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+					<summary class="text-sm font-semibold text-slate-900 dark:text-white cursor-pointer select-none">S3 Exports &amp; Imports (ExportTableToPointInTime / ImportTable)</summary>
+					<div class="mt-3 space-y-3">
+						<button type="button" onclick={() => loadExportsImports()} disabled={s3ExportsImportsLoading} class="py-1.5 px-3 text-xs font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 disabled:opacity-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">
+							{s3ExportsImportsLoading ? 'Loading...' : 'Load S3 Exports & Imports'}
+						</button>
+						{#if s3Exports.length > 0}
+							<div>
+								<h4 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Exports</h4>
+								<ul class="text-xs font-mono space-y-1">
+									{#each s3Exports as exp (exp.ExportArn)}
+										<li class="truncate"><span class="text-slate-500">{exp.ExportStatus ?? '-'}</span> — {exp.ExportArn}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if s3Imports.length > 0}
+							<div>
+								<h4 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Imports</h4>
+								<ul class="text-xs font-mono space-y-1">
+									{#each s3Imports as imp (imp.ImportArn)}
+										<li class="truncate"><span class="text-slate-500">{imp.ImportStatus ?? '-'}</span> — {imp.ImportArn}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+					</div>
+				</details>
 			</div>
-		{/if}
 		{:else if activeTab === 'pitr'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">
 				<div class="flex items-center justify-between">
@@ -2161,16 +2357,18 @@ function setPartiqlExample(query: string) {
 					</div>
 				{/if}
 			</div>
+		{/if}
 	{:else}
 		<div class="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md p-6 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
 			<div>
 				<h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
 					<img src="/dashboard/static/icons/dynamodb.svg" class="w-8 h-8 rounded-md shadow-sm" alt="dynamodb" />
 					DynamoDB Tables
+					<LiveDot service="dynamodb" />
 				</h1>
 				<p class="mt-2 text-sm text-slate-600 dark:text-slate-400 flex items-center gap-2">
 					Manage your DynamoDB tables.
-					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{currentRegion}</span>
+					<span class="text-xs bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-300 px-2 py-0.5 rounded-full font-medium">{currentRegion()}</span>
 				</p>
 			</div>
 			<div class="flex gap-2">
@@ -2185,13 +2383,13 @@ function setPartiqlExample(query: string) {
 					<div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
 						<svg class="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 20 20"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m19 19-4-4m0-7A7 7 0 1 1 1 8a7 7 0 0 1 14 0Z" /></svg>
 					</div>
-					<input type="text" id="table-search" placeholder="Search tables..." bind:value={searchQuery} class="block w-full p-2.5 ps-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
+					<input type="text" id="table-search" placeholder="Search tables..." value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} class="block w-full p-2.5 ps-10 text-sm text-slate-900 border border-slate-300 rounded-lg bg-slate-50 focus:ring-blue-500 focus:border-blue-500 dark:bg-slate-700 dark:border-slate-600 dark:placeholder-slate-400 dark:text-white" />
 				</div>
 			</div>
 			<div class="flex items-end gap-2">
 				<div>
 					<label for="table-sort" class="block mb-2 text-sm font-medium text-slate-900 dark:text-white">Sort</label>
-					<select id="table-sort" bind:value={tableSortOrder} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
+					<select id="table-sort" value={tableSortOrder} onchange={(e) => tableSortOrderParam.set(e.currentTarget.value as 'alpha' | 'itemCount')} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 dark:bg-slate-700 dark:border-slate-600 dark:text-white">
 						<option value="alpha">A → Z</option>
 						<option value="itemCount">Item Count ↓</option>
 					</select>
@@ -2202,6 +2400,12 @@ function setPartiqlExample(query: string) {
 				</button>
 			</div>
 		</div>
+		{#if loadTablesError}
+			<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+				<p class="font-medium">Failed to load tables</p>
+				<p>{loadTablesError}</p>
+			</div>
+		{/if}
 		{#if loading}
 			<div class="flex items-center justify-center p-8">
 				<svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor" /><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill" /></svg>
@@ -2386,6 +2590,25 @@ function setPartiqlExample(query: string) {
 							<button type="submit" class="text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-5 py-2.5 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Save Item</button>
 						</div>
 					</form>
+					<details class="mt-2 border-t dark:border-slate-600 pt-3">
+						<summary class="text-xs font-medium text-slate-500 dark:text-slate-400 cursor-pointer select-none">Advanced: partial update via UpdateExpression</summary>
+						<div class="space-y-3 mt-3">
+							<p class="text-xs text-slate-500 dark:text-slate-400">The Item JSON above supplies the key attributes only; other fields are left untouched by the expression below.</p>
+							<div>
+								<label for="update-exp" class="block mb-1 text-xs font-medium text-slate-900 dark:text-white">Update Expression</label>
+								<input type="text" id="update-exp" bind:value={updateExp} placeholder="SET score = :v" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-600 dark:border-slate-500 dark:text-white font-mono" />
+							</div>
+							<div>
+								<label for="update-cond" class="block mb-1 text-xs font-medium text-slate-900 dark:text-white">Condition Expression (optional)</label>
+								<input type="text" id="update-cond" bind:value={updateCond} placeholder="attribute_exists(score)" class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-600 dark:border-slate-500 dark:text-white font-mono" />
+							</div>
+							<div>
+								<label for="update-exp-values" class="block mb-1 text-xs font-medium text-slate-900 dark:text-white">Expression Attribute Values (JSON, for any <code>:placeholder</code> above)</label>
+								<input type="text" id="update-exp-values" bind:value={updateExpValues} placeholder={'{":v": 42}'} class="bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 dark:bg-slate-600 dark:border-slate-500 dark:text-white font-mono" />
+							</div>
+							<button type="button" onclick={execUpdateItem} class="text-white bg-slate-700 hover:bg-slate-800 font-medium rounded-lg text-xs px-4 py-2 dark:bg-slate-600 dark:hover:bg-slate-500">Apply Expression Update</button>
+						</div>
+					</details>
 				</div>
 			</div>
 		</div>

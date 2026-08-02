@@ -79,6 +79,45 @@ func TestBuild(t *testing.T) {
 	}
 }
 
+func TestBuildGlobal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		service   string
+		region    string
+		accountID string
+		resource  string
+		want      string
+	}{
+		{
+			name:      "directconnect gateway",
+			service:   "directconnect",
+			region:    "us-east-1",
+			accountID: "123456789012",
+			resource:  "dx-gateway/11460e6f-c1bc-40a7-b8f9-06f4e6a9d1e1",
+			want:      "arn:aws:directconnect::123456789012:dx-gateway/11460e6f-c1bc-40a7-b8f9-06f4e6a9d1e1",
+		},
+		{
+			name:      "govcloud partition still applies",
+			service:   "directconnect",
+			region:    "us-gov-west-1",
+			accountID: "123456789012",
+			resource:  "dx-gateway/abc",
+			want:      "arn:aws-us-gov:directconnect::123456789012:dx-gateway/abc",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := arn.BuildGlobal(tc.service, tc.region, tc.accountID, tc.resource)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestBuildS3(t *testing.T) {
 	t.Parallel()
 

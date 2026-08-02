@@ -88,21 +88,25 @@ type StorageBackend interface {
 	GetAccessPointConfigurationForObjectLambda(accountID, name string) (string, error)
 	PutAccessPointConfigurationForObjectLambda(accountID, name, config string) error
 
-	// Outposts Bucket
-	GetBucket(accountID, bucketName string) (*OutpostsBucket, error)
-	DeleteBucket(accountID, bucketName string) error
-	GetBucketLifecycleConfiguration(accountID, bucketName string) (string, error)
-	PutBucketLifecycleConfiguration(accountID, bucketName, lifecycleConfig string) error
-	DeleteBucketLifecycleConfiguration(accountID, bucketName string) error
-	GetBucketPolicy(accountID, bucketName string) (string, error)
-	PutBucketPolicy(accountID, bucketName, policy string) error
-	DeleteBucketPolicy(accountID, bucketName string) error
-	GetBucketTagging(accountID, bucketName string) (TagSet, error)
-	PutBucketTagging(accountID, bucketName string, tags TagSet) error
-	DeleteBucketTagging(accountID, bucketName string) error
-	GetBucketVersioning(accountID, bucketName string) (string, error)
-	PutBucketVersioning(accountID, bucketName, status string) error
-	ListRegionalBuckets(accountID string) []*OutpostsBucket
+	// Outposts Bucket. Unlike every other resource family in this interface,
+	// these are NOT accountID-keyed -- see the CreateBucket doc comment in
+	// bucket.go (gopherstack-eje5): the real CreateBucketInput carries no
+	// AccountId at all, so bucket identity and its sub-resource state are
+	// keyed by bucketName alone.
+	GetBucket(bucketName string) (*OutpostsBucket, error)
+	DeleteBucket(bucketName string) error
+	GetBucketLifecycleConfiguration(bucketName string) (string, error)
+	PutBucketLifecycleConfiguration(bucketName, lifecycleConfig string) error
+	DeleteBucketLifecycleConfiguration(bucketName string) error
+	GetBucketPolicy(bucketName string) (string, error)
+	PutBucketPolicy(bucketName, policy string) error
+	DeleteBucketPolicy(bucketName string) error
+	GetBucketTagging(bucketName string) (TagSet, error)
+	PutBucketTagging(bucketName string, tags TagSet) error
+	DeleteBucketTagging(bucketName string) error
+	GetBucketVersioning(bucketName string) (string, error)
+	PutBucketVersioning(bucketName, status string) error
+	ListRegionalBuckets() []*OutpostsBucket
 
 	// MRAP
 	DescribeMultiRegionAccessPointOperation(accountID, requestToken string) (*MultiRegionAccessPointRequest, error)
@@ -112,10 +116,11 @@ type StorageBackend interface {
 
 	// ---- batch2 ----
 
-	// Bucket Replication
-	GetBucketReplication(accountID, bucketName string) (string, error)
-	PutBucketReplication(accountID, bucketName, config string) error
-	DeleteBucketReplication(accountID, bucketName string) error
+	// Bucket Replication. Same bucketName-only keying as the Outposts Bucket
+	// group above.
+	GetBucketReplication(bucketName string) (string, error)
+	PutBucketReplication(bucketName, config string) error
+	DeleteBucketReplication(bucketName string) error
 
 	// MRAP routes (submit)
 	SubmitMultiRegionAccessPointRoutes(accountID, mrap, routes string) error

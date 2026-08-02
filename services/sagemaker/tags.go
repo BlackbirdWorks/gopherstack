@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // AddTags adds or updates tags on a resource identified by ARN.
@@ -240,4 +242,113 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 	maps.Copy(result, incoming)
 
 	return result
+}
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingSageMaker).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// appendTaggedResources walks every region's store.Table for one SageMaker resource
+// kind, appending a TaggedEntry for every value that carries at least one tag. field
+// extracts that kind's own ARN field and Tags field (every kind AddTags/findTagMapLocked
+// above reaches stores both directly on the value already -- see e.g. Model.ModelARN/
+// Model.Tags -- so no ARN-index lookup is needed here, unlike the by-ARN lookup those
+// functions perform).
+func appendTaggedResources[V any](
+	out []TaggedEntry,
+	byRegion map[string]*store.Table[V],
+	field func(*V) (resourceARN string, resourceTags map[string]string),
+) []TaggedEntry {
+	for _, table := range byRegion {
+		for _, v := range table.All() {
+			resourceARN, tagMap := field(v)
+			if len(tagMap) == 0 {
+				continue
+			}
+
+			cp := make(map[string]string, len(tagMap))
+			maps.Copy(cp, tagMap)
+			out = append(out, TaggedEntry{ARN: resourceARN, Tags: cp})
+		}
+	}
+
+	return out
+}
+
+// TaggedResources returns every SageMaker resource ARN, across every region and every
+// resource kind AddTags/DeleteTags/ListTags support (models, endpoint configs,
+// endpoints, training jobs, notebook instances, hyperparameter tuning jobs, actions,
+// algorithms, clusters, model packages, processing jobs, transform jobs, domains,
+// feature groups, pipelines, experiments, trials, and trial components -- see
+// findTagMapLocked/findTagMapIndexedExtraLocked/findTagMapStatefulLocked above for the
+// authoritative list this mirrors), that currently has at least one tag. Resource kinds
+// not reachable through AddTags/DeleteTags/ListTags (e.g. artifacts, contexts,
+// projects, monitoring schedules) are intentionally excluded: they are not taggable
+// through this backend's own tagging API either.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	out = appendTaggedResources(out, b.models, func(v *Model) (string, map[string]string) {
+		return v.ModelARN, v.Tags
+	})
+	out = appendTaggedResources(out, b.endpointConfigs, func(v *EndpointConfig) (string, map[string]string) {
+		return v.EndpointConfigARN, v.Tags
+	})
+	out = appendTaggedResources(out, b.endpoints, func(v *Endpoint) (string, map[string]string) {
+		return v.EndpointArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.trainingJobs, func(v *TrainingJob) (string, map[string]string) {
+		return v.TrainingJobArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.notebooks, func(v *NotebookInstance) (string, map[string]string) {
+		return v.NotebookInstanceArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.hpTuningJobs, func(v *HyperParameterTuningJob) (string, map[string]string) {
+		return v.HyperParameterTuningJobArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.actions, func(v *Action) (string, map[string]string) {
+		return v.ActionArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.algorithms, func(v *Algorithm) (string, map[string]string) {
+		return v.AlgorithmArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.clusters, func(v *Cluster) (string, map[string]string) {
+		return v.ClusterArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.modelPackages, func(v *ModelPackage) (string, map[string]string) {
+		return v.ModelPackageArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.processingJobs, func(v *ProcessingJob) (string, map[string]string) {
+		return v.ProcessingJobArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.transformJobs, func(v *TransformJob) (string, map[string]string) {
+		return v.TransformJobArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.domains, func(v *Domain) (string, map[string]string) {
+		return v.DomainArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.featureGroups, func(v *FeatureGroup) (string, map[string]string) {
+		return v.FeatureGroupArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.pipelines, func(v *Pipeline) (string, map[string]string) {
+		return v.PipelineArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.experiments, func(v *Experiment) (string, map[string]string) {
+		return v.ExperimentArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.trials, func(v *Trial) (string, map[string]string) {
+		return v.TrialArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.trialComponents, func(v *TrialComponent) (string, map[string]string) {
+		return v.TrialComponentArn, v.Tags
+	})
+
+	return out
 }

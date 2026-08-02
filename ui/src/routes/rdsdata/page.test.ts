@@ -8,6 +8,11 @@ vi.mock("$lib/aws-client", () => ({
   getRDSDataClient: () => ({ send: mockSend }),
 }));
 
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
+}));
+
 vi.mock("svelte-sonner", () => ({
   toast: {
     success: vi.fn(),
@@ -17,26 +22,26 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
-const localStorageStore: Record<string, string> = {};
-vi.stubGlobal("localStorage", {
-  getItem: (key: string) => localStorageStore[key] ?? null,
-  setItem: (key: string, value: string) => {
-    localStorageStore[key] = value;
-  },
-  removeItem: (key: string) => {
-    delete localStorageStore[key];
-  },
-  clear: () => {
-    Object.keys(localStorageStore).forEach((k) => delete localStorageStore[k]);
-  },
-});
+async function fillConnection(): Promise<void> {
+  await fireEvent.input(screen.getByLabelText("Resource ARN *"), {
+    target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster" },
+  });
+  await fireEvent.input(screen.getByLabelText("Secret ARN *"), {
+    target: { value: "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret" },
+  });
+}
 
 describe("RDSData Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
-    mockSend.mockResolvedValue({});
-    localStorage.clear();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
+    try {
+      localStorage.clear();
+    } catch {
+      // jsdom always has localStorage; ignore if not
+    }
   });
 
   it("renders page title", () => {
@@ -44,219 +49,204 @@ describe("RDSData Page", () => {
     expect(screen.getByText("RDS Data")).toBeInTheDocument();
   });
 
-  it("shows SQL Runner tab by default", () => {
+  it("shows all four tabs", () => {
     render(RDSDataPage);
-    expect(screen.getByText("SQL Runner")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Query Console" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Transactions" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Statement History" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "ExecuteSql (legacy)" })).toBeInTheDocument();
+  });
+
+  it("shows Query Console tab by default with SQL textarea", () => {
+    render(RDSDataPage);
+    expect(screen.getByRole("textbox", { name: "SQL Query" })).toBeInTheDocument();
     expect(screen.getByText("Run Query")).toBeInTheDocument();
   });
 
-  it("shows all four tabs", () => {
-    render(RDSDataPage);
-    expect(screen.getByText("SQL Runner")).toBeInTheDocument();
-    expect(screen.getByText("Transaction Browser")).toBeInTheDocument();
-    expect(screen.getByText("Statement History")).toBeInTheDocument();
-    expect(screen.getByText("Docs")).toBeInTheDocument();
-  });
-
-  it("shows SQL textarea with aria-label", () => {
-    render(RDSDataPage);
-    expect(screen.getByRole("textbox", { name: "SQL Query" })).toBeInTheDocument();
-  });
-
-  it("Run Query button is disabled when resource ARN is empty", () => {
+  it("Run Query is disabled until both Resource ARN and Secret ARN are filled", async () => {
     render(RDSDataPage);
     const btn = screen.getByText("Run Query").closest("button")!;
     expect(btn).toBeDisabled();
-  });
 
-  it("Run Query button is enabled when resource ARN is provided", async () => {
-    render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster" },
+    await fireEvent.input(screen.getByLabelText("Resource ARN *"), {
+      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:c" },
     });
-    const btn = screen.getByText("Run Query").closest("button")!;
+    expect(btn).toBeDisabled();
+
+    await fireEvent.input(screen.getByLabelText("Secret ARN *"), {
+      target: { value: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s" },
+    });
     expect(btn).not.toBeDisabled();
   });
 
-  it("shows connection fields", () => {
+  it("shows Ctrl+Enter keyboard hint", () => {
     render(RDSDataPage);
-    expect(screen.getByLabelText("Resource ARN")).toBeInTheDocument();
-    expect(screen.getByLabelText(/Secret ARN/)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Database/)).toBeInTheDocument();
+    expect(screen.getByText(/Ctrl\+Enter/)).toBeInTheDocument();
   });
 
-  it("shows batch mode toggle button", () => {
-    render(RDSDataPage);
-    expect(screen.getByRole("button", { name: "Toggle batch mode" })).toBeInTheDocument();
-  });
-
-  it("toggles to batch mode when Batch OFF button is clicked", async () => {
+  it("toggles batch mode and swaps SQL textarea label", async () => {
     render(RDSDataPage);
     const batchBtn = screen.getByRole("button", { name: "Toggle batch mode" });
     expect(batchBtn).toHaveTextContent("Batch OFF");
     await fireEvent.click(batchBtn);
     expect(batchBtn).toHaveTextContent("Batch ON");
+    expect(screen.getByRole("textbox", { name: "Batch SQL Template" })).toBeInTheDocument();
+    expect(screen.getByText("Run Batch")).toBeInTheDocument();
   });
 
-  it("shows Batch SQL textarea when batch mode is active", async () => {
-    render(RDSDataPage);
-    const batchBtn = screen.getByRole("button", { name: "Toggle batch mode" });
-    await fireEvent.click(batchBtn);
-    expect(screen.getByRole("textbox", { name: "Batch SQL" })).toBeInTheDocument();
-  });
-
-  it("executes statement and shows result", async () => {
-    mockSend.mockResolvedValue({ numberOfRecordsUpdated: 1 });
-    render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster" },
+  it("executes ExecuteStatement and renders real result rows from the response", async () => {
+    mockSend.mockResolvedValueOnce({
+      records: [[{ stringValue: "alice" }], [{ isNull: true }]],
+      columnMetadata: [{ name: "name", typeName: "TEXT" }],
+      numberOfRecordsUpdated: 0,
     });
-    const btn = screen.getByText("Run Query").closest("button")!;
-    await fireEvent.click(btn);
-    await waitFor(
-      () => {
-        expect(screen.getByText("Result")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-  });
 
-  it("shows error on failed execution", async () => {
-    mockSend.mockRejectedValue(new Error("ResourceNotFoundException: cluster not found"));
     render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:missing" },
-    });
-    const btn = screen.getByText("Run Query").closest("button")!;
-    await fireEvent.click(btn);
-    await waitFor(
-      () => {
-        expect(screen.getByText(/ResourceNotFoundException/)).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-  });
+    await fillConnection();
+    await fireEvent.click(screen.getByText("Run Query").closest("button")!);
 
-  it("switches to Transaction Browser tab", async () => {
-    render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Transaction Browser"));
+    // Regression check for the rendered-cell bug class: cell text comes
+    // from real response data flowing through the render logic.
     await waitFor(() => {
-      expect(screen.getByText("Active Transactions")).toBeInTheDocument();
+      expect(screen.getByText("alice")).toBeInTheDocument();
     });
+    expect(screen.getByText("NULL")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: /name/ })).toBeInTheDocument();
+
+    const [request] = mockSend.mock.calls[0];
+    expect(request.input.resourceArn).toBe("arn:aws:rds:us-east-1:123456789012:cluster:my-cluster");
+    expect(request.input.sql).toBe("SELECT 1;");
   });
 
-  it("shows Begin Transaction button in transaction tab", async () => {
-    render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Transaction Browser"));
-    await waitFor(() => {
-      expect(screen.getByText("Begin Transaction")).toBeInTheDocument();
+  it("surfaces an execution error with the AWS error name in the banner", async () => {
+    const err = Object.assign(new Error("transaction txn-999 not found"), {
+      name: "TransactionNotFoundException",
+      $metadata: { httpStatusCode: 400 },
     });
+    mockSend.mockRejectedValueOnce(err);
+
+    render(RDSDataPage);
+    await fillConnection();
+    await fireEvent.click(screen.getByText("Run Query").closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText(/TransactionNotFoundException/)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/HTTP 400/)).toBeInTheDocument();
   });
 
-  it("Begin Transaction is disabled when resource ARN is empty", async () => {
+  it("BatchExecuteStatement sends parameter sets built from the Parameters editor, not a raw SQL blob", async () => {
+    mockSend.mockResolvedValueOnce({ updateResults: [{ generatedFields: [{ longValue: 7 }] }] });
+
     render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Transaction Browser"));
-    await waitFor(() => {
-      const btn = screen.getByText("Begin Transaction").closest("button")!;
-      expect(btn).toBeDisabled();
+    await fillConnection();
+    await fireEvent.click(screen.getByRole("button", { name: "Toggle batch mode" }));
+    await fireEvent.input(screen.getByRole("textbox", { name: "Batch SQL Template" }), {
+      target: { value: "INSERT INTO t (id) VALUES (:id)" },
     });
+    await fireEvent.click(screen.getByRole("button", { name: "Add Parameter" }));
+    await fireEvent.input(screen.getByLabelText("Parameter name"), { target: { value: "id" } });
+    await fireEvent.input(screen.getByLabelText("Parameter value"), { target: { value: "42" } });
+
+    await fireEvent.click(screen.getByText("Run Batch").closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText(/generatedFields: 7/)).toBeInTheDocument();
+    });
+
+    const [request] = mockSend.mock.calls[0];
+    expect(request.input.sql).toBe("INSERT INTO t (id) VALUES (:id)");
+    expect(request.input.parameterSets).toEqual([
+      [{ name: "id", value: { stringValue: "42" }, typeHint: undefined }],
+    ]);
   });
 
-  it("begins transaction and shows it in browser", async () => {
-    mockSend.mockResolvedValue({ transactionId: "txn-000001" });
+  it("switches to Transactions tab and begins a transaction", async () => {
+    mockSend.mockResolvedValueOnce({ transactionId: "txn-000001" });
+
     render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster" },
-    });
-    await fireEvent.click(screen.getByText("Transaction Browser"));
-    await waitFor(() => {
-      expect(screen.getByText("Begin Transaction")).toBeInTheDocument();
-    });
-    const beginBtn = screen.getByText("Begin Transaction").closest("button")!;
+    await fillConnection();
+    await fireEvent.click(screen.getByRole("tab", { name: "Transactions" }));
+
+    const beginBtn = await screen.findByRole("button", { name: /Begin Transaction/ });
     await fireEvent.click(beginBtn);
-    await waitFor(
-      () => {
-        expect(screen.getByText("txn-000001")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-  });
 
-  it("switches to Statement History tab", async () => {
-    render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Statement History"));
     await waitFor(() => {
-      expect(screen.getByText("No statements executed yet")).toBeInTheDocument();
+      expect(screen.getByText("txn-000001")).toBeInTheDocument();
     });
   });
 
-  it("shows Seed Demo button in history tab", async () => {
+  it("Begin Transaction is disabled until the connection fields are filled", async () => {
     render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Statement History"));
+    await fireEvent.click(screen.getByRole("tab", { name: "Transactions" }));
+    const btn = await screen.findByRole("button", { name: /Begin Transaction/ });
+    expect(btn).toBeDisabled();
+  });
+
+  it("confirms before rolling back a transaction and calls RollbackTransaction", async () => {
+    mockSend.mockResolvedValueOnce({ transactionId: "txn-000002" });
+    mockSend.mockResolvedValueOnce({ transactionStatus: "RollbackComplete" });
+
+    render(RDSDataPage);
+    await fillConnection();
+    await fireEvent.click(screen.getByRole("tab", { name: "Transactions" }));
+    await fireEvent.click(await screen.findByRole("button", { name: /Begin Transaction/ }));
+    await screen.findByText("txn-000002");
+
+    await fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
+
+    expect(confirmDestructive).toHaveBeenCalled();
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Seed demo history" })).toBeInTheDocument();
+      expect(screen.queryByText("txn-000002")).not.toBeInTheDocument();
     });
+    expect(mockSend.mock.calls[1][0].input.transactionId).toBe("txn-000002");
   });
 
-  it("seeds demo history", async () => {
+  it("shows Statement History empty state, then records executed statements with op and status", async () => {
     render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Statement History"));
-    const seedBtn = await screen.findByRole("button", { name: "Seed demo history" });
-    await fireEvent.click(seedBtn);
-    await waitFor(
-      () => {
-        expect(screen.getByText(/CREATE TABLE users/)).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
-  });
-
-  it("shows Docs tab content", async () => {
-    render(RDSDataPage);
-    await fireEvent.click(screen.getByText("Docs"));
+    await fireEvent.click(screen.getByRole("tab", { name: "Statement History" }));
     await waitFor(() => {
-      expect(screen.getByText("RDS Data API Reference")).toBeInTheDocument();
+      expect(screen.getByText("No statements executed yet this session")).toBeInTheDocument();
     });
-  });
 
-  it("shows keyboard shortcut hint", () => {
-    render(RDSDataPage);
-    expect(screen.getByText(/Ctrl\+Enter/)).toBeInTheDocument();
-  });
-
-  it("shows Raw JSON toggle button after results loaded", async () => {
-    mockSend.mockResolvedValue({ numberOfRecordsUpdated: 0 });
-    render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster" },
-    });
+    mockSend.mockResolvedValueOnce({ numberOfRecordsUpdated: 1 });
+    await fireEvent.click(screen.getByRole("tab", { name: "Query Console" }));
+    await fillConnection();
     await fireEvent.click(screen.getByText("Run Query").closest("button")!);
-    await waitFor(
-      () => {
-        expect(screen.getByRole("button", { name: "Toggle raw JSON" })).toBeInTheDocument();
-      },
-      { timeout: 3000 },
-    );
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+
+    await fireEvent.click(screen.getByRole("tab", { name: "Statement History" }));
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "ExecuteStatement" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("OK")).toBeInTheDocument();
   });
 
-  it("history entry count badge appears after executing", async () => {
-    mockSend.mockResolvedValue({});
+  it("shows the ExecuteSql legacy tab with its deprecation/limitation notice", async () => {
     render(RDSDataPage);
-    const arnInput = screen.getByLabelText("Resource ARN");
-    await fireEvent.input(arnInput, {
-      target: { value: "arn:aws:rds:us-east-1:123456789012:cluster:c" },
+    await fireEvent.click(screen.getByRole("tab", { name: "ExecuteSql (legacy)" }));
+    expect(screen.getByText(/ExecuteSql is deprecated/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Legacy SQL Statements" })).toBeInTheDocument();
+  });
+
+  it("runs ExecuteSql and shows only numberOfRecordsUpdated, no result rows", async () => {
+    mockSend.mockResolvedValueOnce({ sqlStatementResults: [{ numberOfRecordsUpdated: 3 }] });
+
+    render(RDSDataPage);
+    await fillConnection();
+    await fireEvent.click(screen.getByRole("tab", { name: "ExecuteSql (legacy)" }));
+    await fireEvent.click(screen.getByText("Run").closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByText(/numberOfRecordsUpdated: 3/)).toBeInTheDocument();
     });
-    await fireEvent.click(screen.getByText("Run Query").closest("button")!);
-    await waitFor(
-      () => {
-        expect(screen.getByText("1")).toBeInTheDocument();
-      },
-      { timeout: 3000 },
+
+    const [request] = mockSend.mock.calls[0];
+    expect(request.input.dbClusterOrInstanceArn).toBe(
+      "arn:aws:rds:us-east-1:123456789012:cluster:my-cluster",
+    );
+    expect(request.input.awsSecretStoreArn).toBe(
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret",
     );
   });
 });

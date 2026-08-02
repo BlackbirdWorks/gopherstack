@@ -19,7 +19,14 @@ func TestReplicationSubnetGroupLifecycle(t *testing.T) {
 		"SubnetIds":                         []string{"subnet-1", "subnet-2"},
 	})
 	require.Equal(t, http.StatusOK, createRec.Code)
-	sgArn := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)["ReplicationSubnetGroupArn"].(string)
+	createdSG := parseJSON(t, createRec)["ReplicationSubnetGroup"].(map[string]any)
+	// The real ReplicationSubnetGroup wire type has no Arn field at all; a
+	// client must build it from the deterministic
+	// arn:aws:dms:<region>:<account>:subgrp:<identifier> format instead of
+	// reading it off the response.
+	_, hasArn := createdSG["ReplicationSubnetGroupArn"]
+	assert.False(t, hasArn, "ReplicationSubnetGroup response must not carry an Arn field")
+	sgArn := "arn:aws:dms:us-east-1:123456789012:subgrp:subgrp-1"
 
 	// Duplicate.
 	dupRec := doDMS(t, h, "CreateReplicationSubnetGroup", map[string]any{

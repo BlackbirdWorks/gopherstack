@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getBackupClient } from '$lib/aws-client';
 	import {
 		ListBackupPlansCommand,
@@ -32,7 +33,7 @@
 		Play
 	} from 'lucide-svelte';
 
-	const backup = getBackupClient();
+	const backup = regionalClient(getBackupClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'plans' | 'vaults' | 'jobs' | 'recovery-points'>('plans');
@@ -91,7 +92,7 @@
 	async function loadPlans() {
 		loading = true;
 		try {
-			const res = await backup.send(new ListBackupPlansCommand({ IncludeDeleted: false }));
+			const res = await backup().send(new ListBackupPlansCommand({ IncludeDeleted: false }));
 			plans = res.BackupPlansList ?? [];
 		} catch (e) {
 			toast.error(`Failed to load backup plans: ${e}`);
@@ -103,7 +104,7 @@
 	async function loadVaults() {
 		loading = true;
 		try {
-			const res = await backup.send(new ListBackupVaultsCommand({}));
+			const res = await backup().send(new ListBackupVaultsCommand({}));
 			vaults = res.BackupVaultList ?? [];
 		} catch (e) {
 			toast.error(`Failed to load vaults: ${e}`);
@@ -115,7 +116,7 @@
 	async function loadJobs() {
 		loading = true;
 		try {
-			const res = await backup.send(new ListBackupJobsCommand({ MaxResults: 100 }));
+			const res = await backup().send(new ListBackupJobsCommand({ MaxResults: 100 }));
 			jobs = res.BackupJobs ?? [];
 		} catch (e) {
 			toast.error(`Failed to load jobs: ${e}`);
@@ -127,7 +128,7 @@
 	async function viewPlan(plan: BackupPlansListMember) {
 		if (!plan.BackupPlanId) return;
 		try {
-			const res = await backup.send(new GetBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
+			const res = await backup().send(new GetBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			selectedPlan = {
 				BackupPlanId: res.BackupPlanId,
 				BackupPlanName: res.BackupPlan?.BackupPlanName,
@@ -145,7 +146,7 @@
 	async function deletePlan(plan: BackupPlansListMember) {
 		if (!plan.BackupPlanId || !await confirmDestructive({ title: 'Delete Backup Plan', message: `Delete backup plan "${plan.BackupPlanName}"? Scheduled backups will no longer run.` })) return;
 		try {
-			await backup.send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
+			await backup().send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			toast.success(`Plan "${plan.BackupPlanName}" deleted`);
 			await loadPlans();
 		} catch (e) {
@@ -157,7 +158,7 @@
 		if (!newPlanName.trim()) return;
 		creating = true;
 		try {
-			await backup.send(
+			await backup().send(
 				new CreateBackupPlanCommand({
 					BackupPlan: {
 						BackupPlanName: newPlanName.trim(),
@@ -186,7 +187,7 @@
 		if (!selectedVaultForRP) return;
 		rpLoading = true;
 		try {
-			const res = await backup.send(
+			const res = await backup().send(
 				new ListRecoveryPointsByBackupVaultCommand({ BackupVaultName: selectedVaultForRP })
 			);
 			recoveryPoints = res.RecoveryPoints ?? [];
@@ -208,7 +209,7 @@
 		)
 			return;
 		try {
-			await backup.send(
+			await backup().send(
 				new DeleteRecoveryPointCommand({
 					BackupVaultName: rp.BackupVaultName,
 					RecoveryPointArn: rp.RecoveryPointArn
@@ -230,7 +231,26 @@
 		else await loadJobs();
 	}
 
-	onMount(() => loadPlans());
+	// `onMount` used to unconditionally load the Plans tab because that's
+	// always the tab active at first mount. On a region change, though, the
+	// user may be viewing any tab, so refresh whichever tab is actually
+	// active -- read via `untrack` so switching tabs (which already reloads
+	// its own data through onTabChange) doesn't also re-trigger this effect.
+	onRegionChange(() => {
+		const tab = untrack(() => activeTab);
+		selectedPlan = null;
+		if (tab === 'plans') {
+			loadPlans();
+		} else if (tab === 'vaults') {
+			loadVaults();
+		} else if (tab === 'recovery-points') {
+			selectedVaultForRP = '';
+			recoveryPoints = [];
+			loadVaults();
+		} else {
+			loadJobs();
+		}
+	});
 </script>
 
 <div class="space-y-6">

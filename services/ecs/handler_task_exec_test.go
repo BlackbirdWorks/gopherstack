@@ -370,8 +370,10 @@ func TestStartTask_MultipleInstances(t *testing.T) {
 	ciArns := make([]string, 3)
 	for i := range 3 {
 		ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-			"cluster":       "start-multi-cluster",
-			"ec2InstanceId": "i-multi-" + string(rune('a'+i)),
+			"cluster": "start-multi-cluster",
+			"instanceIdentityDocument": fakeInstanceIdentityDocument(
+				"i-multi-" + string(rune('a'+i)),
+			),
 		})
 		var ciOut map[string]any
 		require.NoError(t, json.Unmarshal(ciResp.Body.Bytes(), &ciOut))

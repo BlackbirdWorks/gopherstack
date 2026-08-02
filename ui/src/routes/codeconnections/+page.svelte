@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodeConnectionsClient } from '$lib/aws-client';
 	import {
 		ListConnectionsCommand,
 		ListHostsCommand,
 		ListRepositoryLinksCommand,
 		ListSyncConfigurationsCommand,
+		GetRepositorySyncStatusCommand,
 		GetSyncBlockerSummaryCommand,
 		GetSyncConfigurationCommand,
 		type Connection,
@@ -16,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Link2, Server, RefreshCw, GitBranch, Settings, ShieldAlert } from 'lucide-svelte';
 
-	const client = getCodeConnectionsClient();
+	const client = regionalClient(getCodeConnectionsClient);
 
 	let loading = $state(false);
 	let connections = $state<Connection[]>([]);
@@ -32,9 +33,9 @@
 		loading = true;
 		try {
 			const [connResp, hostResp, linkResp] = await Promise.all([
-				client.send(new ListConnectionsCommand({})),
-				client.send(new ListHostsCommand({})),
-				client.send(new ListRepositoryLinksCommand({}))
+				client().send(new ListConnectionsCommand({})),
+				client().send(new ListHostsCommand({})),
+				client().send(new ListRepositoryLinksCommand({}))
 			]);
 			connections = connResp.Connections ?? [];
 			hosts = hostResp.Hosts ?? [];
@@ -59,7 +60,7 @@
 			for (const link of connLinks) {
 				if (!link.RepositoryLinkId) continue;
 				try {
-					const resp = await client.send(
+					const resp = await client().send(
 						new ListSyncConfigurationsCommand({
 							RepositoryLinkId: link.RepositoryLinkId,
 							SyncType: 'CFN_STACK_SYNC'
@@ -74,7 +75,7 @@
 			for (const cfg of allConfigs) {
 				if (!cfg.ResourceName) continue;
 				try {
-					const summary = await client.send(
+					const summary = await client().send(
 						new GetSyncBlockerSummaryCommand({
 							ResourceName: cfg.ResourceName,
 							SyncType: 'CFN_STACK_SYNC'
@@ -96,13 +97,29 @@
 
 	async function viewSyncConfig(resourceName: string) {
 		try {
-			const resp = await client.send(
+			const resp = await client().send(
 				new GetSyncConfigurationCommand({ ResourceName: resourceName, SyncType: 'CFN_STACK_SYNC' })
 			);
 			const cfg = resp.SyncConfiguration;
 			toast.info(`Sync config: branch=${cfg?.Branch ?? 'N/A'}, file=${cfg?.ConfigFile ?? 'N/A'}`);
 		} catch (e) {
 			toast.error('Failed to get sync config: ' + String(e));
+		}
+	}
+
+	async function checkRepoSyncStatus(linkId: string, branch: string) {
+		try {
+			const resp = await client().send(
+				new GetRepositorySyncStatusCommand({
+					RepositoryLinkId: linkId,
+					Branch: branch,
+					SyncType: 'CFN_STACK_SYNC'
+				})
+			);
+			const status = resp.LatestSync?.Status ?? 'UNKNOWN';
+			toast.info(`Sync status: ${status}`);
+		} catch (e) {
+			toast.error('Failed to get sync status: ' + String(e));
 		}
 	}
 
@@ -119,7 +136,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
@@ -322,6 +339,7 @@
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Owner</th>
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Provider</th>
 								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Link ID</th>
+								<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Sync Status</th>
 							</tr>
 						</thead>
 						<tbody class="divide-y divide-gray-100 dark:divide-slate-700">
@@ -331,6 +349,12 @@
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{link.OwnerId}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{link.ProviderType}</td>
 									<td class="px-4 py-3 font-mono text-xs text-gray-500 dark:text-gray-400">{link.RepositoryLinkId}</td>
+									<td class="px-4 py-3">
+										<button
+											onclick={() => checkRepoSyncStatus(link.RepositoryLinkId ?? '', 'main')}
+											class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+										>Check status</button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>

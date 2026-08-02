@@ -310,12 +310,17 @@ func (h *Handler) handleUpdateClusterSettings(
 }
 
 // ----- UpdateCluster -----
+//
+// The real UpdateClusterRequest has only cluster, settings, configuration,
+// and serviceConnectDefaults -- no capacityProviders or
+// defaultCapacityProviderStrategy. Capacity-provider association is managed
+// exclusively via the separate PutClusterCapacityProviders operation (see
+// handlePutClusterCapacityProviders above). configuration and
+// serviceConnectDefaults are not modeled by this backend.
 
 type updateClusterInput struct {
-	Cluster                         string                `json:"cluster"`
-	CapacityProviders               []string              `json:"capacityProviders,omitempty"`
-	DefaultCapacityProviderStrategy []cpStrategyItemInput `json:"defaultCapacityProviderStrategy,omitempty"`
-	Settings                        []clusterSettingView  `json:"settings,omitempty"`
+	Cluster  string               `json:"cluster"`
+	Settings []clusterSettingView `json:"settings,omitempty"`
 }
 
 type updateClusterOutput struct {
@@ -328,17 +333,6 @@ func (h *Handler) handleUpdateCluster(
 ) (*updateClusterOutput, error) {
 	input := UpdateClusterInput{
 		Cluster: in.Cluster,
-	}
-
-	if in.CapacityProviders != nil {
-		input.CapacityProviders = in.CapacityProviders
-	}
-
-	for _, item := range in.DefaultCapacityProviderStrategy {
-		input.DefaultCapacityProviderStrategy = append(
-			input.DefaultCapacityProviderStrategy,
-			CapacityProviderStrategyItem(item),
-		)
 	}
 
 	for _, s := range in.Settings {

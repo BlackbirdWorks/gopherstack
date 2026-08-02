@@ -118,13 +118,21 @@ func (h *Handler) handleListTargetAccountConfigurations(c *echo.Context, templat
 		return h.writeBackendError(c, err, templateID)
 	}
 
-	dtos := make([]targetAccountConfigurationDTO, len(cfgs))
+	ids := make([]string, len(cfgs))
 	for i, cfg := range cfgs {
+		ids[i] = cfg.AccountID
+	}
+
+	page, nextTok := paginatePage(cfgs, ids, c.Request().URL.Query())
+
+	dtos := make([]targetAccountConfigurationDTO, len(page))
+	for i, cfg := range page {
 		dtos[i] = toTargetAccountConfigDTO(cfg)
 	}
 
 	return c.JSON(http.StatusOK, listTargetAccountConfigurationsResponseDTO{
 		TargetAccountConfigurations: dtos,
+		NextToken:                   nextTok,
 	})
 }
 
@@ -153,13 +161,21 @@ func (h *Handler) handleListExperimentTargetAccountConfigurations(
 		return h.writeBackendError(c, err, experimentID)
 	}
 
-	dtos := make([]experimentTargetAccountConfigurationDTO, len(cfgs))
+	ids := make([]string, len(cfgs))
 	for i, cfg := range cfgs {
+		ids[i] = cfg.AccountID
+	}
+
+	page, nextTok := paginatePage(cfgs, ids, c.Request().URL.Query())
+
+	dtos := make([]experimentTargetAccountConfigurationDTO, len(page))
+	for i, cfg := range page {
 		dtos[i] = toExperimentTargetAccountConfigDTO(cfg)
 	}
 
 	return c.JSON(http.StatusOK, listExperimentTargetAccountConfigurationsResponseDTO{
 		TargetAccountConfigurations: dtos,
+		NextToken:                   nextTok,
 	})
 }
 

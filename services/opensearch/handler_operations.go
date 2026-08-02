@@ -132,30 +132,43 @@ func applicationDataMigrationOperations() []string {
 	}
 }
 
+// serverlessOperations lists the OpenSearch Serverless (AOSS) operations this
+// Handler advertises. These are real opensearchserverless.Client operations,
+// not opensearch.Client (the "classic" managed-domain client checked
+// elsewhere in this file's sibling operations) -- see sdk_completeness_test.go,
+// which checks this subset against opensearchserverless.Client specifically.
+//
+// Note: AOSS models encryption and network security policies as a single
+// CreateSecurityPolicy/GetSecurityPolicy/ListSecurityPolicies/
+// UpdateSecurityPolicy/DeleteSecurityPolicy operation family discriminated by
+// a "type" request field (encryption|network) -- there is no separate
+// Create/Get/List/UpdateEncryptionPolicy or Create/List/DeleteNetworkPolicy
+// operation in the real API at any SDK version. An earlier pass invented
+// those names; they were never real. The route handlers underneath
+// (handleServerlessEncryptionPolicyRoutes/handleServerlessNetworkPolicyRoutes)
+// still work the same way over HTTP -- only the reported operation names
+// here were corrected to match the real SDK.
 func serverlessOperations() []string {
 	return []string{
 		"BatchGetCollection",
 		"CreateAccessPolicy",
 		"CreateCollection",
-		"CreateEncryptionPolicy",
-		"CreateNetworkPolicy",
 		"CreateSecurityConfig",
+		"CreateSecurityPolicy",
 		"DeleteAccessPolicy",
 		"DeleteCollection",
-		"DeleteEncryptionPolicy",
-		"DeleteNetworkPolicy",
 		"DeleteSecurityConfig",
+		"DeleteSecurityPolicy",
 		"GetAccessPolicy",
-		"GetEncryptionPolicy",
 		"GetSecurityConfig",
+		"GetSecurityPolicy",
 		"ListAccessPolicies",
 		"ListCollections",
-		"ListEncryptionPolicies",
-		"ListNetworkPolicies",
 		"ListSecurityConfigs",
+		"ListSecurityPolicies",
 		"UpdateAccessPolicy",
-		"UpdateEncryptionPolicy",
 		"UpdateSecurityConfig",
+		"UpdateSecurityPolicy",
 	}
 }
 

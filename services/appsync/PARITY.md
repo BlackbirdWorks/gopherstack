@@ -2,8 +2,10 @@
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.55.0
 last_audit_commit: 4bece540
-last_audit_date: 2026-07-24
-overall: A            # systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
+                      # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
+                      # 2026-07-31 (second pass, browser parity): RouteMatcher's /v2/apis-vs-ApiGatewayV2 disambiguation (see its doc comment) checked only the User-Agent header, which a browser cannot set (Fetch spec) -- the AWS SDK for JavaScript in a browser puts its SDK identification in X-Amz-User-Agent instead, so every browser dashboard request through /v2/apis silently fell through to API Gateway V2 or S3. Fixed via the new pkgs/service.MatchesUserAgentMarker helper (checks both headers, case-insensitively -- the JS SDK's marker is "api/AppSync", PascalCase, vs aws-sdk-go-v2's lowercase "api/appsync"), shared with the identical bug class fixed the same pass in mediastoredata/docdb/neptune. Grade held at A: fixed, not deferred.
 ops:
   CreateGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -24,7 +26,22 @@ ops:
   ListResolvers: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteResolver: {wire: ok, errors: ok, state: ok, persist: ok}
   ListResolversByFunction: {wire: ok, errors: ok, state: ok, persist: ok}
-  ExecuteGraphQL: {wire: ok, errors: ok, state: ok, persist: ok, note: "path/method audited only; VTL/JS resolver execution semantics not re-audited this pass"}
+  # ExecuteGraphQL is intentionally NOT listed as an advertised SDK op here.
+  # 2026-07-31 CORRECTION: the row that used to live at this position ("wire:
+  # ok, ...") was inaccurate -- ExecuteGraphQL is not a real AWS AppSync SDK
+  # operation at all (verified against aws-sdk-go-v2/service/appsync: `go doc`
+  # lists only management operations, no ExecuteGraphQL method; real clients
+  # POST GraphQL queries straight to the API's graphqlEndpoint, a request the
+  # typed SDK does not model as an operation). Caught by pkgs/sdkcheck's
+  # reverse check (commit 12cfe14d5; gopherstack-vhw2 category A). The route
+  # (POST /v1/apis/{apiId}/graphql -> handleGraphQL) stays wired -- gopherstack
+  # still needs to serve real GraphQL data-plane traffic -- and dispatch keys
+  # off the literal "graphql" path segment, not this label, so no client is
+  # affected. GetSupportedOperations()/ChaosOperations() no longer advertise
+  # it; see opExecuteGraphQL's doc comment in handler.go. Same resolution as
+  # CloudFront's GetFunctionAssociations/SetFunctionAssociations and EMR's
+  # ListTagsForResource. The route/method plumbing itself was and remains
+  # correctly audited (see deferred note below on VTL/JS execution scope).
   AssociateApi: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateApi: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateMergedGraphqlApi: {wire: ok, errors: ok, state: ok, persist: ok}

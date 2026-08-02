@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getLakeFormationClient } from '$lib/aws-client';
 	import {
 		ListResourcesCommand,
@@ -35,7 +36,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Database, RefreshCw, Plus, Trash2, Tag, Shield, ArrowLeftRight, Copy, Filter, BookOpen, Layers } from 'lucide-svelte';
 
-	const lf = getLakeFormationClient();
+	const lf = regionalClient(getLakeFormationClient);
 
 	type Tab = 'resources' | 'lftags' | 'permissions' | 'transactions' | 'datafilters' | 'expressions';
 	let activeTab = $state<Tab>('resources');
@@ -83,7 +84,7 @@
 	async function loadResources() {
 		loadingResources = true;
 		try {
-			const res = await lf.send(new ListResourcesCommand({}));
+			const res = await lf().send(new ListResourcesCommand({}));
 			resources = res.ResourceInfoList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load resources: ${(err as Error).message}`);
@@ -98,7 +99,7 @@
 		if (!arn || !role) return;
 		registering = true;
 		try {
-			await lf.send(new RegisterResourceCommand({ ResourceArn: arn, RoleArn: role }));
+			await lf().send(new RegisterResourceCommand({ ResourceArn: arn, RoleArn: role }));
 			toast.success('Resource registered');
 			showRegisterModal = false;
 			newResourceArn = '';
@@ -114,7 +115,7 @@
 	function confirmDeregister(arn: string) {
 		showConfirm(`Deregister resource "${arn}"? This cannot be undone.`, async () => {
 			try {
-				await lf.send(new DeregisterResourceCommand({ ResourceArn: arn }));
+				await lf().send(new DeregisterResourceCommand({ ResourceArn: arn }));
 				toast.success('Resource deregistered');
 				await loadResources();
 			} catch (err: unknown) {
@@ -146,7 +147,7 @@
 	async function loadLFTags() {
 		loadingTags = true;
 		try {
-			const res = await lf.send(new ListLFTagsCommand({}));
+			const res = await lf().send(new ListLFTagsCommand({}));
 			lfTags = (res.LFTags ?? []) as LFTagPair[];
 		} catch (err: unknown) {
 			toast.error(`Failed to load LF tags: ${(err as Error).message}`);
@@ -160,7 +161,7 @@
 		creatingTag = true;
 		try {
 			const values = newTagValues.split(',').map(v => v.trim()).filter(Boolean);
-			await lf.send(new CreateLFTagCommand({ TagKey: newTagKey.trim(), TagValues: values }));
+			await lf().send(new CreateLFTagCommand({ TagKey: newTagKey.trim(), TagValues: values }));
 			toast.success('LF tag created');
 			showCreateTagModal = false;
 			newTagKey = '';
@@ -186,7 +187,7 @@
 		try {
 			const toAdd = editTagAddValues.split(',').map(v => v.trim()).filter(Boolean);
 			const toRemove = editTagRemoveValues.split(',').map(v => v.trim()).filter(Boolean);
-			await lf.send(new UpdateLFTagCommand({
+			await lf().send(new UpdateLFTagCommand({
 				TagKey: editTagKey,
 				TagValuesToAdd: toAdd.length > 0 ? toAdd : undefined,
 				TagValuesToDelete: toRemove.length > 0 ? toRemove : undefined,
@@ -204,7 +205,7 @@
 	function confirmDeleteTag(tagKey: string) {
 		showConfirm(`Delete LF tag "${tagKey}"? All resources tagged with this key will lose the tag.`, async () => {
 			try {
-				await lf.send(new DeleteLFTagCommand({ TagKey: tagKey }));
+				await lf().send(new DeleteLFTagCommand({ TagKey: tagKey }));
 				toast.success('LF tag deleted');
 				await loadLFTags();
 			} catch (err: unknown) {
@@ -236,7 +237,7 @@
 	async function loadPermissions() {
 		loadingPerms = true;
 		try {
-			const res = await lf.send(new ListPermissionsCommand({}));
+			const res = await lf().send(new ListPermissionsCommand({}));
 			permissions = res.PrincipalResourcePermissions ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load permissions: ${(err as Error).message}`);
@@ -269,7 +270,7 @@
 			}
 			const perms = grantPermList.split(',').map(p => p.trim()).filter(Boolean) as Permission[];
 			const withOption = grantWithOption.split(',').map(p => p.trim()).filter(Boolean) as Permission[];
-			await lf.send(new GrantPermissionsCommand({
+			await lf().send(new GrantPermissionsCommand({
 				Principal: { DataLakePrincipalIdentifier: grantPrincipal.trim() },
 				Resource: resource,
 				Permissions: perms,
@@ -295,7 +296,7 @@
 		const who = entry.Principal?.DataLakePrincipalIdentifier ?? 'principal';
 		showConfirm(`Revoke permissions for "${who}"?`, async () => {
 			try {
-				await lf.send(new RevokePermissionsCommand({
+				await lf().send(new RevokePermissionsCommand({
 					Principal: entry.Principal,
 					Resource: entry.Resource,
 					Permissions: entry.Permissions,
@@ -331,7 +332,7 @@
 	async function loadTransactions() {
 		loadingTxns = true;
 		try {
-			const res = await lf.send(new ListTransactionsCommand({ StatusFilter: (txnStatusFilter || undefined) as TransactionStatusFilter | undefined }));
+			const res = await lf().send(new ListTransactionsCommand({ StatusFilter: (txnStatusFilter || undefined) as TransactionStatusFilter | undefined }));
 			transactions = res.Transactions ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load transactions: ${(err as Error).message}`);
@@ -342,7 +343,7 @@
 
 	async function startTransaction() {
 		try {
-			const res = await lf.send(new StartTransactionCommand({}));
+			const res = await lf().send(new StartTransactionCommand({}));
 			toast.success(`Started: ${res.TransactionId}`);
 			await loadTransactions();
 		} catch (err: unknown) {
@@ -352,7 +353,7 @@
 
 	async function commitTransaction(id: string) {
 		try {
-			await lf.send(new CommitTransactionCommand({ TransactionId: id }));
+			await lf().send(new CommitTransactionCommand({ TransactionId: id }));
 			toast.success('Transaction committed');
 			await loadTransactions();
 		} catch (err: unknown) {
@@ -363,7 +364,7 @@
 	function confirmCancelTxn(id: string) {
 		showConfirm(`Cancel transaction "${id}"? Active writes will be rolled back.`, async () => {
 			try {
-				await lf.send(new CancelTransactionCommand({ TransactionId: id }));
+				await lf().send(new CancelTransactionCommand({ TransactionId: id }));
 				toast.success('Transaction cancelled');
 				await loadTransactions();
 			} catch (err: unknown) {
@@ -385,7 +386,7 @@
 	async function loadDataFilters() {
 		loadingFilters = true;
 		try {
-			const res = await lf.send(new ListDataCellsFilterCommand({}));
+			const res = await lf().send(new ListDataCellsFilterCommand({}));
 			dataFilters = (res.DataCellsFilters ?? []) as DataCellsFilter[];
 		} catch (err: unknown) {
 			toast.error(`Failed to load filters: ${(err as Error).message}`);
@@ -398,7 +399,7 @@
 		if (!filterCatalogId.trim() || !filterDbName.trim() || !filterTableName.trim() || !filterName.trim()) return;
 		creatingFilter = true;
 		try {
-			await lf.send(new CreateDataCellsFilterCommand({
+			await lf().send(new CreateDataCellsFilterCommand({
 				TableData: {
 					TableCatalogId: filterCatalogId.trim(),
 					DatabaseName: filterDbName.trim(),
@@ -423,7 +424,7 @@
 	function confirmDeleteFilter(f: DataCellsFilter) {
 		showConfirm(`Delete data cells filter "${f.Name}"?`, async () => {
 			try {
-				await lf.send(new DeleteDataCellsFilterCommand({
+				await lf().send(new DeleteDataCellsFilterCommand({
 					TableCatalogId: f.TableCatalogId,
 					DatabaseName: f.DatabaseName,
 					TableName: f.TableName,
@@ -450,7 +451,7 @@
 	async function loadExpressions() {
 		loadingExprs = true;
 		try {
-			const res = await lf.send(new ListLFTagExpressionsCommand({}));
+			const res = await lf().send(new ListLFTagExpressionsCommand({}));
 			lfExpressions = (res.LFTagExpressions ?? []) as LFTagExpression[];
 		} catch (err: unknown) {
 			toast.error(`Failed to load expressions: ${(err as Error).message}`);
@@ -464,7 +465,7 @@
 		creatingExpr = true;
 		try {
 			const values = exprTagValues.split(',').map(v => v.trim()).filter(Boolean);
-			await lf.send(new CreateLFTagExpressionCommand({
+			await lf().send(new CreateLFTagExpressionCommand({
 				Name: exprName.trim(),
 				Description: exprDescription.trim() || undefined,
 				Expression: [{ TagKey: exprTagKey.trim(), TagValues: values }],
@@ -486,7 +487,7 @@
 	function confirmDeleteExpr(name: string) {
 		showConfirm(`Delete LF tag expression "${name}"?`, async () => {
 			try {
-				await lf.send(new DeleteLFTagExpressionCommand({ Name: name }));
+				await lf().send(new DeleteLFTagExpressionCommand({ Name: name }));
 				toast.success('Expression deleted');
 				await loadExpressions();
 			} catch (err: unknown) {
@@ -517,7 +518,27 @@
 
 	const isLoading = $derived(loadingResources || loadingTags || loadingPerms || loadingTxns || loadingFilters || loadingExprs);
 
-	onMount(() => { loadResources(); });
+	// Each tab's list is only loaded when first visited and cached
+	// thereafter (see switchTab above) — clear every cached list and
+	// reload whichever tab is active rather than only refetching
+	// resources. `activeTab` is read via untrack() because switchTab also
+	// writes it: without untrack, every tab switch would re-trigger this
+	// region effect and double-fetch.
+	onRegionChange(() => {
+		resources = [];
+		lfTags = [];
+		permissions = [];
+		transactions = [];
+		dataFilters = [];
+		lfExpressions = [];
+		const tab = untrack(() => activeTab);
+		if (tab === 'lftags') void loadLFTags();
+		else if (tab === 'permissions') void loadPermissions();
+		else if (tab === 'transactions') void loadTransactions();
+		else if (tab === 'datafilters') void loadDataFilters();
+		else if (tab === 'expressions') void loadExpressions();
+		else void loadResources();
+	});
 </script>
 
 <div class="space-y-6">

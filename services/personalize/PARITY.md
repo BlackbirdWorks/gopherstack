@@ -1,6 +1,7 @@
 ---
 service: personalize
 sdk_module: aws-sdk-go-v2/service/personalize@v1.47.11
+sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.2]  # GetRecommendations/GetPersonalizedRanking; see the Runtime family below
 last_audit_commit: 12cf224d
 last_audit_date: 2026-07-23
 overall: A
@@ -76,8 +77,8 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetPersonalizedRanking: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetRecommendations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real personalizeruntime.Client op (confirmed by name against aws-sdk-go-v2/service/personalizeruntime), not personalizesdk.Client -- pkgs/sdkcheck's reverse check flagged this as 'phantom' only because it compared against the control-plane client; sdk_completeness_test.go now checks it against personalizeruntimesdk.Client (2026-07-31, gopherstack-vhw2)"}
+  GetPersonalizedRanking: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same as GetRecommendations -- real personalizeruntime.Client op, now checked against the correct sibling client"}
 families:
   DatasetGroup/Dataset/Schema: {status: fixed, note: 'ARNs, timestamps (awstime.Epoch), field shapes verified against types.DatasetGroup/Dataset/DatasetSchema deserializers; Schema correctly has no status field (matches real API). This pass: domain enum validation on DatasetGroup/Schema, datasetType enum validation + datasetGroupArn/schemaArn FK validation on Dataset (see ops)'}
   Solution/SolutionVersion: {status: fixed, note: 'This pass: datasetGroupArn/recipeArn/solutionArn FK validation, eventType/solutionConfig/autoMLResult/latestSolutionUpdate wire fields added (see ops) -- verified against types.Solution/types.SolutionVersion field-by-field. Prior pass: CreateSolution/UpdateSolution wire bug fixed; StopSolutionVersionCreation status-string bug fixed. Deferred: SolutionVersion still does not model datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn/failureReason (copies of the parent Solution''s fields at training time) or Solution.latestSolutionVersion (a SolutionVersionSummary of the most recent version) -- see deferred'}
@@ -86,7 +87,7 @@ families:
   Async jobs (DatasetImportJob/DatasetExportJob/BatchInferenceJob/BatchSegmentJob/DataDeletionJob): {status: fixed, note: 'no Delete/Update ops in the real API either -- gopherstack correctly omits them; Create/Describe/List shapes verified. This pass: datasetArn/solutionVersionArn/datasetGroupArn FK validation added to every Create* op (see ops)'}
   Recipe/Algorithm/FeatureTransformation: {status: ok, note: built-in read-only catalogs, ARNs/status/timestamps verified}
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
-  Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here'}
+  Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
 gaps:
   - >-
     SolutionVersion does not model datasetGroupArn/eventType/performAutoML/

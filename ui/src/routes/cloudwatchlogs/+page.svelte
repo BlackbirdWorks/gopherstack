@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount, onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { urlState } from '$lib/url-state.svelte';
+	import LiveDot from '$lib/components/LiveDot.svelte';
 	import { getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeLogGroupsCommand,
@@ -60,14 +63,27 @@
 		BookOpen
 	} from 'lucide-svelte';
 
-	const cwl = getCloudWatchLogsClient();
+	const cwl = regionalClient(getCloudWatchLogsClient);
 
 	// ─── Top-level page tabs ──────────────────────────────────────────────────
-	let pageTab = $state<'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks'>('groups');
+	type PageTab = 'groups' | 'insights' | 'metric-filters' | 'subscription-filters' | 'export-tasks';
+	// URL-backed (?tab=...); see url-state.svelte.ts. Read via untrack() inside
+	// the onRegionChange effect below (switchTab() also writes it): without
+	// untrack, every tab switch would re-trigger the region effect and
+	// double-fetch — the same reasoning that already applied to this
+	// variable before it moved into the URL, now widened to the whole shared
+	// page.url (see url-state.svelte.ts's header comment on the
+	// region-effect hazard).
+	const pageTabParam = urlState<PageTab>('tab', 'groups');
+	let pageTab = $derived(pageTabParam.get());
 
 	// ─── Log Groups / Streams / Events drill-down ─────────────────────────────
 	let activeView = $state<'groups' | 'streams' | 'events'>('groups');
-	let searchQuery = $state('');
+	// URL-backed (?q=...); see url-state.svelte.ts. Not read inside the
+	// onRegionChange effect below, so no untrack() is needed at that call
+	// site.
+	const searchQueryParam = urlState<string>('q', '');
+	let searchQuery = $derived(searchQueryParam.get());
 
 	// Log Groups
 	let logGroups = $state<LogGroup[]>([]);
@@ -261,7 +277,7 @@
 	async function loadLogGroups(append = false) {
 		loading = true;
 		try {
-			const resp = await cwl.send(new DescribeLogGroupsCommand({
+			const resp = await cwl().send(new DescribeLogGroupsCommand({
 				limit: 50,
 				nextToken: append ? groupNextToken : undefined
 			}));
@@ -289,7 +305,7 @@
 	async function loadStreams(groupName: string) {
 		loadingStreams = true;
 		try {
-			const resp = await cwl.send(new DescribeLogStreamsCommand({
+			const resp = await cwl().send(new DescribeLogStreamsCommand({
 				logGroupName: groupName,
 				orderBy: streamSortField === 'lastEventTime' ? 'LastEventTime' : 'LogStreamName',
 				descending: streamSortDesc,
@@ -326,7 +342,7 @@
 			if (filterPattern) params.filterPattern = filterPattern;
 			if (startTime) params.startTime = new Date(startTime).getTime();
 			if (endTime) params.endTime = new Date(endTime).getTime();
-			const resp = await cwl.send(new FilterLogEventsCommand(params));
+			const resp = await cwl().send(new FilterLogEventsCommand(params));
 			logEvents = resp.events ?? [];
 		} catch (e) {
 			toast.error('Failed to load events: ' + String(e));
@@ -359,9 +375,9 @@
 		if (!newGroupName.trim()) return;
 		creatingGroup = true;
 		try {
-			await cwl.send(new CreateLogGroupCommand({ logGroupName: newGroupName.trim() }));
+			await cwl().send(new CreateLogGroupCommand({ logGroupName: newGroupName.trim() }));
 			if (newGroupRetention > 0) {
-				await cwl.send(new PutRetentionPolicyCommand({
+				await cwl().send(new PutRetentionPolicyCommand({
 					logGroupName: newGroupName.trim(),
 					retentionInDays: newGroupRetention
 				}));
@@ -382,7 +398,7 @@
 		if (!await confirmDestructive({ title: 'Delete Log Group', message: `Delete log group "${name}"? All log streams and retained data will be permanently removed.` })) return;
 		deletingGroup = name;
 		try {
-			await cwl.send(new DeleteLogGroupCommand({ logGroupName: name }));
+			await cwl().send(new DeleteLogGroupCommand({ logGroupName: name }));
 			toast.success(`Log group "${name}" deleted`);
 			if (selectedGroup?.logGroupName === name) {
 				selectedGroup = null;
@@ -399,9 +415,9 @@
 	async function updateRetention(groupName: string, days: number) {
 		try {
 			if (days === 0) {
-				await cwl.send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
+				await cwl().send(new DeleteRetentionPolicyCommand({ logGroupName: groupName }));
 			} else {
-				await cwl.send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
+				await cwl().send(new PutRetentionPolicyCommand({ logGroupName: groupName, retentionInDays: days }));
 			}
 			toast.success('Retention policy updated');
 			await loadLogGroups();
@@ -415,7 +431,7 @@
 		if (!newStreamName.trim() || !selectedGroup) return;
 		creatingStream = true;
 		try {
-			await cwl.send(new CreateLogStreamCommand({
+			await cwl().send(new CreateLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: newStreamName.trim()
 			}));
@@ -435,7 +451,7 @@
 		if (!await confirmDestructive({ title: 'Delete Log Stream', message: `Delete stream "${streamName}"? All retained log events will be removed.` })) return;
 		deletingStream = streamName;
 		try {
-			await cwl.send(new DeleteLogStreamCommand({
+			await cwl().send(new DeleteLogStreamCommand({
 				logGroupName: selectedGroup.logGroupName ?? '',
 				logStreamName: streamName
 			}));
@@ -474,7 +490,7 @@
 		try {
 			const startMs = insightsStartTime ? new Date(insightsStartTime).getTime() : Date.now() - 3600000;
 			const endMs = insightsEndTime ? new Date(insightsEndTime).getTime() : Date.now();
-			const resp = await cwl.send(new StartQueryCommand({
+			const resp = await cwl().send(new StartQueryCommand({
 				logGroupNames: insightsGroups,
 				queryString: insightsQuery,
 				startTime: Math.floor(startMs / 1000),
@@ -492,7 +508,7 @@
 	async function pollInsightsResults() {
 		if (!insightsQueryId) return;
 		try {
-			const resp = await cwl.send(new GetQueryResultsCommand({ queryId: insightsQueryId }));
+			const resp = await cwl().send(new GetQueryResultsCommand({ queryId: insightsQueryId }));
 			insightsStatus = resp.status ?? '';
 			if (resp.status === 'Complete' || resp.status === 'Failed' || resp.status === 'Cancelled') {
 				if (insightsPollInterval) { clearInterval(insightsPollInterval); insightsPollInterval = null; }
@@ -515,7 +531,7 @@
 	async function stopInsightsQuery() {
 		if (!insightsQueryId) return;
 		try {
-			await cwl.send(new StopQueryCommand({ queryId: insightsQueryId }));
+			await cwl().send(new StopQueryCommand({ queryId: insightsQueryId }));
 			if (insightsPollInterval) { clearInterval(insightsPollInterval); insightsPollInterval = null; }
 			insightsRunning = false;
 			insightsStatus = 'Cancelled';
@@ -527,7 +543,7 @@
 	async function loadQueryDefinitions() {
 		loadingQueryDefs = true;
 		try {
-			const resp = await cwl.send(new DescribeQueryDefinitionsCommand({}));
+			const resp = await cwl().send(new DescribeQueryDefinitionsCommand({}));
 			queryDefinitions = resp.queryDefinitions ?? [];
 		} catch (e) {
 			toast.error('Failed to load query definitions: ' + String(e));
@@ -539,7 +555,7 @@
 	async function saveQueryDefinition() {
 		if (!newQueryDefName.trim()) { toast.error('Enter a name'); return; }
 		try {
-			await cwl.send(new PutQueryDefinitionCommand({
+			await cwl().send(new PutQueryDefinitionCommand({
 				name: newQueryDefName.trim(),
 				queryString: insightsQuery,
 				logGroupNames: insightsGroups.length > 0 ? insightsGroups : undefined
@@ -556,7 +572,7 @@
 	async function deleteQueryDefinition(id: string) {
 		if (!await confirmDestructive({ title: 'Delete Query Definition', message: 'Delete this saved query definition?' })) return;
 		try {
-			await cwl.send(new DeleteQueryDefinitionCommand({ queryDefinitionId: id }));
+			await cwl().send(new DeleteQueryDefinitionCommand({ queryDefinitionId: id }));
 			toast.success('Query definition deleted');
 			await loadQueryDefinitions();
 		} catch (e) {
@@ -577,7 +593,7 @@
 		if (!mfGroup) { metricFilters = []; return; }
 		loadingMf = true;
 		try {
-			const resp = await cwl.send(new DescribeMetricFiltersCommand({ logGroupName: mfGroup }));
+			const resp = await cwl().send(new DescribeMetricFiltersCommand({ logGroupName: mfGroup }));
 			metricFilters = resp.metricFilters ?? [];
 		} catch (e) {
 			toast.error('Failed to load metric filters: ' + String(e));
@@ -593,7 +609,7 @@
 		}
 		creatingMf = true;
 		try {
-			await cwl.send(new PutMetricFilterCommand({
+			await cwl().send(new PutMetricFilterCommand({
 				logGroupName: mfGroup,
 				filterName: mfFilterName.trim(),
 				filterPattern: mfFilterPattern,
@@ -618,7 +634,7 @@
 		if (!await confirmDestructive({ title: 'Delete Metric Filter', message: `Delete metric filter "${filterName}"?` })) return;
 		deletingMf = filterName;
 		try {
-			await cwl.send(new DeleteMetricFilterCommand({ logGroupName: mfGroup, filterName }));
+			await cwl().send(new DeleteMetricFilterCommand({ logGroupName: mfGroup, filterName }));
 			toast.success(`Metric filter "${filterName}" deleted`);
 			await loadMetricFilters();
 		} catch (e) {
@@ -634,7 +650,7 @@
 		if (messages.length === 0) { toast.error('Enter at least one test event'); return; }
 		testingMf = true;
 		try {
-			const resp = await cwl.send(new TestMetricFilterCommand({
+			const resp = await cwl().send(new TestMetricFilterCommand({
 				filterPattern: mfTestPattern,
 				logEventMessages: messages
 			}));
@@ -659,7 +675,7 @@
 		if (!sfGroup) { subFilters = []; return; }
 		loadingSf = true;
 		try {
-			const resp = await cwl.send(new DescribeSubscriptionFiltersCommand({ logGroupName: sfGroup }));
+			const resp = await cwl().send(new DescribeSubscriptionFiltersCommand({ logGroupName: sfGroup }));
 			subFilters = resp.subscriptionFilters ?? [];
 		} catch (e) {
 			toast.error('Failed to load subscription filters: ' + String(e));
@@ -675,7 +691,7 @@
 		}
 		creatingSf = true;
 		try {
-			await cwl.send(new PutSubscriptionFilterCommand({
+			await cwl().send(new PutSubscriptionFilterCommand({
 				logGroupName: sfGroup,
 				filterName: sfFilterName.trim(),
 				filterPattern: sfFilterPattern,
@@ -696,7 +712,7 @@
 		if (!await confirmDestructive({ title: 'Delete Subscription Filter', message: `Delete filter "${filterName}"?` })) return;
 		deletingSf = filterName;
 		try {
-			await cwl.send(new DeleteSubscriptionFilterCommand({ logGroupName: sfGroup, filterName }));
+			await cwl().send(new DeleteSubscriptionFilterCommand({ logGroupName: sfGroup, filterName }));
 			toast.success(`Filter "${filterName}" deleted`);
 			await loadSubFilters();
 		} catch (e) {
@@ -710,7 +726,7 @@
 	async function loadExportTasks() {
 		loadingExport = true;
 		try {
-			const resp = await cwl.send(new DescribeExportTasksCommand({}));
+			const resp = await cwl().send(new DescribeExportTasksCommand({}));
 			exportTasks = resp.exportTasks ?? [];
 		} catch (e) {
 			toast.error('Failed to load export tasks: ' + String(e));
@@ -726,7 +742,7 @@
 		}
 		creatingExport = true;
 		try {
-			await cwl.send(new CreateExportTaskCommand({
+			await cwl().send(new CreateExportTaskCommand({
 				taskName: etTaskName.trim() || undefined,
 				logGroupName: etLogGroupName.trim(),
 				destination: etDestination.trim(),
@@ -748,7 +764,7 @@
 	async function cancelExportTask(taskId: string) {
 		cancellingExport = taskId;
 		try {
-			await cwl.send(new CancelExportTaskCommand({ taskId }));
+			await cwl().send(new CancelExportTaskCommand({ taskId }));
 			toast.success('Export task cancelled');
 			await loadExportTasks();
 		} catch (e) {
@@ -769,14 +785,51 @@
 	}
 
 	// ─── Tab change ───────────────────────────────────────────────────────────
-	function switchTab(tab: typeof pageTab) {
-		pageTab = tab;
+	function switchTab(tab: PageTab) {
+		pageTabParam.set(tab);
 		if (tab === 'insights') { loadQueryDefinitions(); }
 		else if (tab === 'export-tasks') { loadExportTasks(); }
 	}
 
 	// ─── Lifecycle ────────────────────────────────────────────────────────────
-	onMount(loadLogGroups);
+	// Log groups/streams/events, insights results, metric/subscription filters,
+	// and export tasks are all region-scoped, as are the two in-flight timers
+	// (events auto-refresh, insights polling) — both close over state that
+	// belongs to the old region, so stop them before resetting. `pageTab` is
+	// read via untrack() because switchTab() also writes it: without untrack,
+	// every tab switch would re-trigger this region effect and double-fetch.
+	onRegionChange(() => {
+		if (autoRefreshInterval !== null) {
+			clearInterval(autoRefreshInterval);
+			autoRefreshInterval = null;
+		}
+		autoRefresh = false;
+		if (insightsPollInterval !== null) {
+			clearInterval(insightsPollInterval);
+			insightsPollInterval = null;
+		}
+		insightsRunning = false;
+		insightsQueryId = null;
+		insightsStatus = '';
+		insightsResults = [];
+		queryDefinitions = [];
+		logGroups = [];
+		groupNextToken = undefined;
+		selectedGroup = null;
+		selectedStream = null;
+		logStreams = [];
+		logEvents = [];
+		activeView = 'groups';
+		mfGroup = '';
+		metricFilters = [];
+		sfGroup = '';
+		subFilters = [];
+		exportTasks = [];
+		const tab = untrack(() => pageTab);
+		void loadLogGroups();
+		if (tab === 'insights') void loadQueryDefinitions();
+		else if (tab === 'export-tasks') void loadExportTasks();
+	});
 
 	onDestroy(() => {
 		if (autoRefreshInterval !== null) clearInterval(autoRefreshInterval);
@@ -790,7 +843,10 @@
 		<div class="flex items-center gap-3">
 			<List class="w-7 h-7 text-indigo-500" />
 			<div>
-				<h1 class="text-2xl font-bold text-gray-900 dark:text-white">CloudWatch Logs</h1>
+				<h1 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+					CloudWatch Logs
+					<LiveDot service="cloudwatchlogs" />
+				</h1>
 				<p class="text-sm text-gray-500 dark:text-gray-400">Monitor, query, and manage log data</p>
 			</div>
 		</div>
@@ -849,7 +905,7 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<div class="flex-1 relative min-w-48">
 					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-					<input bind:value={searchQuery} type="text" placeholder="Search log groups..."
+					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search log groups..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<button onclick={() => (showCreateGroup = true)}
@@ -949,7 +1005,7 @@
 			<div class="flex flex-wrap items-center gap-3">
 				<div class="flex-1 relative min-w-48">
 					<Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-					<input bind:value={searchQuery} type="text" placeholder="Search streams..."
+					<input value={searchQuery} oninput={(e) => searchQueryParam.set(e.currentTarget.value)} type="text" placeholder="Search streams..."
 						class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<button onclick={() => (showCreateStream = true)}
@@ -1517,18 +1573,18 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Subscription Filter</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Name *</label>
-				<input bind:value={sfFilterName} type="text" placeholder="my-filter"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-filter-name">Filter Name *</label>
+				<input id="sf-filter-name" bind:value={sfFilterName} type="text" placeholder="my-filter"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Filter Pattern</label>
-				<input bind:value={sfFilterPattern} type="text" placeholder="ERROR (empty matches all)"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-filter-pattern">Filter Pattern</label>
+				<input id="sf-filter-pattern" bind:value={sfFilterPattern} type="text" placeholder="ERROR (empty matches all)"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Destination ARN *</label>
-				<input bind:value={sfDestinationArn} type="text" placeholder="arn:aws:lambda:..."
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="sf-destination-arn">Destination ARN *</label>
+				<input id="sf-destination-arn" bind:value={sfDestinationArn} type="text" placeholder="arn:aws:lambda:..."
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-gray-900 dark:text-white" />
 			</div>
 			<div class="flex gap-3 pt-2">
@@ -1548,13 +1604,13 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Create Export Task</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Task Name (optional)</label>
-				<input bind:value={etTaskName} type="text" placeholder="my-export"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-task-name">Task Name (optional)</label>
+				<input id="et-task-name" bind:value={etTaskName} type="text" placeholder="my-export"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Log Group Name *</label>
-				<select bind:value={etLogGroupName}
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-log-group-name">Log Group Name *</label>
+				<select id="et-log-group-name" bind:value={etLogGroupName}
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white">
 					<option value="">Select...</option>
 					{#each logGroups as group}
@@ -1563,24 +1619,24 @@
 				</select>
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">S3 Bucket *</label>
-				<input bind:value={etDestination} type="text" placeholder="my-bucket"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-destination">S3 Bucket *</label>
+				<input id="et-destination" bind:value={etDestination} type="text" placeholder="my-bucket"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Prefix (optional)</label>
-				<input bind:value={etDestinationPrefix} type="text" placeholder="exports/my-group"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-destination-prefix">Prefix (optional)</label>
+				<input id="et-destination-prefix" bind:value={etDestinationPrefix} type="text" placeholder="exports/my-group"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div class="grid grid-cols-2 gap-3">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From *</label>
-					<input bind:value={etFrom} type="datetime-local"
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-from">From *</label>
+					<input id="et-from" bind:value={etFrom} type="datetime-local"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To *</label>
-					<input bind:value={etTo} type="datetime-local"
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="et-to">To *</label>
+					<input id="et-to" bind:value={etTo} type="datetime-local"
 						class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 				</div>
 			</div>
@@ -1601,8 +1657,8 @@
 		<div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Save Query Definition</h2>
 			<div>
-				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
-				<input bind:value={newQueryDefName} type="text" placeholder="My error query"
+				<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-query-def-name">Name *</label>
+				<input id="new-query-def-name" bind:value={newQueryDefName} type="text" placeholder="My error query"
 					class="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white" />
 			</div>
 			<div class="flex gap-3 pt-2">

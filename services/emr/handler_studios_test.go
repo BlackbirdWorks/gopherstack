@@ -392,6 +392,7 @@ func TestStudio_NameUniqueness(t *testing.T) {
 	_, err := b.CreateStudio(
 		context.Background(),
 		"my-studio",
+		"",
 		"SSO",
 		"s3://bucket",
 		"sg-1",
@@ -406,6 +407,7 @@ func TestStudio_NameUniqueness(t *testing.T) {
 	_, err = b.CreateStudio(
 		context.Background(),
 		"my-studio",
+		"",
 		"SSO",
 		"s3://bucket",
 		"sg-1",
@@ -426,6 +428,7 @@ func TestStudioSessionMapping_CreationTime(t *testing.T) {
 	studio, err := b.CreateStudio(
 		context.Background(),
 		"ct-studio",
+		"",
 		"SSO",
 		"s3://b",
 		"sg-1",
@@ -446,6 +449,7 @@ func TestStudioSessionMapping_CreationTime(t *testing.T) {
 	studioOut, err := h.Backend.CreateStudio(
 		context.Background(),
 		"http-studio",
+		"",
 		"SSO",
 		"s3://b",
 		"sg-1",
@@ -574,4 +578,90 @@ func TestListStudioSessionMappings_EmptyNotNull(t *testing.T) {
 	assert.True(t, hasKey, "ListStudioSessionMappings must include 'SessionMappings' key")
 	assert.IsType(t, []any{}, mappings, "'SessionMappings' must be [] not null when empty")
 	assert.Empty(t, mappings)
+}
+
+// TestWireShape_CreateStudio_Description verifies CreateStudio forwards the
+// real CreateStudioInput.Description field through to the created Studio --
+// it was previously absent from createStudioInput entirely, so a real
+// client's Description was silently dropped even though UpdateStudio (the
+// sibling op) applies the same field correctly, an unintentional asymmetry.
+func TestWireShape_CreateStudio_Description(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doEMRRequest(t, h, "CreateStudio", map[string]any{
+		"Name":                     "desc-studio",
+		"AuthMode":                 "IAM",
+		"DefaultS3Location":        "s3://bucket/path",
+		"EngineSecurityGroupId":    "sg-engine",
+		"ServiceRole":              "arn:aws:iam::000000000000:role/studio-role",
+		"SubnetIds":                []string{"subnet-1"},
+		"VpcId":                    "vpc-123",
+		"WorkspaceSecurityGroupId": "sg-workspace",
+		"Description":              "a test studio",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		StudioID string `json:"StudioId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	descRec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": out.StudioID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var desc struct {
+		Studio struct {
+			Description string `json:"Description"`
+		} `json:"Studio"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	assert.Equal(t, "a test studio", desc.Studio.Description,
+		"CreateStudio must forward Description to the created Studio")
+}
+
+// TestWireShape_UpdateStudio_AppliesSubnetIds verifies UpdateStudio actually
+// applies the real UpdateStudioInput.SubnetIds field -- it was previously
+// hardcoded to "" at the handler layer regardless of what the caller sent,
+// so SubnetIds was accepted on the wire but silently never applied.
+func TestWireShape_UpdateStudio_AppliesSubnetIds(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doEMRRequest(t, h, "CreateStudio", map[string]any{
+		"Name":                     "subnet-update-studio",
+		"AuthMode":                 "IAM",
+		"DefaultS3Location":        "s3://bucket/path",
+		"EngineSecurityGroupId":    "sg-engine",
+		"ServiceRole":              "arn:aws:iam::000000000000:role/studio-role",
+		"SubnetIds":                []string{"subnet-1"},
+		"VpcId":                    "vpc-123",
+		"WorkspaceSecurityGroupId": "sg-workspace",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created struct {
+		StudioID string `json:"StudioId"`
+	}
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+
+	updateRec := doEMRRequest(t, h, "UpdateStudio", map[string]any{
+		"StudioId":  created.StudioID,
+		"SubnetIds": []string{"subnet-1", "subnet-2"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	descRec := doEMRRequest(t, h, "DescribeStudio", map[string]any{"StudioId": created.StudioID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var desc struct {
+		Studio struct {
+			SubnetIDs []string `json:"SubnetIds"`
+		} `json:"Studio"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &desc))
+	assert.ElementsMatch(t, []string{"subnet-1", "subnet-2"}, desc.Studio.SubnetIDs,
+		"UpdateStudio must apply SubnetIds from the request, not discard them")
 }

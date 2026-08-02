@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getSecretsManagerClient } from '$lib/aws-client';
 import {
 	ListSecretsCommand,
@@ -19,7 +19,7 @@ import {
 import { toast } from 'svelte-sonner';
 import { LockKeyhole, Plus, RefreshCw, Search, Trash2, RotateCcw, Copy, Eye, EyeOff, ChevronRight, Tag, History, RotateCw, X, KeyRound, Undo2, SortAsc, SortDesc, Beaker } from 'lucide-svelte';
 
-const sm = getSecretsManagerClient();
+const sm = regionalClient(getSecretsManagerClient);
 
 type SecretItem = {
 	ARN?: string;
@@ -72,12 +72,12 @@ let tagValue = $state('');
 let secretTags = $state<Record<string, string>>({});
 let seedingDemo = $state(false);
 
-onMount(async () => { await loadSecrets(); });
+onRegionChange(() => { void loadSecrets(); });
 
 async function loadSecrets() {
 	try {
 		loading = true;
-		const data = await sm.send(new ListSecretsCommand({}));
+		const data = await sm().send(new ListSecretsCommand({}));
 		secrets = (data.SecretList || []) as SecretItem[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load secrets');
@@ -95,7 +95,7 @@ async function viewSecret(secret: SecretItem) {
 	activeTab = 'detail';
 	// Load full metadata via DescribeSecret
 	try {
-		const desc = await sm.send(new DescribeSecretCommand({ SecretId: secret.Name! }));
+		const desc = await sm().send(new DescribeSecretCommand({ SecretId: secret.Name! }));
 		selectedSecret = { ...selectedSecret, ...desc } as SecretItem;
 		// Load tags
 		const tagMap: Record<string, string> = {};
@@ -113,7 +113,7 @@ async function viewSecret(secret: SecretItem) {
 async function loadSecretValue(name: string) {
 	loadingValue = true;
 	try {
-		const data = await sm.send(new GetSecretValueCommand({ SecretId: name }));
+		const data = await sm().send(new GetSecretValueCommand({ SecretId: name }));
 		secretValue = data.SecretString ?? '<binary>';
 		showValue = true;
 	} catch (e) {
@@ -126,7 +126,7 @@ async function loadSecretValue(name: string) {
 async function loadVersions(name: string) {
 	loadingVersions = true;
 	try {
-		const data = await sm.send(new ListSecretVersionIdsCommand({ SecretId: name, IncludeDeprecated: true }));
+		const data = await sm().send(new ListSecretVersionIdsCommand({ SecretId: name, IncludeDeprecated: true }));
 		versions = (data.Versions || []) as VersionEntry[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load versions');
@@ -202,7 +202,7 @@ async function saveSecretValue() {
 	const payload = editValueMode === 'kv' ? kvRowsToJson() : editValue;
 	savingSecret = true;
 	try {
-		await sm.send(new UpdateSecretCommand({
+		await sm().send(new UpdateSecretCommand({
 			SecretId: selectedSecret.Name,
 			SecretString: payload
 		}));
@@ -221,7 +221,7 @@ async function saveDescription() {
 	if (!selectedSecret?.Name) return;
 	savingSecret = true;
 	try {
-		await sm.send(new UpdateSecretCommand({
+		await sm().send(new UpdateSecretCommand({
 			SecretId: selectedSecret.Name,
 			Description: editDescription
 		}));
@@ -239,7 +239,7 @@ async function rotateNow() {
 	if (!selectedSecret?.Name) return;
 	if (!await confirmDestructive({ title: 'Rotate Secret', message: `Immediately rotate "${selectedSecret.Name}"? A new version will be created.` })) return;
 	try {
-		await sm.send(new RotateSecretCommand({ SecretId: selectedSecret.Name }));
+		await sm().send(new RotateSecretCommand({ SecretId: selectedSecret.Name }));
 		toast.success('Rotation triggered');
 		secretValue = null;
 		await viewSecret(selectedSecret);
@@ -251,7 +251,7 @@ async function rotateNow() {
 async function cancelRotation() {
 	if (!selectedSecret?.Name) return;
 	try {
-		await sm.send(new CancelRotateSecretCommand({ SecretId: selectedSecret.Name }));
+		await sm().send(new CancelRotateSecretCommand({ SecretId: selectedSecret.Name }));
 		toast.success('Rotation cancelled');
 		await viewSecret(selectedSecret);
 	} catch (e) {
@@ -265,7 +265,7 @@ async function addTag() {
 		return;
 	}
 	try {
-		await sm.send(new TagResourceCommand({
+		await sm().send(new TagResourceCommand({
 			SecretId: selectedSecret.Name,
 			Tags: [{ Key: tagKey.trim(), Value: tagValue.trim() }]
 		}));
@@ -281,7 +281,7 @@ async function addTag() {
 async function removeTag(key: string) {
 	if (!selectedSecret?.Name) return;
 	try {
-		await sm.send(new UntagResourceCommand({ SecretId: selectedSecret.Name, TagKeys: [key] }));
+		await sm().send(new UntagResourceCommand({ SecretId: selectedSecret.Name, TagKeys: [key] }));
 		const updated = { ...secretTags };
 		delete updated[key];
 		secretTags = updated;
@@ -294,7 +294,7 @@ async function removeTag(key: string) {
 async function deleteSecret(name: string) {
 	if (!await confirmDestructive({ title: 'Delete Secret', message: `Delete secret "${name}"? Applications using this secret will lose access immediately.` })) return;
 	try {
-		await sm.send(new DeleteSecretCommand({ SecretId: name }));
+		await sm().send(new DeleteSecretCommand({ SecretId: name }));
 		toast.success(`Secret "${name}" deleted`);
 		if (selectedSecret?.Name === name) {
 			activeTab = 'secrets';
@@ -314,7 +314,7 @@ async function createSecret() {
 	}
 
 	try {
-		await sm.send(new CreateSecretCommand({
+		await sm().send(new CreateSecretCommand({
 			Name: newSecretName.trim(),
 			Description: newSecretDescription.trim() || undefined,
 			SecretString: newSecretValue || undefined,
@@ -335,7 +335,7 @@ async function createSecret() {
 async function restoreSecret(name: string) {
 	if (!await confirmDestructive({ title: 'Restore Secret', message: `Restore secret "${name}" from pending deletion?` })) return;
 	try {
-		await sm.send(new RestoreSecretCommand({ SecretId: name }));
+		await sm().send(new RestoreSecretCommand({ SecretId: name }));
 		toast.success(`Secret "${name}" restored`);
 		await loadSecrets();
 	} catch (e) {
@@ -375,7 +375,7 @@ async function seedDemoData() {
 	let created = 0;
 	for (const d of demos) {
 		try {
-			await sm.send(new CreateSecretCommand({ Name: d.name, Description: d.description, SecretString: d.value }));
+			await sm().send(new CreateSecretCommand({ Name: d.name, Description: d.description, SecretString: d.value }));
 			created++;
 		} catch {
 			// skip if already exists

@@ -132,7 +132,8 @@ func TestAgentsHandler_KnowledgeBaseAssociationUpdateAndDocumentGet(t *testing.T
 	assert.Equal(t, "DISABLED", assoc["agentKnowledgeBase"].(map[string]any)["knowledgeBaseState"])
 
 	docPath := fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID)
-	rec = doAgentRequest(t, h, http.MethodPost, docPath, map[string]any{"documentIds": []string{"one", "two"}})
+	// Real IngestKnowledgeBaseDocuments is PUT.
+	rec = doAgentRequest(t, h, http.MethodPut, docPath, map[string]any{"documentIds": []string{"one", "two"}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	rec = doAgentRequest(t, h, http.MethodPost, docPath+"/getDocuments", map[string]any{"documentIds": []string{"two"}})
 	require.Equal(t, http.StatusOK, rec.Code)

@@ -352,13 +352,19 @@ func TestHandler_GetSupportedOperationsIncludesPipes(t *testing.T) {
 	}
 }
 
-func TestHandler_GetSupportedOperationsIncludesPolicyOps(t *testing.T) {
+// TestHandler_GetSupportedOperationsExcludesPolicyOps verifies GetEventBusPolicy
+// and PutEventBusPolicy are NOT advertised: neither is a real EventBridge SDK
+// operation (see the doc comment beside their omission in
+// Handler.GetSupportedOperations()), so a real AWS SDK client can never send
+// them and the sdkcheck reverse-completeness check must not see them as
+// "supported". They remain reachable internal-only via policyActions().
+func TestHandler_GetSupportedOperationsExcludesPolicyOps(t *testing.T) {
 	t.Parallel()
 	h := eventbridge.NewHandler(newBackend())
 	ops := h.GetSupportedOperations()
 
-	assert.Contains(t, ops, "GetEventBusPolicy")
-	assert.Contains(t, ops, "PutEventBusPolicy")
+	assert.NotContains(t, ops, "GetEventBusPolicy")
+	assert.NotContains(t, ops, "PutEventBusPolicy")
 }
 
 func TestHandler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *testing.T) {
@@ -380,7 +386,7 @@ func TestHandler_GetSupportedOperationsIncludesDeliveryTargetTypes(t *testing.T)
 		"ListApiDestinations", "UpdateApiDestination",
 		"CreateEndpoint", "DeleteEndpoint", "DescribeEndpoint", "ListEndpoints", "UpdateEndpoint",
 		"CreatePipe", "DeletePipe", "DescribePipe", "ListPipes", "UpdatePipe",
-		"PutPermission", "RemovePermission", "GetEventBusPolicy", "PutEventBusPolicy",
+		"PutPermission", "RemovePermission",
 		"TagResource", "UntagResource", "ListTagsForResource",
 		"TestEventPattern", "ListRuleNamesByTarget",
 	}
@@ -398,9 +404,9 @@ func TestHandler_SchemaOperationsIncluded(t *testing.T) {
 	schemaOps := []string{
 		"CreateRegistry", "DeleteRegistry", "DescribeRegistry", "ListRegistries", "UpdateRegistry",
 		"CreateSchema", "DeleteSchema", "DescribeSchema", "ListSchemas", "SearchSchemas", "UpdateSchema",
-		"ListSchemaVersions", "DescribeSchemaVersion", "DeleteSchemaVersion",
+		"ListSchemaVersions", "DeleteSchemaVersion",
 		"GetDiscoveredSchema",
-		"PutCodeBinding", "DescribeCodeBinding", "ListCodeBindings", "GetCodeBindingSource",
+		"PutCodeBinding", "DescribeCodeBinding", "GetCodeBindingSource",
 	}
 	for _, op := range schemaOps {
 		assert.Contains(t, ops, op, "missing schema operation: %s", op)

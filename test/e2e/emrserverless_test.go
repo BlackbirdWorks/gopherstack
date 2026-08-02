@@ -143,11 +143,23 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Click the application to load its job runs.
-	err = page.Locator("button:has-text('e2e-hive-app')").First().Click()
+	// The Applications tab (the default tab) auto-selects the first
+	// application once it loads -- wait for the app to render there before
+	// switching to Job Runs, so the app-scoped fetch has something to scope
+	// to. The rebuilt page has no per-row "click app to load its job runs"
+	// button; application selection for the app-scoped tabs is the
+	// #app-select dropdown, seeded from this auto-selection.
+	err = page.Locator("td:has-text('e2e-hive-app')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
 	require.NoError(t, err)
 
-	err = page.Locator("text=e2e-hive-job").WaitFor(playwright.LocatorWaitForOptions{
+	// Switch to the Job Runs tab to load job runs for the selected app.
+	err = page.Locator("#tab-jobRuns").Click()
+	require.NoError(t, err)
+
+	err = page.Locator("td:has-text('e2e-hive-job')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
@@ -158,7 +170,12 @@ func TestEMRServerlessDashboard_JobRuns(t *testing.T) {
 	assert.Contains(t, content, jr.JobRunID)
 }
 
-// TestEMRServerlessDashboard_Filtering verifies state filter buttons work.
+// TestEMRServerlessDashboard_Filtering verifies job run state renders
+// correctly for distinct states and that the Job Runs search box narrows
+// the visible list. The rebuilt page has no per-state filter buttons (only
+// ListJobRuns' "states" query param, exercised directly against the backend
+// by TestEMRServerlessDashboard_StateFilter) -- filtering in the UI is the
+// same free-text SearchInput every other tab on this page uses.
 func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	stack := newStack(t)
 
@@ -219,30 +236,39 @@ func TestEMRServerlessDashboard_Filtering(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Click the application to load job runs.
-	err = page.Locator("button:has-text('e2e-filter-app')").First().Click()
-	require.NoError(t, err)
-
-	// Wait for job runs to appear.
-	err = page.Locator("text=running-job").WaitFor(playwright.LocatorWaitForOptions{
+	// The app is auto-selected once the Applications tab (the default tab)
+	// loads it; wait for that before switching to Job Runs.
+	err = page.Locator("td:has-text('e2e-filter-app')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})
 	require.NoError(t, err)
 
-	// Both jobs should be visible with ALL filter.
+	err = page.Locator("#tab-jobRuns").Click()
+	require.NoError(t, err)
+
+	// Wait for job runs to appear.
+	err = page.Locator("td:has-text('running-job')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+
+	// Both jobs, in their distinct states, should be visible unfiltered.
 	content, err := page.Content()
 	require.NoError(t, err)
 	assert.Contains(t, content, "running-job")
 	assert.Contains(t, content, "submitted-job")
+	assert.Contains(t, content, "CANCELLED")
+	assert.Contains(t, content, "SUBMITTED")
 
-	// Click CANCELLED filter.
-	err = page.Locator("button:has-text('CANCELLED')").Click()
+	// Narrow the list with the Job Runs tab's search box.
+	err = page.Locator("input[placeholder='Search...']").Fill("running")
 	require.NoError(t, err)
 
-	// Wait for the CANCELLED filter to apply (submitted-job should disappear).
-	err = page.Locator("text=running-job").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
+	// Wait for the filter to apply (submitted-job should disappear).
+	err = page.Locator("td:has-text('submitted-job')").WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateHidden,
 		Timeout: playwright.Float(5000),
 	})
 	require.NoError(t, err)
@@ -301,7 +327,11 @@ func TestEMRServerlessDashboard_Refresh(t *testing.T) {
 	err = page.Locator("button:has-text('Refresh')").Click()
 	require.NoError(t, err)
 
-	err = page.Locator("text=refresh-test-app").WaitFor(playwright.LocatorWaitForOptions{
+	// Scoped to the table cell: the app's name also appears in the (hidden
+	// but still-mounted) Submit Job Run / Start Session modals once it is
+	// auto-selected, so an unscoped "text=" locator strict-mode-violates on
+	// 3 matches.
+	err = page.Locator("td:has-text('refresh-test-app')").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
 	})

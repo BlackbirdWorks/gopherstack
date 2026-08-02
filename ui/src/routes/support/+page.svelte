@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getSupportClient } from '$lib/aws-client';
 	import {
 		DescribeCasesCommand,
@@ -29,7 +30,7 @@
 		ChevronUp
 	} from 'lucide-svelte';
 
-	const support = getSupportClient();
+	const support = regionalClient(getSupportClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'cases' | 'services' | 'create'>('cases');
@@ -74,11 +75,15 @@
 
 	async function loadData() {
 		loading = true;
+		// `includedResolved` is read with `untrack` so it never becomes a
+		// dependency of the `onRegionChange` effect below -- the "include
+		// resolved" checkbox's onchange already calls loadData directly.
+		const currentIncludedResolved = untrack(() => includedResolved);
 		try {
 			const [caseResp, sevResp, svcResp] = await Promise.all([
-				support.send(new DescribeCasesCommand({ includeResolvedCases: includedResolved })),
-				support.send(new DescribeSeverityLevelsCommand({})),
-				support.send(new DescribeServicesCommand({}))
+				support().send(new DescribeCasesCommand({ includeResolvedCases: currentIncludedResolved })),
+				support().send(new DescribeSeverityLevelsCommand({})),
+				support().send(new DescribeServicesCommand({}))
 			]);
 			cases = caseResp.cases ?? [];
 			severityLevels = sevResp.severityLevels ?? [];
@@ -107,7 +112,7 @@
 	async function loadCommunications(caseId: string) {
 		loadingComms = true;
 		try {
-			const resp = await support.send(new DescribeCommunicationsCommand({ caseId }));
+			const resp = await support().send(new DescribeCommunicationsCommand({ caseId }));
 			communications = resp.communications ?? [];
 		} catch (e) {
 			toast.error('Failed to load communications: ' + String(e));
@@ -120,7 +125,7 @@
 		if (!selectedCase?.caseId || !replyBody.trim()) return;
 		sendingReply = true;
 		try {
-			await support.send(
+			await support().send(
 				new AddCommunicationToCaseCommand({
 					caseId: selectedCase.caseId,
 					communicationBody: replyBody.trim()
@@ -143,7 +148,7 @@
 		}
 		creating = true;
 		try {
-			await support.send(
+			await support().send(
 				new CreateCaseCommand({
 					subject: createSubject.trim(),
 					communicationBody: createBody.trim(),
@@ -168,7 +173,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
@@ -270,9 +275,8 @@
 			<div class="p-4 space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Subject <span class="text-red-500">*</span></label
-					>
-					<input
+						 for="create-subject">Subject <span class="text-red-500">*</span></label>
+					<input id="create-subject"
 						bind:value={createSubject}
 						placeholder="Briefly describe your issue"
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -282,9 +286,8 @@
 				<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Service <span class="text-red-500">*</span></label
-						>
-						<select
+							 for="create-service-code">Service <span class="text-red-500">*</span></label>
+						<select id="create-service-code"
 							bind:value={createServiceCode}
 							onchange={() => (createCategoryCode = '')}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -298,9 +301,8 @@
 
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Category</label
-						>
-						<select
+							 for="create-category-code">Category</label>
+						<select id="create-category-code"
 							bind:value={createCategoryCode}
 							disabled={!createServiceCode}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white disabled:opacity-50"
@@ -314,9 +316,8 @@
 
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Severity <span class="text-red-500">*</span></label
-						>
-						<select
+							 for="create-severity-code">Severity <span class="text-red-500">*</span></label>
+						<select id="create-severity-code"
 							bind:value={createSeverityCode}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -329,9 +330,8 @@
 
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Language</label
-						>
-						<select
+							 for="create-language">Language</label>
+						<select id="create-language"
 							bind:value={createLanguage}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -345,9 +345,8 @@
 
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Description <span class="text-red-500">*</span></label
-					>
-					<textarea
+						 for="create-body">Description <span class="text-red-500">*</span></label>
+					<textarea id="create-body"
 						bind:value={createBody}
 						rows={6}
 						placeholder="Describe your issue in detail..."

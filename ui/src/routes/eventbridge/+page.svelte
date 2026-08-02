@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getEventBridgeClient } from '$lib/aws-client';
 	import {
 		ListEventBusesCommand,
@@ -35,7 +35,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Zap, Search, RefreshCw, Plus, Trash2, Send, List, Bus, ArchiveIcon, Link, BookOpen, FlaskConical, Play, Pause, Database } from 'lucide-svelte';
 
-	const eb = getEventBridgeClient();
+	const eb = regionalClient(getEventBridgeClient);
 	type Tab = 'buses' | 'rules' | 'archives' | 'connections' | 'docs';
 	let loading = $state(false);
 	let buses = $state<EventBus[]>([]);
@@ -99,38 +99,38 @@
 
 	async function loadBuses() {
 		loading = true;
-		try { const res = await eb.send(new ListEventBusesCommand({ Limit: 100 })); buses = res.EventBuses ?? []; }
+		try { const res = await eb().send(new ListEventBusesCommand({ Limit: 100 })); buses = res.EventBuses ?? []; }
 		catch (err: unknown) { toast.error(`Failed to load event buses: ${(err as Error).message}`); }
 		finally { loading = false; }
 	}
 	async function loadArchives() {
 		loadingArchives = true;
-		try { const res = await eb.send(new ListArchivesCommand({ Limit: 100 })); archives = res.Archives ?? []; }
+		try { const res = await eb().send(new ListArchivesCommand({ Limit: 100 })); archives = res.Archives ?? []; }
 		catch (err: unknown) { toast.error(`Failed to load archives: ${(err as Error).message}`); }
 		finally { loadingArchives = false; }
 	}
 	async function loadConnections() {
 		loadingConnections = true;
-		try { const res = await eb.send(new ListConnectionsCommand({ Limit: 100 })); connections = res.Connections ?? []; }
+		try { const res = await eb().send(new ListConnectionsCommand({ Limit: 100 })); connections = res.Connections ?? []; }
 		catch (err: unknown) { toast.error(`Failed to load connections: ${(err as Error).message}`); }
 		finally { loadingConnections = false; }
 	}
 	async function createBus() {
 		if (!newBusName.trim()) return;
 		creatingBus = true;
-		try { await eb.send(new CreateEventBusCommand({ Name: newBusName.trim() })); toast.success(`Event bus "${newBusName.trim()}" created`); showCreateBusModal = false; newBusName = ''; await loadBuses(); }
+		try { await eb().send(new CreateEventBusCommand({ Name: newBusName.trim() })); toast.success(`Event bus "${newBusName.trim()}" created`); showCreateBusModal = false; newBusName = ''; await loadBuses(); }
 		catch (err: unknown) { toast.error(`Create failed: ${(err as Error).message}`); }
 		finally { creatingBus = false; }
 	}
 	async function deleteBus(name: string) {
 		if (!(await confirmDestructive({ title: 'Delete Event Bus', message: `Delete event bus "${name}"?` }))) return;
-		try { await eb.send(new DeleteEventBusCommand({ Name: name })); toast.success(`Event bus "${name}" deleted`); if (selectedBus?.Name === name) { selectedBus = null; rules = []; } await loadBuses(); }
+		try { await eb().send(new DeleteEventBusCommand({ Name: name })); toast.success(`Event bus "${name}" deleted`); if (selectedBus?.Name === name) { selectedBus = null; rules = []; } await loadBuses(); }
 		catch (err: unknown) { toast.error(`Delete failed: ${(err as Error).message}`); }
 	}
 	async function selectBus(bus: EventBus) { selectedBus = bus; activeTab = 'rules'; await loadRules(bus.Name ?? 'default'); }
 	async function loadRules(busName: string) {
 		loadingRules = true;
-		try { const res = await eb.send(new ListRulesCommand({ EventBusName: busName, Limit: 100 })); rules = res.Rules ?? []; }
+		try { const res = await eb().send(new ListRulesCommand({ EventBusName: busName, Limit: 100 })); rules = res.Rules ?? []; }
 		catch (err: unknown) { toast.error(`Failed to load rules: ${(err as Error).message}`); }
 		finally { loadingRules = false; }
 	}
@@ -142,7 +142,7 @@
 		newTargetId = '';
 		loadingTargets = true;
 		try {
-			const res = await eb.send(new ListTargetsByRuleCommand({ Rule: rule.Name, EventBusName: selectedBus?.Name }));
+			const res = await eb().send(new ListTargetsByRuleCommand({ Rule: rule.Name, EventBusName: selectedBus?.Name }));
 			ruleTargets = res.Targets ?? [];
 		} catch (err: unknown) { toast.error(`Failed to load targets: ${(err as Error).message}`); }
 		finally { loadingTargets = false; }
@@ -152,7 +152,7 @@
 		addingTarget = true;
 		try {
 			const id = newTargetId.trim() || `target-${Date.now()}`;
-			const res = await eb.send(new PutTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Targets: [{ Id: id, Arn: newTargetArn.trim() }] }));
+			const res = await eb().send(new PutTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Targets: [{ Id: id, Arn: newTargetArn.trim() }] }));
 			if ((res.FailedEntryCount ?? 0) > 0) {
 				toast.error(`Failed: ${res.FailedEntries?.[0]?.ErrorMessage ?? 'unknown error'}`);
 			} else {
@@ -167,7 +167,7 @@
 	}
 	async function removeTarget(ruleName: string, id: string) {
 		try {
-			await eb.send(new RemoveTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Ids: [id] }));
+			await eb().send(new RemoveTargetsCommand({ Rule: ruleName, EventBusName: selectedBus?.Name, Ids: [id] }));
 			toast.success('Target removed');
 			ruleTargets = ruleTargets.filter((t) => t.Id !== id);
 		} catch (err: unknown) { toast.error(`Remove target failed: ${(err as Error).message}`); }
@@ -182,7 +182,7 @@
 		replayEnd = now.toISOString().slice(0, 16);
 		replayStart = new Date(now.getTime() - 24 * 3600 * 1000).toISOString().slice(0, 16);
 		try {
-			const res = await eb.send(new DescribeArchiveCommand({ ArchiveName: archive.ArchiveName }));
+			const res = await eb().send(new DescribeArchiveCommand({ ArchiveName: archive.ArchiveName }));
 			replayArchiveArn = res.ArchiveArn ?? '';
 		} catch {
 			// fall back to manual entry
@@ -195,7 +195,7 @@
 		}
 		startingReplay = true;
 		try {
-			await eb.send(new StartReplayCommand({
+			await eb().send(new StartReplayCommand({
 				ReplayName: replayName.trim(),
 				EventSourceArn: replayArchiveArn.trim(),
 				Destination: { Arn: replayBusArn.trim() },
@@ -216,20 +216,20 @@
 		try {
 			const params: PutRuleCommandInput = { Name: newRuleName.trim(), EventBusName: selectedBus.Name, State: newRuleState };
 			if (newRuleType === 'schedule') { params.ScheduleExpression = newRuleSchedule; } else { params.EventPattern = newRulePattern; }
-			await eb.send(new PutRuleCommand(params)); toast.success(`Rule "${newRuleName.trim()}" created`); showCreateRuleModal = false; newRuleName = ''; await loadRules(selectedBus.Name ?? 'default');
+			await eb().send(new PutRuleCommand(params)); toast.success(`Rule "${newRuleName.trim()}" created`); showCreateRuleModal = false; newRuleName = ''; await loadRules(selectedBus.Name ?? 'default');
 		} catch (err: unknown) { toast.error(`Create rule failed: ${(err as Error).message}`); }
 		finally { creatingRule = false; }
 	}
 	async function deleteRule(ruleName: string) {
 		if (!selectedBus || !(await confirmDestructive({ title: 'Delete EventBridge Rule', message: `Delete rule "${ruleName}"?` }))) return;
-		try { await eb.send(new DeleteRuleCommand({ Name: ruleName, EventBusName: selectedBus.Name })); toast.success(`Rule "${ruleName}" deleted`); await loadRules(selectedBus.Name ?? 'default'); }
+		try { await eb().send(new DeleteRuleCommand({ Name: ruleName, EventBusName: selectedBus.Name })); toast.success(`Rule "${ruleName}" deleted`); await loadRules(selectedBus.Name ?? 'default'); }
 		catch (err: unknown) { toast.error(`Delete rule failed: ${(err as Error).message}`); }
 	}
 	async function toggleRule(rule: Rule) {
 		if (!selectedBus) return;
 		try {
-			if (rule.State === 'ENABLED') { await eb.send(new DisableRuleCommand({ Name: rule.Name, EventBusName: selectedBus.Name })); toast.success(`Rule "${rule.Name}" disabled`); }
-			else { await eb.send(new EnableRuleCommand({ Name: rule.Name, EventBusName: selectedBus.Name })); toast.success(`Rule "${rule.Name}" enabled`); }
+			if (rule.State === 'ENABLED') { await eb().send(new DisableRuleCommand({ Name: rule.Name, EventBusName: selectedBus.Name })); toast.success(`Rule "${rule.Name}" disabled`); }
+			else { await eb().send(new EnableRuleCommand({ Name: rule.Name, EventBusName: selectedBus.Name })); toast.success(`Rule "${rule.Name}" enabled`); }
 			await loadRules(selectedBus.Name ?? 'default');
 		} catch (err: unknown) { toast.error(`Toggle failed: ${(err as Error).message}`); }
 	}
@@ -237,7 +237,7 @@
 		puttingEvents = true;
 		try {
 			let detail = evtDetail; try { JSON.parse(detail); } catch { detail = '{}'; }
-			await eb.send(new PutEventsCommand({ Entries: [{ Source: evtSource, DetailType: evtDetailType, Detail: detail, EventBusName: evtBusName }] }));
+			await eb().send(new PutEventsCommand({ Entries: [{ Source: evtSource, DetailType: evtDetailType, Detail: detail, EventBusName: evtBusName }] }));
 			toast.success('Event sent successfully'); showPutEventsModal = false;
 		} catch (err: unknown) { toast.error(`Put events failed: ${(err as Error).message}`); }
 		finally { puttingEvents = false; }
@@ -246,35 +246,35 @@
 		if (!newArchiveName.trim() || !newArchiveSource.trim()) return;
 		creatingArchive = true;
 		try {
-			await eb.send(new CreateArchiveCommand({ ArchiveName: newArchiveName.trim(), EventSourceArn: newArchiveSource.trim(), RetentionDays: newArchiveRetention > 0 ? newArchiveRetention : undefined, EventPattern: newArchivePattern.trim() || undefined }));
+			await eb().send(new CreateArchiveCommand({ ArchiveName: newArchiveName.trim(), EventSourceArn: newArchiveSource.trim(), RetentionDays: newArchiveRetention > 0 ? newArchiveRetention : undefined, EventPattern: newArchivePattern.trim() || undefined }));
 			toast.success(`Archive "${newArchiveName.trim()}" created`); showCreateArchiveModal = false; newArchiveName = ''; newArchiveSource = ''; newArchiveRetention = 0; newArchivePattern = ''; await loadArchives();
 		} catch (err: unknown) { toast.error(`Create archive failed: ${(err as Error).message}`); }
 		finally { creatingArchive = false; }
 	}
 	async function deleteArchive(name: string) {
 		if (!(await confirmDestructive({ title: 'Delete Archive', message: `Delete archive "${name}"?` }))) return;
-		try { await eb.send(new DeleteArchiveCommand({ ArchiveName: name })); toast.success(`Archive "${name}" deleted`); await loadArchives(); }
+		try { await eb().send(new DeleteArchiveCommand({ ArchiveName: name })); toast.success(`Archive "${name}" deleted`); await loadArchives(); }
 		catch (err: unknown) { toast.error(`Delete archive failed: ${(err as Error).message}`); }
 	}
 	async function createConnection() {
 		if (!newConnectionName.trim()) return;
 		creatingConnection = true;
 		try {
-			await eb.send(new CreateConnectionCommand({ Name: newConnectionName.trim(), AuthorizationType: newConnectionAuthType as ConnectionAuthorizationType, AuthParameters: { ApiKeyAuthParameters: { ApiKeyName: 'x-api-key', ApiKeyValue: 'placeholder' } } }));
+			await eb().send(new CreateConnectionCommand({ Name: newConnectionName.trim(), AuthorizationType: newConnectionAuthType as ConnectionAuthorizationType, AuthParameters: { ApiKeyAuthParameters: { ApiKeyName: 'x-api-key', ApiKeyValue: 'placeholder' } } }));
 			toast.success(`Connection "${newConnectionName.trim()}" created`); showCreateConnectionModal = false; newConnectionName = ''; await loadConnections();
 		} catch (err: unknown) { toast.error(`Create connection failed: ${(err as Error).message}`); }
 		finally { creatingConnection = false; }
 	}
 	async function deleteConnection(name: string) {
 		if (!(await confirmDestructive({ title: 'Delete Connection', message: `Delete connection "${name}"?` }))) return;
-		try { await eb.send(new DeleteConnectionCommand({ Name: name })); toast.success(`Connection "${name}" deleted`); await loadConnections(); }
+		try { await eb().send(new DeleteConnectionCommand({ Name: name })); toast.success(`Connection "${name}" deleted`); await loadConnections(); }
 		catch (err: unknown) { toast.error(`Delete connection failed: ${(err as Error).message}`); }
 	}
 	async function testEventPattern() {
 		testingPattern = true; testPatternResult = null;
 		try {
 			try { JSON.parse(testEvent); } catch { toast.error('Event must be valid JSON'); return; }
-			const res = await eb.send(new TestEventPatternCommand({ EventPattern: testPattern, Event: testEvent }));
+			const res = await eb().send(new TestEventPatternCommand({ EventPattern: testPattern, Event: testEvent }));
 			testPatternResult = res.Result ?? false;
 			toast.info(testPatternResult ? 'Pattern matches event' : 'Pattern does not match event');
 		} catch (err: unknown) { toast.error(`Test failed: ${(err as Error).message}`); }
@@ -283,14 +283,14 @@
 	async function loadDemoData() {
 		seedingDemo = true;
 		try {
-			await eb.send(new CreateEventBusCommand({ Name: 'demo-app-events' })).catch(() => {});
-			await eb.send(new PutRuleCommand({ Name: 'demo-order-rule', EventBusName: 'demo-app-events', EventPattern: JSON.stringify({ source: ['demo.shop'], 'detail-type': ['OrderPlaced'] }), State: 'ENABLED', Description: 'Fires when an order is placed' })).catch(() => {});
-			await eb.send(new PutEventsCommand({ Entries: [{ Source: 'demo.shop', DetailType: 'OrderPlaced', Detail: JSON.stringify({ orderId: 'ord-001', amount: 42.0 }), EventBusName: 'demo-app-events' }] })).catch(() => {});
+			await eb().send(new CreateEventBusCommand({ Name: 'demo-app-events' })).catch(() => {});
+			await eb().send(new PutRuleCommand({ Name: 'demo-order-rule', EventBusName: 'demo-app-events', EventPattern: JSON.stringify({ source: ['demo.shop'], 'detail-type': ['OrderPlaced'] }), State: 'ENABLED', Description: 'Fires when an order is placed' })).catch(() => {});
+			await eb().send(new PutEventsCommand({ Entries: [{ Source: 'demo.shop', DetailType: 'OrderPlaced', Detail: JSON.stringify({ orderId: 'ord-001', amount: 42.0 }), EventBusName: 'demo-app-events' }] })).catch(() => {});
 			toast.success('Demo data seeded'); await loadBuses();
 		} catch (err: unknown) { toast.error(`Seed failed: ${(err as Error).message}`); }
 		finally { seedingDemo = false; }
 	}
-	onMount(() => { loadBuses(); });
+	onRegionChange(() => { loadBuses(); });
 
 	const tabs: { id: Tab; label: string; icon: typeof Zap }[] = [
 		{ id: 'buses', label: 'Event Buses', icon: Bus },

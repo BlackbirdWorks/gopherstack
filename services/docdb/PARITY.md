@@ -2,8 +2,9 @@
 service: docdb
 sdk_module: aws-sdk-go-v2/service/docdb@v1.48.11
 last_audit_commit: 04b49136
-last_audit_date: 2026-07-23
+last_audit_date: 2026-07-31
 overall: A            # this pass: 3 real feature gaps closed (GlobalCluster members, real events log, real pending-maintenance queue), 2 disguised no-op bugs fixed (ResetDBClusterParameterGroup, CreateEventSubscription arg-swap), 1 wire-field gap fixed (EventSubscription response), 2 cosmetic gaps closed
+                      # 2026-07-31 (browser parity pass): RouteMatcher checked only the User-Agent header for the "api/docdb" marker, which a browser cannot set (Fetch spec forbids scripts from setting User-Agent) -- the AWS SDK for JavaScript in a browser puts its SDK identification in X-Amz-User-Agent instead, so every browser dashboard DocDB request (@aws-sdk/client-docdb) fell through unmatched. Also confirmed the marker itself needed case-insensitive matching: the JS SDK's serviceId-derived marker is "api/DocDB" (PascalCase), not aws-sdk-go-v2's lowercase "api/docdb". Fixed via the new pkgs/service.MatchesUserAgentMarker helper, shared with the identical bug class fixed the same pass in mediastoredata/neptune/appsync. Grade held at A: fixed, not deferred.
 ops:
   # DBCluster family
   CreateDBCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: AvailabilityZones + VpcSecurityGroupIds request field names were wrong (see families.DBCluster). This pass: now records a real activity-log event on create (see Events family)."}

@@ -49,7 +49,16 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		"BatchUpdateCluster",
 		"CopySnapshot",
-		"ExportSnapshot",
+		// "ExportSnapshot" is deliberately NOT advertised — it is not a real
+		// MemoryDB SDK operation (verified against botocore's memorydb
+		// service-2.json: only CopySnapshot/CreateSnapshot/DeleteSnapshot/
+		// DescribeSnapshots exist in the snapshot family; MemoryDB has no
+		// export-to-S3 API at all). MemoryDB dispatches purely by X-Amz-Target
+		// header value, so a real client can never send this target and the
+		// route (handleExportSnapshot, a validate-and-return no-op) is
+		// unreachable by real traffic either way; it stays wired as internal
+		// test scaffolding only — see gopherstack-vhw2 category A, same
+		// resolution as DAX's ResetParameterGroup and EMR's ListTagsForResource.
 		"CreateACL",
 		"CreateCluster",
 		"CreateMultiRegionCluster",

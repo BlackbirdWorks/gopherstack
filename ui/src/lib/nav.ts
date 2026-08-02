@@ -35,7 +35,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "cloudwatch",
   "cloudwatchlogs",
   "codebuild",
-  "cognito",
   "cognitoidentity",
   "cognitoidp",
   "codepipeline",
@@ -61,7 +60,6 @@ export const implementedDashboardRouteIds = new Set<string>([
   "kinesis",
   "kms",
   "lambda",
-  "lightsail",
   "msk",
   "opensearch",
   "rds",
@@ -91,6 +89,7 @@ export const implementedDashboardRouteIds = new Set<string>([
   "mediaconvert",
   "memorydb",
   "dms",
+  "directconnect",
   "docdb",
   "efs",
   "sagemaker",
@@ -98,9 +97,10 @@ export const implementedDashboardRouteIds = new Set<string>([
   "codecommit",
   "codeartifact",
   "ram",
-  "resource-health",
+  "resources",
   "verifiedpermissions",
   "emrserverless",
+  "kinesisanalytics",
   "textract",
   "transcribe",
   "translate",
@@ -116,15 +116,11 @@ export const implementedDashboardRouteIds = new Set<string>([
   "fsx",
   "glacier",
   "ssoadmin",
-  "networkmanager",
-  "outposts",
-  "directconnect",
   "resiliencehub",
+  "networkmanager",
   "appstream",
   "bedrockruntime",
   "cloudcontrol",
-  "grafana",
-  "mgn",
   "polly",
   "route53resolver",
   "s3control",
@@ -146,17 +142,21 @@ export const implementedDashboardRouteIds = new Set<string>([
   "directoryservice",
   "dlm",
   "forecast",
+  "grafana",
   "macie2",
   "medialive",
   "mediapackage",
   "mediatailor",
+  "outposts",
   "personalize",
   "quicksight",
   "rolesanywhere",
   "workmail",
+  "mgn",
+  "lightsail",
 ]);
 
-// The 25 most commonly used AWS services shown in the sidebar.
+// The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
 // S3 and DynamoDB are pinned first as core services via the core-services category.
 export const sidebarCategories: DashboardCategory[] = [
   {
@@ -204,13 +204,6 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "iam", href: "/dashboard/iam", label: "IAM", icon: "iam", common: true },
       {
-        id: "cognito",
-        href: "/dashboard/cognito",
-        label: "Cognito",
-        icon: "cognito",
-        common: true,
-      },
-      {
         id: "cognitoidentity",
         href: "/dashboard/cognitoidentity",
         label: "Cognito Identity",
@@ -241,6 +234,7 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "acm", href: "/dashboard/acm", label: "ACM", icon: "acm" },
       { id: "acmpca", href: "/dashboard/acmpca", label: "ACM PCA", icon: "acmpca" },
       { id: "wafv2", href: "/dashboard/wafv2", label: "WAF v2", icon: "wafv2" },
+      { id: "waf", href: "/dashboard/waf", label: "WAF Classic", icon: "waf" },
       { id: "guardduty", href: "/dashboard/guardduty", label: "GuardDuty", icon: "guardduty" },
       { id: "inspector", href: "/dashboard/inspector", label: "Inspector", icon: "inspector" },
       {
@@ -290,6 +284,7 @@ export const sidebarCategories: DashboardCategory[] = [
     routes: [
       { id: "batch", href: "/dashboard/batch", label: "Batch", icon: "batch" },
       { id: "ec2", href: "/dashboard/ec2", label: "EC2", icon: "ec2", common: true },
+      { id: "lightsail", href: "/dashboard/lightsail", label: "Lightsail", icon: "lightsail" },
       { id: "ecr", href: "/dashboard/ecr", label: "ECR", icon: "ecr", common: true },
       { id: "ecs", href: "/dashboard/ecs", label: "ECS", icon: "ecs", common: true },
       { id: "eks", href: "/dashboard/eks", label: "EKS", icon: "eks", common: true },
@@ -306,7 +301,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "Application Auto Scaling",
         icon: "applicationautoscaling",
       },
-      { id: "lightsail", href: "/dashboard/lightsail", label: "Lightsail", icon: "lightsail" },
       {
         id: "elasticbeanstalk",
         href: "/dashboard/elasticbeanstalk",
@@ -330,7 +324,6 @@ export const sidebarCategories: DashboardCategory[] = [
         common: true,
       },
       { id: "memorydb", href: "/dashboard/memorydb", label: "MemoryDB", icon: "memorydb" },
-      { id: "keyspaces", href: "/dashboard/keyspaces", label: "Keyspaces", icon: "keyspaces" },
       {
         id: "timestream",
         href: "/dashboard/timestream",
@@ -345,6 +338,12 @@ export const sidebarCategories: DashboardCategory[] = [
       },
       { id: "s3tables", href: "/dashboard/s3tables", label: "S3 Tables", icon: "s3tables" },
       { id: "emr", href: "/dashboard/emr", label: "EMR", icon: "emr" },
+      {
+        id: "emrserverless",
+        href: "/dashboard/emrserverless",
+        label: "EMR Serverless",
+        icon: "emrserverless",
+      },
       { id: "redshift", href: "/dashboard/redshift", label: "Redshift", icon: "redshift" },
       { id: "opensearch", href: "/dashboard/opensearch", label: "OpenSearch", icon: "opensearch" },
       {
@@ -363,15 +362,15 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "firehose", href: "/dashboard/firehose", label: "Firehose", icon: "firehose" },
       { id: "msk", href: "/dashboard/msk", label: "Managed Kafka", icon: "kafka" },
       {
-        id: "kinesisvideo",
-        href: "/dashboard/kinesisvideo",
-        label: "Kinesis Video",
+        id: "kinesisanalytics",
+        href: "/dashboard/kinesisanalytics",
+        label: "Kinesis Analytics v1",
         icon: "kinesis",
       },
       {
         id: "kinesisanalyticsv2",
         href: "/dashboard/kinesisanalyticsv2",
-        label: "Kinesis Analytics",
+        label: "Kinesis Analytics v2",
         icon: "kinesis",
       },
       { id: "dms", href: "/dashboard/dms", label: "DMS", icon: "dms" },
@@ -453,7 +452,6 @@ export const sidebarCategories: DashboardCategory[] = [
         label: "APIGW Management",
         icon: "apigatewaymanagementapi",
       },
-      { id: "appfabric", href: "/dashboard/appfabric", label: "AppFabric", icon: "appfabric" },
       { id: "mq", href: "/dashboard/mq", label: "MQ", icon: "mq", common: true },
       { id: "mwaa", href: "/dashboard/mwaa", label: "MWAA", icon: "mwaa", common: true },
       {
@@ -615,6 +613,12 @@ export const sidebarCategories: DashboardCategory[] = [
       { id: "elb", href: "/dashboard/elb", label: "ELB", icon: "elb" },
       { id: "elbv2", href: "/dashboard/elbv2", label: "ELB v2", icon: "elbv2", common: true },
       {
+        id: "directconnect",
+        href: "/dashboard/directconnect",
+        label: "Direct Connect",
+        icon: "directconnect",
+      },
+      {
         id: "globalaccelerator",
         href: "/dashboard/globalaccelerator",
         label: "Global Accelerator",
@@ -625,12 +629,6 @@ export const sidebarCategories: DashboardCategory[] = [
         href: "/dashboard/networkmanager",
         label: "Network Manager",
         icon: "networkmanager",
-      },
-      {
-        id: "directconnect",
-        href: "/dashboard/directconnect",
-        label: "Direct Connect",
-        icon: "directconnect",
       },
       {
         id: "servicediscovery",

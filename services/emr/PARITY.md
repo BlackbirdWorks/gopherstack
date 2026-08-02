@@ -5,20 +5,34 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
-sdk_module: aws-sdk-go-v2/service/emr@v1.64.0   # version audited against (bumped from v1.57.7; +5 new ops)
-last_audit_commit: 44f89c945                    # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
-last_audit_date: 2026-07-25
-overall: A                # 2026-07-25: implemented the interactive-session family (StartSession/GetSession/
+sdk_module: aws-sdk-go-v2/service/emr@v1.64.0   # version audited against (unchanged this pass)
+last_audit_commit: 44f89c945                    # HEAD when the 2026-07-25 pass below was written; see 2026-07-31 section for this pass's fixes
+last_audit_date: 2026-07-31
+overall: A                # 2026-07-31: reverse-SDK-check triage (pkgs/sdkcheck, commit 12cfe14d5) found and fixed
+                           # five real defects the prior "A" (2026-07-25, see note below) missed: a phantom op
+                           # (ListTagsForResource -- no such EMR operation exists) wrongly documented "ok" below;
+                           # a fabricated ClusterSummary.ReleaseLabel field; a severe StartNotebookExecution wire
+                           # bug (wrong JSON tag silently dropped the real ExecutionEngine field, so
+                           # NotebookExecution.ExecutionEngineId was ALWAYS empty); and two Studio field-forwarding
+                           # bugs (CreateStudio dropped Description, UpdateStudio hardcoded SubnetIds to empty).
+                           # All five confirmed independently against aws-sdk-go-v2/service/emr@v1.64.0 (go doc +
+                           # types/*.go reads) before fixing, and all five now have regression tests that fail
+                           # against the pre-fix code (see per-op notes). Grade held at A because every finding
+                           # is now genuinely fixed and re-verified, not because nothing was wrong -- the prior
+                           # "A" rating was itself inaccurate on these five points; see the 2026-07-31 section
+                           # below for the honest accounting of what that means for trusting older "ok" rows.
+                           # 2026-07-25: implemented the interactive-session family (StartSession/GetSession/
                            # ListSessions/TerminateSession/GetSessionEndpoint), 5 ops the SDK bump revealed as
                            # unimplemented. Real emulation throughout: cluster-state gating, cluster-termination
                            # cascade, and a deliberately conservative session-state model (see Notes). No
                            # fabricated fields found this pass -- see per-op notes below for what was field-diffed.
+                           # (This "no fabricated fields" claim is the one the 2026-07-31 pass falsified.)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   RunJobFlow: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: deleted invented Instances.IamInstanceProfile field (no such member on real JobFlowInstancesConfig), added real top-level JobFlowRole field (-> Ec2InstanceAttributes.IamInstanceProfile); added inline KerberosAttributes/PlacementGroupConfigs/ManagedScalingPolicy/AutoTerminationPolicy support (previously only settable after creation via separate ops); added Instances.InstanceFleets support (previously RunJobFlow could only build instance-group clusters, fleets only attachable post-creation via AddInstanceFleet); prior pass fixed Timeline millis->epoch-seconds"}
   DescribeCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: added Cluster.KerberosAttributes/PlacementGroups/InstanceCollectionType/AutoTerminate (previously silently dropped/missing); remaining omitted optional Cluster fields (AutoScalingRole aside, e.g. MonitoringConfiguration/LogEncryptionKmsKeyId/OutpostArn/RepoUpgradeOnBoot/RequestedAmiVersion/RunningAmiVersion/MasterPublicDnsName/ExtendedSupport/NormalizedInstanceHours) are acceptable simplifications -- all optional pointer fields a real client sees as nil, not fabricated data"}
-  ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Status.Timeline in summaries (also fixed the sort, which read that same field); fixed CreatedAfter/CreatedBefore millis->epoch-seconds parsing"}
+  ListClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed missing Status.Timeline in summaries (also fixed the sort, which read that same field); fixed CreatedAfter/CreatedBefore millis->epoch-seconds parsing; 2026-07-31: deleted fabricated ClusterSummary.ReleaseLabel field -- real ClusterSummary has no such member (only Id, Name, Status, ClusterArn, NormalizedInstanceHours, OutpostArn); the field predates this pass (introduced in the Jul-18 refactor, missed by the 2026-07-25 audit's 'no fabricated fields found' claim) and was caught by the new pkgs/sdkcheck-style field diff done for this pass, not by the reverse op-name check"}
   TerminateJobFlows: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed EndDateTime millis->epoch-seconds"}
   ModifyCluster: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeJobFlows: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed CreatedAfter/CreatedBefore millis->epoch-seconds parsing"}
@@ -47,17 +61,17 @@ ops:
   GetBlockPublicAccessConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed metadata CreationDateTime ISO8601-string->epoch-seconds"}
   PutBlockPublicAccessConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   GetClusterSessionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed ExpiresAt ISO8601-string->epoch-seconds"}
-  CreateStudio: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime was a raw time.Time (RFC3339 on wire); now epoch seconds"}
+  CreateStudio: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime was a raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31: createStudioInput never declared the real CreateStudioInput.Description field at all, so a real client's Description was silently dropped (unknown-JSON-field-ignored, same failure mode as the StartNotebookExecution bug this pass) even though UpdateStudio -- the sibling op -- already applied the same field correctly, an unintentional asymmetry. Added the field, threaded through Backend.CreateStudio's new description parameter."}
   DescribeStudio: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStudios: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStudio: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateStudio: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-31: handleUpdateStudio hardcoded the backend's subnetIDs argument to \"\" instead of forwarding in.SubnetIDs -- real UpdateStudioInput.SubnetIds was accepted on the wire and silently discarded, never applied to the stored Studio. No test previously exercised UpdateStudio's SubnetIds at all (in fact no test called the UpdateStudio op at all). Backend.UpdateStudio's subnetIDsJSON string parameter (already unused -- `_ = subnetIDsJSON`) was changed to a real []string and now does a full replace when non-empty, matching real UpdateStudioInput.SubnetIds' documented full-replace-not-merge semantics."}
   DeleteStudio: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "CreationTime/LastModifiedTime same fix"}
   GetStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStudioSessionMappings: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStudioSessionMapping: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartTime/EndTime were raw time.Time (RFC3339 on wire); now epoch seconds"}
+  StartNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "StartTime/EndTime were raw time.Time (RFC3339 on wire); now epoch seconds. 2026-07-31 SEVERE FIX: the input's cluster reference was declared with JSON tag \"ExecutionEngineConfig\" (the real *type* name, types.ExecutionEngineConfig) instead of the real top-level *field* name \"ExecutionEngine\" -- a real client's ExecutionEngine was silently dropped by json.Unmarshal (unknown fields are ignored, not errored), so NotebookExecution.ExecutionEngineId was ALWAYS empty regardless of what cluster the caller named. Six existing tests sent the wrong \"ExecutionEngineConfig\" key and none asserted ExecutionEngineId was actually populated, so the bug passed silently; all six corrected to the real \"ExecutionEngine\" key and a new wire-shape test now asserts ExecutionEngineId round-trips."}
   StopNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeNotebookExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   ListNotebookExecutions: {wire: ok, errors: ok, state: ok, persist: ok, note: "reuses NotebookExecution (extra fields vs real NotebookExecutionSummary are harmless -- clients ignore unknown fields); deferred: not trimmed to the exact summary shape"}
@@ -67,7 +81,22 @@ ops:
   GetOnClusterAppUIPresignedURL: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-07-24 SEVERE FIX: response field was named \"URL\" -- GetOnClusterAppUIPresignedURLOutput has no such member, only \"PresignedURL\"/\"PresignedURLReady\"; a real client's output.PresignedURL always deserialized as nil since unknown JSON fields are silently dropped. Renamed and added PresignedURLReady."}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: extended to also match Studio resources by ID/ARN, not only clusters -- real AddTagsInput.ResourceId doc explicitly covers \"a cluster identifier or an Amazon EMR Studio ID\"; tagging a studio previously 400'd as resource-not-found"}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same Studio-resource fix as AddTags"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-07-24: same Studio-resource fix as AddTags"}
+  # ListTagsForResource is intentionally NOT listed as an op here. 2026-07-31
+  # CORRECTION: the row that used to live at this position ("ListTagsForResource:
+  # {wire: ok, ...}") documented a phantom operation -- real EMR has no such
+  # SDK method at all (verified against aws-sdk-go-v2/service/emr@v1.64.0: only
+  # AddTags/RemoveTags exist under the tags family; tags are read back via
+  # DescribeCluster.Tags/DescribeStudio.Tags). GetSupportedOperations() and
+  # ChaosOperations() no longer advertise it. The handler route and backend
+  # method of the same name are kept, unadvertised, as internal test/tooling
+  # scaffolding (this package's own tests use it to assert stored-tag state
+  # without hand-decoding Describe* output) -- same resolution as CloudFront's
+  # GetFunctionAssociations/SetFunctionAssociations (see that service's
+  # handler.go). Caught by pkgs/sdkcheck's new reverse check (commit
+  # 12cfe14d5), which flags supportedOps entries with no real SDK counterpart;
+  # confirmed via `go doc` against the installed v1.64.0 module and by grepping
+  # the SDK source tree for an api_op_ListTagsForResource.go that does not
+  # exist for this client.
   ListBootstrapActions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListInstances: {wire: partial, errors: ok, state: ok, persist: n/a, note: "synthesized instances are a simplification (no EbsVolumes/PublicIpAddress/etc); acceptable, not re-flagged"}
   ListReleaseLabels: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -426,3 +455,144 @@ the installed module plus direct reads of `serializers.go`/
 three nested logging-config types, and `types/enums.go` for
 `SessionState`. `go.mod`/`go.sum` were not touched by this pass (the bump
 to v1.64.0 had already landed before this work started).
+
+## 2026-07-31: reverse-SDK-check triage (five findings, five real bugs)
+
+A dashboard sweep, cross-checked against the real
+`aws-sdk-go-v2/service/emr@v1.64.0` module directly (`go doc` plus reading
+`types/types.go`/the relevant `api_op_*.go` files) before changing
+anything, produced five findings. All five were confirmed genuine -- none
+were misreadings of the ticket, unlike some findings elsewhere in this
+campaign.
+
+**1. Phantom operation: `ListTagsForResource`.** `GetSupportedOperations()`
+listed it and `handler_tags.go` fully wired it against `tags.go`, and the
+`AddTags`/`RemoveTags`/`ListTagsForResource` ops block above (written
+2026-07-24) marked it `wire: ok` -- but no such command exists on the real
+EMR SDK client at all (confirmed: `aws-sdk-go-v2/service/emr` has
+`api_op_AddTags.go` and `api_op_RemoveTags.go`, no `ListTagsForResource`
+file, method, or type of any kind; real tags are read back via
+`DescribeCluster.Tags`/`DescribeStudio.Tags`). This is exactly the class of
+error `pkgs/sdkcheck`'s new reverse check (commit `12cfe14d5`) exists to
+catch -- the forward check (`TestSDKCompleteness`) only ever verified every
+*real* op was covered, never that every *advertised* op was real, so this
+survived three prior audit passes undetected.
+  - **Keep-vs-delete decision:** checked for internal dependents before
+    deciding -- `cli.go`, the dashboard, and `ui/src/routes/emr/` do not
+    reference `ListTagsForResource` anywhere; only this package's own tests
+    (`handler_tags_test.go`, `handler_wire_shape_test.go`,
+    `isolation_test.go`, `persistence_test.go`) call it, and they call it as
+    a convenient way to assert stored-tag state directly rather than
+    hand-decoding `DescribeCluster`/`DescribeStudio` output. Deleting the
+    route would require rewriting all of those tests to decode tags from
+    Describe* responses instead, for no parity benefit (a real client can
+    never reach this route regardless, since it never sends
+    `ElasticMapReduce.ListTagsForResource`). Resolution: same as CloudFront's
+    `GetFunctionAssociations`/`SetFunctionAssociations` earlier today --
+    removed from `GetSupportedOperations()` (and therefore
+    `ChaosOperations()`, which delegates to it) so gopherstack no longer
+    claims SDK support that doesn't exist, but left routed in `buildOps()`
+    as internal test/tooling scaffolding, with a comment on both sites
+    explaining why. `TestHandlerOpsLength`/`TestGetSupportedOperations_MatchDispatch`
+    (handler_test.go) previously asserted the dispatch table and the
+    advertised-ops list were exactly the same size; updated both to expect
+    the dispatch table to be exactly `internalOnlyDispatchOps` (1) larger,
+    with that constant documented at its declaration rather than a bare `+1`.
+
+**2. Fabricated field: `ClusterSummary.ReleaseLabel`.** The real
+`types.ClusterSummary` has exactly six members: `Id`, `Name`, `Status`,
+`ClusterArn`, `NormalizedInstanceHours`, `OutpostArn` -- no `ReleaseLabel`.
+Deleted the field from the struct (`models.go`) and from
+`gatherClusterSummaries` (`clusters.go`). `NormalizedInstanceHours` and
+`OutpostArn` remain real, unpopulated members -- an honest omission (a real
+client sees them as nil/zero), documented on the type, not fabricated data;
+left as-is rather than invented. This field predates today's pass (it was
+introduced in the Jul-18 "Go refactoring 2" commit, `9d7e36e00`) and was
+missed by the 2026-07-25 audit's explicit claim of "no fabricated fields
+found this pass" -- that claim was itself inaccurate at the time it was
+written, not just stale.
+
+**3. Severe wire bug: `StartNotebookExecutionInput` dropped `ExecutionEngine`
+entirely.** The real input's cluster reference is a top-level
+`ExecutionEngine *types.ExecutionEngineConfig{Id, ...}` member. This
+handler's `startNotebookExecutionInput` declared it as a nested struct with
+JSON tag `"ExecutionEngineConfig"` -- the real *type* name, not the real
+*field* name. Because `encoding/json` silently ignores unknown fields
+rather than erroring, a real client's `ExecutionEngine` was dropped on
+every call, and `NotebookExecution.ExecutionEngineId` was **always empty**
+regardless of what cluster the caller named -- not a cosmetic bug, a
+complete silent failure of the field that ties a notebook execution to its
+cluster. Fixed by renaming the struct field's JSON tag to `"ExecutionEngine"`.
+Six existing tests (`handler_notebook_executions_test.go` x5,
+`handler_wire_shape_test.go` x1) sent the wrong `"ExecutionEngineConfig"`
+key and none of them asserted `ExecutionEngineId` was ever populated in a
+response, so the bug produced no visible test failure -- the fourth service
+audited today (after quicksight, s3control, lambda) where a test was found
+asserting the exact defect it should have caught. All six corrected to send
+the real `"ExecutionEngine"` key, and a new
+`TestWireShape_StartNotebookExecution_ExecutionEngineField`
+(handler_wire_shape_test.go) asserts `ExecutionEngineId` actually round-trips.
+
+**4. `CreateStudio` dropped `Description`.** Real `CreateStudioInput.Description`
+is a genuine optional member; `createStudioInput` never declared it at all,
+so it was silently ignored the same way (unknown-JSON-field-ignored) as
+finding 3 above. `UpdateStudio` (the sibling op) already applies
+`Description` correctly, making the omission on `CreateStudio` clearly
+unintentional rather than a deliberate simplification. Added the field to
+`createStudioInput` and threaded it through a new `description` parameter
+on `Backend.CreateStudio` (all eight call sites across the package updated).
+New test: `TestWireShape_CreateStudio_Description`.
+
+**5. `UpdateStudio` hardcoded `SubnetIds` to empty.** `handleUpdateStudio`
+called `Backend.UpdateStudio` with a literal `""` in the subnet-IDs
+position instead of forwarding `in.SubnetIDs` -- accepted on the wire,
+documented as applied (the `UpdateStudio` row above already said
+`wire: ok`), but never actually applied to the stored `Studio`. No test
+previously exercised `UpdateStudio`'s `SubnetIds` handling at all (in fact
+no test called the `UpdateStudio` operation at all before today). Fixed by
+changing `Backend.UpdateStudio`'s dead `subnetIDsJSON string` parameter
+(previously discarded with `_ = subnetIDsJSON`) to a real `[]string`, and
+forwarding `in.SubnetIDs` from the handler. Applies a full replace when the
+request's `SubnetIds` is non-empty, matching real `UpdateStudioInput.SubnetIds`'
+documented semantics ("must also include all of the subnet IDs previously
+associated with the Studio" -- i.e. a full-replace contract, not a merge);
+an empty/absent list leaves the existing subnets untouched, consistent with
+this handler's existing "empty string means unset" convention for
+`Name`/`Description`/`DefaultS3Location`. New test:
+`TestWireShape_UpdateStudio_AppliesSubnetIds`.
+
+**Regression discipline.** For findings 2 and 3, the new/corrected tests
+were run against the pre-fix code (by temporarily reverting the source
+change while keeping the corrected test) and confirmed to fail before the
+fix landed:
+`TestWireShape_ListClusters_NoFabricatedReleaseLabel` failed with "Should be
+false" (the fabricated field was present), and
+`TestWireShape_StartNotebookExecution_ExecutionEngineField` failed with
+`expected: "j-REALCLUSTERID", actual: ""` (the field was silently dropped).
+For findings 4 and 5, the corrected tests were written first and confirmed
+to fail against the then-unfixed handler (`expected: "a test studio",
+actual: ""` and a `SubnetIds` element-count mismatch, respectively) before
+the backend/handler fix was applied.
+
+**Relationship to `gopherstack-dqd8`.** That follow-up tracks `Cluster`'s
+remaining optional/unpopulated fields (`MonitoringConfiguration`,
+`LogEncryptionKmsKeyId`, `OutpostArn`, etc. -- all on the `DescribeCluster`
+response type) plus the `ListInstances` synthesis simplification. None of
+today's five findings are covered by it: findings 2-5 are on different
+types entirely (`ClusterSummary`, `StartNotebookExecutionInput`,
+`CreateStudioInput`, `UpdateStudioInput`, none of which `dqd8` mentions),
+and finding 1 is an advertised-operations-list problem, not a field-shape
+one. The one loose thread worth flagging for whoever picks up `dqd8` next:
+`ClusterSummary.NormalizedInstanceHours`/`OutpostArn` (surfaced by finding
+2's fix, see above) are the same *kind* of honest omission `dqd8` already
+catalogues for `Cluster`, just on the summary type instead -- not a new bug,
+but `dqd8`'s title ("optional Cluster fields") doesn't technically cover
+`ClusterSummary`, so it's not obviously in scope for whoever closes that
+issue either. Left as a note here rather than filed as a new issue, since
+it's the same triviality class `dqd8` already exists to hold.
+
+Verified against `aws-sdk-go-v2/service/emr@v1.64.0` (unchanged this pass)
+via `go doc` on the installed module and direct reads of `types/types.go`
+(`ClusterSummary`, `ExecutionEngineConfig`) and the relevant
+`api_op_CreateStudio.go`/`api_op_UpdateStudio.go`/`api_op_StartNotebookExecution.go`
+files. `go.mod`/`go.sum` untouched.

@@ -23,10 +23,6 @@ const (
 	// (which use camelCase "/policyStatus"), the MRAP API uses all-lowercase
 	// "/policystatus" -- see aws-sdk-go-v2/service/s3control serializers.go.
 	pathMRAPPolicyStatusSuffix = "/policystatus"
-
-	// opDeleteMRAP is the operation name for DeleteMultiRegionAccessPoint.
-	// It is used in multiple dispatch cases to avoid a goconst violation.
-	opDeleteMRAP = "DeleteMultiRegionAccessPoint"
 )
 
 // extractMRAPOps handles Multi-Region Access Point operations.
@@ -57,13 +53,23 @@ func extractMRAPCreateListOp(path, method string) string {
 }
 
 // extractMRAPInstanceOp handles MRAP instance CRUD and sub-resource operations.
+//
+// Only GET is real here. A synchronous "DELETE /v20180820/mrap/instances/{Name}"
+// mapped to this same DeleteMultiRegionAccessPoint op name used to be handled
+// too, but the real SDK's awsRestxml_serializeOpDeleteMultiRegionAccessPoint
+// (s3control@v1.73.0
+// serializers.go) hardcodes "POST /v20180820/async-requests/mrap/delete" as
+// DeleteMultiRegionAccessPoint's one and only wire binding -- confirmed no
+// serializer anywhere in the SDK emits a DELETE to this path (the only other
+// consumer of "/v20180820/mrap/instances/{Name+}" is
+// awsRestxml_serializeOpGetMultiRegionAccessPoint, method GET). No real
+// aws-sdk-go-v2 client can ever reach a sync DELETE here, so it was removed;
+// DeleteMultiRegionAccessPoint remains fully served via the async route
+// (handleDeleteMultiRegionAccessPointAsync below).
 func extractMRAPInstanceOp(path, method string) string {
 	if isSimplePath(pathMRAPInstancePrefix, path) {
-		switch method {
-		case http.MethodGet:
+		if method == http.MethodGet {
 			return "GetMultiRegionAccessPoint"
-		case http.MethodDelete:
-			return opDeleteMRAP
 		}
 
 		return ""
@@ -110,14 +116,13 @@ func (h *Handler) dispatchMRAPCreateListOps(c *echo.Context, path, method string
 	return false, nil
 }
 
-// dispatchMRAPInstanceDispatch handles MRAP instance CRUD and sub-resource dispatch.
+// dispatchMRAPInstanceDispatch handles MRAP instance CRUD and sub-resource
+// dispatch. Only GET is real here -- see extractMRAPInstanceOp for why the
+// sync DELETE variant was removed instead of routed.
 func (h *Handler) dispatchMRAPInstanceDispatch(c *echo.Context, path, method string) (bool, error) {
 	if isSimplePath(pathMRAPInstancePrefix, path) {
-		switch method {
-		case http.MethodGet:
+		if method == http.MethodGet {
 			return true, h.handleGetMultiRegionAccessPoint(c)
-		case http.MethodDelete:
-			return true, h.handleDeleteMultiRegionAccessPoint(c)
 		}
 
 		return false, nil
@@ -234,17 +239,6 @@ func (h *Handler) handleGetMultiRegionAccessPoint(c *echo.Context) error {
 			Regions:   regionItems,
 		},
 	})
-}
-
-func (h *Handler) handleDeleteMultiRegionAccessPoint(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
-	name := strings.TrimPrefix(c.Request().URL.Path, pathMRAPInstancePrefix)
-
-	if err := h.Backend.DeleteMultiRegionAccessPoint(accountID, name); err != nil {
-		return handleBackendError(c, err)
-	}
-
-	return c.NoContent(http.StatusNoContent)
 }
 
 type deleteMRAPAsyncRequestXML struct {

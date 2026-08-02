@@ -127,6 +127,61 @@ const (
 	maxTagCount    = 50
 )
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingCloudFront).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// taggableARNs returns every ARN across every taggable CloudFront resource
+// kind (distributions, streaming distributions, trust stores, distribution
+// tenants, connection groups, connection functions, anycast IP lists).
+// Must be called with the lock held.
+func (b *InMemoryBackend) taggableARNs() []string {
+	arnMaps := []map[string]string{
+		b.distributionARNs,
+		b.streamingDistributionARNs,
+		b.trustStoreARNs,
+		b.distributionTenantARNs,
+		b.connectionGroupARNs,
+		b.connectionFunctionARNs,
+		b.anycastIPListARNs,
+	}
+
+	var arns []string
+	for _, m := range arnMaps {
+		for arn := range m {
+			arns = append(arns, arn)
+		}
+	}
+
+	return arns
+}
+
+// TaggedResources returns every CloudFront resource ARN that currently has
+// at least one tag.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, arn := range b.taggableARNs() {
+		tagsPtr, ok := b.taggableTags(arn)
+		if !ok || len(*tagsPtr) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(*tagsPtr))
+		maps.Copy(cp, *tagsPtr)
+		out = append(out, TaggedEntry{ARN: arn, Tags: cp})
+	}
+
+	return out
+}
+
 // validateCFTags enforces CloudFront tag constraints: key 1-128 chars, value 0-256 chars,
 // no "aws:" prefix on keys, max 50 tags total.
 func validateCFTags(tags map[string]string) error {

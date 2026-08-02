@@ -379,8 +379,8 @@ func (b *InMemoryBackend) StopAllExperiments() {
 // Phase 3 — Resolved Targets
 // ----------------------------------------
 
-// ListExperimentResolvedTargets returns the resolved resource ARN counts for each
-// named target group in the given experiment.
+// ListExperimentResolvedTargets returns the resolved target groups for the given
+// experiment.
 func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]ExperimentResolvedTarget, error) {
 	b.mu.RLock("ListExperimentResolvedTargets")
 	defer b.mu.RUnlock()
@@ -393,13 +393,9 @@ func (b *InMemoryBackend) ListExperimentResolvedTargets(id string) ([]Experiment
 	resolved := make([]ExperimentResolvedTarget, 0, len(exp.Targets))
 
 	for name, tgt := range exp.Targets {
-		arns := make([]string, len(tgt.ResourceArns))
-		copy(arns, tgt.ResourceArns)
 		resolved = append(resolved, ExperimentResolvedTarget{
-			ResourceType:         tgt.ResourceType,
-			TargetName:           name,
-			ResolvedArns:         arns,
-			TargetResourcesCount: len(tgt.ResourceArns),
+			ResourceType: tgt.ResourceType,
+			TargetName:   name,
 		})
 	}
 

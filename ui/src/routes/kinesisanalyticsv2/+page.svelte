@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getKinesisAnalyticsV2Client } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -33,7 +33,7 @@
 		Search
 	} from 'lucide-svelte';
 
-	const kda = getKinesisAnalyticsV2Client();
+	const kda = regionalClient(getKinesisAnalyticsV2Client);
 
 	// Applications list
 	let loading = $state(false);
@@ -86,7 +86,7 @@
 	async function loadApplications() {
 		loading = true;
 		try {
-			const resp = await kda.send(new ListApplicationsCommand({}));
+			const resp = await kda().send(new ListApplicationsCommand({}));
 			applications = resp.ApplicationSummaries ?? [];
 		} catch (e) {
 			toast.error(`Failed to load applications: ${e}`);
@@ -102,7 +102,7 @@
 		}
 		creating = true;
 		try {
-			await kda.send(
+			await kda().send(
 				new CreateApplicationCommand({
 					ApplicationName: newAppName.trim(),
 					RuntimeEnvironment: newAppRuntime as never,
@@ -123,9 +123,9 @@
 
 	async function deleteApplication(name: string) {
 		try {
-			const detail = await kda.send(new DescribeApplicationCommand({ ApplicationName: name }));
+			const detail = await kda().send(new DescribeApplicationCommand({ ApplicationName: name }));
 			const ts = detail.ApplicationDetail?.CreateTimestamp;
-			await kda.send(
+			await kda().send(
 				new DeleteApplicationCommand({
 					ApplicationName: name,
 					CreateTimestamp: ts ?? new Date()
@@ -141,7 +141,7 @@
 
 	async function startApplication(name: string) {
 		try {
-			await kda.send(new StartApplicationCommand({ ApplicationName: name }));
+			await kda().send(new StartApplicationCommand({ ApplicationName: name }));
 			toast.success(`Application "${name}" started`);
 			await loadApplications();
 		} catch (e) {
@@ -151,7 +151,7 @@
 
 	async function stopApplication(name: string) {
 		try {
-			await kda.send(new StopApplicationCommand({ ApplicationName: name }));
+			await kda().send(new StopApplicationCommand({ ApplicationName: name }));
 			toast.success(`Application "${name}" stopped`);
 			await loadApplications();
 		} catch (e) {
@@ -162,7 +162,7 @@
 	async function loadSnapshots(name: string) {
 		loadingSnapshots = true;
 		try {
-			const resp = await kda.send(
+			const resp = await kda().send(
 				new ListApplicationSnapshotsCommand({ ApplicationName: name })
 			);
 			snapshots = resp.SnapshotSummaries ?? [];
@@ -179,7 +179,7 @@
 			return;
 		}
 		try {
-			await kda.send(
+			await kda().send(
 				new CreateApplicationSnapshotCommand({
 					ApplicationName: name,
 					SnapshotName: newSnapshotName.trim()
@@ -195,7 +195,7 @@
 
 	async function deleteSnapshot(appName: string, snapshotName: string, snapshotTs: Date | undefined) {
 		try {
-			await kda.send(
+			await kda().send(
 				new DeleteApplicationSnapshotCommand({
 					ApplicationName: appName,
 					SnapshotName: snapshotName,
@@ -211,9 +211,9 @@
 
 	async function rollbackApp(name: string) {
 		try {
-			const detail = await kda.send(new DescribeApplicationCommand({ ApplicationName: name }));
+			const detail = await kda().send(new DescribeApplicationCommand({ ApplicationName: name }));
 			const versionId = detail.ApplicationDetail?.ApplicationVersionId ?? 1;
-			await kda.send(
+			await kda().send(
 				new RollbackApplicationCommand({
 					ApplicationName: name,
 					CurrentApplicationVersionId: versionId
@@ -228,7 +228,7 @@
 
 	async function loadVersions(name: string) {
 		try {
-			const resp = await kda.send(new ListApplicationVersionsCommand({ ApplicationName: name }));
+			const resp = await kda().send(new ListApplicationVersionsCommand({ ApplicationName: name }));
 			versions = resp.ApplicationVersionSummaries ?? [];
 			showVersions = true;
 		} catch (e) {
@@ -243,7 +243,7 @@
 		}
 		updatingMaintenance = true;
 		try {
-			await kda.send(
+			await kda().send(
 				new UpdateApplicationMaintenanceConfigurationCommand({
 					ApplicationName: name,
 					ApplicationMaintenanceConfigurationUpdate: {
@@ -267,7 +267,7 @@
 		}
 		discoveringSchema = true;
 		try {
-			const resp = await kda.send(
+			const resp = await kda().send(
 				new DiscoverInputSchemaCommand({
 					ResourceARN: schemaResourceARN.trim(),
 					ServiceExecutionRole: '',
@@ -307,9 +307,7 @@
 		}
 	}
 
-	onMount(() => {
-		loadApplications();
-	});
+	onRegionChange(loadApplications);
 </script>
 
 <div class="p-6 space-y-6">
@@ -375,24 +373,24 @@
 			<h2 class="font-medium">New Application</h2>
 			<div class="grid grid-cols-3 gap-3">
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Application Name *</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-name">Application Name *</label>
+					<input id="new-app-name"
 						bind:value={newAppName}
 						placeholder="my-flink-app"
 						class="w-full rounded border px-3 py-1.5 text-sm"
 					/>
 				</div>
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Runtime Environment *</label>
-					<select bind:value={newAppRuntime} class="w-full rounded border px-3 py-1.5 text-sm">
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-runtime">Runtime Environment *</label>
+					<select id="new-app-runtime" bind:value={newAppRuntime} class="w-full rounded border px-3 py-1.5 text-sm">
 						{#each runtimes as rt}
 							<option value={rt}>{rt}</option>
 						{/each}
 					</select>
 				</div>
 				<div>
-					<label class="block text-xs text-gray-600 mb-1">Service Execution Role ARN</label>
-					<input
+					<label class="block text-xs text-gray-600 mb-1" for="new-app-role">Service Execution Role ARN</label>
+					<input id="new-app-role"
 						bind:value={newAppRole}
 						placeholder="arn:aws:iam::..."
 						class="w-full rounded border px-3 py-1.5 text-sm"

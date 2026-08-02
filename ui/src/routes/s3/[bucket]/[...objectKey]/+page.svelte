@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount, onDestroy } from 'svelte';
 import { page } from '$app/state';
 import { goto } from '$app/navigation';
-import { newS3Client, getStoredRegion } from '$lib/aws/client';
+import { getS3Client } from '$lib/aws-client';
+import { currentRegion } from '$lib/region.svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import {
 HeadObjectCommand,
 GetObjectCommand,
@@ -17,7 +18,7 @@ type Tag
 import { toast } from 'svelte-sonner';
 import { Download, Trash2, Edit, ChevronLeft, Clock, FileText, Tag as TagIcon, Link, Eye } from 'lucide-svelte';
 
-let s3 = newS3Client();
+const s3 = regionalClient(getS3Client);
 
 interface ObjectMetadata {
 ContentType?: string;
@@ -32,8 +33,15 @@ ContentDisposition?: string;
 ContentEncoding?: string;
 }
 
-let bucket = $state('');
-let objectKey = $state('');
+// Read via $derived, not inside loadAll() below -- reading page.params
+// directly inside the async function that onRegionChange's $effect calls
+// makes that read part of the effect's own dependency tracking, which
+// causes the effect to re-run a second time on every mount (every request
+// below fired twice). Hoisting the read to a top-level $derived (the same
+// pattern the dynamodb table-detail page uses) decouples it from the
+// effect's tracked reads.
+const bucket = $derived(String(page.params.bucket ?? ''));
+const objectKey = $derived(String(page.params.objectKey ?? ''));
 let metadata = $state<ObjectMetadata | null>(null);
 let versions = $state<ObjectVersion[]>([]);
 let loading = $state(true);
@@ -66,42 +74,33 @@ const expiryOptions = [
 { label: '7 days', seconds: 604800 }
 ];
 
-let regionChangeCleanup: (() => void) | null = null;
+// The SDK puts the AWS error code on err.name and status on
+// err.$metadata.httpStatusCode; err.message alone is usually just the
+// human-readable text. Combine them so both the toast and the inline
+// error banner show the actual code, not just a generic message.
+function describeError(e: unknown): string {
+if (e && typeof e === 'object') {
+const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+const name = rec.name ? String(rec.name) : 'Error';
+const message = rec.message ? String(rec.message) : String(e);
+const status = rec.$metadata?.httpStatusCode;
+return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+}
+return String(e);
+}
 
-onMount(async () => {
-const bucketParam = String(page.params.bucket ?? '');
-const objectKeyParam = String(page.params.objectKey ?? '');
-bucket = bucketParam;
-objectKey = objectKeyParam;
+async function loadAll(): Promise<void> {
 await loadObjectMetadata();
 await loadObjectVersions();
 await loadObjectTags();
-
-const handleRegionChange = (e: Event) => {
-const region = e instanceof CustomEvent && typeof e.detail === 'string'
-? e.detail
-: getStoredRegion();
-s3 = newS3Client(region);
-};
-window.addEventListener('gopherstack:region-change', handleRegionChange);
-const handleStorage = (e: StorageEvent) => {
-if (e.key === 'gopherstack_region' && e.newValue) {
-s3 = newS3Client(e.newValue);
 }
-};
-window.addEventListener('storage', handleStorage);
-regionChangeCleanup = () => {
-window.removeEventListener('gopherstack:region-change', handleRegionChange);
-window.removeEventListener('storage', handleStorage);
-};
-});
 
-onDestroy(() => { regionChangeCleanup?.(); });
+onRegionChange(loadAll);
 
 async function loadObjectMetadata() {
 try {
 loading = true;
-const response = await s3.send(new HeadObjectCommand({
+const response = await s3().send(new HeadObjectCommand({
 Bucket: bucket,
 Key: objectKey
 }));
@@ -118,7 +117,7 @@ ContentDisposition: response.ContentDisposition,
 ContentEncoding: response.ContentEncoding
 };
 } catch (e) {
-loadError = e instanceof Error ? e.message : 'Failed to load object metadata';
+loadError = describeError(e);
 toast.error(loadError ?? 'Error');
 } finally {
 loading = false;
@@ -127,24 +126,24 @@ loading = false;
 
 async function loadObjectVersions() {
 try {
-const response = await s3.send(new ListObjectVersionsCommand({
+const response = await s3().send(new ListObjectVersionsCommand({
 Bucket: bucket,
 Prefix: objectKey,
 MaxKeys: 20
 }));
 versions = response.Versions?.filter((v) => v.Key === objectKey) || [];
 } catch (e) {
-toast.error(`Failed to load versions: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to load versions: ${describeError(e)}`);
 }
 }
 
 async function loadObjectTags() {
 loadingTags = true;
 try {
-const res = await s3.send(new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }));
+const res = await s3().send(new GetObjectTaggingCommand({ Bucket: bucket, Key: objectKey }));
 objectTags = res.TagSet ?? [];
 } catch (e) {
-toast.error(`Failed to load tags: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to load tags: ${describeError(e)}`);
 } finally {
 loadingTags = false;
 }
@@ -163,10 +162,10 @@ objectTags = objectTags.filter((t) => t.Key !== key);
 
 async function saveObjectTags() {
 try {
-await s3.send(new PutObjectTaggingCommand({ Bucket: bucket, Key: objectKey, Tagging: { TagSet: objectTags } }));
+await s3().send(new PutObjectTaggingCommand({ Bucket: bucket, Key: objectKey, Tagging: { TagSet: objectTags } }));
 toast.success('Tags saved');
 } catch (e) {
-toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to save tags: ${describeError(e)}`);
 }
 }
 
@@ -175,7 +174,7 @@ toast.error(`Failed to save tags: ${e instanceof Error ? e.message : String(e)}`
 // Do not use in production environments.
 function generatePresignedUrl() {
 const now = new Date();
-const region = getStoredRegion();
+const region = currentRegion();
 const dateShort = now.toISOString().slice(0, 10).replaceAll('-', '');
 const isoDate = now.toISOString().replaceAll('-', '').replaceAll(':', '').replace(/\.\d+Z$/, 'Z');
 const encodedKey = objectKey.split('/').map(seg => encodeURIComponent(seg)).join('/');
@@ -200,8 +199,15 @@ return 'binary';
 }
 
 async function fetchPreviewTextBytes(size: number): Promise<Uint8Array | undefined> {
-const rangeEnd = Math.min(MAX_TEXT_BYTES, size > 0 ? size - 1 : MAX_TEXT_BYTES) - 1;
-const res = await s3.send(new GetObjectCommand({
+// bytesToFetch is the whole object when it fits under the preview cap, else
+// the cap itself. The end-of-range index is inclusive (Range: bytes=0-N
+// requests N+1 bytes), so it's bytesToFetch - 1, not one less than that --
+// the previous formula subtracted an extra byte, silently truncating the
+// last byte of every preview whose object fit entirely under the cap (and
+// producing an invalid "bytes=0--1" range for 1-byte objects).
+const bytesToFetch = size > 0 ? Math.min(MAX_TEXT_BYTES, size) : MAX_TEXT_BYTES;
+const rangeEnd = bytesToFetch - 1;
+const res = await s3().send(new GetObjectCommand({
 Bucket: bucket,
 Key: objectKey,
 Range: `bytes=0-${rangeEnd}`
@@ -219,7 +225,7 @@ if (size > MAX_IMAGE_BYTES) {
 setBinaryPreview(size);
 return;
 }
-const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
+const res = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: objectKey }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
 previewType = 'image';
@@ -270,7 +276,7 @@ await prepareTextPreview(size);
 setBinaryPreview(size);
 }
 } catch (e) {
-toast.error(`Preview failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Preview failed: ${describeError(e)}`);
 previewVisible = false;
 } finally {
 previewLoading = false;
@@ -287,7 +293,7 @@ previewBlobUrl = null;
 
 async function downloadObject(versionId?: string) {
 try {
-const response = await s3.send(new GetObjectCommand({
+const response = await s3().send(new GetObjectCommand({
 Bucket: bucket,
 Key: objectKey,
 VersionId: versionId
@@ -304,29 +310,29 @@ URL.revokeObjectURL(url);
 }
 toast.success('Download started');
 } catch (e) {
-toast.error(`Download failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Download failed: ${describeError(e)}`);
 }
 }
 
 async function deleteVersion(versionId: string) {
 if (!await confirmDestructive({ title: 'Delete Version', message: `Delete version ${versionId.slice(0, 12)}…? This cannot be undone.` })) return;
 try {
-await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
+await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey, VersionId: versionId }));
 toast.success('Version deleted');
 await loadObjectVersions();
 } catch (e) {
-toast.error(`Failed to delete version: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Failed to delete version: ${describeError(e)}`);
 }
 }
 
 async function deleteObject() {
 if (!await confirmDestructive({ title: 'Delete Object', message: `Delete object "${objectKey}"? This cannot be undone.` })) return;
 try {
-await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
+await s3().send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
 toast.success('Object deleted');
 goto('/dashboard/s3');
 } catch (e) {
-toast.error(`Delete failed: ${e instanceof Error ? e.message : String(e)}`);
+toast.error(`Delete failed: ${describeError(e)}`);
 }
 }
 

@@ -173,6 +173,58 @@ func TestFISHandler_ListExperimentTargetAccountConfigurations(t *testing.T) {
 	}
 }
 
+// TestListExperimentTargetAccountConfigurations_Pagination verifies
+// ListExperimentTargetAccountConfigurations honors maxResults/nextToken like its sibling
+// list operations, instead of always returning the full unpaginated list.
+func TestListExperimentTargetAccountConfigurations_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	templateID := createTestTemplate(t, h)
+
+	for _, accountID := range []string{"111111111111", "222222222222", "333333333333", "444444444444", "555555555555"} {
+		createPath := fmt.Sprintf(
+			"/experimentTemplates/%s/targetAccountConfigurations/%s",
+			templateID,
+			accountID,
+		)
+		rec := doRequest(t, h, http.MethodPost, createPath, map[string]any{
+			"roleArn": "arn:aws:iam::" + accountID + ":role/FISRole",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code)
+	}
+
+	startBody := map[string]any{"experimentTemplateId": templateID}
+	expRec := doRequest(t, h, http.MethodPost, "/experiments", startBody)
+	require.Equal(t, http.StatusCreated, expRec.Code)
+
+	var expResp struct {
+		Experiment struct {
+			ID string `json:"id"`
+		} `json:"experiment"`
+	}
+
+	mustJSON(t, expRec, &expResp)
+
+	listPath := fmt.Sprintf(
+		"/experiments/%s/targetAccountConfigurations?maxResults=3",
+		expResp.Experiment.ID,
+	)
+	rec := doRequest(t, h, http.MethodGet, listPath, nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		NextToken                   string `json:"nextToken,omitempty"`
+		TargetAccountConfigurations []struct {
+			AccountID string `json:"accountId"`
+		} `json:"targetAccountConfigurations"`
+	}
+
+	mustJSON(t, rec, &resp)
+	assert.Len(t, resp.TargetAccountConfigurations, 3)
+	assert.NotEmpty(t, resp.NextToken)
+}
+
 func TestFISHandler_GetSupportedOperations_TargetAccountConfigOps(t *testing.T) {
 	t.Parallel()
 

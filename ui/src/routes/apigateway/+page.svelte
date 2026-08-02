@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAPIGatewayClient } from '$lib/aws-client';
 	import {
 		GetRestApisCommand,
@@ -60,7 +61,7 @@
 		Database
 	} from 'lucide-svelte';
 
-	const apigw = getAPIGatewayClient();
+	const apigw = regionalClient(getAPIGatewayClient);
 
 	// ─── Top-level tab ───────────────────────────────────────────────────────────
 	let topTab = $state<'apis' | 'apikeys' | 'usageplans' | 'domainnames' | 'metrics' | 'docs'>('apis');
@@ -165,7 +166,7 @@
 	async function loadApis() {
 		loading = true;
 		try {
-			const res = await apigw.send(new GetRestApisCommand({ limit: 100 }));
+			const res = await apigw().send(new GetRestApisCommand({ limit: 100 }));
 			restApis = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load APIs: ${e}`);
@@ -186,11 +187,11 @@
 		apiDetailTab = 'resources';
 		try {
 			const [resourcesRes, stagesRes, deplsRes, authRes, modelsRes] = await Promise.all([
-				apigw.send(new GetResourcesCommand({ restApiId: api.id, limit: 100 })),
-				apigw.send(new GetStagesCommand({ restApiId: api.id })),
-				apigw.send(new GetDeploymentsCommand({ restApiId: api.id, limit: 100 })),
-				apigw.send(new GetAuthorizersCommand({ restApiId: api.id })),
-				apigw.send(new GetModelsCommand({ restApiId: api.id, limit: 100 })),
+				apigw().send(new GetResourcesCommand({ restApiId: api.id, limit: 100 })),
+				apigw().send(new GetStagesCommand({ restApiId: api.id })),
+				apigw().send(new GetDeploymentsCommand({ restApiId: api.id, limit: 100 })),
+				apigw().send(new GetAuthorizersCommand({ restApiId: api.id })),
+				apigw().send(new GetModelsCommand({ restApiId: api.id, limit: 100 })),
 			]);
 			apiResources = resourcesRes.items ?? [];
 			apiStages = stagesRes.item ?? [];
@@ -207,7 +208,7 @@
 	async function loadApiKeys() {
 		loading = true;
 		try {
-			const res = await apigw.send(new GetApiKeysCommand({ limit: 100, includeValues: true }));
+			const res = await apigw().send(new GetApiKeysCommand({ limit: 100, includeValues: true }));
 			apiKeys = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load API keys: ${e}`);
@@ -219,7 +220,7 @@
 	async function loadUsagePlans() {
 		loading = true;
 		try {
-			const res = await apigw.send(new GetUsagePlansCommand({ limit: 100 }));
+			const res = await apigw().send(new GetUsagePlansCommand({ limit: 100 }));
 			usagePlans = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load usage plans: ${e}`);
@@ -231,7 +232,7 @@
 	async function loadDomainNames() {
 		loading = true;
 		try {
-			const res = await apigw.send(new GetDomainNamesCommand({ limit: 100 }));
+			const res = await apigw().send(new GetDomainNamesCommand({ limit: 100 }));
 			domainNames = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load domain names: ${e}`);
@@ -243,7 +244,7 @@
 	async function loadPlanKeys(planId: string) {
 		loadingPlanKeys = true;
 		try {
-			const res = await apigw.send(new GetUsagePlanKeysCommand({ usagePlanId: planId, limit: 100 }));
+			const res = await apigw().send(new GetUsagePlanKeysCommand({ usagePlanId: planId, limit: 100 }));
 			planKeys = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load plan keys: ${e}`);
@@ -257,7 +258,7 @@
 		if (!newApiName.trim()) return;
 		creating = true;
 		try {
-			await apigw.send(
+			await apigw().send(
 				new CreateRestApiCommand({
 					name: newApiName.trim(),
 					description: newApiDescription.trim() || undefined,
@@ -279,7 +280,7 @@
 	async function deleteApi(api: RestApi) {
 		if (!api.id || !(await confirmDestructive({ title: 'Delete API', message: `Delete API "${api.name}"?` }))) return;
 		try {
-			await apigw.send(new DeleteRestApiCommand({ restApiId: api.id }));
+			await apigw().send(new DeleteRestApiCommand({ restApiId: api.id }));
 			toast.success(`API "${api.name}" deleted`);
 			if (selectedApi?.id === api.id) selectedApi = null;
 			await loadApis();
@@ -292,7 +293,7 @@
 		if (!selectedApi?.id || !deployStageName.trim()) return;
 		deploying = true;
 		try {
-			await apigw.send(new CreateDeploymentCommand({
+			await apigw().send(new CreateDeploymentCommand({
 				restApiId: selectedApi.id,
 				stageName: deployStageName.trim(),
 				description: deployDescription.trim() || undefined,
@@ -313,7 +314,7 @@
 		if (!newKeyName.trim()) return;
 		creating = true;
 		try {
-			await apigw.send(new CreateApiKeyCommand({
+			await apigw().send(new CreateApiKeyCommand({
 				name: newKeyName.trim(),
 				description: newKeyDescription.trim() || undefined,
 				enabled: newKeyEnabled,
@@ -334,7 +335,7 @@
 	async function deleteApiKey(key: ApiKey) {
 		if (!key.id || !(await confirmDestructive({ title: 'Delete API Key', message: `Delete key "${key.name}"?` }))) return;
 		try {
-			await apigw.send(new DeleteApiKeyCommand({ apiKey: key.id }));
+			await apigw().send(new DeleteApiKeyCommand({ apiKey: key.id }));
 			toast.success(`API Key "${key.name}" deleted`);
 			await loadApiKeys();
 		} catch (e) {
@@ -345,7 +346,7 @@
 	async function toggleApiKeyEnabled(key: ApiKey) {
 		if (!key.id) return;
 		try {
-			await apigw.send(new UpdateApiKeyCommand({
+			await apigw().send(new UpdateApiKeyCommand({
 				apiKey: key.id,
 				patchOperations: [{ op: 'replace', path: '/enabled', value: key.enabled ? 'false' : 'true' }],
 			}));
@@ -366,7 +367,7 @@
 		if (!newPlanName.trim()) return;
 		creating = true;
 		try {
-			await apigw.send(new CreateUsagePlanCommand({
+			await apigw().send(new CreateUsagePlanCommand({
 				name: newPlanName.trim(),
 				description: newPlanDescription.trim() || undefined,
 			}));
@@ -385,7 +386,7 @@
 	async function deleteUsagePlan(plan: UsagePlan) {
 		if (!plan.id || !(await confirmDestructive({ title: 'Delete Usage Plan', message: `Delete usage plan "${plan.name}"?` }))) return;
 		try {
-			await apigw.send(new DeleteUsagePlanCommand({ usagePlanId: plan.id }));
+			await apigw().send(new DeleteUsagePlanCommand({ usagePlanId: plan.id }));
 			toast.success(`Usage Plan "${plan.name}" deleted`);
 			if (selectedPlan?.id === plan.id) { selectedPlan = null; planKeys = []; }
 			await loadUsagePlans();
@@ -402,7 +403,7 @@
 	async function addKeyToPlan() {
 		if (!selectedPlan?.id || !addKeyId.trim()) return;
 		try {
-			await apigw.send(new CreateUsagePlanKeyCommand({
+			await apigw().send(new CreateUsagePlanKeyCommand({
 				usagePlanId: selectedPlan.id,
 				keyId: addKeyId.trim(),
 				keyType: addKeyType,
@@ -420,7 +421,7 @@
 		if (!newDomainName.trim()) return;
 		creating = true;
 		try {
-			await apigw.send(new CreateDomainNameCommand({
+			await apigw().send(new CreateDomainNameCommand({
 				domainName: newDomainName.trim(),
 				regionalCertificateArn: newDomainCertArn.trim() || undefined,
 				endpointConfiguration: { types: [newDomainEndpointType] },
@@ -440,7 +441,7 @@
 	async function deleteDomainName(domain: DomainName) {
 		if (!domain.domainName || !(await confirmDestructive({ title: 'Delete Domain', message: `Delete domain "${domain.domainName}"?` }))) return;
 		try {
-			await apigw.send(new DeleteDomainNameCommand({ domainName: domain.domainName }));
+			await apigw().send(new DeleteDomainNameCommand({ domainName: domain.domainName }));
 			toast.success(`Domain "${domain.domainName}" deleted`);
 			await loadDomainNames();
 		} catch (e) {
@@ -452,18 +453,18 @@
 	async function seedDemoData() {
 		creating = true;
 		try {
-			const apiRes = await apigw.send(new CreateRestApiCommand({
+			const apiRes = await apigw().send(new CreateRestApiCommand({
 				name: 'petstore-demo',
 				description: 'Demo PetStore REST API',
 				endpointConfiguration: { types: ['REGIONAL'] },
 			}));
 			if (apiRes.id) {
-				await apigw.send(new CreateDeploymentCommand({ restApiId: apiRes.id, stageName: 'dev', description: 'Demo deployment' }));
-				await apigw.send(new CreateDeploymentCommand({ restApiId: apiRes.id, stageName: 'prod' }));
+				await apigw().send(new CreateDeploymentCommand({ restApiId: apiRes.id, stageName: 'dev', description: 'Demo deployment' }));
+				await apigw().send(new CreateDeploymentCommand({ restApiId: apiRes.id, stageName: 'prod' }));
 			}
-			await apigw.send(new CreateApiKeyCommand({ name: 'demo-key', description: 'Demo API key', enabled: true }));
-			await apigw.send(new CreateUsagePlanCommand({ name: 'demo-plan', description: 'Demo usage plan' }));
-			await apigw.send(new CreateDomainNameCommand({
+			await apigw().send(new CreateApiKeyCommand({ name: 'demo-key', description: 'Demo API key', enabled: true }));
+			await apigw().send(new CreateUsagePlanCommand({ name: 'demo-plan', description: 'Demo usage plan' }));
+			await apigw().send(new CreateDomainNameCommand({
 				domainName: 'api.example.internal',
 				endpointConfiguration: { types: ['REGIONAL'] },
 			}));
@@ -522,7 +523,30 @@
 
 	const resourceTree = $derived(buildResourceTree(apiResources));
 
-	onMount(() => loadApis());
+	// Only one top-level tab's data is loaded at a time; on a region change
+	// reset everything region-scoped and reload whichever tab is active.
+	// `topTab` is read via untrack() because switchTopTab() also writes it:
+	// without untrack, every tab switch would re-trigger this region effect
+	// and double-fetch.
+	onRegionChange(() => {
+		restApis = [];
+		selectedApi = null;
+		apiResources = [];
+		apiStages = [];
+		apiDeployments = [];
+		apiAuthorizers = [];
+		apiModels = [];
+		apiKeys = [];
+		usagePlans = [];
+		selectedPlan = null;
+		planKeys = [];
+		domainNames = [];
+		const tab = untrack(() => topTab);
+		if (tab === 'apis') void loadApis();
+		else if (tab === 'apikeys') void loadApiKeys();
+		else if (tab === 'usageplans') void loadUsagePlans();
+		else if (tab === 'domainnames') void loadDomainNames();
+	});
 </script>
 
 <div class="space-y-4">

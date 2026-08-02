@@ -1,6 +1,7 @@
 ---
 service: cloudfront
 sdk_module: aws-sdk-go-v2/service/cloudfront@v1.60.2
+sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.2]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys); see key_value_stores family
 last_audit_commit: PENDING (worked in the parity-3 campaign worktree; not committed by this agent)
 last_audit_date: 2026-07-23
 overall: A            # Full re-audit this pass: closed all three previously-filed gaps
@@ -64,7 +65,7 @@ families:
   field_level_encryption: {status: ok, note: "Create/Update for config + profile now run validateQuantities and return the correct *AlreadyExists code (FieldLevelEncryptionConfigAlreadyExists / FieldLevelEncryptionProfileAlreadyExists) instead of DistributionAlreadyExists; FLEProfileInUse guard on profile delete pre-existed and is correct"}
   public_keys_key_groups: {status: ok, note: "CreatePublicKey/CreateKeyGroup/UpdateKeyGroup return PublicKeyAlreadyExists/KeyGroupAlreadyExists instead of DistributionAlreadyExists; PublicKeyInUse guard on public-key delete pre-existed and is correct; FIXED this pass (gopherstack-na4): DeleteKeyGroup now returns ResourceInUse (matching the real DeleteKeyGroup error list -- there is no dedicated KeyGroupInUse type) when the key group is referenced by a distribution's TrustedKeyGroups"}
   realtime_log_configs: {status: ok, note: "CreateRealtimeLogConfig now returns RealtimeLogConfigAlreadyExists instead of DistributionAlreadyExists"}
-  key_value_stores: {status: ok, note: "control-plane Create/Update run validateQuantities (no-op, shape has no Quantity/Items pairs); data-plane GetKey/PutKeys/ListKeys correctly use the separate JSON protocol, out of scope for this XML-focused sweep"}
+  key_value_stores: {status: ok, note: "control-plane Create/Update run validateQuantities (no-op, shape has no Quantity/Items pairs); data-plane GetKey/PutKeys/ListKeys correctly use the separate JSON protocol, out of scope for this XML-focused sweep. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): confirmed by name against aws-sdk-go-v2/service/cloudfrontkeyvaluestore that DeleteKey/GetKey/ListKeys/PutKey/UpdateKeys are exactly its 5 non-DescribeKeyValueStore ops (added to go.mod; pkgs/sdkcheck's reverse check was flagging these 5 as 'phantom' only because it compared them against cloudfrontsdk.Client instead of the data-plane client that owns them -- sdk_completeness_test.go now checks them separately against cfkvssdk.Client). No wire-shape field-diff done, naming/completeness only."}
   vpc_origins: {status: ok, note: "Create/Update run validateQuantities (no-op for this shape)"}
   continuous_deployment_policy: {status: ok, note: "Create/Update run validateQuantities; If-Match already enforced"}
   invalidations_realtime_status: {status: ok, note: "background reconciler goroutine (runInvalidationReconciler) has a clean stopCh lifecycle via Close(); no leak"}

@@ -257,19 +257,22 @@ func TestFISHandler_ListExperimentResolvedTargets(t *testing.T) {
 	rec3 := doRequest(t, h, http.MethodGet, "/experiments/"+expResp.Experiment.ID+"/resolvedTargets", nil)
 	require.Equal(t, http.StatusOK, rec3.Code)
 
-	var resolvedResp struct {
-		ResolvedTargets []struct {
-			ResourceType         string `json:"resourceType"`
-			TargetName           string `json:"targetName"`
-			TargetResourcesCount int    `json:"targetResourcesCount"`
-		} `json:"resolvedTargets"`
+	// The real types.ResolvedTarget wire shape has exactly resourceType, targetName,
+	// and targetInformation -- no resolvedArns/targetResourcesCount. Assert against
+	// the raw JSON so a regression that reintroduces the invented fields is caught,
+	// not silently ignored by an unmarshal target that doesn't declare them.
+	var raw struct {
+		ResolvedTargets []map[string]any `json:"resolvedTargets"`
 	}
 
-	mustJSON(t, rec3, &resolvedResp)
-	require.Len(t, resolvedResp.ResolvedTargets, 1)
-	assert.Equal(t, "aws:ec2:instance", resolvedResp.ResolvedTargets[0].ResourceType)
-	assert.Equal(t, "MyInstances", resolvedResp.ResolvedTargets[0].TargetName)
-	assert.Equal(t, 1, resolvedResp.ResolvedTargets[0].TargetResourcesCount)
+	mustJSON(t, rec3, &raw)
+	require.Len(t, raw.ResolvedTargets, 1)
+
+	got := raw.ResolvedTargets[0]
+	assert.Equal(t, "aws:ec2:instance", got["resourceType"])
+	assert.Equal(t, "MyInstances", got["targetName"])
+	assert.NotContains(t, got, "resolvedArns", "resolvedArns is not a real FIS ResolvedTarget field")
+	assert.NotContains(t, got, "targetResourcesCount", "targetResourcesCount is not a real FIS ResolvedTarget field")
 }
 
 func TestFISHandler_ListExperimentResolvedTargets_NotFound(t *testing.T) {
@@ -365,20 +368,20 @@ func TestErrTooManyExperiments_Returns429(t *testing.T) {
 // Non-nil tags on templates/experiments
 // ----------------------------------------
 
-// TestFISResolvedTargetsARNs verifies that ListExperimentResolvedTargets includes
-// the actual resolvedArns in the response (not just the count).
-func TestFISResolvedTargetsARNs(t *testing.T) {
+// TestFISResolvedTargetsWireShape verifies that ListExperimentResolvedTargets emits the
+// real types.ResolvedTarget wire shape (resourceType/targetName/targetInformation) and
+// never the gopherstack-invented resolvedArns/targetResourcesCount fields, regardless of
+// how many ARNs the underlying target resolved to.
+func TestFISResolvedTargetsWireShape(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name         string
 		resourceArns []string
-		wantCount    int
 	}{
 		{
 			name:         "single ARN",
 			resourceArns: []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-aaa"},
-			wantCount:    1,
 		},
 		{
 			name: "multiple ARNs",
@@ -386,7 +389,6 @@ func TestFISResolvedTargetsARNs(t *testing.T) {
 				"arn:aws:ec2:us-east-1:000000000000:instance/i-aaa",
 				"arn:aws:ec2:us-east-1:000000000000:instance/i-bbb",
 			},
-			wantCount: 2,
 		},
 	}
 
@@ -416,21 +418,60 @@ func TestFISResolvedTargetsARNs(t *testing.T) {
 			rec := doRequest(t, h, http.MethodGet, "/experiments/"+injected.ID+"/resolvedTargets", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			var resp struct {
-				ResolvedTargets []struct {
-					TargetName           string   `json:"targetName"`
-					ResolvedArns         []string `json:"resolvedArns"`
-					TargetResourcesCount int      `json:"targetResourcesCount"`
-				} `json:"resolvedTargets"`
+			var raw struct {
+				ResolvedTargets []map[string]any `json:"resolvedTargets"`
 			}
 
-			jsonUnmarshalFIS(t, rec.Body.Bytes(), &resp)
-			require.Len(t, resp.ResolvedTargets, 1)
+			jsonUnmarshalFIS(t, rec.Body.Bytes(), &raw)
+			require.Len(t, raw.ResolvedTargets, 1)
 
-			got := resp.ResolvedTargets[0]
-			assert.Equal(t, "Instances", got.TargetName)
-			assert.Equal(t, tc.wantCount, got.TargetResourcesCount)
-			assert.Equal(t, tc.resourceArns, got.ResolvedArns)
+			got := raw.ResolvedTargets[0]
+			assert.Equal(t, "Instances", got["targetName"])
+			assert.Equal(t, "aws:ec2:instance", got["resourceType"])
+			assert.NotContains(t, got, "resolvedArns", "resolvedArns is not a real ResolvedTarget field")
+			assert.NotContains(t, got, "targetResourcesCount", "targetResourcesCount is not a real field")
 		})
 	}
+}
+
+// TestListExperimentResolvedTargets_Pagination verifies ListExperimentResolvedTargets
+// honors maxResults/nextToken like its ListExperiments/ListActions siblings, instead of
+// always returning the full unpaginated list.
+func TestListExperimentResolvedTargets_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := fis.NewTestBackend()
+	h := fis.NewHandler(b)
+	h.DefaultRegion = "us-east-1"
+	h.AccountID = "000000000000"
+
+	targets := make(map[string]fis.ExperimentTarget, 5)
+	for i := range 5 {
+		targets[fmt.Sprintf("Target%d", i)] = fis.ExperimentTarget{
+			ResourceType: "aws:ec2:instance",
+			ResourceArns: []string{fmt.Sprintf("arn:aws:ec2:us-east-1:000000000000:instance/i-%d", i)},
+		}
+	}
+
+	injected := &fis.Experiment{
+		ID:           "EXPtest000000000000000000003",
+		Status:       fis.ExperimentStatus{Status: "running"},
+		Targets:      targets,
+		CreationTime: time.Now(),
+	}
+	b.InjectExperiment(injected)
+
+	rec := doRequest(t, h, http.MethodGet, "/experiments/"+injected.ID+"/resolvedTargets?maxResults=3", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		NextToken       string `json:"nextToken,omitempty"`
+		ResolvedTargets []struct {
+			TargetName string `json:"targetName"`
+		} `json:"resolvedTargets"`
+	}
+
+	mustJSON(t, rec, &resp)
+	assert.Len(t, resp.ResolvedTargets, 3)
+	assert.NotEmpty(t, resp.NextToken)
 }

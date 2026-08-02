@@ -237,10 +237,9 @@ func (h *Handler) handleCreateBucket(c *echo.Context) error {
 // CreationDate/PublicAccessBlockEnabled are omitted (GAP, not fabricated):
 // OutpostsBucket in this backend tracks neither (see models.go).
 func (h *Handler) handleGetBucket(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
 
-	bucket, err := h.Backend.GetBucket(accountID, bucketName)
+	bucket, err := h.Backend.GetBucket(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -253,25 +252,47 @@ func (h *Handler) handleGetBucket(c *echo.Context) error {
 	})
 }
 
+// handleDeleteBucket, like the other three Delete* handlers below that
+// return 204 (handleDeleteBucketLifecycleConfiguration/handleDeleteBucketPolicy/
+// handleDeleteBucketTagging), uses c.NoContent, NOT c.String(204, ""). Found
+// while adding the first real end-to-end HTTP test for this handler
+// (TestHTTP_CreateBucket_RealSDKShape_RoundTrip): echo's c.String writes an
+// (empty) body via c.response.Write.
+//
+// CORRECTED (2026-07-31): an earlier version of this comment, and the commit
+// that made this change, claimed this returned http.ErrBodyNotAllowed "on
+// every real call." That is false and was verified wrong against the stdlib
+// source. In net/http's (*response).write (net/http/server.go), the
+// `if lenData == 0 { return 0, nil }` no-op check runs BEFORE the
+// `if !w.bodyAllowed() { return 0, ErrBodyNotAllowed }` check -- so a real
+// net/http server treats an empty Write after a 204 WriteHeader as a
+// harmless no-op, not an error. Only httptest.ResponseRecorder.Write
+// (net/http/httptest/recorder.go) checks bodyAllowedForStatus unconditionally,
+// with no exemption for zero-length writes, so it returns the error the
+// prior comment described -- but only in tests, never against a real server.
+// The actual defect was narrower: it was a test-observability gap. A
+// handler-level test that dispatches through httptest.NewRecorder() and
+// asserts the returned error is nil would spuriously fail against
+// c.String(204, ""), which is exactly why no such test existed for these four
+// ops before now. Switching to c.NoContent is a hygiene/testability change,
+// not a production bug fix -- real SDK clients were never affected.
 func (h *Handler) handleDeleteBucket(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix)
 
-	if err := h.Backend.DeleteBucket(accountID, bucketName); err != nil {
+	if err := h.Backend.DeleteBucket(bucketName); err != nil {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetBucketLifecycleConfiguration(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/lifecycleconfiguration",
 	)
 
-	config, err := h.Backend.GetBucketLifecycleConfiguration(accountID, bucketName)
+	config, err := h.Backend.GetBucketLifecycleConfiguration(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -286,14 +307,13 @@ func (h *Handler) handleGetBucketLifecycleConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handlePutBucketLifecycleConfiguration(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/lifecycleconfiguration",
 	)
 
 	body := readBody(c)
-	if err := h.Backend.PutBucketLifecycleConfiguration(accountID, bucketName, string(body)); err != nil {
+	if err := h.Backend.PutBucketLifecycleConfiguration(bucketName, string(body)); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -301,27 +321,25 @@ func (h *Handler) handlePutBucketLifecycleConfiguration(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteBucketLifecycleConfiguration(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/lifecycleconfiguration",
 	)
 
-	if err := h.Backend.DeleteBucketLifecycleConfiguration(accountID, bucketName); err != nil {
+	if err := h.Backend.DeleteBucketLifecycleConfiguration(bucketName); err != nil {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetBucketPolicy(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/policy",
 	)
 
-	policy, err := h.Backend.GetBucketPolicy(accountID, bucketName)
+	policy, err := h.Backend.GetBucketPolicy(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -345,7 +363,6 @@ type putBucketPolicyRequestXML struct {
 }
 
 func (h *Handler) handlePutBucketPolicy(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/policy",
@@ -356,7 +373,7 @@ func (h *Handler) handlePutBucketPolicy(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketPolicy(accountID, bucketName, body.Policy); err != nil {
+	if err := h.Backend.PutBucketPolicy(bucketName, body.Policy); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -364,17 +381,16 @@ func (h *Handler) handlePutBucketPolicy(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteBucketPolicy(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/policy",
 	)
 
-	if err := h.Backend.DeleteBucketPolicy(accountID, bucketName); err != nil {
+	if err := h.Backend.DeleteBucketPolicy(bucketName); err != nil {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 type bucketTagXML struct {
@@ -396,13 +412,12 @@ type getBucketTaggingResponseXML struct {
 }
 
 func (h *Handler) handleGetBucketTagging(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/tagging",
 	)
 
-	tags, err := h.Backend.GetBucketTagging(accountID, bucketName)
+	tags, err := h.Backend.GetBucketTagging(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -432,7 +447,6 @@ type putBucketTaggingRequestXML struct {
 }
 
 func (h *Handler) handlePutBucketTagging(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/tagging",
@@ -448,7 +462,7 @@ func (h *Handler) handlePutBucketTagging(c *echo.Context) error {
 		tags[t.Key] = t.Value
 	}
 
-	if err := h.Backend.PutBucketTagging(accountID, bucketName, tags); err != nil {
+	if err := h.Backend.PutBucketTagging(bucketName, tags); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -456,27 +470,25 @@ func (h *Handler) handlePutBucketTagging(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteBucketTagging(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/tagging",
 	)
 
-	if err := h.Backend.DeleteBucketTagging(accountID, bucketName); err != nil {
+	if err := h.Backend.DeleteBucketTagging(bucketName); err != nil {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleGetBucketVersioning(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/versioning",
 	)
 
-	status, err := h.Backend.GetBucketVersioning(accountID, bucketName)
+	status, err := h.Backend.GetBucketVersioning(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -508,7 +520,6 @@ type putBucketVersioningRequestXML struct {
 }
 
 func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/versioning",
@@ -519,7 +530,7 @@ func (h *Handler) handlePutBucketVersioning(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketVersioning(accountID, bucketName, body.Status); err != nil {
+	if err := h.Backend.PutBucketVersioning(bucketName, body.Status); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -535,12 +546,11 @@ type listRegionalBucketItemXML struct {
 }
 
 func (h *Handler) handleListRegionalBuckets(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	q := c.Request().URL.Query()
 	nextToken := q.Get("nextToken")
 	maxResults, _ := strconv.Atoi(q.Get("maxResults"))
 
-	buckets := h.Backend.ListRegionalBuckets(accountID)
+	buckets := h.Backend.ListRegionalBuckets()
 	items := make([]listRegionalBucketItemXML, 0, len(buckets))
 	for _, b := range buckets {
 		items = append(items, listRegionalBucketItemXML{Bucket: b.Name, BucketArn: b.BucketArn})
@@ -568,13 +578,12 @@ type getReplicationResultXML struct {
 }
 
 func (h *Handler) handleGetBucketReplication(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/replication",
 	)
 
-	cfg, err := h.Backend.GetBucketReplication(accountID, bucketName)
+	cfg, err := h.Backend.GetBucketReplication(bucketName)
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -590,7 +599,6 @@ type putReplicationRequestXML struct {
 }
 
 func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/replication",
@@ -601,7 +609,7 @@ func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
 		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
 	}
 
-	if err := h.Backend.PutBucketReplication(accountID, bucketName, body.Inner); err != nil {
+	if err := h.Backend.PutBucketReplication(bucketName, body.Inner); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -609,13 +617,12 @@ func (h *Handler) handlePutBucketReplication(c *echo.Context) error {
 }
 
 func (h *Handler) handleDeleteBucketReplication(c *echo.Context) error {
-	accountID := accountIDFromRequest(c)
 	bucketName := strings.TrimSuffix(
 		strings.TrimPrefix(c.Request().URL.Path, pathBucketPrefix),
 		"/replication",
 	)
 
-	if err := h.Backend.DeleteBucketReplication(accountID, bucketName); err != nil {
+	if err := h.Backend.DeleteBucketReplication(bucketName); err != nil {
 		return handleBackendError(c, err)
 	}
 

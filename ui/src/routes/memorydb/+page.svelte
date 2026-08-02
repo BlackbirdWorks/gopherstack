@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMemoryDBClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -26,7 +26,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Database, Search, RefreshCw, ChevronRight, Layers, Plus, Trash2, Users, Shield, Camera, Pencil, X } from 'lucide-svelte';
 
-	const client = getMemoryDBClient();
+	const client = regionalClient(getMemoryDBClient);
 
 	type ActiveTab = 'clusters' | 'snapshots' | 'users' | 'acls';
 
@@ -103,10 +103,10 @@
 		loading = true;
 		try {
 			const [clustersResp, snapshotsResp, usersResp, aclsResp] = await Promise.all([
-				client.send(new DescribeClustersCommand({})),
-				client.send(new DescribeSnapshotsCommand({})),
-				client.send(new DescribeUsersCommand({})),
-				client.send(new DescribeACLsCommand({}))
+				client().send(new DescribeClustersCommand({})),
+				client().send(new DescribeSnapshotsCommand({})),
+				client().send(new DescribeUsersCommand({})),
+				client().send(new DescribeACLsCommand({}))
 			]);
 			clusters = clustersResp.Clusters ?? [];
 			snapshots = snapshotsResp.Snapshots ?? [];
@@ -126,7 +126,7 @@
 		}
 		creatingCluster = true;
 		try {
-			await client.send(new CreateClusterCommand({
+			await client().send(new CreateClusterCommand({
 				ClusterName: newClusterName.trim(),
 				NodeType: newClusterNodeType,
 				ACLName: newClusterACLName,
@@ -148,7 +148,7 @@
 	async function deleteCluster(cluster: Cluster) {
 		if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete cluster "${cluster.Name}"? This action cannot be undone.` })) return;
 		try {
-			await client.send(new DeleteClusterCommand({ ClusterName: cluster.Name! }));
+			await client().send(new DeleteClusterCommand({ ClusterName: cluster.Name! }));
 			toast.success(`Cluster "${cluster.Name}" deleted`);
 			if (selectedCluster?.Name === cluster.Name) selectedCluster = null;
 			await loadData();
@@ -164,7 +164,7 @@
 		}
 		creatingUser = true;
 		try {
-			await client.send(new CreateUserCommand({
+			await client().send(new CreateUserCommand({
 				UserName: newUserName.trim(),
 				AccessString: newUserAccessString,
 				AuthenticationMode: { Type: 'no-password' as InputAuthenticationType },
@@ -183,7 +183,7 @@
 	async function deleteUser(user: User) {
 		if (!await confirmDestructive({ title: 'Delete User', message: `Delete user "${user.Name}"?` })) return;
 		try {
-			await client.send(new DeleteUserCommand({ UserName: user.Name! }));
+			await client().send(new DeleteUserCommand({ UserName: user.Name! }));
 			toast.success(`User "${user.Name}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -198,7 +198,7 @@
 		}
 		creatingACL = true;
 		try {
-			await client.send(new CreateACLCommand({ ACLName: newACLName.trim() }));
+			await client().send(new CreateACLCommand({ ACLName: newACLName.trim() }));
 			toast.success(`ACL "${newACLName}" created`);
 			showCreateACL = false;
 			newACLName = '';
@@ -213,7 +213,7 @@
 	async function deleteACL(acl: ACL) {
 		if (!await confirmDestructive({ title: 'Delete ACL', message: `Delete ACL "${acl.Name}"?` })) return;
 		try {
-			await client.send(new DeleteACLCommand({ ACLName: acl.Name! }));
+			await client().send(new DeleteACLCommand({ ACLName: acl.Name! }));
 			toast.success(`ACL "${acl.Name}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -232,7 +232,7 @@
 		}
 		creatingSnapshot = true;
 		try {
-			await client.send(new CreateSnapshotCommand({
+			await client().send(new CreateSnapshotCommand({
 				ClusterName: newSnapshotCluster.trim(),
 				SnapshotName: newSnapshotName.trim(),
 			}));
@@ -251,7 +251,7 @@
 	async function deleteSnapshot(snap: Snapshot) {
 		if (!await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot "${snap.Name}"? This action cannot be undone.` })) return;
 		try {
-			await client.send(new DeleteSnapshotCommand({ SnapshotName: snap.Name! }));
+			await client().send(new DeleteSnapshotCommand({ SnapshotName: snap.Name! }));
 			toast.success(`Snapshot "${snap.Name}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -269,7 +269,7 @@
 		if (!updateUserTarget) return;
 		updatingUser = true;
 		try {
-			await client.send(new UpdateUserCommand({
+			await client().send(new UpdateUserCommand({
 				UserName: updateUserTarget.Name!,
 				AccessString: updateUserAccessString,
 			}));
@@ -286,7 +286,7 @@
 
 	async function removeUserFromACL(aclName: string, userName: string) {
 		try {
-			await client.send(new UpdateACLCommand({
+			await client().send(new UpdateACLCommand({
 				ACLName: aclName,
 				UserNamesToRemove: [userName],
 			}));
@@ -302,7 +302,7 @@
 		showCreateSnapshot = true;
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

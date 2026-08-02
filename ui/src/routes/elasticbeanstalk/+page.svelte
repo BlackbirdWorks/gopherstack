@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getElasticBeanstalkClient } from '$lib/aws-client';
 	import {
 		DescribeApplicationsCommand,
@@ -42,7 +42,7 @@
 		Layout
 	} from 'lucide-svelte';
 
-	const eb = getElasticBeanstalkClient();
+	const eb = regionalClient(getElasticBeanstalkClient);
 
 	type TabName = 'applications' | 'environments' | 'versions' | 'templates' | 'platforms';
 
@@ -142,11 +142,11 @@
 		loading = true;
 		try {
 			const [appsResp, envsResp, versResp, stacksResp, pvResp] = await Promise.all([
-				eb.send(new DescribeApplicationsCommand({})),
-				eb.send(new DescribeEnvironmentsCommand({})),
-				eb.send(new DescribeApplicationVersionsCommand({})),
-				eb.send(new ListAvailableSolutionStacksCommand({})),
-				eb.send(new ListPlatformVersionsCommand({}))
+				eb().send(new DescribeApplicationsCommand({})),
+				eb().send(new DescribeEnvironmentsCommand({})),
+				eb().send(new DescribeApplicationVersionsCommand({})),
+				eb().send(new ListAvailableSolutionStacksCommand({})),
+				eb().send(new ListPlatformVersionsCommand({}))
 			]);
 			applications = appsResp.Applications ?? [];
 			environments = envsResp.Environments ?? [];
@@ -170,7 +170,7 @@
 		}
 		creatingApp = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateApplicationCommand({
 					ApplicationName: newAppName.trim(),
 					Description: newAppDesc.trim() || undefined
@@ -194,7 +194,7 @@
 		);
 		if (!ok) return;
 		try {
-			await eb.send(new DeleteApplicationCommand({ ApplicationName: appName }));
+			await eb().send(new DeleteApplicationCommand({ ApplicationName: appName }));
 			toast.success(`Application "${appName}" deleted`);
 			await loadData();
 		} catch (e) {
@@ -213,7 +213,7 @@
 		}
 		creatingEnv = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateEnvironmentCommand({
 					ApplicationName: newEnvAppName.trim(),
 					EnvironmentName: newEnvName.trim(),
@@ -259,7 +259,7 @@
 		const ok = await confirmDestructive(`Terminate environment "${envName}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(new TerminateEnvironmentCommand({ EnvironmentName: envName }));
+			await eb().send(new TerminateEnvironmentCommand({ EnvironmentName: envName }));
 			toast.success(`Environment "${envName}" terminating`);
 			await loadData();
 		} catch (e) {
@@ -288,7 +288,7 @@
 		}
 		creatingVersion = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateApplicationVersionCommand({
 					ApplicationName: newVerAppName.trim(),
 					VersionLabel: newVerLabel.trim(),
@@ -318,7 +318,7 @@
 		const ok = await confirmDestructive(`Delete version "${versionLabel}" from "${appName}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(
+			await eb().send(
 				new DeleteApplicationVersionCommand({ ApplicationName: appName, VersionLabel: versionLabel })
 			);
 			toast.success(`Version "${versionLabel}" deleted`);
@@ -336,7 +336,7 @@
 		}
 		creatingTemplate = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreateConfigurationTemplateCommand({
 					ApplicationName: newTmplAppName.trim(),
 					TemplateName: newTmplName.trim(),
@@ -363,7 +363,7 @@
 		);
 		if (!ok) return;
 		try {
-			await eb.send(
+			await eb().send(
 				new DeleteConfigurationTemplateCommand({ ApplicationName: appName, TemplateName: templateName })
 			);
 			toast.success(`Template "${templateName}" deleted`);
@@ -384,7 +384,7 @@
 		}
 		creatingPlatform = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new CreatePlatformVersionCommand({
 					PlatformName: newPlatformName.trim(),
 					PlatformVersion: newPlatformVersion.trim(),
@@ -407,7 +407,7 @@
 		const ok = await confirmDestructive(`Delete platform version "${platformArn}"?`);
 		if (!ok) return;
 		try {
-			await eb.send(new DeletePlatformVersionCommand({ PlatformArn: platformArn }));
+			await eb().send(new DeletePlatformVersionCommand({ PlatformArn: platformArn }));
 			toast.success('Platform version deleted');
 			await loadData();
 		} catch (e) {
@@ -423,7 +423,7 @@
 		}
 		swapping = true;
 		try {
-			await eb.send(
+			await eb().send(
 				new SwapEnvironmentCNAMEsCommand({
 					SourceEnvironmentName: swappingSrc,
 					DestinationEnvironmentName: swappingDst
@@ -441,7 +441,19 @@
 		}
 	}
 
-	onMount(loadData);
+	// Applications, environments, versions, solution stacks, and platform
+	// versions are all region-scoped; clear them before reloading so stale
+	// data from the old region never lingers.
+	onRegionChange(() => {
+		applications = [];
+		environments = [];
+		versions = [];
+		solutionStacks = [];
+		platformVersions = [];
+		configTemplates = [];
+		expandedEnvs = new Set();
+		void loadData();
+	});
 </script>
 
 <div class="p-6 space-y-6">
@@ -534,9 +546,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Source Environment</label
-						>
-						<select
+							 for="swapping-src">Source Environment</label>
+						<select id="swapping-src"
 							bind:value={swappingSrc}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -551,9 +562,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Destination Environment</label
-						>
-						<select
+							 for="swapping-dst">Destination Environment</label>
+						<select id="swapping-dst"
 							bind:value={swappingDst}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -590,9 +600,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<input
+							 for="new-app-name">Application Name *</label>
+						<input id="new-app-name"
 							bind:value={newAppName}
 							placeholder="my-application"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -600,9 +609,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-app-desc">Description</label>
+						<input id="new-app-desc"
 							bind:value={newAppDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -637,9 +645,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-env-app-name">Application Name *</label>
+						<select id="new-env-app-name"
 							bind:value={newEnvAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -651,9 +658,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Environment Name *</label
-						>
-						<input
+							 for="new-env-name">Environment Name *</label>
+						<input id="new-env-name"
 							bind:value={newEnvName}
 							placeholder="my-env"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -661,9 +667,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Solution Stack</label
-						>
-						<select
+							 for="new-env-solution-stack">Solution Stack</label>
+						<select id="new-env-solution-stack"
 							bind:value={newEnvSolutionStack}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -675,9 +680,8 @@
 					<!-- Tier Type (improvement #1) -->
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Environment Tier</label
-						>
-						<select
+							 for="new-env-tier-type">Environment Tier</label>
+						<select id="new-env-tier-type"
 							bind:value={newEnvTierType}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -689,9 +693,8 @@
 					{#if newEnvTierType === 'WebServer'}
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Load Balancer Type</label
-							>
-							<select
+								 for="new-env-lb-type">Load Balancer Type</label>
+							<select id="new-env-lb-type"
 								bind:value={newEnvLBType}
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 							>
@@ -704,9 +707,8 @@
 					<!-- VPC Config (improvement #15) -->
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>VPC ID</label
-						>
-						<input
+							 for="new-env-vpc-id">VPC ID</label>
+						<input id="new-env-vpc-id"
 							bind:value={newEnvVPCId}
 							placeholder="vpc-xxxxxxxx (optional)"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -714,9 +716,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Subnets</label
-						>
-						<input
+							 for="new-env-subnets">Subnets</label>
+						<input id="new-env-subnets"
 							bind:value={newEnvSubnets}
 							placeholder="subnet-xxx,subnet-yyy (optional)"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -724,9 +725,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-env-desc">Description</label>
+						<input id="new-env-desc"
 							bind:value={newEnvDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -761,9 +761,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-ver-app-name">Application Name *</label>
+						<select id="new-ver-app-name"
 							bind:value={newVerAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -775,9 +774,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Version Label *</label
-						>
-						<input
+							 for="new-ver-label">Version Label *</label>
+						<input id="new-ver-label"
 							bind:value={newVerLabel}
 							placeholder="v1.0.0"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -785,9 +783,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description</label
-						>
-						<input
+							 for="new-ver-desc">Description</label>
+						<input id="new-ver-desc"
 							bind:value={newVerDesc}
 							placeholder="Optional description"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -838,9 +835,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Application Name *</label
-						>
-						<select
+							 for="new-tmpl-app-name">Application Name *</label>
+						<select id="new-tmpl-app-name"
 							bind:value={newTmplAppName}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -852,9 +848,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Template Name *</label
-						>
-						<input
+							 for="new-tmpl-name">Template Name *</label>
+						<input id="new-tmpl-name"
 							bind:value={newTmplName}
 							placeholder="my-template"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -862,9 +857,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Solution Stack</label
-						>
-						<select
+							 for="new-tmpl-stack">Solution Stack</label>
+						<select id="new-tmpl-stack"
 							bind:value={newTmplStack}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -903,9 +897,8 @@
 				<div class="space-y-3">
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Platform Name *</label
-						>
-						<input
+							 for="new-platform-name">Platform Name *</label>
+						<input id="new-platform-name"
 							bind:value={newPlatformName}
 							placeholder="MyCustomPlatform"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -913,9 +906,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Platform Version *</label
-						>
-						<input
+							 for="new-platform-version">Platform Version *</label>
+						<input id="new-platform-version"
 							bind:value={newPlatformVersion}
 							placeholder="1.0.0"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"

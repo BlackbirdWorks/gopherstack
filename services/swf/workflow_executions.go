@@ -209,7 +209,7 @@ func (b *InMemoryBackend) resolveExecutionDefaultsLocked(
 	}
 
 	if d.childPolicy == "" {
-		d.childPolicy = "TERMINATE"
+		d.childPolicy = childPolicyTerminate
 	}
 
 	return d, nil
@@ -397,12 +397,22 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 }
 
 // TerminateWorkflowExecution terminates a running workflow execution.
-// runID is optional; if provided, it must match. reason and details are stored in history.
+// runID is optional; if provided, it must match. reason and details are
+// stored in history. childPolicyOverride, if non-empty, is real SWF's
+// per-call override of the child policy applied to this execution's open
+// child executions -- it takes precedence over the policy stored on exec
+// (set at StartWorkflowExecution time) for this call only, and never
+// mutates that stored value. An empty override falls back to the stored
+// policy, exactly as if the field had been omitted on the wire.
 func (b *InMemoryBackend) TerminateWorkflowExecution(
-	domain, workflowID, runID, reason, details string,
+	domain, workflowID, runID, reason, details, childPolicyOverride string,
 ) error {
 	b.mu.Lock("TerminateWorkflowExecution")
 	defer b.mu.Unlock()
+
+	if err := validateChildPolicy(childPolicyOverride); err != nil {
+		return err
+	}
 
 	key := domain + ":" + workflowID
 	exec, ok := b.executions.Get(key)
@@ -421,6 +431,28 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 		)
 	}
 
+	effectivePolicy := exec.ChildPolicy
+	if childPolicyOverride != "" {
+		effectivePolicy = childPolicyOverride
+	}
+
+	b.terminateExecutionLocked(domain, exec, reason, details, causeOperatorInitiated, effectivePolicy)
+
+	return nil
+}
+
+// terminateExecutionLocked marks exec terminated, records its
+// WorkflowExecutionTerminated history event, notifies exec's own parent (if
+// still open) that this child has closed, and cascades policy onto exec's
+// own open children per applyChildPolicyLocked. cause is "OPERATOR_INITIATED"
+// for a direct TerminateWorkflowExecution call, or "CHILD_POLICY_APPLIED"
+// when this termination is itself the result of an ancestor's TERMINATE
+// child-policy cascade -- in which case reason/details are empty, matching
+// real AWS (a cascade-triggered termination carries no operator-supplied
+// reason). Caller must hold the write lock.
+func (b *InMemoryBackend) terminateExecutionLocked(
+	domain string, exec *WorkflowExecution, reason, details, cause, policy string,
+) {
 	exec.Status = statusTerminated
 	exec.CloseStatus = statusTerminated
 	exec.CloseTimestamp = float64(time.Now().UnixMilli()) / milliDivisor
@@ -430,14 +462,83 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 		attrKey: map[string]any{
 			attrReason:      reason,
 			attrDetails:     details,
-			attrCause:       "OPERATOR_INITIATED",
-			attrChildPolicy: exec.ChildPolicy,
+			attrCause:       cause,
+			attrChildPolicy: policy,
 		},
 	}
-	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionTerminated", attrs)
+	b.appendHistoryEventLocked(domain, exec.WorkflowID, "WorkflowExecutionTerminated", attrs)
 	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTerminated", nil)
+	b.applyChildPolicyLocked(domain, exec, policy)
+}
 
-	return nil
+// applyChildPolicyLocked cascades policy from a just-closed parent execution
+// onto its still-open child executions (those with ParentWorkflowID/
+// ParentRunID pointing at parent), matching real SWF's automatic
+// child-closure handling:
+//
+//   - TERMINATE: each open child is itself terminated (cause
+//     CHILD_POLICY_APPLIED), which in turn cascades that child's own stored
+//     ChildPolicy onto its children, and so on down the tree.
+//   - REQUEST_CANCEL: a WorkflowExecutionCancelRequested event (cause
+//     CHILD_POLICY_APPLIED) is recorded on each open child and it is
+//     enqueued a fresh decision task, exactly as RequestCancelWorkflowExecution
+//     does for a direct call -- it is up to that child's own decider to act.
+//   - ABANDON, or any other value: no action; children continue running
+//     untouched.
+//
+// The child snapshot is taken before mutating anything so that terminating
+// (and thereby further cascading into) one child cannot perturb iteration
+// over its siblings. Caller must hold the write lock.
+func (b *InMemoryBackend) applyChildPolicyLocked(domain string, parent *WorkflowExecution, policy string) {
+	var children []*WorkflowExecution
+	for _, e := range b.executionsByDomain.Get(domain) {
+		if e.Status == statusRunning &&
+			e.ParentWorkflowID == parent.WorkflowID &&
+			e.ParentRunID == parent.RunID {
+			children = append(children, e)
+		}
+	}
+
+	for _, child := range children {
+		switch policy {
+		case childPolicyTerminate:
+			b.terminateExecutionLocked(domain, child, "", "", causeChildPolicyApplied, child.ChildPolicy)
+		case childPolicyRequestCancel:
+			b.cascadeCancelRequestLocked(domain, child)
+		}
+	}
+}
+
+// cascadeCancelRequestLocked applies a REQUEST_CANCEL child-policy cascade
+// to a single open child: sets CancelRequested, records a
+// WorkflowExecutionCancelRequested event with cause CHILD_POLICY_APPLIED --
+// the only cause value real SWF's WorkflowExecutionCancelRequestedCause enum
+// defines, reserved for exactly this automatic-cascade case -- and enqueues
+// the child a fresh decision task so its decider learns of the request.
+// Caller must hold the write lock.
+//
+// NOTE: RequestCancelWorkflowExecution (a direct, operator-initiated call)
+// separately stamps this same event with cause "OPERATOR_INITIATED", which
+// is not a value the real enum defines; that mismatch predates this change,
+// is unrelated to child-policy threading, and is left alone here.
+func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *WorkflowExecution) {
+	exec.CancelRequested = true
+
+	attrKey := eventAttrKey("WorkflowExecutionCancelRequested")
+	attrs := map[string]any{
+		attrKey: map[string]any{
+			attrCause: causeChildPolicyApplied,
+		},
+	}
+	b.appendHistoryEventLocked(domain, exec.WorkflowID, "WorkflowExecutionCancelRequested", attrs)
+
+	if exec.TaskList != "" {
+		qkey := domain + ":" + exec.TaskList
+		b.decisionQueues[qkey] = append(b.decisionQueues[qkey], &DecisionTask{
+			WorkflowID: exec.WorkflowID,
+			RunID:      exec.RunID,
+		})
+	}
 }
 
 // DescribeWorkflowExecution returns a workflow execution.
@@ -568,7 +669,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	attrKey := eventAttrKey("WorkflowExecutionCancelRequested")
 	attrs := map[string]any{
 		attrKey: map[string]any{
-			attrCause: "OPERATOR_INITIATED",
+			attrCause: causeOperatorInitiated,
 		},
 	}
 	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCancelRequested", attrs)

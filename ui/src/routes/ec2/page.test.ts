@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import EC2Page from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -243,6 +244,45 @@ describe("EC2 Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  it("honors ?tab=secgroups from the URL on load, without needing a click", async () => {
+    setMockPageUrl(new URL("http://localhost/ec2?tab=secgroups"));
+    // Only the active tab's data loads on mount (see the onRegionChange
+    // effect in +page.svelte) — with the URL selecting "secgroups", that's
+    // the ONLY describe call expected, not instances.
+    mockSend.mockResolvedValueOnce({
+      SecurityGroups: [
+        {
+          GroupName: "url-selected-sg",
+          GroupId: "sg-url",
+          VpcId: "vpc-abc",
+          IpPermissions: [],
+          IpPermissionsEgress: [],
+        },
+      ],
+    });
+
+    render(EC2Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("url-selected-sg")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("No EC2 instances found")).not.toBeInTheDocument();
+  });
+
+  it("honors ?q= and ?state= filters from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/ec2?tab=instances&q=dev&state=stopped"));
+    mockSend.mockResolvedValueOnce({
+      Reservations: [{ Instances: [mockInstance] }, { Instances: [mockStoppedInstance] }],
+    });
+
+    render(EC2Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("dev-server")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("my-server")).not.toBeInTheDocument();
   });
 
   it("loads key pairs when tab clicked", async () => {

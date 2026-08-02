@@ -68,7 +68,6 @@ func supportedOpsBase() []string {
 		"DescribeDBClusterParameters",
 		"DescribeDBClusterSnapshotAttributes",
 		"DescribeDBClusterSnapshots",
-		"DescribeCustomDBEngineVersions",
 		"DescribeDBClusters",
 		"DescribeDBEngineVersions",
 		"DescribeDBInstances",

@@ -68,7 +68,18 @@ func (h *Handler) GetSupportedOperations() []string {
 		"DeleteParameterGroup",
 		"DescribeParameters",
 		"DescribeDefaultParameters",
-		"ResetParameterGroup",
+		// "ResetParameterGroup" is deliberately NOT advertised — it is not a real DAX
+		// SDK operation (verified against botocore's dax service-2.json: no such
+		// action exists; the full real op list is Create/Delete/Update/Describe for
+		// Cluster/ParameterGroup/SubnetGroup plus IncreaseReplicationFactor,
+		// DecreaseReplicationFactor, RebootNode, TagResource, UntagResource,
+		// ListTags, DescribeParameters, DescribeDefaultParameters, DescribeEvents —
+		// no reset action for parameter groups at all). DAX dispatches purely by
+		// X-Amz-Target header value via the daxOperations table, so a real client
+		// can never send this target and this route is unreachable by real traffic
+		// either way; it stays wired below as internal test scaffolding only (see
+		// gopherstack-vhw2 category A, same resolution as EMR's ListTagsForResource
+		// and CloudFront's GetFunctionAssociations/SetFunctionAssociations).
 		"CreateSubnetGroup",
 		"DescribeSubnetGroups",
 		"UpdateSubnetGroup",

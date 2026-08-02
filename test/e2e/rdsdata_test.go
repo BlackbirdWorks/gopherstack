@@ -42,7 +42,12 @@ func TestRDSDataDashboard(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestRDSDataDashboard_SQLRunner verifies the SQL Runner tab is visible.
+// TestRDSDataDashboard_SQLRunner verifies the rebuilt four-tab console
+// (Query Console, Transactions, Statement History, ExecuteSql (legacy)) is
+// visible. "SQL Runner" and "Transaction Browser" were the previous page's
+// tab labels -- the rebuild renamed them and added a fourth tab for the
+// deprecated ExecuteSql op; Tabs.svelte renders each as role="tab", not
+// role="button", so the locators below match on the real role too.
 func TestRDSDataDashboard_SQLRunner(t *testing.T) {
 	stack := newStack(t)
 
@@ -66,21 +71,28 @@ func TestRDSDataDashboard_SQLRunner(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/rdsdata")
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "SQL Runner"}).
+	err = page.GetByRole("tab", playwright.PageGetByRoleOptions{Name: "Query Console"}).
 		WaitFor(playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
 			Timeout: playwright.Float(30000),
 		})
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Transaction Browser"}).
+	err = page.GetByRole("tab", playwright.PageGetByRoleOptions{Name: "Transactions"}).
 		WaitFor(playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
 			Timeout: playwright.Float(10000),
 		})
 	require.NoError(t, err)
 
-	err = page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "Statement History"}).
+	err = page.GetByRole("tab", playwright.PageGetByRoleOptions{Name: "Statement History"}).
+		WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(10000),
+		})
+	require.NoError(t, err)
+
+	err = page.GetByRole("tab", playwright.PageGetByRoleOptions{Name: "ExecuteSql (legacy)"}).
 		WaitFor(playwright.LocatorWaitForOptions{
 			State:   playwright.WaitForSelectorStateVisible,
 			Timeout: playwright.Float(10000),

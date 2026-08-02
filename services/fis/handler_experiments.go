@@ -123,13 +123,32 @@ func (h *Handler) handleListExperimentResolvedTargets(c *echo.Context, id string
 		return h.writeBackendError(c, err, id)
 	}
 
-	dtos := make([]resolvedTargetDTO, len(resolved))
+	names := make([]string, len(resolved))
 	for i, rt := range resolved {
-		dtos[i] = resolvedTargetDTO(rt)
+		names[i] = rt.TargetName
+	}
+
+	q := c.Request().URL.Query()
+	maxResults, start := paginateWithToken(names, q)
+
+	end := min(start+maxResults, len(resolved))
+
+	var nextTok string
+
+	if end < len(resolved) {
+		nextTok = encodePageToken(end)
+	}
+
+	page := resolved[start:end]
+	dtos := make([]resolvedTargetDTO, len(page))
+
+	for i, rt := range page {
+		dtos[i] = resolvedTargetDTO{ResourceType: rt.ResourceType, TargetName: rt.TargetName}
 	}
 
 	return c.JSON(http.StatusOK, listExperimentResolvedTargetsResponseDTO{
 		ResolvedTargets: dtos,
+		NextToken:       nextTok,
 	})
 }
 

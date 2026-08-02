@@ -19,6 +19,15 @@ import (
 const (
 	testAccountID = "000000000000"
 	testRegion    = "us-east-1"
+
+	// internalOnlyDispatchOps counts dispatch-table entries that are wired
+	// but deliberately excluded from GetSupportedOperations(): today just
+	// "ListTagsForResource", which is not a real EMR SDK operation (only
+	// AddTags/RemoveTags exist) and is kept routed solely as internal
+	// test/tooling scaffolding -- see the comment on that entry in
+	// buildOps() (handler.go). GetSupportedOperations() intentionally
+	// undercounts the dispatch table by exactly this many entries.
+	internalOnlyDispatchOps = 1
 )
 
 func newTestHandler(t *testing.T) *emr.Handler {
@@ -384,13 +393,15 @@ func TestGetSupportedOperations_AllOps(t *testing.T) {
 	}
 }
 
-// TestGetSupportedOperations_MatchDispatch verifies ops and dispatch table are the same size.
+// TestGetSupportedOperations_MatchDispatch verifies the dispatch table has
+// exactly one more entry than the advertised op list -- internalOnlyDispatchOps
+// (see its doc comment) accounts for the deliberate exception.
 func TestGetSupportedOperations_MatchDispatch(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	assert.Equal(t, len(h.GetSupportedOperations()), h.HandlerOpsLen(),
-		"GetSupportedOperations length must equal dispatch table length")
+	assert.Equal(t, len(h.GetSupportedOperations())+internalOnlyDispatchOps, h.HandlerOpsLen(),
+		"dispatch table length must equal GetSupportedOperations length plus internalOnlyDispatchOps")
 }
 
 // TestSeedHelpers verifies seed helpers correctly insert into backend.
@@ -479,6 +490,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	studio, err := src.CreateStudio(
 		context.Background(),
 		"studio-persist",
+		"",
 		"SSO",
 		"s3://b",
 		"sg-1",
@@ -532,8 +544,9 @@ func TestHandlerOpsLength(t *testing.T) {
 
 	h := newTestHandler(t)
 	ops := h.GetSupportedOperations()
-	assert.Equal(t, len(ops), h.HandlerOpsLen(),
-		"every op in GetSupportedOperations must be in the dispatch table")
+	assert.Equal(t, len(ops)+internalOnlyDispatchOps, h.HandlerOpsLen(),
+		"every op in GetSupportedOperations must be in the dispatch table, "+
+			"plus internalOnlyDispatchOps internal-only exceptions")
 }
 
 // TestMatchPriorityHeaderExact verifies the handler returns PriorityHeaderExact.

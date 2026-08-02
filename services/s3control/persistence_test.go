@@ -120,7 +120,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 
 	// Raw (non-*T) maps that remain persisted.
 	require.NoError(t, original.PutAccessPointPolicy(accountID, "my-ap", `{"Version":"2012-10-17"}`))
-	require.NoError(t, original.PutBucketReplication(accountID, "my-outposts-bucket", "<ReplicationConfiguration/>"))
+	require.NoError(t, original.PutBucketReplication("my-outposts-bucket", "<ReplicationConfiguration/>"))
 	require.NoError(t, original.PutStorageLensConfiguration(accountID, "my-config", "<StorageLensConfiguration/>"))
 	require.NoError(t, original.PutStorageLensConfigurationTagging(accountID, "my-config", s3control.TagSet{"k": "v"}))
 	original.TagResource("arn:aws:s3:::my-outposts-bucket", map[string]string{"env": "test"})
@@ -170,7 +170,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, olap.ObjectLambdaAccessPointArn, gotOLAP.ObjectLambdaAccessPointArn)
 
-	gotBucket, err := fresh.GetBucket(accountID, "my-outposts-bucket")
+	gotBucket, err := fresh.GetBucket("my-outposts-bucket")
 	require.NoError(t, err)
 	assert.Equal(t, bucket.BucketArn, gotBucket.BucketArn)
 
@@ -199,7 +199,7 @@ func TestInMemoryBackend_FullStateSnapshotRestore(t *testing.T) {
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"Version":"2012-10-17"}`, gotPolicy)
 
-	gotRepl, err := fresh.GetBucketReplication(accountID, "my-outposts-bucket")
+	gotRepl, err := fresh.GetBucketReplication("my-outposts-bucket")
 	require.NoError(t, err)
 	assert.Equal(t, "<ReplicationConfiguration/>", gotRepl)
 
@@ -393,23 +393,23 @@ func TestPersistence_Batch1Maps_SnapshotRestore(t *testing.T) {
 			setup: func(t *testing.T, b *s3control.InMemoryBackend) {
 				t.Helper()
 				b.CreateBucket(accountID, "batch1-bucket")
-				require.NoError(t, b.PutBucketPolicy(accountID, "batch1-bucket", `{"p":1}`))
-				require.NoError(t, b.PutBucketTagging(accountID, "batch1-bucket", s3control.TagSet{"k": "v"}))
-				require.NoError(t, b.PutBucketLifecycleConfiguration(accountID, "batch1-bucket", "<Lifecycle/>"))
-				require.NoError(t, b.PutBucketVersioning(accountID, "batch1-bucket", "Enabled"))
+				require.NoError(t, b.PutBucketPolicy("batch1-bucket", `{"p":1}`))
+				require.NoError(t, b.PutBucketTagging("batch1-bucket", s3control.TagSet{"k": "v"}))
+				require.NoError(t, b.PutBucketLifecycleConfiguration("batch1-bucket", "<Lifecycle/>"))
+				require.NoError(t, b.PutBucketVersioning("batch1-bucket", "Enabled"))
 			},
 			verify: func(t *testing.T, b *s3control.InMemoryBackend) {
 				t.Helper()
-				policy, err := b.GetBucketPolicy(accountID, "batch1-bucket")
+				policy, err := b.GetBucketPolicy("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, `{"p":1}`, policy)
-				tags, err := b.GetBucketTagging(accountID, "batch1-bucket")
+				tags, err := b.GetBucketTagging("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, s3control.TagSet{"k": "v"}, tags)
-				lc, err := b.GetBucketLifecycleConfiguration(accountID, "batch1-bucket")
+				lc, err := b.GetBucketLifecycleConfiguration("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, "<Lifecycle/>", lc)
-				v, err := b.GetBucketVersioning(accountID, "batch1-bucket")
+				v, err := b.GetBucketVersioning("batch1-bucket")
 				require.NoError(t, err)
 				assert.Equal(t, "Enabled", v)
 			},

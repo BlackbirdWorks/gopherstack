@@ -7,8 +7,9 @@
 service: neptune
 sdk_module: aws-sdk-go-v2/service/neptune@v1.44.1
 last_audit_commit: 087cb59186751418d9d49b88434f13cf214c7609
-last_audit_date: 2026-07-23
+last_audit_date: 2026-07-31
 overall: A            # every previously-open gap this pass either genuinely fixed or re-verified as correct-as-is
+                      # 2026-07-31 (browser parity pass): RouteMatcher checked only the User-Agent header for the "api/neptune" marker, which a browser cannot set (Fetch spec forbids scripts from setting User-Agent) -- the AWS SDK for JavaScript in a browser puts its SDK identification in X-Amz-User-Agent instead, so every browser dashboard Neptune request (@aws-sdk/client-neptune) fell through unmatched. Also confirmed the marker itself needed case-insensitive matching: the JS SDK's serviceId-derived marker is "api/Neptune" (PascalCase), not aws-sdk-go-v2's lowercase "api/neptune". Fixed via the new pkgs/service.MatchesUserAgentMarker helper, shared with the identical bug class fixed the same pass in mediastoredata/docdb/appsync. Grade held at A: fixed, not deferred.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
@@ -37,7 +38,9 @@ leaks: {status: clean, note: "No goroutines, timers, or janitors in this service
 
 Protocol: **query/xml**, single POST with `Action=<OpName>&Version=2014-10-31` form
 params (`RouteMatcher` checks `Content-Type: application/x-www-form-urlencoded`,
-`User-Agent` containing `api/neptune`, and `Version=2014-10-31` in the parsed
+`api/neptune` present in either `User-Agent` or `X-Amz-User-Agent` -- see
+`pkgs/service.MatchesUserAgentMarker` and the 2026-07-31 browser-parity note above --
+and `Version=2014-10-31` in the parsed
 body -- it does NOT check `Action` itself, so any Neptune-shaped POST is claimed
 before dispatch validates the action name). Response root element name is
 `<OpName>Response` with an `xmlns="http://rds.amazonaws.com/doc/2014-10-31/"`

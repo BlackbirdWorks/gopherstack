@@ -449,5 +449,5 @@ func (h *Handler) handleDeleteJobTagging(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return c.String(http.StatusNoContent, "")
+	return c.NoContent(http.StatusNoContent)
 }

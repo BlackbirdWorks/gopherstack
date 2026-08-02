@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getWAFV2Client } from '$lib/aws-client';
 	import {
 		ListWebACLsCommand,
@@ -39,7 +40,7 @@
 		Settings
 	} from 'lucide-svelte';
 
-	const waf = getWAFV2Client();
+	const waf = regionalClient(getWAFV2Client);
 
 	type Tab = 'webacls' | 'ipsets' | 'regexsets' | 'rulegroups' | 'logging';
 
@@ -111,7 +112,7 @@
 	async function loadWebACLs() {
 		loadingWebACLs = true;
 		try {
-			const resp = await waf.send(new ListWebACLsCommand({ Scope: scope, Limit: 100 }));
+			const resp = await waf().send(new ListWebACLsCommand({ Scope: scope, Limit: 100 }));
 			webAcls = resp.WebACLs ?? [];
 		} catch (e) {
 			toast.error('Failed to load Web ACLs: ' + String(e));
@@ -125,7 +126,7 @@
 		selectedWebACL = null;
 		sampledRequests = [];
 		try {
-			const resp = await waf.send(
+			const resp = await waf().send(
 				new GetWebACLCommand({
 					Name: summary.Name ?? '',
 					Scope: scope,
@@ -144,7 +145,7 @@
 		if (!selectedWebACL) return;
 		loadingSamples = true;
 		try {
-			const resp = await waf.send(
+			const resp = await waf().send(
 				new GetSampledRequestsCommand({
 					WebAclArn: selectedWebACL.ARN ?? '',
 					RuleMetricName: selectedWebACL.VisibilityConfig?.MetricName ?? 'ALL',
@@ -170,7 +171,7 @@
 		creatingACL = true;
 		try {
 			const metricName = newAclName.trim().replaceAll(/[^a-zA-Z0-9]/g, '');
-			await waf.send(
+			await waf().send(
 				new CreateWebACLCommand({
 					Name: newAclName.trim(),
 					Scope: scope,
@@ -204,7 +205,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await waf.send(
+			await waf().send(
 				new DeleteWebACLCommand({
 					Name: summary.Name ?? '',
 					Scope: scope,
@@ -223,7 +224,7 @@
 	async function loadIPSets() {
 		loadingIPSets = true;
 		try {
-			const resp = await waf.send(new ListIPSetsCommand({ Scope: scope, Limit: 100 }));
+			const resp = await waf().send(new ListIPSetsCommand({ Scope: scope, Limit: 100 }));
 			ipSets = resp.IPSets ?? [];
 		} catch (e) {
 			toast.error('Failed to load IP sets: ' + String(e));
@@ -236,7 +237,7 @@
 		loadingIPSetDetail = true;
 		selectedIPSet = null;
 		try {
-			const resp = await waf.send(
+			const resp = await waf().send(
 				new GetIPSetCommand({
 					Name: summary.Name ?? '',
 					Scope: scope,
@@ -254,7 +255,7 @@
 	async function loadRegexSets() {
 		loadingRegexSets = true;
 		try {
-			const resp = await waf.send(new ListRegexPatternSetsCommand({ Scope: scope, Limit: 100 }));
+			const resp = await waf().send(new ListRegexPatternSetsCommand({ Scope: scope, Limit: 100 }));
 			regexSets = resp.RegexPatternSets ?? [];
 		} catch (e) {
 			toast.error('Failed to load regex pattern sets: ' + String(e));
@@ -266,7 +267,7 @@
 	async function loadRuleGroups() {
 		loadingRuleGroups = true;
 		try {
-			const resp = await waf.send(new ListRuleGroupsCommand({ Scope: scope, Limit: 100 }));
+			const resp = await waf().send(new ListRuleGroupsCommand({ Scope: scope, Limit: 100 }));
 			ruleGroups = resp.RuleGroups ?? [];
 		} catch (e) {
 			toast.error('Failed to load rule groups: ' + String(e));
@@ -278,7 +279,7 @@
 	async function loadLoggingConfigs() {
 		loadingLogging = true;
 		try {
-			const resp = await waf.send(new ListLoggingConfigurationsCommand({ Scope: scope }));
+			const resp = await waf().send(new ListLoggingConfigurationsCommand({ Scope: scope }));
 			loggingConfigs = resp.LoggingConfigurations ?? [];
 		} catch (e) {
 			toast.error('Failed to load logging configurations: ' + String(e));
@@ -291,7 +292,7 @@
 		if (!newLogResourceArn.trim() || !newLogDestinationArn.trim()) return;
 		savingLog = true;
 		try {
-			await waf.send(
+			await waf().send(
 				new PutLoggingConfigurationCommand({
 					LoggingConfiguration: {
 						ResourceArn: newLogResourceArn.trim(),
@@ -318,7 +319,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await waf.send(new DeleteLoggingConfigurationCommand({ ResourceArn: resourceArn }));
+			await waf().send(new DeleteLoggingConfigurationCommand({ ResourceArn: resourceArn }));
 			toast.success('Logging configuration removed');
 			await loadLoggingConfigs();
 		} catch (e) {
@@ -364,7 +365,23 @@
 		return 'Custom';
 	}
 
-	onMount(() => loadWebACLs());
+	// A Web ACL/IP set is only unique within a scope+region; the scope select
+	// already reloads via handleScopeChange, and the tab switcher already
+	// reloads via handleTabChange, so read both with `untrack` to keep them
+	// out of this effect's dependencies and avoid double-fetching when either
+	// changes. Selected detail state and all lists belong to the old region,
+	// so clear them the same way handleScopeChange does before reloading.
+	onRegionChange(() => {
+		selectedWebACL = null;
+		selectedIPSet = null;
+		webAcls = [];
+		ipSets = [];
+		regexSets = [];
+		ruleGroups = [];
+		loggingConfigs = [];
+		sampledRequests = [];
+		untrack(() => loadForTab(activeTab));
+	});
 </script>
 
 <div class="p-6 space-y-6">

@@ -18,8 +18,8 @@ func TestAttributes_PutListDelete_Roundtrip(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "attr-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "attr-cluster",
-		"ec2InstanceId": "i-attr-1234",
+		"cluster":                  "attr-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-attr-1234"),
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
@@ -90,8 +90,8 @@ func TestAttributes_FilterByName(t *testing.T) {
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "attr-filter-cluster"})
 	ciResp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "attr-filter-cluster",
-		"ec2InstanceId": "i-filter-5678",
+		"cluster":                  "attr-filter-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-filter-5678"),
 	})
 	require.Equal(t, http.StatusOK, ciResp.Code)
 	var ciOut map[string]any
@@ -138,8 +138,8 @@ func TestListAttributes_TargetID_Filter(t *testing.T) {
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "attr-tid-cluster"})
 
 	ci1Resp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "attr-tid-cluster",
-		"ec2InstanceId": "i-instance-1",
+		"cluster":                  "attr-tid-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-instance-1"),
 	})
 	require.Equal(t, http.StatusOK, ci1Resp.Code)
 	var ci1Out map[string]any
@@ -147,8 +147,8 @@ func TestListAttributes_TargetID_Filter(t *testing.T) {
 	ci1Arn := ci1Out["containerInstance"].(map[string]any)["containerInstanceArn"].(string)
 
 	ci2Resp := doECSRequest(t, h, "RegisterContainerInstance", map[string]any{
-		"cluster":       "attr-tid-cluster",
-		"ec2InstanceId": "i-instance-2",
+		"cluster":                  "attr-tid-cluster",
+		"instanceIdentityDocument": fakeInstanceIdentityDocument("i-instance-2"),
 	})
 	require.Equal(t, http.StatusOK, ci2Resp.Code)
 	var ci2Out map[string]any

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCognitoIdentityClient } from '$lib/aws-client';
 	import {
 		ListIdentityPoolsCommand,
@@ -50,7 +50,7 @@
 		Key
 	} from 'lucide-svelte';
 
-	const cognitoId = getCognitoIdentityClient();
+	const cognitoId = regionalClient(getCognitoIdentityClient);
 
 	// The mock backend extends IdentityPool with the ARN field.
 	interface IdentityPoolWithArn extends IdentityPool {
@@ -154,7 +154,7 @@
 	async function loadPools() {
 		loading = true;
 		try {
-			const res = await cognitoId.send(new ListIdentityPoolsCommand({ MaxResults: 60 }));
+			const res = await cognitoId().send(new ListIdentityPoolsCommand({ MaxResults: 60 }));
 			identityPools = res.IdentityPools ?? [];
 		} catch (e) {
 			toast.error(`Failed to load identity pools: ${e}`);
@@ -205,8 +205,8 @@
 		describeIdentityId = '';
 		try {
 			const [detailRes, rolesRes] = await Promise.all([
-				cognitoId.send(new DescribeIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })),
-				cognitoId.send(new GetIdentityPoolRolesCommand({ IdentityPoolId: pool.IdentityPoolId }))
+				cognitoId().send(new DescribeIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })),
+				cognitoId().send(new GetIdentityPoolRolesCommand({ IdentityPoolId: pool.IdentityPoolId }))
 			]);
 			selectedPool = detailRes ?? null;
 			poolRoles = rolesRes.Roles ?? {};
@@ -220,7 +220,7 @@
 	async function deletePool(pool: IdentityPoolShortDescription) {
 		if (!pool.IdentityPoolId || !await confirmDestructive({ title: 'Delete Identity Pool', message: `Delete identity pool "${pool.IdentityPoolName}"? All identities associated with this pool will be removed.` })) return;
 		try {
-			await cognitoId.send(
+			await cognitoId().send(
 				new DeleteIdentityPoolCommand({ IdentityPoolId: pool.IdentityPoolId })
 			);
 			toast.success(`Identity pool deleted`);
@@ -235,7 +235,7 @@
 		if (!newPoolName.trim()) return;
 		creating = true;
 		try {
-			await cognitoId.send(
+			await cognitoId().send(
 				new CreateIdentityPoolCommand({
 					IdentityPoolName: newPoolName.trim(),
 					AllowUnauthenticatedIdentities: newPoolUnauthenticated,
@@ -292,7 +292,7 @@
 	async function loadPrincipalTagMap() {
 		if (!selectedPool?.IdentityPoolId || !principalProviderName.trim()) return;
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new GetPrincipalTagAttributeMapCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					IdentityProviderName: principalProviderName.trim()
@@ -310,7 +310,7 @@
 		if (!selectedPool?.IdentityPoolId || !principalProviderName.trim()) return;
 		savingPrincipalTags = true;
 		try {
-			await cognitoId.send(
+			await cognitoId().send(
 				new SetPrincipalTagAttributeMapCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					IdentityProviderName: principalProviderName.trim(),
@@ -334,7 +334,7 @@
 		lookupResultIdentityID = '';
 		lookupResultDeveloperUsers = [];
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new LookupDeveloperIdentityCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					IdentityId: lookupIdentityID.trim() || undefined,
@@ -358,7 +358,7 @@
 		mergingDeveloperIdentities = true;
 		mergeResultIdentityId = '';
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new MergeDeveloperIdentitiesCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					SourceUserIdentifier: mergeSourceUserIdentifier.trim(),
@@ -379,7 +379,7 @@
 		if (!selectedPool?.IdentityPoolId) return;
 		loadingIdentities = true;
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new ListIdentitiesCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					MaxResults: 20,
@@ -399,7 +399,7 @@
 		if (!unlinkIdentityId.trim() || !unlinkProvider.trim()) return;
 		unlinkingIdentity = true;
 		try {
-			await cognitoId.send(
+			await cognitoId().send(
 				new UnlinkIdentityCommand({
 					IdentityId: unlinkIdentityId.trim(),
 					Logins: { [unlinkProvider.trim()]: unlinkToken.trim() },
@@ -421,7 +421,7 @@
 		if (!selectedPool?.IdentityPoolId || !unlinkDevIdentityId.trim() || !unlinkDevProviderName.trim() || !unlinkDevUserIdentifier.trim()) return;
 		unlinkingDevIdentity = true;
 		try {
-			await cognitoId.send(
+			await cognitoId().send(
 				new UnlinkDeveloperIdentityCommand({
 					IdentityId: unlinkDevIdentityId.trim(),
 					IdentityPoolId: selectedPool.IdentityPoolId,
@@ -448,7 +448,7 @@
 			const roles: Record<string, string> = {};
 			if (setRoleAuth.trim()) roles['authenticated'] = setRoleAuth.trim();
 			if (setRoleUnauth.trim()) roles['unauthenticated'] = setRoleUnauth.trim();
-			await cognitoId.send(
+			await cognitoId().send(
 				new SetIdentityPoolRolesCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					Roles: roles
@@ -456,7 +456,7 @@
 			);
 			toast.success('Identity pool roles saved');
 			// Refresh the displayed roles.
-			const rolesRes = await cognitoId.send(
+			const rolesRes = await cognitoId().send(
 				new GetIdentityPoolRolesCommand({ IdentityPoolId: selectedPool.IdentityPoolId })
 			);
 			poolRoles = rolesRes.Roles ?? {};
@@ -483,7 +483,7 @@
 					return;
 				}
 			}
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new GetIdCommand({ IdentityPoolId: selectedPool.IdentityPoolId, Logins: logins })
 			);
 			getIdResult = out.IdentityId ?? '';
@@ -500,7 +500,7 @@
 		gettingCredentials = true;
 		credResult = null;
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new GetCredentialsForIdentityCommand({ IdentityId: credIdentityId.trim() })
 			);
 			credResult = {
@@ -522,7 +522,7 @@
 		gettingOidcToken = true;
 		oidcTokenResult = '';
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new GetOpenIdTokenCommand({ IdentityId: oidcIdentityId.trim() })
 			);
 			oidcTokenResult = out.Token ?? '';
@@ -548,7 +548,7 @@
 					return;
 				}
 			}
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new GetOpenIdTokenForDeveloperIdentityCommand({
 					IdentityPoolId: selectedPool.IdentityPoolId,
 					Logins: logins ?? {},
@@ -572,7 +572,7 @@
 		if (!arn) { toast.error('Pool ARN not available'); return; }
 		loadingResourceTags = true;
 		try {
-			const out = await cognitoId.send(new ListTagsForResourceCommand({ ResourceArn: arn }));
+			const out = await cognitoId().send(new ListTagsForResourceCommand({ ResourceArn: arn }));
 			resourceTags = out.Tags ?? {};
 		} catch (e) {
 			toast.error(`ListTagsForResource failed: ${e}`);
@@ -587,7 +587,7 @@
 		if (!arn) { toast.error('Pool ARN not available'); return; }
 		taggingResource = true;
 		try {
-			await cognitoId.send(new TagResourceCommand({ ResourceArn: arn, Tags: { [tagKey.trim()]: tagValue.trim() } }));
+			await cognitoId().send(new TagResourceCommand({ ResourceArn: arn, Tags: { [tagKey.trim()]: tagValue.trim() } }));
 			toast.success(`Tag "${tagKey}" added`);
 			tagKey = '';
 			tagValue = '';
@@ -605,7 +605,7 @@
 		if (!arn) { toast.error('Pool ARN not available'); return; }
 		untaggingResource = true;
 		try {
-			await cognitoId.send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [untagKey.trim()] }));
+			await cognitoId().send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [untagKey.trim()] }));
 			toast.success(`Tag "${untagKey}" removed`);
 			untagKey = '';
 			await loadResourceTags();
@@ -619,7 +619,7 @@
 	async function deleteIdentity(identityId: string) {
 		if (!await confirmDestructive({ title: 'Delete Identity', message: `Delete identity ${identityId}?` })) return;
 		try {
-			await cognitoId.send(new DeleteIdentitiesCommand({ IdentityIdsToDelete: [identityId] }));
+			await cognitoId().send(new DeleteIdentitiesCommand({ IdentityIdsToDelete: [identityId] }));
 			toast.success('Identity deleted');
 			poolIdentities = poolIdentities.filter((i) => i.IdentityId !== identityId);
 		} catch (e) {
@@ -632,7 +632,7 @@
 		describeIdentityId = identityId;
 		describeIdentityResult = null;
 		try {
-			const out = await cognitoId.send(
+			const out = await cognitoId().send(
 				new DescribeIdentityCommand({ IdentityId: identityId })
 			);
 			describeIdentityResult = {
@@ -654,7 +654,15 @@
 		);
 	}
 
-	onMount(() => loadPools());
+	// selectedPool and its detail state (roles, identities) are region-scoped:
+	// a pool ID from the old region is meaningless in the new one.
+	onRegionChange(() => {
+		selectedPool = null;
+		identityPools = [];
+		poolRoles = {};
+		poolIdentities = [];
+		void loadPools();
+	});
 </script>
 
 <div class="space-y-6">

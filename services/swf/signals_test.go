@@ -51,7 +51,7 @@ func TestSignalWorkflowExecution_NotOpen_UnknownResourceFault(t *testing.T) {
 		WorkflowID: "wf-1",
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", ""))
+	require.NoError(t, b.TerminateWorkflowExecution("dom", "wf-1", "", "", "", ""))
 
 	err = b.SignalWorkflowExecution("dom", "wf-1", "", "my-signal", "")
 	require.ErrorIs(t, err, swf.ErrNotFound)

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getIAMClient } from '$lib/aws-client';
 import {
 ListUsersCommand, ListRolesCommand, ListGroupsCommand, ListPoliciesCommand,
@@ -29,7 +29,7 @@ Copy, Plus, Trash2, Key, BarChart3, BookOpen, X, Eye, EyeOff,
 FlaskConical, ClipboardList, CheckCircle2, XCircle
 } from 'lucide-svelte';
 
-const iam = getIAMClient();
+const iam = regionalClient(getIAMClient);
 
 // ─── Types ───
 type MainTab = 'users' | 'roles' | 'groups' | 'policies' | 'simulator' | 'report' | 'metrics' | 'docs';
@@ -145,14 +145,19 @@ let showCreateKey = $state(false);
 let createdKey = $state<{AccessKeyId?: string; SecretAccessKey?: string} | null>(null);
 let showSecret = $state(false);
 
-onMount(async () => {
-await Promise.all([loadUsers(), loadAccountAlias(), loadSummary()]);
+// IAM users/roles/groups/policies are account-scoped, not region-scoped
+// (confirmed against services/iam: StorageBackend has no region parameter
+// anywhere), so a region switch does not need to clear this state — it only
+// needs to rebuild the client so a stale signing region isn't reused, and
+// re-run the same initial load.
+onRegionChange(() => {
+void Promise.all([loadUsers(), loadAccountAlias(), loadSummary()]);
 });
 
 async function loadUsers() {
 try {
 loading = true;
-const data = await iam.send(new ListUsersCommand({}));
+const data = await iam().send(new ListUsersCommand({}));
 users = data.Users || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load users');
@@ -164,7 +169,7 @@ loading = false;
 async function loadRoles() {
 try {
 loading = true;
-const data = await iam.send(new ListRolesCommand({}));
+const data = await iam().send(new ListRolesCommand({}));
 roles = data.Roles || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load roles');
@@ -176,7 +181,7 @@ loading = false;
 async function loadGroups() {
 try {
 loading = true;
-const data = await iam.send(new ListGroupsCommand({}));
+const data = await iam().send(new ListGroupsCommand({}));
 groups = data.Groups || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load groups');
@@ -188,7 +193,7 @@ loading = false;
 async function loadPolicies() {
 try {
 loading = true;
-const data = await iam.send(new ListPoliciesCommand({ Scope: policyScope }));
+const data = await iam().send(new ListPoliciesCommand({ Scope: policyScope }));
 policies = data.Policies || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to load policies');
@@ -199,7 +204,7 @@ loading = false;
 
 async function loadAccountAlias() {
 try {
-const data = await iam.send(new ListAccountAliasesCommand({}));
+const data = await iam().send(new ListAccountAliasesCommand({}));
 accountAlias = (data.AccountAliases || [])[0] || '';
 } catch {
 		// non-critical
@@ -208,7 +213,7 @@ accountAlias = (data.AccountAliases || [])[0] || '';
 
 async function loadSummary() {
 try {
-const data = await iam.send(new GetAccountSummaryCommand({}));
+const data = await iam().send(new GetAccountSummaryCommand({}));
 summary = (data.SummaryMap as AccountSummary) || {};
 } catch {
 		// non-critical
@@ -224,11 +229,11 @@ loginProfileExists = null;
 userMFADevices = [];
 try {
 const [pol, keys, inlinePol, groupsRes, mfaRes] = await Promise.all([
-iam.send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
-iam.send(new ListAccessKeysCommand({ UserName: user.UserName })),
-iam.send(new ListUserPoliciesCommand({ UserName: user.UserName })),
-iam.send(new ListGroupsForUserCommand({ UserName: user.UserName })),
-iam.send(new ListVirtualMFADevicesCommand({ AssignmentStatus: 'Assigned' })),
+iam().send(new ListAttachedUserPoliciesCommand({ UserName: user.UserName })),
+iam().send(new ListAccessKeysCommand({ UserName: user.UserName })),
+iam().send(new ListUserPoliciesCommand({ UserName: user.UserName })),
+iam().send(new ListGroupsForUserCommand({ UserName: user.UserName })),
+iam().send(new ListVirtualMFADevicesCommand({ AssignmentStatus: 'Assigned' })),
 ]);
 userAttachedPolicies = pol.AttachedPolicies || [];
 userAccessKeys = keys.AccessKeyMetadata || [];
@@ -242,7 +247,7 @@ detailLoading = false;
 }
 // Check login profile
 try {
-await iam.send(new GetLoginProfileCommand({ UserName: user.UserName! }));
+await iam().send(new GetLoginProfileCommand({ UserName: user.UserName! }));
 loginProfileExists = true;
 } catch {
 loginProfileExists = false;
@@ -252,7 +257,7 @@ loginProfileExists = false;
 async function loadInlinePolicyDoc(policyName: string) {
 if (!selectedUser?.UserName) return;
 try {
-const res = await iam.send(new GetUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: policyName }));
+const res = await iam().send(new GetUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: policyName }));
 inlinePolicyName = policyName;
 inlinePolicyDoc = decodeURIComponent(res.PolicyDocument ?? '{}');
 showInlinePolicyEditor = true;
@@ -265,10 +270,10 @@ async function saveInlinePolicy() {
 if (!selectedUser?.UserName || !inlinePolicyName.trim()) return;
 savingInlinePolicy = true;
 try {
-await iam.send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: inlinePolicyDoc }));
+await iam().send(new PutUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: inlinePolicyName.trim(), PolicyDocument: inlinePolicyDoc }));
 toast.success('Inline policy saved');
 showInlinePolicyEditor = false;
-const res = await iam.send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
+const res = await iam().send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
 userInlinePolicies = res.PolicyNames || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to save policy');
@@ -280,9 +285,9 @@ savingInlinePolicy = false;
 async function deleteInlinePolicy(policyName: string) {
 if (!selectedUser?.UserName) return;
 try {
-await iam.send(new DeleteUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: policyName }));
+await iam().send(new DeleteUserPolicyCommand({ UserName: selectedUser.UserName, PolicyName: policyName }));
 toast.success('Inline policy deleted');
-const res = await iam.send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
+const res = await iam().send(new ListUserPoliciesCommand({ UserName: selectedUser.UserName }));
 userInlinePolicies = res.PolicyNames || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
@@ -292,7 +297,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
 async function createLoginProfile() {
 if (!selectedUser?.UserName || !loginProfilePassword) return;
 try {
-await iam.send(new CreateLoginProfileCommand({ UserName: selectedUser.UserName, Password: loginProfilePassword, PasswordResetRequired: false }));
+await iam().send(new CreateLoginProfileCommand({ UserName: selectedUser.UserName, Password: loginProfilePassword, PasswordResetRequired: false }));
 toast.success('Login profile created');
 loginProfileExists = true;
 loginProfilePassword = '';
@@ -304,7 +309,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to create login profile');
 async function updateLoginProfile() {
 if (!selectedUser?.UserName || !loginProfilePassword) return;
 try {
-await iam.send(new UpdateLoginProfileCommand({ UserName: selectedUser.UserName, Password: loginProfilePassword }));
+await iam().send(new UpdateLoginProfileCommand({ UserName: selectedUser.UserName, Password: loginProfilePassword }));
 toast.success('Password updated');
 loginProfilePassword = '';
 } catch (e) {
@@ -315,7 +320,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to update password');
 async function deleteLoginProfile() {
 if (!selectedUser?.UserName) return;
 try {
-await iam.send(new DeleteLoginProfileCommand({ UserName: selectedUser.UserName }));
+await iam().send(new DeleteLoginProfileCommand({ UserName: selectedUser.UserName }));
 toast.success('Login profile deleted');
 loginProfileExists = false;
 } catch (e) {
@@ -326,7 +331,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete login profile');
 async function deactivateMFA(serialNumber: string) {
 if (!selectedUser?.UserName) return;
 try {
-await iam.send(new DeactivateMFADeviceCommand({ UserName: selectedUser.UserName, SerialNumber: serialNumber }));
+await iam().send(new DeactivateMFADeviceCommand({ UserName: selectedUser.UserName, SerialNumber: serialNumber }));
 toast.success('MFA device deactivated');
 userMFADevices = userMFADevices.filter(d => d.SerialNumber !== serialNumber);
 } catch (e) {
@@ -341,8 +346,8 @@ roleInlinePolicies = [];
 showRoleInlinePolicyEditor = false;
 try {
 const [pol, inline] = await Promise.all([
-iam.send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName })),
-iam.send(new ListRolePoliciesCommand({ RoleName: role.RoleName })),
+iam().send(new ListAttachedRolePoliciesCommand({ RoleName: role.RoleName })),
+iam().send(new ListRolePoliciesCommand({ RoleName: role.RoleName })),
 ]);
 roleAttachedPolicies = pol.AttachedPolicies || [];
 roleInlinePolicies = inline.PolicyNames || [];
@@ -356,7 +361,7 @@ detailLoading = false;
 async function loadRoleInlinePolicyDoc(policyName: string) {
 if (!selectedRole?.RoleName) return;
 try {
-const res = await iam.send(new GetRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
+const res = await iam().send(new GetRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
 roleInlinePolicyName = policyName;
 roleInlinePolicyDoc = decodeURIComponent(res.PolicyDocument ?? '{}');
 showRoleInlinePolicyEditor = true;
@@ -369,10 +374,10 @@ async function saveRoleInlinePolicy() {
 if (!selectedRole?.RoleName || !roleInlinePolicyName.trim()) return;
 savingRoleInlinePolicy = true;
 try {
-await iam.send(new PutRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: roleInlinePolicyName.trim(), PolicyDocument: roleInlinePolicyDoc }));
+await iam().send(new PutRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: roleInlinePolicyName.trim(), PolicyDocument: roleInlinePolicyDoc }));
 toast.success('Role inline policy saved');
 showRoleInlinePolicyEditor = false;
-const res = await iam.send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
+const res = await iam().send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
 roleInlinePolicies = res.PolicyNames || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to save policy');
@@ -384,9 +389,9 @@ savingRoleInlinePolicy = false;
 async function deleteRoleInlinePolicy(policyName: string) {
 if (!selectedRole?.RoleName) return;
 try {
-await iam.send(new DeleteRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
+await iam().send(new DeleteRolePolicyCommand({ RoleName: selectedRole.RoleName, PolicyName: policyName }));
 toast.success('Role inline policy deleted');
-const res = await iam.send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
+const res = await iam().send(new ListRolePoliciesCommand({ RoleName: selectedRole.RoleName }));
 roleInlinePolicies = res.PolicyNames || [];
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
@@ -397,7 +402,7 @@ async function loadGroupDetail(group: Group) {
 if (!group.GroupName) return;
 detailLoading = true;
 try {
-const pol = await iam.send(new ListAttachedGroupPoliciesCommand({ GroupName: group.GroupName }));
+const pol = await iam().send(new ListAttachedGroupPoliciesCommand({ GroupName: group.GroupName }));
 groupAttachedPolicies = pol.AttachedPolicies || [];
 } catch {
 		// non-critical
@@ -429,7 +434,7 @@ simRunning = true;
 simError = '';
 simResults = [];
 try {
-const res = await iam.send(new SimulateCustomPolicyCommand({
+const res = await iam().send(new SimulateCustomPolicyCommand({
 PolicyInputList: [simPolicyDoc],
 ActionNames: actions,
 ResourceArns: resources.length > 0 ? resources : undefined,
@@ -488,8 +493,8 @@ async function loadCredentialReport() {
 credReportLoading = true;
 credReportError = '';
 try {
-await iam.send(new GenerateCredentialReportCommand({}));
-const res = await iam.send(new GetCredentialReportCommand({}));
+await iam().send(new GenerateCredentialReportCommand({}));
+const res = await iam().send(new GetCredentialReportCommand({}));
 const csv = decodeCredReport(res.Content);
 credReportRows = parseCredReport(csv);
 credReportGenerated = res.GeneratedTime ? new Date(res.GeneratedTime).toLocaleString() : new Date().toLocaleString();
@@ -519,7 +524,7 @@ async function createUser() {
 if (!newUserName.trim()) { toast.error('User name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateUserCommand({ UserName: newUserName.trim(), Path: newUserPath || '/' }));
+await iam().send(new CreateUserCommand({ UserName: newUserName.trim(), Path: newUserPath || '/' }));
 toast.success(`User "${newUserName}" created`);
 showCreateUser = false; newUserName = ''; newUserPath = '/';
 users = []; await loadUsers();
@@ -534,7 +539,7 @@ creating = false;
 async function deleteUser(user: User) {
 if (!user.UserName) return;
 try {
-await iam.send(new DeleteUserCommand({ UserName: user.UserName }));
+await iam().send(new DeleteUserCommand({ UserName: user.UserName }));
 toast.success(`User "${user.UserName}" deleted`);
 if (selectedUser?.UserName === user.UserName) { selectedUser = null; userAttachedPolicies = []; userAccessKeys = []; }
 users = users.filter(u => u.UserName !== user.UserName);
@@ -548,7 +553,7 @@ async function createRole() {
 if (!newRoleName.trim()) { toast.error('Role name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateRoleCommand({ RoleName: newRoleName.trim(), Path: newRolePath || '/', AssumeRolePolicyDocument: newRoleTrustPolicy }));
+await iam().send(new CreateRoleCommand({ RoleName: newRoleName.trim(), Path: newRolePath || '/', AssumeRolePolicyDocument: newRoleTrustPolicy }));
 toast.success(`Role "${newRoleName}" created`);
 showCreateRole = false; newRoleName = ''; newRolePath = '/';
 roles = []; await loadRoles();
@@ -563,7 +568,7 @@ creating = false;
 async function deleteRole(role: Role) {
 if (!role.RoleName) return;
 try {
-await iam.send(new DeleteRoleCommand({ RoleName: role.RoleName }));
+await iam().send(new DeleteRoleCommand({ RoleName: role.RoleName }));
 toast.success(`Role "${role.RoleName}" deleted`);
 if (selectedRole?.RoleName === role.RoleName) { selectedRole = null; roleAttachedPolicies = []; }
 roles = roles.filter(r => r.RoleName !== role.RoleName);
@@ -577,7 +582,7 @@ async function createGroup() {
 if (!newGroupName.trim()) { toast.error('Group name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreateGroupCommand({ GroupName: newGroupName.trim(), Path: newGroupPath || '/' }));
+await iam().send(new CreateGroupCommand({ GroupName: newGroupName.trim(), Path: newGroupPath || '/' }));
 toast.success(`Group "${newGroupName}" created`);
 showCreateGroup = false; newGroupName = ''; newGroupPath = '/';
 groups = []; await loadGroups();
@@ -592,7 +597,7 @@ creating = false;
 async function deleteGroup(group: Group) {
 if (!group.GroupName) return;
 try {
-await iam.send(new DeleteGroupCommand({ GroupName: group.GroupName }));
+await iam().send(new DeleteGroupCommand({ GroupName: group.GroupName }));
 toast.success(`Group "${group.GroupName}" deleted`);
 if (selectedGroup?.GroupName === group.GroupName) { selectedGroup = null; groupAttachedPolicies = []; }
 groups = groups.filter(g => g.GroupName !== group.GroupName);
@@ -606,7 +611,7 @@ async function createPolicy() {
 if (!newPolicyName.trim()) { toast.error('Policy name is required'); return; }
 creating = true;
 try {
-await iam.send(new CreatePolicyCommand({ PolicyName: newPolicyName.trim(), Path: newPolicyPath || '/', PolicyDocument: newPolicyDoc }));
+await iam().send(new CreatePolicyCommand({ PolicyName: newPolicyName.trim(), Path: newPolicyPath || '/', PolicyDocument: newPolicyDoc }));
 toast.success(`Policy "${newPolicyName}" created`);
 showCreatePolicy = false; newPolicyName = ''; newPolicyPath = '/';
 policies = []; await loadPolicies();
@@ -621,7 +626,7 @@ creating = false;
 async function deletePolicy(policy: ManagedPolicy) {
 if (!policy.Arn) return;
 try {
-await iam.send(new DeletePolicyCommand({ PolicyArn: policy.Arn }));
+await iam().send(new DeletePolicyCommand({ PolicyArn: policy.Arn }));
 toast.success(`Policy "${policy.PolicyName}" deleted`);
 if (selectedPolicy?.Arn === policy.Arn) selectedPolicy = null;
 policies = policies.filter(p => p.Arn !== policy.Arn);
@@ -636,12 +641,12 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete policy');
 async function createAccessKey(user: User) {
 if (!user.UserName) return;
 try {
-const resp = await iam.send(new CreateAccessKeyCommand({ UserName: user.UserName }));
+const resp = await iam().send(new CreateAccessKeyCommand({ UserName: user.UserName }));
 createdKey = resp.AccessKey ?? null;
 showCreateKey = true;
 showSecret = true;
 // refresh keys list
-const keys = await iam.send(new ListAccessKeysCmd({ UserName: user.UserName }));
+const keys = await iam().send(new ListAccessKeysCmd({ UserName: user.UserName }));
 userAccessKeys = keys.AccessKeyMetadata || [];
 toast.success('Access key created');
 } catch (e) {
@@ -652,7 +657,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to create access key');
 async function deleteAccessKey(user: User, keyId: string) {
 if (!user.UserName) return;
 try {
-await iam.send(new DeleteAccessKeyCommand({ UserName: user.UserName, AccessKeyId: keyId }));
+await iam().send(new DeleteAccessKeyCommand({ UserName: user.UserName, AccessKeyId: keyId }));
 userAccessKeys = userAccessKeys.filter(k => k.AccessKeyId !== keyId);
 toast.success('Access key deleted');
 } catch (e) {
@@ -664,7 +669,7 @@ async function toggleAccessKey(user: User, key: AccessKeyMetadata) {
 if (!user.UserName || !key.AccessKeyId) return;
 const newStatus = key.Status === 'Active' ? 'Inactive' : 'Active';
 try {
-await iam.send(new UpdateAccessKeyCommand({ UserName: user.UserName, AccessKeyId: key.AccessKeyId, Status: newStatus }));
+await iam().send(new UpdateAccessKeyCommand({ UserName: user.UserName, AccessKeyId: key.AccessKeyId, Status: newStatus }));
 userAccessKeys = userAccessKeys.map(k => k.AccessKeyId === key.AccessKeyId ? { ...k, Status: newStatus } : k);
 toast.success(`Access key ${newStatus.toLowerCase()}`);
 } catch (e) {
@@ -1405,7 +1410,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create User Modal ─── -->
 {#if showCreateUser}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateUser = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateUser = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateUser = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM User</h2>
@@ -1413,12 +1418,12 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">User Name *</label>
-<input type="text" bind:value={newUserName} placeholder="e.g. alice" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-user-name">User Name *</label>
+<input id="new-user-name" type="text" bind:value={newUserName} placeholder="e.g. alice" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newUserPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-user-path">Path</label>
+<input id="new-user-path" type="text" bind:value={newUserPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1431,7 +1436,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Role Modal ─── -->
 {#if showCreateRole}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateRole = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateRole = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateRole = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Role</h2>
@@ -1439,16 +1444,16 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Role Name *</label>
-<input type="text" bind:value={newRoleName} placeholder="e.g. EC2AdminRole" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-name">Role Name *</label>
+<input id="new-role-name" type="text" bind:value={newRoleName} placeholder="e.g. EC2AdminRole" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newRolePath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-path">Path</label>
+<input id="new-role-path" type="text" bind:value={newRolePath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Trust Policy (JSON)</label>
-<textarea bind:value={newRoleTrustPolicy} rows={6} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-role-trust-policy">Trust Policy (JSON)</label>
+<textarea id="new-role-trust-policy" bind:value={newRoleTrustPolicy} rows={6} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1461,7 +1466,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Group Modal ─── -->
 {#if showCreateGroup}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreateGroup = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreateGroup = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreateGroup = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Group</h2>
@@ -1469,12 +1474,12 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Group Name *</label>
-<input type="text" bind:value={newGroupName} placeholder="e.g. Developers" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-group-name">Group Name *</label>
+<input id="new-group-name" type="text" bind:value={newGroupName} placeholder="e.g. Developers" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newGroupPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-group-path">Path</label>
+<input id="new-group-path" type="text" bind:value={newGroupPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1487,7 +1492,7 @@ else deleteGroup(item as Group);
 
 <!-- ─── Create Policy Modal ─── -->
 {#if showCreatePolicy}
-<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onclick={(e) => { if (e.target === e.currentTarget) showCreatePolicy = false; }}>
+<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true" tabindex="-1" onclick={(e) => { if (e.target === e.currentTarget) showCreatePolicy = false; }} onkeydown={(e) => { if (e.key === 'Escape') showCreatePolicy = false; }}>
 <div class="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4">
 <div class="flex items-center justify-between">
 <h2 class="text-lg font-bold text-slate-900 dark:text-white">Create IAM Policy</h2>
@@ -1495,16 +1500,16 @@ else deleteGroup(item as Group);
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Policy Name *</label>
-<input type="text" bind:value={newPolicyName} placeholder="e.g. S3ReadOnlyAccess" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-name">Policy Name *</label>
+<input id="new-policy-name" type="text" bind:value={newPolicyName} placeholder="e.g. S3ReadOnlyAccess" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Path</label>
-<input type="text" bind:value={newPolicyPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-path">Path</label>
+<input id="new-policy-path" type="text" bind:value={newPolicyPath} placeholder="/" class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm" />
 </div>
 <div>
-<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Policy Document (JSON)</label>
-<textarea bind:value={newPolicyDoc} rows={8} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
+<label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1" for="new-policy-doc">Policy Document (JSON)</label>
+<textarea id="new-policy-doc" bind:value={newPolicyDoc} rows={8} class="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-xs font-mono"></textarea>
 </div>
 </div>
 <div class="flex gap-3 pt-2">
@@ -1528,14 +1533,14 @@ This is the only time you can view the secret access key. Store it securely.
 </div>
 <div class="space-y-3">
 <div>
-<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Access Key ID</label>
+<div class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Access Key ID</div>
 <div class="flex items-center gap-2">
 <code class="flex-1 text-xs font-mono bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-800 dark:text-slate-200">{createdKey.AccessKeyId}</code>
 <button onclick={() => copyToClipboard(createdKey?.AccessKeyId ?? '', 'Copied!')}><Copy class="w-4 h-4 text-slate-400 hover:text-slate-600" /></button>
 </div>
 </div>
 <div>
-<label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Secret Access Key</label>
+<div class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Secret Access Key</div>
 <div class="flex items-center gap-2">
 <code class="flex-1 text-xs font-mono bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded text-slate-800 dark:text-slate-200 break-all">{showSecret ? createdKey.SecretAccessKey : '••••••••••••••••••••••••'}</code>
 <button onclick={() => showSecret = !showSecret}>{#if showSecret}<EyeOff class="w-4 h-4 text-slate-400" />{:else}<Eye class="w-4 h-4 text-slate-400" />{/if}</button>

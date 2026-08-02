@@ -8,8 +8,37 @@ sdk_module: aws-sdk-go-v2/service/rds@v1.123.0
 last_audit_commit: PENDING_COMMIT  # working tree not committed by this pass (git use was out of
                                     # scope); set to the actual commit hash when this diff lands.
 last_audit_date: 2026-07-25
-overall: A              # this pass closed all three gaps carried forward from the 2026-07-23
-                       # A- audit -- each was previously deferred as "too invasive"; that
+overall: A-             # DOWNGRADED A->A- (parity-5/phantom-triage pass, 2026-07-31): the
+                       # reverse sdkcheck (gopherstack-vhw2) found "DescribeCustomDBEngineVersions"
+                       # advertised in GetSupportedOperations() AND dispatched -- it is not a real
+                       # RDS SDK operation (custom engine versions are returned by
+                       # DescribeDBEngineVersions like any other engine/version pair; there is no
+                       # separate describe-custom call on the real client). A prior pass's own test,
+                       # TestDescribeCustomDBEngineVersions_InSupportedOps, asserted the fabricated
+                       # name "should" be supported, i.e. encoded the defect as expected behavior.
+                       # FIXED this pass: DescribeDBEngineVersions now also returns custom engine
+                       # versions (merged from the same b.customEngineVersions store the fabricated
+                       # op read from); the fabricated action/handler/response-shape were deleted
+                       # from the wire surface (the internal Go-level
+                       # InMemoryBackend.DescribeCustomDBEngineVersions helper was kept -- it is
+                       # still useful for tests to inspect just the custom-engine-version subset of
+                       # state -- but it is no longer reachable over HTTP under any Action= name).
+                       # Also found and corrected: the performance_insights family below was
+                       # documented as status: ok without disclosing that "GetPerformanceInsightsMetrics"
+                       # does not match either the real RDS client (no such op) or the real
+                       # Performance Insights client's op name (GetResourceMetrics, on a separate
+                       # "pi" SDK client/endpoint/protocol entirely) -- kept wired (real,
+                       # useful functionality; deleting it would remove a real capability with no
+                       # replacement) but the sdkcheck reverse check will continue to flag it as a
+                       # phantom for that reason, and the row now says so. Grade held at A- rather
+                       # than A because both issues reflect real documentation/wire-accuracy gaps a
+                       # prior "A" pass should have caught, not because remaining functionality
+                       # regressed.
+                       #
+                       # Everything below this line is the PRIOR (2026-07-25) A audit's own
+                       # overall note, kept verbatim for history: this pass closed all three gaps
+                       # carried forward from the 2026-07-23 A- audit -- each was previously
+                       # deferred as "too invasive"; that
                        # deferral is retracted, all three are fixed for real with regression
                        # tests, not just re-labeled:
                        # (1) CASE-SENSITIVE IDENTIFIERS (real gap, now fixed). Added
@@ -163,7 +192,7 @@ families:
   option_groups: {status: ok, note: "CRUD + Copy + option add/remove real"}
   read_replicas: {status: ok, note: "source linkage bidirectional (ReplicaSourceDBInstanceIdentifier / ReadReplicaIdentifiers), promote clears linkage, cross-region replica path uses defaults when source not locally resolvable"}
   events_and_subscriptions: {status: ok, note: "ring-buffered Events (maxEvents cap prevents unbounded growth); EventSubscription CRUD + source-identifier add/remove real"}
-  engine_versions_and_orderable_options: {status: ok, note: "DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions/DescribeDBMajorEngineVersions all backed by real (small, static) catalogs — not a stub since callers get consistent, well-shaped data; no engine-name validation on Create (see gaps)"}
+  engine_versions_and_orderable_options: {status: ok, note: "DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions/DescribeDBMajorEngineVersions all backed by real (small, static) catalogs — not a stub since callers get consistent, well-shaped data; no engine-name validation on Create (see gaps). UPDATED (parity-5/phantom-triage, 2026-07-31): DescribeDBEngineVersions now also merges in custom engine versions (previously only reachable via the fabricated DescribeCustomDBEngineVersions action) — see custom_db_engine_versions family and overall: header."}
   tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource use pkgs/tags-style per-ARN map, cleaned up on every delete path (instance, cluster, snapshot, option group, param group, cluster endpoint — verified via TestRDSBackend_TagsCleanedUpOnDelete table)"}
   pagination: {status: ok, note: "Marker/MaxRecords via pkgs/page.Page[T] (paginateDescribe) — consistent across all Describe* ops; DescribeDBClusterSnapshots and DescribeEvents were missing pagination entirely (returned every row regardless of MaxRecords) — FIXED this pass, see Notes"}
   describe_filters: {status: ok, note: "DescribeDBInstances Filters (db-cluster-id/db-instance-id/dbi-resource-id/domain/engine) added prior pass; DescribeDBClusters (clone-group-id/db-cluster-id/db-cluster-resource-id/domain/engine), DescribeDBSnapshots (db-instance-id/db-snapshot-id/dbi-resource-id/snapshot-type/engine), and DescribeDBClusterSnapshots (db-cluster-id/db-cluster-snapshot-id/snapshot-type/engine) Filters added THIS pass. DescribeEvents Filters intentionally left unimplemented: the real aws-sdk-go-v2 DescribeEventsInput.Filters doc comment reads literally 'This parameter isn't currently supported' — the emulator already matches real AWS by accepting-but-ignoring it, which is NOT a gap (prior ledger incorrectly listed it as one)"}
@@ -171,16 +200,32 @@ families:
   blue_green_deployments: {status: ok, note: "Create/Describe/Delete/Switchover real (refinement1)"}
   db_proxies: {status: ok, note: "proxy/proxy-target/proxy-target-group/proxy-endpoint CRUD real (refinement3)"}
   reserved_instances: {status: ok, note: "Purchase + Describe(Offerings) real"}
-  performance_insights: {status: ok, note: "GetPerformanceInsightsMetrics requires seeded data via SetPerformanceInsightsData — not a fabricated-on-the-fly stub; batch3_test.go.rej/.patch cruft from a prior sweep's already-applied fix removed this pass"}
+  performance_insights: {status: ok, note: "GetPerformanceInsightsMetrics requires seeded data via SetPerformanceInsightsData — not a fabricated-on-the-fly stub; batch3_test.go.rej/.patch cruft from a prior sweep's already-applied fix removed this pass. CAVEAT (parity-5/phantom-triage, 2026-07-31): 'GetPerformanceInsightsMetrics' is not a real operation name on either client — real AWS Performance Insights functionality is GetResourceMetrics, on a separate 'pi' SDK client with its own endpoint/protocol (not in this repo's go.mod), not an RDS client operation. Real RDS SDK clients would never send this Action, and real 'pi' clients would never reach this handler. Kept wired (real, useful functionality; no wire-shape-accurate replacement exists to redirect it to) but the sdkcheck reverse check (gopherstack-vhw2) correctly flags it as a phantom against the RDS client and will keep doing so until this is either renamed/reshaped to match a real op or moved to a dedicated pi service."}
   error_codes: {status: ok, note: "awserr sentinels map to correct AWS fault codes with correct HTTP status (400, uniformly, per the AWS Query-protocol convention — status does not vary by fault type, only the <Code> element does) via rdsErrorCode() in handler_dispatch.go. FIXED this pass: field-diffed the whole mapping table against aws-sdk-go-v2's types/errors.go ErrorCode() methods (the ground truth for wire codes) and found (a) a systemic missing-'Fault'-suffix bug on DBClusterNotFound(Fault)/DBClusterAlreadyExists(Fault)/DBClusterSnapshotNotFound(Fault)/DBClusterSnapshotAlreadyExists(Fault)/DBClusterEndpointNotFound(Fault)/DBClusterEndpointAlreadyExists(Fault)/DBClusterAutomatedBackupNotFound(Fault)/GlobalClusterNotFound(Fault)/GlobalClusterAlreadyExists(Fault)/BlueGreenDeploymentNotFound(Fault)/BlueGreenDeploymentAlreadyExists(Fault)/IntegrationNotFound(Fault)/IntegrationAlreadyExists(Fault)/OptionGroupNotFound(Fault)/OptionGroupAlreadyExists(Fault) — 15 codes total, each individually confirmed against the real SDK since AWS is inconsistent about the suffix (DBInstanceNotFound genuinely has none); and (b) ErrDBProxyAlreadyExists/ErrDBProxyEndpointAlreadyExists/ErrCannotDeleteDefaultProxyEndpoint/ErrActivityStreamAlreadyStarted/ErrActivityStreamNotStarted had NO entry in the mapping table at all, so errors.Is never matched and these fell through to an unmapped code → 500 InternalFailure instead of the correct 400 client error. See Notes and TestRDSErrorCodes_FaultSuffix (error_codes_test.go)."}
   leaks: {status: ok, note: "single reconciler goroutine per backend; self-terminates when instanceReadyAt/clusterReadyAt both empty (no ticker leak); FOUND and FIXED this pass: DeleteDBCluster did not cascade-delete the deleted cluster's custom cluster endpoints (or their tags) — a real ghost-row leak, see top-level leaks: entry below"}
   db_shard_groups: {status: ok, note: "Aurora Limitless shard groups — CRUD + Reboot real state; wire-shape bug (extra nesting) on Create/Delete/Modify/Reboot fixed a prior pass. THIS pass: field-diffed against the real DBShardGroup output structs and added the previously-missing DBShardGroupArn/DBShardGroupResourceId/PubliclyAccessible to ALL FOUR mutating ops' XML responses (not just Create) — field coverage now complete. See Notes and TestDBShardGroup_WireFieldsPresentOnAllOps."}
   integrations: {status: ok, note: "zero-ETL Redshift integrations — CRUD real state; wire-shape bug (extra nesting) on Create/Delete/Modify fixed a prior pass. THIS pass: added the previously-missing KMSKeyId/CreateTime/Tags/Errors to Create/Delete/Modify's XML responses (backed by the shared per-ARN tags map, with cascade-cleanup on delete) — field coverage now complete. See Notes and TestIntegration_WireFieldsPresentOnAllOps."}
-  custom_db_engine_versions: {status: ok, note: "wire-shape bug (extra nesting + wrong field name for description) on Create/Delete/Modify FIXED this pass, see gaps/Notes"}
+  custom_db_engine_versions: {status: ok, note: "wire-shape bug (extra nesting + wrong field name for description) on Create/Delete/Modify FIXED this pass, see gaps/Notes. FIXED (parity-5/phantom-triage, 2026-07-31): the 'Describe' side of this family was a fabricated operation — 'DescribeCustomDBEngineVersions' is not a real RDS action; the real API returns custom engine versions from DescribeDBEngineVersions (see that op's row/family), distinguished only by their Engine value. Removed the fabricated action/handler/response shape from the wire surface (a prior pass's own test had asserted it 'should' be in GetSupportedOperations, encoding the defect); DescribeDBEngineVersions now merges in custom engine versions so the real op actually surfaces them. See overall: header and TestDescribeCustomDBEngineVersions_ViaHandler/_NotAdvertised."}
   tenant_databases: {status: ok, note: "re-verified this pass against the real SDK's CreateTenantDatabaseOutput/DeleteTenantDatabaseOutput/ModifyTenantDatabaseOutput shapes (these DO nest under <TenantDatabase>, unlike shard groups/integrations) — no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   db_security_groups: {status: ok, note: "re-verified this pass (EC2-Classic legacy) — CreateDBSecurityGroupOutput/AuthorizeDBSecurityGroupIngressOutput/RevokeDBSecurityGroupIngressOutput all nest under <DBSecurityGroup> in the real SDK, matches gopherstack; no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   activity_streams: {status: ok, note: "de-deferred this pass: field-diffed Start/Stop/ModifyActivityStream against aws-sdk-go-v2's StartActivityStreamOutput/StopActivityStreamOutput/ModifyActivityStreamOutput. Start/Stop already matched (flat KinesisStreamName/KmsKeyId/Status/Mode/ApplyImmediately fields, correct — these ops were never affected by the shard-group/integration nesting bug class since their outputs were always flat in gopherstack). ModifyActivityStream had a real disguised-stub bug: it emitted an invented <AuditPolicy> element that does not exist on the real output (the real field is PolicyStatus, of type ActivityStreamPolicyStatus) and omitted the real KinesisStreamName/Mode members — FIXED, see Notes. Also fixed: cluster-not-found on all three ops returned InvalidParameterValue instead of the correct DBClusterNotFoundFault. Test coverage was previously zero for this family; added activity_stream_test.go (lifecycle, not-found, and backend-error-path tests)."}
 gaps:
+  - GetPerformanceInsightsMetrics does not correspond to a real operation name/shape on
+    either the RDS SDK client or the Performance Insights ("pi") SDK client (real op:
+    GetResourceMetrics, different client, different endpoint/protocol). Kept wired since
+    it is real, seeded (SetPerformanceInsightsData), non-stub functionality with no
+    accurate replacement to redirect callers to, but it will never be reachable by a
+    genuine AWS SDK client under either service and sdkcheck (gopherstack-vhw2) correctly
+    flags it as a phantom. See performance_insights family note. (parity-5/phantom-triage,
+    2026-07-31)
+  - DescribeDBEngineVersions/DescribeOrderableDBInstanceOptions do not implement
+    MaxRecords/Marker pagination (they return every matching row in one response). This
+    was already true before this pass; noted now because the fabricated
+    DescribeCustomDBEngineVersions action (removed this pass, see overall: header) DID
+    paginate via paginateDescribe, and its removal drops that pagination behavior for the
+    custom-engine-version subset with no replacement — a real (if pre-existing and
+    unrelated-to-phantoms) gap worth a follow-up if a real client's engine-version catalog
+    ever grows large enough to matter. (parity-5/phantom-triage, 2026-07-31)
   - DescribeServerlessV2PlatformVersions (new this pass, 2026-07-25) always returns an
     empty ServerlessV2PlatformVersions list. The installed SDK module documents no
     enumerable list of real platform version numbers/descriptions to derive from

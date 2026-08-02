@@ -572,12 +572,15 @@ type rdsErrorResponse struct {
 	Error   rdsError `xml:"Error"`
 }
 
-// dispatchExtended16 routes batch-3 operations: DescribeCustomDBEngineVersions.
-// Called from the default branch of dispatchExtended15.
+// dispatchExtended16 routes batch-3 operations: DescribeServerlessV2PlatformVersions.
+//
+// DescribeCustomDBEngineVersions is deliberately not routed here: it is not a real RDS
+// operation. Real AWS has no separate "describe custom engine versions" call -- custom
+// engine versions are returned by DescribeDBEngineVersions like any other engine/version
+// pair (see the DescribeDBEngineVersions doc comment in engine_versions.go). Called from
+// the default branch of dispatchExtended15.
 func (h *Handler) dispatchExtended16(action string, vals url.Values) (any, error) {
 	switch action {
-	case "DescribeCustomDBEngineVersions":
-		return h.handleDescribeCustomDBEngineVersions(vals)
 	case "DescribeServerlessV2PlatformVersions":
 		return h.handleDescribeServerlessV2PlatformVersions(vals)
 	default:

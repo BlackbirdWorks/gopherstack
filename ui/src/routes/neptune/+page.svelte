@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getNeptuneClient } from '$lib/aws-client';
 	import {
 		DescribeDBClustersCommand,
@@ -39,7 +40,7 @@
 	} from 'lucide-svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 
-	const neptune = getNeptuneClient();
+	const neptune = regionalClient(getNeptuneClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'clusters' | 'instances' | 'snapshots'>('clusters');
@@ -125,7 +126,7 @@
 	async function loadClusters() {
 		loading = true;
 		try {
-			const res = await neptune.send(new DescribeDBClustersCommand({}));
+			const res = await neptune().send(new DescribeDBClustersCommand({}));
 			clusters = res.DBClusters ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load clusters: ${(err as Error).message}`);
@@ -137,7 +138,7 @@
 	async function loadInstances() {
 		loading = true;
 		try {
-			const res = await neptune.send(new DescribeDBInstancesCommand({}));
+			const res = await neptune().send(new DescribeDBInstancesCommand({}));
 			instances = res.DBInstances ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load instances: ${(err as Error).message}`);
@@ -149,7 +150,7 @@
 	async function loadSnapshots() {
 		loading = true;
 		try {
-			const res = await neptune.send(new DescribeDBClusterSnapshotsCommand({}));
+			const res = await neptune().send(new DescribeDBClusterSnapshotsCommand({}));
 			snapshots = res.DBClusterSnapshots ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load snapshots: ${(err as Error).message}`);
@@ -177,7 +178,7 @@
 		if (!newClusterId.trim()) return;
 		creating = true;
 		try {
-			await neptune.send(
+			await neptune().send(
 				new CreateDBClusterCommand({
 					DBClusterIdentifier: newClusterId.trim(),
 					Engine: newEngine,
@@ -200,7 +201,7 @@
 		const confirmed = await confirmDestructive({ title: 'Delete Cluster', message: `Delete cluster "${id}"? This action cannot be undone.` });
 		if (!confirmed) return;
 		try {
-			await neptune.send(new DeleteDBClusterCommand({ DBClusterIdentifier: id, SkipFinalSnapshot: true }));
+			await neptune().send(new DeleteDBClusterCommand({ DBClusterIdentifier: id, SkipFinalSnapshot: true }));
 			toast.success(`Cluster "${id}" deletion initiated`);
 			if (selectedCluster?.DBClusterIdentifier === id) selectedCluster = null;
 			await loadClusters();
@@ -212,7 +213,7 @@
 	async function stopCluster(cluster: DBCluster) {
 		const id = cluster.DBClusterIdentifier ?? '';
 		try {
-			await neptune.send(new StopDBClusterCommand({ DBClusterIdentifier: id }));
+			await neptune().send(new StopDBClusterCommand({ DBClusterIdentifier: id }));
 			toast.success(`Cluster "${id}" stopping`);
 			await loadClusters();
 			selectedCluster = clusters.find(c => c.DBClusterIdentifier === id) ?? null;
@@ -224,7 +225,7 @@
 	async function startCluster(cluster: DBCluster) {
 		const id = cluster.DBClusterIdentifier ?? '';
 		try {
-			await neptune.send(new StartDBClusterCommand({ DBClusterIdentifier: id }));
+			await neptune().send(new StartDBClusterCommand({ DBClusterIdentifier: id }));
 			toast.success(`Cluster "${id}" starting`);
 			await loadClusters();
 			selectedCluster = clusters.find(c => c.DBClusterIdentifier === id) ?? null;
@@ -238,7 +239,7 @@
 		const reader = (cluster.DBClusterMembers ?? []).find((m) => !m.IsClusterWriter)?.DBInstanceIdentifier;
 		if (!await confirmDestructive({ title: 'Failover Cluster', message: `Promote a reader to writer for "${id}"? The current writer will become a reader. This causes a brief interruption.`, confirmLabel: 'Failover', dangerous: false })) return;
 		try {
-			await neptune.send(new FailoverDBClusterCommand({
+			await neptune().send(new FailoverDBClusterCommand({
 				DBClusterIdentifier: id,
 				TargetDBInstanceIdentifier: reader
 			}));
@@ -254,7 +255,7 @@
 		if (!newInstanceId.trim() || !newInstanceClusterId.trim()) return;
 		creatingInstance = true;
 		try {
-			await neptune.send(
+			await neptune().send(
 				new CreateDBInstanceCommand({
 					DBInstanceIdentifier: newInstanceId.trim(),
 					DBClusterIdentifier: newInstanceClusterId.trim(),
@@ -283,7 +284,7 @@
 		const confirmed = await confirmDestructive({ title: 'Delete Instance', message: `Delete instance "${id}"? This action cannot be undone.` });
 		if (!confirmed) return;
 		try {
-			await neptune.send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id }));
+			await neptune().send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id }));
 			toast.success(`Instance "${id}" deletion initiated`);
 			await loadInstances();
 		} catch (err: unknown) {
@@ -295,7 +296,7 @@
 		if (!newSnapshotId.trim() || !newSnapshotClusterId.trim()) return;
 		creatingSnapshot = true;
 		try {
-			await neptune.send(
+			await neptune().send(
 				new CreateDBClusterSnapshotCommand({
 					DBClusterSnapshotIdentifier: newSnapshotId.trim(),
 					DBClusterIdentifier: newSnapshotClusterId.trim()
@@ -318,7 +319,7 @@
 		const confirmed = await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot "${id}"? This action cannot be undone.` });
 		if (!confirmed) return;
 		try {
-			await neptune.send(new DeleteDBClusterSnapshotCommand({ DBClusterSnapshotIdentifier: id }));
+			await neptune().send(new DeleteDBClusterSnapshotCommand({ DBClusterSnapshotIdentifier: id }));
 			toast.success(`Snapshot "${id}" deleted`);
 			if (selectedSnapshot?.DBClusterSnapshotIdentifier === id) selectedSnapshot = null;
 			await loadSnapshots();
@@ -338,7 +339,7 @@
 		restoring = true;
 		try {
 			const { RestoreDBClusterFromSnapshotCommand } = await import('@aws-sdk/client-neptune');
-			await neptune.send(
+			await neptune().send(
 				new RestoreDBClusterFromSnapshotCommand({
 					DBClusterIdentifier: restoreClusterId.trim(),
 					SnapshotIdentifier: selectedSnapshot.DBClusterSnapshotIdentifier!,
@@ -365,8 +366,23 @@
 		});
 	}
 
-	onMount(() => {
-		loadClusters();
+	// Each tab's list is only loaded when first visited and cached
+	// thereafter (see selectTab above), and selectedCluster/selectedSnapshot
+	// point at resources from whatever region they were fetched in — clear
+	// the selection and every cached list, then reload whichever tab is
+	// active. `activeTab` is read via untrack() because selectTab also
+	// writes it: without untrack, every tab switch would re-trigger this
+	// region effect and double-fetch.
+	onRegionChange(() => {
+		selectedCluster = null;
+		selectedSnapshot = null;
+		clusters = [];
+		instances = [];
+		snapshots = [];
+		const tab = untrack(() => activeTab);
+		if (tab === 'instances') void loadInstances();
+		else if (tab === 'snapshots') void loadSnapshots();
+		else void loadClusters();
 	});
 </script>
 

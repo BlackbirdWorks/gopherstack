@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAutoScalingClient } from '$lib/aws-client';
 	import {
 		DescribeAutoScalingGroupsCommand,
@@ -34,7 +34,7 @@
 	import { toast } from 'svelte-sonner';
 	import { ZoomIn, Search, RefreshCw, Plus, Trash2, ChevronRight, TrendingUp, Activity as ActivityIcon, Settings, Clock, Tag, RotateCcw, Shield } from 'lucide-svelte';
 
-	const asg = getAutoScalingClient();
+	const asg = regionalClient(getAutoScalingClient);
 
 	type TabName = 'overview' | 'policies' | 'activity' | 'hooks' | 'scheduled' | 'refresh' | 'tags';
 
@@ -120,7 +120,7 @@
 	async function loadGroups() {
 		loading = true;
 		try {
-			const resp = await asg.send(new DescribeAutoScalingGroupsCommand({ MaxRecords: 50 }));
+			const resp = await asg().send(new DescribeAutoScalingGroupsCommand({ MaxRecords: 50 }));
 			groups = resp.AutoScalingGroups ?? [];
 		} catch (e) {
 			toast.error('Failed to load groups: ' + String(e));
@@ -155,7 +155,7 @@
 	async function loadPolicies(groupName: string) {
 		loadingPolicies = true;
 		try {
-			const resp = await asg.send(new DescribePoliciesCommand({ AutoScalingGroupName: groupName }));
+			const resp = await asg().send(new DescribePoliciesCommand({ AutoScalingGroupName: groupName }));
 			policies = resp.ScalingPolicies ?? [];
 		} catch (e) {
 			toast.error('Failed to load policies: ' + String(e));
@@ -167,7 +167,7 @@
 	async function loadActivities(groupName: string) {
 		loadingActivities = true;
 		try {
-			const resp = await asg.send(new DescribeScalingActivitiesCommand({ AutoScalingGroupName: groupName }));
+			const resp = await asg().send(new DescribeScalingActivitiesCommand({ AutoScalingGroupName: groupName }));
 			activities = resp.Activities ?? [];
 		} catch (e) {
 			toast.error('Failed to load activities: ' + String(e));
@@ -179,7 +179,7 @@
 	async function loadHooks(groupName: string) {
 		loadingHooks = true;
 		try {
-			const resp = await asg.send(new DescribeLifecycleHooksCommand({ AutoScalingGroupName: groupName }));
+			const resp = await asg().send(new DescribeLifecycleHooksCommand({ AutoScalingGroupName: groupName }));
 			hooks = resp.LifecycleHooks ?? [];
 		} catch (e) {
 			toast.error('Failed to load hooks: ' + String(e));
@@ -191,7 +191,7 @@
 	async function loadScheduledActions(groupName: string) {
 		loadingScheduled = true;
 		try {
-			const resp = await asg.send(new DescribeScheduledActionsCommand({ AutoScalingGroupName: groupName }));
+			const resp = await asg().send(new DescribeScheduledActionsCommand({ AutoScalingGroupName: groupName }));
 			scheduledActions = (resp.ScheduledUpdateGroupActions ?? []) as ScheduledUpdateGroupAction[];
 		} catch (e) {
 			toast.error('Failed to load scheduled actions: ' + String(e));
@@ -203,7 +203,7 @@
 	async function loadRefreshes(groupName: string) {
 		loadingRefreshes = true;
 		try {
-			const resp = await asg.send(new DescribeInstanceRefreshesCommand({ AutoScalingGroupName: groupName }));
+			const resp = await asg().send(new DescribeInstanceRefreshesCommand({ AutoScalingGroupName: groupName }));
 			refreshes = resp.InstanceRefreshes ?? [];
 		} catch (e) {
 			toast.error('Failed to load refreshes: ' + String(e));
@@ -216,7 +216,7 @@
 		if (!newGroupName.trim()) return;
 		creatingGroup = true;
 		try {
-			await asg.send(new CreateAutoScalingGroupCommand({
+			await asg().send(new CreateAutoScalingGroupCommand({
 				AutoScalingGroupName: newGroupName.trim(),
 				LaunchTemplate: { LaunchTemplateName: newLaunchTemplate.trim(), Version: newLaunchTemplateVersion },
 				MinSize: newMinSize,
@@ -248,7 +248,7 @@
 	async function deleteGroup(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Auto Scaling Group', message: `Delete ASG "${name}"? All running instances will be terminated.` })) return;
 		try {
-			await asg.send(new DeleteAutoScalingGroupCommand({ AutoScalingGroupName: name, ForceDelete: true }));
+			await asg().send(new DeleteAutoScalingGroupCommand({ AutoScalingGroupName: name, ForceDelete: true }));
 			toast.success(`Group "${name}" deleted`);
 			if (selectedGroup?.AutoScalingGroupName === name) selectedGroup = null;
 			await loadGroups();
@@ -261,7 +261,7 @@
 		if (!selectedGroup) return;
 		settingCapacity = true;
 		try {
-			await asg.send(new SetDesiredCapacityCommand({
+			await asg().send(new SetDesiredCapacityCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				DesiredCapacity: newDesired
 			}));
@@ -281,7 +281,7 @@
 		if (!selectedGroup || !newPolicyName.trim()) return;
 		creatingPolicy = true;
 		try {
-			await asg.send(new PutScalingPolicyCommand({
+			await asg().send(new PutScalingPolicyCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				PolicyName: newPolicyName.trim(),
 				PolicyType: newPolicyType,
@@ -304,7 +304,7 @@
 
 	async function deletePolicy(groupName: string, policyName: string) {
 		try {
-			await asg.send(new DeletePolicyCommand({ AutoScalingGroupName: groupName, PolicyName: policyName }));
+			await asg().send(new DeletePolicyCommand({ AutoScalingGroupName: groupName, PolicyName: policyName }));
 			toast.success(`Policy "${policyName}" deleted`);
 			policies = policies.filter((p) => p.PolicyName !== policyName);
 		} catch (e) {
@@ -316,7 +316,7 @@
 		if (!selectedGroup || !newHookName.trim()) return;
 		creatingHook = true;
 		try {
-			await asg.send(new PutLifecycleHookCommand({
+			await asg().send(new PutLifecycleHookCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				LifecycleHookName: newHookName.trim(),
 				LifecycleTransition: newHookTransition,
@@ -338,7 +338,7 @@
 	async function deleteHook(hookName: string) {
 		if (!selectedGroup) return;
 		try {
-			await asg.send(new DeleteLifecycleHookCommand({
+			await asg().send(new DeleteLifecycleHookCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				LifecycleHookName: hookName
 			}));
@@ -353,7 +353,7 @@
 		if (!selectedGroup || !newScheduledName.trim()) return;
 		creatingScheduled = true;
 		try {
-			await asg.send(new PutScheduledUpdateGroupActionCommand({
+			await asg().send(new PutScheduledUpdateGroupActionCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				ScheduledActionName: newScheduledName.trim(),
 				Recurrence: newScheduledRecurrence || undefined,
@@ -376,7 +376,7 @@
 	async function deleteScheduledAction(actionName: string) {
 		if (!selectedGroup) return;
 		try {
-			await asg.send(new DeleteScheduledActionCommand({
+			await asg().send(new DeleteScheduledActionCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				ScheduledActionName: actionName
 			}));
@@ -390,7 +390,7 @@
 	async function startRefresh() {
 		if (!selectedGroup) return;
 		try {
-			await asg.send(new StartInstanceRefreshCommand({
+			await asg().send(new StartInstanceRefreshCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				Strategy: 'Rolling'
 			}));
@@ -404,7 +404,7 @@
 
 	async function cancelRefresh(groupName: string) {
 		try {
-			await asg.send(new CancelInstanceRefreshCommand({ AutoScalingGroupName: groupName }));
+			await asg().send(new CancelInstanceRefreshCommand({ AutoScalingGroupName: groupName }));
 			toast.success('Instance refresh cancelled');
 			refreshes = [];
 			await loadRefreshes(groupName);
@@ -417,7 +417,7 @@
 		if (!selectedGroup || !newTagKey.trim()) return;
 		addingTag = true;
 		try {
-			await asg.send(new CreateOrUpdateTagsCommand({
+			await asg().send(new CreateOrUpdateTagsCommand({
 				Tags: [{
 					ResourceId: selectedGroup.AutoScalingGroupName ?? '',
 					ResourceType: 'auto-scaling-group',
@@ -443,7 +443,7 @@
 	async function deleteTag(key: string) {
 		if (!selectedGroup) return;
 		try {
-			await asg.send(new DeleteTagsCommand({
+			await asg().send(new DeleteTagsCommand({
 				Tags: [{
 					ResourceId: selectedGroup.AutoScalingGroupName ?? '',
 					ResourceType: 'auto-scaling-group',
@@ -464,7 +464,7 @@
 	async function toggleProtection(instanceId: string, currentlyProtected: boolean) {
 		if (!selectedGroup) return;
 		try {
-			await asg.send(new SetInstanceProtectionCommand({
+			await asg().send(new SetInstanceProtectionCommand({
 				AutoScalingGroupName: selectedGroup.AutoScalingGroupName ?? '',
 				InstanceIds: [instanceId],
 				ProtectedFromScaleIn: !currentlyProtected
@@ -503,7 +503,20 @@
 		{ id: 'tags', label: 'Tags' }
 	];
 
-	onMount(loadGroups);
+	// selectedGroup and its per-tab data (policies, activities, hooks, etc.)
+	// reference a group name that is only unique within the region it was
+	// fetched from — clear the selection and fall back to the list rather
+	// than only re-listing groups.
+	onRegionChange(() => {
+		selectedGroup = null;
+		activeTab = 'overview';
+		policies = [];
+		activities = [];
+		hooks = [];
+		scheduledActions = [];
+		refreshes = [];
+		loadGroups();
+	});
 </script>
 
 <div class="p-6 space-y-6">

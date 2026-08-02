@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/alecthomas/kong v1.16.0
 	github.com/alicebob/miniredis/v2 v2.38.0
-	github.com/aws/aws-sdk-go-v2 v1.43.0
+	github.com/aws/aws-sdk-go-v2 v1.43.3
 	github.com/aws/aws-sdk-go-v2/config v1.32.31
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.30
 	github.com/aws/aws-sdk-go-v2/service/acm v1.43.0
@@ -59,7 +59,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.45.0
 	github.com/aws/aws-sdk-go-v2/service/support v1.34.0
 	github.com/aws/aws-sdk-go-v2/service/swf v1.37.0
-	github.com/aws/smithy-go v1.27.4
+	github.com/aws/smithy-go v1.27.6
 	github.com/distribution/distribution/v3 v3.1.1
 	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -207,12 +207,23 @@ require github.com/aws/aws-sdk-go-v2/service/omics v1.49.1
 require github.com/aws/aws-sdk-go-v2/service/cleanrooms v1.48.0
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/cloudfrontkeyvaluestore v1.15.2
+	github.com/aws/aws-sdk-go-v2/service/grafana v1.38.3
+	github.com/aws/aws-sdk-go-v2/service/opensearchserverless v1.34.2
+	github.com/aws/aws-sdk-go-v2/service/outposts v1.66.0
+	github.com/aws/aws-sdk-go-v2/service/personalizeruntime v1.36.2
+	github.com/aws/aws-sdk-go-v2/service/schemas v1.37.2
 	github.com/mxschmitt/playwright-go v0.6100.0
 	go.uber.org/goleak v1.3.0
 	modernc.org/sqlite v1.54.0
 )
 
 require (
+	github.com/aws/aws-sdk-go-v2/service/directconnect v1.43.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/lightsail v1.58.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/mgn v1.48.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
@@ -240,9 +251,9 @@ require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.31 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.31 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.31 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.32 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.34 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.34 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/v4a v1.4.34 // indirect
 	github.com/aws/aws-sdk-go-v2/service/elasticbeanstalk v1.37.0
 	github.com/aws/aws-sdk-go-v2/service/emr v1.64.0
 	github.com/aws/aws-sdk-go-v2/service/fis v1.40.0

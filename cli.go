@@ -57,6 +57,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
 	"github.com/blackbirdworks/gopherstack/demo"
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/chaos"
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -114,6 +115,7 @@ import (
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
+	directconnectbackend "github.com/blackbirdworks/gopherstack/services/directconnect"
 	directoryservicebackend "github.com/blackbirdworks/gopherstack/services/directoryservice"
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
 	dmsbackend "github.com/blackbirdworks/gopherstack/services/dms"
@@ -140,6 +142,7 @@ import (
 	fsxbackend "github.com/blackbirdworks/gopherstack/services/fsx"
 	glacierbackend "github.com/blackbirdworks/gopherstack/services/glacier"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	grafanabackend "github.com/blackbirdworks/gopherstack/services/grafana"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	iambackend "github.com/blackbirdworks/gopherstack/services/iam"
 	identitystorebackend "github.com/blackbirdworks/gopherstack/services/identitystore"
@@ -155,6 +158,7 @@ import (
 	kmsbackend "github.com/blackbirdworks/gopherstack/services/kms"
 	lakeformationbackend "github.com/blackbirdworks/gopherstack/services/lakeformation"
 	lambdabackend "github.com/blackbirdworks/gopherstack/services/lambda"
+	lightsailbackend "github.com/blackbirdworks/gopherstack/services/lightsail"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
@@ -164,13 +168,16 @@ import (
 	mediastoredatabackend "github.com/blackbirdworks/gopherstack/services/mediastoredata"
 	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
+	mgnbackend "github.com/blackbirdworks/gopherstack/services/mgn"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
+	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
 	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
 	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
@@ -182,6 +189,7 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	redshiftdatabackend "github.com/blackbirdworks/gopherstack/services/redshiftdata"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
+	resiliencehubbackend "github.com/blackbirdworks/gopherstack/services/resiliencehub"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	rolesanywherebackend "github.com/blackbirdworks/gopherstack/services/rolesanywhere"
@@ -264,6 +272,13 @@ type CLI struct {
 	athenaHandler                 service.Registerable
 	emrserverlessHandler          service.Registerable
 	s3tablesHandler               service.Registerable
+	grafanaHandler                service.Registerable
+	outpostsHandler               service.Registerable
+	resiliencehubHandler          service.Registerable
+	directconnectHandler          service.Registerable
+	mgnHandler                    service.Registerable
+	networkmanagerHandler         service.Registerable
+	lightsailHandler              service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1438,6 +1453,41 @@ func (c *CLI) GetXrayHandler() service.Registerable { return c.xrayHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetS3TablesHandler() service.Registerable { return c.s3tablesHandler }
 
+// GetGrafanaHandler returns the Amazon Managed Grafana handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetGrafanaHandler() service.Registerable { return c.grafanaHandler }
+
+// GetOutpostsHandler returns the AWS Outposts handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetOutpostsHandler() service.Registerable { return c.outpostsHandler }
+
+// GetResilienceHubHandler returns the AWS Resilience Hub handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetResilienceHubHandler() service.Registerable { return c.resiliencehubHandler }
+
+// GetDirectConnectHandler returns the AWS Direct Connect handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetDirectConnectHandler() service.Registerable { return c.directconnectHandler }
+
+// GetMGNHandler returns the AWS Application Migration Service handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetMGNHandler() service.Registerable { return c.mgnHandler }
+
+// GetNetworkManagerHandler returns the AWS Network Manager handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetNetworkManagerHandler() service.Registerable { return c.networkmanagerHandler }
+
+// GetLightsailHandler returns the Amazon Lightsail handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetLightsailHandler() service.Registerable { return c.lightsailHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2560,12 +2610,54 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.wafv2Handler = byName["Wafv2"]
 	cli.xrayHandler = byName["Xray"]
 	cli.s3tablesHandler = byName["S3tables"]
+	cli.grafanaHandler = byName["Grafana"]
+	cli.outpostsHandler = byName["Outposts"]
+	cli.resiliencehubHandler = byName["ResilienceHub"]
+	cli.directconnectHandler = byName["DirectConnect"]
+	cli.mgnHandler = byName["MGN"]
+	cli.networkmanagerHandler = byName["NetworkManager"]
+	cli.lightsailHandler = byName["Lightsail"]
 }
 
-// initializeServices initializes all service providers.
-//
-//nolint:funlen // registers many services; splitting would obscure the dependency wiring
+// initializeServices initializes all service providers, wires the
+// cross-service integrations that need another service's handler, then
+// registers CloudFormation and the dashboard last. The three phases mirror
+// what each step depends on: independent providers, providers needing
+// another service's already-initialized handler, and providers needing the
+// full service registry (CloudFormation, then the dashboard).
 func initializeServices(appCtx *service.AppContext) ([]service.Registerable, error) {
+	services, err := initIndependentServices(appCtx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store handlers in CLI so dashboard and CloudFormation can access them.
+	if cli, ok := appCtx.Config.(*CLI); ok {
+		storeCLIHandlers(cli, services)
+	}
+
+	// Build name-based lookup for cross-service wiring.
+	byName := serviceByName(services)
+
+	wireCrossServiceDependencies(appCtx, services, byName)
+
+	services, err = registerCloudFormationAndDashboard(appCtx, services, byName)
+	if err != nil {
+		return nil, err
+	}
+
+	// Record the service count so the metrics dashboard (and Prometheus scrape)
+	// can surface it alongside the health endpoint's "services" field.
+	telemetry.SetServiceCount(len(services))
+
+	// The router sorts services by MatchPriority() at startup, so registration order
+	// does not affect routing correctness.
+	return services, nil
+}
+
+// initIndependentServices constructs every service provider that has no
+// dependency on another service's handler at init time.
+func initIndependentServices(appCtx *service.AppContext) ([]service.Registerable, error) {
 	providers := getServiceProviders()
 	services := make([]service.Registerable, 0, len(providers))
 
@@ -2578,14 +2670,38 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		services = append(services, svc)
 	}
 
-	// Store handlers in CLI so dashboard and CloudFormation can access them.
-	if cli, ok := appCtx.Config.(*CLI); ok {
-		storeCLIHandlers(cli, services)
-	}
+	return services, nil
+}
 
-	// Build name-based lookup for cross-service wiring.
-	byName := serviceByName(services)
+// wireCrossServiceDependencies wires every cross-service integration that
+// needs another service's already-initialized handler. It dispatches, in
+// the original registration order, to helpers grouped by what the
+// dependencies are (messaging/eventing, Step Functions, SSM/Kinesis key and
+// notification wiring, API Gateway, event-source pollers,
+// compute/observability, CloudWatch Logs metric emitters, storage/secrets,
+// AppSync/streams, Scheduler/Pipes, and governance) rather than by an
+// arbitrary line-count split.
+func wireCrossServiceDependencies(
+	appCtx *service.AppContext,
+	services []service.Registerable,
+	byName map[string]service.Registerable,
+) {
+	wireMessagingAndEventingIntegrations(byName)
+	wireStepFunctionsIntegrations(byName)
+	wireParameterAndKeyIntegrations(byName)
+	wireAPIGatewayIntegrations(byName)
+	wireEventSourcePollers(byName)
+	wireComputeAndObservabilityIntegrations(appCtx, byName)
+	wireCWLogsMetricEmitters(byName)
+	wireStorageAndSecretsIntegrations(byName)
+	wireAppSyncAndStreamsIntegrations(byName)
+	wireSchedulerAndPipesIntegrations(byName)
+	wireGovernanceIntegrations(byName, services)
+}
 
+// wireMessagingAndEventingIntegrations wires SNS, SQS, EventBridge, and S3
+// notification delivery.
+func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable) {
 	// Wire SNS→SQS delivery: when SNS publishes a message, deliver it to SQS queues.
 	wireSNSToSQS(byName["SNS"], byName["SQS"])
 
@@ -2618,7 +2734,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Lambda"],
 		byName["EventBridge"],
 	)
+}
 
+// wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
+// direct service integrations.
+func wireStepFunctionsIntegrations(byName map[string]service.Registerable) {
 	// Wire Step Functions → Lambda Task integration.
 	wireStepFunctionsLambda(byName["StepFunctions"], byName["Lambda"])
 
@@ -2633,7 +2753,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["EventBridge"],
 		byName["S3"],
 	)
+}
 
+// wireParameterAndKeyIntegrations wires SSM's KMS and EventBridge
+// dependencies, and Kinesis's KMS dependency.
+func wireParameterAndKeyIntegrations(byName map[string]service.Registerable) {
 	// Wire SSM → KMS for SecureString encryption with customer-managed keys.
 	wireSSMKMS(byName["SSM"], byName["KMS"])
 
@@ -2642,7 +2766,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire Kinesis → KMS so StartStreamEncryption validates KeyId against real key state.
 	wireKinesisKMS(byName["Kinesis"], byName["KMS"])
+}
 
+// wireAPIGatewayIntegrations wires API Gateway's Lambda proxy, Cognito
+// authorizer, Cognito Lambda trigger, and WebSocket Management API
+// integrations.
+func wireAPIGatewayIntegrations(byName map[string]service.Registerable) {
 	// Wire API Gateway → Lambda proxy integration.
 	wireAPIGatewayLambda(byName["APIGateway"], byName["APIGatewayV2"], byName["Lambda"])
 
@@ -2655,7 +2784,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire API Gateway V2 -> API Gateway Management API for WebSocket connections.
 	wireAPIGatewayManagementAPI(byName["APIGatewayV2"], byName["APIGatewayManagementAPI"])
+}
 
+// wireEventSourcePollers wires the Kinesis, SQS, and DynamoDB Streams event
+// source mapping pollers that invoke Lambda.
+func wireEventSourcePollers(byName map[string]service.Registerable) {
 	// Wire Kinesis → Lambda event source mapping poller.
 	wireKinesisLambda(byName["Kinesis"], byName["Lambda"])
 
@@ -2664,7 +2797,12 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire DynamoDB Streams → Lambda event source mapping poller.
 	wireDynamoDBStreamLambda(byName["DynamoDB"], byName["Lambda"])
+}
 
+// wireComputeAndObservabilityIntegrations wires Lambda async destinations,
+// CloudWatch alarm/infra actions, Auto Scaling/ECS ELBv2 target
+// registration, and CloudWatch Logs delivery from Lambda.
+func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName map[string]service.Registerable) {
 	// Wire Lambda async DeadLetterConfig / DestinationConfig delivery to SQS/SNS/Lambda.
 	wireLambdaAsyncDestinations(byName["Lambda"], byName["SQS"], byName["SNS"])
 
@@ -2702,6 +2840,64 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Firehose"],
 	)
 
+	// Wire Direct Connect → EC2 so DirectConnectGatewayAssociation's
+	// GatewayId/VirtualGatewayId are validated against real (mock) EC2
+	// VpnGateway/TransitGateway records, and DescribeVirtualGateways proxies
+	// EC2's own VpnGateway list instead of maintaining a duplicate store.
+	wireDirectConnectEC2(byName["DirectConnect"], byName["EC2"])
+}
+
+// directConnectEC2ResolverAdapter adapts the EC2 backend to the
+// directconnect.EC2GatewayResolver interface.
+type directConnectEC2ResolverAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *directConnectEC2ResolverAdapter) ResolveVpnGateway(id string) bool {
+	return len(a.backend.DescribeVpnGateways([]string{id})) > 0
+}
+
+func (a *directConnectEC2ResolverAdapter) ResolveTransitGateway(id string) bool {
+	return len(a.backend.DescribeTransitGateways([]string{id})) > 0
+}
+
+func (a *directConnectEC2ResolverAdapter) VirtualGateways() []string {
+	vgws := a.backend.DescribeVpnGateways(nil)
+	ids := make([]string, 0, len(vgws))
+
+	for _, v := range vgws {
+		ids = append(ids, v.VpnGatewayID)
+	}
+
+	return ids
+}
+
+// wireDirectConnectEC2 wires the Direct Connect backend to the EC2 backend
+// -- see directConnectEC2ResolverAdapter.
+func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
+	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
+}
+
+// wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit
+// CloudWatch metric data points. The repeated identical calls are preserved
+// verbatim from before this decomposition; collapsing them is a behavior
+// change outside the scope of this refactor.
+func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
 
@@ -2752,13 +2948,22 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire CloudWatch Logs metric filters to emit CloudWatch metric data points.
 	wireCWLogsMetricEmitter(byName["CloudWatchLogs"], byName["CloudWatch"])
+}
 
+// wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
+// import/export, MGN→S3 import, SecretsManager's Lambda rotation invoker
+// and KMS encryption, and IoT rule action dispatch.
+func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
 
 	// Wire DynamoDB → S3 so ImportTable reads source objects and
 	// ExportTableToPointInTime writes real export data.
 	wireDynamoDBS3(byName["DynamoDB"], byName["S3"])
+
+	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
+	// actually creates SourceServers.
+	wireMGNS3(byName["MGN"], byName["S3"])
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
@@ -2769,7 +2974,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+}
 
+// wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB
+// resolvers, and DynamoDB Streams to the DynamoDB backend.
+func wireAppSyncAndStreamsIntegrations(byName map[string]service.Registerable) {
 	// Wire AppSync → Lambda for LAMBDA resolver execution.
 	wireAppSyncLambda(byName["AppSync"], byName["Lambda"])
 
@@ -2778,7 +2987,11 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 
 	// Wire DynamoDB Streams → DynamoDB backend so streams share the same in-memory data.
 	wireDynamoDBStreams(byName["DynamoDB"], byName["DynamoDBStreams"])
+}
 
+// wireSchedulerAndPipesIntegrations wires the Scheduler and Pipes runners
+// to the backends they can target.
+func wireSchedulerAndPipesIntegrations(byName map[string]service.Registerable) {
 	// Wire Scheduler runner → Lambda, SQS, SNS, and StepFunctions backends.
 	wireSchedulerRunner(
 		byName["Scheduler"],
@@ -2807,30 +3020,38 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 		byName["Firehose"],
 		byName["DynamoDB"],
 	)
+}
 
+// wireGovernanceIntegrations wires Resource Groups Tagging API aggregation
+// across service backends, IAM→STS validation, and FIS action provider
+// registration.
+func wireGovernanceIntegrations(byName map[string]service.Registerable, services []service.Registerable) {
 	// Wire Resource Groups Tagging API → service backends so GetResources, TagResources, etc.
 	// aggregate and mutate tags across all services.
-	wireResourceGroupsTagging(
-		byName["ResourceGroupsTaggingAPI"],
-		byName["DynamoDB"],
-		byName["SQS"],
-		byName["SNS"],
-		byName["Lambda"],
-		byName["KMS"],
-		byName["SecretsManager"],
-		byName["ECS"],
-		byName["Athena"],
-		byName["Glue"],
-		byName["ECR"],
-		byName["Kinesis"],
-	)
+	wireResourceGroupsTagging(byName["ResourceGroupsTaggingAPI"], byName)
 
 	// Wire IAM → STS for ExternalId validation and MaxSessionDuration enforcement.
 	wireIAMToSTS(byName["IAM"], byName["STS"])
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
+}
 
+// registerCloudFormationAndDashboard registers CloudFormation and the
+// dashboard, both of which need the full set of already-initialized service
+// handlers: CloudFormation to drive stack resources through their real
+// backends, and the dashboard to expose them. CloudFormation is registered
+// first so its handler is stored before the dashboard, which is
+// initialized last, reads it. byName is the pre-CloudFormation lookup built
+// before wireCrossServiceDependencies -- used here to wire the one
+// direction that depends on CloudFormation existing (Lightsail ->
+// CloudFormation), which wireCrossServiceDependencies itself runs too early
+// for since CloudFormation isn't registered yet at that point.
+func registerCloudFormationAndDashboard(
+	appCtx *service.AppContext,
+	services []service.Registerable,
+	byName map[string]service.Registerable,
+) ([]service.Registerable, error) {
 	// Init CloudFormation after core handlers are stored so it can access their backends.
 	cfnSvc, err := (&cfnbackend.Provider{}).Init(appCtx)
 	if err != nil {
@@ -2838,6 +3059,13 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	}
 
 	services = append(services, cfnSvc)
+
+	// Wire Lightsail -> CloudFormation so CreateCloudFormationStack's real
+	// cross-service handoff actually creates a stack instead of always
+	// falling back to a record-only stub. Must happen here, not in
+	// wireStorageAndSecretsIntegrations, because CloudFormation does not
+	// exist yet when that runs.
+	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc
@@ -2850,12 +3078,6 @@ func initializeServices(appCtx *service.AppContext) ([]service.Registerable, err
 	}
 	services = append(services, dashSvc)
 
-	// Record the service count so the metrics dashboard (and Prometheus scrape)
-	// can surface it alongside the health endpoint's "services" field.
-	telemetry.SetServiceCount(len(services))
-
-	// The router sorts services by MatchPriority() at startup, so registration order
-	// does not affect routing correctness.
 	return services, nil
 }
 
@@ -3048,6 +3270,13 @@ func getMostRecentServiceProviders() []service.Provider {
 		&vpclatticebackend.Provider{},
 		&omicsbackend.Provider{},
 		&bedrockagentbackend.Provider{},
+		&grafanabackend.Provider{},
+		&outpostsbackend.Provider{},
+		&resiliencehubbackend.Provider{},
+		&directconnectbackend.Provider{},
+		&mgnbackend.Provider{},
+		&networkmanagerbackend.Provider{},
+		&lightsailbackend.Provider{},
 	}
 }
 
@@ -5221,26 +5450,25 @@ func registerTaggingService(
 // service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
 // UntagResources work cross-service.
 //
-// Coverage note (bd: gopherstack-3xne): of the ~90 gopherstack services with native
-// TagResource support, this wires 11 (dynamodb, sqs, sns, lambda, kms, secretsmanager,
-// ecs, athena, glue, ecr, kinesis). The rest remain unwired -- see PARITY.md's gaps
-// section for the honest remaining list and why a few (notably s3control, whose
-// taggable ARNs span the "s3"/"s3-object-lambda" service namespaces rather than
-// "s3control" itself) need more than this dispatch shape supports today.
-func wireResourceGroupsTagging(
-	taggingReg service.Registerable,
-	ddbReg service.Registerable,
-	sqsReg service.Registerable,
-	snsReg service.Registerable,
-	lambdaReg service.Registerable,
-	kmsReg service.Registerable,
-	smReg service.Registerable,
-	ecsReg service.Registerable,
-	athenaReg service.Registerable,
-	glueReg service.Registerable,
-	ecrReg service.Registerable,
-	kinesisReg service.Registerable,
-) {
+// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
+// ~90 gopherstack services with native tagging support, this wires 36 (dynamodb, sqs,
+// sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
+// cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
+// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
+// outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail). The
+// rest remain unwired -- see PARITY.md's gaps section for the honest
+// remaining list and why a few
+// (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
+// namespaces rather than "s3control" itself, and codebuild, whose real API has no
+// TagResource/CreateTags-style mutation call at all -- tags are set only via
+// CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
+// bodies) need more than this dispatch shape supports today.
+//
+// byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
+// rather than one parameter per service: the wired-service count keeps growing, and a
+// positional parameter list that size (20+ and climbing) is worse to read and extend than
+// one map lookup per wireTaggingXxx call below.
+func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[string]service.Registerable) {
 	taggingH, ok := taggingReg.(*resourcegroupstaggingapibackend.Handler)
 	if !ok {
 		return
@@ -5248,17 +5476,56 @@ func wireResourceGroupsTagging(
 
 	bk := taggingH.Backend
 
-	wireTaggingDDB(bk, ddbReg)
-	wireTaggingSQS(bk, sqsReg)
-	wireTaggingSNS(bk, snsReg)
-	wireTaggingLambda(bk, lambdaReg)
-	wireTaggingKMS(bk, kmsReg)
-	wireTaggingSM(bk, smReg)
-	wireTaggingECS(bk, ecsReg)
-	wireTaggingAthena(bk, athenaReg)
-	wireTaggingGlue(bk, glueReg)
-	wireTaggingECR(bk, ecrReg)
-	wireTaggingKinesis(bk, kinesisReg)
+	wireTaggingDDB(bk, byName["DynamoDB"])
+	wireTaggingSQS(bk, byName["SQS"])
+	wireTaggingSNS(bk, byName["SNS"])
+	wireTaggingLambda(bk, byName["Lambda"])
+	wireTaggingKMS(bk, byName["KMS"])
+	wireTaggingSM(bk, byName["SecretsManager"])
+	wireTaggingECS(bk, byName["ECS"])
+	wireTaggingAthena(bk, byName["Athena"])
+	wireTaggingGlue(bk, byName["Glue"])
+	wireTaggingECR(bk, byName["ECR"])
+	wireTaggingKinesis(bk, byName["Kinesis"])
+	wireTaggingStepFunctions(bk, byName["StepFunctions"])
+	wireTaggingCloudFront(bk, byName["CloudFront"])
+	wireTaggingEKS(bk, byName["EKS"])
+	wireTaggingBatch(bk, byName["Batch"])
+	wireTaggingWAFv2(bk, byName["Wafv2"])
+	wireTaggingBackup(bk, byName["Backup"])
+	wireTaggingEFS(bk, byName["EFS"])
+
+	// DocDB and Neptune must be wired ahead of RDS: both share the "rds" ARN service
+	// for some or all of their resource kinds (see wireTaggingDocDB and
+	// wireTaggingNeptune below), and resourcegroupstaggingapi tries ARN taggers in
+	// registration order, stopping at the first handled=true match. RDS's own tagger
+	// does not validate resource existence and would otherwise either shadow these
+	// (if registered first) or get shadowed uselessly by them (if these ran
+	// unconditionally after it).
+	wireTaggingDocDB(bk, byName["DocDB"])
+	wireTaggingNeptune(bk, byName["Neptune"])
+	wireTaggingRDS(bk, byName["RDS"])
+	wireTaggingElastiCache(bk, byName["ElastiCache"])
+
+	// gopherstack-no6n: these eight were reported as untaggable by a grep for
+	// "func.*TagResource(" that missed every non-standard method name (AddTags,
+	// CreateTags, TagDeliveryStream, ...). Re-audited: seven have real native tagging
+	// and are wired below; codebuild is not (see wireResourceGroupsTagging's package
+	// doc, or PARITY.md, for why).
+	wireTaggingRedshift(bk, byName["Redshift"])
+	wireTaggingSageMaker(bk, byName["SageMaker"])
+	wireTaggingFirehose(bk, byName["Firehose"])
+	wireTaggingOpenSearch(bk, byName["OpenSearch"])
+	wireTaggingCloudWatchLogs(bk, byName["CloudWatchLogs"])
+	wireTaggingMQ(bk, byName["MQ"])
+	wireTaggingEMR(bk, byName["EMR"])
+	wireTaggingGrafana(bk, byName["Grafana"])
+	wireTaggingOutposts(bk, byName["Outposts"])
+	wireTaggingResilienceHub(bk, byName["ResilienceHub"])
+	wireTaggingDirectConnect(bk, byName["DirectConnect"])
+	wireTaggingMGN(bk, byName["MGN"])
+	wireTaggingNetworkManager(bk, byName["NetworkManager"])
+	wireTaggingLightsail(bk, byName["Lightsail"])
 }
 
 func wireTaggingDDB(
@@ -5363,6 +5630,41 @@ func wireTaggingARNResources(
 	)
 }
 
+// wireTaggingCtxARNResources is wireTaggingARNResources for services whose native
+// TagResource/UntagResource take a context.Context as their first parameter (used
+// elsewhere by those services for region or endpoint resolution) instead of the bare
+// (arn, tags)/(arn, keys) shape wireTaggingARNResources expects. Kept as a separate
+// helper (rather than a variant of wireTaggingARNResources) so ctx-less callers keep a
+// ctx-less tagFn/untagFn signature.
+func wireTaggingCtxARNResources(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	arnService string,
+	resourceTypeOf func(arn string) string,
+	listFn func() []taggedARNEntry,
+	tagFn func(context.Context, string, map[string]string) error,
+	untagFn func(context.Context, string, []string) error,
+) {
+	registerTaggingService(
+		bk,
+		func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+			items := listFn()
+			out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+			for _, item := range items {
+				out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+					ResourceARN:  item.ARN,
+					ResourceType: resourceTypeOf(item.ARN),
+					Tags:         item.Tags,
+				})
+			}
+
+			return out
+		},
+		arnService,
+		tagFn,
+		untagFn,
+	)
+}
+
 // constantResourceType returns a resourceTypeOf closure (see wireTaggingARNResources)
 // that ignores the ARN and always returns t, for services whose flat ARN-keyed tag
 // store holds exactly one AWS resource kind.
@@ -5397,6 +5699,33 @@ func resourceTypeFromARN(arn, service string) string {
 	return service
 }
 
+// wafv2ResourceType derives the resource-type string for a WAFv2 ARN. Unlike the other
+// services this file wires, WAFv2's resource segment nests the scope one level deeper
+// than resourceTypeFromARN accounts for -- "{regional|global}/{kind}/{name}/{id}" (see
+// InMemoryBackend.buildWebACLARN/ipSetARN/regexPatternSetARN/ruleGroupARN) -- so taking
+// only the first "/"-delimited segment would yield "wafv2:regional" for every kind,
+// silently colliding web ACLs, IP sets, regex pattern sets, and rule groups under one
+// type and never matching AWS's real "wafv2:regional/webacl" style resource-type
+// strings. This takes the first two segments instead.
+func wafv2ResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "wafv2"
+	}
+
+	segs := strings.SplitN(parts[arnResourceFieldCount-1], "/", wafv2ResourceSegmentCount+1)
+	if len(segs) < wafv2ResourceSegmentCount {
+		return "wafv2"
+	}
+
+	return "wafv2:" + segs[0] + "/" + segs[1]
+}
+
+// wafv2ResourceSegmentCount is the number of "/"-delimited segments
+// (scope, kind) wafv2ResourceType needs from a WAFv2 ARN's resource
+// portion before the name/id segments it discards.
+const wafv2ResourceSegmentCount = 2
+
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	sqsReg service.Registerable,
@@ -5411,7 +5740,8 @@ func wireTaggingSQS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sqs", constantResourceType("sqs:queue"),
+	wireTaggingARNResources(
+		bk, "sqs", constantResourceType("sqs:queue"),
 		func() []taggedARNEntry {
 			queues := sqsBk.TaggedQueues()
 			out := make([]taggedARNEntry, 0, len(queues))
@@ -5440,7 +5770,8 @@ func wireTaggingSNS(
 		return
 	}
 
-	wireTaggingARNResources(bk, "sns", constantResourceType("sns:topic"),
+	wireTaggingARNResources(
+		bk, "sns", constantResourceType("sns:topic"),
 		func() []taggedARNEntry {
 			topics := snsBk.TaggedTopics()
 			out := make([]taggedARNEntry, 0, len(topics))
@@ -5563,7 +5894,8 @@ func wireTaggingECS(bk resourcegroupstaggingapibackend.StorageBackend, ecsReg se
 		return
 	}
 
-	wireTaggingARNResources(bk, "ecs",
+	wireTaggingARNResources(
+		bk, "ecs",
 		func(arn string) string { return resourceTypeFromARN(arn, "ecs") },
 		func() []taggedARNEntry {
 			items := ecsBk.TaggedResources()
@@ -5601,7 +5933,8 @@ func wireTaggingAthena(bk resourcegroupstaggingapibackend.StorageBackend, athena
 		return
 	}
 
-	wireTaggingARNResources(bk, "athena",
+	wireTaggingARNResources(
+		bk, "athena",
 		func(arn string) string { return resourceTypeFromARN(arn, "athena") },
 		func() []taggedARNEntry {
 			items := athenaBk.TaggedResources()
@@ -5633,7 +5966,8 @@ func wireTaggingGlue(bk resourcegroupstaggingapibackend.StorageBackend, glueReg 
 		return
 	}
 
-	wireTaggingARNResources(bk, "glue",
+	wireTaggingARNResources(
+		bk, "glue",
 		func(arn string) string { return resourceTypeFromARN(arn, "glue") },
 		func() []taggedARNEntry {
 			items := glueBk.TaggedResources()
@@ -5723,6 +6057,1134 @@ func wireTaggingKinesis(bk resourcegroupstaggingapibackend.StorageBackend, kines
 		func(ctx context.Context, arn string, keys []string) error {
 			return kinesisBk.UntagResource(ctx, &kinesisbackend.UntagResourceInput{ResourceARN: arn, TagKeys: keys})
 		},
+	)
+}
+
+// wireTaggingStepFunctions wires the Step Functions backend into the Resource Groups
+// Tagging API. State machines, activities, and state machine aliases share the same
+// ARN-keyed tag store on the Handler itself (not the storage backend -- see
+// stepfunctions.Handler.TaggedResources), and their ARNs use the "states" service
+// namespace (arn:aws:states:{region}:{account}:stateMachine:{name}), not "stepfunctions".
+func wireTaggingStepFunctions(bk resourcegroupstaggingapibackend.StorageBackend, sfnReg service.Registerable) {
+	sfnH, ok := sfnReg.(*sfnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "states",
+		func(arn string) string { return resourceTypeFromARN(arn, "states") },
+		func() []taggedARNEntry {
+			items := sfnH.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		sfnH.TagResourceByARN,
+		sfnH.UntagResourceByARN,
+	)
+}
+
+// wireTaggingCloudFront wires the CloudFront backend into the Resource Groups Tagging
+// API. CloudFront keeps tags for every resource kind it supports (distributions,
+// streaming distributions, trust stores, distribution tenants, connection groups,
+// connection functions, anycast IP lists) behind one taggableTags lookup, so
+// resourceTypeFromARN derives the per-resource type instead of a hand-written wiring
+// function per kind.
+func wireTaggingCloudFront(bk resourcegroupstaggingapibackend.StorageBackend, cfReg service.Registerable) {
+	cfH, ok := cfReg.(*cloudfrontbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfBk := cfH.Backend
+	if cfBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "cloudfront",
+		func(arn string) string { return resourceTypeFromARN(arn, "cloudfront") },
+		func() []taggedARNEntry {
+			items := cfBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		cfBk.TagResource,
+		cfBk.UntagResource,
+	)
+}
+
+// wireTaggingEKS wires the EKS backend into the Resource Groups Tagging API. EKS keeps
+// tags for every resource kind it supports (clusters, nodegroups, access entries,
+// addons, fargate profiles, pod identity associations, capabilities, Anywhere
+// subscriptions) in typed stores searched by resourceARN, so resourceTypeFromARN
+// derives the per-resource type instead of a hand-written wiring function per kind.
+func wireTaggingEKS(bk resourcegroupstaggingapibackend.StorageBackend, eksReg service.Registerable) {
+	eksH, ok := eksReg.(*eksbackend.Handler)
+	if !ok {
+		return
+	}
+
+	eksBk := eksH.Backend
+	if eksBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "eks",
+		func(arn string) string { return resourceTypeFromARN(arn, "eks") },
+		func() []taggedARNEntry {
+			items := eksBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		eksBk.TagResource,
+		eksBk.UntagResource,
+	)
+}
+
+// wireTaggingBatch wires the Batch backend into the Resource Groups Tagging API. Batch
+// keeps tags for every resource kind it supports (compute environments, job queues, job
+// definitions, jobs, consumable resources, scheduling policies, service environments,
+// service jobs) in one flat ARN-keyed lookup, so resourceTypeFromARN derives the
+// per-resource type. TagResource/UntagResource take a context (used elsewhere for
+// region resolution), so this uses wireTaggingCtxARNResources rather than the
+// ctx-dropping wireTaggingARNResources helper.
+func wireTaggingBatch(bk resourcegroupstaggingapibackend.StorageBackend, batchReg service.Registerable) {
+	batchH, ok := batchReg.(*batchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	batchBk := batchH.Backend
+	if batchBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "batch",
+		func(arn string) string { return resourceTypeFromARN(arn, "batch") },
+		func() []taggedARNEntry {
+			items := batchBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		batchBk.TagResource,
+		batchBk.UntagResource,
+	)
+}
+
+// wireTaggingWAFv2 wires the WAFv2 backend into the Resource Groups Tagging API. WAFv2
+// keeps tags for every resource kind it supports (web ACLs, IP sets, regex pattern
+// sets, rule groups) behind one lookupTaggedResource lookup, so wafv2ResourceType
+// derives the per-resource type (see its doc comment for why resourceTypeFromARN isn't
+// enough here). TagResource/UntagResource take a context, so this uses
+// wireTaggingCtxARNResources rather than the ctx-dropping wireTaggingARNResources
+// helper.
+func wireTaggingWAFv2(bk resourcegroupstaggingapibackend.StorageBackend, wafReg service.Registerable) {
+	wafH, ok := wafReg.(*wafv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	wafBk, ok := wafH.Backend.(*wafv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "wafv2",
+		wafv2ResourceType,
+		func() []taggedARNEntry {
+			items := wafBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		wafBk.TagResource,
+		wafBk.UntagResource,
+	)
+}
+
+// wireTaggingBackup wires the Backup backend into the Resource Groups Tagging API.
+// Backup keeps tags for every resource kind it supports (backup vaults, backup plans,
+// frameworks, report plans) in typed stores searched by ARN index, so
+// resourceTypeFromARN derives the per-resource type instead of a hand-written wiring
+// function per kind.
+func wireTaggingBackup(bk resourcegroupstaggingapibackend.StorageBackend, backupReg service.Registerable) {
+	backupH, ok := backupReg.(*backupbackend.Handler)
+	if !ok {
+		return
+	}
+
+	backupBk := backupH.Backend
+	if backupBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "backup",
+		func(arn string) string { return resourceTypeFromARN(arn, "backup") },
+		func() []taggedARNEntry {
+			items := backupBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		backupBk.TagResource,
+		backupBk.UntagResource,
+	)
+}
+
+// wireTaggingEFS wires the EFS backend into the Resource Groups Tagging API. EFS keeps
+// tags for every resource kind it supports (file systems, access points) in typed
+// stores, so resourceTypeFromARN derives the per-resource type. EFS ARNs use the
+// "elasticfilesystem" service namespace, not "efs". TagResource/UntagResource take a
+// context (used elsewhere for region resolution), so this uses wireTaggingCtxARNResources
+// rather than the ctx-dropping wireTaggingARNResources helper.
+func wireTaggingEFS(bk resourcegroupstaggingapibackend.StorageBackend, efsReg service.Registerable) {
+	efsH, ok := efsReg.(*efsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	efsBk := efsH.Backend
+	if efsBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "elasticfilesystem",
+		func(arn string) string { return resourceTypeFromARN(arn, "elasticfilesystem") },
+		func() []taggedARNEntry {
+			items := efsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		efsBk.TagResource,
+		efsBk.UntagResource,
+	)
+}
+
+// neptuneResourceType derives the resource-type string for a Neptune-owned ARN by
+// reading the ARN's own service segment (fields[2]) rather than assuming one, since
+// Neptune's single flat tag store spans two ARN services: "neptune" for DB clusters
+// and instances (services/neptune/db_clusters.go:70, db_instances.go:32) and "rds" for
+// parameter groups, subnet groups, and cluster snapshots
+// (services/neptune/cluster_parameter_groups.go:47, subnet_groups.go:41,
+// cluster_snapshots.go:44) -- the same "rds" segment the separate RDS and DocumentDB
+// backends use.
+func neptuneResourceType(arnStr string) string {
+	fields := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+	if len(fields) != arnResourceFieldCount {
+		return "neptune"
+	}
+
+	return resourceTypeFromARN(arnStr, fields[2])
+}
+
+// wireTaggingDocDB wires the DocumentDB backend into the Resource Groups Tagging API.
+// Every DocumentDB resource kind builds its ARN under the "rds" ARN service --
+// clusterARN, instanceARN, subnetGroupARN, clusterParameterGroupARN,
+// clusterSnapshotARN, globalClusterARN, and eventSubscriptionARN in
+// services/docdb/store.go:232-266 all call arn.Build("rds", ...) -- the same service
+// segment wireTaggingRDS below already claims for the separate RDS backend. RDS's own
+// AddTagsToResource does not validate that an ARN belongs to a resource it actually
+// manages (services/rds/tags.go:4-25 stores blindly for any ARN), and
+// resourcegroupstaggingapi's RegisterARNTagger tries taggers in registration order,
+// stopping at the first one that reports handled=true. So this is wired ahead of
+// wireTaggingRDS in wireResourceGroupsTagging (a naive tagger registered after RDS's
+// would never run, since RDS's blind claim always wins first), and its tagger/
+// untagger only claim an ARN once docdbBk.HasTaggableResource confirms DocDB itself
+// has a matching resource, declining (handled=false) otherwise so RDS's tagger gets a
+// turn.
+func wireTaggingDocDB(bk resourcegroupstaggingapibackend.StorageBackend, docdbReg service.Registerable) {
+	docdbH, ok := docdbReg.(*docdbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	docdbBk := docdbH.Backend
+	if docdbBk == nil {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := docdbBk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: resourceTypeFromARN(item.ARN, "rds"),
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(ctx context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !arnServiceIs(arnStr, "rds") || !docdbBk.HasTaggableResource(ctx, arnStr) {
+			return false, nil
+		}
+
+		tagList := make([]docdbbackend.Tag, 0, len(newTags))
+		for k, v := range newTags {
+			tagList = append(tagList, docdbbackend.Tag{Key: k, Value: v})
+		}
+
+		return true, docdbBk.AddTagsToResource(ctx, arnStr, tagList)
+	})
+
+	bk.RegisterARNUntagger(func(ctx context.Context, arnStr string, keys []string) (bool, error) {
+		if !arnServiceIs(arnStr, "rds") || !docdbBk.HasTaggableResource(ctx, arnStr) {
+			return false, nil
+		}
+
+		docdbBk.RemoveTagsFromResource(ctx, arnStr, keys)
+
+		return true, nil
+	})
+}
+
+// neptuneOwnsARN reports whether Neptune should claim arnStr for cross-service
+// tagging: unconditionally for the "neptune" ARN service (exclusive to Neptune, no
+// other wired backend uses it), and only after an ownership check for the "rds" ARN
+// service it shares with RDS and DocumentDB. See wireTaggingNeptune.
+func neptuneOwnsARN(ctx context.Context, neptuneBk *neptunebackend.InMemoryBackend, arnStr string) bool {
+	switch {
+	case arnServiceIs(arnStr, "neptune"):
+		return true
+	case arnServiceIs(arnStr, "rds"):
+		return neptuneBk.HasTaggableResource(ctx, arnStr)
+	default:
+		return false
+	}
+}
+
+// wireTaggingNeptune wires the Neptune backend into the Resource Groups Tagging API.
+// Neptune's single flat tag store spans two ARN services (see neptuneResourceType
+// above for the file:line ARN-building evidence): "neptune" for DB clusters and
+// instances, which no other wired backend claims, and "rds" for parameter groups,
+// subnet groups, and cluster snapshots, which RDS and DocDB also use. The "neptune"
+// portion is claimed unconditionally, exactly like every other single-service wiring
+// in this file, since arnServiceIs("neptune") alone rules out every other backend. The
+// "rds" portion needs the same ownership check as wireTaggingDocDB above and for the
+// same reason (RDS's tagger blindly claims any "rds" ARN, and taggers are tried in
+// registration order), so this too is wired ahead of wireTaggingRDS and declines
+// (handled=false) any "rds" ARN neptuneBk.HasTaggableResource does not recognize.
+func wireTaggingNeptune(bk resourcegroupstaggingapibackend.StorageBackend, neptuneReg service.Registerable) {
+	neptuneH, ok := neptuneReg.(*neptunebackend.Handler)
+	if !ok {
+		return
+	}
+
+	neptuneBk, ok := neptuneH.Backend.(*neptunebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := neptuneBk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: neptuneResourceType(item.ARN),
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(ctx context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !neptuneOwnsARN(ctx, neptuneBk, arnStr) {
+			return false, nil
+		}
+
+		tagList := make([]neptunebackend.Tag, 0, len(newTags))
+		for k, v := range newTags {
+			tagList = append(tagList, neptunebackend.Tag{Key: k, Value: v})
+		}
+
+		return true, neptuneBk.AddTagsToResource(ctx, arnStr, tagList)
+	})
+
+	bk.RegisterARNUntagger(func(ctx context.Context, arnStr string, keys []string) (bool, error) {
+		if !neptuneOwnsARN(ctx, neptuneBk, arnStr) {
+			return false, nil
+		}
+
+		return true, neptuneBk.RemoveTagsFromResource(ctx, arnStr, keys)
+	})
+}
+
+// wireTaggingRDS wires the RDS backend into the Resource Groups Tagging API. RDS keeps
+// tags for every resource kind it supports (DB instances, clusters, snapshots,
+// parameter groups, and more) in one flat ARN-keyed map, so resourceTypeFromARN derives
+// the per-resource type. AddTagsToResource/RemoveTagsFromResource take []Tag rather
+// than a bare map and return no error, so this adapts them to the
+// wireTaggingARNResources (arn, map) error shape.
+func wireTaggingRDS(bk resourcegroupstaggingapibackend.StorageBackend, rdsReg service.Registerable) {
+	rdsH, ok := rdsReg.(*rdsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	rdsBk := rdsH.Backend
+	if rdsBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "rds",
+		func(arn string) string { return resourceTypeFromARN(arn, "rds") },
+		func() []taggedARNEntry {
+			items := rdsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, newTags map[string]string) error {
+			tagList := make([]rdsbackend.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagList = append(tagList, rdsbackend.Tag{Key: k, Value: v})
+			}
+
+			rdsBk.AddTagsToResource(arn, tagList)
+
+			return nil
+		},
+		func(arn string, keys []string) error {
+			rdsBk.RemoveTagsFromResource(arn, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingElastiCache wires the ElastiCache backend into the Resource Groups
+// Tagging API. ElastiCache keeps tags for every resource kind it supports (clusters,
+// replication groups, parameter groups, snapshots, security groups, global replication
+// groups, subnet groups, serverless caches, users, user groups) behind one
+// collectTagCandidatesLocked lookup, so resourceTypeFromARN derives the per-resource
+// type. AddTagsToResource/RemoveTagsFromResource take a context, so this uses
+// wireTaggingCtxARNResources rather than the ctx-dropping wireTaggingARNResources
+// helper.
+func wireTaggingElastiCache(bk resourcegroupstaggingapibackend.StorageBackend, ecReg service.Registerable) {
+	ecH, ok := ecReg.(*elasticachebackend.Handler)
+	if !ok {
+		return
+	}
+
+	ecBk, ok := ecH.Backend.(*elasticachebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "elasticache",
+		func(arn string) string { return resourceTypeFromARN(arn, "elasticache") },
+		func() []taggedARNEntry {
+			items := ecBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		ecBk.AddTagsToResource,
+		ecBk.RemoveTagsFromResource,
+	)
+}
+
+// redshiftClusterARNFieldCount is the number of colon-delimited fields in a
+// well-formed Redshift cluster ARN: "arn:partition:redshift:region:account:cluster:id".
+const redshiftClusterARNFieldCount = 7
+
+// redshiftClusterIDFromARN extracts the cluster identifier from a Redshift cluster
+// ARN. wireTaggingRedshift's tagger/untagger need this because
+// CreateTags/DeleteTags (services/redshift/tags.go) take the bare cluster identifier,
+// not an ARN -- see wireTaggingRedshift's doc comment.
+func redshiftClusterIDFromARN(arnStr string) (string, bool) {
+	parts := strings.SplitN(arnStr, ":", redshiftClusterARNFieldCount)
+	if len(parts) != redshiftClusterARNFieldCount || parts[5] != "cluster" {
+		return "", false
+	}
+
+	return parts[6], true
+}
+
+// wireTaggingRedshift wires the Redshift backend into the Resource Groups Tagging
+// API. Redshift's own CreateTags/DeleteTags/DescribeTags (services/redshift/tags.go)
+// only ever manage cluster tags -- DescribeTags walks b.clusters.All() exclusively,
+// per its own doc comment -- and, unlike every other resource wired in this file,
+// take a bare cluster identifier rather than an ARN: the handler layer
+// (services/redshift/handler_tags.go's handleCreateTags/handleDeleteTags) passes
+// ResourceName straight through uninterpreted, so a full ARN would silently look up
+// nothing. Cluster ARNs are not built anywhere in this package (Cluster has no ARN
+// field of its own; only DescribeTags' request handler
+// (handler_tags.go:50's ":cluster:"+clusterID suffix check) encodes the expected
+// shape), so this reconstructs it the same way:
+// "arn:aws:redshift:{region}:{account}:cluster:{id}". redshift-serverless resources
+// (workgroups, namespaces, snapshots, usage limits) use a different ARN service
+// ("redshift-serverless", see services/redshift/serverless_workgroups.go:38 and
+// siblings) and are not reachable through this same tagging surface, so they are out
+// of scope here.
+func wireTaggingRedshift(bk resourcegroupstaggingapibackend.StorageBackend, redshiftReg service.Registerable) {
+	redshiftH, ok := redshiftReg.(*redshiftbackend.Handler)
+	if !ok {
+		return
+	}
+
+	redshiftBk, ok := redshiftH.Backend.(*redshiftbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	clusterARN := func(id string) string {
+		return arn.Build("redshift", redshiftBk.Region(), redshiftBk.AccountID(), "cluster:"+id)
+	}
+
+	wireTaggingARNResources(
+		bk, "redshift",
+		constantResourceType("redshift:cluster"),
+		func() []taggedARNEntry {
+			all := redshiftBk.DescribeTags()
+			out := make([]taggedARNEntry, 0, len(all))
+
+			for clusterID, tagMap := range all {
+				if len(tagMap) == 0 {
+					continue
+				}
+
+				out = append(out, taggedARNEntry{ARN: clusterARN(clusterID), Tags: tagMap})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			id, parsed := redshiftClusterIDFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
+			}
+
+			return redshiftBk.CreateTags(id, newTags)
+		},
+		func(arnStr string, keys []string) error {
+			id, parsed := redshiftClusterIDFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Redshift cluster ARN: %s", redshiftbackend.ErrClusterNotFound, arnStr)
+			}
+
+			return redshiftBk.DeleteTags(id, keys)
+		},
+	)
+}
+
+// firehoseStreamNameFromARN extracts the delivery stream name from a Firehose ARN
+// ("arn:partition:firehose:region:account:deliverystream/name"). Needed because
+// TagDeliveryStream/UntagDeliveryStream/ListTagsForDeliveryStream (services/firehose/
+// tags.go) take the bare stream name, not an ARN.
+func firehoseStreamNameFromARN(arnStr string) (string, bool) {
+	const firehoseARNFieldCount = 6
+
+	parts := strings.SplitN(arnStr, ":", firehoseARNFieldCount)
+	if len(parts) != firehoseARNFieldCount {
+		return "", false
+	}
+
+	name, ok := strings.CutPrefix(parts[firehoseARNFieldCount-1], "deliverystream/")
+	if !ok {
+		return "", false
+	}
+
+	return name, true
+}
+
+// wireTaggingFirehose wires the Firehose backend into the Resource Groups Tagging
+// API. Delivery stream ARNs use the "firehose" ARN service and a "deliverystream/"
+// resource prefix (services/firehose/delivery_streams.go:65's
+// arn.Build("firehose", region, b.accountID, "deliverystream/"+input.Name) call),
+// matching the package name -- no collision with any other wired service. TagDeliveryStream/
+// UntagDeliveryStream/ListTagsForDeliveryStream take the bare stream name rather than
+// an ARN, so firehoseStreamNameFromARN above recovers it.
+func wireTaggingFirehose(bk resourcegroupstaggingapibackend.StorageBackend, firehoseReg service.Registerable) {
+	firehoseH, ok := firehoseReg.(*firehosebackend.Handler)
+	if !ok {
+		return
+	}
+
+	firehoseBk, ok := firehoseH.Backend.(*firehosebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "firehose",
+		constantResourceType("firehose:deliverystream"),
+		func() []taggedARNEntry {
+			items := firehoseBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(ctx context.Context, arnStr string, newTags map[string]string) error {
+			name, parsed := firehoseStreamNameFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Firehose delivery stream ARN: %s", firehosebackend.ErrNotFound, arnStr)
+			}
+
+			return firehoseBk.TagDeliveryStream(ctx, name, newTags)
+		},
+		func(ctx context.Context, arnStr string, keys []string) error {
+			name, parsed := firehoseStreamNameFromARN(arnStr)
+			if !parsed {
+				return fmt.Errorf("%w: malformed Firehose delivery stream ARN: %s", firehosebackend.ErrNotFound, arnStr)
+			}
+
+			return firehoseBk.UntagDeliveryStream(ctx, name, keys)
+		},
+	)
+}
+
+// wireTaggingOpenSearch wires the OpenSearch backend into the Resource Groups
+// Tagging API. AddTags/RemoveTags/ListTags (services/opensearch/tags.go) only ever
+// manage domain tags (both look up exclusively via findDomainByARN), and domain ARNs
+// use the "es" ARN service -- not "opensearch" -- per
+// services/opensearch/domains.go:32's arn.Build("es", b.region, b.accountID,
+// "domain/"+input.Name) call (OpenSearch Service domains keep the legacy
+// Elasticsearch Service ARN namespace in real AWS too). Applications and direct-query
+// data sources use "opensearch" (data_sources.go:75, applications.go:33) but have no
+// AddTags/RemoveTags path in this backend, so they are out of scope here.
+func wireTaggingOpenSearch(bk resourcegroupstaggingapibackend.StorageBackend, osReg service.Registerable) {
+	osH, ok := osReg.(*opensearchbackend.Handler)
+	if !ok {
+		return
+	}
+
+	osBk, ok := osH.Backend.(*opensearchbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "es",
+		constantResourceType("es:domain"),
+		func() []taggedARNEntry {
+			domains, err := osBk.DescribeDomains(nil)
+			if err != nil {
+				return nil
+			}
+
+			out := make([]taggedARNEntry, 0, len(domains))
+
+			for _, d := range domains {
+				if d.Tags == nil || d.Tags.Len() == 0 {
+					continue
+				}
+
+				out = append(out, taggedARNEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+			}
+
+			return out
+		},
+		osBk.AddTags,
+		osBk.RemoveTags,
+	)
+}
+
+// wireTaggingMQ wires the Amazon MQ backend into the Resource Groups Tagging API. MQ
+// keeps tags for both resource kinds it supports (brokers and configurations) in one
+// flat ARN-keyed map (services/mq/tags.go), and both use the "mq" ARN service
+// (services/mq/brokers.go:170, configurations.go:101), matching the package name --
+// no collision with any other wired service. resourceTypeFromARN derives the
+// per-resource type ("mq:broker" or "mq:configuration") from each ARN's own resource
+// segment.
+func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg service.Registerable) {
+	mqH, ok := mqReg.(*mqbackend.Handler)
+	if !ok {
+		return
+	}
+
+	mqBk, ok := mqH.Backend.(*mqbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "mq",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "mq") },
+		func() []taggedARNEntry {
+			items := mqBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		mqBk.CreateTags,
+		func(arnStr string, keys []string) error {
+			mqBk.DeleteTags(arnStr, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingEMR wires the EMR backend into the Resource Groups Tagging API. EMR
+// ARNs use the "elasticmapreduce" ARN service, not "emr"
+// (services/emr/clusters.go:207's arn.Build("elasticmapreduce", region, b.accountID,
+// "cluster/"+id) call and studios.go:253's matching "studio/"+id call).
+// AddTags/RemoveTags (services/emr/tags.go) accept either a cluster identifier or a
+// studio ID/ARN and take a context, so this uses wireTaggingCtxARNResources.
+func wireTaggingEMR(bk resourcegroupstaggingapibackend.StorageBackend, emrReg service.Registerable) {
+	emrH, ok := emrReg.(*emrbackend.Handler)
+	if !ok {
+		return
+	}
+
+	emrBk := emrH.Backend
+	if emrBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "elasticmapreduce",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "elasticmapreduce") },
+		func() []taggedARNEntry {
+			items := emrBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(ctx context.Context, arnStr string, newTags map[string]string) error {
+			tagList := make([]emrbackend.Tag, 0, len(newTags))
+			for k, v := range newTags {
+				tagList = append(tagList, emrbackend.Tag{Key: k, Value: v})
+			}
+
+			return emrBk.AddTags(ctx, arnStr, tagList)
+		},
+		emrBk.RemoveTags,
+	)
+}
+
+// wireTaggingGrafana wires the Amazon Managed Grafana backend into the
+// Resource Groups Tagging API. Grafana has exactly one taggable resource
+// kind (workspaces), so its resource type is a constant rather than parsed
+// per-ARN -- see grafana.InMemoryBackend.WorkspaceARN's doc comment for how
+// the "grafana" ARN service and "/workspaces/{id}" resource segment were
+// verified (terraform-provider-aws's workspaceARN helper, since the SDK
+// itself never emits a workspace ARN on any of its 25 operations).
+func wireTaggingGrafana(bk resourcegroupstaggingapibackend.StorageBackend, grafanaReg service.Registerable) {
+	grafanaH, ok := grafanaReg.(*grafanabackend.Handler)
+	if !ok {
+		return
+	}
+
+	grafanaBk := grafanaH.Backend
+	if grafanaBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "grafana",
+		constantResourceType("grafana:workspace"),
+		func() []taggedARNEntry {
+			items := grafanaBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		grafanaBk.TagResource,
+		grafanaBk.UntagResource,
+	)
+}
+
+// wireTaggingOutposts wires the AWS Outposts backend into the Resource Groups
+// Tagging API. Unlike Grafana (one taggable resource kind), Outposts has TWO:
+// Outpost.Tags and Site.Tags share the same generic ResourceArn-keyed
+// TagResource/UntagResource/ListTagsForResource surface (there is no
+// dedicated tag API for Sites -- see services/outposts/PARITY.md's "families:
+// tagging" note), so resourceTypeFromARN (rather than a single
+// constantResourceType) derives "outposts:outpost" or "outposts:site" from
+// each ARN's own resource segment. The "outposts" ARN service segment is
+// confirmed (not one of the seven service-name mismatches the broader
+// campaign found) via in-repo test fixtures in services/ec2 and
+// services/route53resolver -- see services/outposts/PARITY.md's ARN section.
+func wireTaggingOutposts(bk resourcegroupstaggingapibackend.StorageBackend, outpostsReg service.Registerable) {
+	outpostsH, ok := outpostsReg.(*outpostsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	outpostsBk := outpostsH.Backend
+	if outpostsBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "outposts",
+		func(arn string) string { return resourceTypeFromARN(arn, "outposts") },
+		func() []taggedARNEntry {
+			items := outpostsBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		outpostsBk.TagResource,
+		outpostsBk.UntagResource,
+	)
+}
+
+// wireTaggingResilienceHub wires the AWS Resilience Hub backend into the
+// Resource Groups Tagging API. Like Outposts (two taggable resource kinds),
+// Resilience Hub has THREE: App, ResiliencyPolicy, and AppAssessment all
+// share the same generic ResourceArn-keyed TagResource/UntagResource/
+// ListTagsForResource surface (confirmed from every ARN-bearing field's own
+// doc comment in aws-sdk-go-v2/service/resiliencehub/types/types.go -- see
+// services/resiliencehub/PARITY.md's tagging section), so resourceTypeFromARN
+// derives "resiliencehub:app", "resiliencehub:resiliency-policy", or
+// "resiliencehub:app-assessment" from each ARN's own resource segment rather
+// than hand-writing one wiring function per kind. The "resiliencehub" ARN
+// service segment is confirmed directly from those doc comments, not one of
+// the seven service-name-mismatch cases the broader campaign found.
+func wireTaggingResilienceHub(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	resiliencehubReg service.Registerable,
+) {
+	resiliencehubH, ok := resiliencehubReg.(*resiliencehubbackend.Handler)
+	if !ok {
+		return
+	}
+
+	resiliencehubBk := resiliencehubH.Backend
+	if resiliencehubBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "resiliencehub",
+		func(arn string) string { return resourceTypeFromARN(arn, "resiliencehub") },
+		func() []taggedARNEntry {
+			items := resiliencehubBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		resiliencehubBk.TagResource,
+		resiliencehubBk.UntagResource,
+	)
+}
+
+// wireTaggingDirectConnect wires the AWS Direct Connect backend into the
+// Resource Groups Tagging API. FIVE taggable resource kinds share the one
+// "directconnect" ARN namespace -- Connection ("dxcon/"), Lag ("dxlag/"),
+// Interconnect (reuses "dxcon/", UNCONFIRMED per PARITY.md),
+// VirtualInterface ("dxvif/"), and DirectConnectGateway ("dx-gateway/", a
+// GLOBAL ARN with no region segment -- see pkgs/arn.BuildGlobal) -- so this
+// uses resourceTypeFromARN's multi-kind dispatch (the same pattern
+// wireTaggingOutposts/wireTaggingResilienceHub use for their own two/three
+// kinds) rather than one wiring function per kind.
+func wireTaggingDirectConnect(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	directconnectReg service.Registerable,
+) {
+	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	directconnectBk := directconnectH.Backend
+	if directconnectBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "directconnect",
+		func(arn string) string { return resourceTypeFromARN(arn, "directconnect") },
+		func() []taggedARNEntry {
+			items := directconnectBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		directconnectBk.TagResource,
+		directconnectBk.UntagResource,
+	)
+}
+
+// wireTaggingMGN wires the AWS Application Migration Service backend into the
+// Resource Groups Tagging API. 12 taggable resource kinds share the one "mgn"
+// ARN namespace (Application, Wave, SourceServer, Job, Connector,
+// VcenterClient, LaunchConfigurationTemplate, ReplicationConfigurationTemplate,
+// ExportTask, ImportTask, NetworkMigrationDefinition, NetworkMigrationExecution
+// -- richer than directconnect's 5 or outposts'/resiliencehub's 2/3), so this
+// uses resourceTypeFromARN's multi-kind dispatch, same as
+// wireTaggingDirectConnect above.
+func wireTaggingMGN(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	mgnReg service.Registerable,
+) {
+	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	mgnBk := mgnH.Backend
+	if mgnBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "mgn",
+		func(arn string) string { return resourceTypeFromARN(arn, "mgn") },
+		func() []taggedARNEntry {
+			items := mgnBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		mgnBk.TagResource,
+		mgnBk.UntagResource,
+	)
+}
+
+// wireTaggingNetworkManager wires the AWS Network Manager backend into the
+// Resource Groups Tagging API. 9 taggable resource kinds
+// (global-network/site/device/link/connection/connect-peer/core-network/
+// peering/attachment) share the one "networkmanager" ARN namespace -- all 9
+// GLOBAL ARNs with no region segment (confirmed from AWS's own IAM Service
+// Authorization Reference, see services/networkmanager/PARITY.md) -- so this
+// uses resourceTypeFromARN's multi-kind dispatch, same as wireTaggingMGN/
+// wireTaggingDirectConnect above. Unlike mgn, NetworkManager's
+// TagResource/UntagResource take no context.Context parameter, so this uses
+// wireTaggingARNResources rather than wireTaggingCtxARNResources.
+func wireTaggingNetworkManager(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	networkmanagerReg service.Registerable,
+) {
+	networkmanagerH, ok := networkmanagerReg.(*networkmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	networkmanagerBk := networkmanagerH.Backend
+	if networkmanagerBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "networkmanager",
+		func(arn string) string { return resourceTypeFromARN(arn, "networkmanager") },
+		func() []taggedARNEntry {
+			items := networkmanagerBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		networkmanagerBk.TagResource,
+		networkmanagerBk.UntagResource,
+	)
+}
+
+// wireTaggingLightsail wires the Amazon Lightsail backend into the Resource
+// Groups Tagging API. 16 of Lightsail's 20 ResourceType kinds carry a Tags
+// field and share the one "lightsail" ARN namespace (see
+// services/lightsail/tagging_vpc_misc.go's tagsNotSupportedKinds for the 4
+// that do not: StaticIp, PeeredVpc, ExportSnapshotRecord,
+// CloudFormationStackRecord). Lightsail's OWN wire-level TagResource/
+// UntagResource ops are ResourceName-first (ResourceArn merely optional) --
+// the reverse of resourceGroupsTagging's ARN-first convention every other
+// wired service here follows (PARITY.md 5.1) -- so this uses the backend's
+// TagResourceByARN/UntagResourceByARN adapters (services/lightsail/
+// tagging_vpc_misc.go), which resolve an ARN back to the ResourceName the
+// real op needs before delegating to the same resolution path, rather than
+// wireTaggingCtxARNResources/wireTaggingARNResources needing a
+// name-first variant of their own.
+func wireTaggingLightsail(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	lightsailReg service.Registerable,
+) {
+	lightsailH, ok := lightsailReg.(*lightsailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	lightsailBk := lightsailH.Backend
+	if lightsailBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "lightsail",
+		func(arn string) string { return resourceTypeFromARN(arn, "lightsail") },
+		func() []taggedARNEntry {
+			items := lightsailBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		lightsailBk.TagResourceByARN,
+		lightsailBk.UntagResourceByARN,
+	)
+}
+
+// wireTaggingCloudWatchLogs wires the CloudWatch Logs backend into the Resource
+// Groups Tagging API. Unlike every other service wired in this file, CloudWatch
+// Logs' tag store (h.tags/h.tagsMu) lives on the *Handler itself, not on a Backend --
+// see services/cloudwatchlogs/handler.go:29-30 -- so this operates on the Handler
+// directly rather than digging into a Backend field. Log group ARNs (and every other
+// taggable CloudWatch Logs ARN kind: deliveries, log-anomaly-detectors, lookup
+// tables, log streams) use the "logs" ARN service, not "cloudwatchlogs"
+// (services/cloudwatchlogs/log_groups.go:22's arn.Build("logs", region, b.accountID,
+// "log-group:"+name) call and its siblings in deliveries.go:37, anomaly_detectors.go:47,
+// lookup_tables.go:46, log_streams.go:14). The generic "TagResource"/"UntagResource"/
+// "ListTagsForResource" actions (handler_tags.go) already key h.tags by the full ARN
+// exactly as passed in, so TagResource/UntagResource/GetTagsForResource/
+// TaggedResources (added alongside those actions) need no ARN parsing at all.
+func wireTaggingCloudWatchLogs(bk resourcegroupstaggingapibackend.StorageBackend, cwlReg service.Registerable) {
+	cwlH, ok := cwlReg.(*cwlogsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "logs",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "logs") },
+		func() []taggedARNEntry {
+			items := cwlH.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			cwlH.TagResource(arnStr, newTags)
+
+			return nil
+		},
+		func(arnStr string, keys []string) error {
+			cwlH.UntagResource(arnStr, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingSageMaker wires the SageMaker backend into the Resource Groups Tagging
+// API. Every SageMaker ARN this backend builds uses the "sagemaker" ARN service
+// (e.g. services/sagemaker/endpoints.go:145, algorithms.go:47, and the many other
+// arn.Build("sagemaker", ...) call sites across the package), matching the package
+// name -- no collision with any other wired service. AddTags/DeleteTags
+// (services/sagemaker/tags.go) already dispatch across every taggable resource kind
+// (models, endpoint configs, endpoints, training jobs, notebook instances,
+// hyperparameter tuning jobs, actions, algorithms, clusters, model packages,
+// processing jobs, transform jobs, domains, feature groups, pipelines, experiments,
+// trials, trial components -- see TaggedResources' doc comment for the authoritative
+// list) purely by ARN with no resource-kind-specific plumbing needed here, and take a
+// context, so this uses wireTaggingCtxARNResources.
+func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smReg service.Registerable) {
+	smH, ok := smReg.(*sagemakerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	smBk := smH.Backend
+	if smBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "sagemaker",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sagemaker") },
+		func() []taggedARNEntry {
+			items := smBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		smBk.AddTags,
+		smBk.DeleteTags,
 	)
 }
 
@@ -6380,6 +7842,81 @@ func wireDynamoDBS3(ddbReg, s3Reg service.Registerable) {
 	}
 }
 
+// wireMGNS3 connects the MGN backend to the S3 backend so StartImport can
+// read its caller-supplied S3 object and actually create SourceServers.
+func wireMGNS3(mgnReg, s3Reg service.Registerable) {
+	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk || mgnH.Backend == nil {
+		return
+	}
+
+	mgnH.Backend.SetS3Backend(s3Bk)
+}
+
+// cfnLightsailStackAdapter adapts the CloudFormation backend's real
+// CreateStack to the lightsailbackend.CloudFormationBackend interface so
+// Lightsail's CreateCloudFormationStack (services/lightsail/exportcfn.go)
+// hands off to a real services/cloudformation stack instead of always
+// taking its honest no-backend-wired fallback (a CloudFormationStackRecord
+// with no backing stack ARN). No template body is synthesized -- Lightsail
+// gives us instance names, not a CloudFormation template, so fabricating
+// resources (AMIs, subnets, etc.) the export didn't actually provide would
+// be worse than not wiring this at all. Instead each source instance name
+// becomes a stack parameter, and the resulting stack is real: a genuine
+// Stack record in the cloudformation backend with a real StackID/ARN.
+type cfnLightsailStackAdapter struct {
+	backend cfnbackend.StorageBackend
+}
+
+func (a *cfnLightsailStackAdapter) CreateStackFromLightsail(stackName string, instanceNames []string) (string, error) {
+	params := make([]cfnbackend.Parameter, 0, len(instanceNames))
+
+	for i, name := range instanceNames {
+		params = append(params, cfnbackend.Parameter{
+			ParameterKey:   fmt.Sprintf("LightsailSourceInstance%d", i+1),
+			ParameterValue: name,
+		})
+	}
+
+	stack, err := a.backend.CreateStack(context.Background(), stackName, "", params, cfnbackend.StackOptions{})
+	if err != nil {
+		return "", err
+	}
+
+	return stack.StackID, nil
+}
+
+// wireLightsailCloudFormation connects the Lightsail backend to the
+// CloudFormation backend so CreateCloudFormationStack's cross-service
+// handoff (services/lightsail/store.go's CloudFormationBackend interface)
+// actually fires -- see cfnLightsailStackAdapter. Called from
+// registerCloudFormationAndDashboard, not one of the wire*Integrations
+// helpers under wireCrossServiceDependencies, because CloudFormation is
+// registered after those helpers run.
+func wireLightsailCloudFormation(lightsailReg, cfnReg service.Registerable) {
+	lightsailH, ok := lightsailReg.(*lightsailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cfnH, cfnOk := cfnReg.(*cfnbackend.Handler)
+	if !cfnOk || lightsailH.Backend == nil || cfnH.Backend == nil {
+		return
+	}
+
+	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{backend: cfnH.Backend})
+}
+
 // extractServiceName finds the service name for a given Echo context by checking
 // which service's route matcher matches the request.
 func extractServiceName(c *echo.Context, services []service.Registerable) string {
@@ -6757,7 +8294,8 @@ func awsMetaMiddleware(defaultRegion, defaultAccount string) echo.MiddlewareFunc
 			}
 
 			ctx := awsmeta.Set(req.Context(), meta)
-			ctx = logger.AddAttrs(ctx,
+			ctx = logger.AddAttrs(
+				ctx,
 				slog.String("region", meta.Region),
 				slog.String("account", meta.Account),
 				slog.String("request_id", meta.RequestID),

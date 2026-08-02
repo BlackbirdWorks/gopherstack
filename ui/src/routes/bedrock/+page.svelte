@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getBedrockClient, getBedrockRuntimeClient } from '$lib/aws-client';
 	import {
 		ListFoundationModelsCommand,
@@ -10,16 +11,12 @@
 		ListGuardrailsCommand,
 		CreateGuardrailCommand,
 		DeleteGuardrailCommand,
-		type BedrockClient,
 		type FoundationModelSummary,
 		type CustomModelSummary,
 		type GuardrailSummary,
 		type GetCustomModelResponse
 	} from '@aws-sdk/client-bedrock';
-	import {
-		InvokeModelCommand,
-		type BedrockRuntimeClient
-	} from '@aws-sdk/client-bedrock-runtime';
+	import { InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 	import { toast } from 'svelte-sonner';
 	import {
 		Brain,
@@ -37,14 +34,8 @@
 		Play
 	} from 'lucide-svelte';
 
-	let bedrockClient: BedrockClient | undefined;
-	function bedrock(): BedrockClient {
-		return (bedrockClient ??= getBedrockClient());
-	}
-	let runtimeClient: BedrockRuntimeClient | undefined;
-	function runtime(): BedrockRuntimeClient {
-		return (runtimeClient ??= getBedrockRuntimeClient());
-	}
+	const bedrock = regionalClient(getBedrockClient);
+	const runtime = regionalClient(getBedrockRuntimeClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'foundation' | 'custom' | 'guardrails' | 'playground'>('foundation');
@@ -357,7 +348,15 @@
 		else if (tab === 'playground' && foundationModels.length === 0) await loadFoundationModels();
 	}
 
-	onMount(() => loadFoundationModels());
+	// Custom models and guardrails are only unique within a region, so a
+	// selection (and its detail state) from the old region must not survive
+	// a region switch. Reuse onTabChange to clear that selection and reload
+	// whichever tab is active; `activeTab` is read with `untrack` since a tab
+	// switch already reloads directly, so letting the effect also depend on
+	// it would double-fetch on every subsequent region change.
+	onRegionChange(() => {
+		untrack(() => onTabChange(activeTab));
+	});
 </script>
 
 <div class="space-y-6">

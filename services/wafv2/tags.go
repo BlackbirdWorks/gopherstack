@@ -109,3 +109,52 @@ func (b *InMemoryBackend) UntagResource(_ context.Context, resourceARN string, t
 
 	return nil
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingWAFv2).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every WAFv2 resource ARN that currently has at
+// least one tag, across every taggable WAFv2 resource kind (web ACLs, IP
+// sets, regex pattern sets, rule groups).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, w := range b.webACLs.All() {
+		out = appendWAFv2TaggedEntry(out, w.ARN, w.Tags)
+	}
+
+	for _, s := range b.ipSets.All() {
+		out = appendWAFv2TaggedEntry(out, s.ARN, s.Tags)
+	}
+
+	for _, r := range b.regexPatternSets.All() {
+		out = appendWAFv2TaggedEntry(out, r.ARN, r.Tags)
+	}
+
+	for _, g := range b.ruleGroups.All() {
+		out = appendWAFv2TaggedEntry(out, g.ARN, g.Tags)
+	}
+
+	return out
+}
+
+// appendWAFv2TaggedEntry appends a TaggedEntry for arn/tagMap to entries
+// when tagMap holds at least one tag.
+func appendWAFv2TaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]string) []TaggedEntry {
+	if len(tagMap) == 0 {
+		return entries
+	}
+
+	out := make(map[string]string, len(tagMap))
+	maps.Copy(out, tagMap)
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: out})
+}

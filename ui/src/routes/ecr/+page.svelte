@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getECRClient } from '$lib/aws-client';
 	import {
 		DescribeRepositoriesCommand,
@@ -32,7 +32,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Archive, Search, RefreshCw, Plus, Trash2, Image, Lock, Copy, ShieldCheck, ScanLine } from 'lucide-svelte';
 
-	const ecr = getECRClient();
+	const ecr = regionalClient(getECRClient);
 
 	let loading = $state(false);
 	let repositories = $state<Repository[]>([]);
@@ -94,7 +94,7 @@
 	async function loadRepositories() {
 		loading = true;
 		try {
-			const res = await ecr.send(new DescribeRepositoriesCommand({ maxResults: 100 }));
+			const res = await ecr().send(new DescribeRepositoriesCommand({ maxResults: 100 }));
 			repositories = res.repositories ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load repositories: ${(err as Error).message}`);
@@ -107,12 +107,12 @@
 		loadingRegistry = true;
 		try {
 			const [registry, scanning, signing, cacheRules, templates, exclusions] = await Promise.all([
-				ecr.send(new DescribeRegistryCommand({})),
-				ecr.send(new GetRegistryScanningConfigurationCommand({})),
-				ecr.send(new GetSigningConfigurationCommand({})),
-				ecr.send(new DescribePullThroughCacheRulesCommand({ maxResults: 100 })),
-				ecr.send(new DescribeRepositoryCreationTemplatesCommand({ maxResults: 100 })),
-				ecr.send(new ListPullTimeUpdateExclusionsCommand({ maxResults: 100 }))
+				ecr().send(new DescribeRegistryCommand({})),
+				ecr().send(new GetRegistryScanningConfigurationCommand({})),
+				ecr().send(new GetSigningConfigurationCommand({})),
+				ecr().send(new DescribePullThroughCacheRulesCommand({ maxResults: 100 })),
+				ecr().send(new DescribeRepositoryCreationTemplatesCommand({ maxResults: 100 })),
+				ecr().send(new ListPullTimeUpdateExclusionsCommand({ maxResults: 100 }))
 			]);
 			registryReplication = registry?.replicationConfiguration ?? null;
 			registryScanning = scanning?.scanningConfiguration ?? null;
@@ -139,7 +139,7 @@
 	async function loadImages(repoName: string) {
 		loadingImages = true;
 		try {
-			const res = await ecr.send(new DescribeImagesCommand({ repositoryName: repoName }));
+			const res = await ecr().send(new DescribeImagesCommand({ repositoryName: repoName }));
 			images = res.imageDetails ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load images: ${(err as Error).message}`);
@@ -150,7 +150,7 @@
 
 	async function loadPolicy(repoName: string) {
 		try {
-			const res = await ecr.send(new GetRepositoryPolicyCommand({ repositoryName: repoName }));
+			const res = await ecr().send(new GetRepositoryPolicyCommand({ repositoryName: repoName }));
 			repoPolicy = res.policyText ?? null;
 		} catch {
 			repoPolicy = null;
@@ -159,7 +159,7 @@
 
 	async function loadLifecyclePolicy(repoName: string) {
 		try {
-			const res = await ecr.send(new GetLifecyclePolicyCommand({ repositoryName: repoName }));
+			const res = await ecr().send(new GetLifecyclePolicyCommand({ repositoryName: repoName }));
 			lifecyclePolicy = res.lifecyclePolicyText ?? null;
 		} catch {
 			lifecyclePolicy = null;
@@ -170,7 +170,7 @@
 		if (!newRepoName.trim()) return;
 		creating = true;
 		try {
-			await ecr.send(new CreateRepositoryCommand({
+			await ecr().send(new CreateRepositoryCommand({
 				repositoryName: newRepoName.trim(),
 				imageTagMutability: newMutability,
 				imageScanningConfiguration: { scanOnPush: newScanOnPush },
@@ -190,7 +190,7 @@
 	async function deleteRepository(name: string) {
 		if (!await confirmDestructive({ title: 'Delete Repository', message: `Delete repository "${name}"? All container images will be permanently removed.` })) return;
 		try {
-			await ecr.send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
+			await ecr().send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
 			toast.success(`Repository "${name}" deleted`);
 			if (selectedRepo?.repositoryName === name) selectedRepo = null;
 			await loadRepositories();
@@ -205,7 +205,7 @@
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];
 		try {
-			await ecr.send(new BatchDeleteImageCommand({
+			await ecr().send(new BatchDeleteImageCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageIds: [{ imageDigest: img.imageDigest }]
 			}));
@@ -223,7 +223,7 @@
 		const digest = img.imageDigest ?? '';
 		scanningImages = [...scanningImages, digest];
 		try {
-			await ecr.send(new StartImageScanCommand({
+			await ecr().send(new StartImageScanCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageId: { imageDigest: img.imageDigest }
 			}));
@@ -242,7 +242,7 @@
 		scanFindings = [];
 		loadingScanFindings = true;
 		try {
-			const res = await ecr.send(new DescribeImageScanFindingsCommand({
+			const res = await ecr().send(new DescribeImageScanFindingsCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageId: { imageDigest: img.imageDigest }
 			}));
@@ -274,7 +274,7 @@
 		if (!selectedRepo?.repositoryName) return;
 		const next = !selectedRepo.imageScanningConfiguration?.scanOnPush;
 		try {
-			await ecr.send(new PutImageScanningConfigurationCommand({
+			await ecr().send(new PutImageScanningConfigurationCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageScanningConfiguration: { scanOnPush: next }
 			}));
@@ -304,7 +304,7 @@
 		}
 	});
 
-	onMount(() => {
+	onRegionChange(() => {
 		void loadRepositories();
 		void loadRegistryFeatures();
 	});

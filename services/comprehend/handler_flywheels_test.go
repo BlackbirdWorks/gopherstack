@@ -22,9 +22,11 @@ func TestFlywheelIterationFieldShapes(t *testing.T) {
 	require.True(t, ok, "StartFlywheelIteration must return FlywheelIterationId")
 	assert.NotEmpty(t, iterID)
 
-	getResp := request(t, h, "GetFlywheelIteration", map[string]any{"FlywheelIterationId": iterID})
+	// "GetFlywheelIteration" is not a real Comprehend operation -- the real name
+	// is DescribeFlywheelIteration (see handler.go's buildOperations comment).
+	getResp := request(t, h, "DescribeFlywheelIteration", map[string]any{"FlywheelIterationId": iterID})
 	props, ok := getResp["FlywheelIterationProperties"].(map[string]any)
-	require.True(t, ok, "GetFlywheelIteration must return FlywheelIterationProperties")
+	require.True(t, ok, "DescribeFlywheelIteration must return FlywheelIterationProperties")
 	assert.NotEmpty(t, props["FlywheelArn"], "iteration properties must have FlywheelArn")
 	assert.NotEmpty(t, props["FlywheelIterationId"], "iteration properties must have FlywheelIterationId")
 	assert.NotEmpty(t, props["FlywheelIterationStatus"], "iteration properties must have FlywheelIterationStatus")

@@ -83,18 +83,22 @@ const (
 	opDeletePrompt                   = "DeletePrompt"
 	opListPrompts                    = "ListPrompts"
 	opCreatePromptVersion            = "CreatePromptVersion"
-	opGetPromptVersion               = "GetPromptVersion"
-	opDeletePromptVersion            = "DeletePromptVersion"
-	opIngestKnowledgeBaseDocuments   = "IngestKnowledgeBaseDocuments"
-	opGetKnowledgeBaseDocuments      = "GetKnowledgeBaseDocuments"
-	opDeleteKnowledgeBaseDocuments   = "DeleteKnowledgeBaseDocuments"
-	opListKnowledgeBaseDocuments     = "ListKnowledgeBaseDocuments"
-	opListTagsForResource            = "ListTagsForResource"
-	opTagResource                    = "TagResource"
-	opUntagResource                  = "UntagResource"
-	opPutResourcePolicy              = "PutResourcePolicy"
-	opGetResourcePolicy              = "GetResourcePolicy"
-	opDeleteResourcePolicy           = "DeleteResourcePolicy"
+	// opGetPromptVersion/opDeletePromptVersion are used only for internal request
+	// classification (classifyPromptVersionPath, handler_prompts.go) -- neither is a
+	// real bedrock-agent operation name and neither is advertised via
+	// GetSupportedOperations(); see the comment there.
+	opGetPromptVersion             = "GetPromptVersion"
+	opDeletePromptVersion          = "DeletePromptVersion"
+	opIngestKnowledgeBaseDocuments = "IngestKnowledgeBaseDocuments"
+	opGetKnowledgeBaseDocuments    = "GetKnowledgeBaseDocuments"
+	opDeleteKnowledgeBaseDocuments = "DeleteKnowledgeBaseDocuments"
+	opListKnowledgeBaseDocuments   = "ListKnowledgeBaseDocuments"
+	opListTagsForResource          = "ListTagsForResource"
+	opTagResource                  = "TagResource"
+	opUntagResource                = "UntagResource"
+	opPutResourcePolicy            = "PutResourcePolicy"
+	opGetResourcePolicy            = "GetResourcePolicy"
+	opDeleteResourcePolicy         = "DeleteResourcePolicy"
 )
 
 // ---------------------------------------------------------------------------
@@ -187,7 +191,15 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateFlowVersion, opGetFlowVersion, opDeleteFlowVersion, opListFlowVersions,
 		opCreateFlowAlias, opGetFlowAlias, opUpdateFlowAlias, opDeleteFlowAlias, opListFlowAliases,
 		opCreatePrompt, opGetPrompt, opUpdatePrompt, opDeletePrompt, opListPrompts,
-		opCreatePromptVersion, opGetPromptVersion, opDeletePromptVersion,
+		opCreatePromptVersion,
+		// GetPromptVersion and DeletePromptVersion are deliberately NOT advertised: they
+		// are not real bedrock-agent operations. The real client gets/deletes a specific
+		// prompt version via GetPrompt/DeletePrompt's promptVersion query parameter on
+		// the base /prompts/{id}/ path (which this package does not yet implement — see
+		// PARITY.md gaps), not a distinct wire operation. dispatchPromptVersions'
+		// GET/DELETE /prompts/{id}/versions/{ver} routes remain wired as an internal
+		// convenience used by this package's own tests but are unreachable by any real
+		// bedrock-agent SDK client.
 		opIngestKnowledgeBaseDocuments, opGetKnowledgeBaseDocuments,
 		opDeleteKnowledgeBaseDocuments, opListKnowledgeBaseDocuments,
 		opListTagsForResource, opTagResource, opUntagResource,
@@ -655,10 +667,14 @@ func (h *Handler) dispatchKBDocuments(
 ) error {
 	rest, _ := strings.CutPrefix(suffix, "/documents")
 
+	// IngestKnowledgeBaseDocuments (PUT) and ListKnowledgeBaseDocuments (POST)
+	// share this exact collection path on the real wire, distinguished only by
+	// method -- POST is NOT an Ingest synonym here. GET is accepted too as
+	// harmless extra leniency (no real client sends it).
 	switch {
-	case rest == "" && method == http.MethodPost:
+	case rest == "" && method == http.MethodPut:
 		return h.handleIngestKBDocs(ctx, c, kbID, dsID, body)
-	case rest == "" && method == http.MethodGet:
+	case rest == "" && (method == http.MethodPost || method == http.MethodGet):
 		return h.handleListKBDocs(ctx, c, kbID, dsID)
 	case rest == "/deleteDocuments":
 		return h.handleDeleteKBDocs(ctx, c, kbID, dsID, body)

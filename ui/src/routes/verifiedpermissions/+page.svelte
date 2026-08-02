@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getVerifiedPermissionsClient } from '$lib/aws-client';
 	import {
 		ListPolicyStoresCommand,
@@ -46,7 +46,7 @@
 		Layout
 	} from 'lucide-svelte';
 
-	const vp = getVerifiedPermissionsClient();
+	const vp = regionalClient(getVerifiedPermissionsClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'stores' | 'policies' | 'templates' | 'identity' | 'schema' | 'authz'>(
@@ -157,7 +157,7 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const resp = await vp.send(new ListPolicyStoresCommand({}));
+			const resp = await vp().send(new ListPolicyStoresCommand({}));
 			stores = resp.policyStores ?? [];
 		} catch (e) {
 			toast.error('Failed to load Verified Permissions data: ' + String(e));
@@ -173,9 +173,9 @@
 		schemaCached = null;
 		try {
 			const [polResp, idResp, tmplResp] = await Promise.all([
-				vp.send(new ListPoliciesCommand({ policyStoreId: storeId })),
-				vp.send(new ListIdentitySourcesCommand({ policyStoreId: storeId })),
-				vp.send(new ListPolicyTemplatesCommand({ policyStoreId: storeId }))
+				vp().send(new ListPoliciesCommand({ policyStoreId: storeId })),
+				vp().send(new ListIdentitySourcesCommand({ policyStoreId: storeId })),
+				vp().send(new ListPolicyTemplatesCommand({ policyStoreId: storeId }))
 			]);
 			policies = polResp.policies ?? [];
 			identitySources = idResp.identitySources ?? [];
@@ -189,7 +189,7 @@
 	async function loadPolicyStatement(policyId: string) {
 		if (!selectedStoreId || policyStatements[policyId] !== undefined) return;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new GetPolicyCommand({ policyStoreId: selectedStoreId, policyId })
 			);
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -240,7 +240,7 @@
 		policyEditorSaving = true;
 		try {
 			if (policyEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						definition: {
@@ -253,7 +253,7 @@
 				);
 				toast.success('Policy created');
 			} else if (policyEditorMode === 'create-template-linked') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						definition: {
@@ -271,7 +271,7 @@
 				);
 				toast.success('Template-linked policy created');
 			} else {
-				await vp.send(
+				await vp().send(
 					new UpdatePolicyCommand({
 						policyStoreId: selectedStoreId,
 						policyId: policyEditorId,
@@ -296,7 +296,7 @@
 		if (!selectedStoreId) return;
 		deletingPolicyId = null;
 		try {
-			await vp.send(new DeletePolicyCommand({ policyStoreId: selectedStoreId, policyId }));
+			await vp().send(new DeletePolicyCommand({ policyStoreId: selectedStoreId, policyId }));
 			toast.success('Policy deleted');
 			await loadPolicies(selectedStoreId);
 		} catch (e) {
@@ -326,7 +326,7 @@
 		templateEditorSaving = true;
 		try {
 			if (templateEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyTemplateCommand({
 						policyStoreId: selectedStoreId,
 						statement: templateEditorStatement,
@@ -348,7 +348,7 @@
 		if (!selectedStoreId) return;
 		deletingTemplateId = null;
 		try {
-			await vp.send(
+			await vp().send(
 				new DeletePolicyTemplateCommand({
 					policyStoreId: selectedStoreId,
 					policyTemplateId: templateId
@@ -386,7 +386,7 @@
 		storeEditorSaving = true;
 		try {
 			if (storeEditorMode === 'create') {
-				await vp.send(
+				await vp().send(
 					new CreatePolicyStoreCommand({
 						description: storeEditorDescription || undefined,
 						validationSettings: { mode: storeEditorValidationMode as 'OFF' | 'STRICT' },
@@ -398,7 +398,7 @@
 				);
 				toast.success('Policy store created');
 			} else {
-				await vp.send(
+				await vp().send(
 					new UpdatePolicyStoreCommand({
 						policyStoreId: storeEditorId,
 						description: storeEditorDescription,
@@ -426,7 +426,7 @@
 					.split(',')
 					.map((s) => s.trim())
 					.filter(Boolean);
-				await vp.send(
+				await vp().send(
 					new CreateIdentitySourceCommand({
 						policyStoreId: selectedStoreId,
 						principalEntityType: identitySourceEditorPrincipalType || undefined,
@@ -442,7 +442,7 @@
 					})
 				);
 			} else {
-				await vp.send(
+				await vp().send(
 					new CreateIdentitySourceCommand({
 						policyStoreId: selectedStoreId,
 						principalEntityType: identitySourceEditorPrincipalType || undefined,
@@ -472,7 +472,7 @@
 		if (!selectedStoreId) return;
 		deletingIdentitySourceId = null;
 		try {
-			await vp.send(
+			await vp().send(
 				new DeleteIdentitySourceCommand({
 					policyStoreId: selectedStoreId,
 					identitySourceId
@@ -493,7 +493,7 @@
 		}
 		schemaLoading = true;
 		try {
-			const resp = await vp.send(new GetSchemaCommand({ policyStoreId: selectedStoreId }));
+			const resp = await vp().send(new GetSchemaCommand({ policyStoreId: selectedStoreId }));
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
 			const raw = (resp as any).schema ?? (resp as any).definition?.cedarJson ?? '';
 			schemaText = raw;
@@ -534,7 +534,7 @@
 		if (!selectedStoreId) return;
 		schemaSaving = true;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new PutSchemaCommand({
 					policyStoreId: selectedStoreId,
 					definition: { cedarJson: schemaDraft }
@@ -558,7 +558,7 @@
 		authzLoading = true;
 		authzResult = null;
 		try {
-			const resp = await vp.send(
+			const resp = await vp().send(
 				new IsAuthorizedCommand({
 					policyStoreId: selectedStoreId,
 					principal: authzPrincipalType
@@ -584,7 +584,32 @@
 		}
 	}
 
-	onMount(loadData);
+	// Policy stores and every store-scoped resource (policies, identity
+	// sources, templates, schema, authz results) are region-scoped, so a
+	// region switch must clear them (not just reload) rather than keep
+	// showing the old region's selected store.
+	onRegionChange(() => {
+		stores = [];
+		policies = [];
+		identitySources = [];
+		policyTemplates = [];
+		selectedStoreId = null;
+		selectedStore = null;
+		expandedPolicyId = null;
+		policyStatements = {};
+		schemaText = '';
+		schemaNamespaces = [];
+		schemaCached = null;
+		schemaDraft = '';
+		schemaEditing = false;
+		authzResult = null;
+		policyEditorOpen = false;
+		templateEditorOpen = false;
+		storeEditorOpen = false;
+		identitySourceEditorOpen = false;
+		activeTab = 'stores';
+		void loadData();
+	});
 </script>
 
 <div class="p-6 space-y-6">
@@ -1224,9 +1249,8 @@
 				{#if policyEditorMode === 'create-template-linked'}
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Template ID</label
-						>
-						<select
+							 for="policy-editor-template-id">Template ID</label>
+						<select id="policy-editor-template-id"
 							bind:value={policyEditorTemplateId}
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 						>
@@ -1239,9 +1263,8 @@
 					<div class="grid grid-cols-2 gap-3">
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Principal Entity Type</label
-							>
-							<input
+								 for="policy-editor-principal-type">Principal Entity Type</label>
+							<input id="policy-editor-principal-type"
 								bind:value={policyEditorPrincipalType}
 								placeholder="User"
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1249,9 +1272,8 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Principal Entity ID</label
-							>
-							<input
+								 for="policy-editor-principal-id">Principal Entity ID</label>
+							<input id="policy-editor-principal-id"
 								bind:value={policyEditorPrincipalId}
 								placeholder="alice"
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1259,9 +1281,8 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Resource Entity Type</label
-							>
-							<input
+								 for="policy-editor-resource-type">Resource Entity Type</label>
+							<input id="policy-editor-resource-type"
 								bind:value={policyEditorResourceType}
 								placeholder="Document"
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1269,9 +1290,8 @@
 						</div>
 						<div>
 							<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-								>Resource Entity ID</label
-							>
-							<input
+								 for="policy-editor-resource-id">Resource Entity ID</label>
+							<input id="policy-editor-resource-id"
 								bind:value={policyEditorResourceId}
 								placeholder="doc-123"
 								class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1281,9 +1301,8 @@
 				{:else if policyEditorMode === 'create'}
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Description (optional)</label
-						>
-						<input
+							 for="policy-editor-description">Description (optional)</label>
+						<input id="policy-editor-description"
 							bind:value={policyEditorDescription}
 							placeholder="Policy description..."
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1291,9 +1310,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Cedar Statement</label
-						>
-						<textarea
+							 for="policy-editor-statement">Cedar Statement</label>
+						<textarea id="policy-editor-statement"
 							bind:value={policyEditorStatement}
 							rows={16}
 							class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
@@ -1305,9 +1323,8 @@
 					</p>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Cedar Statement</label
-						>
-						<textarea
+							 for="policy-editor-statement-2">Cedar Statement</label>
+						<textarea id="policy-editor-statement-2"
 							bind:value={policyEditorStatement}
 							rows={16}
 							class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
@@ -1370,9 +1387,8 @@
 			<div class="flex-1 overflow-auto p-4 space-y-3">
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Description (optional)</label
-					>
-					<input
+						 for="template-editor-description">Description (optional)</label>
+					<input id="template-editor-description"
 						bind:value={templateEditorDescription}
 						placeholder="Template description..."
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1380,9 +1396,8 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Cedar Template Statement</label
-					>
-					<textarea
+						 for="template-editor-statement">Cedar Template Statement</label>
+					<textarea id="template-editor-statement"
 						bind:value={templateEditorStatement}
 						rows={16}
 						class="w-full font-mono text-xs bg-gray-900 text-green-300 p-3 rounded border border-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 resize-y"
@@ -1437,9 +1452,8 @@
 			<div class="p-4 space-y-4">
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Description (optional)</label
-					>
-					<input
+						 for="store-editor-description">Description (optional)</label>
+					<input id="store-editor-description"
 						bind:value={storeEditorDescription}
 						placeholder="Policy store description..."
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1447,9 +1461,8 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Validation Mode</label
-					>
-					<select
+						 for="store-editor-validation-mode">Validation Mode</label>
+					<select id="store-editor-validation-mode"
 						bind:value={storeEditorValidationMode}
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 					>
@@ -1459,9 +1472,8 @@
 				</div>
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Deletion Protection</label
-					>
-					<select
+						 for="store-editor-deletion-protection">Deletion Protection</label>
+					<select id="store-editor-deletion-protection"
 						bind:value={storeEditorDeletionProtection}
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
 					>
@@ -1518,9 +1530,9 @@
 				</button>
 			</div>
 			<div class="p-4 space-y-4">
-				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Provider Type</label
+				<fieldset class="m-0 border-0 p-0">
+					<legend class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+						>Provider Type</legend
 					>
 					<div class="flex gap-3">
 						<label class="flex items-center gap-2 cursor-pointer">
@@ -1542,12 +1554,11 @@
 							<span class="text-sm text-gray-700 dark:text-gray-300">OpenID Connect</span>
 						</label>
 					</div>
-				</div>
+				</fieldset>
 				<div>
 					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-						>Principal Entity Type</label
-					>
-					<input
+						 for="identity-source-editor-principal-type">Principal Entity Type</label>
+					<input id="identity-source-editor-principal-type"
 						bind:value={identitySourceEditorPrincipalType}
 						placeholder="User"
 						class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1556,9 +1567,8 @@
 				{#if identitySourceEditorType === 'cognito'}
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>User Pool ARN</label
-						>
-						<input
+							 for="identity-source-editor-user-pool-arn">User Pool ARN</label>
+						<input id="identity-source-editor-user-pool-arn"
 							bind:value={identitySourceEditorUserPoolArn}
 							placeholder="arn:aws:cognito-idp:us-east-1:123456789012:userpool/..."
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1566,9 +1576,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Client IDs (comma-separated, optional)</label
-						>
-						<input
+							 for="identity-source-editor-client-ids">Client IDs (comma-separated, optional)</label>
+						<input id="identity-source-editor-client-ids"
 							bind:value={identitySourceEditorClientIds}
 							placeholder="client-id-1, client-id-2"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1576,9 +1585,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Group Entity Type (optional)</label
-						>
-						<input
+							 for="identity-source-editor-group-entity-type">Group Entity Type (optional)</label>
+						<input id="identity-source-editor-group-entity-type"
 							bind:value={identitySourceEditorGroupEntityType}
 							placeholder="UserGroup"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1587,9 +1595,8 @@
 				{:else}
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Issuer URL</label
-						>
-						<input
+							 for="identity-source-editor-issuer">Issuer URL</label>
+						<input id="identity-source-editor-issuer"
 							bind:value={identitySourceEditorIssuer}
 							placeholder="https://auth.example.com"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
@@ -1597,9 +1604,8 @@
 					</div>
 					<div>
 						<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-							>Entity ID Prefix (optional)</label
-						>
-						<input
+							 for="identity-source-editor-entity-id-prefix">Entity ID Prefix (optional)</label>
+						<input id="identity-source-editor-entity-id-prefix"
 							bind:value={identitySourceEditorEntityIdPrefix}
 							placeholder="https://auth.example.com/users/"
 							class="w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getTimestreamQueryClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -34,7 +34,7 @@
 		Activity
 	} from 'lucide-svelte';
 
-	const tsQuery = getTimestreamQueryClient();
+	const tsQuery = regionalClient(getTimestreamQueryClient);
 
 	// SQL editor state
 	let sqlText = $state('SELECT * FROM "mydb"."mytable" ORDER BY time DESC LIMIT 100');
@@ -87,7 +87,7 @@
 		nextToken = null;
 		prevToken = null;
 		try {
-			const resp = await tsQuery.send(
+			const resp = await tsQuery().send(
 				new QueryCommand({
 					QueryString: sqlText,
 					MaxRows: maxRows,
@@ -111,7 +111,7 @@
 	async function cancelQuery() {
 		if (!currentQueryId) return;
 		try {
-			await tsQuery.send(new CancelQueryCommand({ QueryId: currentQueryId }));
+			await tsQuery().send(new CancelQueryCommand({ QueryId: currentQueryId }));
 			queryRunning = false;
 			currentQueryId = null;
 			toast.success('Query cancelled');
@@ -124,7 +124,7 @@
 		if (!nextToken) return;
 		queryRunning = true;
 		try {
-			const resp = await tsQuery.send(
+			const resp = await tsQuery().send(
 				new QueryCommand({ QueryString: sqlText, NextToken: nextToken, MaxRows: maxRows })
 			);
 			prevToken = null;
@@ -142,7 +142,7 @@
 	async function prepareQuery() {
 		if (!sqlText.trim()) return;
 		try {
-			const resp = await tsQuery.send(
+			const resp = await tsQuery().send(
 				new PrepareQueryCommand({ QueryString: sqlText })
 			);
 			const cols = resp.Columns ?? [];
@@ -162,7 +162,7 @@
 	async function loadScheduledQueries() {
 		loadingQueries = true;
 		try {
-			const resp = await tsQuery.send(new ListScheduledQueriesCommand({}));
+			const resp = await tsQuery().send(new ListScheduledQueriesCommand({}));
 			scheduledQueries = resp.ScheduledQueries ?? [];
 		} catch (e) {
 			toast.error('Failed to load scheduled queries: ' + String(e));
@@ -177,7 +177,7 @@
 			return;
 		}
 		try {
-			await tsQuery.send(
+			await tsQuery().send(
 				new CreateScheduledQueryCommand({
 					Name: newSqName,
 					QueryString: newSqQueryString,
@@ -218,7 +218,7 @@
 		});
 		if (!ok) return;
 		try {
-			await tsQuery.send(new DeleteScheduledQueryCommand({ ScheduledQueryArn: arn }));
+			await tsQuery().send(new DeleteScheduledQueryCommand({ ScheduledQueryArn: arn }));
 			toast.success('Deleted');
 			await loadScheduledQueries();
 		} catch (e) {
@@ -229,7 +229,7 @@
 	async function toggleScheduledQuery(sq: ScheduledQuery) {
 		const newState = sq.State === 'ENABLED' ? 'DISABLED' : 'ENABLED';
 		try {
-			await tsQuery.send(
+			await tsQuery().send(
 				new UpdateScheduledQueryCommand({
 					ScheduledQueryArn: sq.Arn,
 					State: newState as 'ENABLED' | 'DISABLED'
@@ -244,7 +244,7 @@
 
 	async function runScheduledQueryNow(sq: ScheduledQuery) {
 		try {
-			await tsQuery.send(
+			await tsQuery().send(
 				new ExecuteScheduledQueryCommand({
 					ScheduledQueryArn: sq.Arn,
 					InvocationTime: new Date()
@@ -275,7 +275,7 @@
 	async function loadAccountSettings() {
 		loadingSettings = true;
 		try {
-			const resp = await tsQuery.send(new DescribeAccountSettingsCommand({}));
+			const resp = await tsQuery().send(new DescribeAccountSettingsCommand({}));
 			accountPricingModel = resp.QueryPricingModel ?? 'COMPUTE_UNITS';
 			accountMaxTCU = resp.MaxQueryTCU ?? null;
 			accountLastUpdated = ((resp as unknown) as Record<string, unknown>)['LastUpdatedTime'] as number ?? null;
@@ -288,7 +288,7 @@
 
 	async function updateAccountSettings() {
 		try {
-			await tsQuery.send(
+			await tsQuery().send(
 				new UpdateAccountSettingsCommand({
 					QueryPricingModel: accountPricingModel as 'BYTES_SCANNED' | 'COMPUTE_UNITS',
 					MaxQueryTCU: accountMaxTCU ?? undefined
@@ -321,7 +321,7 @@
 	// Lifecycle
 	// ---------------------------------------------------------------------------
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadScheduledQueries();
 		loadAccountSettings();
 	});

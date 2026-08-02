@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getMSKClient } from '$lib/aws-client';
 	import {
 		ListClustersV2Command,
@@ -43,7 +44,7 @@
 		ChevronRight
 	} from 'lucide-svelte';
 
-	const msk = getMSKClient();
+	const msk = regionalClient(getMSKClient);
 
 	type Tab = 'clusters' | 'configs' | 'replicators' | 'vpc' | 'versions';
 	let activeTab = $state<Tab>('clusters');
@@ -112,7 +113,7 @@
 	async function loadClusters() {
 		loading = true;
 		try {
-			const res = await msk.send(new ListClustersV2Command({ MaxResults: 100 }));
+			const res = await msk().send(new ListClustersV2Command({ MaxResults: 100 }));
 			clusters = res.ClusterInfoList ?? [];
 		} catch (e) {
 			toast.error(`Failed to load clusters: ${e}`);
@@ -131,10 +132,10 @@
 		clusterDetail = null;
 		try {
 			const [nodesRes, opsRes, brokerRes, descRes] = await Promise.allSettled([
-				msk.send(new ListNodesCommand({ ClusterArn: cluster.ClusterArn, MaxResults: 100 })),
-				msk.send(new ListClusterOperationsV2Command({ ClusterArn: cluster.ClusterArn, MaxResults: 20 })),
-				msk.send(new GetBootstrapBrokersCommand({ ClusterArn: cluster.ClusterArn })),
-				msk.send(new DescribeClusterV2Command({ ClusterArn: cluster.ClusterArn }))
+				msk().send(new ListNodesCommand({ ClusterArn: cluster.ClusterArn, MaxResults: 100 })),
+				msk().send(new ListClusterOperationsV2Command({ ClusterArn: cluster.ClusterArn, MaxResults: 20 })),
+				msk().send(new GetBootstrapBrokersCommand({ ClusterArn: cluster.ClusterArn })),
+				msk().send(new DescribeClusterV2Command({ ClusterArn: cluster.ClusterArn }))
 			]);
 			if (nodesRes.status === 'fulfilled') clusterNodes = nodesRes.value.NodeInfoList ?? [];
 			if (opsRes.status === 'fulfilled') clusterOps = opsRes.value.ClusterOperationInfoList ?? [];
@@ -165,7 +166,7 @@
 		)
 			return;
 		try {
-			await msk.send(
+			await msk().send(
 				new DeleteClusterCommand({
 					ClusterArn: cluster.ClusterArn,
 					CurrentVersion: cluster.CurrentVersion
@@ -183,7 +184,7 @@
 		if (!newClusterName.trim()) return;
 		creatingCluster = true;
 		try {
-			await msk.send(
+			await msk().send(
 				new CreateClusterV2Command({
 					ClusterName: newClusterName.trim(),
 					Provisioned: {
@@ -213,7 +214,7 @@
 	async function loadConfigurations() {
 		loading = true;
 		try {
-			const res = await msk.send(new ListConfigurationsCommand({ MaxResults: 100 }));
+			const res = await msk().send(new ListConfigurationsCommand({ MaxResults: 100 }));
 			configurations = res.Configurations ?? [];
 		} catch (e) {
 			toast.error(`Failed to load configurations: ${e}`);
@@ -226,7 +227,7 @@
 		if (!newConfigName.trim()) return;
 		creatingConfig = true;
 		try {
-			await msk.send(
+			await msk().send(
 				new CreateConfigurationCommand({
 					Name: newConfigName.trim(),
 					ServerProperties: new TextEncoder().encode(newConfigProperties)
@@ -253,7 +254,7 @@
 		)
 			return;
 		try {
-			await msk.send(new DeleteConfigurationCommand({ Arn: config.Arn }));
+			await msk().send(new DeleteConfigurationCommand({ Arn: config.Arn }));
 			toast.success(`Configuration "${config.Name}" deleted`);
 			await loadConfigurations();
 		} catch (e) {
@@ -265,7 +266,7 @@
 	async function loadReplicators() {
 		loading = true;
 		try {
-			const res = await msk.send(new ListReplicatorsCommand({ MaxResults: 100 }));
+			const res = await msk().send(new ListReplicatorsCommand({ MaxResults: 100 }));
 			replicators = res.Replicators ?? [];
 		} catch (e) {
 			toast.error(`Failed to load replicators: ${e}`);
@@ -278,7 +279,7 @@
 		if (!newReplicatorName.trim()) return;
 		creatingReplicator = true;
 		try {
-			await msk.send(
+			await msk().send(
 				new CreateReplicatorCommand({
 					ReplicatorName: newReplicatorName.trim(),
 					ServiceExecutionRoleArn: newReplicatorRoleArn.trim() || 'arn:aws:iam::000000000000:role/MSKRole',
@@ -308,7 +309,7 @@
 		)
 			return;
 		try {
-			await msk.send(
+			await msk().send(
 				new DeleteReplicatorCommand({
 					ReplicatorArn: r.ReplicatorArn,
 					CurrentVersion: r.CurrentVersion
@@ -325,7 +326,7 @@
 	async function loadVpcConnections() {
 		loading = true;
 		try {
-			const res = await msk.send(new ListVpcConnectionsCommand({ MaxResults: 100 }));
+			const res = await msk().send(new ListVpcConnectionsCommand({ MaxResults: 100 }));
 			vpcConnections = res.VpcConnections ?? [];
 		} catch (e) {
 			toast.error(`Failed to load VPC connections: ${e}`);
@@ -344,7 +345,7 @@
 		)
 			return;
 		try {
-			await msk.send(new DeleteVpcConnectionCommand({ Arn: v.VpcConnectionArn }));
+			await msk().send(new DeleteVpcConnectionCommand({ Arn: v.VpcConnectionArn }));
 			toast.success('VPC connection deleted');
 			await loadVpcConnections();
 		} catch (e) {
@@ -356,7 +357,7 @@
 	async function loadVersions() {
 		loading = true;
 		try {
-			const res = await msk.send(new ListKafkaVersionsCommand({ MaxResults: 100 }));
+			const res = await msk().send(new ListKafkaVersionsCommand({ MaxResults: 100 }));
 			kafkaVersions = (res.KafkaVersions ?? []).map((v) => ({
 				Version: v.Version,
 				Status: v.Status
@@ -394,7 +395,17 @@
 		}
 	}
 
-	onMount(() => loadClusters());
+	// A cluster ARN is only unique within a region, so a cluster selected (and
+	// its nodes/operations/bootstrap brokers) in the old region must not
+	// survive a region switch. Reuse onTabChange to clear that selection and
+	// reload whichever tab is active; `activeTab` is read with `untrack`
+	// since a tab switch already reloads directly, so letting the effect
+	// also depend on it would double-fetch on every subsequent region change.
+	onRegionChange(() => {
+		clusterNodes = [];
+		clusterOps = [];
+		untrack(() => onTabChange(activeTab));
+	});
 </script>
 
 <div class="space-y-6">

@@ -84,8 +84,11 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		wantContains []string
 	}{
 		{
+			// "Invoke" is the real SDK operation name (lambda.Client.Invoke); the
+			// list previously (incorrectly) asserted the phantom "InvokeFunction",
+			// which does not exist on the SDK client — see gopherstack-vhw2.
 			name:         "returns_operations",
-			wantContains: []string{"CreateFunction", "InvokeFunction"},
+			wantContains: []string{"CreateFunction", "Invoke"},
 		},
 	}
 

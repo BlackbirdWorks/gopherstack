@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onMount } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 import { getIdentityStoreClient } from '$lib/aws-client';
 import {
 CreateGroupCommand,
@@ -18,7 +19,7 @@ UpdateUserCommand
 import { toast } from 'svelte-sonner';
 import { Copy, RefreshCw, Beaker, ChevronUp, ChevronDown, X, Users, Layers } from 'lucide-svelte';
 
-const identityStore = getIdentityStoreClient();
+const identityStore = regionalClient(getIdentityStoreClient);
 const defaultStoreID = 'd-0000000000';
 
 type IdentityUser = {
@@ -182,14 +183,14 @@ groupSortAsc = true;
 // ---- Data loading ----
 
 async function loadUsers() {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListUsersCommand({ IdentityStoreId: effectiveStoreID() })
 );
 users = (out.Users ?? []) as IdentityUser[];
 }
 
 async function loadGroups() {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupsCommand({ IdentityStoreId: effectiveStoreID() })
 );
 groups = (out.Groups ?? []) as IdentityGroup[];
@@ -200,7 +201,7 @@ const entries = await Promise.all(
 grps.map(async (g) => {
 if (!g.GroupId) return [g.GroupId ?? '', 0] as [string, number];
 try {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: g.GroupId
@@ -220,7 +221,7 @@ if (!user.UserId) {
 membershipsForUser = {};
 return;
 }
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsForMemberCommand({
 IdentityStoreId: effectiveStoreID(),
 MemberId: { UserId: user.UserId }
@@ -256,7 +257,7 @@ loading = false;
 
 async function createUser() {
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserName: userName,
@@ -286,7 +287,7 @@ toast.error(`Failed to create user: ${(err as Error).message}`);
 
 async function createGroup() {
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 DisplayName: groupDisplayName,
@@ -324,7 +325,7 @@ async function addMembership() {
 if (!membershipUser?.UserId || !selectedMembershipGroupID) return;
 membershipLoading = true;
 try {
-await identityStore.send(
+await identityStore().send(
 new CreateGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: selectedMembershipGroupID,
@@ -346,7 +347,7 @@ async function removeMembership(membershipID?: string) {
 if (!membershipID || !membershipUser?.UserId) return;
 membershipLoading = true;
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 MembershipId: membershipID
@@ -379,7 +380,7 @@ if (!profileUser?.UserId) return;
 const id = profileUser.UserId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new UpdateUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserId: profileUser.UserId,
@@ -426,7 +427,7 @@ if (!deleteUserTarget?.UserId) return;
 const id = deleteUserTarget.UserId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteUserCommand({
 IdentityStoreId: effectiveStoreID(),
 UserId: deleteUserTarget.UserId
@@ -451,7 +452,7 @@ if (!deleteGroupTarget?.GroupId) return;
 const id = deleteGroupTarget.GroupId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: deleteGroupTarget.GroupId
@@ -483,7 +484,7 @@ if (!editGroupTarget?.GroupId) return;
 const id = editGroupTarget.GroupId;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new UpdateGroupCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: editGroupTarget.GroupId,
@@ -512,7 +513,7 @@ membersOfGroup = [];
 membershipsOfGroup = [];
 showViewMembersModal = true;
 try {
-const out = await identityStore.send(
+const out = await identityStore().send(
 new ListGroupMembershipsCommand({
 IdentityStoreId: effectiveStoreID(),
 GroupId: group.GroupId!
@@ -533,7 +534,7 @@ if (!membershipID || !viewMembersGroup) return;
 const id = membershipID;
 actionInProgress = { ...actionInProgress, [id]: true };
 try {
-await identityStore.send(
+await identityStore().send(
 new DeleteGroupMembershipCommand({
 IdentityStoreId: effectiveStoreID(),
 MembershipId: membershipID
@@ -569,7 +570,7 @@ const demoUsers = [
 const createdUserIDs: string[] = [];
 for (const u of demoUsers) {
 try {
-const r = await identityStore.send(new CreateUserCommand({
+const r = await identityStore().send(new CreateUserCommand({
 IdentityStoreId: storeID,
 UserName: u.userName,
 DisplayName: `${u.givenName} ${u.familyName}`,
@@ -593,7 +594,7 @@ const demoGroups = [
 const createdGroupIDs: string[] = [];
 for (const g of demoGroups) {
 try {
-const r = await identityStore.send(new CreateGroupCommand({
+const r = await identityStore().send(new CreateGroupCommand({
 IdentityStoreId: storeID,
 DisplayName: g.name,
 Description: g.description
@@ -609,7 +610,7 @@ const plan: Array<[number, number]> = [[0,0],[3,0],[1,1],[2,2],[3,2]];
 for (const [ui, gi] of plan) {
 if (createdUserIDs[ui] && createdGroupIDs[gi]) {
 try {
-await identityStore.send(new CreateGroupMembershipCommand({
+await identityStore().send(new CreateGroupMembershipCommand({
 IdentityStoreId: storeID,
 GroupId: createdGroupIDs[gi],
 MemberId: { UserId: createdUserIDs[ui] }
@@ -646,8 +647,30 @@ function handleKeydown(event: KeyboardEvent) {
 if (event.key === 'Escape') closeAllModals();
 }
 
-onMount(() => {
+// Users, groups, and every user/group-scoped selection below are looked up
+// by ID in the emulator via a region-composite key (services/identitystore:
+// regionKey(region, id)), so they are region-scoped and must be cleared (not
+// just reloaded) on a region switch, along with any open modal referencing
+// them. The keydown listener is genuine setup, so it stays in onMount;
+// only the load path moves to onRegionChange.
+onRegionChange(() => {
+users = [];
+groups = [];
+membershipsForUser = {};
+groupMemberCounts = {};
+membershipUser = null;
+profileUser = null;
+editGroupTarget = null;
+deleteUserTarget = null;
+deleteGroupTarget = null;
+viewMembersGroup = null;
+membersOfGroup = [];
+membershipsOfGroup = [];
+closeAllModals();
 void refresh();
+});
+
+onMount(() => {
 window.addEventListener('keydown', handleKeydown);
 return () => window.removeEventListener('keydown', handleKeydown);
 });
@@ -1129,6 +1152,8 @@ style="height:8px; width:{Math.round((count / maxCount) * 100)}%"
 id="create-user-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showCreateUserModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showCreateUserModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="create-user-title"
@@ -1193,6 +1218,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="create-group-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showCreateGroupModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showCreateGroupModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="create-group-title"
@@ -1231,6 +1258,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="membership-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showMembershipModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showMembershipModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="membership-modal-title"
@@ -1327,6 +1356,8 @@ aria-label="Remove from {group.DisplayName}">Remove</button>
 id="edit-user-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showEditUserModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showEditUserModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="edit-user-title"
@@ -1382,7 +1413,7 @@ placeholder="123 Main St, City, State" />
 </div>
 {#if profileUser?.ExternalIds && profileUser.ExternalIds.length > 0}
 <div>
-<label class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">External IDs</label>
+<div class="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-300">External IDs</div>
 <div class="space-y-1">
 {#each profileUser.ExternalIds as extId}
 <div class="rounded bg-slate-100 px-2 py-1 text-xs font-mono dark:bg-slate-700">
@@ -1409,6 +1440,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 id="edit-group-modal"
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showEditGroupModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showEditGroupModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="edit-group-title"
@@ -1444,6 +1477,8 @@ class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:b
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showDeleteUserConfirm = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showDeleteUserConfirm = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="delete-user-title"
@@ -1468,6 +1503,8 @@ class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-r
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showDeleteGroupConfirm = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showDeleteGroupConfirm = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="delete-group-title"
@@ -1492,6 +1529,8 @@ class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-r
 <div
 class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
 onclick={(e) => { if (e.target === e.currentTarget) showViewMembersModal = false; }}
+onkeydown={(e) => { if (e.key === 'Escape') showViewMembersModal = false; }}
+tabindex="-1"
 role="dialog"
 aria-modal="true"
 aria-labelledby="view-members-title"

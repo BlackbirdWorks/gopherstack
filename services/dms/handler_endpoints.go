@@ -17,6 +17,7 @@ type createEndpointInput struct {
 	ServerName         *string    `json:"ServerName"`
 	DatabaseName       *string    `json:"DatabaseName"`
 	Username           *string    `json:"Username"`
+	Password           *string    `json:"Password"`
 	Port               *int32     `json:"Port"`
 	Tags               []tagEntry `json:"Tags"`
 }
@@ -103,6 +104,7 @@ func (h *Handler) handleCreateEndpoint(
 		ptrconv.String(in.ServerName),
 		ptrconv.String(in.DatabaseName),
 		ptrconv.String(in.Username),
+		ptrconv.String(in.Password),
 		ptrInt32(in.Port),
 		kv,
 	)
@@ -370,6 +372,7 @@ type modifyEndpointInput struct {
 	ServerName   *string `json:"ServerName"`
 	DatabaseName *string `json:"DatabaseName"`
 	Username     *string `json:"Username"`
+	Password     *string `json:"Password"`
 	Port         *int32  `json:"Port"`
 }
 
@@ -398,6 +401,7 @@ func (h *Handler) handleModifyEndpoint(
 		ptrconv.String(in.ServerName),
 		ptrconv.String(in.DatabaseName),
 		ptrconv.String(in.Username),
+		ptrconv.String(in.Password),
 		ptrInt32(in.Port),
 	)
 	if err != nil {

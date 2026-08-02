@@ -197,7 +197,7 @@ func TestWireShape_NotebookExecution_EpochTimestamps(t *testing.T) {
 	startRec := doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
 		"EditorId":              "e-123",
 		"NotebookExecutionName": "nb-exec",
-		"ExecutionEngineConfig": map[string]any{"Id": "j-CLUSTER"},
+		"ExecutionEngine":       map[string]any{"Id": "j-CLUSTER"},
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 
@@ -603,4 +603,76 @@ func TestWireShape_RunJobFlow_AutoTerminate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
 	assert.True(t, out.Cluster.KeepJobFlowAliveWhenNoSteps)
 	assert.False(t, out.Cluster.AutoTerminate)
+}
+
+// TestWireShape_ListClusters_NoFabricatedReleaseLabel verifies each entry in
+// ListClusters' Clusters array matches the real ClusterSummary shape
+// (Id, Name, Status, ClusterArn, NormalizedInstanceHours, OutpostArn) --
+// this backend previously added a fabricated "ReleaseLabel" field that has
+// no counterpart on the real SDK type at all.
+func TestWireShape_ListClusters_NoFabricatedReleaseLabel(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{
+		"Name":         "no-release-label-cluster",
+		"ReleaseLabel": "emr-6.0.0",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	listRec := doEMRRequest(t, h, "ListClusters", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var raw struct {
+		Clusters []map[string]any `json:"Clusters"`
+	}
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &raw))
+	require.Len(t, raw.Clusters, 1)
+
+	_, hasReleaseLabel := raw.Clusters[0]["ReleaseLabel"]
+	assert.False(t, hasReleaseLabel,
+		"ClusterSummary must not carry a ReleaseLabel field -- real ClusterSummary has no such member")
+}
+
+// TestWireShape_StartNotebookExecution_ExecutionEngineField verifies
+// StartNotebookExecution reads the cluster reference from the real
+// top-level "ExecutionEngine" field, and that the resulting
+// NotebookExecution.ExecutionEngineId is actually populated from it. This
+// backend previously declared the input struct field with the JSON tag
+// "ExecutionEngineConfig" (the real *type* name, not the real *field*
+// name), so a real client's ExecutionEngine was silently dropped by
+// json.Unmarshal and ExecutionEngineId came back empty regardless of what
+// cluster the caller named.
+func TestWireShape_StartNotebookExecution_ExecutionEngineField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	startRec := doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
+		"EditorId": "e-EXAMPLEEDITORID",
+		"ExecutionEngine": map[string]any{
+			"Id": "j-REALCLUSTERID",
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var started struct {
+		NotebookExecutionID string `json:"NotebookExecutionId"`
+	}
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &started))
+
+	descRec := doEMRRequest(t, h, "DescribeNotebookExecution", map[string]any{
+		"NotebookExecutionId": started.NotebookExecutionID,
+	})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var out struct {
+		NotebookExecution struct {
+			ExecutionEngineID string `json:"ExecutionEngineId"`
+		} `json:"NotebookExecution"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+	assert.Equal(t, "j-REALCLUSTERID", out.NotebookExecution.ExecutionEngineID,
+		"StartNotebookExecution must read the cluster ID from the real top-level ExecutionEngine field")
 }

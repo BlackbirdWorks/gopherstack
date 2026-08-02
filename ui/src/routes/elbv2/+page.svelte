@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getELBv2Client } from '$lib/aws-client';
 	import {
 		DescribeLoadBalancersCommand,
@@ -60,7 +60,7 @@
 		BookOpen
 	} from 'lucide-svelte';
 
-	const elb = getELBv2Client();
+	const elb = regionalClient(getELBv2Client);
 
 	// Placeholder S3 values for the trust store CA bundle.
 	const TRUST_STORE_CA_S3_BUCKET = 'gopherstack-demo';
@@ -272,7 +272,7 @@
 	async function loadLoadBalancers() {
 		loading = true;
 		try {
-			const res = await elb.send(new DescribeLoadBalancersCommand({ PageSize: 100 }));
+			const res = await elb().send(new DescribeLoadBalancersCommand({ PageSize: 100 }));
 			loadBalancers = res.LoadBalancers ?? [];
 		} catch (e) {
 			toast.error(`Failed to load load balancers: ${e}`);
@@ -284,7 +284,7 @@
 	async function loadTargetGroups() {
 		loading = true;
 		try {
-			const res = await elb.send(new DescribeTargetGroupsCommand({ PageSize: 100 }));
+			const res = await elb().send(new DescribeTargetGroupsCommand({ PageSize: 100 }));
 			targetGroups = res.TargetGroups ?? [];
 		} catch (e) {
 			toast.error(`Failed to load target groups: ${e}`);
@@ -297,7 +297,7 @@
 		loadingAllListeners = true;
 		allListeners = [];
 		try {
-			const res = await elb.send(new DescribeListenersCommand({}));
+			const res = await elb().send(new DescribeListenersCommand({}));
 			allListeners = res.Listeners ?? [];
 		} catch (e) {
 			toast.error(`Failed to load listeners: ${e}`);
@@ -310,7 +310,7 @@
 		loadingTrustStores = true;
 		trustStores = [];
 		try {
-			const res = await elb.send(new DescribeTrustStoresCommand({}));
+			const res = await elb().send(new DescribeTrustStoresCommand({}));
 			trustStores = (res.TrustStores ?? []) as typeof trustStores;
 		} catch (e) {
 			toast.error(`Failed to load trust stores: ${e}`);
@@ -324,7 +324,7 @@
 		loadingListeners = true;
 		lbListeners = [];
 		try {
-			const res = await elb.send(
+			const res = await elb().send(
 				new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn })
 			);
 			lbListeners = res.Listeners ?? [];
@@ -342,7 +342,7 @@
 		newTargetId = '';
 		newTargetPort = String(tg.Port ?? 80);
 		try {
-			const res = await elb.send(
+			const res = await elb().send(
 				new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })
 			);
 			tgHealth = (res.TargetHealthDescriptions ?? []).map((d) => ({
@@ -363,7 +363,7 @@
 
 	async function loadTgAttributes(tg: TargetGroup) {
 		try {
-			const res = await elb.send(new DescribeTargetGroupAttributesCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			const res = await elb().send(new DescribeTargetGroupAttributesCommand({ TargetGroupArn: tg.TargetGroupArn }));
 			const attrs = res.Attributes ?? [];
 			tgStickinessEnabled = attrs.find((a) => a.Key === 'stickiness.enabled')?.Value === 'true';
 			const dur = attrs.find((a) => a.Key === 'stickiness.lb_cookie.duration_seconds')?.Value;
@@ -377,7 +377,7 @@
 		if (!selectedTG?.TargetGroupArn) return;
 		savingTgAttrs = true;
 		try {
-			await elb.send(new ModifyTargetGroupAttributesCommand({
+			await elb().send(new ModifyTargetGroupAttributesCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Attributes: [
 					{ Key: 'stickiness.enabled', Value: String(tgStickinessEnabled) },
@@ -397,7 +397,7 @@
 		if (!selectedTG?.TargetGroupArn || !newTargetId.trim()) return;
 		registeringTarget = true;
 		try {
-			await elb.send(new RegisterTargetsCommand({
+			await elb().send(new RegisterTargetsCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Targets: [{ Id: newTargetId.trim(), Port: newTargetPort ? Number(newTargetPort) : undefined }]
 			}));
@@ -414,7 +414,7 @@
 	async function deregisterTarget(id: string | undefined, port: number | undefined) {
 		if (!selectedTG?.TargetGroupArn || !id) return;
 		try {
-			await elb.send(new DeregisterTargetsCommand({
+			await elb().send(new DeregisterTargetsCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Targets: [{ Id: id, Port: port }]
 			}));
@@ -438,7 +438,7 @@
 		const aPrio = parseInt(a.Priority ?? '0', 10);
 		const bPrio = parseInt(b.Priority ?? '0', 10);
 		try {
-			await elb.send(new SetRulePrioritiesCommand({
+			await elb().send(new SetRulePrioritiesCommand({
 				RulePriorities: [
 					{ RuleArn: a.RuleArn, Priority: bPrio },
 					{ RuleArn: b.RuleArn, Priority: aPrio }
@@ -460,7 +460,7 @@
 		loadingRules = true;
 		listenerRules = [];
 		try {
-			const res = await elb.send(
+			const res = await elb().send(
 				new DescribeRulesCommand({ ListenerArn: listener.ListenerArn })
 			);
 			listenerRules = res.Rules ?? [];
@@ -475,7 +475,7 @@
 		loadingCerts = true;
 		listenerCerts = [];
 		try {
-			const res = await elb.send(
+			const res = await elb().send(
 				new DescribeListenerCertificatesCommand({ ListenerArn: listener.ListenerArn })
 			);
 			listenerCerts = res.Certificates ?? [];
@@ -490,7 +490,7 @@
 		if (!selectedListener?.ListenerArn || !newCertArn.trim()) return;
 		addingCert = true;
 		try {
-			await elb.send(
+			await elb().send(
 				new AddListenerCertificatesCommand({
 					ListenerArn: selectedListener.ListenerArn,
 					Certificates: [{ CertificateArn: newCertArn.trim() }]
@@ -515,7 +515,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(
+			await elb().send(
 				new RemoveListenerCertificatesCommand({
 					ListenerArn: selectedListener.ListenerArn,
 					Certificates: [{ CertificateArn: certArn }]
@@ -587,7 +587,7 @@
 			const actions = ruleActionTGArn ? [{ Type: 'forward' as const, TargetGroupArn: ruleActionTGArn }] : [];
 
 			if (editingRule?.RuleArn) {
-				await elb.send(
+				await elb().send(
 					new ModifyRuleCommand({
 						RuleArn: editingRule.RuleArn,
 						Conditions: [condition],
@@ -597,7 +597,7 @@
 				toast.success('Rule updated');
 			} else {
 				const priority = rulePriority.trim() ? Number(rulePriority.trim()) : Date.now() % 50000;
-				await elb.send(
+				await elb().send(
 					new CreateRuleCommand({
 						ListenerArn: selectedListener.ListenerArn,
 						Priority: priority,
@@ -624,7 +624,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(new DeleteRuleCommand({ RuleArn: rule.RuleArn }));
+			await elb().send(new DeleteRuleCommand({ RuleArn: rule.RuleArn }));
 			toast.success('Rule deleted');
 			if (selectedListener) await loadListenerRules(selectedListener);
 		} catch (e) {
@@ -637,7 +637,7 @@
 		loadingRevocations = true;
 		trustStoreRevocations = [];
 		try {
-			const res = await elb.send(
+			const res = await elb().send(
 				new DescribeTrustStoreRevocationsCommand({ TrustStoreArn: ts.TrustStoreArn })
 			);
 			trustStoreRevocations = (res.TrustStoreRevocations ?? []) as typeof trustStoreRevocations;
@@ -656,7 +656,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
+			await elb().send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
 			toast.success(`Deleting "${lb.LoadBalancerName}"…`);
 			await loadLoadBalancers();
 		} catch (e) {
@@ -671,7 +671,7 @@
 		}
 		creating = true;
 		try {
-			await elb.send(
+			await elb().send(
 				new CreateLoadBalancerCommand({
 					Name: newLBName.trim(),
 					Type: newLBType,
@@ -695,7 +695,7 @@
 		if (!newTGName.trim()) { toast.error('Name is required'); return; }
 		creatingTG = true;
 		try {
-			await elb.send(new CreateTargetGroupCommand({
+			await elb().send(new CreateTargetGroupCommand({
 				Name: newTGName.trim(),
 				TargetType: newTGType as TargetTypeEnum,
 				Protocol: newTGProtocol as ProtocolEnum,
@@ -720,7 +720,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(new DeleteTargetGroupCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			await elb().send(new DeleteTargetGroupCommand({ TargetGroupArn: tg.TargetGroupArn }));
 			toast.success(`Deleted "${tg.TargetGroupName}"`);
 			if (selectedTG?.TargetGroupArn === tg.TargetGroupArn) selectedTG = null;
 			await loadTargetGroups();
@@ -733,7 +733,7 @@
 		if (!newListenerLBArn) { toast.error('Select a load balancer'); return; }
 		creatingListener = true;
 		try {
-			await elb.send(new CreateListenerCommand({
+			await elb().send(new CreateListenerCommand({
 				LoadBalancerArn: newListenerLBArn,
 				Protocol: newListenerProtocol as ProtocolEnum,
 				Port: parseInt(newListenerPort, 10),
@@ -760,7 +760,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(new DeleteListenerCommand({ ListenerArn: listener.ListenerArn }));
+			await elb().send(new DeleteListenerCommand({ ListenerArn: listener.ListenerArn }));
 			toast.success('Listener deleted');
 			if (selectedListener?.ListenerArn === listener.ListenerArn) {
 				selectedListener = null;
@@ -777,7 +777,7 @@
 		if (!newTSName.trim()) { toast.error('Name is required'); return; }
 		creatingTS = true;
 		try {
-			await elb.send(new CreateTrustStoreCommand({
+			await elb().send(new CreateTrustStoreCommand({
 				Name: newTSName.trim(),
 				CaCertificatesBundleS3Bucket: TRUST_STORE_CA_S3_BUCKET,
 				CaCertificatesBundleS3Key: TRUST_STORE_CA_S3_KEY
@@ -801,7 +801,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb.send(new DeleteTrustStoreCommand({ TrustStoreArn: ts.TrustStoreArn }));
+			await elb().send(new DeleteTrustStoreCommand({ TrustStoreArn: ts.TrustStoreArn }));
 			toast.success(`Deleted "${ts.Name}"`);
 			if (selectedTrustStore?.TrustStoreArn === ts.TrustStoreArn) selectedTrustStore = null;
 			await loadTrustStores();
@@ -814,16 +814,16 @@
 		try {
 			toast.info('Seeding demo data…');
 			const [albRes, nlbRes] = await Promise.all([
-				elb.send(new CreateLoadBalancerCommand({ Name: 'demo-alb', Type: 'application', Scheme: 'internet-facing', Subnets: ['subnet-demo1', 'subnet-demo2'] })),
-				elb.send(new CreateLoadBalancerCommand({ Name: 'demo-nlb', Type: 'network', Scheme: 'internal', Subnets: ['subnet-demo1'] }))
+				elb().send(new CreateLoadBalancerCommand({ Name: 'demo-alb', Type: 'application', Scheme: 'internet-facing', Subnets: ['subnet-demo1', 'subnet-demo2'] })),
+				elb().send(new CreateLoadBalancerCommand({ Name: 'demo-nlb', Type: 'network', Scheme: 'internal', Subnets: ['subnet-demo1'] }))
 			]);
 			const albArn = albRes.LoadBalancers?.[0]?.LoadBalancerArn ?? '';
 			const [tg1Res, tg2Res] = await Promise.all([
-				elb.send(new CreateTargetGroupCommand({ Name: 'demo-tg-web', TargetType: 'instance', Protocol: 'HTTP', Port: 80 })),
-				elb.send(new CreateTargetGroupCommand({ Name: 'demo-tg-api', TargetType: 'ip', Protocol: 'HTTP', Port: 8080 }))
+				elb().send(new CreateTargetGroupCommand({ Name: 'demo-tg-web', TargetType: 'instance', Protocol: 'HTTP', Port: 80 })),
+				elb().send(new CreateTargetGroupCommand({ Name: 'demo-tg-api', TargetType: 'ip', Protocol: 'HTTP', Port: 8080 }))
 			]);
 			const tg1Arn = tg1Res.TargetGroups?.[0]?.TargetGroupArn ?? '';
-			const listenerRes = await elb.send(new CreateListenerCommand({
+			const listenerRes = await elb().send(new CreateListenerCommand({
 				LoadBalancerArn: albArn,
 				Protocol: 'HTTP',
 				Port: 80,
@@ -832,11 +832,11 @@
 			const listenerArn = listenerRes.Listeners?.[0]?.ListenerArn ?? '';
 			if (listenerArn) {
 				await Promise.all([
-					elb.send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 10, Conditions: [{ Field: 'path-pattern', PathPatternConfig: { Values: ['/api/*'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg2Res.TargetGroups?.[0]?.TargetGroupArn }] })),
-					elb.send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 20, Conditions: [{ Field: 'host-header', HostHeaderConfig: { Values: ['app.example.com'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg1Arn }] }))
+					elb().send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 10, Conditions: [{ Field: 'path-pattern', PathPatternConfig: { Values: ['/api/*'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg2Res.TargetGroups?.[0]?.TargetGroupArn }] })),
+					elb().send(new CreateRuleCommand({ ListenerArn: listenerArn, Priority: 20, Conditions: [{ Field: 'host-header', HostHeaderConfig: { Values: ['app.example.com'] } }], Actions: [{ Type: 'forward', TargetGroupArn: tg1Arn }] }))
 				]);
 			}
-			await elb.send(new CreateTrustStoreCommand({ Name: 'demo-trust-store', CaCertificatesBundleS3Bucket: TRUST_STORE_CA_S3_BUCKET, CaCertificatesBundleS3Key: TRUST_STORE_CA_S3_KEY }));
+			await elb().send(new CreateTrustStoreCommand({ Name: 'demo-trust-store', CaCertificatesBundleS3Bucket: TRUST_STORE_CA_S3_BUCKET, CaCertificatesBundleS3Key: TRUST_STORE_CA_S3_KEY }));
 			toast.success('Demo data seeded successfully');
 			await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
 		} catch (e) {
@@ -858,8 +858,24 @@
 		else if (tab === 'metrics') await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
 	}
 
-	onMount(async () => {
-		await Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
+	// Every list, the four "selected*" master-detail pointers, and their
+	// detail sub-lists are all region-scoped: an ARN from the old region is
+	// meaningless in the new one.
+	onRegionChange(() => {
+		selectedLB = null;
+		lbListeners = [];
+		selectedTG = null;
+		tgHealth = [];
+		selectedListener = null;
+		listenerRules = [];
+		listenerCerts = [];
+		selectedTrustStore = null;
+		trustStoreRevocations = [];
+		loadBalancers = [];
+		targetGroups = [];
+		allListeners = [];
+		trustStores = [];
+		void Promise.all([loadLoadBalancers(), loadTargetGroups(), loadAllListeners(), loadTrustStores()]);
 	});
 </script>
 

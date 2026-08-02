@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
+	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import {
 		PostToConnectionCommand,
 		DeleteConnectionCommand
 	} from '@aws-sdk/client-apigatewaymanagementapi';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getAPIGatewayManagementAPIClient } from '$lib/aws-client';
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import {
@@ -58,7 +59,7 @@
 		totalRejected: number;
 	};
 
-	const apigwmgmt = getAPIGatewayManagementAPIClient();
+	const apigwmgmt = regionalClient(getAPIGatewayManagementAPIClient);
 	const adminBase = '/_gopherstack/apigwmgmt';
 
 	const messageTemplates = [
@@ -202,7 +203,7 @@
 		}
 		sending = true;
 		try {
-			await apigwmgmt.send(
+			await apigwmgmt().send(
 				new PostToConnectionCommand({
 					ConnectionId: selected.connectionId,
 					Data: new TextEncoder().encode(messageBody)
@@ -280,7 +281,7 @@
 			return;
 		}
 		try {
-			await apigwmgmt.send(new DeleteConnectionCommand({ ConnectionId: selected.connectionId }));
+			await apigwmgmt().send(new DeleteConnectionCommand({ ConnectionId: selected.connectionId }));
 			toast.success('Connection deleted');
 			selected = null;
 			messages = [];
@@ -453,8 +454,24 @@
 		}
 	});
 
-	onMount(() => {
-		void refreshAll();
+	// Connection IDs are not unique across regions, and `refreshAll()` both
+	// reads and writes `selected`/`connections` (its "is the selection still
+	// active" lookup) -- wrapping it directly in `onRegionChange` would turn
+	// those reads into effect dependencies that its own writes then
+	// re-trigger, a self-retriggering loop. Instead, clear the drill-down
+	// state up front (a connection selected in the old region cannot exist
+	// in the new one) and reload only the list + stats; neither
+	// `loadConnections` nor `loadStats` reads `selected` or `connections`,
+	// so no `untrack` is needed here. The periodic auto-refresh timer below
+	// is unaffected: it only calls `refreshAll()`, which talks to the
+	// gopherstack-only admin endpoints over plain `fetch`, never the AWS
+	// client, so it can never fire against a stale-region client.
+	onRegionChange(() => {
+		selected = null;
+		messages = [];
+		timeline = [];
+		void loadConnections();
+		void loadStats();
 	});
 
 	onDestroy(() => {

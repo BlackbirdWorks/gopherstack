@@ -110,6 +110,37 @@ func TestAccessGrantsInstance(t *testing.T) {
 		require.NoError(t, b.DeleteAccessGrantsInstance("000000000000"))
 	})
 
+	// "delete instance rejected while identity center associated" and
+	// "delete instance succeeds once identity center is dissociated" lock in
+	// the third precondition from DeleteAccessGrantsInstance's own doc
+	// comment: "If you have associated an IAM Identity Center instance with
+	// your S3 Access Grants instance, you must first dissassociate the
+	// Identity Center instance ... before you can delete the S3 Access
+	// Grants instance."
+	t.Run("delete instance rejected while identity center associated", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		b.CreateAccessGrantsInstance("000000000000", "arn:aws:sso:::instance/ssoins-test")
+
+		err := b.DeleteAccessGrantsInstance("000000000000")
+		require.Error(t, err)
+		require.ErrorIs(t, err, s3control.ErrValidation)
+
+		_, getErr := b.GetAccessGrantsInstance("000000000000")
+		require.NoError(t, getErr, "instance must survive a rejected delete")
+	})
+
+	t.Run("delete instance succeeds once identity center is dissociated", func(t *testing.T) {
+		t.Parallel()
+		b := s3control.NewInMemoryBackend()
+		b.CreateAccessGrantsInstance("000000000000", "arn:aws:sso:::instance/ssoins-test")
+
+		require.Error(t, b.DeleteAccessGrantsInstance("000000000000"))
+
+		b.DissociateAccessGrantsIdentityCenter("000000000000")
+		require.NoError(t, b.DeleteAccessGrantsInstance("000000000000"))
+	})
+
 	t.Run("resource policy CRUD", func(t *testing.T) {
 		t.Parallel()
 		b := s3control.NewInMemoryBackend()
@@ -925,9 +956,10 @@ func TestAccessGrantsResponseWireShape(t *testing.T) {
 
 // TestHandler_DeleteAccessGrantsInstance_Precondition locks in the
 // gopherstack-tir4 fix for DeleteAccessGrantsInstance's real-API
-// precondition ("You must first delete the access grants and locations
-// before S3 Access Grants can delete the instance") at the HTTP layer: a
-// real client attempting this now gets a 400 BadRequestException instead
+// preconditions -- "You must first delete the access grants and locations
+// before S3 Access Grants can delete the instance" and (separately) the
+// Identity Center dissociation requirement -- at the HTTP layer: a real
+// client attempting any of these now gets a 400 BadRequestException instead
 // of a silent success.
 func TestHandler_DeleteAccessGrantsInstance_Precondition(t *testing.T) {
 	t.Parallel()
@@ -957,6 +989,13 @@ func TestHandler_DeleteAccessGrantsInstance_Precondition(t *testing.T) {
 					"000000000000", loc.AccessGrantsLocationID, "IAMUser", "arn:test", "READ", "",
 				)
 				require.NoError(t, err)
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "instance_with_identity_center_rejected",
+			setup: func(b *s3control.InMemoryBackend) {
+				b.AssociateAccessGrantsIdentityCenter("000000000000", "arn:aws:sso:::instance/ssoins-test")
 			},
 			wantCode: http.StatusBadRequest,
 		},

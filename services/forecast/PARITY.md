@@ -7,8 +7,15 @@
 service: forecast
 sdk_module: aws-sdk-go-v2/service/forecast@v1.42.0
 last_audit_commit: 80757023
-last_audit_date: 2026-07-23
-overall: A            # this pass closed all three named gaps/deferred items from the prior
+last_audit_date: 2026-07-31
+overall: A            # 2026-07-31: pkgs/sdkcheck reverse check found a fabricated "UpdateDataset" operation --
+                       # real Forecast has no such op (only UpdateDatasetGroup exists in the dataset family);
+                       # a prior pass's addCRUD("Dataset", ..., update=true) call both advertised AND dispatched
+                       # it, so this was reachable, not just a documentation typo. Fixed by flipping the flag to
+                       # false, which deletes the fabricated route entirely (nothing legitimate depended on it --
+                       # no test exercised it, and this file's own Dataset family note already only claimed
+                       # Create/Describe/Delete/List). See ops block below.
+                       # 2026-07-23: this pass closed all three named gaps/deferred items from the prior
                        # audit: Domain/DatasetType/ImportMode/DataFrequency field validation,
                        # cross-resource FK existence validation on Create*, and Delete*
                        # status-gating (ResourceInUseException). See "Real bugs fixed this
@@ -41,7 +48,7 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged); Domain required+enum-validated this pass"}
-  Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain/DatasetType field retention correct; Domain/DatasetType required+enum-validated and DataFrequency format-validated this pass"}
+  Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain/DatasetType field retention correct; Domain/DatasetType required+enum-validated and DataFrequency format-validated this pass. 2026-07-31: a fabricated \"UpdateDataset\" route (addCRUD update=true) was found wired and advertised even though this family note never claimed Update -- real Forecast has no such op; deleted, see header note."}
   DatasetImportJob: {status: ok, note: "S3Config.Path required -> CREATE_FAILED on missing path, matches known emulator convention (documented in TestDatasetImportJobs_S3Validation); DatasetArn FK-validated this pass"}
   Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. NOT covered this pass: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are nested FK references and are not existence-validated -- see gaps below"}
   Forecast: {status: ok, note: "Create/Describe/Delete/List verified; epoch-seconds CreationTime/LastModificationTime via awstime.Epoch; PredictorArn FK-validated this pass"}

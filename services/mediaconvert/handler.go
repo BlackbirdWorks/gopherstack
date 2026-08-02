@@ -52,14 +52,26 @@ const (
 	opPutPolicy               = "PutPolicy"
 	opTagResource             = "TagResource"
 	opUntagResource           = "UntagResource"
-	opUpdateJob               = "UpdateJob"
-	opUpdateJobTemplate       = "UpdateJobTemplate"
-	opUpdatePreset            = "UpdatePreset"
-	opUpdateQueue             = "UpdateQueue"
-	opListVersions            = "ListVersions"
-	opProbe                   = "Probe"
-	opSearchJobs              = "SearchJobs"
-	opStartJobsQuery          = "StartJobsQuery"
+	// opUpdateJob is an internal route label for PUT /2017-08-29/jobs/{id}. It is
+	// NOT a real AWS MediaConvert SDK operation — the real API has no UpdateJob
+	// action at all (verified against aws-sdk-go-v2/service/mediaconvert: no
+	// UpdateJobInput/UpdateJobOutput/Client.UpdateJob exist, and botocore's
+	// mediaconvert service-2.json has no PUT route under /jobs/{id}; only
+	// UpdateJobTemplate exists in the Update family). Real MediaConvert jobs are
+	// immutable once created — only CancelJob and priority/queue changes via
+	// CreateJob's siblings exist, not an in-place update. No real SDK client can
+	// ever construct a request that reaches this route, so it stays wired below
+	// as internal test scaffolding only, unadvertised — see gopherstack-vhw2
+	// category A, same resolution as EMR's ListTagsForResource and CloudFront's
+	// GetFunctionAssociations/SetFunctionAssociations.
+	opUpdateJob         = "UpdateJob"
+	opUpdateJobTemplate = "UpdateJobTemplate"
+	opUpdatePreset      = "UpdatePreset"
+	opUpdateQueue       = "UpdateQueue"
+	opListVersions      = "ListVersions"
+	opProbe             = "Probe"
+	opSearchJobs        = "SearchJobs"
+	opStartJobsQuery    = "StartJobsQuery"
 )
 
 const (
@@ -146,7 +158,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opPutPolicy,
 		opTagResource,
 		opUntagResource,
-		opUpdateJob,
+		// opUpdateJob is deliberately NOT advertised — see its doc comment above;
+		// it is not a real MediaConvert SDK operation.
 		opUpdateJobTemplate,
 		opUpdatePreset,
 		opUpdateQueue,

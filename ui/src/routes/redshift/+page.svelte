@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRedshiftClient } from '$lib/aws-client';
 	import {
 		DescribeClustersCommand,
@@ -16,7 +16,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Database, Search, RefreshCw, Plus, Trash2, RotateCcw, ChevronRight, Archive, Settings } from 'lucide-svelte';
 
-	const redshift = getRedshiftClient();
+	const redshift = regionalClient(getRedshiftClient);
 
 	let loading = $state(false);
 	let clusters = $state<Cluster[]>([]);
@@ -71,7 +71,7 @@
 	async function loadClusters() {
 		loading = true;
 		try {
-			const resp = await redshift.send(new DescribeClustersCommand({ MaxRecords: 50 }));
+			const resp = await redshift().send(new DescribeClustersCommand({ MaxRecords: 50 }));
 			clusters = resp.Clusters ?? [];
 		} catch (e) {
 			toast.error('Failed to load clusters: ' + String(e));
@@ -97,7 +97,7 @@
 	async function loadSnapshots(clusterId: string) {
 		loadingSnapshots = true;
 		try {
-			const resp = await redshift.send(new DescribeClusterSnapshotsCommand({
+			const resp = await redshift().send(new DescribeClusterSnapshotsCommand({
 				ClusterIdentifier: clusterId,
 				MaxRecords: 20
 			}));
@@ -113,7 +113,7 @@
 		if (!newClusterId.trim() || !newMasterPassword.trim()) return;
 		creatingCluster = true;
 		try {
-			await redshift.send(new CreateClusterCommand({
+			await redshift().send(new CreateClusterCommand({
 				ClusterIdentifier: newClusterId.trim(),
 				NodeType: newNodeType,
 				ClusterType: newClusterType,
@@ -148,7 +148,7 @@
 	async function deleteCluster(id: string) {
 		if (!await confirmDestructive({ title: 'Delete Redshift Cluster', message: `Delete cluster "${id}"? All data will be permanently lost unless a final snapshot was created.` })) return;
 		try {
-			await redshift.send(new DeleteClusterCommand({
+			await redshift().send(new DeleteClusterCommand({
 				ClusterIdentifier: id,
 				SkipFinalClusterSnapshot: true
 			}));
@@ -162,7 +162,7 @@
 
 	async function rebootCluster(id: string) {
 		try {
-			await redshift.send(new RebootClusterCommand({ ClusterIdentifier: id }));
+			await redshift().send(new RebootClusterCommand({ ClusterIdentifier: id }));
 			toast.success(`Cluster "${id}" rebooting`);
 			await loadClusters();
 		} catch (e) {
@@ -174,7 +174,7 @@
 		if (!selectedCluster || !newSnapshotId.trim()) return;
 		creatingSnapshot = true;
 		try {
-			await redshift.send(new CreateClusterSnapshotCommand({
+			await redshift().send(new CreateClusterSnapshotCommand({
 				ClusterIdentifier: selectedCluster.ClusterIdentifier ?? '',
 				SnapshotIdentifier: newSnapshotId.trim()
 			}));
@@ -194,7 +194,7 @@
 		if (!selectedCluster) return;
 		resizingCluster = true;
 		try {
-			await redshift.send(new ResizeClusterCommand({
+			await redshift().send(new ResizeClusterCommand({
 				ClusterIdentifier: selectedCluster.ClusterIdentifier ?? '',
 				NodeType: resizeNodeType,
 				NumberOfNodes: resizeNumNodes,
@@ -214,7 +214,7 @@
 		return d.toLocaleString();
 	}
 
-	onMount(loadClusters);
+	onRegionChange(loadClusters);
 </script>
 
 <div class="p-6 space-y-6">

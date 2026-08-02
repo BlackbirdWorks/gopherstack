@@ -17,6 +17,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/docdb"
 )
 
+// chromeUserAgent is a realistic browser User-Agent value, used to prove a
+// browser-shaped request (which cannot set User-Agent to an SDK marker --
+// see RouteMatcher's doc comment) still matches via X-Amz-User-Agent.
+const chromeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+
 func newTestHandler(t *testing.T) *docdb.Handler {
 	t.Helper()
 	backend := docdb.NewInMemoryBackend("000000000000", "us-east-1")
@@ -222,6 +227,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		path   string
 		ct     string
 		ua     string
+		xAmzUA string
 		body   string
 		want   bool
 	}{
@@ -233,6 +239,33 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			ua:     "aws-sdk-go api/docdb#1.0",
 			body:   "Action=DescribeDBClusters&Version=2014-10-31",
 			want:   true,
+		},
+		{
+			// A real browser cannot set User-Agent itself (forbidden by the Fetch
+			// spec) -- the browser sends its own literal UA there, and the AWS SDK
+			// for JavaScript puts its SDK identification in X-Amz-User-Agent
+			// instead, using the API model's PascalCase serviceId ("DocDB", not
+			// aws-sdk-go-v2's lowercase "docdb").
+			name:   "browser_docdb_request_via_x_amz_user_agent",
+			method: http.MethodPost,
+			path:   "/",
+			ct:     "application/x-www-form-urlencoded",
+			ua:     chromeUserAgent,
+			xAmzUA: "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js md/react-native api/DocDB/3.1094.0",
+			body:   "Action=DescribeDBClusters&Version=2014-10-31",
+			want:   true,
+		},
+		{
+			// Same browser shape, but for a different service (Neptune) -- must
+			// NOT be claimed by DocDB's matcher.
+			name:   "browser_wrong_service_x_amz_user_agent",
+			method: http.MethodPost,
+			path:   "/",
+			ct:     "application/x-www-form-urlencoded",
+			ua:     chromeUserAgent,
+			xAmzUA: "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js api/Neptune/3.1094.0",
+			body:   "Action=DescribeDBClusters&Version=2014-10-31",
+			want:   false,
 		},
 		{
 			name:   "wrong_method",
@@ -288,6 +321,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.ct)
 			req.Header.Set("User-Agent", tt.ua)
+			if tt.xAmzUA != "" {
+				req.Header.Set("X-Amz-User-Agent", tt.xAmzUA)
+			}
 			rr := httptest.NewRecorder()
 			c := e.NewContext(req, rr)
 			got := matcher(c)

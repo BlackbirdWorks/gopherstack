@@ -124,7 +124,9 @@ func TestExportedCountHelpers(t *testing.T) {
 		{"ParameterGroupCount", memorydb.ParameterGroupCount(b), 4}, // 4 default parameter groups seeded
 		{"EventCount", memorydb.EventCount(b), 1},
 		{"MultiRegionClusterCount", memorydb.MultiRegionClusterCount(b), 0},
-		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 46},
+		// 45, not 46: "ExportSnapshot" was removed from GetSupportedOperations
+		// because it is not a real MemoryDB SDK operation — see handler.go.
+		{"HandlerOpsLen", memorydb.HandlerOpsLen(h), 45},
 	}
 
 	for _, tt := range tests {

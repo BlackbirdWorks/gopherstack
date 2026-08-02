@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/appsync"
 )
 
+// chromeUserAgent is a realistic browser User-Agent value, used to prove a
+// browser-shaped request (which cannot set User-Agent to an SDK marker --
+// see RouteMatcher's doc comment) still matches via X-Amz-User-Agent.
+const chromeUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
+
 func TestParseOperation_DataSourceIntrospections(t *testing.T) {
 	t.Parallel()
 
@@ -341,6 +346,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		name      string
 		path      string
 		userAgent string
+		xAmzUA    string
 		match     bool
 	}{
 		{name: "matches_v1_apis", path: "/v1/apis", match: true},
@@ -368,6 +374,27 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			match:     true,
 		},
 		{name: "v2_apis_with_id_no_ua", path: "/v2/apis/abc123", userAgent: "", match: false},
+		{
+			// A real browser cannot set User-Agent itself (forbidden by the Fetch
+			// spec) -- the browser sends its own literal UA there, and the AWS SDK
+			// for JavaScript puts its SDK identification in X-Amz-User-Agent
+			// instead, using the API model's PascalCase serviceId ("AppSync", not
+			// aws-sdk-go-v2's lowercase "appsync").
+			name:      "v2_apis_browser_appsync_x_amz_user_agent",
+			path:      "/v2/apis",
+			userAgent: chromeUserAgent,
+			xAmzUA:    "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js md/react-native api/AppSync/3.1094.0",
+			match:     true,
+		},
+		{
+			// Same browser shape, but for the sibling service (API Gateway V2) that
+			// shares this path prefix -- must NOT be claimed by AppSync's matcher.
+			name:      "v2_apis_browser_apigwv2_x_amz_user_agent",
+			path:      "/v2/apis",
+			userAgent: chromeUserAgent,
+			xAmzUA:    "aws-sdk-js/3.1094.0 ua/2.1 os/browser lang/js api/ApiGatewayV2/3.1094.0",
+			match:     false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -377,6 +404,9 @@ func TestHandler_RouteMatcher(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
 			if tt.userAgent != "" {
 				req.Header.Set("User-Agent", tt.userAgent)
+			}
+			if tt.xAmzUA != "" {
+				req.Header.Set("X-Amz-User-Agent", tt.xAmzUA)
 			}
 			c := e.NewContext(req, httptest.NewRecorder())
 			matcher := h.RouteMatcher()
@@ -391,8 +421,12 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	h, _ := newTestHandler()
 	ops := h.GetSupportedOperations()
 	assert.Contains(t, ops, "CreateGraphqlApi")
-	assert.Contains(t, ops, "ExecuteGraphQL")
 	assert.Contains(t, ops, "CreateResolver")
+	// "ExecuteGraphQL" is deliberately NOT advertised: it is an internal route
+	// label for the GraphQL data-plane endpoint, not a real AppSync SDK
+	// operation (aws-sdk-go-v2/service/appsync.Client has no such method) — see
+	// opExecuteGraphQL's doc comment in handler.go.
+	assert.NotContains(t, ops, "ExecuteGraphQL")
 }
 
 func TestHandler_ExtractOperation(t *testing.T) {

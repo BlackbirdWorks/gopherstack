@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodeCommitClient } from '$lib/aws-client';
 	import {
 		ListRepositoriesCommand,
@@ -11,7 +11,6 @@
 		GetBranchCommand,
 		GetCommitCommand,
 		GetFolderCommand,
-		type CodeCommitClient,
 		type RepositoryNameIdPair,
 		type RepositoryMetadata,
 		type PullRequest,
@@ -22,10 +21,7 @@
 	import { toast } from 'svelte-sonner';
 	import { GitBranch, RefreshCw, Search, GitCommit, ChevronRight, Folder, GitMerge, Plus, X, FileText, FolderOpen, ArrowUp } from 'lucide-svelte';
 
-	let ccClient: CodeCommitClient | undefined;
-	function cc(): CodeCommitClient {
-		return (ccClient ??= getCodeCommitClient());
-	}
+	const cc = regionalClient(getCodeCommitClient);
 
 	type DetailTab = 'overview' | 'branches' | 'pullrequests' | 'files' | 'commits';
 
@@ -227,7 +223,7 @@
 		return 'bg-gray-100 text-gray-600';
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">

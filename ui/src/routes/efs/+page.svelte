@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getEFSClient } from '$lib/aws-client';
 	import {
 		CreateFileSystemCommand,
@@ -17,7 +17,7 @@
 	import { toast } from 'svelte-sonner';
 	import { HardDrive, Search, RefreshCw, ChevronRight, Server, Plus, Trash2 } from 'lucide-svelte';
 
-	const client = getEFSClient();
+	const client = regionalClient(getEFSClient);
 
 	let loading = $state(false);
 	let fileSystems = $state<FileSystemDescription[]>([]);
@@ -65,10 +65,10 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const fsResp = await client.send(new DescribeFileSystemsCommand({}));
+			const fsResp = await client().send(new DescribeFileSystemsCommand({}));
 			fileSystems = fsResp.FileSystems ?? [];
 			if (fileSystems.length > 0) {
-				const mtResp = await client.send(
+				const mtResp = await client().send(
 					new DescribeMountTargetsCommand({ FileSystemId: fileSystems[0].FileSystemId })
 				);
 				mountTargets = mtResp.MountTargets ?? [];
@@ -84,7 +84,7 @@
 
 	async function loadMountTargets(fsId: string) {
 		try {
-			const mtResp = await client.send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
+			const mtResp = await client().send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
 			mountTargets = mtResp.MountTargets ?? [];
 		} catch (e) {
 			toast.error('Failed to load mount targets: ' + String(e));
@@ -94,7 +94,7 @@
 	async function loadAccessPoints(fsId: string) {
 		loadingAccessPoints = true;
 		try {
-			const res = await client.send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
+			const res = await client().send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
 			accessPoints = res.AccessPoints ?? [];
 		} catch (e) {
 			toast.error('Failed to load access points: ' + String(e));
@@ -110,7 +110,7 @@
 		}
 		creating = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateFileSystemCommand({
 					CreationToken: newCreationToken.trim(),
 					PerformanceMode: newPerformanceMode as 'generalPurpose' | 'maxIO',
@@ -143,7 +143,7 @@
 		)
 			return;
 		try {
-			await client.send(new DeleteFileSystemCommand({ FileSystemId: id }));
+			await client().send(new DeleteFileSystemCommand({ FileSystemId: id }));
 			toast.success(`File system ${id} deleted`);
 			if (selectedFS?.FileSystemId === id) { selectedFS = null; accessPoints = []; }
 			await loadData();
@@ -160,7 +160,7 @@
 		}
 		creatingMT = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateMountTargetCommand({
 					FileSystemId: selectedFS.FileSystemId,
 					SubnetId: newMTSubnetId.trim()
@@ -187,7 +187,7 @@
 		)
 			return;
 		try {
-			await client.send(new DeleteMountTargetCommand({ MountTargetId: id }));
+			await client().send(new DeleteMountTargetCommand({ MountTargetId: id }));
 			toast.success(`Mount target ${id} deleted`);
 			if (selectedFS?.FileSystemId) await loadMountTargets(selectedFS.FileSystemId);
 		} catch (e) {
@@ -195,7 +195,7 @@
 		}
 	}
 
-	onMount(loadData);
+	onRegionChange(loadData);
 </script>
 
 <div class="p-6 space-y-6">
@@ -506,8 +506,8 @@
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Create File System</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Creation Token <span class="text-red-500">*</span></label>
-					<input
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-creation-token">Creation Token <span class="text-red-500">*</span></label>
+					<input id="new-creation-token"
 						bind:value={newCreationToken}
 						type="text"
 						placeholder="my-fs-token"
@@ -515,15 +515,15 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Performance Mode</label>
-					<select bind:value={newPerformanceMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-performance-mode">Performance Mode</label>
+					<select id="new-performance-mode" bind:value={newPerformanceMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
 						<option value="generalPurpose">General Purpose</option>
 						<option value="maxIO">Max I/O</option>
 					</select>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Throughput Mode</label>
-					<select bind:value={newThroughputMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-throughput-mode">Throughput Mode</label>
+					<select id="new-throughput-mode" bind:value={newThroughputMode} class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm">
 						<option value="bursting">Bursting</option>
 						<option value="provisioned">Provisioned</option>
 						<option value="elastic">Elastic</option>
@@ -556,12 +556,12 @@
 			<h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Add Mount Target</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">File System</label>
+					<div class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">File System</div>
 					<p class="text-sm font-mono text-gray-600 dark:text-gray-400">{selectedFS?.FileSystemId}</p>
 				</div>
 				<div>
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subnet ID <span class="text-red-500">*</span></label>
-					<input
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" for="new-mt-subnet-id">Subnet ID <span class="text-red-500">*</span></label>
+					<input id="new-mt-subnet-id"
 						bind:value={newMTSubnetId}
 						type="text"
 						placeholder="subnet-12345678"

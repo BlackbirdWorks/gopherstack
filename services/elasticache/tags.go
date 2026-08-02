@@ -180,3 +180,32 @@ func (b *InMemoryBackend) RemoveTagsFromResource(_ context.Context, resourceARN 
 
 	return nil
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingElastiCache).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every ElastiCache resource ARN that currently has
+// at least one tag, across every taggable resource kind (see
+// collectTagCandidatesLocked).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, c := range b.collectTagCandidatesLocked() {
+		t := *c.entry.ptr
+		if t == nil || t.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: c.arn, Tags: t.Clone()})
+	}
+
+	return out
+}

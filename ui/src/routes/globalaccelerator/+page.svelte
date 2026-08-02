@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getGlobalAcceleratorClient } from '$lib/aws-client';
 	import {
 		ListAcceleratorsCommand,
@@ -29,7 +29,7 @@
 		Globe2, Server, Target, ZapOff
 	} from 'lucide-svelte';
 
-	const ga = getGlobalAcceleratorClient();
+	const ga = regionalClient(getGlobalAcceleratorClient);
 
 	// State
 	let loading = $state(false);
@@ -54,7 +54,7 @@
 	async function loadAccelerators() {
 		loading = true;
 		try {
-			const res = await ga.send(new ListAcceleratorsCommand({}));
+			const res = await ga().send(new ListAcceleratorsCommand({}));
 			accelerators = res.Accelerators ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load Global Accelerator: ${(err as Error).message}`);
@@ -67,11 +67,11 @@
 		selectedAccelerator = accel;
 		loadingDetails = true;
 		try {
-			const lisRes = await ga.send(new ListListenersCommand({ AcceleratorArn: accel.AcceleratorArn }));
+			const lisRes = await ga().send(new ListListenersCommand({ AcceleratorArn: accel.AcceleratorArn }));
 			listeners = lisRes.Listeners ?? [];
 			
 			if (listeners.length > 0) {
-				const egRes = await ga.send(new ListEndpointGroupsCommand({ ListenerArn: listeners[0].ListenerArn }));
+				const egRes = await ga().send(new ListEndpointGroupsCommand({ ListenerArn: listeners[0].ListenerArn }));
 				endpointGroups = egRes.EndpointGroups ?? [];
 			} else {
 				endpointGroups = [];
@@ -86,7 +86,7 @@
 	async function deleteAccelerator(arn: string | undefined) {
 		if (!arn || !await confirmDestructive({ title: 'Delete Global Accelerator', message: 'Delete this Global Accelerator? All static IP entry points will be permanently decommissioned.' })) return;
 		try {
-			await ga.send(new DeleteAcceleratorCommand({ AcceleratorArn: arn }));
+			await ga().send(new DeleteAcceleratorCommand({ AcceleratorArn: arn }));
 			toast.success(`Accelerator deletion initiated`);
 			selectedAccelerator = null;
 			await loadAccelerators();
@@ -99,7 +99,7 @@
 		if (!accelName.trim()) return;
 		creating = true;
 		try {
-			await ga.send(new CreateAcceleratorCommand({
+			await ga().send(new CreateAcceleratorCommand({
 				Name: accelName.trim(),
 				Enabled: true,
 				IpAddressType: 'IPV4'
@@ -121,9 +121,7 @@
 		return 'bg-slate-400';
 	}
 
-	onMount(() => {
-		loadAccelerators();
-	});
+	onRegionChange(loadAccelerators);
 </script>
 
 <div class="space-y-6">

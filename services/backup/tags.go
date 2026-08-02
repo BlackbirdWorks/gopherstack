@@ -1,6 +1,56 @@
 package backup
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingBackup).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// appendBackupTaggedEntry appends a TaggedEntry for arn/t to entries when t
+// holds at least one tag.
+func appendBackupTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
+	if t == nil || t.Len() == 0 {
+		return entries
+	}
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: t.Clone()})
+}
+
+// TaggedResources returns every Backup resource ARN that currently has at
+// least one tag, across every taggable Backup resource kind (backup vaults,
+// backup plans, frameworks, report plans).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, v := range b.vaults.All() {
+		out = appendBackupTaggedEntry(out, v.BackupVaultArn, v.Tags)
+	}
+
+	for _, p := range b.plans.All() {
+		out = appendBackupTaggedEntry(out, p.BackupPlanArn, p.Tags)
+	}
+
+	for _, f := range b.frameworks.All() {
+		out = appendBackupTaggedEntry(out, f.FrameworkArn, f.Tags)
+	}
+
+	for _, rp := range b.reportPlans.All() {
+		out = appendBackupTaggedEntry(out, rp.ReportPlanArn, rp.Tags)
+	}
+
+	return out
+}
 
 // TagResource adds tags to a resource by ARN.
 // Supported resource types: backup vaults, backup plans, frameworks, report plans.

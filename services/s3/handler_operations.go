@@ -45,7 +45,6 @@ func s3CoreOperations() []string {
 		"DeleteBucketCors",
 		"PutBucketLifecycleConfiguration",
 		"GetBucketLifecycleConfiguration",
-		"DeleteBucketLifecycleConfiguration",
 		"PutBucketNotificationConfiguration",
 		"GetBucketNotificationConfiguration",
 		"PutBucketWebsite",

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getIoTWirelessClient } from '$lib/aws-client';
 	import {
 		ListWirelessDevicesCommand,
@@ -30,7 +30,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Wifi, Radio, RefreshCw, Plus, Trash2, Search, Server, BookOpen, Layers } from 'lucide-svelte';
 
-	const client = getIoTWirelessClient();
+	const client = regionalClient(getIoTWirelessClient);
 
 	type Tab = 'devices' | 'gateways' | 'service-profiles' | 'destinations' | 'device-profiles' | 'fuota-tasks';
 	let activeTab = $state<Tab>('devices');
@@ -122,7 +122,7 @@
 	async function loadDevices() {
 		loadingDevices = true;
 		try {
-			const out = await client.send(new ListWirelessDevicesCommand({}));
+			const out = await client().send(new ListWirelessDevicesCommand({}));
 			devices = out.WirelessDeviceList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load devices: ${(err as Error).message}`);
@@ -134,7 +134,7 @@
 	async function loadGateways() {
 		loadingGateways = true;
 		try {
-			const out = await client.send(new ListWirelessGatewaysCommand({}));
+			const out = await client().send(new ListWirelessGatewaysCommand({}));
 			gateways = out.WirelessGatewayList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load gateways: ${(err as Error).message}`);
@@ -146,7 +146,7 @@
 	async function loadServiceProfiles() {
 		loadingServiceProfiles = true;
 		try {
-			const out = await client.send(new ListServiceProfilesCommand({}));
+			const out = await client().send(new ListServiceProfilesCommand({}));
 			serviceProfiles = out.ServiceProfileList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load service profiles: ${(err as Error).message}`);
@@ -158,7 +158,7 @@
 	async function loadDestinations() {
 		loadingDestinations = true;
 		try {
-			const out = await client.send(new ListDestinationsCommand({}));
+			const out = await client().send(new ListDestinationsCommand({}));
 			destinations = out.DestinationList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load destinations: ${(err as Error).message}`);
@@ -170,7 +170,7 @@
 	async function loadDeviceProfiles() {
 		loadingDeviceProfiles = true;
 		try {
-			const out = await client.send(new ListDeviceProfilesCommand({}));
+			const out = await client().send(new ListDeviceProfilesCommand({}));
 			deviceProfiles = out.DeviceProfileList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load device profiles: ${(err as Error).message}`);
@@ -182,7 +182,7 @@
 	async function loadFuotaTasks() {
 		loadingFuotaTasks = true;
 		try {
-			const out = await client.send(new ListFuotaTasksCommand({}));
+			const out = await client().send(new ListFuotaTasksCommand({}));
 			fuotaTasks = out.FuotaTaskList ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load FUOTA tasks: ${(err as Error).message}`);
@@ -200,7 +200,7 @@
 		}
 		creatingDevice = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateWirelessDeviceCommand({
 					Name: newDeviceName.trim(),
 					Type: newDeviceType === 'LoRaWAN' ? 'LoRaWAN' : 'Sidewalk',
@@ -221,7 +221,7 @@
 
 	async function deleteDevice(id: string) {
 		try {
-			await client.send(new DeleteWirelessDeviceCommand({ Id: id }));
+			await client().send(new DeleteWirelessDeviceCommand({ Id: id }));
 			await loadDevices();
 			toast.success('Device deleted');
 		} catch (err: unknown) {
@@ -236,7 +236,7 @@
 		}
 		creatingGateway = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateWirelessGatewayCommand({
 					Name: newGatewayName.trim(),
 					Description: newGatewayDescription.trim() || undefined,
@@ -257,7 +257,7 @@
 
 	async function deleteGateway(id: string) {
 		try {
-			await client.send(new DeleteWirelessGatewayCommand({ Id: id }));
+			await client().send(new DeleteWirelessGatewayCommand({ Id: id }));
 			await loadGateways();
 			toast.success('Gateway deleted');
 		} catch (err: unknown) {
@@ -272,7 +272,7 @@
 		}
 		creatingServiceProfile = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateServiceProfileCommand({ Name: newServiceProfileName.trim() })
 			);
 			showCreateServiceProfile = false;
@@ -288,7 +288,7 @@
 
 	async function deleteServiceProfile(id: string) {
 		try {
-			await client.send(new DeleteServiceProfileCommand({ Id: id }));
+			await client().send(new DeleteServiceProfileCommand({ Id: id }));
 			await loadServiceProfiles();
 			toast.success('Service profile deleted');
 		} catch (err: unknown) {
@@ -303,7 +303,7 @@
 		}
 		creatingDestination = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateDestinationCommand({
 					Name: newDestinationName.trim(),
 					Expression: newDestinationExpression.trim(),
@@ -326,7 +326,7 @@
 
 	async function deleteDestination(name: string) {
 		try {
-			await client.send(new DeleteDestinationCommand({ Name: name }));
+			await client().send(new DeleteDestinationCommand({ Name: name }));
 			await loadDestinations();
 			toast.success('Destination deleted');
 		} catch (err: unknown) {
@@ -341,7 +341,7 @@
 		}
 		creatingDeviceProfile = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateDeviceProfileCommand({ Name: newDeviceProfileName.trim() })
 			);
 			showCreateDeviceProfile = false;
@@ -357,7 +357,7 @@
 
 	async function deleteDeviceProfile(id: string) {
 		try {
-			await client.send(new DeleteDeviceProfileCommand({ Id: id }));
+			await client().send(new DeleteDeviceProfileCommand({ Id: id }));
 			await loadDeviceProfiles();
 			toast.success('Device profile deleted');
 		} catch (err: unknown) {
@@ -372,7 +372,7 @@
 		}
 		creatingFuotaTask = true;
 		try {
-			await client.send(
+			await client().send(
 				new CreateFuotaTaskCommand({
 					Name: newFuotaTaskName.trim(),
 					FirmwareUpdateImage: newFuotaTaskFirmwareImage.trim(),
@@ -395,7 +395,7 @@
 
 	async function deleteFuotaTask(id: string) {
 		try {
-			await client.send(new DeleteFuotaTaskCommand({ Id: id }));
+			await client().send(new DeleteFuotaTaskCommand({ Id: id }));
 			await loadFuotaTasks();
 			toast.success('FUOTA task deleted');
 		} catch (err: unknown) {
@@ -408,7 +408,7 @@
 		searchQuery = '';
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		loadDevices();
 		loadGateways();
 		loadServiceProfiles();
@@ -488,23 +488,23 @@
 					<h3 class="font-medium">Create Wireless Device</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-device-name">Name *</label>
+							<input id="new-device-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-device"
 								bind:value={newDeviceName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Type</label>
-							<select class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDeviceType}>
+							<label class="text-sm font-medium" for="new-device-type">Type</label>
+							<select id="new-device-type" class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDeviceType}>
 								<option value="LoRaWAN">LoRaWAN</option>
 								<option value="Sidewalk">Sidewalk</option>
 							</select>
 						</div>
 						<div class="col-span-2">
-							<label class="text-sm font-medium">Destination Name</label>
-							<input
+							<label class="text-sm font-medium" for="new-device-destination">Destination Name</label>
+							<input id="new-device-destination"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-destination"
 								bind:value={newDeviceDestination}
@@ -593,16 +593,16 @@
 					<h3 class="font-medium">Create Wireless Gateway</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-gateway-name">Name *</label>
+							<input id="new-gateway-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-gateway"
 								bind:value={newGatewayName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Description</label>
-							<input
+							<label class="text-sm font-medium" for="new-gateway-description">Description</label>
+							<input id="new-gateway-description"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="Optional description"
 								bind:value={newGatewayDescription}
@@ -690,8 +690,8 @@
 				<div class="rounded border bg-muted/30 p-4 space-y-3">
 					<h3 class="font-medium">Create Service Profile</h3>
 					<div>
-						<label class="text-sm font-medium">Name *</label>
-						<input
+						<label class="text-sm font-medium" for="new-service-profile-name">Name *</label>
+						<input id="new-service-profile-name"
 							class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm max-w-sm"
 							placeholder="my-service-profile"
 							bind:value={newServiceProfileName}
@@ -777,31 +777,31 @@
 					<h3 class="font-medium">Create Destination</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-name">Name *</label>
+							<input id="new-destination-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-destination"
 								bind:value={newDestinationName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Expression Type</label>
-							<select class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDestinationExpressionType}>
+							<label class="text-sm font-medium" for="new-destination-expression-type">Expression Type</label>
+							<select id="new-destination-expression-type" class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm" bind:value={newDestinationExpressionType}>
 								<option value="RuleName">RuleName</option>
 								<option value="MqttTopic">MqttTopic</option>
 							</select>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Expression *</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-expression">Expression *</label>
+							<input id="new-destination-expression"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-iot-rule"
 								bind:value={newDestinationExpression}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Role ARN</label>
-							<input
+							<label class="text-sm font-medium" for="new-destination-role-arn">Role ARN</label>
+							<input id="new-destination-role-arn"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="arn:aws:iam::..."
 								bind:value={newDestinationRoleArn}
@@ -889,8 +889,8 @@
 				<div class="rounded border bg-muted/30 p-4 space-y-3">
 					<h3 class="font-medium">Create Device Profile</h3>
 					<div>
-						<label class="text-sm font-medium">Name *</label>
-						<input
+						<label class="text-sm font-medium" for="new-device-profile-name">Name *</label>
+						<input id="new-device-profile-name"
 							class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm max-w-sm"
 							placeholder="my-device-profile"
 							bind:value={newDeviceProfileName}
@@ -976,24 +976,24 @@
 					<h3 class="font-medium">Create FUOTA Task</h3>
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="text-sm font-medium">Name *</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-name">Name *</label>
+							<input id="new-fuota-task-name"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="my-fuota-task"
 								bind:value={newFuotaTaskName}
 							/>
 						</div>
 						<div>
-							<label class="text-sm font-medium">Firmware Update Role ARN</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-firmware-role">Firmware Update Role ARN</label>
+							<input id="new-fuota-task-firmware-role"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="arn:aws:iam::..."
 								bind:value={newFuotaTaskFirmwareRole}
 							/>
 						</div>
 						<div class="col-span-2">
-							<label class="text-sm font-medium">Firmware Image S3 URL *</label>
-							<input
+							<label class="text-sm font-medium" for="new-fuota-task-firmware-image">Firmware Image S3 URL *</label>
+							<input id="new-fuota-task-firmware-image"
 								class="mt-1 w-full rounded border bg-background px-3 py-1.5 text-sm"
 								placeholder="s3://my-bucket/firmware.bin"
 								bind:value={newFuotaTaskFirmwareImage}

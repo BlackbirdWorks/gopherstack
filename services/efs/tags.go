@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // validateTags returns an error if any tag key/value violates AWS constraints.
@@ -156,6 +158,44 @@ func (b *InMemoryBackend) CreateTags(ctx context.Context, fileSystemID string, k
 	fs.Tags.Merge(kv)
 
 	return nil
+}
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingEFS).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// appendEFSTaggedEntry appends a TaggedEntry for arn/t to entries when t
+// holds at least one tag.
+func appendEFSTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []TaggedEntry {
+	if t == nil || t.Len() == 0 {
+		return entries
+	}
+
+	return append(entries, TaggedEntry{ARN: arn, Tags: t.Clone()})
+}
+
+// TaggedResources returns every EFS resource ARN that currently has at
+// least one tag, across every taggable EFS resource kind (file systems,
+// access points).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, fs := range b.fileSystems.All() {
+		out = appendEFSTaggedEntry(out, fs.FileSystemArn, fs.Tags)
+	}
+
+	for _, ap := range b.accessPoints.All() {
+		out = appendEFSTaggedEntry(out, ap.AccessPointArn, ap.Tags)
+	}
+
+	return out
 }
 
 // DeleteTags removes tags from a file system by key (legacy operation).

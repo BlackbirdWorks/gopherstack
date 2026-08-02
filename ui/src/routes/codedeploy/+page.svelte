@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getCodeDeployClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -29,7 +30,7 @@
 	import { toast } from 'svelte-sonner';
 	import { Package, Search, RefreshCw, Plus, XCircle, ChevronRight, Play, CheckCircle, AlertCircle, Server, Settings } from 'lucide-svelte';
 
-	const codedeploy = getCodeDeployClient();
+	const codedeploy = regionalClient(getCodeDeployClient);
 
 	let loading = $state(false);
 	let appNames = $state<string[]>([]);
@@ -101,7 +102,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const resp = await codedeploy.send(new ListApplicationsCommand({}));
+			const resp = await codedeploy().send(new ListApplicationsCommand({}));
 			appNames = resp.applications ?? [];
 		} catch (e) {
 			toast.error('Failed to load applications: ' + String(e));
@@ -115,8 +116,8 @@
 		activeTab = 'groups';
 		try {
 			const [appResp, groupsResp] = await Promise.all([
-				codedeploy.send(new GetApplicationCommand({ applicationName: name })),
-				codedeploy.send(new ListDeploymentGroupsCommand({ applicationName: name }))
+				codedeploy().send(new GetApplicationCommand({ applicationName: name })),
+				codedeploy().send(new ListDeploymentGroupsCommand({ applicationName: name }))
 			]);
 			selectedApp = appResp.application ?? null;
 			deploymentGroups = groupsResp.deploymentGroups ?? [];
@@ -131,14 +132,14 @@
 		if (!selectedApp) return;
 		loadingDeployments = true;
 		try {
-			const resp = await codedeploy.send(new ListDeploymentsCommand({
+			const resp = await codedeploy().send(new ListDeploymentsCommand({
 				applicationName: selectedApp.applicationName,
 				includeOnlyStatuses: ['Created', 'Queued', 'InProgress', 'Succeeded', 'Failed', 'Stopped', 'Ready']
 			}));
 			deployments = resp.deployments ?? [];
 			const details = await Promise.allSettled(
 				deployments.slice(0, 10).map((id) =>
-					codedeploy.send(new GetDeploymentCommand({ deploymentId: id })).then((r) => r.deploymentInfo)
+					codedeploy().send(new GetDeploymentCommand({ deploymentId: id })).then((r) => r.deploymentInfo)
 				)
 			);
 			deploymentDetails = details
@@ -165,10 +166,10 @@
 		if (!dep.deploymentId) return;
 		loadingInstances = true;
 		try {
-			const listRes = await codedeploy.send(new ListDeploymentInstancesCommand({ deploymentId: dep.deploymentId }));
+			const listRes = await codedeploy().send(new ListDeploymentInstancesCommand({ deploymentId: dep.deploymentId }));
 			const ids = (listRes.instancesList ?? []).slice(0, 20);
 			if (ids.length > 0) {
-				const batchRes = await codedeploy.send(new BatchGetDeploymentInstancesCommand({ deploymentId: dep.deploymentId, instanceIds: ids }));
+				const batchRes = await codedeploy().send(new BatchGetDeploymentInstancesCommand({ deploymentId: dep.deploymentId, instanceIds: ids }));
 				deploymentInstances = batchRes.instancesSummary ?? [];
 			}
 		} catch (e) {
@@ -183,7 +184,7 @@
 		loadingGroupDetail = true;
 		selectedGroup = null;
 		try {
-			const res = await codedeploy.send(new GetDeploymentGroupCommand({ applicationName: selectedApp.applicationName, deploymentGroupName: grpName }));
+			const res = await codedeploy().send(new GetDeploymentGroupCommand({ applicationName: selectedApp.applicationName, deploymentGroupName: grpName }));
 			selectedGroup = res.deploymentGroupInfo ?? null;
 		} catch (e) {
 			toast.error('Failed to load group detail: ' + String(e));
@@ -213,7 +214,7 @@
 								commitId: deployGitHubCommit.trim()
 							}
 						};
-			const resp = await codedeploy.send(new CreateDeploymentCommand({
+			const resp = await codedeploy().send(new CreateDeploymentCommand({
 				applicationName: selectedApp.applicationName,
 				deploymentGroupName: deployGroup.trim(),
 				revision
@@ -242,7 +243,7 @@
 
 	async function stopDeployment(id: string) {
 		try {
-			await codedeploy.send(new StopDeploymentCommand({ deploymentId: id, autoRollbackEnabled: false }));
+			await codedeploy().send(new StopDeploymentCommand({ deploymentId: id, autoRollbackEnabled: false }));
 			toast.success('Deployment stop requested');
 			await loadDeployments();
 		} catch (e) {
@@ -258,10 +259,10 @@
 	async function loadConfigs() {
 		loadingConfigs = true;
 		try {
-			const listResp = await codedeploy.send(new ListDeploymentConfigsCommand({}));
+			const listResp = await codedeploy().send(new ListDeploymentConfigsCommand({}));
 			const names = listResp.deploymentConfigsList ?? [];
 			const details = await Promise.allSettled(
-				names.map((n) => codedeploy.send(new GetDeploymentConfigCommand({ deploymentConfigName: n })).then((r) => r.deploymentConfigInfo))
+				names.map((n) => codedeploy().send(new GetDeploymentConfigCommand({ deploymentConfigName: n })).then((r) => r.deploymentConfigInfo))
 			);
 			deployConfigs = details
 				.filter((r) => r.status === 'fulfilled')
@@ -278,7 +279,7 @@
 		if (!newConfigName.trim()) return;
 		creatingConfig = true;
 		try {
-			await codedeploy.send(new CreateDeploymentConfigCommand({
+			await codedeploy().send(new CreateDeploymentConfigCommand({
 				deploymentConfigName: newConfigName.trim(),
 				computePlatform: newConfigPlatform as 'Server' | 'Lambda' | 'ECS'
 			}));
@@ -296,10 +297,10 @@
 	async function loadOnPremInstances() {
 		loadingOnPrem = true;
 		try {
-			const listResp = await codedeploy.send(new ListOnPremisesInstancesCommand({}));
+			const listResp = await codedeploy().send(new ListOnPremisesInstancesCommand({}));
 			const names = listResp.instanceNames ?? [];
 			const details = await Promise.allSettled(
-				names.map((n) => codedeploy.send(new GetOnPremisesInstanceCommand({ instanceName: n })).then((r) => r.instanceInfo))
+				names.map((n) => codedeploy().send(new GetOnPremisesInstanceCommand({ instanceName: n })).then((r) => r.instanceInfo))
 			);
 			onPremInstances = details
 				.filter((r) => r.status === 'fulfilled')
@@ -316,7 +317,7 @@
 		if (!newInstanceName.trim()) return;
 		registeringInstance = true;
 		try {
-			await codedeploy.send(new RegisterOnPremisesInstanceCommand({
+			await codedeploy().send(new RegisterOnPremisesInstanceCommand({
 				instanceName: newInstanceName.trim(),
 				iamUserArn: newInstanceIamArn.trim() || undefined
 			}));
@@ -334,7 +335,7 @@
 
 	async function deregisterInstance(name: string) {
 		try {
-			await codedeploy.send(new DeregisterOnPremisesInstanceCommand({ instanceName: name }));
+			await codedeploy().send(new DeregisterOnPremisesInstanceCommand({ instanceName: name }));
 			toast.success(`Instance "${name}" deregistered`);
 			await loadOnPremInstances();
 		} catch (e) {
@@ -348,7 +349,29 @@
 		if (v === 'onprem' && onPremInstances.length === 0) loadOnPremInstances();
 	}
 
-	onMount(loadApps);
+	// Application names, deployment groups/deployments, and deployment
+	// configs are only unique within a region, so a selected app (and its
+	// deployment group/deployment detail state) from the old region must not
+	// survive a region switch -- clear it and fall back to the list. `mainView`
+	// is read with `untrack` since switchMainView() already reloads directly
+	// on tab switch; letting the effect also depend on it would double-fetch
+	// on every subsequent region change.
+	onRegionChange(() => {
+		selectedApp = null;
+		deploymentGroups = [];
+		deployments = [];
+		deploymentDetails = [];
+		selectedGroup = null;
+		selectedDeployment = null;
+		deploymentInstances = [];
+		activeTab = 'groups';
+		deployConfigs = [];
+		onPremInstances = [];
+		loadApps();
+		const view = untrack(() => mainView);
+		if (view === 'configs') loadConfigs();
+		else if (view === 'onprem') loadOnPremInstances();
+	});
 </script>
 
 <div class="p-6 space-y-6">

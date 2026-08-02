@@ -1,17 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import S3Page from "./+page.svelte";
+import { setMockPageUrl } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
-vi.mock("$lib/aws/client", () => ({
-  newS3Client: () => ({ send: mockSend }),
+vi.mock("$lib/aws-client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getS3Client: () => ({ send: mockSend }),
+}));
+
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
 }));
 
 vi.mock("svelte-sonner", () => ({
   toast: {
     success: vi.fn(),
     error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
   },
 }));
 
@@ -19,6 +28,8 @@ describe("S3 Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
   });
 
   it("renders page title and create button", () => {
@@ -37,6 +48,7 @@ describe("S3 Page", () => {
         { Name: "backups", CreationDate: new Date("2024-06-15") },
       ],
     });
+    mockSend.mockResolvedValue({ Contents: [], IsTruncated: false });
 
     render(S3Page);
 
@@ -57,6 +69,7 @@ describe("S3 Page", () => {
         { Name: "gamma-bucket", CreationDate: new Date() },
       ],
     });
+    mockSend.mockResolvedValue({ Contents: [], IsTruncated: false });
 
     render(S3Page);
 
@@ -75,6 +88,26 @@ describe("S3 Page", () => {
     });
     expect(screen.getByText("beta-bucket")).toBeInTheDocument();
     expect(screen.queryByText("gamma-bucket")).not.toBeInTheDocument();
+  });
+
+  it("honors ?q= and ?sort= from the URL on load", async () => {
+    setMockPageUrl(new URL("http://localhost/s3?q=beta&sort=newest"));
+    mockSend.mockResolvedValueOnce({
+      Buckets: [
+        { Name: "alpha-bucket", CreationDate: new Date("2024-01-01") },
+        { Name: "beta-bucket", CreationDate: new Date("2024-06-15") },
+      ],
+    });
+    mockSend.mockResolvedValue({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("beta-bucket")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("alpha-bucket")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search Buckets")).toHaveValue("beta");
+    expect(screen.getByLabelText("Sort by")).toHaveValue("newest");
   });
 
   it("opens and closes create bucket modal", async () => {
@@ -130,9 +163,11 @@ describe("S3 Page", () => {
     mockSend.mockResolvedValueOnce({
       Buckets: [{ Name: "my-files", CreationDate: new Date() }],
     });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
     mockSend.mockResolvedValueOnce({
       Contents: [],
       CommonPrefixes: [],
+      IsTruncated: false,
     });
 
     render(S3Page);
@@ -165,5 +200,490 @@ describe("S3 Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  // ---------------------------------------------------------------------
+  // Error paths: inline banner shows the AWS error code (err.name +
+  // $metadata.httpStatusCode), not just a generic message.
+  // ---------------------------------------------------------------------
+
+  it("shows an inline banner with the AWS error code when the bucket list fails to load", async () => {
+    const awsError = Object.assign(new Error("Access Denied"), {
+      name: "AccessDenied",
+      $metadata: { httpStatusCode: 403 },
+    });
+    mockSend.mockRejectedValueOnce(awsError);
+
+    render(S3Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load buckets")).toBeInTheDocument();
+    });
+    expect(screen.getByText("AccessDenied (HTTP 403): Access Denied")).toBeInTheDocument();
+  });
+
+  it("shows an inline banner with the AWS error code when the object list fails to load", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "broken-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    const awsError = Object.assign(new Error("no such bucket"), {
+      name: "NoSuchBucket",
+      $metadata: { httpStatusCode: 404 },
+    });
+    mockSend.mockRejectedValueOnce(awsError);
+
+    render(S3Page);
+
+    await waitFor(() => {
+      expect(screen.getByText("broken-bucket")).toBeInTheDocument();
+    });
+    await fireEvent.click(screen.getByText("broken-bucket"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to load objects")).toBeInTheDocument();
+    });
+    expect(screen.getByText("NoSuchBucket (HTTP 404): no such bucket")).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------
+  // Exact command-input assertions for the mutations this page performs.
+  // ---------------------------------------------------------------------
+
+  it("sends exact CreateBucket and PutBucketVersioning input when versioning is enabled", async () => {
+    // initial mount
+    mockSend.mockResolvedValueOnce({ Buckets: [] });
+    // CreateBucketCommand
+    mockSend.mockResolvedValueOnce({});
+    // PutBucketVersioningCommand
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "v-bucket", CreationDate: new Date() }],
+      // loadBuckets refresh
+    });
+    // loadBucketSizes
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    await fireEvent.click(screen.getByText("+ Create Bucket"));
+    await fireEvent.input(screen.getByLabelText("Bucket Name"), { target: { value: "v-bucket" } });
+    await fireEvent.click(screen.getByLabelText("Enable Versioning"));
+
+    const submitBtn = screen.getByRole("dialog").querySelector('button[type="submit"]')!;
+    await fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(5));
+
+    expect(mockSend.mock.calls[1][0].input).toEqual({ Bucket: "v-bucket" });
+    expect(mockSend.mock.calls[2][0].input).toEqual({
+      Bucket: "v-bucket",
+      VersioningConfiguration: { Status: "Enabled" },
+    });
+  });
+
+  it("deletes an empty bucket: checks for objects and versions, then deletes it", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "empty-bucket", CreationDate: new Date() }],
+      // mount
+    });
+    // size calc
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // deleteAllObjectsInBucket: plain listing
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // deleteAllObjectsInBucket: versions
+    mockSend.mockResolvedValueOnce({ Versions: [], DeleteMarkers: [], IsTruncated: false });
+    // DeleteBucketCommand
+    mockSend.mockResolvedValueOnce({});
+    // loadBuckets refresh
+    mockSend.mockResolvedValueOnce({ Buckets: [] });
+
+    render(S3Page);
+
+    await waitFor(() => expect(screen.getByText("empty-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByTitle("Delete bucket"));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(6));
+    expect(confirmDestructive).toHaveBeenCalled();
+
+    expect(mockSend.mock.calls[2][0].input).toMatchObject({ Bucket: "empty-bucket" });
+    expect(mockSend.mock.calls[3][0].input).toMatchObject({ Bucket: "empty-bucket" });
+    expect(mockSend.mock.calls[4][0].input).toEqual({ Bucket: "empty-bucket" });
+  });
+
+  it("purging a versioned bucket deletes every version and delete marker by VersionId, not just current objects", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "versioned-bucket", CreationDate: new Date() }],
+      // mount
+    });
+    // size calc
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "old.txt", Size: 10 }],
+      IsTruncated: false,
+      // plain listing (current object)
+    });
+    // DeleteObject(old.txt) -- current version
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({
+      Versions: [
+        { Key: "old.txt", VersionId: "v1" },
+        { Key: "old.txt", VersionId: "v2" },
+      ],
+      DeleteMarkers: [{ Key: "old.txt", VersionId: "dm1" }],
+      IsTruncated: false,
+      // ListObjectVersions
+    });
+    // DeleteObject v1
+    mockSend.mockResolvedValueOnce({});
+    // DeleteObject v2
+    mockSend.mockResolvedValueOnce({});
+    // DeleteObject dm1
+    mockSend.mockResolvedValueOnce({});
+    // DeleteBucketCommand
+    mockSend.mockResolvedValueOnce({});
+    // loadBuckets refresh
+    mockSend.mockResolvedValueOnce({ Buckets: [] });
+
+    render(S3Page);
+
+    await waitFor(() => expect(screen.getByText("versioned-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("Purge All"));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(10));
+
+    const deleteCalls = mockSend.mock.calls
+      .map((c) => c[0].input)
+      .filter((input) => "Key" in input && input.Key === "old.txt");
+    const versionIds = deleteCalls.map((c: { VersionId?: string }) => c.VersionId);
+    expect(versionIds).toEqual([undefined, "v1", "v2", "dm1"]);
+  });
+
+  it("paginates object listing with ContinuationToken and appends (not replaces) results", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "paged-bucket", CreationDate: new Date() }],
+    });
+    // size calc
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "a.txt", Size: 1 }],
+      IsTruncated: true,
+      NextContinuationToken: "TOKEN-1",
+    });
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "b.txt", Size: 2 }],
+      IsTruncated: false,
+    });
+
+    render(S3Page);
+
+    await waitFor(() => expect(screen.getByText("paged-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("paged-bucket"));
+
+    await waitFor(() => {
+      expect(screen.getByText("b.txt")).toBeInTheDocument();
+    });
+    expect(screen.getByText("a.txt")).toBeInTheDocument();
+
+    expect(mockSend.mock.calls[2][0].input.ContinuationToken).toBeUndefined();
+    expect(mockSend.mock.calls[3][0].input.ContinuationToken).toBe("TOKEN-1");
+  });
+
+  it("uploads a file with the exact PutObject wire shape (key, content-type, body bytes)", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "upload-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // openBucket -> loadObjects
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    await waitFor(() => expect(screen.getByText("upload-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("upload-bucket"));
+    // Sync on the mocked fetch having resolved, not on empty-state text --
+    // that text also renders before the mount fetch resolves and races it.
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
+
+    await fireEvent.click(screen.getByText("Upload File"));
+
+    const file = new File(["hello world"], "notes.txt", { type: "text/plain" });
+    const fileInput = screen.getByLabelText("File") as HTMLInputElement;
+    await fireEvent.change(fileInput, { target: { files: [file] } });
+
+    // PutObjectCommand
+    mockSend.mockResolvedValueOnce({});
+    // reload
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "notes.txt", Size: 11 }],
+      IsTruncated: false,
+    });
+
+    // jsdom doesn't mark a `required` file input as satisfying constraint
+    // validation when .files is set programmatically (via fireEvent.change),
+    // so a click on the submit button gets silently blocked by native HTML5
+    // validation before the click ever reaches the form's submit handler.
+    // Dispatch the submit event directly to bypass that jsdom quirk.
+    const form = screen.getByRole("dialog").querySelector("form")!;
+    await fireEvent.submit(form);
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(5));
+
+    const putInput = mockSend.mock.calls[3][0].input;
+    expect(putInput.Bucket).toBe("upload-bucket");
+    expect(putInput.Key).toBe("notes.txt");
+    expect(putInput.ContentType).toBe("text/plain");
+    expect(putInput.Body).toBeInstanceOf(Uint8Array);
+    expect(new TextDecoder().decode(putInput.Body)).toBe("hello world");
+  });
+
+  it("object round trip: upload, list, inspect (fetch), then delete", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "rt-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // openBucket
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("rt-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("rt-bucket"));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
+
+    // Upload
+    await fireEvent.click(screen.getByText("Upload File"));
+    const file = new File(["round trip"], "rt.txt", { type: "text/plain" });
+    await fireEvent.change(screen.getByLabelText("File"), { target: { files: [file] } });
+    // PutObject
+    mockSend.mockResolvedValueOnce({});
+    // reload (list)
+    mockSend.mockResolvedValueOnce({ Contents: [{ Key: "rt.txt", Size: 10 }], IsTruncated: false });
+    // See the equivalent comment in the upload test: a required file input
+    // set via fireEvent.change doesn't satisfy jsdom's constraint validation,
+    // so submit the form directly rather than clicking the submit button.
+    await fireEvent.submit(screen.getByRole("dialog").querySelector("form")!);
+
+    // Listed
+    await waitFor(() => expect(screen.getByText("rt.txt")).toBeInTheDocument());
+
+    // Fetched (inspect)
+    mockSend.mockResolvedValueOnce({
+      ContentType: "text/plain",
+      Body: { transformToByteArray: () => new TextEncoder().encode("round trip") },
+    });
+    mockSend.mockResolvedValueOnce({ TagSet: [] });
+    await fireEvent.click(screen.getByText("rt.txt"));
+    // Fetched content renders in a readonly <textarea>, whose value is not
+    // part of its textContent -- assert via display value, not getByText.
+    await waitFor(() => expect(screen.getByDisplayValue("round trip")).toBeInTheDocument());
+
+    // Deleted (click the row's Delete button underneath the preview overlay --
+    // fireEvent dispatches directly on the target node regardless of jsdom's
+    // lack of hit-testing/z-order, so there's no need to close the modal first).
+    // DeleteObject
+    mockSend.mockResolvedValueOnce({});
+    // reload
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    await fireEvent.click(screen.getByText("Delete"));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(9));
+
+    expect(confirmDestructive).toHaveBeenCalled();
+    const deleteCallIdx = mockSend.mock.calls.findIndex(
+      (c) =>
+        c[0].input?.Key === "rt.txt" && !("Body" in c[0].input) && !("ContentType" in c[0].input),
+    );
+    expect(mockSend.mock.calls[deleteCallIdx][0].input).toEqual({
+      Bucket: "rt-bucket",
+      Key: "rt.txt",
+    });
+  });
+
+  it("percent-encodes the CopySource key when copying an object with special characters", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "copy-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "my file.txt", Size: 5 }],
+      IsTruncated: false,
+    });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("copy-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("copy-bucket"));
+    await waitFor(() => expect(screen.getByText("my file.txt")).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByText("Copy"));
+    // CopyObjectCommand
+    mockSend.mockResolvedValueOnce({});
+    // reload
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "my file.txt", Size: 5 }],
+      IsTruncated: false,
+    });
+
+    const submitBtn = screen.getByRole("dialog").querySelector('button[type="submit"]')!;
+    await fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(5));
+    const copyInput = mockSend.mock.calls[3][0].input;
+    expect(copyInput.Bucket).toBe("copy-bucket");
+    expect(copyInput.CopySource).toBe("copy-bucket/my%20file.txt");
+    expect(copyInput.Key).toBe("my file.txt-copy");
+  });
+
+  it("renames an object via CopyObject (encoded source) followed by DeleteObject", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "rename-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "a+b.txt", Size: 5 }],
+      IsTruncated: false,
+    });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("rename-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("rename-bucket"));
+    await waitFor(() => expect(screen.getByText("a+b.txt")).toBeInTheDocument());
+
+    await fireEvent.click(screen.getByText("Rename"));
+    const newKeyInput = screen.getByLabelText("New Key");
+    await fireEvent.input(newKeyInput, { target: { value: "renamed.txt" } });
+
+    // CopyObjectCommand
+    mockSend.mockResolvedValueOnce({});
+    // DeleteObjectCommand
+    mockSend.mockResolvedValueOnce({});
+    // reload
+    mockSend.mockResolvedValueOnce({
+      Contents: [{ Key: "renamed.txt", Size: 5 }],
+      IsTruncated: false,
+    });
+
+    const submitBtn = screen.getByRole("dialog").querySelector('button[type="submit"]')!;
+    await fireEvent.click(submitBtn);
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(6));
+    const copyInput = mockSend.mock.calls[3][0].input;
+    expect(copyInput.CopySource).toBe("rename-bucket/a%2Bb.txt");
+    expect(copyInput.Key).toBe("renamed.txt");
+    const deleteInput = mockSend.mock.calls[4][0].input;
+    expect(deleteInput).toEqual({ Bucket: "rename-bucket", Key: "a+b.txt" });
+  });
+
+  it("toggles bucket versioning with the exact PutBucketVersioning status", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "vers-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // openBucket objects tab
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("vers-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("vers-bucket"));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
+
+    // GetBucketVersioning
+    mockSend.mockResolvedValueOnce({ Status: "" });
+    // GetBucketLocation
+    mockSend.mockResolvedValueOnce({ LocationConstraint: "" });
+    // GetBucketEncryption
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ServerSideEncryptionConfigurationNotFoundError" }),
+    );
+    // GetObjectLockConfiguration
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ObjectLockConfigurationNotFoundError" }),
+    );
+    // ListObjectVersions
+    mockSend.mockResolvedValueOnce({ Versions: [] });
+    // GetBucketWebsite
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "NoSuchWebsiteConfiguration" }),
+    );
+
+    await fireEvent.click(screen.getByText("Properties"));
+    await waitFor(() => expect(screen.getByText("Enable Versioning")).toBeInTheDocument());
+
+    // PutBucketVersioningCommand
+    mockSend.mockResolvedValueOnce({});
+    await fireEvent.click(screen.getByText("Enable Versioning"));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(10));
+    const putVersioningInput = mockSend.mock.calls[9][0].input;
+    expect(putVersioningInput).toEqual({
+      Bucket: "vers-bucket",
+      VersioningConfiguration: { Status: "Enabled" },
+    });
+  });
+
+  it("saves bucket tags with the exact PutBucketTagging TagSet", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "tag-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // openBucket
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("tag-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("tag-bucket"));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
+
+    // GetBucketTagging
+    mockSend.mockResolvedValueOnce({ TagSet: [] });
+    await fireEvent.click(screen.getByText("Tags"));
+    await waitFor(() => expect(screen.getByText("No tags set")).toBeInTheDocument());
+
+    await fireEvent.input(screen.getByLabelText("Key"), { target: { value: "env" } });
+    await fireEvent.input(screen.getByLabelText("Value"), { target: { value: "prod" } });
+    await fireEvent.click(screen.getByText("Add"));
+
+    // PutBucketTaggingCommand
+    mockSend.mockResolvedValueOnce({});
+    await fireEvent.click(screen.getByText("Save Tags"));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(5));
+    expect(mockSend.mock.calls[4][0].input).toEqual({
+      Bucket: "tag-bucket",
+      Tagging: { TagSet: [{ Key: "env", Value: "prod" }] },
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // Rendered-text assertion (not just "some element exists"): verify the
+  // formatted size and storage-class badge text actually shown in a table
+  // cell match the computed/derived value, the assertion class that caught
+  // a blank-column bug elsewhere in this dashboard.
+  // ---------------------------------------------------------------------
+
+  it("renders the formatted size and storage-class badge text for an object row", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "render-bucket", CreationDate: new Date() }],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    mockSend.mockResolvedValueOnce({
+      Contents: [
+        {
+          Key: "archive.zip",
+          Size: 1536,
+          StorageClass: "GLACIER",
+          LastModified: new Date("2024-03-01"),
+        },
+      ],
+      IsTruncated: false,
+    });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("render-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("render-bucket"));
+
+    await waitFor(() => expect(screen.getByText("archive.zip")).toBeInTheDocument());
+
+    const row = screen.getByText("archive.zip").closest("tr")!;
+    expect(within(row).getByText("GLACIER")).toBeInTheDocument();
+    expect(within(row).getByText("1.5 KB")).toBeInTheDocument();
   });
 });

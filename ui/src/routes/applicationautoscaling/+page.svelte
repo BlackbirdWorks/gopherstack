@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getApplicationAutoScalingClient } from '$lib/aws-client';
 	import {
 		DescribeScalableTargetsCommand,
@@ -42,7 +42,7 @@
 		Settings2
 	} from 'lucide-svelte';
 
-	const aas = getApplicationAutoScalingClient();
+	const aas = regionalClient(getApplicationAutoScalingClient);
 
 	// ── State ────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -192,7 +192,7 @@
 	async function loadTargets() {
 		loading = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalableTargetsCommand({
 					ServiceNamespace: (namespaceFilter as ServiceNamespace) || ServiceNamespace.ECS
 				})
@@ -211,7 +211,7 @@
 		await Promise.allSettled(
 			namespaceOptions.map(async ({ value }) => {
 				try {
-					const res = await aas.send(
+					const res = await aas().send(
 						new DescribeScalableTargetsCommand({ ServiceNamespace: value as ServiceNamespace })
 					);
 					all.push(...(res.ScalableTargets ?? []));
@@ -246,7 +246,7 @@
 		if (!selectedTarget) return;
 		loadingPolicies = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalingPoliciesCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -265,7 +265,7 @@
 		if (!selectedTarget) return;
 		loadingScheduled = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScheduledActionsCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -284,7 +284,7 @@
 		if (!selectedTarget) return;
 		loadingActivities = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new DescribeScalingActivitiesCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -304,7 +304,7 @@
 		if (!selectedTarget?.ScalableTargetARN) return;
 		loadingTags = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new ListTagsForResourceCommand({ ResourceARN: selectedTarget.ScalableTargetARN })
 			);
 			tags = res.Tags ?? {};
@@ -328,7 +328,7 @@
 		if (!regResourceId.trim()) return;
 		registering = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new RegisterScalableTargetCommand({
 					ServiceNamespace: regNamespace as ServiceNamespace,
 					ResourceId: regResourceId.trim(),
@@ -354,7 +354,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeregisterScalableTargetCommand({
 					ServiceNamespace: t.ServiceNamespace,
 					ResourceId: t.ResourceId,
@@ -374,7 +374,7 @@
 		if (!selectedTarget) return;
 		const suspend = !suspendedTarget;
 		try {
-			await aas.send(
+			await aas().send(
 				new RegisterScalableTargetCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -404,7 +404,7 @@
 		if (!selectedTarget || !policyName.trim()) return;
 		creatingPolicy = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new PutScalingPolicyCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -453,7 +453,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeleteScalingPolicyCommand({
 					ServiceNamespace: p.ServiceNamespace,
 					ResourceId: p.ResourceId,
@@ -473,7 +473,7 @@
 		if (!selectedTarget || !scheduledName.trim()) return;
 		creatingScheduled = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new PutScheduledActionCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -504,7 +504,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new DeleteScheduledActionCommand({
 					ServiceNamespace: a.ServiceNamespace!,
 					ResourceId: a.ResourceId!,
@@ -524,7 +524,7 @@
 		if (!selectedTarget?.ScalableTargetARN || !tagKey.trim()) return;
 		addingTag = true;
 		try {
-			await aas.send(
+			await aas().send(
 				new TagResourceCommand({
 					ResourceARN: selectedTarget.ScalableTargetARN,
 					Tags: { [tagKey.trim()]: tagValue.trim() }
@@ -545,7 +545,7 @@
 	async function removeTag(key: string) {
 		if (!selectedTarget?.ScalableTargetARN) return;
 		try {
-			await aas.send(
+			await aas().send(
 				new UntagResourceCommand({
 					ResourceARN: selectedTarget.ScalableTargetARN,
 					TagKeys: [key]
@@ -563,7 +563,7 @@
 		if (!selectedTarget || !forecastPolicyName.trim()) return;
 		loadingForecast = true;
 		try {
-			const res = await aas.send(
+			const res = await aas().send(
 				new GetPredictiveScalingForecastCommand({
 					ServiceNamespace: selectedTarget.ServiceNamespace,
 					ResourceId: selectedTarget.ResourceId,
@@ -587,7 +587,21 @@
 
 	const forecastMax = $derived(Math.max(...forecastCapacity, 1));
 
-	onMount(() => loadAllNamespaces());
+	// selectedTarget and its detail lists (policies, scheduled actions,
+	// activities, tags, forecast) are region-scoped: a target ARN from the
+	// old region is meaningless in the new one, so clear them before
+	// reloading the full cross-namespace target list.
+	onRegionChange(() => {
+		selectedTarget = null;
+		targets = [];
+		policies = [];
+		scheduledActions = [];
+		activities = [];
+		tags = {};
+		forecastCapacity = [];
+		forecastTimestamps = [];
+		void loadAllNamespaces();
+	});
 </script>
 
 <div class="flex h-full overflow-hidden">
@@ -865,8 +879,9 @@
 										/>
 									{/if}
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Target %</label>
+										<label for="policy-target-value" class="w-24 text-xs text-slate-600 dark:text-slate-300">Target %</label>
 										<input
+											id="policy-target-value"
 											bind:value={targetValue}
 											type="number"
 											min="1"
@@ -884,16 +899,18 @@
 										<option value="ExactCapacity">ExactCapacity</option>
 									</select>
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Adjustment</label>
+										<label for="policy-step-adjustment" class="w-24 text-xs text-slate-600 dark:text-slate-300">Adjustment</label>
 										<input
+											id="policy-step-adjustment"
 											bind:value={stepScalingAdjustment}
 											type="number"
 											class="w-24 rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 										/>
 									</div>
 									<div class="flex items-center gap-2">
-										<label class="w-24 text-xs text-slate-600 dark:text-slate-300">Cooldown (s)</label>
+										<label for="policy-step-cooldown" class="w-24 text-xs text-slate-600 dark:text-slate-300">Cooldown (s)</label>
 										<input
+											id="policy-step-cooldown"
 											bind:value={stepCooldown}
 											type="number"
 											min="0"
@@ -1144,16 +1161,18 @@
 							/>
 							<div class="flex gap-2">
 								<div class="flex-1">
-									<label class="mb-1 block text-[10px] text-slate-500">Start Time</label>
+									<label for="forecast-start-time" class="mb-1 block text-[10px] text-slate-500">Start Time</label>
 									<input
+										id="forecast-start-time"
 										bind:value={forecastStartTime}
 										type="datetime-local"
 										class="w-full rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 									/>
 								</div>
 								<div class="flex-1">
-									<label class="mb-1 block text-[10px] text-slate-500">End Time</label>
+									<label for="forecast-end-time" class="mb-1 block text-[10px] text-slate-500">End Time</label>
 									<input
+										id="forecast-end-time"
 										bind:value={forecastEndTime}
 										type="datetime-local"
 										class="w-full rounded border border-slate-200 px-2 py-1.5 text-xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -1224,8 +1243,9 @@
 			</div>
 			<div class="space-y-3">
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Service Namespace</label>
+					<label for="reg-namespace" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Service Namespace</label>
 					<select
+						id="reg-namespace"
 						bind:value={regNamespace}
 						onchange={() => {
 							if (regNamespace === ServiceNamespace.ECS) {
@@ -1247,16 +1267,18 @@
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Resource ID</label>
+					<label for="reg-resource-id" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Resource ID</label>
 					<input
+						id="reg-resource-id"
 						bind:value={regResourceId}
 						placeholder="e.g. service/default/my-service"
 						class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-mono dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
 					/>
 				</div>
 				<div>
-					<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Scalable Dimension</label>
+					<label for="reg-dimension" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Scalable Dimension</label>
 					<input
+						id="reg-dimension"
 						bind:value={regDimension}
 						placeholder="e.g. ecs:service:DesiredCount"
 						class="w-full rounded border border-slate-200 px-3 py-2 text-xs font-mono dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
@@ -1264,8 +1286,9 @@
 				</div>
 				<div class="flex gap-3">
 					<div class="flex-1">
-						<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Min Capacity</label>
+						<label for="reg-min-capacity" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Min Capacity</label>
 						<input
+							id="reg-min-capacity"
 							bind:value={regMin}
 							type="number"
 							min="0"
@@ -1273,8 +1296,9 @@
 						/>
 					</div>
 					<div class="flex-1">
-						<label class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Max Capacity</label>
+						<label for="reg-max-capacity" class="mb-1 block text-xs text-slate-600 dark:text-slate-300">Max Capacity</label>
 						<input
+							id="reg-max-capacity"
 							bind:value={regMax}
 							type="number"
 							min="1"

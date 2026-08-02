@@ -676,10 +676,35 @@ func (h *DashboardHandler) Handler() echo.HandlerFunc {
 	}
 }
 
-// setupSubRouter registers all routes for the dashboard.
-//
-//nolint:gocognit,gocyclo,cyclop,funlen // centralized route wiring keeps setup behavior explicit.
+// setupSubRouter registers all routes for the dashboard, grouped into
+// concern-focused helpers below (system/health, per-service API families,
+// DynamoDB streaming, and the SPA fallback).
 func (h *DashboardHandler) setupSubRouter() {
+	h.registerCoreRoutes()
+	h.registerCodeStarConnectionsListRoute()
+	h.registerSystemRoutes()
+	h.registerSTSMetricsRoute()
+	h.registerCodeStarConnectionsMutationRoutes()
+	h.registerCognitoUserPoolRoutes()
+	h.registerCognitoUserPoolClientRoutes()
+	h.registerCognitoUserRoutes()
+	h.registerCognitoUserLifecycleRoutes()
+	h.registerCognitoGroupRoutes()
+	h.registerCognitoUserPoolConfigRoutes()
+	h.registerCognitoGroupMembershipRoutes()
+	h.registerCognitoUserAdminRoutes()
+	h.registerAppConfigDataSessionRoutes()
+	h.registerAppConfigDataProfileRoutes()
+	h.registerAppConfigDataStatsRoute()
+	h.registerMediaStoreDataRoutes()
+	h.registerDynamoDBStreamInfoRoute()
+	h.registerDynamoDBStreamEventsRoute()
+	h.registerSPAFallbackRoutes()
+}
+
+// registerCoreRoutes wires the static asset server, legacy REST-compat
+// endpoints kept for Terraform provider tests, and the Connect-RPC server.
+func (h *DashboardHandler) registerCoreRoutes() {
 	// Static assets
 	h.SubRouter.GET("/dashboard/static/*", func(c *echo.Context) error {
 		http.StripPrefix("/dashboard", http.FileServer(http.FS(staticFS))).
@@ -700,7 +725,11 @@ func (h *DashboardHandler) setupSubRouter() {
 		NewConnectDashboardServer(),
 	)
 	h.SubRouter.Any(connectPath+"*", echo.WrapHandler(connectHandler))
+}
 
+// registerCodeStarConnectionsListRoute registers the read endpoint for
+// listing CodeStar Connections connections.
+func (h *DashboardHandler) registerCodeStarConnectionsListRoute() {
 	h.SubRouter.GET("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
 		if h.config.CodeStarConnectionsOps == nil ||
 			h.config.CodeStarConnectionsOps.Backend == nil {
@@ -711,7 +740,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			"connections": h.config.CodeStarConnectionsOps.Backend.ListConnections(c.Request().Context(), "", ""),
 		})
 	})
+}
 
+// registerSystemRoutes exposes dashboard/server introspection: allocated
+// ports, process health, and an explicit allow-list of effective settings.
+func (h *DashboardHandler) registerSystemRoutes() {
 	h.SubRouter.GET("/dashboard/api/system/state", func(c *echo.Context) error {
 		const (
 			defaultPortRangeStart = 5000
@@ -770,6 +803,38 @@ func (h *DashboardHandler) setupSubRouter() {
 		})
 	})
 
+	// system/settings exposes the server's effective configuration to the
+	// (unauthenticated) dashboard UI. The response is built as an explicit
+	// allow-list of named fields, NOT by marshaling dashboard.Settings
+	// directly - dashboard.Settings never holds credentials today, but a
+	// future field added to that struct must not silently reach this
+	// unauthenticated endpoint. Host filesystem/network detail (DataDir,
+	// DNSListenAddr, DNSResolveIP) is intentionally excluded: it has no UI
+	// consumer and is not safe to expose broadly.
+	h.SubRouter.GET("/dashboard/api/system/settings", func(c *echo.Context) error {
+		if h.ConfigManager == nil {
+			return c.JSON(http.StatusOK, map[string]any{})
+		}
+
+		settings := h.ConfigManager.GetSettings()
+
+		return c.JSON(http.StatusOK, map[string]any{
+			"accountID":         settings.AccountID,
+			"region":            settings.Region,
+			"latencyMs":         settings.LatencyMs,
+			"enforceIAM":        settings.EnforceIAM,
+			"autoPurgeTTL":      settings.AutoPurgeTTL.String(),
+			"portRangeStart":    settings.PortRangeStart,
+			"portRangeEnd":      settings.PortRangeEnd,
+			"initScriptTimeout": settings.InitScriptTimeout.String(),
+			"persist":           settings.Persist,
+			"demo":              settings.Demo,
+		})
+	})
+}
+
+// registerSTSMetricsRoute exposes STS session metrics for the dashboard.
+func (h *DashboardHandler) registerSTSMetricsRoute() {
 	h.SubRouter.GET("/dashboard/api/sts/metrics", func(c *echo.Context) error {
 		if h.config.STSOps == nil {
 			return c.JSON(http.StatusOK, stsbackend.SessionMetrics{})
@@ -777,7 +842,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusOK, h.config.STSOps.SessionMetrics())
 	})
+}
 
+// registerCodeStarConnectionsMutationRoutes registers the CodeStar
+// Connections write endpoints: creating connections and managing hosts.
+func (h *DashboardHandler) registerCodeStarConnectionsMutationRoutes() {
 	h.SubRouter.POST("/dashboard/api/codestarconnections/connections", func(c *echo.Context) error {
 		if h.config.CodeStarConnectionsOps == nil ||
 			h.config.CodeStarConnectionsOps.Backend == nil {
@@ -853,7 +922,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusCreated, host)
 	})
+}
 
+// registerCognitoUserPoolRoutes handles listing, creating, and deleting
+// Cognito user pools.
+func (h *DashboardHandler) registerCognitoUserPoolRoutes() {
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
 			return c.JSON(http.StatusOK, map[string]any{"userPools": []any{}})
@@ -905,7 +978,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.NoContent(http.StatusNoContent)
 	})
+}
 
+// registerCognitoUserPoolClientRoutes handles Cognito user pool app
+// clients: list, create, delete.
+func (h *DashboardHandler) registerCognitoUserPoolClientRoutes() {
 	// Clients
 	h.SubRouter.GET(
 		"/dashboard/api/cognitoidp/user-pools/:id/clients",
@@ -971,7 +1048,10 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.NoContent(http.StatusNoContent)
 		},
 	)
+}
 
+// registerCognitoUserRoutes handles Cognito user list and admin-create.
+func (h *DashboardHandler) registerCognitoUserRoutes() {
 	// Users
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/users", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
@@ -1014,7 +1094,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusCreated, user)
 	})
+}
 
+// registerCognitoUserLifecycleRoutes handles Cognito admin-delete and
+// enable/disable (via PATCH) of a single user.
+func (h *DashboardHandler) registerCognitoUserLifecycleRoutes() {
 	h.SubRouter.DELETE(
 		"/dashboard/api/cognitoidp/user-pools/:id/users/:username",
 		func(c *echo.Context) error {
@@ -1066,7 +1150,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.NoContent(http.StatusNoContent)
 		},
 	)
+}
 
+// registerCognitoGroupRoutes handles Cognito group CRUD: list, create,
+// delete.
+func (h *DashboardHandler) registerCognitoGroupRoutes() {
 	// Groups
 	h.SubRouter.GET("/dashboard/api/cognitoidp/user-pools/:id/groups", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
@@ -1130,7 +1218,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.NoContent(http.StatusNoContent)
 		},
 	)
+}
 
+// registerCognitoUserPoolConfigRoutes handles Cognito user pool
+// configuration: MFA config updates and pool metrics.
+func (h *DashboardHandler) registerCognitoUserPoolConfigRoutes() {
 	// Pool update (MFA config)
 	h.SubRouter.PATCH("/dashboard/api/cognitoidp/user-pools/:id", func(c *echo.Context) error {
 		if h.config.CognitoIDPOps == nil || h.config.CognitoIDPOps.Backend == nil {
@@ -1170,7 +1262,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.JSON(http.StatusOK, metrics)
 		},
 	)
+}
 
+// registerCognitoGroupMembershipRoutes handles Cognito group membership:
+// list, add, and remove members of a group.
+func (h *DashboardHandler) registerCognitoGroupMembershipRoutes() {
 	// Group members: list, add, remove
 	h.SubRouter.GET(
 		"/dashboard/api/cognitoidp/user-pools/:id/groups/:groupName/members",
@@ -1230,7 +1326,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.NoContent(http.StatusNoContent)
 		},
 	)
+}
 
+// registerCognitoUserAdminRoutes handles Cognito admin actions on a single
+// user: password reset and global sign-out.
+func (h *DashboardHandler) registerCognitoUserAdminRoutes() {
 	// User admin reset password
 	h.SubRouter.POST(
 		"/dashboard/api/cognitoidp/user-pools/:id/users/:username/reset",
@@ -1274,7 +1374,11 @@ func (h *DashboardHandler) setupSubRouter() {
 			return c.NoContent(http.StatusNoContent)
 		},
 	)
+}
 
+// registerAppConfigDataSessionRoutes handles AppConfigData session
+// introspection: list active sessions and end a session.
+func (h *DashboardHandler) registerAppConfigDataSessionRoutes() {
 	h.SubRouter.GET("/dashboard/api/appconfigdata/sessions", func(c *echo.Context) error {
 		if h.config.AppConfigDataOps == nil {
 			return c.JSON(http.StatusOK, map[string]any{"sessions": []any{}})
@@ -1298,7 +1402,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.NoContent(http.StatusNoContent)
 	})
+}
 
+// registerAppConfigDataProfileRoutes handles AppConfigData configuration
+// profiles: list, set, and delete.
+func (h *DashboardHandler) registerAppConfigDataProfileRoutes() {
 	h.SubRouter.GET("/dashboard/api/appconfigdata/profiles", func(c *echo.Context) error {
 		if h.config.AppConfigDataOps == nil {
 			return c.JSON(http.StatusOK, map[string]any{"profiles": []any{}})
@@ -1376,7 +1484,10 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.NoContent(http.StatusNoContent)
 	})
+}
 
+// registerAppConfigDataStatsRoute exposes AppConfigData backend stats.
+func (h *DashboardHandler) registerAppConfigDataStatsRoute() {
 	h.SubRouter.GET("/dashboard/api/appconfigdata/stats", func(c *echo.Context) error {
 		if h.config.AppConfigDataOps == nil {
 			return c.JSON(http.StatusOK, appconfigdatabackend.ServiceStats{
@@ -1391,25 +1502,31 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusOK, stats)
 	})
+}
 
-	const (
-		msdErrBackendUnavailable = "MediaStore Data backend not available"
-		msdErrPathRequired       = "path is required"
-		msdErrObjectNotFound     = "object not found"
-		msdUploadMaxBytes        = 32 << 20 // 32 MiB
-	)
+// mediastoredata dashboard API shared constants and response shape.
+const (
+	msdErrBackendUnavailable = "MediaStore Data backend not available"
+	msdErrPathRequired       = "path is required"
+	msdErrObjectNotFound     = "object not found"
+	msdUploadMaxBytes        = 32 << 20 // 32 MiB
+)
 
-	type msdObjectEntry struct {
-		Path          string `json:"path"`
-		ContentType   string `json:"contentType"`
-		CacheControl  string `json:"cacheControl"`
-		StorageClass  string `json:"storageClass"`
-		ETag          string `json:"etag"`
-		SHA256        string `json:"sha256"`
-		ContentLength int64  `json:"contentLength"`
-		LastModified  int64  `json:"lastModified"`
-	}
+type msdObjectEntry struct {
+	Path          string `json:"path"`
+	ContentType   string `json:"contentType"`
+	CacheControl  string `json:"cacheControl"`
+	StorageClass  string `json:"storageClass"`
+	ETag          string `json:"etag"`
+	SHA256        string `json:"sha256"`
+	ContentLength int64  `json:"contentLength"`
+	LastModified  int64  `json:"lastModified"`
+}
 
+// registerMediaStoreDataRoutes wires the MediaStore Data object API. It
+// builds the shared backend lookup once and hands it to the list, write,
+// and download/delete route groups.
+func (h *DashboardHandler) registerMediaStoreDataRoutes() {
 	msdBackend := func() *mediastoredatabackend.InMemoryBackend {
 		if h.config.MediaStoreDataOps == nil {
 			return nil
@@ -1418,6 +1535,16 @@ func (h *DashboardHandler) setupSubRouter() {
 		return h.config.MediaStoreDataOps.Backend
 	}
 
+	h.registerMediaStoreDataListRoutes(msdBackend)
+	h.registerMediaStoreDataWriteRoutes(msdBackend)
+	h.registerMediaStoreDataDownloadRoutes(msdBackend)
+}
+
+// registerMediaStoreDataListRoutes handles listing MediaStore Data objects
+// and reporting aggregate stats.
+func (h *DashboardHandler) registerMediaStoreDataListRoutes(
+	msdBackend func() *mediastoredatabackend.InMemoryBackend,
+) {
 	h.SubRouter.GET("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
 		backend := msdBackend()
 		if backend == nil {
@@ -1461,7 +1588,22 @@ func (h *DashboardHandler) setupSubRouter() {
 			"totalBytes":  s.TotalBytes,
 		})
 	})
+}
 
+// registerMediaStoreDataWriteRoutes handles uploading a MediaStore Data
+// object and updating its metadata.
+func (h *DashboardHandler) registerMediaStoreDataWriteRoutes(
+	msdBackend func() *mediastoredatabackend.InMemoryBackend,
+) {
+	h.registerMediaStoreDataUploadRoute(msdBackend)
+	h.registerMediaStoreDataUpdateMetadataRoute(msdBackend)
+}
+
+// registerMediaStoreDataUploadRoute handles uploading a MediaStore Data
+// object via multipart form.
+func (h *DashboardHandler) registerMediaStoreDataUploadRoute(
+	msdBackend func() *mediastoredatabackend.InMemoryBackend,
+) {
 	h.SubRouter.POST("/dashboard/api/mediastoredata/upload", func(c *echo.Context) error {
 		backend := msdBackend()
 		if backend == nil {
@@ -1519,7 +1661,13 @@ func (h *DashboardHandler) setupSubRouter() {
 			"sha256": obj.SHA256,
 		})
 	})
+}
 
+// registerMediaStoreDataUpdateMetadataRoute handles updating a MediaStore
+// Data object's content type and cache control metadata.
+func (h *DashboardHandler) registerMediaStoreDataUpdateMetadataRoute(
+	msdBackend func() *mediastoredatabackend.InMemoryBackend,
+) {
 	h.SubRouter.PATCH("/dashboard/api/mediastoredata/objects", func(c *echo.Context) error {
 		backend := msdBackend()
 		if backend == nil {
@@ -1551,7 +1699,13 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.NoContent(http.StatusOK)
 	})
+}
 
+// registerMediaStoreDataDownloadRoutes handles downloading and deleting a
+// single MediaStore Data object.
+func (h *DashboardHandler) registerMediaStoreDataDownloadRoutes(
+	msdBackend func() *mediastoredatabackend.InMemoryBackend,
+) {
 	h.SubRouter.GET("/dashboard/api/mediastoredata/download", func(c *echo.Context) error {
 		backend := msdBackend()
 		if backend == nil {
@@ -1601,7 +1755,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.NoContent(http.StatusOK)
 	})
+}
 
+// registerDynamoDBStreamInfoRoute exposes summary info (sequence range,
+// event-type breakdown, lag, shards) for a DynamoDB table's stream.
+func (h *DashboardHandler) registerDynamoDBStreamInfoRoute() {
 	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-info", func(c *echo.Context) error {
 		name := c.Param("name")
 
@@ -1653,7 +1811,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.JSON(http.StatusOK, info)
 	})
+}
 
+// registerDynamoDBStreamEventsRoute renders a recent-events HTML fragment
+// for a DynamoDB table's stream.
+func (h *DashboardHandler) registerDynamoDBStreamEventsRoute() {
 	h.SubRouter.GET("/dashboard/dynamodb/table/:name/stream-events", func(c *echo.Context) error {
 		name := c.Param("name")
 		if h.config.DynamoDBStreamsOps == nil || h.config.DynamoDBStreamsOps.Streams == nil {
@@ -1751,7 +1913,11 @@ func (h *DashboardHandler) setupSubRouter() {
 
 		return c.HTML(http.StatusOK, sb.String())
 	})
+}
 
+// registerSPAFallbackRoutes serves the dashboard single-page app for any
+// unmatched /dashboard path and redirects the bare /dashboard route.
+func (h *DashboardHandler) registerSPAFallbackRoutes() {
 	// SPA fallback
 	h.SubRouter.Any("/dashboard/*", h.spaFallbackHandler())
 	h.SubRouter.Any("/dashboard", func(c *echo.Context) error {

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { untrack } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import {
 		Globe,
 		Plus,
@@ -63,7 +64,7 @@
 		VpcLink,
 	} from '@aws-sdk/client-apigatewayv2';
 
-	const apigwv2 = getAPIGatewayV2Client();
+	const apigwv2 = regionalClient(getAPIGatewayV2Client);
 
 	// ─── Top-level state ──────────────────────────────────────────────────────────
 	type TopTab = 'apis' | 'domainnames' | 'vpclinkstab' | 'metrics' | 'docs';
@@ -196,7 +197,7 @@
 	async function loadApis() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetApisCommand({}));
+			const res = await apigwv2().send(new GetApisCommand({}));
 			apis = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load APIs: ${e}`);
@@ -206,6 +207,14 @@
 	}
 
 	async function loadApiDetail(api: Api) {
+		// Every create/delete handler for a sub-resource (route, stage,
+		// integration, authorizer, deployment) refreshes by re-calling this
+		// same function with the already-selected API, to pick up the new
+		// state. Only reset the detail tab back to "routes" when this is a
+		// genuinely new selection -- otherwise creating e.g. a stage while on
+		// the Stages tab would silently punt the user back to Routes and hide
+		// the resource they just created.
+		const isNewSelection = selectedApi?.ApiId !== api.ApiId;
 		selectedApi = api;
 		if (!api.ApiId) return;
 		loadingApiDetail = true;
@@ -214,15 +223,15 @@
 		apiIntegrations = [];
 		apiAuthorizers = [];
 		apiDeployments = [];
-		apiDetailTab = 'routes';
+		if (isNewSelection) apiDetailTab = 'routes';
 		try {
 			const [routesRes, stagesRes, integrationsRes, authorizersRes, deploymentsRes] =
 				await Promise.all([
-					apigwv2.send(new GetRoutesCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetStagesCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
-					apigwv2.send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetRoutesCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetStagesCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
+					apigwv2().send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
 				]);
 			apiRoutes = routesRes.Items ?? [];
 			apiStages = stagesRes.Items ?? [];
@@ -239,7 +248,7 @@
 	async function loadDomainNames() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetDomainNamesCommand({}));
+			const res = await apigwv2().send(new GetDomainNamesCommand({}));
 			domainNames = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load domain names: ${e}`);
@@ -251,7 +260,7 @@
 	async function loadVpcLinks() {
 		loading = true;
 		try {
-			const res = await apigwv2.send(new GetVpcLinksCommand({}));
+			const res = await apigwv2().send(new GetVpcLinksCommand({}));
 			vpcLinks = res.Items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load VPC links: ${e}`);
@@ -265,7 +274,7 @@
 		if (!newApiName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateApiCommand({
 					Name: newApiName.trim(),
 					Description: newApiDescription.trim() || undefined,
@@ -291,7 +300,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteApiCommand({ ApiId: api.ApiId }));
+			await apigwv2().send(new DeleteApiCommand({ ApiId: api.ApiId }));
 			toast.success(`API "${api.Name}" deleted`);
 			if (selectedApi?.ApiId === api.ApiId) selectedApi = null;
 			await loadApis();
@@ -304,7 +313,7 @@
 		if (!selectedApi?.ApiId || !newRouteKey.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateRouteCommand({
 					ApiId: selectedApi.ApiId,
 					RouteKey: newRouteKey.trim(),
@@ -328,7 +337,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Route', message: `Delete route "${route.RouteKey}"?` })))
 			return;
 		try {
-			await apigwv2.send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
+			await apigwv2().send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
 			toast.success(`Route "${route.RouteKey}" deleted`);
 			await loadApiDetail(selectedApi);
 		} catch (e) {
@@ -340,7 +349,7 @@
 		if (!selectedApi?.ApiId || !newStageName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateStageCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: newStageName.trim(),
@@ -371,7 +380,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteStageCommand({ ApiId: selectedApi.ApiId, StageName: stage.StageName })
 			);
 			toast.success(`Stage "${stage.StageName}" deleted`);
@@ -385,7 +394,7 @@
 		if (!selectedApi?.ApiId) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateIntegrationCommand({
 					ApiId: selectedApi.ApiId,
 					IntegrationType: newIntegType,
@@ -414,7 +423,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteIntegrationCommand({ ApiId: selectedApi.ApiId, IntegrationId: integ.IntegrationId })
 			);
 			toast.success('Integration deleted');
@@ -428,7 +437,7 @@
 		if (!selectedApi?.ApiId || !newAuthName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateAuthorizerCommand({
 					ApiId: selectedApi.ApiId,
 					Name: newAuthName.trim(),
@@ -466,7 +475,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteAuthorizerCommand({ ApiId: selectedApi.ApiId, AuthorizerId: auth.AuthorizerId })
 			);
 			toast.success(`Authorizer "${auth.Name}" deleted`);
@@ -480,7 +489,7 @@
 		if (!selectedApi?.ApiId || !deployStageName.trim()) return;
 		deploying = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDeploymentCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: deployStageName.trim() || undefined,
@@ -504,7 +513,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Deployment', message: `Delete deployment ${depl.DeploymentId}?` })))
 			return;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new DeleteDeploymentCommand({ ApiId: selectedApi.ApiId, DeploymentId: depl.DeploymentId })
 			);
 			toast.success('Deployment deleted');
@@ -518,7 +527,7 @@
 		if (!newDomainName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDomainNameCommand({
 					DomainName: newDomainName.trim(),
 					DomainNameConfigurations: newDomainCertArn
@@ -545,7 +554,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
+			await apigwv2().send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
 			toast.success(`Domain "${dn.DomainName}" deleted`);
 			await loadDomainNames();
 		} catch (e) {
@@ -558,7 +567,7 @@
 		creating = true;
 		try {
 			const subnets = newVpcLinkSubnets.split(',').map((s) => s.trim()).filter(Boolean);
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateVpcLinkCommand({
 					Name: newVpcLinkName.trim(),
 					SubnetIds: subnets.length > 0 ? subnets : ['subnet-default'],
@@ -583,7 +592,7 @@
 		)
 			return;
 		try {
-			await apigwv2.send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
+			await apigwv2().send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
 			toast.success(`VPC Link "${vl.Name}" deleted`);
 			await loadVpcLinks();
 		} catch (e) {
@@ -596,7 +605,7 @@
 		creating = true;
 		try {
 			// Create a demo HTTP API
-			const httpApi = await apigwv2.send(
+			const httpApi = await apigwv2().send(
 				new CreateApiCommand({
 					Name: 'petstore-http-api',
 					ProtocolType: 'HTTP',
@@ -610,7 +619,7 @@
 			);
 			if (httpApi.ApiId) {
 				// Create a default stage with auto-deploy
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateStageCommand({
 						ApiId: httpApi.ApiId,
 						StageName: '$default',
@@ -618,17 +627,17 @@
 					})
 				);
 				// Create routes
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'GET /pets' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'POST /pets' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: httpApi.ApiId, RouteKey: 'DELETE /pets/{petId}' })
 				);
 				// Create an AWS_PROXY integration
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateIntegrationCommand({
 						ApiId: httpApi.ApiId,
 						IntegrationType: 'AWS_PROXY',
@@ -638,7 +647,7 @@
 					})
 				);
 				// Create a JWT authorizer
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateAuthorizerCommand({
 						ApiId: httpApi.ApiId,
 						Name: 'cognito-jwt',
@@ -651,7 +660,7 @@
 					})
 				);
 				// Tag the API
-				await apigwv2.send(
+				await apigwv2().send(
 					new TagResourceCommand({
 						ResourceArn: `arn:aws:apigateway:us-east-1::/apis/${httpApi.ApiId}`,
 						Tags: { env: 'demo', team: 'platform' },
@@ -660,7 +669,7 @@
 			}
 
 			// Create a demo WebSocket API
-			const wsApi = await apigwv2.send(
+			const wsApi = await apigwv2().send(
 				new CreateApiCommand({
 					Name: 'chat-websocket-api',
 					ProtocolType: 'WEBSOCKET',
@@ -668,16 +677,16 @@
 				})
 			);
 			if (wsApi.ApiId) {
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: '$connect' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: '$disconnect' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateRouteCommand({ ApiId: wsApi.ApiId, RouteKey: 'sendmessage' })
 				);
-				await apigwv2.send(
+				await apigwv2().send(
 					new CreateStageCommand({
 						ApiId: wsApi.ApiId,
 						StageName: 'prod',
@@ -687,7 +696,7 @@
 			}
 
 			// Create a demo domain
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateDomainNameCommand({
 					DomainName: 'api.demo.example.com',
 					DomainNameConfigurations: [
@@ -697,7 +706,7 @@
 			);
 
 			// Create a demo VPC link
-			await apigwv2.send(
+			await apigwv2().send(
 				new CreateVpcLinkCommand({
 					Name: 'private-backend-link',
 					SubnetIds: ['subnet-aaa111', 'subnet-bbb222'],
@@ -731,7 +740,26 @@
 		else if (tab === 'vpclinkstab') await loadVpcLinks();
 	}
 
-	onMount(() => loadApis());
+	// Only one top-level tab's data is loaded at a time; on a region change
+	// reset everything region-scoped and reload whichever tab is active.
+	// `topTab` is read via untrack() because switchTopTab() also writes it:
+	// without untrack, every tab switch would re-trigger this region effect
+	// and double-fetch.
+	onRegionChange(() => {
+		apis = [];
+		selectedApi = null;
+		apiRoutes = [];
+		apiStages = [];
+		apiIntegrations = [];
+		apiAuthorizers = [];
+		apiDeployments = [];
+		domainNames = [];
+		vpcLinks = [];
+		const tab = untrack(() => topTab);
+		if (tab === 'apis') void loadApis();
+		else if (tab === 'domainnames') void loadDomainNames();
+		else if (tab === 'vpclinkstab') void loadVpcLinks();
+	});
 </script>
 
 <div class="space-y-4">
@@ -837,7 +865,15 @@
 				{#each filteredApis as api (api.ApiId)}
 					<div
 						class="flex cursor-pointer items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50 {selectedApi?.ApiId === api.ApiId ? 'ring-2 ring-primary' : ''}"
+						role="button"
+						tabindex="0"
 						onclick={() => loadApiDetail(api)}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								e.preventDefault();
+								loadApiDetail(api);
+							}
+						}}
 					>
 						<div class="flex items-center gap-3 min-w-0">
 							<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-purple-100 dark:bg-purple-900/30">
@@ -1260,19 +1296,19 @@
 			<h2 class="mb-4 text-lg font-semibold">Create HTTP/WebSocket API</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newApiName} placeholder="my-api" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-api-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-api-name" bind:value={newApiName} placeholder="my-api" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Protocol</label>
-					<select bind:value={newApiProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-api-protocol">Protocol</label>
+					<select id="new-api-protocol" bind:value={newApiProtocol} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="HTTP">HTTP</option>
 						<option value="WEBSOCKET">WEBSOCKET</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={newApiDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-api-description">Description</label>
+					<input id="new-api-description" bind:value={newApiDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1292,12 +1328,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Route</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Route Key <span class="text-destructive">*</span></label>
-					<input bind:value={newRouteKey} placeholder="GET /items or $connect" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-route-key">Route Key <span class="text-destructive">*</span></label>
+					<input id="new-route-key" bind:value={newRouteKey} placeholder="GET /items or $connect" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Target (optional)</label>
-					<input bind:value={newRouteTarget} placeholder="integrations/&#123;integrationId&#125;" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-route-target">Target (optional)</label>
+					<input id="new-route-target" bind:value={newRouteTarget} placeholder="integrations/&#123;integrationId&#125;" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1317,12 +1353,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Stage</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Stage Name <span class="text-destructive">*</span></label>
-					<input bind:value={newStageName} placeholder="prod or $default" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-stage-name">Stage Name <span class="text-destructive">*</span></label>
+					<input id="new-stage-name" bind:value={newStageName} placeholder="prod or $default" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={newStageDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-stage-description">Description</label>
+					<input id="new-stage-description" bind:value={newStageDescription} placeholder="Optional description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div class="flex items-center gap-2">
 					<input type="checkbox" bind:checked={newStageAutoDeploy} id="autoDeploy" class="h-4 w-4" />
@@ -1346,8 +1382,8 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Integration</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Integration Type</label>
-					<select bind:value={newIntegType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-integ-type">Integration Type</label>
+					<select id="new-integ-type" bind:value={newIntegType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="AWS_PROXY">AWS_PROXY (Lambda)</option>
 						<option value="HTTP_PROXY">HTTP_PROXY</option>
 						<option value="HTTP">HTTP</option>
@@ -1356,13 +1392,13 @@
 				</div>
 				{#if newIntegType !== 'MOCK'}
 					<div>
-						<label class="mb-1 block text-sm font-medium">Integration URI</label>
-						<input bind:value={newIntegUri} placeholder="arn:aws:lambda:... or https://..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-integ-uri">Integration URI</label>
+						<input id="new-integ-uri" bind:value={newIntegUri} placeholder="arn:aws:lambda:... or https://..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 					{#if newIntegType === 'HTTP' || newIntegType === 'HTTP_PROXY'}
 						<div>
-							<label class="mb-1 block text-sm font-medium">HTTP Method</label>
-							<select bind:value={newIntegMethod} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+							<label class="mb-1 block text-sm font-medium" for="new-integ-method">HTTP Method</label>
+							<select id="new-integ-method" bind:value={newIntegMethod} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 								{#each ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'ANY'] as m (m)}
 									<option>{m}</option>
 								{/each}
@@ -1388,28 +1424,28 @@
 			<h2 class="mb-4 text-lg font-semibold">Add Authorizer</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newAuthName} placeholder="my-jwt-authorizer" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-auth-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-auth-name" bind:value={newAuthName} placeholder="my-jwt-authorizer" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Type</label>
-					<select bind:value={newAuthType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+					<label class="mb-1 block text-sm font-medium" for="new-auth-type">Type</label>
+					<select id="new-auth-type" bind:value={newAuthType} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 						<option value="JWT">JWT</option>
 						<option value="REQUEST">REQUEST (Lambda)</option>
 					</select>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Identity Source</label>
-					<input bind:value={newAuthIdentitySource} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-auth-identity-source">Identity Source</label>
+					<input id="new-auth-identity-source" bind:value={newAuthIdentitySource} class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				{#if newAuthType === 'JWT'}
 					<div>
-						<label class="mb-1 block text-sm font-medium">JWT Issuer</label>
-						<input bind:value={newAuthIssuer} placeholder="https://cognito-idp.us-east-1.amazonaws.com/..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-auth-issuer">JWT Issuer</label>
+						<input id="new-auth-issuer" bind:value={newAuthIssuer} placeholder="https://cognito-idp.us-east-1.amazonaws.com/..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm font-medium">Audience</label>
-						<input bind:value={newAuthAudience} placeholder="my-client-id" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+						<label class="mb-1 block text-sm font-medium" for="new-auth-audience">Audience</label>
+						<input id="new-auth-audience" bind:value={newAuthAudience} placeholder="my-client-id" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 					</div>
 				{/if}
 			</div>
@@ -1430,13 +1466,13 @@
 			<h2 class="mb-4 text-lg font-semibold">Deploy API</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Stage Name</label>
-					<input bind:value={deployStageName} placeholder="$default or prod" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="deploy-stage-name">Stage Name</label>
+					<input id="deploy-stage-name" bind:value={deployStageName} placeholder="$default or prod" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 					<p class="mt-1 text-xs text-muted-foreground">Leave as $default for HTTP APIs or choose an existing stage</p>
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Description</label>
-					<input bind:value={deployDescription} placeholder="Optional deployment description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="deploy-description">Description</label>
+					<input id="deploy-description" bind:value={deployDescription} placeholder="Optional deployment description" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1456,12 +1492,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Create Custom Domain</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Domain Name <span class="text-destructive">*</span></label>
-					<input bind:value={newDomainName} placeholder="api.example.com" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-domain-name">Domain Name <span class="text-destructive">*</span></label>
+					<input id="new-domain-name" bind:value={newDomainName} placeholder="api.example.com" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Certificate ARN (optional)</label>
-					<input bind:value={newDomainCertArn} placeholder="arn:aws:acm:..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-domain-cert-arn">Certificate ARN (optional)</label>
+					<input id="new-domain-cert-arn" bind:value={newDomainCertArn} placeholder="arn:aws:acm:..." class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">
@@ -1481,12 +1517,12 @@
 			<h2 class="mb-4 text-lg font-semibold">Create VPC Link</h2>
 			<div class="space-y-4">
 				<div>
-					<label class="mb-1 block text-sm font-medium">Name <span class="text-destructive">*</span></label>
-					<input bind:value={newVpcLinkName} placeholder="my-vpc-link" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-vpc-link-name">Name <span class="text-destructive">*</span></label>
+					<input id="new-vpc-link-name" bind:value={newVpcLinkName} placeholder="my-vpc-link" class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 				<div>
-					<label class="mb-1 block text-sm font-medium">Subnet IDs (comma-separated)</label>
-					<input bind:value={newVpcLinkSubnets} placeholder="subnet-aaa, subnet-bbb" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
+					<label class="mb-1 block text-sm font-medium" for="new-vpc-link-subnets">Subnet IDs (comma-separated)</label>
+					<input id="new-vpc-link-subnets" bind:value={newVpcLinkSubnets} placeholder="subnet-aaa, subnet-bbb" class="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary" />
 				</div>
 			</div>
 			<div class="mt-6 flex justify-end gap-3">

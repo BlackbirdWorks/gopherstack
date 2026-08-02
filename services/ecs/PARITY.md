@@ -1,17 +1,17 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.89.0
-last_audit_commit: 1e8bccc8d
-last_audit_date: 2026-07-26
-overall: A
+last_audit_commit: HEAD                           # see git log for this pass's commit
+last_audit_date: 2026-07-31
+overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
   CreateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "added capacityProviders/defaultCapacityProviderStrategy/tags at creation (previously silently dropped); tags echoed on create response; this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names, see PutClusterCapacityProviders note)"}
   DescribeClusters: {wire: ok, errors: ok, state: ok, persist: ok, note: "added include=[TAGS] gating (was previously unsupported; tags were never returned)"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade delete of serviceDeployments fixed (was keyed wrong, silently a no-op); this sweep: also cascade-cleans the resourceTags side-map entry for the cluster itself plus every cascade-deleted service/container-instance (previously a ghost row that could resurrect stale tags on a same-name recreate, or leak permanently for random-ID resources -- see Notes)"}
   ListClusters: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: defaultCapacityProviderStrategy now validated (rejects unknown capacity provider names)"}
+  UpdateCluster: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED this sweep: the 2026-07-26 entry's wire:ok claim was false -- updateClusterInput accepted capacityProviders and defaultCapacityProviderStrategy, and validated the latter (see the entry this replaces), but the real UpdateClusterRequest has neither field (only cluster, settings, configuration, serviceConnectDefaults); capacity-provider association is exclusively PutClusterCapacityProviders's job. A real typed SDK client could never have exercised this surface. Both fields removed from the handler input struct and from UpdateClusterInput/Backend.UpdateCluster; sending them now is silently ignored rather than applied, proven by TestUpdateCluster_DoesNotAcceptCapacityProviders (fails without the fix). configuration and serviceConnectDefaults remain unmodeled (pre-existing, not part of this fix)."}
   UpdateClusterSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutClusterCapacityProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: defaultCapacityProviderStrategy items are now validated against real (created via CreateCapacityProvider) or FARGATE/FARGATE_SPOT-builtin capacity providers, returning a 400 ClientException for an unknown name instead of silently accepting any string. Same validateCapacityProviderStrategyLocked helper wired into CreateCluster, UpdateCluster, CreateService, UpdateService, RunTask, and CreateTaskSet (all previously unvalidated too -- CreateCluster/UpdateCluster/CreateTaskSet were not even named in the prior sweep's gap description). Scoped narrowly: only strategy items are validated, not the separate capacityProviders association list (matches the gap's original scope; validating that list too is a larger, higher-blast-radius change not attempted this sweep)."}
+  PutClusterCapacityProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED prior sweep: defaultCapacityProviderStrategy items are now validated against real (created via CreateCapacityProvider) or FARGATE/FARGATE_SPOT-builtin capacity providers, returning a 400 ClientException for an unknown name instead of silently accepting any string. Same validateCapacityProviderStrategyLocked helper wired into CreateCluster, CreateService, UpdateService, RunTask, and CreateTaskSet. CORRECTED this sweep: the prior note also claimed UpdateCluster was wired into this validation; that was true of the code at the time, but UpdateCluster's capacityProviders/defaultCapacityProviderStrategy fields were themselves a wire-shape bug (see UpdateCluster entry) and have since been removed, so UpdateCluster is no longer part of this list. Scoped narrowly: only strategy items are validated, not the separate capacityProviders association list (see gaps)."}
   RegisterTaskDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeTaskDefinition: {wire: ok, errors: ok, state: ok, persist: ok, note: "include=[TAGS] already supported pre-sweep"}
   DeregisterTaskDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -39,7 +39,7 @@ ops:
   DescribeTasks: {wire: ok, errors: ok, state: ok, persist: ok}
   StopTask: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTasks: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterContainerInstance: {wire: ok, errors: ok, state: ok, persist: ok}
+  RegisterContainerInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED this sweep: the prior wire:ok claim was false -- registerContainerInstanceInput required ec2InstanceId, a field that does not exist on the real RegisterContainerInstanceRequest (only instanceIdentityDocument/instanceIdentityDocumentSignature, plus cluster/attributes/tags/versionInfo/etc.); no real typed SDK client could ever populate it. Fixed by accepting instanceIdentityDocument instead and deriving the EC2 instance ID by parsing its instanceId JSON field (the real document served at the EC2 instance-metadata identity-document endpoint, which real ECS also derives instance identity from). If the document is absent or does not parse, EC2InstanceID is left empty rather than fabricated -- an honest 'could not identify' rather than a plausible-looking invented ID. instanceIdentityDocumentSignature is accepted for wire-shape completeness but not cryptographically verified (this backend does not model EC2 instance-identity attestation). attributes/tags/versionInfo/totalResources/containerInstanceArn/platformDevices on the real request are not modeled at registration time (attributes/tags are already reachable via the separate PutAttributes/TagResource operations); out of scope for this fix, not claimed as done."}
   DeregisterContainerInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: also cleans the container instance's resourceTags side-map entry (previously a ghost row, see Notes)"}
   DescribeContainerInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: added include=[TAGS] gating (tags previously had no wire-shape field at all). Remaining gap: CONTAINER_INSTANCE_HEALTH include value / HealthStatus field not modeled -- no health-check state is tracked for container instances (niche, not in the original gap list, deferred)"}
   ListContainerInstances: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -48,7 +48,7 @@ ops:
   CreateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeCapacityProviders: {wire: ok, errors: ok, state: ok, persist: ok, note: "unknown names report a Failures[] entry (reason MISSING) instead of failing the whole call (fixed prior sweep). This sweep: added include=[TAGS] gating (tags were previously always returned regardless of Include) and the Cluster filter parameter (only capacity providers associated with the named cluster are returned; unknown cluster -> empty result, matching AWS filter-parameter semantics rather than a hard 404)."}
-  UpdateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateCapacityProvider: {wire: ok, errors: ok, state: ok, persist: ok, note: "CORRECTED this sweep: the prior wire:ok claim was false -- updateCapacityProviderInput accepted status and tags, neither of which exist on the real UpdateCapacityProviderRequest (only name, cluster, autoScalingGroupProvider, managedInstancesProvider), and its autoScalingGroupProvider reused the full create-time type (with autoScalingGroupArn) instead of the narrower AutoScalingGroupProviderUpdate (managedScaling/managedTerminationProtection/managedDraining only -- the ASG cannot be swapped after creation). Both fixed: status/tags removed from the input struct; a new AutoScalingGroupProviderUpdate type (no ARN) added end-to-end. This also fixed a latent state bug the old wire shape masked: the backend did `cp.AutoScalingGroupProvider = input.AutoScalingGroupProvider` wholesale, so any update touching autoScalingGroupProvider silently zeroed the stored ARN (the old input struct always carried an ARN field, usually empty on update calls that only meant to change managedScaling). Now merges managedScaling/managedTerminationProtection/managedDraining onto the existing AutoScalingGroupProvider, preserving its ARN -- proven by TestCapacityProvider_Update_ManagedScaling (fails without the fix). managedInstancesProvider is not modeled (no Managed Instances feature in this backend)."}
   DeleteAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAccountSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   PutAccountSetting: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -73,7 +73,8 @@ ops:
 families:
   daemon: {status: ok, note: "Field-diffed for real (previous ledger entries for this family were no-stub-only assessments, not wire-shape diffs). Fixed a real leak: DeleteDaemon never cleaned up daemonRevisions/daemonDeployments rows at all (only the daemons table entry), and the cluster-purge cleanup path (purgeDaemonsLocked) deleted from daemonRevisions by the wrong key (DaemonArn instead of DaemonRevisionArn, a documented-but-never-fixed no-op preserved through a prior mechanical refactor) -- both fixed via a new shared deleteDaemonAncillaryLocked helper. CORRECTED gopherstack-rnka: the prior ledger entry here (2026-07-23) claimed DescribeDaemonOutput.Daemon was flattened -- daemonName/daemonTaskDefinitionArn/capacityProviderArns/tags/etc. living directly on the response instead of nested under CurrentRevisions -- and downgraded this family to partial on that basis. Re-verified against the real types.DaemonDetail shape (ClusterArn/CreatedAt/CurrentRevisions[]DaemonRevisionDetail{Arn,CapacityProviders[]DaemonCapacityProvider{Arn,RunningCount},TotalRunningCount}/DaemonArn/DeploymentArn/Status/UpdatedAt) field-by-field: handler_daemon.go's daemonDetailView/daemonRevisionDetailView/daemonCapacityProviderView already match this exactly, and DO NOT expose daemonName/daemonTaskDefinitionArn/tags/etc. at the top level. Proven with a new real-SDK-client round-trip test (TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting) rather than trusting the prior note. The 2026-07-23 gap description was inaccurate at the time it was written (the code was already correct); upgraded back to ok."}
 gaps:
-  - "PutClusterCapacityProviders/CreateService/UpdateService/RunTask/CreateCluster/UpdateCluster/CreateTaskSet do not validate that the *association* list itself (capacityProviders, as opposed to a capacityProviderStrategy item) references real capacity providers -- e.g. PutClusterCapacityProviders(capacityProviders=[\"typo-cp\"]) is accepted. FIXED this sweep for capacityProviderStrategy *items* specifically (see PutClusterCapacityProviders note); the separate capacityProviders association-list gap is unchanged from the prior sweep's assessment and intentionally not fixed for the same reason (many call sites, tests using ad-hoc provider names in the association list specifically)."
+  - "PutClusterCapacityProviders/CreateService/UpdateService/RunTask/CreateCluster/CreateTaskSet do not validate that the *association* list itself (capacityProviders, as opposed to a capacityProviderStrategy item) references real capacity providers -- e.g. PutClusterCapacityProviders(capacityProviders=[\"typo-cp\"]) is accepted. FIXED a prior sweep for capacityProviderStrategy *items* specifically (see PutClusterCapacityProviders note); the separate capacityProviders association-list gap is unchanged and intentionally not fixed for the same reason (many call sites, tests using ad-hoc provider names in the association list specifically). CORRECTED this sweep: UpdateCluster removed from this list -- it never legitimately had a capacityProviders field to validate (see UpdateCluster entry), so listing it here as a gap was itself inaccurate."
+  - "DescribeCapacityProviders' include=[TAGS] path (toCapacityProviderView) reads the CapacityProvider.Tags struct field (populated only at CreateCapacityProvider time), not the resourceTags side map that TagResource/UntagResource/ListTagsForResource actually write to -- unlike DescribeClusters/DescribeServices/DescribeContainerInstances/DescribeTaskSets, which all correctly call ListTagsForResource when tags are requested. So tags added to a capacity provider via TagResource after creation are invisible on DescribeCapacityProviders even with include=[TAGS], though ListTagsForResource itself returns them correctly. Found incidentally while re-verifying UpdateCapacityProvider's wire shape this sweep (confirming the removed tags field wasn't the only way to tag a capacity provider); not fixed -- out of scope for the three field-shape fixes this pass, reported for a future sweep."
   - "SDK bumped v1.86.2 -> v1.88.0 last sweep (no local services/ecs/ drift; SDK-only, re-confirmed unchanged this sweep). New surface: ServiceRevision.Overrides -> ServiceRevisionOverrides.RuntimePlatform (types.RuntimePlatformOverride, CpuArchitecture only) — an output-only field AWS populates when it auto-detects an architecture mismatch during an ECS Express deployment (doc: \"You can't set this value\"). Not modeled (DescribeServiceRevisions never populates Overrides); no client-visible regression since the field is optional/omitempty and no test or codepath claims architecture-mismatch detection. Niche, deferred."
   - "ContinueServiceDeployment always returns ClientException (no paused lifecycle hook) because PAUSE-stage lifecycle hooks for blue/green deployments are not modeled at all (no hookId tracking, no pause state in the ECS_SERVICE_DEPLOYMENT / EXTERNAL deployment controllers). Implementing real hook pausing is a substantial feature (Lambda-invocation simulation, TEST_TRAFFIC_SHIFT/BAKE_TIME lifecycle stages) out of scope for this sweep; the op is real (validates ARN/hookId, returns AWS-shaped errors) rather than a stub. Re-verified unchanged this sweep."
   - "ECS -> ELB/ELBv2 target registration is config-only: Service.LoadBalancers/ServiceRegistries are stored and echoed back on Describe/Update, but nothing calls services/elbv2 to register/deregister targets in a target group, and ELB health does not feed back into ECS task/service health. Cross-service, lives outside services/ecs/ — reported, not fixed. No bd issue found for this in the tracker at time of writing; recommend filing one scoped to services/elbv2 + services/ecs integration."
@@ -86,6 +87,75 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-07-31 field-level wire-shape fixes (parity-5 branch)
+
+Three field-level wire-shape mismatches, reported by a dashboard sweep after
+TypeScript refused to compile the frontend against the real
+`@aws-sdk/client-ecs` types, were re-verified one at a time against the real
+SDK's `dist-types/models/models_0.d.ts` before touching any code. All three
+were real (none were misreads):
+
+1. **UpdateCluster** accepted `capacityProviders` and
+   `defaultCapacityProviderStrategy`, neither of which exist on the real
+   `UpdateClusterRequest` (only `cluster`/`settings`/`configuration`/
+   `serviceConnectDefaults`). `PutClusterCapacityProviders` was already
+   implemented and routed as the real op for capacity-provider association,
+   so the fields were pure redundancy, not a missing-capability gap -- removed
+   from `updateClusterInput`, `UpdateClusterInput`, and
+   `Backend.UpdateCluster`. See UpdateCluster entry.
+2. **UpdateCapacityProvider** accepted `status` and `tags` (neither real),
+   and its `autoScalingGroupProvider` reused the full create-time type
+   (carrying `autoScalingGroupArn`) instead of the real, narrower
+   `AutoScalingGroupProviderUpdate`. Fixing the wire shape surfaced a real
+   state bug it had been masking: the backend replaced
+   `cp.AutoScalingGroupProvider` wholesale on any update, so an update that
+   only meant to change `managedScaling` silently zeroed the stored ASG ARN.
+   Fixed both together: new `AutoScalingGroupProviderUpdate` type (no ARN)
+   end-to-end, and the backend now merges the three real update fields onto
+   the existing `AutoScalingGroupProvider` instead of replacing it. See
+   UpdateCapacityProvider entry.
+3. **RegisterContainerInstance** *required* `ec2InstanceId`, a field with no
+   equivalent on the real `RegisterContainerInstanceRequest` -- a real typed
+   client can never populate it, only `instanceIdentityDocument` (an EC2
+   instance-identity-document JSON blob, of which `instanceId` is one field)
+   and `instanceIdentityDocumentSignature`. Fixed by accepting
+   `instanceIdentityDocument` and parsing `instanceId` out of it, matching
+   how real ECS derives instance identity. An absent or unparseable document
+   now yields an empty `EC2InstanceID` rather than a fabricated one -- this
+   was a deliberate choice per the instruction not to invent a
+   plausible-looking ID and present it as real. See RegisterContainerInstance
+   entry.
+
+`sdk_completeness_test.go` (77/77, compares op *names* to
+`GetSupportedOperations()`) could not have caught any of these -- it is blind
+to field shapes by construction. Widening the search for the same defect
+pattern (a test asserting the very field a real client cannot send) found
+four more tests doing exactly this: `TestUpdateCluster_CapacityProviders`
+(handler_clusters_test.go), the `UpdateCluster` subtest of
+`TestCapacityProviderStrategy_RejectsUnknownProvider`
+(capacity_provider_strategy_validation_test.go),
+`TestCapacityProvider_Update_ManagedScaling` and the `status`-sending case in
+`TestECS_UpdateCapacityProvider` (handler_capacity_providers_test.go), plus
+every `RegisterContainerInstance` call across handler_container_instances_test.go,
+handler_attributes_test.go, handler_test.go, and handler_task_exec_test.go
+that sent `ec2InstanceId`. All corrected to the real wire shape; each fix has
+a test that demonstrably fails against the pre-fix code (verified by
+temporarily reverting the six touched source files while keeping the
+corrected tests and re-running them; restored after confirming the failures,
+per the plan of record).
+
+Incidental finding, not fixed (see gaps): `DescribeCapacityProviders`'
+`include=[TAGS]` path reads `CapacityProvider.Tags` (set only at creation)
+rather than the `resourceTags` side map `TagResource` actually writes to,
+unlike every other `Describe*` op with `include=[TAGS]` gating. Found while
+confirming that removing the fake `tags` field from
+`UpdateCapacityProviderInput` didn't remove the only way to tag a capacity
+provider (it didn't -- `TagResource`/`ListTagsForResource` work correctly;
+only the `Describe` read path is stale). Out of scope for this pass.
+
+`overall` stays `A`: all three findings were genuine wire-shape bugs, and all
+three are now fixed with proof tests, not just documented as open gaps.
 
 ### 2026-07-26 re-verification (parity-5 branch, bd issue gopherstack-rnka)
 

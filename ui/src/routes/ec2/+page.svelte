@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-import { onMount } from 'svelte';
+import { untrack } from 'svelte';
+import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { urlState } from '$lib/url-state.svelte';
+import LiveDot from '$lib/components/LiveDot.svelte';
 import { getEC2Client } from '$lib/aws-client';
 import {
 	DescribeInstancesCommand,
@@ -51,7 +54,7 @@ import {
 import { toast } from 'svelte-sonner';
 import { Cpu, Play, Square, Trash2, RefreshCw, Plus, Search, RotateCcw, Shield, Key, Layers, Route, FileImage, Network, HardDrive, Camera } from 'lucide-svelte';
 
-const ec2 = getEC2Client();
+const ec2 = regionalClient(getEC2Client);
 
 type EC2Instance = {
 	ImageId?: string;
@@ -75,8 +78,13 @@ type TabName = 'instances' | 'secgroups' | 'keypairs' | 'amis' | 'launchtemplate
 
 let instances = $state<EC2Instance[]>([]);
 let loading = $state(true);
-let search = $state('');
-let stateFilter = $state('all');
+// URL-backed (?q=..., ?state=...); see url-state.svelte.ts. Neither is read
+// inside the onRegionChange effect below, so no untrack() is needed at
+// that call site.
+const searchParam = urlState<string>('q', '');
+let search = $derived(searchParam.get());
+const stateFilterParam = urlState<string>('state', 'all');
+let stateFilter = $derived(stateFilterParam.get());
 let vpcFilter = $state('all');
 let showLaunchModal = $state(false);
 let showCreateLTModal = $state(false);
@@ -87,7 +95,14 @@ let newInstanceName = $state('');
 let newLTName = $state('');
 let newLTImageId = $state('ami-0c55b159cbfafe1f0');
 let newLTInstanceType = $state('t3.micro');
-let activeTab = $state<TabName>('instances');
+// URL-backed (?tab=...); see url-state.svelte.ts. Read via untrack() inside
+// the onRegionChange effect below (selectTab() also writes it): without
+// untrack, every tab switch would re-trigger the region effect and
+// double-fetch — the same reasoning that already applied to this variable
+// before it moved into the URL, now widened to the whole shared page.url
+// (see url-state.svelte.ts's header comment on the region-effect hazard).
+const activeTabParam = urlState<TabName>('tab', 'instances');
+let activeTab = $derived(activeTabParam.get());
 let securityGroups = $state<SecurityGroup[]>([]);
 let keyPairs = $state<KeyPairInfo[]>([]);
 let amis = $state<Image[]>([]);
@@ -126,14 +141,25 @@ let natSearch = $state('');
 
 const instanceTypes = ['t3.micro', 't3.small', 't3.medium', 't3.large', 'm5.large', 'c5.large', 'r5.large'];
 
-onMount(async () => {
-	await loadInstances();
+// Every tab caches its list in module state, and selectedInstance/selectedSg
+// point at resources from whichever region was active when they were
+// selected — all of that is region-scoped, so reset every tab's cache (not
+// just the active one) before reloading. `activeTab` is read via untrack()
+// because selectTab() also writes it: without untrack, every tab switch
+// would re-trigger this region effect and double-fetch.
+onRegionChange(() => {
+	selectedInstance = null;
+	selectedSg = null;
+	showSgRules = false;
+	for (const entry of Object.values(tabLoaders)) entry.reset();
+	const tab = untrack(() => activeTab);
+	void tabLoaders[tab].load();
 });
 
 async function loadInstances() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeInstancesCommand({}));
+		const data = await ec2().send(new DescribeInstancesCommand({}));
 		instances = data.Reservations?.flatMap((r) => (r.Instances ?? []) as EC2Instance[]) ?? [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load instances');
@@ -145,7 +171,7 @@ async function loadInstances() {
 async function loadSecurityGroups() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({}));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({}));
 		securityGroups = data.SecurityGroups || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load security groups');
@@ -165,12 +191,12 @@ async function addSgRule() {
 			IpRanges: [{ CidrIp: newRuleCidr }]
 		};
 		if (addRuleDirection === 'inbound') {
-			await ec2.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new AuthorizeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2.send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new AuthorizeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule added');
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
 		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
 		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
@@ -184,12 +210,12 @@ async function revokeSgRule(direction: 'inbound' | 'outbound', perm: IpPermissio
 	if (!selectedSg?.GroupId) return;
 	try {
 		if (direction === 'inbound') {
-			await ec2.send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new RevokeSecurityGroupIngressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		} else {
-			await ec2.send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
+			await ec2().send(new RevokeSecurityGroupEgressCommand({ GroupId: selectedSg.GroupId, IpPermissions: [perm] }));
 		}
 		toast.success('Rule removed');
-		const data = await ec2.send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
+		const data = await ec2().send(new DescribeSecurityGroupsCommand({ GroupIds: [selectedSg.GroupId] }));
 		selectedSg = data.SecurityGroups?.[0] ?? selectedSg;
 		securityGroups = securityGroups.map(sg => sg.GroupId === selectedSg?.GroupId ? selectedSg! : sg);
 	} catch (e) {
@@ -208,7 +234,7 @@ function formatIpPerm(perm: IpPermission): string {
 async function loadKeyPairs() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeKeyPairsCommand({}));
+		const data = await ec2().send(new DescribeKeyPairsCommand({}));
 		keyPairs = data.KeyPairs || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load key pairs');
@@ -220,7 +246,7 @@ async function loadKeyPairs() {
 async function loadAmis() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeImagesCommand({}));
+		const data = await ec2().send(new DescribeImagesCommand({}));
 		amis = data.Images || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load AMIs');
@@ -232,7 +258,7 @@ async function loadAmis() {
 async function loadLaunchTemplates() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeLaunchTemplatesCommand({}));
+		const data = await ec2().send(new DescribeLaunchTemplatesCommand({}));
 		launchTemplates = data.LaunchTemplates || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load launch templates');
@@ -244,7 +270,7 @@ async function loadLaunchTemplates() {
 async function loadVpcEndpoints() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeVpcEndpointsCommand({}));
+		const data = await ec2().send(new DescribeVpcEndpointsCommand({}));
 		vpcEndpoints = data.VpcEndpoints || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load VPC endpoints');
@@ -256,7 +282,7 @@ async function loadVpcEndpoints() {
 async function loadNetworkAcls() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeNetworkAclsCommand({}));
+		const data = await ec2().send(new DescribeNetworkAclsCommand({}));
 		networkAcls = data.NetworkAcls || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load network ACLs');
@@ -269,8 +295,8 @@ async function loadVpcs() {
 	try {
 		loading = true;
 		const [vpcData, subnetData] = await Promise.all([
-			ec2.send(new DescribeVpcsCommand({})),
-			ec2.send(new DescribeSubnetsCommand({}))
+			ec2().send(new DescribeVpcsCommand({})),
+			ec2().send(new DescribeSubnetsCommand({}))
 		]);
 		vpcs = vpcData.Vpcs || [];
 		subnets = subnetData.Subnets || [];
@@ -284,7 +310,7 @@ async function loadVpcs() {
 async function loadVolumes() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeVolumesCommand({}));
+		const data = await ec2().send(new DescribeVolumesCommand({}));
 		volumes = data.Volumes || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load volumes');
@@ -296,7 +322,7 @@ async function loadVolumes() {
 async function loadSnapshots() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeSnapshotsCommand({}));
+		const data = await ec2().send(new DescribeSnapshotsCommand({}));
 		snapshots = data.Snapshots || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
@@ -308,7 +334,7 @@ async function loadSnapshots() {
 async function loadElasticIPs() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeAddressesCommand({}));
+		const data = await ec2().send(new DescribeAddressesCommand({}));
 		elasticIPs = data.Addresses || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load Elastic IPs');
@@ -320,7 +346,7 @@ async function loadElasticIPs() {
 async function loadInternetGateways() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeInternetGatewaysCommand({}));
+		const data = await ec2().send(new DescribeInternetGatewaysCommand({}));
 		internetGateways = data.InternetGateways || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load internet gateways');
@@ -332,7 +358,7 @@ async function loadInternetGateways() {
 async function loadRouteTables() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeRouteTablesCommand({}));
+		const data = await ec2().send(new DescribeRouteTablesCommand({}));
 		routeTables = data.RouteTables || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load route tables');
@@ -344,7 +370,7 @@ async function loadRouteTables() {
 async function loadNatGateways() {
 	try {
 		loading = true;
-		const data = await ec2.send(new DescribeNatGatewaysCommand({}));
+		const data = await ec2().send(new DescribeNatGatewaysCommand({}));
 		natGateways = data.NatGateways || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load NAT gateways');
@@ -417,7 +443,7 @@ const tabLoaders: Record<
 };
 
 async function selectTab(t: TabName) {
-	activeTab = t;
+	activeTabParam.set(t);
 	const entry = tabLoaders[t];
 	if (!entry.isLoaded()) await entry.load();
 }
@@ -445,7 +471,7 @@ return map[state] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-
 
 async function startInstance(id: string) {
 try {
-await ec2.send(new StartInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new StartInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} starting...`);
 await loadInstances();
 } catch (e) {
@@ -455,7 +481,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to start');
 
 async function stopInstance(id: string) {
 try {
-await ec2.send(new StopInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new StopInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} stopping...`);
 await loadInstances();
 } catch (e) {
@@ -465,7 +491,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to stop');
 
 async function rebootInstance(id: string) {
 try {
-await ec2.send(new RebootInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new RebootInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} rebooting...`);
 } catch (e) {
 toast.error(e instanceof Error ? e.message : 'Failed to reboot');
@@ -475,7 +501,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to reboot');
 async function terminateInstance(id: string) {
 if (!await confirmDestructive({ title: 'Terminate Instance', message: `Terminate instance ${id}? This cannot be undone.`, confirmLabel: 'Terminate' })) return;
 try {
-await ec2.send(new TerminateInstancesCommand({ InstanceIds: [id] }));
+await ec2().send(new TerminateInstancesCommand({ InstanceIds: [id] }));
 toast.success(`Instance ${id} terminated`);
 await loadInstances();
 } catch (e) {
@@ -486,7 +512,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to terminate');
 async function deleteLaunchTemplate(id: string) {
 if (!await confirmDestructive({ title: 'Delete Launch Template', message: `Delete launch template ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
+await ec2().send(new DeleteLaunchTemplateCommand({ LaunchTemplateId: id }));
 toast.success('Launch template deleted');
 launchTemplates = []; await loadLaunchTemplates();
 } catch (e) {
@@ -497,7 +523,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete launch template')
 async function deleteVpcEndpoint(id: string) {
 if (!await confirmDestructive({ title: 'Delete VPC Endpoint', message: `Delete endpoint ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
+await ec2().send(new DeleteVpcEndpointsCommand({ VpcEndpointIds: [id] }));
 toast.success('VPC endpoint deleted');
 vpcEndpoints = []; await loadVpcEndpoints();
 } catch (e) {
@@ -508,7 +534,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete endpoint');
 async function deleteSnapshot(id: string) {
 if (!await confirmDestructive({ title: 'Delete Snapshot', message: `Delete snapshot ${id}?`, confirmLabel: 'Delete' })) return;
 try {
-await ec2.send(new DeleteSnapshotCommand({ SnapshotId: id }));
+await ec2().send(new DeleteSnapshotCommand({ SnapshotId: id }));
 toast.success('Snapshot deleted');
 snapshots = []; await loadSnapshots();
 } catch (e) {
@@ -519,7 +545,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to delete snapshot');
 async function createLaunchTemplate() {
 if (!newLTName) { toast.error('Name is required'); return; }
 try {
-await ec2.send(new CreateLaunchTemplateCommand({
+await ec2().send(new CreateLaunchTemplateCommand({
   LaunchTemplateName: newLTName,
   LaunchTemplateData: {
     ImageId: newLTImageId,
@@ -537,7 +563,7 @@ toast.error(e instanceof Error ? e.message : 'Failed to create launch template')
 
 async function launchInstance() {
 try {
-await ec2.send(new RunInstancesCommand({
+await ec2().send(new RunInstancesCommand({
   ImageId: newInstanceAmi,
   InstanceType: newInstanceType as _InstanceType,
   MinCount: 1,
@@ -621,7 +647,10 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 				<Cpu class="w-6 h-6 text-orange-600 dark:text-orange-400" />
 			</div>
 			<div>
-				<h1 class="text-3xl font-bold text-slate-900 dark:text-white">EC2</h1>
+				<h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+					EC2
+					<LiveDot service="ec2" />
+				</h1>
 				<p class="text-slate-600 dark:text-slate-300">Elastic Compute Cloud</p>
 			</div>
 		</div>
@@ -727,11 +756,12 @@ let filteredNATs = $derived(natGateways.filter(nat =>
 			<input
 				type="text"
 				placeholder="Search instances..."
-				bind:value={search}
+				value={search}
+				oninput={(e) => searchParam.set(e.currentTarget.value)}
 				class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white"
 			/>
 		</div>
-		<select bind:value={stateFilter} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
+		<select value={stateFilter} onchange={(e) => stateFilterParam.set(e.currentTarget.value)} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white">
 			<option value="all">All States</option>
 			<option value="running">Running</option>
 			<option value="stopped">Stopped</option>
@@ -923,15 +953,15 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 <h4 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Add Rule</h4>
 <div class="flex flex-wrap gap-2 items-end">
 <div>
-<label class="block text-xs text-slate-500 mb-1">Direction</label>
-<select bind:value={addRuleDirection} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<label class="block text-xs text-slate-500 mb-1" for="add-rule-direction">Direction</label>
+<select id="add-rule-direction" bind:value={addRuleDirection} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
 <option value="inbound">Inbound</option>
 <option value="outbound">Outbound</option>
 </select>
 </div>
 <div>
-<label class="block text-xs text-slate-500 mb-1">Protocol</label>
-<select bind:value={newRuleProtocol} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-protocol">Protocol</label>
+<select id="new-rule-protocol" bind:value={newRuleProtocol} class="text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white">
 <option value="tcp">TCP</option>
 <option value="udp">UDP</option>
 <option value="icmp">ICMP</option>
@@ -940,17 +970,17 @@ class="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 round
 </div>
 {#if newRuleProtocol !== 'all'}
 <div>
-<label class="block text-xs text-slate-500 mb-1">From Port</label>
-<input type="number" bind:value={newRuleFromPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-from-port">From Port</label>
+<input id="new-rule-from-port" type="number" bind:value={newRuleFromPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 <div>
-<label class="block text-xs text-slate-500 mb-1">To Port</label>
-<input type="number" bind:value={newRuleToPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-to-port">To Port</label>
+<input id="new-rule-to-port" type="number" bind:value={newRuleToPort} class="w-20 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 {/if}
 <div>
-<label class="block text-xs text-slate-500 mb-1">CIDR</label>
-<input type="text" bind:value={newRuleCidr} placeholder="0.0.0.0/0" class="w-36 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
+<label class="block text-xs text-slate-500 mb-1" for="new-rule-cidr">CIDR</label>
+<input id="new-rule-cidr" type="text" bind:value={newRuleCidr} placeholder="0.0.0.0/0" class="w-36 text-sm border border-slate-300 dark:border-slate-600 rounded-lg p-2 bg-white dark:bg-slate-700 dark:text-white" />
 </div>
 <button onclick={addSgRule} disabled={addingRule} class="text-white bg-blue-600 hover:bg-blue-700 font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50">{addingRule ? 'Adding…' : 'Add Rule'}</button>
 </div>

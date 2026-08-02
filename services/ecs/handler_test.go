@@ -63,6 +63,25 @@ func doECSRequest(
 	return rec
 }
 
+// fakeInstanceIdentityDocument builds a minimal EC2 instance identity
+// document JSON string (the same shape served at
+// http://169.254.169.254/latest/dynamic/instance-identity/document/) for use
+// as RegisterContainerInstance's instanceIdentityDocument field in tests.
+// Real ECS derives the EC2 instance ID from this document -- there is no
+// separate ec2InstanceId request field a client can send.
+func fakeInstanceIdentityDocument(instanceID string) string {
+	doc, err := json.Marshal(map[string]any{
+		"instanceId": instanceID,
+		"region":     testRegion,
+		"accountId":  testAccountID,
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return string(doc)
+}
+
 // newTestECSClient stands up the real aws-sdk-go-v2 ECS client against an
 // httptest server running this package's Handler, wired through the same
 // pkgs/service registry/router used in production. Round-tripping through the
@@ -520,8 +539,10 @@ func TestConcurrent_RegisterContainerInstances(t *testing.T) {
 			defer wg.Done()
 
 			body, _ := json.Marshal(map[string]any{
-				"cluster":       "concurrent-ci-cluster",
-				"ec2InstanceId": "i-concurrent-" + string(rune('a'+idx)),
+				"cluster": "concurrent-ci-cluster",
+				"instanceIdentityDocument": fakeInstanceIdentityDocument(
+					"i-concurrent-" + string(rune('a'+idx)),
+				),
 			})
 			e := echo.New()
 			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))

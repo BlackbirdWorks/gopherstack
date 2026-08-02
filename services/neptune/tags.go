@@ -171,3 +171,61 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, arnStr string
 
 	return cp, nil
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingNeptune). Neptune keeps tags in a region-nested, flat ARN-keyed
+// map (b.tags[region][arn]) spanning every taggable resource kind, so this
+// is a walk of that map across every observed region rather than one
+// per-kind loop.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Neptune resource ARN, across all regions,
+// that currently has at least one tag.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	for _, regionTags := range b.tags {
+		for arnStr, tagList := range regionTags {
+			if len(tagList) == 0 {
+				continue
+			}
+
+			kv := make(map[string]string, len(tagList))
+			for _, t := range tagList {
+				kv[t.Key] = t.Value
+			}
+
+			out = append(out, TaggedEntry{ARN: arnStr, Tags: kv})
+		}
+	}
+
+	return out
+}
+
+// HasTaggableResource reports whether arnStr refers to a Neptune-owned
+// resource of a kind AddTagsToResource actually recognizes (cluster, db,
+// cluster-snapshot, subgrp, cluster-pg -- see validateResourceARN),
+// resolving the region exactly as AddTagsToResource does. Used exclusively
+// by cross-service tagging (resourcegroupstaggingapi, wired in cli.go's
+// wireTaggingNeptune) to decide whether a "rds"-namespaced ARN belongs to
+// Neptune before claiming it: DB clusters and instances use the "neptune"
+// ARN service exclusively (db_clusters.go:70, db_instances.go:32), but
+// parameter groups, subnet groups, and cluster snapshots share the "rds" ARN
+// service (cluster_parameter_groups.go:47, subnet_groups.go:41,
+// cluster_snapshots.go:44) with the separate RDS and DocumentDB backends, so
+// ownership can't be assumed from the service segment alone.
+func (b *InMemoryBackend) HasTaggableResource(ctx context.Context, arnStr string) bool {
+	region := regionFromARN(arnStr, getRegion(ctx, b.region))
+
+	b.mu.RLock("HasTaggableResource")
+	defer b.mu.RUnlock()
+
+	return b.validateResourceARN(region, arnStr) == nil
+}

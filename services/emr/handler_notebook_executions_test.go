@@ -21,7 +21,7 @@ func TestNotebookExecution(t *testing.T) {
 		"EditorId":              "e-EXAMPLEEDITORID",
 		"NotebookExecutionName": "test-run",
 		"NotebookParams":        `{"key":"value"}`,
-		"ExecutionEngineConfig": map[string]any{
+		"ExecutionEngine": map[string]any{
 			"Id": "j-EXAMPLECLUSTERID",
 		},
 	})
@@ -106,13 +106,13 @@ func TestNotebookExecution_ListFilter(t *testing.T) {
 		doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
 			"EditorId":              "e-EDITOR1",
 			"NotebookExecutionName": "run1",
-			"ExecutionEngineConfig": map[string]any{"Id": "j-1"},
+			"ExecutionEngine":       map[string]any{"Id": "j-1"},
 		})
 	}
 	doEMRRequest(t, h, "StartNotebookExecution", map[string]any{
 		"EditorId":              "e-EDITOR2",
 		"NotebookExecutionName": "run2",
-		"ExecutionEngineConfig": map[string]any{"Id": "j-2"},
+		"ExecutionEngine":       map[string]any{"Id": "j-2"},
 	})
 
 	// Filter by EditorId.
@@ -161,7 +161,7 @@ func TestNotebookExecution_TagsEmptyNotAbsent(t *testing.T) {
 			body: map[string]any{
 				"EditorId":              "e-ED1",
 				"NotebookExecutionName": "no-tag-run",
-				"ExecutionEngineConfig": map[string]any{"Id": "j-1"},
+				"ExecutionEngine":       map[string]any{"Id": "j-1"},
 			},
 		},
 		{
@@ -169,7 +169,7 @@ func TestNotebookExecution_TagsEmptyNotAbsent(t *testing.T) {
 			body: map[string]any{
 				"EditorId":              "e-ED2",
 				"NotebookExecutionName": "empty-tag-run",
-				"ExecutionEngineConfig": map[string]any{"Id": "j-2"},
+				"ExecutionEngine":       map[string]any{"Id": "j-2"},
 				"Tags":                  []any{},
 			},
 		},

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getServerlessRepoClient } from '$lib/aws-client';
 	import {
 		ListApplicationsCommand,
@@ -51,7 +51,7 @@
 		Clock
 	} from 'lucide-svelte';
 
-	const slr = getServerlessRepoClient();
+	const slr = regionalClient(getServerlessRepoClient);
 
 	// ── State ────────────────────────────────────────────────────────────────
 	let loading = $state(false);
@@ -126,7 +126,7 @@
 	async function loadApps() {
 		loading = true;
 		try {
-			const res = await slr.send(new ListApplicationsCommand({}));
+			const res = await slr().send(new ListApplicationsCommand({}));
 			applications = res.Applications ?? [];
 		} catch (err) {
 			toast.error(`Failed to load applications: ${String(err)}`);
@@ -144,7 +144,7 @@
 	async function loadVersions(app: ApplicationSummary) {
 		loadingVersions = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new ListApplicationVersionsCommand({ ApplicationId: app.ApplicationId })
 			);
 			versions = res.Versions ?? [];
@@ -158,7 +158,7 @@
 	async function loadPolicy(app: ApplicationSummary) {
 		loadingPolicy = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new GetApplicationPolicyCommand({ ApplicationId: app.ApplicationId })
 			);
 			policyStatements = res.Statements ?? [];
@@ -176,7 +176,7 @@
 		templateId = '';
 		try {
 			// Create a template, then poll for it
-			const createRes = await slr.send(
+			const createRes = await slr().send(
 				new CreateCloudFormationTemplateCommand({ ApplicationId: app.ApplicationId })
 			);
 			const tid = createRes.TemplateId ?? '';
@@ -186,7 +186,7 @@
 			if (tid && templateStatus === 'ACTIVE') return;
 			// Poll once more
 			if (tid) {
-				const getRes = await slr.send(
+				const getRes = await slr().send(
 					new GetCloudFormationTemplateCommand({
 						ApplicationId: app.ApplicationId,
 						TemplateId: tid
@@ -205,7 +205,7 @@
 	async function loadDependencies(app: ApplicationSummary) {
 		loadingDeps = true;
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new ListApplicationDependenciesCommand({ ApplicationId: app.ApplicationId })
 			);
 			dependencies = res.Dependencies ?? [];
@@ -233,7 +233,7 @@
 		}
 		creating = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new CreateApplicationCommand({
 					Name: newName,
 					Description: newDesc,
@@ -276,7 +276,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await slr.send(new DeleteApplicationCommand({ ApplicationId: app.ApplicationId }));
+			await slr().send(new DeleteApplicationCommand({ ApplicationId: app.ApplicationId }));
 			toast.success(`Application "${app.Name}" deleted`);
 			if (selectedApp?.ApplicationId === app.ApplicationId) selectedApp = null;
 			await loadApps();
@@ -297,7 +297,7 @@
 		if (!selectedApp) return;
 		editing = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new UpdateApplicationCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Description: editDesc || undefined,
@@ -326,7 +326,7 @@
 		}
 		creatingVersion = true;
 		try {
-			await slr.send(
+			await slr().send(
 				new CreateApplicationVersionCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					SemanticVersion: newVersionSemver,
@@ -360,7 +360,7 @@
 				...policyStatements,
 				{ Actions: policyActions, Principals: principals }
 			];
-			const res = await slr.send(
+			const res = await slr().send(
 				new PutApplicationPolicyCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Statements: newStmts
@@ -382,7 +382,7 @@
 		if (!selectedApp) return;
 		const newStmts = policyStatements.filter((_, i) => i !== idx);
 		try {
-			const res = await slr.send(
+			const res = await slr().send(
 				new PutApplicationPolicyCommand({
 					ApplicationId: selectedApp.ApplicationId,
 					Statements: newStmts
@@ -395,8 +395,23 @@
 		}
 	}
 
-	onMount(() => {
-		loadApps();
+	// Applications and every selected-app-scoped tab (versions, policy,
+	// template, dependencies) are region-scoped, so a region switch must clear
+	// them (not just reload) rather than keep showing the old region's app.
+	onRegionChange(() => {
+		applications = [];
+		selectedApp = null;
+		versions = [];
+		policyStatements = [];
+		templateStatus = '';
+		templateUrl = '';
+		templateId = '';
+		dependencies = [];
+		showCreate = false;
+		showCreateVersion = false;
+		showEdit = false;
+		showAddPolicy = false;
+		void loadApps();
 	});
 </script>
 
@@ -558,12 +573,16 @@
 					</div>
 				{:else if filteredApps.length}
 					{#each filteredApps as app}
-						<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 						<div
 							onclick={() => selectApp(app)}
 							role="button"
 							tabindex="0"
-							onkeydown={(e) => e.key === 'Enter' && selectApp(app)}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									e.preventDefault();
+									selectApp(app);
+								}
+							}}
 							class="w-full text-left p-4 rounded-2xl border transition-all cursor-pointer group/row {selectedApp?.ApplicationId === app.ApplicationId
 								? 'bg-rose-50 dark:bg-rose-900/20 border-rose-200 dark:border-rose-700/50'
 								: 'bg-white/60 dark:bg-slate-900/40 border-slate-100 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-700/40'}"
@@ -778,9 +797,8 @@
 											<div>
 												<label
 													class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-													>Semantic Version *</label
-												>
-												<input
+													 for="new-version-semver">Semantic Version *</label>
+												<input id="new-version-semver"
 													type="text"
 													bind:value={newVersionSemver}
 													placeholder="1.0.1"
@@ -790,9 +808,8 @@
 											<div>
 												<label
 													class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-													>Source Code URL</label
-												>
-												<input
+													 for="new-version-source-url">Source Code URL</label>
+												<input id="new-version-source-url"
 													type="text"
 													bind:value={newVersionSourceURL}
 													placeholder="https://github.com/..."
@@ -802,9 +819,8 @@
 											<div>
 												<label
 													class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-													>Template URL</label
-												>
-												<input
+													 for="new-version-template-url">Template URL</label>
+												<input id="new-version-template-url"
 													type="text"
 													bind:value={newVersionTemplateURL}
 													placeholder="https://s3.amazonaws.com/..."
@@ -902,19 +918,18 @@
 										<div>
 											<label
 												class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-												>Principals (comma-separated, * for all)</label
-											>
-											<input
+												 for="policy-principals">Principals (comma-separated, * for all)</label>
+											<input id="policy-principals"
 												type="text"
 												bind:value={policyPrincipals}
 												placeholder="*, 123456789012"
 												class="w-full px-3 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-rose-500 outline-none"
 											/>
 										</div>
-										<div>
-											<label
+										<fieldset class="m-0 border-0 p-0">
+											<legend
 												class="block text-[9px] font-black uppercase text-slate-500 italic mb-2"
-												>Actions</label
+												>Actions</legend
 											>
 											<div class="flex flex-wrap gap-2">
 												{#each allPolicyActions as action}
@@ -937,7 +952,7 @@
 													</label>
 												{/each}
 											</div>
-										</div>
+										</fieldset>
 										<div class="flex gap-2 justify-end">
 											<button
 												onclick={() => (showAddPolicy = false)}
@@ -1202,9 +1217,8 @@
 				<div class="grid grid-cols-2 gap-4">
 					<div class="col-span-2">
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>App Name * <span class="text-rose-500">(alphanumeric + hyphens)</span></label
-						>
-						<input
+							 for="new-name">App Name * <span class="text-rose-500">(alphanumeric + hyphens)</span></label>
+						<input id="new-name"
 							type="text"
 							bind:value={newName}
 							placeholder="my-app"
@@ -1213,9 +1227,8 @@
 					</div>
 					<div class="col-span-2">
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Description</label
-						>
-						<textarea
+							 for="new-desc">Description</label>
+						<textarea id="new-desc"
 							bind:value={newDesc}
 							placeholder="Brief description..."
 							rows="2"
@@ -1224,9 +1237,8 @@
 					</div>
 					<div>
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Author *</label
-						>
-						<input
+							 for="new-author">Author *</label>
+						<input id="new-author"
 							type="text"
 							bind:value={newAuthor}
 							placeholder="Jane Doe"
@@ -1235,9 +1247,8 @@
 					</div>
 					<div>
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Initial Version</label
-						>
-						<input
+							 for="new-semantic-version">Initial Version</label>
+						<input id="new-semantic-version"
 							type="text"
 							bind:value={newSemanticVersion}
 							placeholder="1.0.0"
@@ -1246,9 +1257,8 @@
 					</div>
 					<div class="col-span-2">
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Source Code URL</label
-						>
-						<input
+							 for="new-source-code-url">Source Code URL</label>
+						<input id="new-source-code-url"
 							type="text"
 							bind:value={newSourceCodeURL}
 							placeholder="https://github.com/..."
@@ -1257,9 +1267,8 @@
 					</div>
 					<div>
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>SPDX License ID</label
-						>
-						<input
+							 for="new-spdx-license-id">SPDX License ID</label>
+						<input id="new-spdx-license-id"
 							type="text"
 							bind:value={newSpdxLicenseID}
 							placeholder="Apache-2.0"
@@ -1268,9 +1277,8 @@
 					</div>
 					<div>
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Labels (comma-separated)</label
-						>
-						<input
+							 for="new-labels">Labels (comma-separated)</label>
+						<input id="new-labels"
 							type="text"
 							bind:value={newLabels}
 							placeholder="web, api, lambda"
@@ -1279,9 +1287,8 @@
 					</div>
 					<div class="col-span-2">
 						<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-							>Homepage URL</label
-						>
-						<input
+							 for="new-home-page-url">Homepage URL</label>
+						<input id="new-home-page-url"
 							type="text"
 							bind:value={newHomePageURL}
 							placeholder="https://..."
@@ -1332,9 +1339,8 @@
 			<div class="p-6 space-y-4">
 				<div>
 					<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-						>Description</label
-					>
-					<textarea
+						 for="edit-desc">Description</label>
+					<textarea id="edit-desc"
 						bind:value={editDesc}
 						rows="2"
 						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none resize-none"
@@ -1342,9 +1348,8 @@
 				</div>
 				<div>
 					<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-						>Author</label
-					>
-					<input
+						 for="edit-author">Author</label>
+					<input id="edit-author"
 						type="text"
 						bind:value={editAuthor}
 						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none"
@@ -1352,9 +1357,8 @@
 				</div>
 				<div>
 					<label class="block text-[9px] font-black uppercase text-slate-500 italic mb-1"
-						>Homepage URL</label
-					>
-					<input
+						 for="edit-home-page-url">Homepage URL</label>
+					<input id="edit-home-page-url"
 						type="text"
 						bind:value={editHomePageURL}
 						class="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm focus:ring-2 focus:ring-rose-500 outline-none"

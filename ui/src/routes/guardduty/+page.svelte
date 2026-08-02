@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onMount } from 'svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getGuardDutyClient } from '$lib/aws-client';
 	import {
 		ListDetectorsCommand,
@@ -32,7 +32,7 @@
 		X
 	} from 'lucide-svelte';
 
-	const gd = getGuardDutyClient();
+	const gd = regionalClient(getGuardDutyClient);
 
 	let loading = $state(false);
 	let activeTab = $state<'detectors' | 'findings'>('detectors');
@@ -79,12 +79,12 @@
 	async function loadDetectors() {
 		loading = true;
 		try {
-			const res = await gd.send(new ListDetectorsCommand({}));
+			const res = await gd().send(new ListDetectorsCommand({}));
 			detectorIds = res.DetectorIds ?? [];
 			await Promise.all(
 				detectorIds.map(async (id) => {
 					try {
-						const detail = await gd.send(new GetDetectorCommand({ DetectorId: id }));
+						const detail = await gd().send(new GetDetectorCommand({ DetectorId: id }));
 						detectorDetails[id] = detail;
 					} catch {
 						// ignore
@@ -107,12 +107,12 @@
 		archiving = true;
 		try {
 			if (archive) {
-				await gd.send(
+				await gd().send(
 					new ArchiveFindingsCommand({ DetectorId: selectedDetectorId, FindingIds: [finding.Id] })
 				);
 				toast.success('Finding archived');
 			} else {
-				await gd.send(
+				await gd().send(
 					new UnarchiveFindingsCommand({ DetectorId: selectedDetectorId, FindingIds: [finding.Id] })
 				);
 				toast.success('Finding unarchived');
@@ -130,7 +130,7 @@
 		loadingFindings = true;
 		findings = [];
 		try {
-			const listRes = await gd.send(
+			const listRes = await gd().send(
 				new ListFindingsCommand({
 					DetectorId: detectorId,
 					MaxResults: 50
@@ -138,7 +138,7 @@
 			);
 			const findingIds = listRes.FindingIds ?? [];
 			if (findingIds.length > 0) {
-				const getRes = await gd.send(
+				const getRes = await gd().send(
 					new GetFindingsCommand({ DetectorId: detectorId, FindingIds: findingIds })
 				);
 				findings = getRes.Findings ?? [];
@@ -153,7 +153,7 @@
 	async function createDetector() {
 		creating = true;
 		try {
-			const res = await gd.send(
+			const res = await gd().send(
 				new CreateDetectorCommand({ Enable: true, FindingPublishingFrequency: 'SIX_HOURS' })
 			);
 			toast.success(`Detector created: ${res.DetectorId}`);
@@ -168,7 +168,7 @@
 	async function deleteDetector(id: string) {
 		if (!await confirmDestructive({ title: 'Delete Detector', message: `Delete GuardDuty detector ${id}? Threat detection will be disabled for this account.` })) return;
 		try {
-			await gd.send(new DeleteDetectorCommand({ DetectorId: id }));
+			await gd().send(new DeleteDetectorCommand({ DetectorId: id }));
 			toast.success('Detector deleted');
 			delete detectorDetails[id];
 			detectorIds = detectorIds.filter((d) => d !== id);
@@ -185,7 +185,7 @@
 		const current = detectorDetails[id]?.Status;
 		const enable = current !== 'ENABLED';
 		try {
-			await gd.send(new UpdateDetectorCommand({ DetectorId: id, Enable: enable }));
+			await gd().send(new UpdateDetectorCommand({ DetectorId: id, Enable: enable }));
 			toast.success(`Detector ${enable ? 'enabled' : 'disabled'}`);
 			await loadDetectors();
 		} catch (e) {
@@ -198,7 +198,7 @@
 	async function updatePublishingFrequency(id: string, frequency: string) {
 		updatingFrequency = id;
 		try {
-			await gd.send(
+			await gd().send(
 				new UpdateDetectorCommand({
 					DetectorId: id,
 					FindingPublishingFrequency: frequency as 'FIFTEEN_MINUTES' | 'ONE_HOUR' | 'SIX_HOURS'
@@ -225,7 +225,7 @@
 		else if (selectedDetectorId) await loadFindings(selectedDetectorId);
 	}
 
-	onMount(() => loadDetectors());
+	onRegionChange(loadDetectors);
 </script>
 
 <div class="space-y-6">
