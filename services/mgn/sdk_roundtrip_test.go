@@ -39,19 +39,19 @@ func TestRoundTrip_UninitializedAccountGate(t *testing.T) {
 }
 
 // TestRoundTrip_SourceServerLifecycle drives the entire replication/test/
-// cutover flow: SeedSourceServer (this package's non-SDK convenience --
-// see sourceservers.go) seeds a server, its data replication progresses to
-// READY_FOR_TEST, StartTest completes a Job moving it to
-// READY_FOR_CUTOVER, StartCutover moves it to CUTTING_OVER, and
-// FinalizeCutover completes it to CUTOVER.
+// cutover flow: StartImport (the real, wire-reachable creation path -- see
+// sourceservers.go) creates a server via seedSourceServerViaImport, its data
+// replication progresses to READY_FOR_TEST, StartTest completes a Job
+// moving it to READY_FOR_CUTOVER, StartCutover moves it to CUTTING_OVER,
+// and FinalizeCutover completes it to CUTOVER.
 func TestRoundTrip_SourceServerLifecycle(t *testing.T) {
 	t.Parallel()
 
 	h, client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	seeded := h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{})
-	id := seeded.SourceServerID
+	seeded := seedSourceServerViaImport(t, h, client, "lifecycle-server")
+	id := aws.ToString(seeded.SourceServerID)
 
 	require.Eventually(t, func() bool {
 		out, describeErr := client.DescribeSourceServers(ctx, &mgnsdk.DescribeSourceServersInput{
@@ -128,10 +128,14 @@ func TestRoundTrip_ApplicationsAndWaves(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	seeded := h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{ApplicationID: appID})
+	seeded := seedSourceServerViaImport(t, h, client, "app-server")
+	seededID := aws.ToString(seeded.SourceServerID)
 
+	// ApplicationID association happens via AssociateSourceServers, never as
+	// part of StartImport itself -- real AWS's own StartImport CSV load
+	// carries no Application linkage (PARITY.md's CSV schema assumption).
 	_, err = client.AssociateSourceServers(ctx, &mgnsdk.AssociateSourceServersInput{
-		ApplicationID: aws.String(appID), SourceServerIDs: []string{seeded.SourceServerID},
+		ApplicationID: aws.String(appID), SourceServerIDs: []string{seededID},
 	})
 	require.NoError(t, err)
 
@@ -158,7 +162,7 @@ func TestRoundTrip_ApplicationsAndWaves(t *testing.T) {
 	require.ErrorAs(t, err, &conflict)
 
 	_, err = client.DisassociateSourceServers(ctx, &mgnsdk.DisassociateSourceServersInput{
-		ApplicationID: aws.String(appID), SourceServerIDs: []string{seeded.SourceServerID},
+		ApplicationID: aws.String(appID), SourceServerIDs: []string{seededID},
 	})
 	require.NoError(t, err)
 
@@ -230,8 +234,8 @@ func TestRoundTrip_PerServerConfiguration(t *testing.T) {
 	h, client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	seeded := h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{})
-	id := seeded.SourceServerID
+	seeded := seedSourceServerViaImport(t, h, client, "config-server")
+	id := aws.ToString(seeded.SourceServerID)
 
 	lc, err := client.GetLaunchConfiguration(ctx, &mgnsdk.GetLaunchConfigurationInput{SourceServerID: aws.String(id)})
 	require.NoError(t, err)
@@ -312,15 +316,19 @@ func TestRoundTrip_VcenterClients(t *testing.T) {
 
 // TestRoundTrip_ExportImport drives StartExport/ListExports/ListExportErrors
 // and StartImport/ListImports/ListImportErrors, confirming StartExport's
-// counts are real (never fabricated) and StartImport's are always zero
-// (this emulator never reads real S3 content -- see exportimport.go).
+// counts are real (a live snapshot of this account's resources) and
+// StartImport's are now ALSO real: it genuinely reads the S3 object and
+// parses it per this package's documented CSV schema (s3import.go),
+// creating one real SourceServer per valid row -- never a fabricated count
+// (gopherstack-i6oz). See TestStartImport_CSVSchema for the malformed-row
+// and unreadable-object edge cases.
 func TestRoundTrip_ExportImport(t *testing.T) {
 	t.Parallel()
 
 	h, client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{})
+	seedSourceServerViaImport(t, h, client, "export-seed")
 
 	exported, err := client.StartExport(ctx, &mgnsdk.StartExportInput{
 		S3Bucket: aws.String("my-bucket"), S3Key: aws.String("export.json"),
@@ -338,21 +346,154 @@ func TestRoundTrip_ExportImport(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, exportErrs.Items)
 
+	s3 := newMockS3()
+	s3.put("import-bucket", "servers.csv", "hostname,fqdn\nweb-1,web-1.example.com\ndb-1,db-1.example.com\n")
+	h.Backend.SetS3Backend(s3)
+
 	imported, err := client.StartImport(ctx, &mgnsdk.StartImportInput{
-		S3BucketSource: &types.S3BucketSource{S3Bucket: aws.String("my-bucket"), S3Key: aws.String("import.json")},
+		S3BucketSource: &types.S3BucketSource{S3Bucket: aws.String("import-bucket"), S3Key: aws.String("servers.csv")},
 	})
 	require.NoError(t, err)
-	require.EqualValues(t, 0, imported.ImportTask.Summary.Servers.CreatedCount)
+	importID := aws.ToString(imported.ImportTask.ImportID)
 
-	listedImports, err := client.ListImports(ctx, &mgnsdk.ListImportsInput{})
-	require.NoError(t, err)
-	require.Len(t, listedImports.Items, 1)
+	require.Eventually(t, func() bool {
+		out, listErr := client.ListImports(ctx, &mgnsdk.ListImportsInput{
+			Filters: &types.ListImportsRequestFilters{ImportIDs: []string{importID}},
+		})
 
-	importErrs, err := client.ListImportErrors(ctx, &mgnsdk.ListImportErrorsInput{
-		ImportID: imported.ImportTask.ImportID,
+		return listErr == nil && len(out.Items) == 1 && out.Items[0].Status == types.ImportStatusSucceeded
+	}, defaultAsyncWait, defaultAsyncPoll, "import task never reached SUCCEEDED")
+
+	finalImports, err := client.ListImports(ctx, &mgnsdk.ListImportsInput{
+		Filters: &types.ListImportsRequestFilters{ImportIDs: []string{importID}},
 	})
+	require.NoError(t, err)
+	require.Len(t, finalImports.Items, 1)
+	require.EqualValues(t, 2, finalImports.Items[0].Summary.Servers.CreatedCount)
+
+	importErrs, err := client.ListImportErrors(ctx, &mgnsdk.ListImportErrorsInput{ImportID: aws.String(importID)})
 	require.NoError(t, err)
 	require.Empty(t, importErrs.Items)
+
+	// Confirm the wire path really created 2 new SourceServers (plus the 1
+	// seeded above for StartExport), not just a Summary number.
+	describedAll, err := client.DescribeSourceServers(ctx, &mgnsdk.DescribeSourceServersInput{})
+	require.NoError(t, err)
+	require.Len(t, describedAll.Items, 3)
+}
+
+// TestStartImport_CSVSchema table-drives StartImport's real CSV parsing
+// (s3import.go): a valid single row, every optional column populated, a
+// malformed row that fails only itself (not the whole task), a fully
+// unparseable object (no header row), and a missing S3 object entirely --
+// confirming StartImport is honest in every direction: real counts when
+// rows parse, real per-row errors when they don't, and a FAILED task (never
+// a fabricated success) when the object itself cannot be read at all.
+func TestStartImport_CSVSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		csv           string
+		wantStatus    types.ImportStatus
+		wantCreated   int64
+		wantErrors    int
+		missingObject bool
+	}{
+		{
+			name:        "single valid row creates one source server",
+			csv:         "hostname\nweb-1.example.com\n",
+			wantStatus:  types.ImportStatusSucceeded,
+			wantCreated: 1,
+		},
+		{
+			name: "every optional column populated",
+			csv: "hostname,fqdn,userProvidedID,operatingSystem,recommendedInstanceType," +
+				"cpuCores,cpuModelName,ramBytes,diskDeviceName,diskBytes," +
+				"networkInterfaceMac,networkInterfaceIPs\n" +
+				"db-1,db-1.corp.example.com,my-id-1,Ubuntu 22.04,m5.large," +
+				"4,Intel Xeon,17179869184,/dev/sda1,107374182400," +
+				"aa:bb:cc:dd:ee:ff,10.0.0.5;10.0.0.6\n",
+			wantStatus:  types.ImportStatusSucceeded,
+			wantCreated: 1,
+		},
+		{
+			// A blank CSV line is silently ignored by encoding/csv itself
+			// (not a malformed row) -- an empty *field* within an otherwise
+			// well-formed row is this test's actual malformed-hostname case.
+			name:        "blank hostname field fails only that row",
+			csv:         "hostname,note\nweb-1,ok\n,missing-hostname\nweb-2,ok\n",
+			wantStatus:  types.ImportStatusSucceeded,
+			wantCreated: 2,
+			wantErrors:  1,
+		},
+		{
+			name:        "malformed numeric column fails the row",
+			csv:         "hostname,ramBytes\nweb-1,not-a-number\n",
+			wantStatus:  types.ImportStatusSucceeded,
+			wantCreated: 0,
+			wantErrors:  1,
+		},
+		{
+			name:        "no header row fails the whole task",
+			csv:         "",
+			wantStatus:  types.ImportStatusFailed,
+			wantCreated: 0,
+			wantErrors:  1,
+		},
+		{
+			name:          "missing S3 object fails the whole task",
+			missingObject: true,
+			wantStatus:    types.ImportStatusFailed,
+			wantCreated:   0,
+			wantErrors:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, client := newTestHandlerAndClient(t)
+			ctx := t.Context()
+
+			s3 := newMockS3()
+			if !tt.missingObject {
+				s3.put("bucket", "servers.csv", tt.csv)
+			}
+
+			h.Backend.SetS3Backend(s3)
+
+			started, err := client.StartImport(ctx, &mgnsdk.StartImportInput{
+				S3BucketSource: &types.S3BucketSource{
+					S3Bucket: aws.String("bucket"), S3Key: aws.String("servers.csv"),
+				},
+			})
+			require.NoError(t, err)
+			importID := aws.ToString(started.ImportTask.ImportID)
+
+			var final types.ImportTask
+
+			require.Eventually(t, func() bool {
+				out, listErr := client.ListImports(ctx, &mgnsdk.ListImportsInput{
+					Filters: &types.ListImportsRequestFilters{ImportIDs: []string{importID}},
+				})
+				if listErr != nil || len(out.Items) != 1 || out.Items[0].Status != tt.wantStatus {
+					return false
+				}
+
+				final = out.Items[0]
+
+				return true
+			}, defaultAsyncWait, defaultAsyncPoll, "import task never reached expected terminal status")
+
+			require.Equal(t, tt.wantCreated, final.Summary.Servers.CreatedCount)
+
+			errs, err := client.ListImportErrors(ctx, &mgnsdk.ListImportErrorsInput{ImportID: aws.String(importID)})
+			require.NoError(t, err)
+			require.Len(t, errs.Items, tt.wantErrors)
+		})
+	}
 }
 
 // TestRoundTrip_PostLaunchActions drives Put/List/RemoveSourceServerAction
@@ -363,24 +504,24 @@ func TestRoundTrip_PostLaunchActions(t *testing.T) {
 	h, client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	seeded := h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{})
+	seeded := seedSourceServerViaImport(t, h, client, "actions-server")
 
 	putAction, err := client.PutSourceServerAction(ctx, &mgnsdk.PutSourceServerActionInput{
 		ActionID: aws.String("action-1"), ActionName: aws.String("my-action"),
 		DocumentIdentifier: aws.String("AWS-RunShellScript"), Order: aws.Int32(1),
-		SourceServerID: aws.String(seeded.SourceServerID),
+		SourceServerID: seeded.SourceServerID,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "my-action", aws.ToString(putAction.ActionName))
 
 	listed, err := client.ListSourceServerActions(ctx, &mgnsdk.ListSourceServerActionsInput{
-		SourceServerID: aws.String(seeded.SourceServerID),
+		SourceServerID: seeded.SourceServerID,
 	})
 	require.NoError(t, err)
 	require.Len(t, listed.Items, 1)
 
 	_, err = client.RemoveSourceServerAction(ctx, &mgnsdk.RemoveSourceServerActionInput{
-		ActionID: aws.String("action-1"), SourceServerID: aws.String(seeded.SourceServerID),
+		ActionID: aws.String("action-1"), SourceServerID: seeded.SourceServerID,
 	})
 	require.NoError(t, err)
 
@@ -417,28 +558,28 @@ func TestRoundTrip_Tagging(t *testing.T) {
 	h, client := newTestHandlerAndClient(t)
 	ctx := t.Context()
 
-	seeded := h.Backend.SeedSourceServer(mgn.SeedSourceServerOptions{})
+	seeded := seedSourceServerViaImport(t, h, client, "tagging-server")
 
 	_, err := client.TagResource(ctx, &mgnsdk.TagResourceInput{
-		ResourceArn: aws.String(seeded.Arn), Tags: map[string]string{"env": "prod"},
+		ResourceArn: seeded.Arn, Tags: map[string]string{"env": "prod"},
 	})
 	require.NoError(t, err)
 
 	listed, err := client.ListTagsForResource(
 		ctx,
-		&mgnsdk.ListTagsForResourceInput{ResourceArn: aws.String(seeded.Arn)},
+		&mgnsdk.ListTagsForResourceInput{ResourceArn: seeded.Arn},
 	)
 	require.NoError(t, err)
 	require.Equal(t, "prod", listed.Tags["env"])
 
 	_, err = client.UntagResource(ctx, &mgnsdk.UntagResourceInput{
-		ResourceArn: aws.String(seeded.Arn), TagKeys: []string{"env"},
+		ResourceArn: seeded.Arn, TagKeys: []string{"env"},
 	})
 	require.NoError(t, err)
 
 	listedAfter, err := client.ListTagsForResource(
 		ctx,
-		&mgnsdk.ListTagsForResourceInput{ResourceArn: aws.String(seeded.Arn)},
+		&mgnsdk.ListTagsForResourceInput{ResourceArn: seeded.Arn},
 	)
 	require.NoError(t, err)
 	require.Empty(t, listedAfter.Tags)

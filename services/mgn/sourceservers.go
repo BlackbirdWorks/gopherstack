@@ -16,28 +16,23 @@ import (
 //
 // # The hard design problem: how a SourceServer comes to exist at all
 //
-// No public operation in this 95-op SDK surface creates a SourceServer. Real
-// AWS creates one only when the MGN Replication Agent, installed on the
-// actual source machine, calls an internal, non-public control-plane API to
-// register itself -- that call is not part of this SDK. The only PUBLIC
-// creation path is StartImport's bulk metadata load (see exportimport.go),
-// which this emulator implements honestly: it never reads real S3 object
-// content (no schema for that content exists anywhere in this SDK to derive
-// one from -- inventing one would be fabrication), so it always creates zero
-// records.
-//
-// This package's chosen resolution -- an explicit, documented emulator
-// decision, never presented as derived AWS behavior -- is SeedSourceServer
-// below: an EXPORTED Go function reachable only by calling into this package
-// directly (never through any SDK wire operation, never routed by
-// handler.go), for exactly the purpose PARITY.md's gaps section describes:
-// "an implementer needs a deliberate, explicitly-documented decision for how
-// SourceServer records get seeded in this emulator." This package's own
-// round-trip tests use it to seed servers before exercising the 16
-// operations below, which is the entire, real 70-op replication surface this
-// service exists to emulate -- leaving it permanently unreachable (the
-// "leave genuinely empty" option) was rejected as far less useful than a
-// clearly-labeled, non-AWS seam.
+// No public operation in this 95-op SDK surface creates a SourceServer
+// directly. Real AWS creates one only when the MGN Replication Agent,
+// installed on the actual source machine, calls an internal, non-public
+// control-plane API to register itself -- that call is not part of this
+// SDK. The only PUBLIC creation path is StartImport's bulk metadata load
+// (see exportimport.go), and gopherstack-i6oz's resolution (2026-08-01) is
+// to make that path real: s3import.go reads the caller-supplied S3 object
+// through this package's cross-service S3Accessor seam and parses it as a
+// documented, best-effort CSV schema (AWS does not publish the real one
+// anywhere in this SDK), creating one SourceServer per valid row via
+// createSourceServerLocked below. This is now the ONLY SourceServer
+// creation path in this backend -- the earlier non-SDK SeedSourceServer
+// seam has been removed now that the real wire path works, closing the
+// wire-reachability gap this service was originally graded down for. A
+// newly created SourceServer starts `NOT_READY`/`INITIATING` and progresses
+// to `READY_FOR_TEST`/`CONTINUOUS` over 3 `asyncTransitionDelay` ticks
+// (scheduleReplicationLocked below) regardless of which row created it.
 //
 // # LifeCycleState transition table (documented, SDK-inferred -- NOT
 // independently confirmed against AWS's real, unpublished state machine)
@@ -72,58 +67,58 @@ func (b *InMemoryBackend) resolveSourceServerLocked(sourceServerID string) (*Sou
 	return b.sourceServers.Get(sourceServerID)
 }
 
-// SeedSourceServerOptions configures SeedSourceServer. Every field is
-// optional; zero values fall back to a documented, invented default (see
-// each field's own comment) rather than an AWS-confirmed one, since no real
-// source machine exists to derive defaults from.
-type SeedSourceServerOptions struct {
-	Tags              map[string]string
+// sourceServerSeed configures createSourceServerLocked -- the single
+// creation path behind every SourceServer this backend ever stores (see
+// this file's package doc comment). Every field is optional; zero values
+// fall back to a documented, invented default (see each field's own
+// comment) rather than an AWS-confirmed one, since no real source machine
+// exists to derive defaults from.
+type sourceServerSeed struct {
+	SourceProperties  *SourceProperties
 	SourceServerID    string
-	ApplicationID     string
 	UserProvidedID    string
 	ReplicationType   string
+	DiskDeviceName    string
 	TotalStorageBytes int64
 }
 
-// SeedSourceServer creates a new SourceServer directly in this backend --
-// see this file's package-level doc comment for why this exported, non-SDK
-// helper exists and why it is never routed as an SDK operation. The new
-// server starts in LifeCycleState NOT_READY / DataReplicationState
-// INITIATING and progresses on a deterministic timer toward READY_FOR_TEST /
-// CONTINUOUS (see scheduleReplicationLocked) -- exactly the same honest,
-// time-based progression a real StartImport-created server would need,
-// just reachable without inventing an S3 file-format schema this SDK never
-// documents.
-func (b *InMemoryBackend) SeedSourceServer(opts SeedSourceServerOptions) *SourceServer {
-	b.mu.Lock("SeedSourceServer")
-	defer b.mu.Unlock()
-
-	id := opts.SourceServerID
+// createSourceServerLocked creates a new SourceServer directly in this
+// backend -- called only by StartImport's real CSV-parsed rows
+// (s3import.go). The new server starts in LifeCycleState NOT_READY /
+// DataReplicationState INITIATING and progresses on a deterministic timer
+// toward READY_FOR_TEST / CONTINUOUS (see scheduleReplicationLocked).
+// Callers must hold b.mu.
+func (b *InMemoryBackend) createSourceServerLocked(seed sourceServerSeed) *SourceServer {
+	id := seed.SourceServerID
 	if id == "" {
 		id = newSourceServerID()
 	}
 
-	replicationType := opts.ReplicationType
+	replicationType := seed.ReplicationType
 	if replicationType == "" {
 		replicationType = ReplicationTypeAgentBased
 	}
 
-	totalBytes := opts.TotalStorageBytes
+	totalBytes := seed.TotalStorageBytes
 	if totalBytes <= 0 {
 		totalBytes = defaultTotalStorageBytes
 	}
 
+	deviceName := seed.DiskDeviceName
+	if deviceName == "" {
+		deviceName = "/dev/sda1"
+	}
+
 	now := nowRFC3339()
 	t := tags.New("mgn.sourceserver." + id + ".tags")
-	t.Merge(opts.Tags)
 
 	s := &SourceServer{
-		SourceServerID:  id,
-		Arn:             b.sourceServerARN(id),
-		ApplicationID:   opts.ApplicationID,
-		UserProvidedID:  opts.UserProvidedID,
-		ReplicationType: replicationType,
-		Tags:            t,
+		SourceServerID:   id,
+		Arn:              b.sourceServerARN(id),
+		UserProvidedID:   seed.UserProvidedID,
+		ReplicationType:  replicationType,
+		SourceProperties: seed.SourceProperties,
+		Tags:             t,
 		LifeCycle: &LifeCycle{
 			State:                     LifeCycleStateNotReady,
 			AddedToServiceDateTime:    now,
@@ -136,7 +131,7 @@ func (b *InMemoryBackend) SeedSourceServer(opts SeedSourceServerOptions) *Source
 				Steps:         seedInitiationSteps(),
 			},
 			ReplicatedDisks: []DataReplicationInfoReplicatedDisk{
-				{DeviceName: "/dev/sda1", TotalStorageBytes: totalBytes},
+				{DeviceName: deviceName, TotalStorageBytes: totalBytes},
 			},
 		},
 	}
@@ -161,7 +156,7 @@ func (b *InMemoryBackend) SeedSourceServer(opts SeedSourceServerOptions) *Source
 
 	b.scheduleReplicationLocked(id)
 
-	return s.clone()
+	return s
 }
 
 // seedInitiationSteps returns the fixed 12-step DataReplicationInitiation

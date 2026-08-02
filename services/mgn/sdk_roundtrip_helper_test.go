@@ -1,6 +1,9 @@
 package mgn_test
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -9,6 +12,9 @@ import (
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	mgnsdk "github.com/aws/aws-sdk-go-v2/service/mgn"
+	mgntypes "github.com/aws/aws-sdk-go-v2/service/mgn/types"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
@@ -21,9 +27,10 @@ const rtTestRegion = "us-east-1"
 const rtTestAccountID = "000000000000"
 
 // defaultAsyncWait/defaultAsyncPoll bound require.Eventually calls polling
-// this service's async state machines. This service's longest chain
-// (SeedSourceServer's 3-tick replication progression) is
-// 3*asyncTransitionDelay = 300ms; 5s is generous relative to that for CI
+// this service's async state machines. This service's longest chain (a
+// StartImport-created SourceServer's 2-tick import completion PLUS its own
+// separate 3-tick replication progression to READY_FOR_TEST) is
+// 5*asyncTransitionDelay = 500ms; 5s is generous relative to that for CI
 // jitter, matching services/resiliencehub/outposts/grafana's identical
 // rationale for their own defaultAsyncWait.
 const (
@@ -88,4 +95,67 @@ func newTestHandlerAndClient(t *testing.T) (*mgn.Handler, *mgnsdk.Client) {
 	client := newRoundTripClient(t, h)
 
 	return h, client
+}
+
+// mockS3 is a minimal, in-memory mgn.S3Accessor for exercising StartImport's
+// real S3-read path without needing services/s3's full in-memory backend --
+// same pattern services/dynamodb's own import_export_s3_test.go uses for
+// its identical S3Accessor seam.
+type mockS3 struct {
+	objects map[string][]byte
+}
+
+func newMockS3() *mockS3 { return &mockS3{objects: map[string][]byte{}} }
+
+func (m *mockS3) put(bucket, key, body string) { m.objects[bucket+"/"+key] = []byte(body) }
+
+func (m *mockS3) GetObject(_ context.Context, in *s3sdk.GetObjectInput) (*s3sdk.GetObjectOutput, error) {
+	data, ok := m.objects[aws.ToString(in.Bucket)+"/"+aws.ToString(in.Key)]
+	if !ok {
+		return nil, &s3types.NoSuchKey{}
+	}
+
+	return &s3sdk.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(data))}, nil
+}
+
+// seedSourceServerViaImport drives the real, wire-reachable StartImport
+// path (s3import.go) to create a single SourceServer with the given
+// hostname, replacing this package's former SeedSourceServer non-SDK test
+// convenience (removed once StartImport itself became a genuine creation
+// path -- see sourceservers.go's package doc comment). It waits for the
+// ImportTask to reach SUCCEEDED, then returns the one SourceServer
+// DescribeSourceServers reports -- callers use a fresh backend per test, so
+// a single-row import always yields exactly one result.
+func seedSourceServerViaImport(
+	t *testing.T, h *mgn.Handler, client *mgnsdk.Client, hostname string,
+) mgntypes.SourceServer {
+	t.Helper()
+
+	ctx := t.Context()
+
+	s3 := newMockS3()
+	s3.put("mgn-import-bucket", "servers.csv", "hostname\n"+hostname+"\n")
+	h.Backend.SetS3Backend(s3)
+
+	_, err := client.StartImport(ctx, &mgnsdk.StartImportInput{
+		S3BucketSource: &mgntypes.S3BucketSource{
+			S3Bucket: aws.String("mgn-import-bucket"), S3Key: aws.String("servers.csv"),
+		},
+	})
+	require.NoError(t, err)
+
+	var created mgntypes.SourceServer
+
+	require.Eventually(t, func() bool {
+		out, describeErr := client.DescribeSourceServers(ctx, &mgnsdk.DescribeSourceServersInput{})
+		if describeErr != nil || len(out.Items) == 0 {
+			return false
+		}
+
+		created = out.Items[0]
+
+		return true
+	}, defaultAsyncWait, defaultAsyncPoll, "StartImport never created a source server")
+
+	return created
 }

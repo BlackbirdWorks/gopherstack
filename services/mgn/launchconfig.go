@@ -17,7 +17,7 @@ import (
 // Not exposed by any op in this SDK (PARITY.md's "genuine, unresolved gap").
 // This backend's documented convention: a per-server LaunchConfiguration is
 // auto-created with fixed defaults alongside its SourceServer
-// (SeedSourceServer, in sourceservers.go) and never automatically inherits
+// (createSourceServerLocked, in sourceservers.go) and never automatically inherits
 // settings from any LaunchConfigurationTemplate -- an implementer/caller
 // must explicitly UpdateLaunchConfiguration to copy template values across
 // if desired. This is a documented, invented convention, not derived from

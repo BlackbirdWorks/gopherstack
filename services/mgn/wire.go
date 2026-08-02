@@ -907,9 +907,25 @@ type importIDRequest struct {
 	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
+// importErrorDataWire mirrors types.ImportErrorData. AccountID/ApplicationID/
+// Ec2LaunchTemplateID are never populated by this backend (see models.go's
+// ImportErrorData doc comment), so they are omitted entirely rather than
+// wire-coded as empty strings.
+type importErrorDataWire struct {
+	RawError  string `json:"rawError,omitempty"`
+	RowNumber int64  `json:"rowNumber,omitempty"`
+}
+
+// importTaskErrorWire mirrors types.ImportTaskError.
+type importTaskErrorWire struct {
+	ErrorData     *importErrorDataWire `json:"errorData,omitempty"`
+	ErrorDateTime string               `json:"errorDateTime,omitempty"`
+	ErrorType     string               `json:"errorType,omitempty"`
+}
+
 type listImportErrorsResponse struct {
-	NextToken string     `json:"nextToken,omitempty"`
-	Items     []struct{} `json:"items"`
+	NextToken string                `json:"nextToken,omitempty"`
+	Items     []importTaskErrorWire `json:"items"`
 }
 
 type enrichmentTargetS3ConfigurationWire struct {

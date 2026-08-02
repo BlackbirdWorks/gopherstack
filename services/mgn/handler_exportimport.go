@@ -121,11 +121,17 @@ func (h *Handler) handleListImportErrors(_ context.Context, _ *http.Request, bod
 		return nil, validationError("importID is required")
 	}
 
-	if err := h.Backend.ListImportErrors(); err != nil {
+	pg, err := h.Backend.ListImportErrors(req.ImportID, req.NextToken, int(req.MaxResults))
+	if err != nil {
 		return nil, err
 	}
 
-	return marshalResponse(listImportErrorsResponse{Items: []struct{}{}})
+	items := make([]importTaskErrorWire, len(pg.Data))
+	for i, e := range pg.Data {
+		items[i] = toImportTaskErrorWire(e)
+	}
+
+	return marshalResponse(listImportErrorsResponse{Items: items, NextToken: pg.Next})
 }
 
 func (h *Handler) handleStartImportFileEnrichment(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {

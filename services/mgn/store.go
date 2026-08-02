@@ -53,6 +53,7 @@ type InMemoryBackend struct {
 
 	mu                 *lockmetrics.RWMutex
 	work               *worker.Group
+	s3                 S3Accessor
 	accountID          string
 	region             string
 	serviceInitialized bool

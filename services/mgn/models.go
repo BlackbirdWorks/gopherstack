@@ -287,11 +287,14 @@ func (l *LifeCycle) clone() *LifeCycle {
 
 // SourceServer mirrors types.SourceServer -- the central resource this
 // service exists to manage. See PARITY.md's "hard design problem": no
-// public SDK operation creates one; this backend's only creation paths are
-// StartImport (real op, always creates zero records -- see exportimport.go)
-// and SeedSourceServer (gopherstack-only, non-SDK convenience -- see
-// sourceservers.go), both documented explicitly as an emulator decision,
-// never presented as derived AWS behavior.
+// public SDK operation creates one directly; the only wire-reachable path
+// is StartImport's real CSV-driven bulk load (s3import.go parses the
+// caller's S3 object per this package's documented column assumption and
+// creates one SourceServer per valid row -- see exportimport.go). That is
+// this emulator's one and only SourceServer creation path, a deliberate
+// resolution of the gap, never presented as derived AWS behavior (AWS's own
+// creation mechanism -- the MGN Replication Agent's internal registration
+// call -- is not part of this public SDK surface at all).
 type SourceServer struct {
 	Tags                   *tags.Tags
 	ConnectorAction        *SourceServerConnectorAction
@@ -894,19 +897,74 @@ type S3BucketSource struct {
 	S3Key         string
 }
 
-// ImportTaskSummary mirrors types.ImportTaskSummary. See PARITY.md's
-// honest-gap section: this emulator never reads real S3 object content (no
-// schema exists in the SDK to derive one from -- inventing one would be
-// fabrication), so every StartImport's counts are always zero, never
-// fabricated. See sourceservers.go's SeedSourceServer for the actual,
-// explicitly non-SDK creation path this emulator provides instead.
+// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount is
+// a real, live count of the SourceServers StartImport actually parsed and
+// created from the caller's CSV object (see s3import.go) -- never
+// fabricated. ModifiedCount is always zero: this emulator has no natural
+// key to detect "this row re-describes a previously-imported server" (no
+// AWS-published convention for that exists), so every successfully-parsed
+// row always creates a new SourceServer, documented as a simplification.
+// Applications/Waves are always zero-valued: StartImport's CSV schema (this
+// package's own documented assumption, see PARITY.md) only carries
+// SourceServer-level columns, matching the "hard design problem" this
+// service exists to solve (SourceServer creation, not Application/Wave
+// bulk-load).
 type ImportTaskSummary struct {
 	Applications countPair
 	Servers      countPair
 	Waves        countPair
 }
 
-// ImportTask mirrors types.ImportTask.
+// ImportErrorData mirrors types.ImportErrorData -- one CSV row's failure
+// detail. AccountID/ApplicationID/Ec2LaunchTemplateID are always empty in
+// this emulator: no delegated-account import path, no ApplicationID column
+// in the documented CSV schema (SourceServer<->Application association is
+// real AWS's own AssociateSourceServers, a separate call, not part of
+// StartImport), and no per-server EC2 launch template concept modeled at
+// import time. RowNumber/RawError are always real, describing the actual
+// malformed row parseSourceServerCSV rejected.
+type ImportErrorData struct {
+	RawError  string
+	RowNumber int64
+}
+
+func (e *ImportErrorData) clone() *ImportErrorData {
+	if e == nil {
+		return nil
+	}
+
+	cp := *e
+
+	return &cp
+}
+
+// ImportTaskError mirrors types.ImportTaskError -- returned by
+// ListImportErrors for the ImportID it was recorded against. See
+// s3import.go's parseSourceServerCSV for how these are produced and
+// consts.go's ImportErrorType* for the two kinds this backend emits.
+type ImportTaskError struct {
+	ErrorData     *ImportErrorData
+	ErrorDateTime string
+	ErrorType     string
+}
+
+func (e *ImportTaskError) clone() *ImportTaskError {
+	if e == nil {
+		return nil
+	}
+
+	cp := *e
+	cp.ErrorData = e.ErrorData.clone()
+
+	return &cp
+}
+
+// ImportTask mirrors types.ImportTask. Errors accumulates every
+// ImportTaskError StartImport's real CSV parse produced (surfaced via
+// ListImportErrors) -- unlike ExportTask, which never has anything to
+// report here (see exportimport.go's ListExportErrors doc comment), a
+// malformed row or an unreadable S3 source both leave a real, non-fabricated
+// entry here.
 type ImportTask struct {
 	Tags               *tags.Tags
 	Summary            *ImportTaskSummary
@@ -916,6 +974,7 @@ type ImportTask struct {
 	CreationDateTime   string
 	EndDateTime        string
 	Status             string
+	Errors             []*ImportTaskError
 	ProgressPercentage float32
 }
 
@@ -934,6 +993,11 @@ func (i *ImportTask) clone() *ImportTask {
 	if i.S3BucketSource != nil {
 		s := *i.S3BucketSource
 		cp.S3BucketSource = &s
+	}
+
+	cp.Errors = make([]*ImportTaskError, len(i.Errors))
+	for idx, e := range i.Errors {
+		cp.Errors[idx] = e.clone()
 	}
 
 	return &cp

@@ -1,6 +1,8 @@
 package mgn
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -12,18 +14,23 @@ import (
 // PARITY.md wire-shape trap #4).
 //
 // StartExport writes a metadata dump of Applications/Waves/Servers to a
-// caller-supplied S3 bucket; StartImport reads one back in. Neither this
-// SDK nor this repo has any S3-file-format schema for what that content
-// actually contains (PARITY.md's honest-gap section) -- this backend never
-// reads or writes real S3 object bytes for either op (no cross-service S3
-// wiring is in this pass's scope, and inventing a schema to parse would be
-// fabrication). StartExport's Summary counts are real (a live count of this
-// account's Applications/Waves/SourceServers at call time -- not
-// fabricated); StartImport's Summary counts are always zero (see
-// models.go's ImportTaskSummary doc comment) -- SeedSourceServer
-// (sourceservers.go) and SeedVcenterClient (vcenterclients.go) are this
-// emulator's explicit, documented, non-SDK alternative for actually getting
-// SourceServer/VcenterClient records into the backend.
+// caller-supplied S3 bucket; StartImport reads one back in. StartExport
+// never writes real S3 object bytes (no cross-service S3 wiring is
+// needed for it: its Summary is a real, live count of this account's
+// Applications/Waves/SourceServers, never derived from written content) --
+// but StartImport DOES read a real S3 object, via the S3Accessor
+// cross-service seam (s3import.go, wired by cli.go onto the in-process S3
+// backend, same pattern as services/dynamodb's ImportTable/
+// ExportTableToPointInTime). gopherstack-i6oz (resolved 2026-08-01): AWS
+// does not publish StartImport's CSV column schema anywhere in this SDK, so
+// s3import.go documents this package's own best-effort assumption (see its
+// doc comment and PARITY.md) rather than inventing content -- every
+// SourceServer StartImport creates comes from an actually-parsed row, and
+// every malformed row is recorded as a real ImportTaskError (ListImportErrors),
+// never silently dropped nor fabricated as a success. SeedVcenterClient
+// (vcenterclients.go) remains this emulator's non-SDK seam for
+// VcenterClient specifically -- no import (or any other public creation)
+// path exists for that resource at all.
 
 // StartExport starts a new (Pending -> Started -> Succeeded) async
 // ExportTask, snapshotting this account's real current Applications/Waves/
@@ -125,9 +132,10 @@ func (b *InMemoryBackend) ListExportErrors() error {
 	return b.requireInitializedLocked()
 }
 
-// StartImport starts a new (Pending -> Started -> Succeeded) async
-// ImportTask. Summary counts are always zero -- see this file's doc
-// comment.
+// StartImport starts a new (Pending -> Started -> Succeeded|Failed) async
+// ImportTask that really reads and parses source (see s3import.go). Summary
+// counts reflect what was actually parsed and created -- never fabricated
+// (see models.go's ImportTaskSummary doc comment).
 func (b *InMemoryBackend) StartImport(source *S3BucketSource, importTags map[string]string) (*ImportTask, error) {
 	b.mu.Lock("StartImport")
 	defer b.mu.Unlock()
@@ -155,31 +163,85 @@ func (b *InMemoryBackend) StartImport(source *S3BucketSource, importTags map[str
 	}
 	b.importTasks.Put(task)
 
-	b.scheduleImportLocked(id)
+	b.scheduleImportLocked(id, source)
 
 	return task.clone(), nil
 }
 
-func (b *InMemoryBackend) scheduleImportLocked(id string) {
+// scheduleImportLocked walks importID's ImportTask Pending -> Started ->
+// Succeeded|Failed. The real S3 read + CSV parse (readImportSourceServers)
+// happens between the two ticks, outside b.mu -- mirroring
+// services/dynamodb's ImportTable, which likewise never holds its own
+// coarse lock during S3 I/O.
+func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource) {
 	b.work.After("ImportStarted", asyncTransitionDelay, func() {
 		b.mu.Lock("ImportStarted-async")
-		if t, ok := b.importTasks.Get(id); ok && t.Status == TaskStatusPending {
+		t, ok := b.importTasks.Get(id)
+		started := ok && t.Status == TaskStatusPending
+		if started {
 			t.Status = TaskStatusStarted
 			t.ProgressPercentage = progressHalfway
 		}
 		b.mu.Unlock()
 
-		b.work.After("ImportSucceeded", asyncTransitionDelay, func() {
-			b.mu.Lock("ImportSucceeded-async")
-			defer b.mu.Unlock()
+		if !started {
+			return
+		}
 
-			if t, ok := b.importTasks.Get(id); ok && t.Status == TaskStatusStarted {
-				t.Status = TaskStatusSucceeded
-				t.ProgressPercentage = progressComplete
-				t.EndDateTime = nowRFC3339()
-			}
+		result, parseErr := b.readImportSourceServers(context.Background(), source)
+
+		b.work.After("ImportSucceeded", asyncTransitionDelay, func() {
+			b.finishImportLocked(id, result, parseErr)
 		})
 	})
+}
+
+// finishImportLocked records readImportSourceServers' real outcome onto
+// importID's ImportTask: a whole-object read/parse failure (parseErr set)
+// fails the task with one recorded ImportTaskError and zero created
+// records; otherwise every successfully-parsed row becomes a real
+// SourceServer (createSourceServerLocked), every malformed row's error is
+// recorded, and the task SUCCEEDS with Summary.Servers.CreatedCount set to
+// the real number of rows that actually created a SourceServer -- partial
+// success (some good rows, some bad) is still SUCCEEDED, matching real
+// AWS's own ImportTaskSummary/ListImportErrors split between aggregate
+// counts and per-row error detail.
+func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult, parseErr error) {
+	b.mu.Lock("ImportSucceeded-async")
+	defer b.mu.Unlock()
+
+	t, ok := b.importTasks.Get(id)
+	if !ok || t.Status != TaskStatusStarted {
+		return
+	}
+
+	t.EndDateTime = nowRFC3339()
+	t.ProgressPercentage = progressComplete
+
+	if parseErr != nil {
+		t.Status = TaskStatusFailed
+		t.Errors = append(t.Errors, &ImportTaskError{
+			ErrorType:     ImportErrorTypeProcessing,
+			ErrorDateTime: nowRFC3339(),
+			ErrorData:     &ImportErrorData{RawError: parseErr.Error()},
+		})
+
+		return
+	}
+
+	var created int64
+
+	for _, row := range result.servers {
+		b.createSourceServerLocked(sourceServerSeed{
+			UserProvidedID:   row.userProvidedID,
+			SourceProperties: row.sourceProperties,
+		})
+		created++
+	}
+
+	t.Errors = append(t.Errors, result.errors...)
+	t.Summary.Servers = countPair{CreatedCount: created}
+	t.Status = TaskStatusSucceeded
 }
 
 // ListImports returns a page of ImportTasks, optionally filtered by ids.
@@ -203,13 +265,31 @@ func (b *InMemoryBackend) ListImports(ids []string, token string, limit int) (pa
 	return page.New(filtered, token, limit, defaultPageLimit), nil
 }
 
-// ListImportErrors always returns an empty list -- same honest-gap
-// rationale as ListExportErrors.
-func (b *InMemoryBackend) ListImportErrors() error {
+// ListImportErrors returns the real per-row CSV parse failures recorded
+// against importID's ImportTask (see s3import.go/finishImportLocked) --
+// StartImport itself never fabricates a row, so a malformed row shows up
+// here, never as a fabricated CreatedCount. An unrecognized importID yields
+// an empty page rather than an error: same no-404 rationale as before
+// (ListImportErrors' own error set has no ResourceNotFoundException).
+func (b *InMemoryBackend) ListImportErrors(importID, token string, limit int) (page.Page[*ImportTaskError], error) {
 	b.mu.RLock("ListImportErrors")
 	defer b.mu.RUnlock()
 
-	return b.requireInitializedLocked()
+	if err := b.requireInitializedLocked(); err != nil {
+		return page.Page[*ImportTaskError]{}, err
+	}
+
+	t, ok := b.importTasks.Get(importID)
+	if !ok {
+		return page.New([]*ImportTaskError{}, token, limit, defaultPageLimit), nil
+	}
+
+	cloned := make([]*ImportTaskError, len(t.Errors))
+	for i, e := range t.Errors {
+		cloned[i] = e.clone()
+	}
+
+	return page.New(cloned, token, limit, defaultPageLimit), nil
 }
 
 // StartImportFileEnrichment starts a new (Pending -> Started -> Succeeded)

@@ -739,6 +739,18 @@ func toImportTaskWire(t *ImportTask) importTaskWire {
 	return w
 }
 
+// toImportTaskErrorWire converts an internal ImportTaskError to its wire
+// shape.
+func toImportTaskErrorWire(e *ImportTaskError) importTaskErrorWire {
+	w := importTaskErrorWire{ErrorDateTime: e.ErrorDateTime, ErrorType: e.ErrorType}
+
+	if e.ErrorData != nil {
+		w.ErrorData = &importErrorDataWire{RawError: e.ErrorData.RawError, RowNumber: e.ErrorData.RowNumber}
+	}
+
+	return w
+}
+
 func toImportFileEnrichmentWire(j *ImportFileEnrichment) importFileEnrichmentWire {
 	w := importFileEnrichmentWire{
 		JobID:         j.JobID,

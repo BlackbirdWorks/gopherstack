@@ -21,10 +21,19 @@ last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is n
 # the tree at all, so this is a from-scratch pre-implementation audit, matching the directconnect/
 # outposts/resiliencehub audits done in the same pass.
 last_audit_date: 2026-08-01
-overall: B   # implemented this pass, all 95 ops routed/backed/persisted; see "Implementation
-# summary" section immediately below for the hard-design-problem decisions (SeedSourceServer/
+overall: B+   # raised from B by the 2026-08-01 gopherstack-i6oz follow-up pass (see "gopherstack-i6oz
+# follow-up pass" section below, after "Implementation summary"): StartImport now genuinely reads a
+# real S3 object (via a new cross-service S3Accessor seam, s3import.go) and parses it as a
+# documented CSV schema to create real SourceServers -- the wire-reachability gap this service was
+# originally docked a full letter grade for. Not raised further than B+: this package's OWN code and
+# tests are done and passing, but end-to-end reachability for a real caller additionally needs a
+# one-line cli.go wiring call (wireMGNS3(byName["MGN"], byName["S3"])) that this pass could not make
+# itself (another agent held cli.go) and that had NOT been applied as of this note -- see that
+# section for the exact line needed. All 95 ops routed/backed/persisted; see "Implementation
+# summary" section immediately below for the ORIGINAL hard-design-problem decisions (SeedSourceServer/
 # SeedVcenterClient, NetworkMigrationExecutionID auto-vivification, mapper segments left genuinely
-# empty), two corrections this pass found in its own pre-implementation audit, and gate results.
+# empty -- SeedSourceServer itself was REMOVED by the follow-up pass, see below), two corrections
+# this pass found in its own pre-implementation audit, and gate results.
 # All 95 ops confirmed present in aws-sdk-go-v2/service/mgn@v1.48.3 (`ls api_op_*.go | grep -v
 # _test.go | wc -l` => 95, matching this task's ~95 estimate exactly). None are implemented.
 # Method/path verified by parsing every awsRestjson1_serializeOp<Op>.HandleSerialize's
@@ -61,6 +70,7 @@ gaps:
   - "No AWS::MGN::* CloudFormation resource type exists in this repo (`grep -rli 'mgn\\b' services/cloudformation/` returned zero hits across all 71 resources_*.go files) -- confirmed absent, not silently skipped. This is consistent with MGN being an operational/orchestration API (agent-driven replication, time-boxed cutover jobs) rather than typical declarative infrastructure; this audit found no evidence AWS's real CloudFormation supports MGN resources either, but that claim is about this repo's tree, not independently verified against AWS's own CFN resource-type registry."
   - "AccountID (an optional field for acting on behalf of a delegated/managed AWS Organizations member account) appears on nearly every legacy per-source-server/job/wave/application op, but is ABSENT from every LaunchConfigurationTemplate/ReplicationConfigurationTemplate/Connector/VcenterClient op and from every one of the 25 /network-migration/ ops (confirmed: `grep -L AccountID api_op_*.go` lists exactly those, 42 files). A full ListManagedAccounts/delegated-admin simulation (real AWS Organizations multi-account MGN management) is a real, non-trivial cross-account feature this audit did not scope in -- an honest first implementation likely just returns the calling account's own resources regardless of AccountID, clearly documented as not simulating cross-account delegation, rather than fabricating other accounts' data."
   - "EC2 instance launch on cutover/test (StartTest/StartCutover -> eventual LaunchedInstance.Ec2InstanceID) is real, launchable functionality in this repo: services/ec2 has a working RunInstances handler (services/ec2/handler_instances_lifecycle.go:119, handleRunInstances) and snapshot creation (services/ec2/handler_snapshots.go), IAM has role creation (services/iam/handler_roles.go), and KMS/EC2 store types for subnets/security groups exist (services/ec2/store.go). A real implementation COULD launch actual gopherstack EC2 instances from LaunchConfiguration/ReplicationConfiguration settings on Job completion rather than returning an invented instance id -- see Cross-service wiring for what this would require and why it is scoped as a follow-on, not a first-pass requirement."
+  - "RESOLVED 2026-08-01 (gopherstack-i6oz, see the follow-up section after Implementation summary below): the SourceServer-creation gap immediately above (this same 'gaps' list, the 'No CreateSourceServer op exists' bullet) is now closed at the code level -- StartImport genuinely reads and parses a real S3 object instead of always creating zero records, and SeedSourceServer was removed as redundant. What remains OPEN: the cli.go wiring call that connects the MGN backend to the S3 backend (wireMGNS3(byName[\"MGN\"], byName[\"S3\"]), mirroring wireDynamoDBS3) had not been applied as of this note -- until it is, a real caller's StartImport will FAIL every ImportTask (no S3 backend configured), which is honest but not yet the fully-working end state. SeedVcenterClient (vcenterclients.go) remains: no import (or any other public creation) path exists for VcenterClient at all, so it is still this emulator's only creation seam for that one resource kind."
 deferred:
   - "Nothing implemented yet, so nothing has been implementation-level-audited beyond the wire-shape/error-set inventory above."
 leaks: {status: clean, note: "N/A -- nothing implemented yet, so there is nothing to leak. Next pass (implementation) must revisit this per parity-principles.md: DataReplicationState progression (INITIATING->INITIAL_SYNC->BACKLOG->CONTINUOUS, or ->RESCAN/STALLED/DISCONNECTED), Job status progression (PENDING->STARTED->COMPLETED) for StartTest/StartCutover/TerminateTargetInstances, and any LifeCycleState timer-driven auto-advance (following services/eks's scheduleClusterActivation / services/grafana's analogous pattern, both using pkgs/worker) all need Close()/Reset() wiring, same as every other timer-driven service in this tree."}
@@ -199,6 +209,131 @@ follow-on, not silently skipped.
 services/mgn/` empty — every complexity issue golangci-lint's `cyclop`/`gocognit` flagged during
 this pass (`UpdateLaunchConfigurationTemplate`, `scheduleJobLocked`, `scheduleReplicationLocked`)
 was fixed by decomposing into named helper functions, never suppressed.
+
+## gopherstack-i6oz follow-up pass (2026-08-01): StartImport made wire-reachable
+
+Tracked as `bd` issue `gopherstack-i6oz`, filed against the gap this service's `overall: B` grade
+above cited by name: no AWS-wire operation created a `SourceServer`, so anyone driving gopherstack
+through the real AWS CLI/SDK/Terraform (as opposed to calling into this Go package directly) could
+not exercise MGN's actual 70-op replication surface at all — `SeedSourceServer`/`SeedVcenterClient`
+only helped in-process callers and this package's own tests. User decision (2026-08-01): implement
+the wire-reachable path with a best-guess CSV schema rather than continuing to block on AWS's
+unpublished real one; keep scope small ("niche, do not over-engineer").
+
+### What changed
+
+- **`StartImport` now really reads S3.** `s3import.go` adds `S3Accessor` (a 1-method interface —
+  just `GetObject`, since StartImport only ever reads a single object — satisfied by the in-process
+  S3 backend, same cross-service pattern `services/dynamodb`'s `ImportTable`/
+  `ExportTableToPointInTime` already use for their own `S3Accessor`) plus `SetS3Backend`/
+  `s3Backend()`. **cli.go wiring is NOT yet applied** (this pass could not touch `cli.go` — another
+  agent held it) — see "Pending cli.go wiring" below for the exact one-line call needed.
+- **A documented, best-effort CSV schema**, since AWS does not publish StartImport's real column set
+  anywhere in this SDK (`types.SourceServer`/`types.SourceProperties` are the wire OUTPUT shape, not
+  an input format). Header row required; the ONLY required column is `hostname`
+  (`IdentificationHints.Hostname`). Optional columns, each mapped onto a real field this backend's
+  `SourceServer`/`SourceProperties` already models (`models.go`) rather than an invented concept:
+  `fqdn` (`IdentificationHints.Fqdn`), `userProvidedID` (`SourceServer.UserProvidedID`),
+  `operatingSystem` (`Os.FullString`), `recommendedInstanceType`, `cpuCores`/`cpuModelName` (one
+  `CPU` entry), `ramBytes`, `diskDeviceName`/`diskBytes` (one `Disk` entry, defaulting device name to
+  `/dev/sda1` — the same default `createSourceServerLocked` itself falls back to), and
+  `networkInterfaceMac`/`networkInterfaceIPs` (one, `IsPrimary: true`, `NetworkInterface` entry; IPs
+  semicolon-separated, e.g. `"10.0.0.5;10.0.0.6"`). One CPU/Disk/NetworkInterface entry per row, not
+  the full multi-value arrays a real per-server inventory tool might report — CSV's one-row-one-
+  record shape does not naturally carry repeating groups without a much richer, still-unpublished
+  convention, and a single entry is the smaller, defensible shape the task asked for. No
+  `ApplicationID` column: real AWS assigns Application membership via the separate
+  `AssociateSourceServers` call, never as part of `StartImport` itself, so this schema does not
+  invent one either.
+- **Real counts, real per-row errors, never fabricated.** `ImportTaskSummary.Servers.CreatedCount`
+  is the actual number of rows that parsed and created a `SourceServer` (`ModifiedCount` stays
+  always zero — this emulator has no natural key to detect "this row re-describes a previously-
+  imported server," an honest, documented simplification). A malformed row (empty `hostname`, or a
+  numeric column present but unparseable) is never silently dropped nor counted as created: it is
+  recorded as a real `types.ImportTaskError` (new internal `ImportTaskError`/`ImportErrorData`
+  types, `models.go`; new wire types, `wire.go`/`wire_convert.go`) and surfaced by `ListImportErrors`
+  — which itself moves from "always empty" to genuinely returning per-row failures, since
+  `ImportErrorData.RowNumber`/`RawError` are real AWS-defined fields seemingly designed for exactly
+  this row-based-format use case (strong incidental corroboration for the CSV-schema decision, found
+  while reading the SDK's own `types.go` for this pass). `ErrorType` is `VALIDATION_ERROR` for a
+  malformed row, `PROCESSING_ERROR` for a whole-object read/parse failure — both real
+  `types.ImportErrorType` wire values, confirmed by direct SDK read, never invented.
+- **Whole-object failure is honest, never a fabricated success.** A missing S3 backend, a missing
+  bucket/key (`GetObject` failing), or an object with no parseable header row all fail the entire
+  `ImportTask` (`Status` -> `FAILED`, one `ImportTaskError` recorded describing why) rather than
+  reporting zero-but-successful, matching the task's explicit requirement.
+- **`SeedSourceServer` removed** (`sourceservers.go`). Once `StartImport` itself became a genuine
+  creation path, this package's own round-trip tests were confirmed to be `SeedSourceServer`'s ONLY
+  remaining consumer (`grep -rn SeedSourceServer` across the repo, non-test files: doc comments
+  only) — so tests were rewritten to drive the real wire path instead
+  (`seedSourceServerViaImport`, `sdk_roundtrip_helper_test.go`, using a minimal in-test `mockS3`
+  rather than the full `services/s3` backend, the same lightweight-mock pattern
+  `services/dynamodb`'s own `import_export_s3_test.go` already uses for its `S3Accessor`). This
+  removes the exact divergence ("SourceServers exist because Go code called a non-SDK function, not
+  because of anything AWS-shaped") the original `B` grade was docked for, and was preferred over
+  keeping the seam per the task's own explicit guidance once tests were confirmed to be the only
+  consumer. The internal creation logic itself was NOT deleted — it was renamed/refactored to
+  `createSourceServerLocked` (`sourceservers.go`), now StartImport's own single creation path.
+- **`SeedVcenterClient` (`vcenterclients.go`) KEPT, unchanged.** No import (or any other public
+  creation) operation exists for `VcenterClient` anywhere in this 95-op surface — StartImport's CSV
+  schema is SourceServer-specific (real AWS's own `ImportTaskSummary` has no `VcenterClients` count
+  field at all, confirming this). `SeedVcenterClient` remains this emulator's only way to get a
+  `VcenterClient` into the backend at all, exactly the "no import path exists" case the task
+  flagged as the reason to keep it.
+
+### Pending cli.go wiring (NOT applied this pass — another agent held cli.go)
+
+`services/mgn/InMemoryBackend.SetS3Backend(S3Accessor)` is defined and tested but never called
+outside `services/mgn`'s own test files. To make `StartImport` reachable end-to-end for a real
+caller (AWS CLI/SDK/Terraform, not just this package's own tests), `cli.go` needs the same
+one-function-plus-one-call pattern `wireDynamoDBS3` already uses for the identical DynamoDB<->S3
+seam:
+
+```go
+// wireMGNS3 connects the MGN backend to the S3 backend so StartImport can
+// read its caller-supplied S3 object and actually create SourceServers.
+func wireMGNS3(mgnReg, s3Reg service.Registerable) {
+	mgnH, ok := mgnReg.(*mgnbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk || mgnH.Backend == nil {
+		return
+	}
+
+	mgnH.Backend.SetS3Backend(s3Bk)
+}
+```
+
+...called from `wireStorageAndSecretsIntegrations` (where `wireDynamoDBS3` itself is called) with:
+
+```go
+wireMGNS3(byName["MGN"], byName["S3"])
+```
+
+`mgnbackend`/`s3backend` are already imported under those names in `cli.go` (used by
+`wireTaggingMGN`/`wireDynamoDBS3` respectively) — no new import needed. Until this lands, a real
+caller's `StartImport` will genuinely FAIL every `ImportTask` (no S3 backend configured), which is
+honest behavior, not a regression hidden as a fabricated success — but it does mean the
+wire-reachability gap is closed IN THIS PACKAGE'S CODE, not yet end-to-end in the running
+application.
+
+### Gate results (this follow-up pass)
+
+`go build ./services/mgn/...`, `go vet ./services/mgn/...`, `gofmt -l services/mgn/` (empty),
+`golangci-lint run ./services/mgn/...` (0 issues), and `grep -rnE
+'//nolint:.*(funlen|gocyclo|gocognit|cyclop)' services/mgn/` (empty) all clean. `go test -race
+-count=1 ./services/mgn/...` run 3 times, all 3 clean. `go build ./...`/`go vet ./...` at the
+whole-repo level fail, but only in `services/networkmanager/` — pre-existing, unrelated, uncommitted
+work from another concurrently-running agent (this pass never touched anything outside
+`services/mgn/`).
 
 ## Purpose of this document
 

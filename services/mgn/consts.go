@@ -188,6 +188,16 @@ const (
 	BootModeUseSource  = "USE_SOURCE"
 )
 
+// ImportErrorType wire values (types.ImportErrorType). This backend only
+// ever constructs ImportErrorTypeValidation (a malformed CSV row parsed by
+// s3import.go); ImportErrorTypeProcessing is used for the whole-object
+// failure case (missing/unreadable S3 source) -- see exportimport.go's
+// StartImport.
+const (
+	ImportErrorTypeValidation = "VALIDATION_ERROR"
+	ImportErrorTypeProcessing = "PROCESSING_ERROR"
+)
+
 // LaunchDisposition wire values (types.LaunchDisposition).
 const (
 	LaunchDispositionStopped = "STOPPED"
