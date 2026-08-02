@@ -221,6 +221,7 @@ require (
 require (
 	github.com/aws/aws-sdk-go-v2/service/directconnect v1.43.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/mgn v1.48.3 // indirect
+	github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/resiliencehub v1.38.3 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect

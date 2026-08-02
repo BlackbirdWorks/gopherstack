@@ -171,6 +171,7 @@ import (
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
+	networkmanagerbackend "github.com/blackbirdworks/gopherstack/services/networkmanager"
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -275,6 +276,7 @@ type CLI struct {
 	resiliencehubHandler          service.Registerable
 	directconnectHandler          service.Registerable
 	mgnHandler                    service.Registerable
+	networkmanagerHandler         service.Registerable
 	xrayHandler                   service.Registerable
 	wafHandler                    service.Registerable
 	wafv2Handler                  service.Registerable
@@ -1474,6 +1476,11 @@ func (c *CLI) GetDirectConnectHandler() service.Registerable { return c.directco
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetMGNHandler() service.Registerable { return c.mgnHandler }
 
+// GetNetworkManagerHandler returns the AWS Network Manager handler (dashboard.AWSSDKProvider).
+//
+//nolint:ireturn // architecturally required to return interface
+func (c *CLI) GetNetworkManagerHandler() service.Registerable { return c.networkmanagerHandler }
+
 // GetELBHandler returns the ELB handler (dashboard.AWSSDKProvider).
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2601,6 +2608,7 @@ func storeCLINewestHandlers(cli *CLI, byName map[string]service.Registerable) {
 	cli.resiliencehubHandler = byName["ResilienceHub"]
 	cli.directconnectHandler = byName["DirectConnect"]
 	cli.mgnHandler = byName["MGN"]
+	cli.networkmanagerHandler = byName["NetworkManager"]
 }
 
 // initializeServices initializes all service providers, wires the
@@ -3243,6 +3251,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&resiliencehubbackend.Provider{},
 		&directconnectbackend.Provider{},
 		&mgnbackend.Provider{},
+		&networkmanagerbackend.Provider{},
 	}
 }
 
@@ -5417,11 +5426,11 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 34 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 35 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts, resiliencehub, directconnect, mgn). The rest remain unwired -- see PARITY.md's gaps section
+// outposts, resiliencehub, directconnect, mgn, networkmanager). The rest remain unwired -- see PARITY.md's gaps section
 // for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
@@ -5489,6 +5498,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingResilienceHub(bk, byName["ResilienceHub"])
 	wireTaggingDirectConnect(bk, byName["DirectConnect"])
 	wireTaggingMGN(bk, byName["MGN"])
+	wireTaggingNetworkManager(bk, byName["NetworkManager"])
 }
 
 func wireTaggingDDB(
@@ -6974,6 +6984,48 @@ func wireTaggingMGN(
 		},
 		mgnBk.TagResource,
 		mgnBk.UntagResource,
+	)
+}
+
+// wireTaggingNetworkManager wires the AWS Network Manager backend into the
+// Resource Groups Tagging API. 9 taggable resource kinds
+// (global-network/site/device/link/connection/connect-peer/core-network/
+// peering/attachment) share the one "networkmanager" ARN namespace -- all 9
+// GLOBAL ARNs with no region segment (confirmed from AWS's own IAM Service
+// Authorization Reference, see services/networkmanager/PARITY.md) -- so this
+// uses resourceTypeFromARN's multi-kind dispatch, same as wireTaggingMGN/
+// wireTaggingDirectConnect above. Unlike mgn, NetworkManager's
+// TagResource/UntagResource take no context.Context parameter, so this uses
+// wireTaggingARNResources rather than wireTaggingCtxARNResources.
+func wireTaggingNetworkManager(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	networkmanagerReg service.Registerable,
+) {
+	networkmanagerH, ok := networkmanagerReg.(*networkmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	networkmanagerBk := networkmanagerH.Backend
+	if networkmanagerBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "networkmanager",
+		func(arn string) string { return resourceTypeFromARN(arn, "networkmanager") },
+		func() []taggedARNEntry {
+			items := networkmanagerBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		networkmanagerBk.TagResource,
+		networkmanagerBk.UntagResource,
 	)
 }
 

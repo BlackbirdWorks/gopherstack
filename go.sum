@@ -254,6 +254,8 @@ github.com/aws/aws-sdk-go-v2/service/mwaa v1.43.0 h1:gcyZh+H6t/OIFIvGT7m9CLfIpyn
 github.com/aws/aws-sdk-go-v2/service/mwaa v1.43.0/go.mod h1:bVQA2hEC9fBkFvOw47NJRahlM3pIxVO0pB/JK3r7nG8=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.48.0 h1:v1pX4hILg8phgfPiqkB4zpvQRjKrf92EyVj36orOt3o=
 github.com/aws/aws-sdk-go-v2/service/neptune v1.48.0/go.mod h1:0q53h/v4NmkxMoIkml6FueJisqFC2eL5UHcNFt/DRko=
+github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.3 h1:GuRzsT644tA8S3YNXDH1vEZpWd1MCdAU9O23vazBz8Y=
+github.com/aws/aws-sdk-go-v2/service/networkmanager v1.44.3/go.mod h1:MphID/jnBy5JDHGV0msPGOaCQiOjxnpykm9RgcbuBoA=
 github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.0 h1:/zIEcVV9kq1mklRqsss1aENr2vwDQqH69btXI6T7Fyk=
 github.com/aws/aws-sdk-go-v2/service/networkmonitor v1.16.0/go.mod h1:JZHRr9gwc+tiCP/+Xw6txO7BpY0Q39YhGx+afkx7xdg=
 github.com/aws/aws-sdk-go-v2/service/omics v1.49.1 h1:xa2QNG6sK1iaLef5HqqYBNzD8gME4HvQu7mRqbaZXHU=
