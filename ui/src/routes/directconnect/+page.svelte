@@ -1315,6 +1315,67 @@
 		createVifModal?.open();
 	}
 
+	// Fields shared by all three virtual-interface types, trimmed/normalized
+	// once so each create*Vif helper below only has to spread them in.
+	function buildCommonVifFields() {
+		return {
+			virtualInterfaceName: newVifName.trim(),
+			vlan: newVifVlan,
+			asn: newVifAsn === '' ? undefined : Number(newVifAsn),
+			addressFamily: newVifAddressFamily || undefined,
+			amazonAddress: newVifAmazonAddress.trim() || undefined,
+			customerAddress: newVifCustomerAddress.trim() || undefined,
+			authKey: newVifAuthKey.trim() || undefined
+		};
+	}
+
+	// Private/transit VIFs pick either a Direct Connect gateway or (private
+	// only) a virtual private gateway, keyed off newVifGatewayKind.
+	function gatewayIdForKind(kind: 'dxgw' | 'vgw'): string | undefined {
+		return newVifGatewayKind === kind ? newVifGatewayId.trim() || undefined : undefined;
+	}
+
+	async function createPrivateVif(connectionId: string): Promise<void> {
+		await client().send(
+			new CreatePrivateVirtualInterfaceCommand({
+				connectionId,
+				newPrivateVirtualInterface: {
+					...buildCommonVifFields(),
+					mtu: newVifMtu,
+					enableSiteLink: newVifEnableSiteLink,
+					directConnectGatewayId: gatewayIdForKind('dxgw'),
+					virtualGatewayId: gatewayIdForKind('vgw')
+				}
+			})
+		);
+	}
+
+	async function createPublicVif(connectionId: string): Promise<void> {
+		await client().send(
+			new CreatePublicVirtualInterfaceCommand({
+				connectionId,
+				newPublicVirtualInterface: {
+					...buildCommonVifFields(),
+					routeFilterPrefixes: parseCidrList(newVifRouteFilterPrefixes)
+				}
+			})
+		);
+	}
+
+	async function createTransitVif(connectionId: string): Promise<void> {
+		await client().send(
+			new CreateTransitVirtualInterfaceCommand({
+				connectionId,
+				newTransitVirtualInterface: {
+					...buildCommonVifFields(),
+					mtu: newVifMtu,
+					enableSiteLink: newVifEnableSiteLink,
+					directConnectGatewayId: newVifGatewayId.trim() || undefined
+				}
+			})
+		);
+	}
+
 	async function submitCreateVif(): Promise<void> {
 		if (!newVifConnectionId.trim() || !newVifName.trim()) {
 			createVifError = 'Connection ID and virtual interface name are required.';
@@ -1323,52 +1384,13 @@
 		creatingVif = true;
 		createVifError = null;
 		try {
-			const common = {
-				virtualInterfaceName: newVifName.trim(),
-				vlan: newVifVlan,
-				asn: newVifAsn === '' ? undefined : Number(newVifAsn),
-				addressFamily: newVifAddressFamily || undefined,
-				amazonAddress: newVifAmazonAddress.trim() || undefined,
-				customerAddress: newVifCustomerAddress.trim() || undefined,
-				authKey: newVifAuthKey.trim() || undefined
-			};
+			const connectionId = newVifConnectionId.trim();
 			if (newVifType === 'private') {
-				await client().send(
-					new CreatePrivateVirtualInterfaceCommand({
-						connectionId: newVifConnectionId.trim(),
-						newPrivateVirtualInterface: {
-							...common,
-							mtu: newVifMtu,
-							enableSiteLink: newVifEnableSiteLink,
-							directConnectGatewayId:
-								newVifGatewayKind === 'dxgw' ? newVifGatewayId.trim() || undefined : undefined,
-							virtualGatewayId:
-								newVifGatewayKind === 'vgw' ? newVifGatewayId.trim() || undefined : undefined
-						}
-					})
-				);
+				await createPrivateVif(connectionId);
 			} else if (newVifType === 'public') {
-				await client().send(
-					new CreatePublicVirtualInterfaceCommand({
-						connectionId: newVifConnectionId.trim(),
-						newPublicVirtualInterface: {
-							...common,
-							routeFilterPrefixes: parseCidrList(newVifRouteFilterPrefixes)
-						}
-					})
-				);
+				await createPublicVif(connectionId);
 			} else {
-				await client().send(
-					new CreateTransitVirtualInterfaceCommand({
-						connectionId: newVifConnectionId.trim(),
-						newTransitVirtualInterface: {
-							...common,
-							mtu: newVifMtu,
-							enableSiteLink: newVifEnableSiteLink,
-							directConnectGatewayId: newVifGatewayId.trim() || undefined
-						}
-					})
-				);
+				await createTransitVif(connectionId);
 			}
 			toast.success('Virtual interface created');
 			createVifModal?.close();

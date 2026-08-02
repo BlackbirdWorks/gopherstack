@@ -98,55 +98,100 @@ function resetServer() {
   };
 }
 
-function installDefaultHandler() {
-  mockSend.mockImplementation((cmd: unknown) => {
-    if (cmd instanceof ListInstancesCommand)
-      return Promise.resolve({ Instances: server.instances });
-    if (cmd instanceof DescribeInstanceCommand) {
+// Table of "which command is this, and how does the fake server answer it"
+// pairs. Kept as data rather than an if/else-if chain so installDefaultHandler
+// itself stays a single lookup -- each row is independent and new commands are
+// added by appending a row, not by growing one function's branching.
+type CommandDispatcher = {
+  matches: (cmd: unknown) => boolean;
+  respond: (cmd: unknown) => unknown;
+};
+
+const commandDispatchers: CommandDispatcher[] = [
+  {
+    matches: (cmd) => cmd instanceof ListInstancesCommand,
+    respond: () => ({ Instances: server.instances }),
+  },
+  {
+    matches: (cmd) => cmd instanceof DescribeInstanceCommand,
+    respond: (cmd) => {
       const inst = server.instances.find(
         (i) => i.InstanceArn === (cmd as { input: { InstanceArn?: string } }).input.InstanceArn,
       );
-      return Promise.resolve(inst ? { ...inst } : {});
-    }
-    if (cmd instanceof ListPermissionSetsCommand)
-      return Promise.resolve({ PermissionSets: server.permissionSetArns });
-    if (cmd instanceof DescribePermissionSetCommand) {
+      return inst ? { ...inst } : {};
+    },
+  },
+  {
+    matches: (cmd) => cmd instanceof ListPermissionSetsCommand,
+    respond: () => ({ PermissionSets: server.permissionSetArns }),
+  },
+  {
+    matches: (cmd) => cmd instanceof DescribePermissionSetCommand,
+    respond: (cmd) => {
       const arn = (cmd as { input: { PermissionSetArn: string } }).input.PermissionSetArn;
-      return Promise.resolve({ PermissionSet: server.permissionSets[arn] ?? {} });
-    }
-    if (cmd instanceof GetInlinePolicyForPermissionSetCommand) {
+      return { PermissionSet: server.permissionSets[arn] ?? {} };
+    },
+  },
+  {
+    matches: (cmd) => cmd instanceof GetInlinePolicyForPermissionSetCommand,
+    respond: (cmd) => {
       const arn = (cmd as { input: { PermissionSetArn: string } }).input.PermissionSetArn;
-      return Promise.resolve({ InlinePolicy: server.inlinePolicies[arn] ?? "" });
-    }
-    if (cmd instanceof ListAccountAssignmentsCommand) {
+      return { InlinePolicy: server.inlinePolicies[arn] ?? "" };
+    },
+  },
+  {
+    matches: (cmd) => cmd instanceof ListAccountAssignmentsCommand,
+    respond: (cmd) => {
       const input = (cmd as { input: { PermissionSetArn?: string } }).input;
-      return Promise.resolve({
+      return {
         AccountAssignments: server.assignments.filter(
           (a) => a.PermissionSetArn === input.PermissionSetArn,
         ),
-      });
-    }
-    if (cmd instanceof ListApplicationsCommand)
-      return Promise.resolve({ Applications: server.applications });
-    if (cmd instanceof ListApplicationAssignmentsCommand) {
+      };
+    },
+  },
+  {
+    matches: (cmd) => cmd instanceof ListApplicationsCommand,
+    respond: () => ({ Applications: server.applications }),
+  },
+  {
+    matches: (cmd) => cmd instanceof ListApplicationAssignmentsCommand,
+    respond: (cmd) => {
       const arn = (cmd as { input: { ApplicationArn: string } }).input.ApplicationArn;
-      return Promise.resolve({
+      return {
         ApplicationAssignments: Array.from(
           { length: server.applicationAssignments[arn] ?? 0 },
           () => ({}),
         ),
-      });
-    }
-    if (cmd instanceof ListTrustedTokenIssuersCommand)
-      return Promise.resolve({ TrustedTokenIssuers: server.tokenIssuers });
-    if (cmd instanceof ListRegionsCommand) return Promise.resolve({ Regions: server.regions });
-    if (cmd instanceof ListAccountAssignmentCreationStatusCommand)
-      return Promise.resolve({ AccountAssignmentsCreationStatus: server.creationStatuses });
-    if (cmd instanceof ListAccountAssignmentDeletionStatusCommand)
-      return Promise.resolve({ AccountAssignmentsDeletionStatus: server.deletionStatuses });
-    if (cmd instanceof ListPermissionSetProvisioningStatusCommand)
-      return Promise.resolve({ PermissionSetsProvisioningStatus: server.provisioningStatuses });
-    return Promise.resolve({});
+      };
+    },
+  },
+  {
+    matches: (cmd) => cmd instanceof ListTrustedTokenIssuersCommand,
+    respond: () => ({ TrustedTokenIssuers: server.tokenIssuers }),
+  },
+  {
+    matches: (cmd) => cmd instanceof ListRegionsCommand,
+    respond: () => ({ Regions: server.regions }),
+  },
+  {
+    matches: (cmd) => cmd instanceof ListAccountAssignmentCreationStatusCommand,
+    respond: () => ({ AccountAssignmentsCreationStatus: server.creationStatuses }),
+  },
+  {
+    matches: (cmd) => cmd instanceof ListAccountAssignmentDeletionStatusCommand,
+    respond: () => ({ AccountAssignmentsDeletionStatus: server.deletionStatuses }),
+  },
+  {
+    matches: (cmd) => cmd instanceof ListPermissionSetProvisioningStatusCommand,
+    respond: () => ({ PermissionSetsProvisioningStatus: server.provisioningStatuses }),
+  },
+];
+
+function installDefaultHandler() {
+  mockSend.mockImplementation((cmd: unknown) => {
+    const dispatcher = commandDispatchers.find((d) => d.matches(cmd));
+    return Promise.resolve(dispatcher ? dispatcher.respond(cmd) : {});
   });
 }
 

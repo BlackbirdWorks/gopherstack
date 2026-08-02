@@ -7,21 +7,18 @@
 	// accept/reject/delete actions -- surfaced here as a single list with a
 	// subtype selector for creation. Cross-account attachments land in
 	// PENDING_ATTACHMENT_ACCEPTANCE; accept/reject resolve that.
+	//
+	// Each create subtype's own fields/validation/SDK call lives in its own
+	// ./_components/Create*AttachmentFields.svelte (one per Q1-Q5 family),
+	// so this file's submitCreate only ever dispatches to whichever one is
+	// currently mounted rather than branching on kind itself. The detail
+	// view (metadata, routing policy label, tags) lives in its own
+	// ./_components/AttachmentDetailModal.svelte.
 	import {
 		ListAttachmentsCommand,
 		AcceptAttachmentCommand,
 		RejectAttachmentCommand,
 		DeleteAttachmentCommand,
-		CreateVpcAttachmentCommand,
-		CreateConnectAttachmentCommand,
-		CreateSiteToSiteVpnAttachmentCommand,
-		CreateDirectConnectGatewayAttachmentCommand,
-		CreateTransitGatewayRouteTableAttachmentCommand,
-		PutAttachmentRoutingPolicyLabelCommand,
-		RemoveAttachmentRoutingPolicyLabelCommand,
-		ListAttachmentRoutingPolicyAssociationsCommand,
-		TagResourceCommand,
-		UntagResourceCommand,
 		type Attachment,
 		type NetworkManagerClient
 	} from '@aws-sdk/client-networkmanager';
@@ -33,8 +30,13 @@
 	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
-	import TagEditor from './TagEditor.svelte';
-	import { describeError, taggableArn } from './shared';
+	import AttachmentDetailModal from './AttachmentDetailModal.svelte';
+	import CreateVpcAttachmentFields from './CreateVpcAttachmentFields.svelte';
+	import CreateConnectAttachmentFields from './CreateConnectAttachmentFields.svelte';
+	import CreateSiteToSiteVpnAttachmentFields from './CreateSiteToSiteVpnAttachmentFields.svelte';
+	import CreateDirectConnectGatewayAttachmentFields from './CreateDirectConnectGatewayAttachmentFields.svelte';
+	import CreateTransitGatewayRouteTableAttachmentFields from './CreateTransitGatewayRouteTableAttachmentFields.svelte';
+	import { describeError } from './shared';
 
 	type Props = {
 		client: () => NetworkManagerClient;
@@ -99,34 +101,24 @@
 
 	type CreateKind = 'VPC' | 'CONNECT' | 'SITE_TO_SITE_VPN' | 'DIRECT_CONNECT_GATEWAY' | 'TRANSIT_GATEWAY_ROUTE_TABLE';
 
+	type CreateFieldsRef = {
+		reset: () => void;
+		submit: () => Promise<string | null>;
+	};
+
 	let createModal = $state<Modal | null>(null);
 	let createKind = $state<CreateKind>('VPC');
-	let createCoreNetworkId = $state('');
-	let createVpcArn = $state('');
-	let createSubnetArns = $state('');
-	let createEdgeLocation = $state('');
-	let createTransportAttachmentId = $state('');
-	let createVpnConnectionArn = $state('');
-	let createDcgArn = $state('');
-	let createEdgeLocations = $state('');
-	let createPeeringId = $state('');
-	let createTgwRouteTableArn = $state('');
 	let createBusy = $state(false);
 	let createError = $state<string | null>(null);
+	// Bound to whichever Create*AttachmentFields.svelte is currently mounted
+	// for `createKind` -- see those files for the per-subtype fields,
+	// validation and SDK call this used to branch on inline.
+	let activeCreateFields = $state<CreateFieldsRef | null>(null);
 
 	function openCreate(): void {
 		createKind = 'VPC';
-		createCoreNetworkId = '';
-		createVpcArn = '';
-		createSubnetArns = '';
-		createEdgeLocation = '';
-		createTransportAttachmentId = '';
-		createVpnConnectionArn = '';
-		createDcgArn = '';
-		createEdgeLocations = '';
-		createPeeringId = '';
-		createTgwRouteTableArn = '';
 		createError = null;
+		activeCreateFields?.reset();
 		createModal?.open();
 	}
 
@@ -134,65 +126,10 @@
 		createBusy = true;
 		createError = null;
 		try {
-			if (createKind === 'VPC') {
-				if (!createCoreNetworkId.trim() || !createVpcArn.trim() || !createSubnetArns.trim()) {
-					createError = 'Core network ID, VPC ARN and at least one subnet ARN are required.';
-					return;
-				}
-				await client().send(
-					new CreateVpcAttachmentCommand({
-						CoreNetworkId: createCoreNetworkId.trim(),
-						VpcArn: createVpcArn.trim(),
-						SubnetArns: createSubnetArns.split(',').map((s) => s.trim()).filter(Boolean)
-					})
-				);
-			} else if (createKind === 'CONNECT') {
-				if (!createCoreNetworkId.trim() || !createEdgeLocation.trim() || !createTransportAttachmentId.trim()) {
-					createError = 'Core network ID, edge location and transport attachment ID are required.';
-					return;
-				}
-				await client().send(
-					new CreateConnectAttachmentCommand({
-						CoreNetworkId: createCoreNetworkId.trim(),
-						EdgeLocation: createEdgeLocation.trim(),
-						TransportAttachmentId: createTransportAttachmentId.trim(),
-						Options: { Protocol: 'GRE' }
-					})
-				);
-			} else if (createKind === 'SITE_TO_SITE_VPN') {
-				if (!createCoreNetworkId.trim() || !createVpnConnectionArn.trim()) {
-					createError = 'Core network ID and VPN connection ARN are required.';
-					return;
-				}
-				await client().send(
-					new CreateSiteToSiteVpnAttachmentCommand({
-						CoreNetworkId: createCoreNetworkId.trim(),
-						VpnConnectionArn: createVpnConnectionArn.trim()
-					})
-				);
-			} else if (createKind === 'DIRECT_CONNECT_GATEWAY') {
-				if (!createCoreNetworkId.trim() || !createDcgArn.trim() || !createEdgeLocations.trim()) {
-					createError = 'Core network ID, Direct Connect gateway ARN and at least one edge location are required.';
-					return;
-				}
-				await client().send(
-					new CreateDirectConnectGatewayAttachmentCommand({
-						CoreNetworkId: createCoreNetworkId.trim(),
-						DirectConnectGatewayArn: createDcgArn.trim(),
-						EdgeLocations: createEdgeLocations.split(',').map((s) => s.trim()).filter(Boolean)
-					})
-				);
-			} else {
-				if (!createPeeringId.trim() || !createTgwRouteTableArn.trim()) {
-					createError = 'Peering ID and transit gateway route table ARN are required.';
-					return;
-				}
-				await client().send(
-					new CreateTransitGatewayRouteTableAttachmentCommand({
-						PeeringId: createPeeringId.trim(),
-						TransitGatewayRouteTableArn: createTgwRouteTableArn.trim()
-					})
-				);
+			const validationError = await activeCreateFields?.submit();
+			if (validationError) {
+				createError = validationError;
+				return;
 			}
 			toast.success('Attachment created');
 			createModal?.close();
@@ -248,88 +185,7 @@
 
 	// ------------------------------ Detail ----------------------------------
 
-	let detailModal = $state<Modal | null>(null);
-	let viewed = $state<Attachment | null>(null);
-	let routingLabel = $state('');
-	let routingLabelBusy = $state(false);
-	let routingLabelError = $state<string | null>(null);
-	let currentLabels = $state<string[]>([]);
-
-	async function openDetail(a: Attachment): Promise<void> {
-		viewed = a;
-		routingLabel = '';
-		routingLabelError = null;
-		currentLabels = [];
-		detailModal?.open();
-		if (a.CoreNetworkId && a.AttachmentId) {
-			try {
-				const resp = await client().send(
-					new ListAttachmentRoutingPolicyAssociationsCommand({
-						CoreNetworkId: a.CoreNetworkId,
-						AttachmentId: a.AttachmentId
-					})
-				);
-				currentLabels = (resp.AttachmentRoutingPolicyAssociations ?? [])
-					.map((s) => s.RoutingPolicyLabel)
-					.filter((label): label is string => !!label);
-			} catch {
-				// Non-fatal: routing policy labels are a secondary feature of
-				// the detail view.
-			}
-		}
-	}
-
-	async function putRoutingLabel(): Promise<void> {
-		if (!viewed?.AttachmentId || !viewed.CoreNetworkId || !routingLabel.trim()) return;
-		routingLabelBusy = true;
-		routingLabelError = null;
-		try {
-			await client().send(
-				new PutAttachmentRoutingPolicyLabelCommand({
-					AttachmentId: viewed.AttachmentId,
-					CoreNetworkId: viewed.CoreNetworkId,
-					RoutingPolicyLabel: routingLabel.trim()
-				})
-			);
-			toast.success('Routing policy label applied');
-			currentLabels = [...currentLabels, routingLabel.trim()];
-			routingLabel = '';
-		} catch (e) {
-			routingLabelError = describeError(e);
-		} finally {
-			routingLabelBusy = false;
-		}
-	}
-
-	async function removeRoutingLabel(): Promise<void> {
-		if (!viewed?.AttachmentId || !viewed.CoreNetworkId) return;
-		try {
-			await client().send(
-				new RemoveAttachmentRoutingPolicyLabelCommand({
-					AttachmentId: viewed.AttachmentId,
-					CoreNetworkId: viewed.CoreNetworkId
-				})
-			);
-			toast.success('Routing policy label removed');
-			currentLabels = [];
-		} catch (e) {
-			toast.error(describeError(e));
-		}
-	}
-
-	async function addTag(key: string, value: string): Promise<void> {
-		if (!viewed?.AttachmentId) return;
-		const arn = taggableArn('attachment', viewed.AttachmentId);
-		await client().send(new TagResourceCommand({ ResourceArn: arn, Tags: [{ Key: key, Value: value }] }));
-		viewed = { ...viewed, Tags: [...(viewed.Tags ?? []).filter((t) => t.Key !== key), { Key: key, Value: value }] };
-	}
-
-	async function removeTag(key: string): Promise<void> {
-		if (!viewed?.AttachmentId) return;
-		const arn = taggableArn('attachment', viewed.AttachmentId);
-		await client().send(new UntagResourceCommand({ ResourceArn: arn, TagKeys: [key] }));
-		viewed = { ...viewed, Tags: (viewed.Tags ?? []).filter((t) => t.Key !== key) };
-	}
+	let detailModal = $state<{ open: (a: Attachment) => Promise<void> } | null>(null);
 
 	function stateClass(state: string | undefined): string {
 		if (state === 'AVAILABLE') return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
@@ -365,7 +221,7 @@
 			<button onclick={() => acceptAttachment(a)} class="text-emerald-600 hover:underline text-sm">Accept</button>
 			<button onclick={() => rejectAttachment(a)} class="text-amber-600 hover:underline text-sm">Reject</button>
 		{/if}
-		<button onclick={() => openDetail(a)} class="text-blue-600 hover:underline text-sm">View</button>
+		<button onclick={() => detailModal?.open(a)} class="text-blue-600 hover:underline text-sm">View</button>
 		<button onclick={() => deleteAttachment(a)} class="text-red-600 hover:underline text-sm">Delete</button>
 	</div>
 {/snippet}
@@ -401,49 +257,15 @@
 			</label>
 
 			{#if createKind === 'VPC'}
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-cn-vpc">Core network ID *
-					<input id="nm-att-cn-vpc" bind:value={createCoreNetworkId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-vpc-arn">VPC ARN *
-					<input id="nm-att-vpc-arn" bind:value={createVpcArn} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-subnets">Subnet ARNs (comma-separated) *
-					<input id="nm-att-subnets" bind:value={createSubnetArns} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
+				<CreateVpcAttachmentFields bind:this={activeCreateFields} {client} />
 			{:else if createKind === 'CONNECT'}
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-cn-connect">Core network ID *
-					<input id="nm-att-cn-connect" bind:value={createCoreNetworkId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-edge">Edge location *
-					<input id="nm-att-edge" bind:value={createEdgeLocation} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-transport">Transport attachment ID *
-					<input id="nm-att-transport" bind:value={createTransportAttachmentId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
+				<CreateConnectAttachmentFields bind:this={activeCreateFields} {client} />
 			{:else if createKind === 'SITE_TO_SITE_VPN'}
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-cn-vpn">Core network ID *
-					<input id="nm-att-cn-vpn" bind:value={createCoreNetworkId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-vpn-arn">VPN connection ARN *
-					<input id="nm-att-vpn-arn" bind:value={createVpnConnectionArn} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
+				<CreateSiteToSiteVpnAttachmentFields bind:this={activeCreateFields} {client} />
 			{:else if createKind === 'DIRECT_CONNECT_GATEWAY'}
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-cn-dcg">Core network ID *
-					<input id="nm-att-cn-dcg" bind:value={createCoreNetworkId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-dcg-arn">Direct Connect gateway ARN * <span class="text-xs text-amber-600 dark:text-amber-400">(unvalidated -- no services/directconnect backend yet)</span>
-					<input id="nm-att-dcg-arn" bind:value={createDcgArn} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-edges">Edge locations (comma-separated) *
-					<input id="nm-att-edges" bind:value={createEdgeLocations} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
+				<CreateDirectConnectGatewayAttachmentFields bind:this={activeCreateFields} {client} />
 			{:else}
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-peering">Peering ID *
-					<input id="nm-att-peering" bind:value={createPeeringId} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
-				<label class="flex flex-col gap-1 text-sm" for="nm-att-tgw-rt">Transit gateway route table ARN *
-					<input id="nm-att-tgw-rt" bind:value={createTgwRouteTableArn} class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-				</label>
+				<CreateTransitGatewayRouteTableAttachmentFields bind:this={activeCreateFields} {client} />
 			{/if}
 			{#if createError}<p class="text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
 		</div>
@@ -454,45 +276,4 @@
 	{/snippet}
 </Modal>
 
-<Modal bind:this={detailModal} title="Attachment {viewed?.AttachmentId ?? ''}">
-	{#snippet children()}
-		{#if viewed}
-			<div class="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-				<dl class="grid grid-cols-2 gap-2 text-sm">
-					<div><dt class="text-slate-500">Type</dt><dd>{viewed.AttachmentType ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">State</dt><dd>{viewed.State ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">Core network</dt><dd>{viewed.CoreNetworkId ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">Segment</dt><dd>{viewed.SegmentName ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">Owner account</dt><dd>{viewed.OwnerAccountId ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">Created</dt><dd>{formatDate(viewed.CreatedAt)}</dd></div>
-				</dl>
-				{#if (viewed.LastModificationErrors ?? []).length > 0}
-					<div class="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-xs text-red-700 dark:text-red-300">
-						{#each viewed.LastModificationErrors ?? [] as e (e.RequestId ?? e.Code)}
-							<p>{e.Code}: {e.Message}</p>
-						{/each}
-					</div>
-				{/if}
-				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
-					<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Routing policy label</p>
-					{#if currentLabels.length > 0}
-						<p class="text-sm text-slate-600 dark:text-slate-300">Current: {currentLabels.join(', ')}</p>
-						<button onclick={removeRoutingLabel} class="text-red-600 hover:underline text-xs">Remove label</button>
-					{:else}
-						<div class="flex gap-2">
-							<input bind:value={routingLabel} placeholder="Label" class="flex-1 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white" />
-							<button onclick={putRoutingLabel} disabled={routingLabelBusy} class="px-3 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Apply</button>
-						</div>
-					{/if}
-					{#if routingLabelError}<p class="text-sm text-red-600 dark:text-red-400">{routingLabelError}</p>{/if}
-				</div>
-				<div class="border-t border-slate-200 dark:border-slate-700 pt-3">
-					<TagEditor tags={viewed.Tags ?? []} onAdd={addTag} onRemove={removeTag} />
-				</div>
-			</div>
-		{/if}
-	{/snippet}
-	{#snippet footer()}
-		<button type="button" onclick={() => detailModal?.close()} class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Close</button>
-	{/snippet}
-</Modal>
+<AttachmentDetailModal bind:this={detailModal} {client} />

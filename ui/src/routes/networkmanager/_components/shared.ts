@@ -66,3 +66,13 @@ export function taggableArn(
       : `${kind}/${id}`;
   return `arn:aws:networkmanager::${PLACEHOLDER_ACCOUNT_ID}:${resourcePath}`;
 }
+
+// Shared case-insensitive substring filter for the per-kind association
+// panels (AssociationsPanel's split-out children under this directory) --
+// each kind's row shape is different, so callers pass whichever fields are
+// relevant as the varargs rather than this helper knowing about any of them.
+export function matchesSearch(query: string, ...fields: (string | undefined)[]): boolean {
+  const q = query.toLowerCase();
+  if (!q) return true;
+  return fields.some((f) => (f ?? "").toLowerCase().includes(q));
+}
