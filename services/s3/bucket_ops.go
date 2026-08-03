@@ -429,6 +429,7 @@ func (h *S3Handler) listBuckets(ctx context.Context, w http.ResponseWriter, r *h
 			resp.Buckets = append(resp.Buckets, BucketXML{
 				Name:         *b.Name,
 				CreationDate: b.CreationDate.Format(time.RFC3339),
+				BucketRegion: aws.ToString(b.BucketRegion),
 			})
 		}
 	}
