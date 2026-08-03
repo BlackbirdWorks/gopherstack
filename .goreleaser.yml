@@ -68,13 +68,18 @@ checksum:
 signs:
   - artifacts: checksum
     cmd: cosign
+    # cosign-installer@v4.1.2 (pinned in the release workflow) installs cosign
+    # v3.0.6, which defaults to the new Sigstore bundle format. In that mode
+    # --output-signature/--output-certificate are ignored (cosign warns and
+    # writes nothing), and signing fails unless --bundle is passed. Signature
+    # here is the bundle's own output path; there is no separate certificate
+    # file to declare in the new format.
+    signature: "${artifact}.sigstore.json"
     args:
       - "sign-blob"
       - "--yes"
-      - "--output-signature"
+      - "--bundle"
       - "${signature}"
-      - "--output-certificate"
-      - "${certificate}"
       - "${artifact}"
 
 sboms:
