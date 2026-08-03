@@ -70,3 +70,6 @@ checkpoint.md
 /gendocs
 /test/terraform/bin/gopherstack
 /examples/s3-lambda-processor/bootstrap
+
+# Playwright MCP session artifacts (console logs, traces)
+.playwright-mcp/
