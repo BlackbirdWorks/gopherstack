@@ -116,7 +116,13 @@ let bucketVersioning = $state<string>('');
 let loadingVersioning = $state(false);
 let bucketVersions = $state<ObjectVersion[]>([]);
 let bucketEncryption = $state<string>('None');
-let bucketLocation = $state<string>('');
+// null = not yet loaded (or the last load failed) -- distinct from '', which
+// GetBucketLocation legitimately returns for a real us-east-1 bucket. Must
+// stay a tri-state: collapsing "unknown" into the same '' as "confirmed
+// us-east-1" is what let a failed fetch silently keep showing a PREVIOUSLY
+// viewed bucket's real region under a different bucket's heading (see the
+// loadPropertiesTab reset below and bd gopherstack-pejf).
+let bucketLocation = $state<string | null>(null);
 let objectLockStatus = $state<string>('Disabled');
 let loadingProperties = $state(false);
 
@@ -616,13 +622,22 @@ previewTags = [];
 async function loadPropertiesTab() {
 if (!selectedBucket) return;
 loadingProperties = true;
+// Reset before fetching (not just on failure): otherwise a slow or failed
+// fetch for THIS bucket would leave the PREVIOUSLY viewed bucket's real
+// region on screen under this bucket's heading. See the bucketLocation
+// declaration for why this is a tri-state reset to null rather than ''.
+bucketLocation = null;
 try {
 const [vRes, locRes] = await Promise.allSettled([
 s3().send(new GetBucketVersioningCommand({ Bucket: selectedBucket })),
 s3().send(new GetBucketLocationCommand({ Bucket: selectedBucket }))
 ]);
 if (vRes.status === 'fulfilled') bucketVersioning = vRes.value.Status || 'Disabled';
-if (locRes.status === 'fulfilled') bucketLocation = locRes.value.LocationConstraint || 'us-east-1';
+if (locRes.status === 'fulfilled') {
+bucketLocation = locRes.value.LocationConstraint || 'us-east-1';
+} else {
+toast.error(`Failed to load bucket region: ${describeError(locRes.reason)}`);
+}
 try {
 const encRes = await s3().send(new GetBucketEncryptionCommand({ Bucket: selectedBucket }));
 bucketEncryption = encRes.ServerSideEncryptionConfiguration?.Rules?.[0]?.ApplyServerSideEncryptionByDefault?.SSEAlgorithm || 'None';
@@ -1390,6 +1405,17 @@ i++;
 return `${size.toFixed(1)} ${units[i]}`;
 }
 
+// True when a bucket's real region (from ListBuckets' BucketRegion field --
+// see services/s3/buckets.go) differs from the currently selected dashboard
+// region. ListBuckets is account-wide in real S3 (and here), so the bucket
+// list always shows every bucket regardless of the selector; this only flags
+// that a bucket's operations are signed for a DIFFERENT region than what's
+// currently selected -- it is information, not an error, so callers should
+// keep the styling subtle.
+function isCrossRegion(bucketRegion: string | undefined): boolean {
+	return !!bucketRegion && bucketRegion !== currentRegion();
+}
+
 function storageClassBadge(sc?: string): { label: string; cls: string } {
 switch (sc) {
 case 'STANDARD_IA': return { label: 'STANDARD_IA', cls: 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300' };
@@ -1733,7 +1759,12 @@ class={`font-medium rounded-lg text-sm px-4 py-2 transition-colors ${bucketEncry
 <!-- Location -->
 <div class="p-6 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
 <h3 class="text-base font-semibold text-slate-900 dark:text-white mb-3">Location</h3>
-<p class="text-sm text-slate-600 dark:text-slate-400">Region: <span class="font-mono font-medium text-slate-900 dark:text-white">{bucketLocation || 'us-east-1'}</span></p>
+{#if bucketLocation === null}
+<p class="text-sm text-slate-600 dark:text-slate-400">Region: <span class="font-mono font-medium text-amber-600 dark:text-amber-400">Unknown</span></p>
+<p class="text-xs text-slate-500 dark:text-slate-500 mt-1">Failed to load this bucket's region. See the error toast for details.</p>
+{:else}
+<p class="text-sm text-slate-600 dark:text-slate-400">Region: <span class="font-mono font-medium text-slate-900 dark:text-white">{bucketLocation}</span></p>
+{/if}
 </div>
 
 <!-- Object Lock -->
@@ -2299,6 +2330,7 @@ class="block w-full p-2 ps-10 text-sm text-slate-900 border border-slate-300 rou
 {:else}
 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 {#each pagedBuckets as bucket}
+{@const crossRegion = isCrossRegion(bucket.BucketRegion)}
 <div id="bucket-{bucket.Name}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 <div class="flex justify-between items-start">
 <button onclick={() => openBucket(bucket.Name ?? '')} class="flex-1 text-left">
@@ -2310,6 +2342,17 @@ Created: {formatDate(bucket.CreationDate)}
 </p>
 <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
   Size: {formatSize(bucketSizes.get(bucket.Name ?? '') ?? 0)}
+</p>
+<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
+  Region: {bucket.BucketRegion ?? 'unknown'}
+  {#if crossRegion}
+    <span
+      class="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+      title={`This bucket lives in ${bucket.BucketRegion}, not the currently selected ${currentRegion()}. The bucket list is account-wide, but the region selector governs which region operations on this bucket are signed for.`}
+    >
+      different region
+    </span>
+  {/if}
 </p>
 </button>
 <button

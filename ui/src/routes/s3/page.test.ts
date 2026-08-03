@@ -619,6 +619,86 @@ describe("S3 Page", () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // Regression for bd gopherstack-pejf: the Properties tab's Region field
+  // must never silently keep showing a PREVIOUS successful fetch's value
+  // when a later GetBucketLocation call fails. That's exactly how the
+  // dashboard ended up displaying "ap-southeast-1" as every bucket's region
+  // regardless of what the region selector said -- one successful fetch set
+  // it once, and every failing fetch after that (e.g. because the Go-side
+  // fix in services/s3/handler.go's enforceBucketRegion is missing, or any
+  // other transient error) left the stale value on screen with no
+  // indication anything had gone wrong.
+  // ---------------------------------------------------------------------
+
+  it("shows 'Unknown' (not a stale previous region) when GetBucketLocation fails on a later Properties tab load", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [{ Name: "stale-region-bucket", CreationDate: new Date() }],
+    });
+    // loadBucketSizes
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+    // openBucket -> loadObjects
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+    await waitFor(() => expect(screen.getByText("stale-region-bucket")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("stale-region-bucket"));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(3));
+
+    // First Properties load: everything succeeds, region is a real, non-default value.
+    // GetBucketVersioning
+    mockSend.mockResolvedValueOnce({ Status: "" });
+    // GetBucketLocation
+    mockSend.mockResolvedValueOnce({ LocationConstraint: "eu-west-1" });
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ServerSideEncryptionConfigurationNotFoundError" }),
+    );
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ObjectLockConfigurationNotFoundError" }),
+    );
+    // ListObjectVersions
+    mockSend.mockResolvedValueOnce({ Versions: [] });
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "NoSuchWebsiteConfiguration" }),
+    );
+
+    await fireEvent.click(screen.getByText("Properties"));
+    await waitFor(() => expect(screen.getByText("eu-west-1")).toBeInTheDocument());
+
+    // Second Properties load (e.g. the user reopens the tab, or a region
+    // switch re-triggers it): GetBucketLocation now fails. Region display
+    // must reset to "Unknown", not keep showing "eu-west-1".
+    // GetBucketVersioning
+    mockSend.mockResolvedValueOnce({ Status: "" });
+    const locationError = Object.assign(new Error("The bucket is in another region"), {
+      name: "PermanentRedirect",
+      $metadata: { httpStatusCode: 301 },
+    });
+    // GetBucketLocation
+    mockSend.mockRejectedValueOnce(locationError);
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ServerSideEncryptionConfigurationNotFoundError" }),
+    );
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "ObjectLockConfigurationNotFoundError" }),
+    );
+    // ListObjectVersions
+    mockSend.mockResolvedValueOnce({ Versions: [] });
+    mockSend.mockRejectedValueOnce(
+      Object.assign(new Error(), { name: "NoSuchWebsiteConfiguration" }),
+    );
+
+    await fireEvent.click(screen.getByText("Properties"));
+
+    await waitFor(() => expect(screen.getByText("Unknown")).toBeInTheDocument());
+    expect(screen.queryByText("eu-west-1")).not.toBeInTheDocument();
+
+    const { toast } = await import("svelte-sonner");
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to load bucket region"),
+    );
+  });
+
   it("saves bucket tags with the exact PutBucketTagging TagSet", async () => {
     mockSend.mockResolvedValueOnce({
       Buckets: [{ Name: "tag-bucket", CreationDate: new Date() }],
@@ -685,5 +765,54 @@ describe("S3 Page", () => {
     const row = screen.getByText("archive.zip").closest("tr")!;
     expect(within(row).getByText("GLACIER")).toBeInTheDocument();
     expect(within(row).getByText("1.5 KB")).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------
+  // ListBuckets is account-wide in real S3, so the bucket list correctly
+  // shows buckets from every region regardless of the dashboard's currently
+  // selected region -- but until now nothing on screen said a bucket lived
+  // somewhere other than the selected region. These cover the fix: a Region
+  // line on each bucket card, sourced from the real BucketRegion field on
+  // the ListBuckets response (never inferred/defaulted client-side), plus a
+  // subtle marker when it differs from the selected region.
+  // ---------------------------------------------------------------------
+
+  it("shows each bucket's real region from BucketRegion, without a cross-region marker when it matches the selected region", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [
+        { Name: "same-region-bucket", CreationDate: new Date(), BucketRegion: "us-east-1" },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    const card = await waitFor(
+      () => screen.getByText("same-region-bucket").closest('[id^="bucket-"]') as HTMLElement,
+    );
+    expect(within(card).getByText(/Region:\s*us-east-1/)).toBeInTheDocument();
+    expect(within(card).queryByText("different region")).not.toBeInTheDocument();
+  });
+
+  it("marks a bucket whose real region differs from the selected dashboard region", async () => {
+    mockSend.mockResolvedValueOnce({
+      Buckets: [
+        { Name: "cross-region-bucket", CreationDate: new Date(), BucketRegion: "ap-southeast-1" },
+      ],
+    });
+    mockSend.mockResolvedValueOnce({ Contents: [], IsTruncated: false });
+
+    render(S3Page);
+
+    const card = await waitFor(
+      () => screen.getByText("cross-region-bucket").closest('[id^="bucket-"]') as HTMLElement,
+    );
+    // The selector defaults to us-east-1 (no setStoredRegion call in this
+    // test), so a bucket actually stored in ap-southeast-1 must show both
+    // its real region and the cross-region marker.
+    expect(within(card).getByText(/Region:\s*ap-southeast-1/)).toBeInTheDocument();
+    const marker = within(card).getByText("different region");
+    expect(marker).toBeInTheDocument();
+    expect(marker.getAttribute("title")).toContain("ap-southeast-1");
   });
 });

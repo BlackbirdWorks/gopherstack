@@ -19,6 +19,11 @@ type Owner struct {
 type BucketXML struct {
 	Name         string `xml:"Name"`
 	CreationDate string `xml:"CreationDate"`
+	// BucketRegion is the literal region the bucket lives in (see
+	// InMemoryBackend.ListBuckets in buckets.go for why it's always populated
+	// here, and why -- unlike GetBucketLocation's LocationConstraint -- it is
+	// never blanked out for us-east-1).
+	BucketRegion string `xml:"BucketRegion"`
 }
 
 type ListBucketResult struct {
