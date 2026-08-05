@@ -20,6 +20,7 @@ func (h *Handler) vifOps() map[string]opFunc {
 		"UpdateVirtualInterfaceAttributes": h.handleUpdateVifAttributes,
 		"DeleteVirtualInterface":           h.handleDeleteVif,
 		"DescribeVirtualInterfaces":        h.handleDescribeVifs,
+		"ListVirtualInterfaceRoutes":       h.handleListVirtualInterfaceRoutes,
 	}
 }
 

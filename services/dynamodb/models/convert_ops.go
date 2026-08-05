@@ -291,6 +291,71 @@ func FromSDKQueryOutput(output *dynamodb.QueryOutput) *QueryOutput {
 	return out
 }
 
+// ToSDKSearchVectorsInput converts the wire SearchVectorsInput to its SDK
+// form. SearchVector's elements are wire AttributeValue objects (same
+// convention as ExpressionAttributeValues), so each is converted with
+// ToSDKAttributeValue rather than ToSDKItem (which expects a map).
+func ToSDKSearchVectorsInput(input *SearchVectorsInput) (*dynamodb.SearchVectorsInput, error) {
+	out := &dynamodb.SearchVectorsInput{
+		TableName:                 ptrconv.NilIfEmpty(input.TableName),
+		IndexName:                 ptrconv.NilIfEmpty(input.IndexName),
+		ProjectionExpression:      ptrconv.NilIfEmpty(input.ProjectionExpression),
+		SearchConditionExpression: ptrconv.NilIfEmpty(input.SearchConditionExpression),
+		ExpressionAttributeNames:  input.ExpressionAttributeNames,
+		TopK:                      input.TopK,
+		ReturnConsumedCapacity:    types.ReturnConsumedCapacity(input.ReturnConsumedCapacity),
+	}
+
+	if len(input.ExpressionAttributeValues) > 0 {
+		vals, err := ToSDKItem(input.ExpressionAttributeValues)
+		if err != nil {
+			return nil, err
+		}
+		out.ExpressionAttributeValues = vals
+	}
+
+	if len(input.SearchVector) > 0 {
+		vec := make([]types.AttributeValue, len(input.SearchVector))
+		for i, v := range input.SearchVector {
+			av, err := ToSDKAttributeValue(v)
+			if err != nil {
+				return nil, err
+			}
+			vec[i] = av
+		}
+		out.SearchVector = vec
+	}
+
+	return out, nil
+}
+
+// FromSDKSearchVectorsOutput converts the SDK SearchVectorsOutput to its wire
+// form. In practice this backend's SearchVectors always errors before
+// producing a populated output (see search_vectors.go), but the converter is
+// implemented fully so the wire shape is correct if that ever changes.
+func FromSDKSearchVectorsOutput(output *dynamodb.SearchVectorsOutput) *SearchVectorsOutput {
+	out := &SearchVectorsOutput{}
+
+	if output.ConsumedCapacity != nil {
+		out.ConsumedCapacity = &VectorCapacity{
+			VectorSearchRequestBytes: ptrconv.Float64(output.ConsumedCapacity.VectorSearchRequestBytes),
+			VectorWriteRequestBytes:  ptrconv.Float64(output.ConsumedCapacity.VectorWriteRequestBytes),
+		}
+	}
+
+	if len(output.SearchResults) > 0 {
+		out.SearchResults = make([]SearchResultItem, len(output.SearchResults))
+		for i, r := range output.SearchResults {
+			out.SearchResults[i] = SearchResultItem{
+				Item:  FromSDKItem(r.Item),
+				Score: r.Score,
+			}
+		}
+	}
+
+	return out
+}
+
 // --- Batch Adapters ---
 
 func ToSDKBatchGetItemInput(input *BatchGetItemInput) (*dynamodb.BatchGetItemInput, error) {

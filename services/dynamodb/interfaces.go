@@ -49,6 +49,10 @@ type StorageBackend interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput) (*dynamodb.UpdateItemOutput, error)
 	Scan(context.Context, *dynamodb.ScanInput) (*dynamodb.ScanOutput, error)
 	Query(context.Context, *dynamodb.QueryInput) (*dynamodb.QueryOutput, error)
+	SearchVectors(
+		context.Context,
+		*dynamodb.SearchVectorsInput,
+	) (*dynamodb.SearchVectorsOutput, error)
 	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput) (*dynamodb.BatchGetItemOutput, error)
 	BatchWriteItem(
 		context.Context,

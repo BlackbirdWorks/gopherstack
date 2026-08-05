@@ -530,3 +530,179 @@ type BrokerEBSVolumeInfo struct {
 	KafkaBrokerNodeID     string                 `json:"kafkaBrokerNodeId,omitempty"`
 	VolumeSizeGB          int32                  `json:"volumeSizeGB,omitempty"`
 }
+
+// ----------------------------------------
+// Channels (aws-sdk-go-v2/service/kafka v1.57: CreateChannel/DeleteChannel/
+// DescribeChannel/ListChannels/UpdateChannel). A Channel streams records
+// from an MSK Express cluster topic to Amazon S3 or Apache Iceberg.
+// ----------------------------------------
+
+// ChannelDestinationType* mirror types.ChannelDestinationType.
+const (
+	ChannelDestinationTypeS3      = "S3"
+	ChannelDestinationTypeIceberg = "ICEBERG"
+)
+
+// ChannelStatus* mirror types.ChannelStatus.
+const (
+	ChannelStatusActive     = "ACTIVE"
+	ChannelStatusCreating   = "CREATING"
+	ChannelStatusUpdating   = "UPDATING"
+	ChannelStatusDeleting   = "DELETING"
+	ChannelStatusFailed     = "FAILED"
+	ChannelStatusSuspending = "SUSPENDING"
+	ChannelStatusSuspended  = "SUSPENDED"
+)
+
+// ChannelEncryptionConfiguration mirrors types.EncryptionConfiguration: the
+// channel-level KMS setting (distinct from Cluster.EncryptionInfo).
+type ChannelEncryptionConfiguration struct {
+	KmsKeyArn string `json:"kmsKeyArn,omitempty"`
+}
+
+// RecordConverter mirrors types.RecordConverter.
+type RecordConverter struct {
+	ValueConverter string `json:"valueConverter,omitempty"`
+}
+
+// RecordSchema mirrors types.RecordSchema.
+type RecordSchema struct {
+	GsrArn string `json:"gsrArn,omitempty"`
+}
+
+// TopicConfiguration mirrors types.TopicConfiguration: the Kafka topic that
+// feeds a channel, plus how record values are deserialized.
+type TopicConfiguration struct {
+	RecordConverter *RecordConverter `json:"recordConverter,omitempty"`
+	RecordSchema    *RecordSchema    `json:"recordSchema,omitempty"`
+	TopicArn        string           `json:"topicArn,omitempty"`
+}
+
+// DeadLetterQueueS3 mirrors types.DeadLetterQueueS3.
+type DeadLetterQueueS3 struct {
+	BucketArn           string `json:"bucketArn,omitempty"`
+	ErrorOutputPrefix   string `json:"errorOutputPrefix,omitempty"`
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
+}
+
+// PartitionSource mirrors types.PartitionSource.
+type PartitionSource struct {
+	SourceName string `json:"sourceName,omitempty"`
+}
+
+// PartitionSpec mirrors types.PartitionSpec.
+type PartitionSpec struct {
+	PartitionStrategy string            `json:"partitionStrategy,omitempty"`
+	SourceList        []PartitionSource `json:"sourceList,omitempty"`
+}
+
+// DestinationTable mirrors types.DestinationTable.
+type DestinationTable struct {
+	PartitionSpec           *PartitionSpec `json:"partitionSpec,omitempty"`
+	DestinationDatabaseName string         `json:"destinationDatabaseName,omitempty"`
+	DestinationTableName    string         `json:"destinationTableName,omitempty"`
+}
+
+// SchemaEvolution mirrors types.SchemaEvolution.
+type SchemaEvolution struct {
+	EnableSchemaEvolution bool `json:"enableSchemaEvolution"`
+}
+
+// TableCreation mirrors types.TableCreation.
+type TableCreation struct {
+	EnableTableCreation bool `json:"enableTableCreation"`
+}
+
+// Catalog mirrors types.Catalog.
+type Catalog struct {
+	CatalogArn        string `json:"catalogArn,omitempty"`
+	WarehouseLocation string `json:"warehouseLocation,omitempty"`
+}
+
+// IcebergDestinationConfiguration mirrors types.IcebergDestinationConfiguration.
+type IcebergDestinationConfiguration struct {
+	Catalog                 *Catalog           `json:"catalog,omitempty"`
+	DeadLetterQueueS3       *DeadLetterQueueS3 `json:"deadLetterQueueS3,omitempty"`
+	SchemaEvolution         *SchemaEvolution   `json:"schemaEvolution,omitempty"`
+	TableCreation           *TableCreation     `json:"tableCreation,omitempty"`
+	CompressionType         string             `json:"compressionType,omitempty"`
+	ServiceExecutionRoleArn string             `json:"serviceExecutionRoleArn,omitempty"`
+	DestinationTableList    []DestinationTable `json:"destinationTableList,omitempty"`
+	DataFreshnessInSeconds  int32              `json:"dataFreshnessInSeconds,omitempty"`
+	AppendOnly              bool               `json:"appendOnly"`
+}
+
+// IcebergDestinationUpdate mirrors types.IcebergDestinationUpdate.
+type IcebergDestinationUpdate struct {
+	DataFreshnessInSeconds int32 `json:"dataFreshnessInSeconds"`
+}
+
+// S3Storage mirrors types.S3Storage.
+type S3Storage struct {
+	BucketArn           string `json:"bucketArn,omitempty"`
+	CompressionType     string `json:"compressionType,omitempty"`
+	StorageClass        string `json:"storageClass,omitempty"`
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
+	OutputKeyTemplate   string `json:"outputKeyTemplate,omitempty"`
+	OutputPrefix        string `json:"outputPrefix,omitempty"`
+}
+
+// S3DestinationConfiguration mirrors types.S3DestinationConfiguration.
+type S3DestinationConfiguration struct {
+	DeadLetterQueueS3       *DeadLetterQueueS3 `json:"deadLetterQueueS3,omitempty"`
+	Storage                 *S3Storage         `json:"storage,omitempty"`
+	ServiceExecutionRoleArn string             `json:"serviceExecutionRoleArn,omitempty"`
+	DataFreshnessInSeconds  int32              `json:"dataFreshnessInSeconds,omitempty"`
+}
+
+// S3DestinationUpdate mirrors types.S3DestinationUpdate.
+type S3DestinationUpdate struct {
+	DataFreshnessInSeconds int32 `json:"dataFreshnessInSeconds"`
+}
+
+// ChannelLoggingInfo mirrors types.ChannelLoggingInfo. It reuses the existing
+// CloudWatchLogs/Firehose/S3Logs types, whose field names/shapes already
+// match types.CloudWatchLogs/types.Firehose/types.S3 exactly.
+type ChannelLoggingInfo struct {
+	CloudWatchLogs *CloudWatchLogs `json:"cloudWatchLogs,omitempty"`
+	Firehose       *Firehose       `json:"firehose,omitempty"`
+	S3             *S3Logs         `json:"s3,omitempty"`
+}
+
+// ChannelStateInfo mirrors types.ChannelStateInfo: additional context for a
+// channel in FAILED state.
+type ChannelStateInfo struct {
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Channel represents an MSK channel. ClusterArn is persisted (load-bearing
+// for the ClusterArn-scope check on Describe/Delete/Update and the
+// channelsByCluster index) but is NOT part of the real wire response --
+// handlers must build a dedicated DTO (see describeChannelOutputFrom in
+// handler_channels.go), the same pattern Topic uses for the identical
+// reason (see the Topic doc comment above).
+//
+// Unlike Cluster/Configuration/Replicator/VpcConnection, Tags here carries a
+// normal JSON tag rather than json:"-": the real DescribeChannelOutput wire
+// shape includes "tags" directly (field-diffed against deserializers.go's
+// awsRestjson1_deserializeOpDocumentDescribeChannelOutput), so it is not the
+// separate-fetch-only shape those four resources use, and it survives a
+// Snapshot/Restore round trip without the fixNilTags special case those four
+// need (see persistence.go).
+type Channel struct {
+	Tags                            map[string]string                `json:"tags,omitempty"`
+	EncryptionConfiguration         *ChannelEncryptionConfiguration  `json:"encryptionConfiguration,omitempty"`
+	IcebergDestinationConfiguration *IcebergDestinationConfiguration `json:"icebergDestinationConfiguration,omitempty"`
+	LoggingInfo                     *ChannelLoggingInfo              `json:"loggingInfo,omitempty"`
+	S3DestinationConfiguration      *S3DestinationConfiguration      `json:"s3DestinationConfiguration,omitempty"`
+	StateInfo                       *ChannelStateInfo                `json:"stateInfo,omitempty"`
+	ClusterArn                      string                           `json:"clusterArn"`
+	ChannelArn                      string                           `json:"channelArn"`
+	ChannelName                     string                           `json:"channelName"`
+	ClusterOperationArn             string                           `json:"clusterOperationArn,omitempty"`
+	CreationTime                    string                           `json:"creationTime,omitempty"`
+	DestinationType                 string                           `json:"destinationType"`
+	Status                          string                           `json:"status"`
+	TopicConfigurationList          []TopicConfiguration             `json:"topicConfigurationList,omitempty"`
+}

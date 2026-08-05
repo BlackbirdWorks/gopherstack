@@ -174,6 +174,7 @@ type StorageBackend interface {
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
+	BatchGetDataQualityRulesetEvaluationRun(runIDs []string) ([]*DataQualityEvaluationRun, []string)
 	CancelDataQualityRulesetEvaluationRun(runID string) error
 
 	// Seed helpers for new types.
@@ -363,6 +364,10 @@ type StorageBackend interface {
 	// Data catalog encryption settings.
 	PutDataCatalogEncryptionSettings(catalogID string, settings DataCatalogEncryptionSettings) error
 	GetDataCatalogEncryptionSettings(catalogID string) (*DataCatalogEncryptionSettings, error)
+
+	// Data catalog export configuration (S3 Tables metadata export).
+	PutDataCatalogExportConfiguration(settings DataCatalogExportConfiguration) (*DataCatalogExportConfiguration, error)
+	GetDataCatalogExportConfiguration() (*DataCatalogExportConfiguration, error)
 
 	// Blueprint CRUD (batch 2).
 	CreateBlueprint(name, blueprintLocation, description string, tags map[string]string) (*Blueprint, error)

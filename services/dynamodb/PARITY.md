@@ -1,8 +1,8 @@
 ---
 service: dynamodb
-sdk_module: aws-sdk-go-v2/service/dynamodb   # version: v1.60.0 (go.mod)
+sdk_module: aws-sdk-go-v2/service/dynamodb   # version: v1.63.1 (go.mod)
 last_audit_commit: 0a609eabb
-last_audit_date: 2026-07-24
+last_audit_date: 2026-08-05
 overall: A   # follow-up sweep: closed the 3 dynamodbstreams/dynamodb items tracked by gopherstack-exg7 + the TransactWriteItems EAN/EAV gap tracked by gopherstack-daa; no regressions
 protocol: json-1.0 (DynamoDB_20120810 targets)
 families:
@@ -13,7 +13,20 @@ families:
   streams:      {status: ok, note: PROVEN shard-iterator sequence clamping, trim-horizon; streamARNIndex now a store.Table, verified Put/Delete key derivation unchanged. 2026-07-24 (gopherstack-exg7): (1) DescribeStream's ShardFilter{Type:CHILD_SHARDS,ShardId} was accepted on the wire but silently ignored — now filters found.streamShards by ParentShardID (parseShardFilter/filterChildShards in streams_ops.go), rejecting unsupported filter Types and a missing ShardId with ValidationException; verified a filter that legitimately matches zero shards returns a real empty Shards list rather than the "stream just enabled" placeholder shard (buildSDKShardsList's synthesizePlaceholder flag). (2) ShardIteratorStore gained a clock-injection seam (now func() time.Time, SetClock/Now) — resolveIterator's expiry check now reads db.iteratorStore.Now() instead of time.Now() directly, so ExpiredIteratorException is exercised end-to-end via GetShardIterator -> advance fake clock -> GetRecords in a test, not just via the pre-existing ExpireAllShardIteratorsForTest backdate-hack. (3) De-duplicated the wire<->SDK AttributeValue conversion functions that were split across streams_ops.go (wire->SDK: toStreamAttributeValue/dispatchStreamType/buildSDKStreamItem/buildSDKRecord) and streams_wire.go (SDK->wire: FromStreamAttributeValue/FromStreamItem) — both directions (and their shared sentinel errors) now live together in streams_wire.go; streams_ops.go keeps only shard/record-management logic.}
   janitor_ttl:  {status: ok, note: PROVEN batched-lock, ctx-cancel, quickselect eviction, ring-buffer compaction}
   datalayer:    {status: ok, note: RE-AUDITED — ce30166a converted db.Tables/Backups/GlobalTables/exports/imports/streamARNIndex from raw maps to pkgs/store.Table+Index (composite key tableKey(region,name), region derived by parsing TableArn via tableRegion()). Verified every insertion site (CreateTable, RestoreTable, CreateGlobalTable replicas, cloneTableSchema, applyOneReplicaTableEntry) builds TableArn with the same region string used as the store key *before* Put, so tableRegion(t) round-trips correctly; TableArn is never mutated post-insert. No stale map-key leaks (tablesByRegion Index auto-empties groups on last delete, unlike the old per-region submap). Persistence snapshot reshaped map->sorted slice + added a schema version gate (old snapshots discarded cleanly on upgrade, matching the sqs/ec2 precedent) — intentional, not a parity bug.}
-gaps: []
+gaps:
+  - "2026-08-05: SearchVectors (new in SDK v1.63.1) — DynamoDB vector indexes have no
+    backend model here: CreateTable/UpdateTable have no field or code path that attaches a
+    vector index to a table, so no vector index can ever exist in this backend. Fabricating
+    similarity scores for a search against an index that was never created would violate
+    the no-fabricated-data rule. search_vectors.go implements full request validation
+    (TableName/IndexName/SearchVector/TopK required, matching the SDK's
+    validateOpSearchVectorsInput) and a real table-existence check, then honestly returns
+    ResourceNotFoundException for the named index — the same response real DynamoDB gives
+    for any index name on a table with no vector indexes. Wire types/converters
+    (SearchVectorsInput/Output, VectorCapacity, SearchResultItem) are implemented in full
+    for shape-correctness even though the success path is never reached. Full vector-index
+    support (CreateTable VectorIndex, index storage, real similarity scoring) is out of
+    scope for this pass — tracked as a follow-up if vector search ever becomes a priority."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.

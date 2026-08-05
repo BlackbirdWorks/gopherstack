@@ -1,8 +1,8 @@
 ---
 service: kafka
-sdk_module: aws-sdk-go-v2/service/kafka@v1.49.0
-last_audit_commit: fb5f045f5a201fb9817e392cdf36684aa6cb36e6  # unchanged: this pass could not run git (sandbox constraint) to read the real HEAD
-last_audit_date: 2026-07-23
+sdk_module: aws-sdk-go-v2/service/kafka@v1.57.2
+last_audit_commit: fcb3fbbb9f46c11d4cf4034410f5ec80e7f16f63
+last_audit_date: 2026-08-05
 overall: A            # topic/replicator field-name/shape gaps closed; two prior "ok" families had a real wire bug each, now fixed
 ops:
   UpdateBrokerCount: {wire: ok, errors: ok, state: ok, persist: ok, note: "route fixed: was under /api/v2/clusters (wrong, unreachable), now /v1/clusters/{arn}/nodes/count. CurrentVersion now advances on success (see cluster_current_version_advance)."}
@@ -64,7 +64,13 @@ ops:
   ListTopics: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gap closed: element shape is now the real, distinct TopicInfo (topicArn/topicName/partitionCount/replicationFactor/outOfSyncReplicaCount -- no configs/status, unlike DescribeTopic). topicNameFilter query param now supported (was silently ignored before)."}
   UpdateTopic: {wire: ok, errors: ok, state: ok, persist: ok, note: "gap closed: same partitionCount/configs input rework as CreateTopic; response is status/topicArn/topicName only."}
   DeleteTopic: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in v1.57. POST /v1/clusters/{ClusterArn}/channels, ClusterArn URI-templated (validated against serializers.go's awsRestjson1_serializeOpCreateChannel/awsRestjson1_serializeOpHttpBindingsCreateChannelInput). Response is channelArn/clusterOperationArn only (awsRestjson1_deserializeOpDocumentCreateChannelOutput). Full required-field validation implemented server-side per validators.go's validateOpCreateChannelInput/validateIcebergDestinationConfiguration/validateS3DestinationConfiguration chains, plus a server-side 'exactly one of s3DestinationConfiguration/icebergDestinationConfiguration' check the client-side validator itself does not enforce (neither field is marked required there) but CreateChannelInput's doc comments describe as mutually exclusive. errCodeLookup covers BadRequestException/ConflictException/ForbiddenException/InternalServerErrorException/NotFoundException/ServiceUnavailableException/TooManyRequestsException/UnauthorizedException per awsRestjson1_deserializeOpErrorCreateChannel."}
+  DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in v1.57. DELETE /v1/clusters/{ClusterArn}/channels/{ChannelArn}, both ARNs URI-templated. Response is channelArn/clusterOperationArn (awsRestjson1_deserializeOpDocumentDeleteChannelOutput). Cluster-scope check: a channelArn that exists under a different clusterArn 404s, matching the cluster-scoped resource model DescribeChannel/UpdateChannel also enforce."}
+  DescribeChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in v1.57. GET /v1/clusters/{ClusterArn}/channels/{ChannelArn}. Response field-diffed against awsRestjson1_deserializeOpDocumentDescribeChannelOutput: channelArn/channelName/clusterOperationArn/creationTime/destinationType/encryptionConfiguration/icebergDestinationConfiguration/loggingInfo/s3DestinationConfiguration/stateInfo/status/tags/topicConfigurationList, all field-name-matched including every nested type (Catalog/DeadLetterQueueS3/DestinationTable/PartitionSpec/PartitionSource/RecordConverter/RecordSchema/S3Storage/SchemaEvolution/TableCreation) verified against types.go + their respective serializeDocument*/deserializeDocument* pairs. clusterArn (internal only, load-bearing for the ClusterArn-scope check and channelsByCluster index) is excluded from the wire DTO via describeChannelOutputFrom, the same pattern describeTopicOutputFrom uses for Topic."}
+  ListChannels: {wire: ok, errors: ok, state: ok, persist: n/a, note: "new in v1.57. GET /v1/clusters/{ClusterArn}/channels, maxResults/nextToken/topicNameFilter as query params (awsRestjson1_serializeOpHttpBindingsListChannelsInput), reusing the package's existing base64url offset-token pagination helpers (kafkaPageSize/encodeKafkaPageToken/decodeKafkaPageToken). Element shape is the real, distinct types.ChannelInfo (channelArn/channelName/clusterOperationArn/creationTime/destinationType/status only -- no destination-configuration/logging/tags/topicConfigurationList detail), field-diffed against awsRestjson1_deserializeDocumentChannelInfo."}
+  UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in v1.57. PUT /v1/clusters/{ClusterArn}/channels/{ChannelArn}, body is icebergDestinationUpdate/s3DestinationUpdate (mutually exclusive, exactly one required -- api_op_UpdateChannel.go's doc comment: 'You must update the same destination type the channel was created with; the destination type cannot be changed.'). Response is channelArn/clusterOperationArn only. Server-side validation rejects a destination-type mismatch (e.g. s3DestinationUpdate against an ICEBERG channel) with BadRequestException, since neither update field is marked client-side required in validators.go -- only the service, which knows the channel's actual DestinationType, can reject that."}
 families:
+  channels: {status: ok, note: "New MSK Channels family (aws-sdk-go-v2/service/kafka v1.57, streams an Express cluster topic to S3 or Apache Iceberg): CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel all implemented against real backend state (services/kafka/channels.go), routed under /v1/clusters/{ClusterArn}/channels(/{ChannelArn}) alongside the existing Topic sub-resource (services/kafka/routes.go's parseClusterResourceV1Channels), and persisted through a new channels store.Table + channelsByCluster index (store_setup.go), included automatically in Snapshot/RestoreAll. Unlike Cluster/Configuration/Replicator/VpcConnection, Channel.Tags carries a normal (not json:\"-\") JSON tag, since the real DescribeChannelOutput wire shape genuinely includes tags -- see the Channel doc comment in models.go -- so Channel tags survive a Snapshot/Restore round trip without the persistence gap those four resources have. TagResource/UntagResource/ListTagsForResource (services/kafka/tags.go) were extended to recognize channel ARNs too, since CreateChannel accepts tags at creation and leaving the generic tag ops unable to retag a channel afterward would have been a real, if narrow, regression. See services/kafka/channels_test.go and services/kafka/handler_channels_test.go for full lifecycle, validation-failure, not-found, cross-cluster-scope, and Snapshot/Restore round-trip coverage, driven through the real HTTP wire path/JSON body per services/kafka/handler_channels_test.go's s3ChannelCreateBody helper."}
   cluster_v1_v2_crud: {status: ok, note: "CreateCluster(V2)/DescribeCluster(V2)/ListClusters(V2)/DeleteCluster verified wire-accurate; CREATING->ACTIVE lazy-poll transition confirmed correct"}
   cluster_update_ops: {status: ok, note: "10 Update* ops were 100% unreachable pre-fix (routed under wrong /api/v2/clusters prefix while the real SDK sends them to /v1/clusters/{arn}/...); fixed. CurrentVersion optimistic-lock token now advances on every successful update (see cluster_current_version_advance) -- a second Update* call against the same cluster must fetch the version the first call left behind, matching real MSK; TestClusterOperationTracking_V1 and TestUpdateOpsRequireCurrentVersion cover both the advance and the stale-version rejection."}
   cluster_current_version_advance: {status: ok, note: "Cluster.CurrentVersion (and Replicator.CurrentVersion, same mechanism) now advances via nextVersionToken() on every successful mutating operation (newClusterOperationLocked for clusters; UpdateReplicationInfo for replicators), closing the gap where a second update against the same resource incorrectly succeeded while reusing a stale version."}
@@ -77,7 +83,29 @@ families:
   nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified."}
   replicator: {status: ok, note: "full ReplicationInfo/KafkaCluster topology now implemented end-to-end: CreateReplicator accepts and persists kafkaClusters/replicationInfoList; DescribeReplicator/ListReplicators resolve real KafkaClusterAlias/SourceKafkaClusterAlias/TargetKafkaClusterAlias from the live cluster table; UpdateReplicationInfo enforces the real currentVersion/source/target contract against a specific replication flow. See services/kafka/replicators_test.go TestCreateReplicator_TopologyAndAliasResolution and TestUpdateReplicationInfo_Backend."}
   topic: {status: ok, note: "CreateTopic/DescribeTopic/ListTopics/UpdateTopic field-name divergence closed (partitionCount/configs, topicArn/status, distinct TopicInfo list shape). DescribeTopicPartitions now returns the real {nextToken, partitions} shape with synthesized round-robin leader/replica placement. See services/kafka/topics_test.go and services/kafka/handler_topics_test.go."}
-gaps: []
+gaps:
+  - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
+    polling window) -- same documented simplification as Topic.Status (see
+    below): the real API exposes a ClusterOperationArn/polling protocol this
+    in-memory emulator has no async execution to model, so Channel.Status goes
+    straight to ACTIVE and ClusterOperationArn is populated only on the
+    mutating call's own response, never on the persisted record (matching what
+    a real client would observe once the real async operation has already
+    completed by the time it calls Describe)."
+  - "CreateChannel does not restrict channel creation to MSK Express clusters,
+    even though CreateChannel's doc comment says a channel streams from 'an
+    Amazon MSK Express cluster topic'. gopherstack's Cluster model has no
+    Express-vs-standard-broker-type distinction anywhere else in this service,
+    and the SDK's client-side validators.go does not enforce it either (it can
+    only be a server-side rule), so modeling this specific restriction here
+    would mean inventing a cluster-type check found nowhere else in the
+    codebase rather than verifying one against the SDK."
+  - "CreateChannel does not verify that TopicConfigurationList[].TopicArn
+    references a topic that actually exists in this backend. The real
+    service's behavior here is unverifiable from the client SDK alone (no
+    client-side check exists in validators.go), so enforcing an invented rule
+    risks fabricating unproven behavior; the ARN is accepted, stored, and
+    echoed back verbatim instead."
   # All 5 gaps from the 2026-07-12 audit (topic field names, DescribeTopicPartitions
   # shape, UpdateReplicationInfo shape, CreateReplicator missing topology fields,
   # Cluster.CurrentVersion never advancing) are closed -- see the op/family notes
@@ -106,7 +134,7 @@ deferred: []
   #     AcceptClientVpcConnection (or similarly named) operation in this SDK
   #     version. RejectClientVpcConnection is the only client-VPC-connection
   #     mutation the real API exposes, so gopherstack's coverage is complete.
-leaks: {status: clean, note: "no goroutines/timers introduced or found this pass; all new logic (topic partition synthesis, replicator alias resolution, CurrentVersion token generation) is synchronous, computed under the existing coarse b.mu per call, with no new background work."}
+leaks: {status: clean, note: "no goroutines/timers introduced or found this pass; all new Channels logic (channelARN derivation, deep-clone helpers, destination-update validation) is synchronous, computed under the existing coarse b.mu per call via the new channels store.Table, with no new background work."}
 ---
 
 ## Notes
@@ -118,7 +146,59 @@ Create/Describe/List/ListOperations, no updates), `/replication/v1/replicators/.
 and `/v1/configurations/...` + `/v1/tags/{arn}` + `/v1/vpc-connection(s)` +
 `/v1/kafka-versions` + `/v1/compatible-kafka-versions` as flat top-level roots.
 
-### This pass: closing the topic/replicator field-name gaps + two new wire bugs
+### This pass: SDK bump to v1.57.2 exposed a new Channels family
+
+`aws-sdk-go-v2/service/kafka` v1.49.0 -> v1.57.2 added a fifth resource
+family, Channels (streams an MSK Express cluster topic to Amazon S3 or Apache
+Iceberg), which made `TestSDKCompleteness` fail: `CreateChannel`,
+`DeleteChannel`, `DescribeChannel`, `ListChannels`, `UpdateChannel` all
+implement real backend state (`services/kafka/channels.go`), routed under the
+existing `/v1/clusters/{ClusterArn}/channels(/{ChannelArn})` prefix as a
+sibling of the Topic sub-resource (`services/kafka/routes.go`'s new
+`parseClusterResourceV1Channels`, checked before the generic
+Describe/DeleteCluster fallback the same way `parseClusterResourceV1Topics`
+already is). Every field name, HTTP method, URI path, and error-code switch
+was verified against the vendored `aws-sdk-go-v2/service/kafka@v1.57.2`
+module's `api_op_*Channel*.go`, `serializers.go`, `deserializers.go`, and
+`validators.go` (`$(go env GOMODCACHE)/github.com/aws/aws-sdk-go-v2/service/kafka@v1.57.2`).
+
+Two path segments deserve a specific callout: `DeleteChannel`/
+`DescribeChannel`/`UpdateChannel` URI-template **both** `{ClusterArn}` and
+`{ChannelArn}` on the same path
+(`/v1/clusters/{ClusterArn}/channels/{ChannelArn}`) -- unlike every other
+nested-ARN case in this file (topics, VPC connections), where only one side
+of the path is an ARN. The real SDK's `httpbinding.Encoder.SetURI` percent-
+encodes any `/` inside either ARN, so both ARNs arrive at the server as
+opaque, slash-free segments before `parseClusterResourceV1`'s single
+`url.PathUnescape(remainder)` call runs -- splitting on the literal
+`"/channels/"` marker is therefore unambiguous, the same reasoning that
+already justifies `"/topics/"` splitting for `parseClusterResourceV1Topics`.
+
+`Channel.Tags` is the one resource field in this file that intentionally
+breaks the `json:"-"` convention every other MSK resource
+(Cluster/Configuration/Replicator/VpcConnection) uses for `Tags`: those four
+resources' real `Describe*Output` never embeds tags (fetched separately via
+`ListTagsForResource`), but `DescribeChannelOutput`'s wire shape genuinely
+includes a `"tags"` key (field-diffed against
+`awsRestjson1_deserializeOpDocumentDescribeChannelOutput`). Tagging
+`Channel.Tags` with `json:"-"` to match the other four would have been a wire
+bug, not consistency; it uses a normal `json:"tags,omitempty"` tag instead,
+which also means Channel tags survive a Snapshot/Restore round trip without
+the `fixNilTags` persistence gap the other four have (though `fixNilTags`
+still guards the narrower zero-tags-omitted-by-`omitempty` case, see
+`persistence.go`). `TagResource`/`UntagResource`/`GetTags`
+(`services/kafka/tags.go`) were extended to recognize channel ARNs alongside
+the existing four, since `CreateChannel` accepts tags at creation and leaving
+the generic tag ops unable to retag a channel afterward would have been a
+real functional gap, not just a documentation one.
+
+See `services/kafka/channels_test.go` (backend-level lifecycle, validation
+failures, not-found, cross-cluster-scope, tag lifecycle, Snapshot/Restore
+round trip) and `services/kafka/handler_channels_test.go` (the same lifecycle
+driven through the real HTTP wire path and JSON body, plus pagination and
+invalid-body handling) for coverage.
+
+### Prior pass: closing the topic/replicator field-name gaps + two new wire bugs
 
 The 2026-07-12 audit fixed route-matcher bugs but left five real gaps and two
 deferred items. This pass closed all of them:

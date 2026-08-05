@@ -957,6 +957,27 @@ type ConnectionPasswordEncryption struct {
 	ReturnConnectionPasswordEncrypted bool   `json:"ReturnConnectionPasswordEncrypted"`
 }
 
+// DataCatalogExportConfiguration holds the Glue Data Catalog's S3 Tables
+// metadata export configuration (GetDataCatalogExportConfiguration /
+// PutDataCatalogExportConfiguration). Unlike DataCatalogEncryptionSettings,
+// the real API's input/output shapes carry no CatalogId at all -- this is a
+// single backend-global (account+region) setting, not a per-catalog one; see
+// catalogs.go's PutDataCatalogExportConfiguration doc comment.
+type DataCatalogExportConfiguration struct {
+	EncryptionConfiguration *ExportEncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
+	ExportSetting           string                         `json:"ExportSetting,omitempty"`
+	S3TableBucketArn        string                         `json:"S3TableBucketArn,omitempty"`
+	Status                  string                         `json:"Status,omitempty"`
+	CreatedAt               float64                        `json:"CreatedAt,omitempty"`
+	UpdatedAt               float64                        `json:"UpdatedAt,omitempty"`
+}
+
+// ExportEncryptionConfiguration mirrors types.ExportEncryptionConfiguration.
+type ExportEncryptionConfiguration struct {
+	KmsKeyArn    string `json:"KmsKeyArn,omitempty"`
+	SseAlgorithm string `json:"SseAlgorithm,omitempty"`
+}
+
 // CatalogImportStatus records the Hive metastore import completion state.
 type CatalogImportStatus struct {
 	ImportedBy      string  `json:"ImportedBy"`

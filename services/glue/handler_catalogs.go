@@ -121,6 +121,38 @@ func (h *Handler) handleGetDataCatalogEncryptionSettings(
 	return &getDataCatalogEncryptionSettingsOutput{DataCatalogEncryptionSettings: s}, nil
 }
 
+// getDataCatalogExportConfigurationInput holds input for
+// GetDataCatalogExportConfiguration -- the real op takes no input fields at
+// all (see api_op_GetDataCatalogExportConfiguration.go).
+type getDataCatalogExportConfigurationInput struct{}
+
+func (h *Handler) handleGetDataCatalogExportConfiguration(
+	_ context.Context,
+	_ *getDataCatalogExportConfigurationInput,
+) (*DataCatalogExportConfiguration, error) {
+	return h.Backend.GetDataCatalogExportConfiguration()
+}
+
+// putDataCatalogExportConfigurationInput holds input for
+// PutDataCatalogExportConfiguration. ClientToken is an idempotency token the
+// SDK client auto-fills; accepted on the wire but not needed for an
+// in-memory backend with no retry-dedup window to honor.
+type putDataCatalogExportConfigurationInput struct {
+	EncryptionConfiguration *ExportEncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
+	ExportSetting           string                         `json:"ExportSetting"`
+	ClientToken             string                         `json:"ClientToken,omitempty"`
+}
+
+func (h *Handler) handlePutDataCatalogExportConfiguration(
+	_ context.Context,
+	in *putDataCatalogExportConfigurationInput,
+) (*DataCatalogExportConfiguration, error) {
+	return h.Backend.PutDataCatalogExportConfiguration(DataCatalogExportConfiguration{
+		ExportSetting:           in.ExportSetting,
+		EncryptionConfiguration: in.EncryptionConfiguration,
+	})
+}
+
 // importCatalogToGlueInput holds input for ImportCatalogToGlue.
 type importCatalogToGlueInput struct {
 	CatalogID string `json:"CatalogId,omitempty"`

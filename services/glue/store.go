@@ -78,6 +78,14 @@ const stateScheduled = "SCHEDULED"
 
 const stateNotScheduled = "NOT_SCHEDULED"
 
+// ExportSetting values for {Get,Put}DataCatalogExportConfiguration (mirrors
+// types.ExportSettingEnabled/types.ExportSettingDisabled). This backend has
+// no async export pipeline to simulate, so Status reuses these same two
+// values rather than the SDK's richer ExportStatus enum -- see catalogs.go.
+const exportSettingEnabled = "ENABLED"
+
+const exportSettingDisabled = "DISABLED"
+
 // maxNameLen is the maximum length (in characters) for Glue resource names.
 // AWS enforces a 255-character limit for database, table, crawler, and job names.
 const maxNameLen = 255
@@ -166,6 +174,7 @@ type InMemoryBackend struct {
 	crawlHistory              map[string][]*CrawlHistoryEntry // key: crawlerName
 	dqStatisticAnnotations    *store.Table[StatisticAnnotation]
 	glueIdentityCenterConfig  *IdentityCenterConfig
+	dataCatalogExportConfig   *DataCatalogExportConfiguration
 	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
 
@@ -281,6 +290,7 @@ func (b *InMemoryBackend) resetStubFixState() {
 // resources. Must be called with b.mu held.
 func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.glueIdentityCenterConfig = nil
+	b.dataCatalogExportConfig = nil
 	b.jobRunReadyAt = make(map[string]map[string]time.Time)
 	b.jobRunDoneAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)

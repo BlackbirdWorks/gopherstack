@@ -350,6 +350,32 @@ type QueryOutput struct {
 	ScannedCount     int               `json:"ScannedCount"`
 }
 
+// SearchVectorsInput mirrors dynamodb.SearchVectorsInput. SearchVector's
+// elements are wire-format AttributeValue objects (e.g. {"N": "0.5"}), same
+// convention as ExpressionAttributeValues' map values.
+type SearchVectorsInput struct {
+	ExpressionAttributeNames  map[string]string `json:"ExpressionAttributeNames,omitempty"`
+	ExpressionAttributeValues map[string]any    `json:"ExpressionAttributeValues,omitempty"`
+	TopK                      *int32            `json:"TopK"`
+	TableName                 string            `json:"TableName"`
+	IndexName                 string            `json:"IndexName"`
+	ProjectionExpression      string            `json:"ProjectionExpression,omitempty"`
+	SearchConditionExpression string            `json:"SearchConditionExpression,omitempty"`
+	ReturnConsumedCapacity    string            `json:"ReturnConsumedCapacity,omitempty"`
+	SearchVector              []any             `json:"SearchVector"`
+}
+
+type SearchVectorsOutput struct {
+	ConsumedCapacity *VectorCapacity    `json:"ConsumedCapacity,omitempty"`
+	SearchResults    []SearchResultItem `json:"SearchResults,omitempty"`
+}
+
+// SearchResultItem mirrors types.SearchResultItem.
+type SearchResultItem struct {
+	Item  map[string]any `json:"Item,omitempty"`
+	Score float64        `json:"Score"`
+}
+
 type ScanInput struct {
 	Limit                     *int32            `json:"Limit,omitempty"`
 	Segment                   *int32            `json:"Segment,omitempty"`
@@ -424,6 +450,15 @@ type ConsumedCapacity struct {
 type ItemCollectionMetrics struct {
 	ItemCollectionKey   map[string]any `json:"ItemCollectionKey,omitempty"`
 	SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB,omitempty"`
+}
+
+// VectorCapacity mirrors types.VectorCapacity -- the capacity units
+// SearchVectors reports, distinct in shape from ConsumedCapacity (see
+// search_vectors.go's doc comment on why SearchVectors' vector-index lookup
+// is never actually satisfied in this backend).
+type VectorCapacity struct {
+	VectorSearchRequestBytes float64 `json:"VectorSearchRequestBytes,omitempty"`
+	VectorWriteRequestBytes  float64 `json:"VectorWriteRequestBytes,omitempty"`
 }
 
 // --- TTL ---

@@ -98,6 +98,10 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		return op, id
 	}
 
+	if op, id := parseClusterResourceV1Channels(method, decoded); op != "" {
+		return op, id
+	}
+
 	if op, id := parseClusterResourceV1Config(method, decoded); op != "" {
 		return op, id
 	}
@@ -173,6 +177,54 @@ func parseClusterResourceV1Topics(method, decoded string) (string, string) {
 			return opBatchDisassociateScramSecret, arnStr
 		case http.MethodGet:
 			return opListScramSecrets, arnStr
+		}
+
+		return "", ""
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1Channels handles the /channels and
+// /channels/{ChannelArn} sub-paths (MSK Channels, added in
+// aws-sdk-go-v2/service/kafka v1.57 -- see api_op_*Channel*.go). Both
+// ClusterArn and ChannelArn are URI-templated on the real
+// DeleteChannel/DescribeChannel/UpdateChannel paths
+// ("/v1/clusters/{ClusterArn}/channels/{ChannelArn}"), so any "/" the real
+// SDK's httpbinding.Encoder embeds in either ARN arrives here already
+// percent-encoded (%2F) -- see parseClusterResourceV1's single
+// url.PathUnescape(remainder) call -- so splitting on the literal
+// "/channels/" marker below is unambiguous, the same way "/topics/" is for
+// parseClusterResourceV1Topics. Must be checked before the generic
+// Describe/DeleteCluster fallback in parseClusterResourceV1.
+func parseClusterResourceV1Channels(method, decoded string) (string, string) {
+	// /channels/{ChannelArn}: DeleteChannel (DELETE), DescribeChannel (GET),
+	// UpdateChannel (PUT).
+	if idx := strings.Index(decoded, channelsSuffix+"/"); idx != -1 {
+		clusterArn := decoded[:idx]
+		channelArn := decoded[idx+len(channelsSuffix)+1:]
+
+		switch method {
+		case http.MethodDelete:
+			return opDeleteChannel, clusterArn + topicKeySeparator + channelArn
+		case http.MethodGet:
+			return opDescribeChannel, clusterArn + topicKeySeparator + channelArn
+		case http.MethodPut:
+			return opUpdateChannel, clusterArn + topicKeySeparator + channelArn
+		}
+
+		return "", ""
+	}
+
+	// /channels (no trailing channel ARN): CreateChannel (POST) or ListChannels (GET).
+	if strings.HasSuffix(decoded, channelsSuffix) {
+		arnStr := decoded[:len(decoded)-len(channelsSuffix)]
+
+		switch method {
+		case http.MethodPost:
+			return opCreateChannel, arnStr
+		case http.MethodGet:
+			return opListChannels, arnStr
 		}
 
 		return "", ""

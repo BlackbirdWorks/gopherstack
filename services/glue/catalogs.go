@@ -130,6 +130,77 @@ func (b *InMemoryBackend) GetDataCatalogEncryptionSettings(
 	return &DataCatalogEncryptionSettings{}, nil
 }
 
+// PutDataCatalogExportConfiguration creates or updates the Glue Data
+// Catalog's S3 Tables export configuration. Unlike
+// PutDataCatalogEncryptionSettings (keyed per catalogID/account),
+// PutDataCatalogExportConfigurationInput has no CatalogId field at all
+// (confirmed absent from the SDK's api_op_PutDataCatalogExportConfiguration.go)
+// -- this is a single backend-global (account+region) setting, matching
+// GetGlueIdentityCenterConfiguration's singleton pattern (identity_center.go).
+//
+// Real AWS's Status (ENABLING/ENABLED/DISABLING/DISABLED/FAILED) reflects an
+// actual async S3 Tables export pipeline standing up or tearing down. This
+// backend has no such pipeline to simulate, so Status transitions
+// immediately to match the requested ExportSetting -- honest (no fabricated
+// FAILED/transient states), just synchronous rather than
+// eventually-consistent. S3TableBucketArn has no corresponding input field
+// anywhere in this API, so it is never populated -- see PARITY.md gaps.
+func (b *InMemoryBackend) PutDataCatalogExportConfiguration(
+	settings DataCatalogExportConfiguration,
+) (*DataCatalogExportConfiguration, error) {
+	b.mu.Lock("PutDataCatalogExportConfiguration")
+	defer b.mu.Unlock()
+
+	if settings.ExportSetting != exportSettingEnabled && settings.ExportSetting != exportSettingDisabled {
+		return nil, fmt.Errorf("%w: ExportSetting must be ENABLED or DISABLED", ErrValidation)
+	}
+
+	now := float64(time.Now().Unix())
+	createdAt := now
+	if b.dataCatalogExportConfig != nil {
+		createdAt = b.dataCatalogExportConfig.CreatedAt
+	}
+
+	b.dataCatalogExportConfig = &DataCatalogExportConfiguration{
+		ExportSetting:           settings.ExportSetting,
+		EncryptionConfiguration: settings.EncryptionConfiguration,
+		Status:                  settings.ExportSetting,
+		CreatedAt:               createdAt,
+		UpdatedAt:               now,
+	}
+
+	// PutDataCatalogExportConfigurationOutput only carries ExportSetting and
+	// EncryptionConfiguration -- see api_op_PutDataCatalogExportConfiguration.go.
+	return &DataCatalogExportConfiguration{
+		ExportSetting:           settings.ExportSetting,
+		EncryptionConfiguration: settings.EncryptionConfiguration,
+	}, nil
+}
+
+// GetDataCatalogExportConfiguration returns the current export
+// configuration, or the real DISABLED default (AWS returns defaults even if
+// never set, same rationale as GetDataCatalogEncryptionSettings above) if
+// PutDataCatalogExportConfiguration was never called.
+func (b *InMemoryBackend) GetDataCatalogExportConfiguration() (*DataCatalogExportConfiguration, error) {
+	b.mu.RLock("GetDataCatalogExportConfiguration")
+	defer b.mu.RUnlock()
+
+	if b.dataCatalogExportConfig == nil {
+		return &DataCatalogExportConfiguration{
+			ExportSetting: exportSettingDisabled,
+			Status:        exportSettingDisabled,
+		}, nil
+	}
+
+	cp := *b.dataCatalogExportConfig
+	if cp.EncryptionConfiguration != nil {
+		encCp := *cp.EncryptionConfiguration
+		cp.EncryptionConfiguration = &encCp
+	}
+
+	return &cp, nil
+}
+
 // ImportCatalogToGlue marks the given catalog (or the account-level catalog
 // when catalogID is empty) as imported from a Hive metastore.
 func (b *InMemoryBackend) ImportCatalogToGlue(catalogID string) error {
