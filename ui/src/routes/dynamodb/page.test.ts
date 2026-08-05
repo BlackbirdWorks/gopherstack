@@ -974,6 +974,41 @@ describe("DynamoDB Page", () => {
       expect(getMockPage().url.searchParams.get("tab")).toBeNull();
     });
 
+    // The global `goto` mock (vitest.setup.ts) defers its `page.url` write
+    // by a microtask, matching the real `@sveltejs/kit` client runtime:
+    // `goto()` reassigns `page.url` only after `await navigate(...)`
+    // resolves, deep inside its async pipeline -- never synchronously
+    // before returning. A row-click handler that calls `.set()` on two
+    // different urlState instances back to back (no `await` between them)
+    // has both `set()` calls compute their next URL from the SAME
+    // `page.url` snapshot, since neither `goto()` has had a chance to
+    // land before the second snapshot is taken -- so the second `goto()`
+    // clobbers the first instead of composing with it. This test proves
+    // the fix (`setUrlParams()`, which computes one URL from one snapshot
+    // and fires a single `goto()`) actually closes that gap, using the
+    // exact browser repro that surfaced the bug: land on `?tab=pitr` with
+    // no table selected, then click a row.
+    it("does not lose the tab reset to a same-tick goto() race when selecting a table from a URL that already has ?tab=", async () => {
+      setMockPageUrl(new URL("http://localhost/dynamodb?tab=pitr"));
+
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      render(DynamoDBPage);
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Orders"));
+
+      await waitFor(() => expect(getMockPage().url.searchParams.get("table")).toBe("Orders"));
+      // The real bug this reproduces: a stale-snapshot second set() call
+      // leaves the old `tab=pitr` in the URL instead of resetting it, so
+      // the table page opens back onto the PITR tab instead of Overview.
+      expect(getMockPage().url.searchParams.get("tab")).toBeNull();
+    });
+
     it("updates TTL via the exact UpdateTimeToLive TimeToLiveSpecification", async () => {
       await openOrdersTable();
       await fireEvent.input(document.querySelector("#ttl-attr")!, {

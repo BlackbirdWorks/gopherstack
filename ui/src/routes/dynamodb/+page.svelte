@@ -4,7 +4,7 @@
 	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
-import { urlState } from '$lib/url-state.svelte';
+import { urlState, setUrlParams } from '$lib/url-state.svelte';
 import LiveDot from '$lib/components/LiveDot.svelte';
 import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } from '@aws-sdk/client-dynamodb-streams';
 	import {
@@ -2455,7 +2455,7 @@ function setPartiqlExample(query: string) {
 					{@const desc = tableDetails.get(tableName)}
 					<div id="table-{tableName}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
-							<button onclick={() => { activeTabParam.set('overview'); selectedTableParam.set(tableName); }} class="flex-1 text-left">
+							<button onclick={() => setUrlParams(activeTabParam.write('overview'), selectedTableParam.write(tableName))} class="flex-1 text-left">
 								<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{tableName}</h3>
 								<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{getKeySchema(desc)}</p>
 								<div class="flex items-center gap-2 mt-2 flex-wrap">

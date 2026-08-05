@@ -52,9 +52,48 @@
 // urlState value both with and without `untrack`) proving the untracked
 // read does not re-fire when a sibling key is written, while the tracked
 // read does.
+//
+// ## The same-tick multi-set() hazard
+//
+// `set()` computes its next URL as `new URL(page.url)` -- a snapshot of
+// whatever `page.url` currently is -- and hands it to `goto()`. `goto()`
+// is async and does NOT reassign `page.url` synchronously: reading
+// `@sveltejs/kit`'s shipped client runtime, `goto()` awaits an internal
+// `navigate()` call before it reaches the line that does
+// `current.url = page.url = url`. That reassignment happens on a later
+// microtask, well after `goto()`'s synchronous call returns.
+//
+// So calling `.set()` on two different urlState instances back to back in
+// the same synchronous tick --
+// `activeTabParam.set('overview'); selectedTableParam.set(name);` -- is
+// broken: the second `set()`'s `new URL(page.url)` snapshot is taken
+// BEFORE the first `set()`'s `goto()` has updated `page.url`, so it starts
+// from the pre-first-write URL and clobbers the first write when its own
+// `goto()` lands. `vitest.setup.ts`'s `goto` mock defers its
+// `page.url` write by a microtask (`Promise.resolve().then(...)`) for
+// exactly this reason: an earlier version of that mock applied the write
+// synchronously, which accidentally serialized same-tick `.set()` calls
+// (the first call's write landed before the second call's snapshot was
+// taken) and made this bug invisible to every component test — see
+// `routes/dynamodb/page.test.ts` for the end-to-end repro that the
+// corrected, deferred mock now catches.
+//
+// The fix is `setUrlParams()` below: it builds ONE url from ONE snapshot
+// of `page.url` and fires ONE `goto()`, so multiple param writes compose
+// instead of racing. Any call site that needs to change more than one
+// urlState value in the same handler MUST use `setUrlParams()` instead of
+// multiple `.set()` calls -- see `+page.svelte`'s table-row click handler
+// in `routes/dynamodb` for the first (and, as of this writing, only)
+// caller.
 import { page } from "$app/state";
 import { goto } from "$app/navigation";
 import { browser } from "$app/environment";
+
+/**
+ * A single param write, as produced by `UrlState.write()`. Opaque outside
+ * this module — pass it straight into `setUrlParams()`.
+ */
+export type UrlWrite = { key: string; initial: string; value: string };
 
 export type UrlState<T extends string> = {
   /** Current value: the URL's `key` param if present, else `initial`. */
@@ -68,8 +107,18 @@ export type UrlState<T extends string> = {
    * Every other query parameter already present is preserved untouched.
    * No-op outside the browser (SSR / prerender), where there is no address
    * bar to update.
+   *
+   * Calling `set()` on more than one `UrlState` in the same synchronous
+   * tick loses one of the writes — see the "same-tick multi-set() hazard"
+   * section in this file's header. Use `setUrlParams()` instead whenever a
+   * single handler needs to change more than one param.
    */
   set(value: T): void;
+  /**
+   * Builds a write-spec for `value` without navigating. Pass one or more
+   * of these into `setUrlParams()` to apply them as a single `goto()`.
+   */
+  write(value: T): UrlWrite;
 };
 
 export function urlState<T extends string>(key: string, initial: T): UrlState<T> {
@@ -78,18 +127,43 @@ export function urlState<T extends string>(key: string, initial: T): UrlState<T>
     return raw === null ? initial : (raw as T);
   }
 
-  function set(value: T): void {
-    if (!browser) return;
+  function write(value: T): UrlWrite {
+    return { key, initial, value };
+  }
 
-    const url = new URL(page.url);
+  function set(value: T): void {
+    setUrlParams(write(value));
+  }
+
+  return { get, set, write };
+}
+
+/**
+ * Applies one or more `UrlState.write()` results as a SINGLE `goto()`
+ * navigation, all computed from the SAME snapshot of `page.url`. This is
+ * the required way to change more than one urlState value from one event
+ * handler — see the "same-tick multi-set() hazard" section in this file's
+ * header for why chaining plain `.set()` calls silently drops all but the
+ * last write.
+ *
+ * Example: a row click that both selects a table and resets the active
+ * tab does `setUrlParams(selectedTableParam.write(name),
+ * activeTabParam.write('overview'))` rather than two separate `.set()`
+ * calls.
+ *
+ * No-op outside the browser (SSR / prerender), same as `set()`.
+ */
+export function setUrlParams(...writes: UrlWrite[]): void {
+  if (!browser) return;
+
+  const url = new URL(page.url);
+  for (const { key, initial, value } of writes) {
     if (value === initial) {
       url.searchParams.delete(key);
     } else {
       url.searchParams.set(key, value);
     }
-
-    void goto(url, { replaceState: true, noScroll: true, keepFocus: true, state: page.state });
   }
 
-  return { get, set };
+  void goto(url, { replaceState: true, noScroll: true, keepFocus: true, state: page.state });
 }
