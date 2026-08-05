@@ -292,9 +292,8 @@ func FromSDKQueryOutput(output *dynamodb.QueryOutput) *QueryOutput {
 }
 
 // ToSDKSearchVectorsInput converts the wire SearchVectorsInput to its SDK
-// form. SearchVector's elements are wire AttributeValue objects (same
-// convention as ExpressionAttributeValues), so each is converted with
-// ToSDKAttributeValue rather than ToSDKItem (which expects a map).
+// form. SearchVector elements are wire AttributeValue objects, so each is
+// converted with ToSDKAttributeValue rather than ToSDKItem (which expects a map).
 func ToSDKSearchVectorsInput(input *SearchVectorsInput) (*dynamodb.SearchVectorsInput, error) {
 	out := &dynamodb.SearchVectorsInput{
 		TableName:                 ptrconv.NilIfEmpty(input.TableName),
@@ -330,9 +329,8 @@ func ToSDKSearchVectorsInput(input *SearchVectorsInput) (*dynamodb.SearchVectors
 }
 
 // FromSDKSearchVectorsOutput converts the SDK SearchVectorsOutput to its wire
-// form. In practice this backend's SearchVectors always errors before
-// producing a populated output (see search_vectors.go), but the converter is
-// implemented fully so the wire shape is correct if that ever changes.
+// form. SearchVectors always errors before producing output today (see
+// search_vectors.go), but this is implemented fully for when that changes.
 func FromSDKSearchVectorsOutput(output *dynamodb.SearchVectorsOutput) *SearchVectorsOutput {
 	out := &SearchVectorsOutput{}
 

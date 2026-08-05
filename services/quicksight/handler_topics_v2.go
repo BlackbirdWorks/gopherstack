@@ -7,11 +7,8 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// JSON response keys used only by TopicV2 operations. Topic/permissions keys
-// shared with V1 (keyTopicID, keyTopicArn, keyPermissions, keyName,
-// keyDescription, keyDataSets, ...) are reused from handler_topics.go/
-// handler.go -- see topics_v2.go's doc comment for why these two families
-// share one wire vocabulary.
+// TopicV2-only JSON keys; keys shared with V1 (keyTopicID, keyName, ...) are
+// reused from handler_topics.go/handler.go -- see topics_v2.go's doc comment.
 const (
 	keyDataSetRelations      = "DataSetRelations"
 	keyCustomInstructions    = "CustomInstructions"
@@ -30,15 +27,10 @@ func isTopicV2Op(op string) bool {
 	return false
 }
 
-// dispatchTopicV2 routes the eight TopicV2 ops. DescribeTopicPermissionsV2
-// and UpdateTopicPermissionsV2 are routed straight to the existing V1
-// handlers (handleDescribeTopicPermissions/handleUpdateTopicPermissions):
-// their wire response shape (Permissions/RequestId/Status/TopicArn/TopicId)
-// is byte-identical to the V1 ops' and both read/write the same
-// storedTopic.Permissions -- see topics_v2.go's doc comment. The remaining
-// six ops have their own handlers below because their JSON envelopes
-// genuinely differ from V1's (TopicV2Details' leaner shape, TopicSummaryList
-// vs TopicsSummaries, a top-level CustomInstructions on Describe, ...).
+// dispatchTopicV2 routes the eight TopicV2 ops. The two permissions ops route
+// straight to the V1 handlers (byte-identical wire shape, same
+// storedTopic.Permissions -- see topics_v2.go); the rest get their own
+// handlers since their JSON envelopes genuinely differ from V1's.
 func (h *Handler) dispatchTopicV2(c *echo.Context, op string) error {
 	switch op {
 	case opCreateTopicV2:
@@ -67,11 +59,9 @@ func (h *Handler) dispatchTopicV2(c *echo.Context, op string) error {
 	)
 }
 
-// mapSliceField extracts a []map[string]any array field from body, mirroring
-// topicFieldsFromBody's nil-preserving convention: an absent/wrong-typed key
-// returns nil (not an empty slice), so "omitted" and "explicitly empty" stay
-// distinguishable the same way strField/mapField already keep them for
-// scalar/object fields.
+// mapSliceField extracts a []map[string]any field from body, returning nil
+// (not empty) when absent so "omitted" vs "explicitly empty" stays
+// distinguishable, matching strField/mapField's convention.
 func mapSliceField(body map[string]any, key string) []map[string]any {
 	raw, ok := body[key].([]any)
 	if !ok {
@@ -107,15 +97,12 @@ func topicV2FieldsFromBody(
 }
 
 // customInstructionsFromBody reads the top-level CustomInstructions object's
-// CustomInstructionsString member (types.CustomInstructions in aws-sdk-go-v2 --
-// a single-required-field struct, confirmed against serializers.go).
+// CustomInstructionsString member (types.CustomInstructions, per serializers.go).
 func customInstructionsFromBody(body map[string]any) string {
 	ci, _ := body[keyCustomInstructions].(map[string]any)
 
 	return strField(ci, keyCustomInstructionsStr)
 }
-
-// ---- CreateTopicV2 ----
 
 func (h *Handler) handleCreateTopicV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
@@ -150,8 +137,6 @@ func (h *Handler) handleCreateTopicV2(c *echo.Context) error {
 	})
 }
 
-// ---- DescribeTopicV2 ----
-
 func (h *Handler) handleDescribeTopicV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -175,8 +160,6 @@ func (h *Handler) handleDescribeTopicV2(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, resp)
 }
-
-// ---- UpdateTopicV2 ----
 
 func (h *Handler) handleUpdateTopicV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
@@ -208,11 +191,8 @@ func (h *Handler) handleUpdateTopicV2(c *echo.Context) error {
 	})
 }
 
-// ---- DeleteTopicV2 ----
-//
-// Unlike handleDeleteTopic (V1), DeleteTopicV2Output carries an Arn field
-// (confirmed against api_op_DeleteTopicV2.go), so this handler describes the
-// topic first to capture its Arn before the record is gone.
+// DeleteTopicV2Output carries an Arn field (api_op_DeleteTopicV2.go), unlike
+// V1, so this handler describes the topic first to capture its Arn.
 func (h *Handler) handleDeleteTopicV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -235,8 +215,6 @@ func (h *Handler) handleDeleteTopicV2(c *echo.Context) error {
 	})
 }
 
-// ---- ListTopicsV2 ----
-
 func (h *Handler) handleListTopicsV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -249,13 +227,10 @@ func (h *Handler) handleListTopicsV2(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, topicSummaryListV2Response(topics, next))
 }
 
-// ---- SearchTopicsV2 ----
-//
-// Unlike ListTopicsV2 (MaxResults/NextToken as "max-results"/"next-token"
-// query params, confirmed against awsRestjson1_serializeOpHttpBindingsListTopicsV2Input),
-// SearchTopicsV2Input puts Filters/MaxResults/NextToken in the JSON body
-// (confirmed against awsRestjson1_serializeOpDocumentSearchTopicsV2Input --
-// its HTTP-bindings function only binds AwsAccountId).
+// Unlike ListTopicsV2 (MaxResults/NextToken as query params, per
+// awsRestjson1_serializeOpHttpBindingsListTopicsV2Input), SearchTopicsV2Input
+// carries Filters/MaxResults/NextToken in the JSON body (per
+// awsRestjson1_serializeOpDocumentSearchTopicsV2Input).
 func (h *Handler) handleSearchTopicsV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
@@ -275,14 +250,10 @@ func (h *Handler) handleSearchTopicsV2(c *echo.Context) error {
 	return writeJSON(c, http.StatusOK, topicSummaryListV2Response(topics, next))
 }
 
-// ---- shared helpers ----
-
-// topicV2ToMap builds the TopicV2Details wire shape (Name/Description/
-// DataSets/DataSetRelations -- confirmed against
-// awsRestjson1_deserializeDocumentTopicV2Details). Note this is a leaner
-// shape than V1's topicToMap: no UserExperienceVersion/ConfigOptions, and
-// DataSets here means TopicV2DataSetReference (DataSetArn/DataSetName), not
-// V1's DatasetMetadata.
+// topicV2ToMap builds the TopicV2Details wire shape (per
+// awsRestjson1_deserializeDocumentTopicV2Details): leaner than V1's
+// topicToMap (no UserExperienceVersion/ConfigOptions), and DataSets here
+// means TopicV2DataSetReference, not V1's DatasetMetadata.
 func topicV2ToMap(t *Topic) map[string]any {
 	return map[string]any{
 		keyName:             t.Name,
@@ -292,9 +263,8 @@ func topicV2ToMap(t *Topic) map[string]any {
 	}
 }
 
-// topicV2SummaryToMap builds a TopicV2Summary entry (Arn/Name/TopicId only --
-// confirmed against types.TopicV2Summary, which unlike V1's TopicSummary
-// carries no UserExperienceVersion).
+// topicV2SummaryToMap builds a TopicV2Summary entry (Arn/Name/TopicId only;
+// unlike V1's TopicSummary it carries no UserExperienceVersion).
 func topicV2SummaryToMap(t *Topic) map[string]any {
 	return map[string]any{
 		keyArn:     t.Arn,
@@ -304,9 +274,8 @@ func topicV2SummaryToMap(t *Topic) map[string]any {
 }
 
 // topicSummaryListV2Response builds the shared ListTopicsV2Output/
-// SearchTopicsV2Output envelope: both use the TopicSummaryList key
-// (confirmed against both ops' deserializers), distinct from V1 ListTopics'
-// TopicsSummaries key.
+// SearchTopicsV2Output envelope: both use the TopicSummaryList key, distinct
+// from V1 ListTopics' TopicsSummaries key.
 func topicSummaryListV2Response(topics []*Topic, next string) map[string]any {
 	items := make([]map[string]any, 0, len(topics))
 	for _, t := range topics {
@@ -325,11 +294,9 @@ func topicSummaryListV2Response(topics []*Topic, next string) map[string]any {
 	return resp
 }
 
-// ---- path classification ----
-//
-// classifyTopicV2Paths routes /accounts/{id}/topicsV2/... paths -- the same
-// segment shape as classifyTopicPaths (V1), one level shallower since
-// TopicV2 has no refresh/refresh-schedule/reviewed-answer sub-resources.
+// classifyTopicV2Paths routes /accounts/{id}/topicsV2/... paths: same segment
+// shape as classifyTopicPaths (V1), one level shallower since TopicV2 has no
+// refresh/refresh-schedule/reviewed-answer sub-resources.
 func classifyTopicV2Paths(method string, segs []string, n int) (string, string) {
 	switch n {
 	case nSegsAccountRes:

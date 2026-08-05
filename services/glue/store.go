@@ -78,10 +78,9 @@ const stateScheduled = "SCHEDULED"
 
 const stateNotScheduled = "NOT_SCHEDULED"
 
-// ExportSetting values for {Get,Put}DataCatalogExportConfiguration (mirrors
-// types.ExportSettingEnabled/types.ExportSettingDisabled). This backend has
-// no async export pipeline to simulate, so Status reuses these same two
-// values rather than the SDK's richer ExportStatus enum -- see catalogs.go.
+// ExportSetting values for {Get,Put}DataCatalogExportConfiguration. Status
+// reuses these two values rather than the SDK's richer ExportStatus enum,
+// since this backend has no async export pipeline to simulate -- see catalogs.go.
 const exportSettingEnabled = "ENABLED"
 
 const exportSettingDisabled = "DISABLED"

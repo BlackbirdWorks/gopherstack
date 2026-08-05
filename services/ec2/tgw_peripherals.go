@@ -329,8 +329,7 @@ func (b *InMemoryBackend) GetTransitGatewayPolicyTableEntries(
 }
 
 // CreateTransitGatewayPolicyTableEntry adds a traffic-matching rule to a
-// policy table, directing matching traffic to a target transit gateway route
-// table. entry's TransitGatewayPolicyTableID and State are set by this call;
+// policy table. TransitGatewayPolicyTableID and State are set by this call;
 // the caller fills in PolicyRuleNumber, TargetRouteTableID, and the
 // rule-matching fields.
 func (b *InMemoryBackend) CreateTransitGatewayPolicyTableEntry(
@@ -373,9 +372,8 @@ func (b *InMemoryBackend) CreateTransitGatewayPolicyTableEntry(
 
 // ModifyTransitGatewayPolicyTableEntry updates the target route table and/or
 // matching rule of an existing policy table entry. Fields left unset in
-// updates (empty string / zero value) retain their current stored value,
-// mirroring the real API's "Unspecified fields retain their current values"
-// documented behaviour for TargetRouteTableId and the PolicyRule fields.
+// updates retain their current stored value (real API: "Unspecified fields
+// retain their current values").
 func (b *InMemoryBackend) ModifyTransitGatewayPolicyTableEntry(
 	policyTableID string,
 	ruleNumber int,

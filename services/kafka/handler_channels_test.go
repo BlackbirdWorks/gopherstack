@@ -217,12 +217,8 @@ func TestKafka_DescribeChannel_InvalidResource(t *testing.T) {
 	clusterArn := createTestCluster(t, h, "channel-invalid-resource-cluster")
 	encodedCluster := url.PathEscape(clusterArn)
 
-	// GET on the bare /channels root with no trailing channel ARN routes to
-	// ListChannels, not DescribeChannel, so exercise the composite-resource
-	// guard the other way: a PUT (UpdateChannel) to that same bare root
-	// carries no channel ARN to split and must fail routing entirely (404,
-	// not 400), since parseClusterResourceV1Channels' /channels branch only
-	// recognizes POST/GET on the bare root.
+	// PUT to the bare /channels root has no channel ARN to split; must 404,
+	// not 400 — parseClusterResourceV1Channels only allows POST/GET there.
 	rec := doKafkaRequest(t, h, http.MethodPut, "/v1/clusters/"+encodedCluster+"/channels", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }

@@ -319,15 +319,8 @@ type StorageBackend interface {
 	) ([]string, []TopicAnswerError, error)
 	ListTopicReviewedAnswers(accountID, topicID string) ([]*TopicReviewedAnswer, error)
 
-	// Topics V2 (Q topics). CreateTopicV2/UpdateTopicV2 need dedicated methods
-	// because they accept a genuinely different parameter set than V1's
-	// Create/UpdateTopic (no UserExperienceVersion/Permissions; adds
-	// CustomInstructions/DataSetRelations; UpdateTopicV2 is full-replace, not
-	// partial-patch -- see topics_v2.go). Describe/Delete/List/Search/
-	// permissions read and write the SAME topic collection through the V1
-	// methods above -- see handler_topics_v2.go, which calls DescribeTopic/
-	// DeleteTopic/ListTopics/SearchTopics/DescribeTopicPermissions/
-	// UpdateTopicPermissions directly rather than duplicating them here.
+	// Topics V2 (Q topics); Describe/Delete/List/Search/permissions reuse the
+	// V1 methods above directly (handler_topics_v2.go) -- see topics_v2.go.
 	CreateTopicV2(
 		accountID, topicID, name, description, customInstructions string,
 		dataSets []map[string]any,

@@ -166,6 +166,4 @@ func newKeyPairFingerprint() string {
 	return "aa:bb:cc:dd:" + newHexUUID(stubFingerprintUUIDLen)
 }
 
-// ---- Application status checks ----
-
 func newApplicationStatusCheckID() string { return "asc-" + newHexUUID(ec2IDHexLen) }

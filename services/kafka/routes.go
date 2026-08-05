@@ -186,17 +186,11 @@ func parseClusterResourceV1Topics(method, decoded string) (string, string) {
 }
 
 // parseClusterResourceV1Channels handles the /channels and
-// /channels/{ChannelArn} sub-paths (MSK Channels, added in
-// aws-sdk-go-v2/service/kafka v1.57 -- see api_op_*Channel*.go). Both
-// ClusterArn and ChannelArn are URI-templated on the real
-// DeleteChannel/DescribeChannel/UpdateChannel paths
-// ("/v1/clusters/{ClusterArn}/channels/{ChannelArn}"), so any "/" the real
-// SDK's httpbinding.Encoder embeds in either ARN arrives here already
-// percent-encoded (%2F) -- see parseClusterResourceV1's single
-// url.PathUnescape(remainder) call -- so splitting on the literal
-// "/channels/" marker below is unambiguous, the same way "/topics/" is for
-// parseClusterResourceV1Topics. Must be checked before the generic
-// Describe/DeleteCluster fallback in parseClusterResourceV1.
+// /channels/{ChannelArn} sub-paths (MSK Channels, kafka v1.57). Both ARNs
+// arrive here already percent-decoded by parseClusterResourceV1's single
+// url.PathUnescape call, so splitting on the literal "/channels/" marker is
+// unambiguous, same as "/topics/" in parseClusterResourceV1Topics. Must run
+// before the generic Describe/DeleteCluster fallback.
 func parseClusterResourceV1Channels(method, decoded string) (string, string) {
 	// /channels/{ChannelArn}: DeleteChannel (DELETE), DescribeChannel (GET),
 	// UpdateChannel (PUT).

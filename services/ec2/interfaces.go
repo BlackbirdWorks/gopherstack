@@ -2068,8 +2068,6 @@ type Backend interface {
 	// visibility setting for AWS-managed resources.
 	ModifyManagedResourceVisibility(defaultVisibility string) (string, error)
 
-	// ---- Application Status Checks (SDK bump: ec2 v1.317 -> v1.319.1) ----
-
 	// CreateApplicationStatusCheck creates a new application status check.
 	CreateApplicationStatusCheck(p ApplicationStatusCheckParams) (*ApplicationStatusCheck, error)
 

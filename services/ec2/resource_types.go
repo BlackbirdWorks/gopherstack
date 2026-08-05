@@ -161,8 +161,6 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	{"ipv4pool-coip-", "coip-pool"},
 	{"ipv4pool-ec2-", "ipv4pool-ec2"},
 	{"ipv6pool-ec2-", "ipv6pool-ec2"},
-
-	// ---- application status checks ----
 	{"asc-", "application-status-check"},
 }
 

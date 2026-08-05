@@ -531,11 +531,8 @@ type BrokerEBSVolumeInfo struct {
 	VolumeSizeGB          int32                  `json:"volumeSizeGB,omitempty"`
 }
 
-// ----------------------------------------
-// Channels (aws-sdk-go-v2/service/kafka v1.57: CreateChannel/DeleteChannel/
-// DescribeChannel/ListChannels/UpdateChannel). A Channel streams records
+// Channels (aws-sdk-go-v2/service/kafka v1.57). A Channel streams records
 // from an MSK Express cluster topic to Amazon S3 or Apache Iceberg.
-// ----------------------------------------
 
 // ChannelDestinationType* mirror types.ChannelDestinationType.
 const (
@@ -676,20 +673,15 @@ type ChannelStateInfo struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Channel represents an MSK channel. ClusterArn is persisted (load-bearing
-// for the ClusterArn-scope check on Describe/Delete/Update and the
-// channelsByCluster index) but is NOT part of the real wire response --
-// handlers must build a dedicated DTO (see describeChannelOutputFrom in
-// handler_channels.go), the same pattern Topic uses for the identical
-// reason (see the Topic doc comment above).
+// Channel represents an MSK channel. ClusterArn is persisted for the
+// ClusterArn-scope check and the channelsByCluster index but is NOT part of
+// the real wire response — handlers build a dedicated DTO (see
+// describeChannelOutputFrom), same pattern as Topic.
 //
-// Unlike Cluster/Configuration/Replicator/VpcConnection, Tags here carries a
-// normal JSON tag rather than json:"-": the real DescribeChannelOutput wire
-// shape includes "tags" directly (field-diffed against deserializers.go's
-// awsRestjson1_deserializeOpDocumentDescribeChannelOutput), so it is not the
-// separate-fetch-only shape those four resources use, and it survives a
-// Snapshot/Restore round trip without the fixNilTags special case those four
-// need (see persistence.go).
+// Unlike Cluster/Configuration/Replicator/VpcConnection, Tags uses a normal
+// JSON tag, not json:"-": DescribeChannelOutput's wire shape includes "tags"
+// directly (deserializers.go: awsRestjson1_deserializeOpDocumentDescribeChannelOutput),
+// so it needs no fixNilTags special case on Snapshot/Restore (persistence.go).
 type Channel struct {
 	Tags                            map[string]string                `json:"tags,omitempty"`
 	EncryptionConfiguration         *ChannelEncryptionConfiguration  `json:"encryptionConfiguration,omitempty"`

@@ -452,10 +452,8 @@ type ItemCollectionMetrics struct {
 	SizeEstimateRangeGB []float64      `json:"SizeEstimateRangeGB,omitempty"`
 }
 
-// VectorCapacity mirrors types.VectorCapacity -- the capacity units
-// SearchVectors reports, distinct in shape from ConsumedCapacity (see
-// search_vectors.go's doc comment on why SearchVectors' vector-index lookup
-// is never actually satisfied in this backend).
+// VectorCapacity mirrors types.VectorCapacity, the capacity units
+// SearchVectors reports (distinct in shape from ConsumedCapacity).
 type VectorCapacity struct {
 	VectorSearchRequestBytes float64 `json:"VectorSearchRequestBytes,omitempty"`
 	VectorWriteRequestBytes  float64 `json:"VectorWriteRequestBytes,omitempty"`

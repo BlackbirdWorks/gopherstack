@@ -6,8 +6,6 @@ import (
 	"strconv"
 )
 
-// ---- Handler registration ----
-
 func registerApplicationStatusChecksOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateApplicationStatusCheck"] = h.handleCreateApplicationStatusCheck
 	ops["ModifyApplicationStatusCheck"] = h.handleModifyApplicationStatusCheck
@@ -36,14 +34,9 @@ func applicationStatusChecksSupportedOperations() []string {
 	}
 }
 
-// ---- XML types ----
-
-// applicationStatusCheckItem mirrors the real AWS ApplicationStatusCheckResponseObject
-// shape (field-diffed against the installed SDK's
-// awsEc2query_deserializeDocumentApplicationStatusCheckResponseObject).
-// HealthCheckPaths (healthCheckPathSet) is intentionally omitted: cross-AZ/
-// Local-Zone health check paths are not modeled by this backend -- see
-// PARITY.md gaps.
+// applicationStatusCheckItem mirrors the real ApplicationStatusCheckResponseObject
+// shape (field-diffed against awsEc2query_deserializeDocumentApplicationStatusCheckResponseObject).
+// HealthCheckPaths is intentionally omitted — not modeled, see PARITY.md gaps.
 type applicationStatusCheckItem struct {
 	ApplicationStatusCheckID         string          `xml:"applicationStatusCheckId,omitempty"`
 	Aggregation                      string          `xml:"aggregation,omitempty"`
@@ -182,12 +175,10 @@ type describeApplicationStatusCheckAssociationsResponse struct {
 	} `xml:"associationSet"`
 }
 
-// successfulAssociationItem / unsuccessfulAssociationItem mirror the real
-// SuccessfulAssociationResponseObject / UnsuccessfulAssociationResponseObject
-// shapes -- NOTE these use a DIFFERENT AssociationType vocabulary
-// ("INSTANCE_ID"/"EC2TAG") than applicationStatusCheckAssociationItem's
-// ("instance-id"/"tag"); see appStatusAssocTypeInstanceWire/TagWire's doc
-// comment in application_status_checks.go.
+// successfulAssociationItem / unsuccessfulAssociationItem mirror
+// Successful/UnsuccessfulAssociationResponseObject. Their AssociationType
+// uses INSTANCE_ID/EC2TAG, unlike applicationStatusCheckAssociationItem's
+// instance-id/tag — see appStatusAssocTypeInstanceWire/TagWire.
 type successfulAssociationItem struct {
 	ApplicationStatusCheckID string `xml:"applicationStatusCheckId,omitempty"`
 	AssociationType          string `xml:"associationType,omitempty"`
@@ -327,10 +318,9 @@ type disableApplicationStatusCheckSuppressionResponse struct {
 	} `xml:"unsuccessfulResultSet"`
 }
 
-// instanceApplicationStatusItem mirrors the real AWS InstanceApplicationStatus
-// shape. AvailabilityZoneId and the nested applicationStatus's detailSet/
-// statusSince are always empty -- documented, honest gaps (see
-// InstanceApplicationStatus's doc comment in application_status_checks.go).
+// instanceApplicationStatusItem mirrors the real InstanceApplicationStatus
+// shape. AvailabilityZoneId and applicationStatus's detailSet/statusSince
+// are always empty — documented gaps, see InstanceApplicationStatus.
 type instanceApplicationStatusItem struct {
 	ApplicationStatus struct {
 		Status          string `xml:"status,omitempty"`
@@ -375,11 +365,8 @@ type describeApplicationStatusResponse struct {
 	} `xml:"applicationStatusesResponseType"`
 }
 
-// ---- Handlers ----
-
-// intFromVals parses key as an int, returning (0, false) if the parameter is
-// absent or not a valid integer. Used to distinguish "not specified in this
-// request" (nil in ApplicationStatusCheckParams) from an explicit value.
+// intFromVals parses key as an int, returning (0, false) if absent or
+// invalid — distinguishes "not specified" from an explicit value.
 func intFromVals(vals url.Values, key string) (int, bool) {
 	s := vals.Get(key)
 	if s == "" {

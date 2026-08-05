@@ -12,11 +12,8 @@ import (
 const (
 	defaultTopicRefreshType = "FULL_REFRESH"
 
-	// topicUserExperienceVersionNewReaderExperience is the TopicUserExperienceVersion
-	// value (see types.TopicUserExperienceVersion in aws-sdk-go-v2) that names the
-	// reader experience TopicV2's schema exists to serve. CreateTopicV2 sets it
-	// automatically since CreateTopicV2Input carries no UserExperienceVersion
-	// parameter of its own -- see topics_v2.go's doc comment.
+	// topicUserExperienceVersionNewReaderExperience: CreateTopicV2 sets this
+	// automatically since CreateTopicV2Input has no such parameter of its own.
 	topicUserExperienceVersionNewReaderExperience = "NEW_READER_EXPERIENCE"
 
 	// filterTopicName is the SearchTopics filter Name for matching on a topic's
@@ -90,11 +87,8 @@ func (a *storedTopicReviewedAnswer) toTopicReviewedAnswer() *TopicReviewedAnswer
 }
 
 // storedTopic is the persisted representation of a QuickSight topic.
-//
-// CustomInstructions/PublishOption/DataSetsV2/DataSetRelations are written
-// only by the TopicV2 operations (topics_v2.go); DataSets/UserExperienceVersion
-// are written only by the V1 operations below. Both families share the same
-// TopicID/Arn/Name/Description/Permissions -- see topics_v2.go's doc comment.
+// CustomInstructions/PublishOption/DataSetsV2/DataSetRelations are V2-only
+// fields; DataSets/UserExperienceVersion are V1-only -- see topics_v2.go.
 type storedTopic struct {
 	CreatedTime           time.Time                              `json:"createdTime"`
 	LastUpdatedTime       time.Time                              `json:"lastUpdatedTime"`

@@ -9,8 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ---- TopicV2 CRUD round-trip, not-found, and duplicate errors ----
-
 func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	t.Parallel()
 
@@ -31,7 +29,6 @@ func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	assert.Equal(t, "tv1", createBody["TopicId"])
 	assert.Contains(t, createBody["Arn"], "arn:aws:quicksight:us-east-1:000000000000:topic/tv1")
 
-	// Duplicate create -> ResourceExistsException.
 	dupRec := doRequest(t, h, http.MethodPost, accountPath("/topicsV2"), map[string]any{
 		"TopicId": "tv1",
 		"Topic":   map[string]any{"Name": "x"},
@@ -39,13 +36,11 @@ func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 	assert.Equal(t, "ResourceExistsException", parseBody(t, dupRec)["Code"])
 
-	// Missing TopicId/Topic.Name -> validation error.
 	invalidRec := doRequest(t, h, http.MethodPost, accountPath("/topicsV2"), map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, invalidRec.Code)
 	assert.Equal(t, "InvalidParameterValueException", parseBody(t, invalidRec)["Code"])
 
-	// Describe: TopicV2Details shape (Name/Description/DataSets/DataSetRelations),
-	// no UserExperienceVersion/ConfigOptions (those are V1-only fields).
+	// TopicV2Details has no UserExperienceVersion/ConfigOptions (V1-only fields).
 	describeRec := doRequest(t, h, http.MethodGet, accountPath("/topicsV2/tv1"), nil)
 	require.Equal(t, http.StatusOK, describeRec.Code)
 	describeBody := parseBody(t, describeRec)
@@ -60,13 +55,11 @@ func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	assert.NotContains(t, topic, "UserExperienceVersion")
 	assert.NotContains(t, describeBody, "CustomInstructions")
 
-	// Describe missing -> 404.
 	missingRec := doRequest(t, h, http.MethodGet, accountPath("/topicsV2/notexist"), nil)
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 	assert.Equal(t, "ResourceNotFoundException", parseBody(t, missingRec)["Code"])
 
-	// Update: UpdateTopicV2's Topic document is a full replace -- Description
-	// and DataSetRelations are cleared when omitted, not left unchanged.
+	// UpdateTopicV2's Topic document is a full replace: omitted fields clear.
 	updateRec := doRequest(t, h, http.MethodPut, accountPath("/topicsV2/tv1"), map[string]any{
 		"Topic": map[string]any{"Name": "Renamed"},
 		"CustomInstructions": map[string]any{
@@ -86,36 +79,29 @@ func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "be concise", ci["CustomInstructionsString"])
 
-	// Update missing -> 404.
 	updateMissingRec := doRequest(
 		t, h, http.MethodPut, accountPath("/topicsV2/notexist"),
 		map[string]any{"Topic": map[string]any{"Name": "x"}},
 	)
 	assert.Equal(t, http.StatusNotFound, updateMissingRec.Code)
 
-	// Delete: DeleteTopicV2Output carries Arn (unlike this backend's existing
-	// V1 DeleteTopic response).
+	// DeleteTopicV2Output carries Arn, unlike V1's DeleteTopic response.
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/topicsV2/tv1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
 	deleteBody := parseBody(t, deleteRec)
 	assert.Equal(t, "tv1", deleteBody["TopicId"])
 	assert.Contains(t, deleteBody["Arn"], "topic/tv1")
 
-	// Delete missing -> 404.
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, accountPath("/topicsV2/tv1"), nil)
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
-
-// ---- TopicV2 and V1 Topic share one underlying resource ----
 
 func TestQuickSight_TopicV2_SharesResourceWithV1(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// A topic created via V1 CreateTopic must be visible via DescribeTopicV2,
-	// with its shared fields (Name) populated and its V2-only fields
-	// (DataSets/DataSetRelations) honestly empty.
+	// V1-created topic must be visible via DescribeTopicV2, V2-only fields empty.
 	doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
 		"TopicId": "shared1",
 		"Name":    "FromV1",
@@ -127,16 +113,14 @@ func TestQuickSight_TopicV2_SharesResourceWithV1(t *testing.T) {
 	assert.Equal(t, "FromV1", v2Topic["Name"])
 	assert.Empty(t, v2Topic["DataSets"])
 
-	// Creating a V2 topic with an ID already used by a V1 topic conflicts --
-	// they share one TopicId namespace.
+	// V1 and V2 share one TopicId namespace, so a duplicate ID conflicts.
 	dupRec := doRequest(t, h, http.MethodPost, accountPath("/topicsV2"), map[string]any{
 		"TopicId": "shared1",
 		"Topic":   map[string]any{"Name": "x"},
 	})
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 
-	// A topic created via V2 CreateTopicV2 must be visible via V1 DescribeTopic,
-	// with UserExperienceVersion defaulted to NEW_READER_EXPERIENCE.
+	// V2-created topic visible via V1 DescribeTopic, defaulted to NEW_READER_EXPERIENCE.
 	doRequest(t, h, http.MethodPost, accountPath("/topicsV2"), map[string]any{
 		"TopicId": "shared2",
 		"Topic":   map[string]any{"Name": "FromV2"},
@@ -148,16 +132,12 @@ func TestQuickSight_TopicV2_SharesResourceWithV1(t *testing.T) {
 	assert.Equal(t, "FromV2", v1Topic["Name"])
 	assert.Equal(t, "NEW_READER_EXPERIENCE", v1Topic["UserExperienceVersion"])
 
-	// DeleteTopicV2 removes a V1-created topic (same store): shared1, created
-	// above via V1 CreateTopic, must be deletable via the V2 endpoint and gone
-	// from both.
+	// DeleteTopicV2 removes the V1-created shared1 topic (same store).
 	delRec := doRequest(t, h, http.MethodDelete, accountPath("/topicsV2/shared1"), nil)
 	require.Equal(t, http.StatusOK, delRec.Code)
 	goneV1 := doRequest(t, h, http.MethodGet, accountPath("/topics/shared1"), nil)
 	assert.Equal(t, http.StatusNotFound, goneV1.Code)
 }
-
-// ---- TopicV2 permissions are the same Permissions list as V1 ----
 
 func TestQuickSight_TopicV2Permissions(t *testing.T) {
 	t.Parallel()
@@ -190,8 +170,7 @@ func TestQuickSight_TopicV2Permissions(t *testing.T) {
 	require.True(t, ok)
 	require.Len(t, perms, 1)
 
-	// The grant is visible through the V1 permissions endpoint too -- same
-	// storedTopic.Permissions, not a separate list.
+	// Visible through the V1 endpoint too -- same storedTopic.Permissions.
 	describeV1Perms := doRequest(t, h, http.MethodGet, accountPath("/topics/ptv2/permissions"), nil)
 	require.Equal(t, http.StatusOK, describeV1Perms.Code)
 	v1Perms, ok := parseBody(t, describeV1Perms)["Permissions"].([]any)
@@ -201,8 +180,6 @@ func TestQuickSight_TopicV2Permissions(t *testing.T) {
 	permsMissing := doRequest(t, h, http.MethodGet, accountPath("/topicsV2/notexist/permissions"), nil)
 	assert.Equal(t, http.StatusNotFound, permsMissing.Code)
 }
-
-// ---- ListTopicsV2 pagination (query-param MaxResults/NextToken, "max-results"/"next-token") ----
 
 func TestQuickSight_ListTopicsV2_Pagination(t *testing.T) {
 	t.Parallel()
@@ -252,11 +229,8 @@ func TestQuickSight_ListTopicsV2_Pagination(t *testing.T) {
 	}
 }
 
-// ---- SearchTopicsV2: Filters/MaxResults/NextToken travel in the JSON body,
-// not query params (confirmed against
-// awsRestjson1_serializeOpDocumentSearchTopicsV2Input -- unlike ListTopicsV2,
-// SearchTopicsV2's HTTP bindings function only binds AwsAccountId). ----
-
+// SearchTopicsV2's Filters/MaxResults/NextToken travel in the JSON body, not
+// query params (unlike ListTopicsV2).
 func TestQuickSight_SearchTopicsV2(t *testing.T) {
 	t.Parallel()
 
@@ -274,9 +248,6 @@ func TestQuickSight_SearchTopicsV2(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// No filters: both topics come back, under TopicSummaryList (same key as
-	// ListTopicsV2, not V1 SearchTopics' -- both are also TopicSummaryList,
-	// but distinct from V1 ListTopics' TopicsSummaries).
 	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topicsV2"), map[string]any{"Filters": []any{}})
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := parseBody(t, rec)
@@ -284,7 +255,6 @@ func TestQuickSight_SearchTopicsV2(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, list, 2)
 
-	// TOPIC_NAME StringEquals filter narrows to a single match.
 	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topicsV2"), map[string]any{
 		"Filters": []any{
 			map[string]any{"Name": "TOPIC_NAME", "Operator": "StringEquals", "Value": "Sales"},
@@ -299,8 +269,6 @@ func TestQuickSight_SearchTopicsV2(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "Sales", summary["Name"])
 
-	// MaxResults/NextToken in the body page results (query params are NOT
-	// used for this op, unlike ListTopicsV2).
 	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topicsV2"), map[string]any{
 		"Filters":    []any{},
 		"MaxResults": 1,

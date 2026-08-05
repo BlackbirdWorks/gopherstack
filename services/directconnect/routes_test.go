@@ -9,13 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRoundTripListVirtualInterfaceRoutes drives ListVirtualInterfaceRoutes
-// through the real aws-sdk-go-v2 client (see newRoundTripClient's doc
-// comment), proving the wire shape is client-compatible. gopherstack has no
-// real BGP route exchange modeled (see routes.go's doc comment), so an
-// existing virtual interface always reports zero routes -- honestly, not a
-// fabricated route list -- while a nonexistent one still returns the real
-// DirectConnectClientException error shape.
+// TestRoundTripListVirtualInterfaceRoutes drives the real aws-sdk-go-v2
+// client to prove the wire shape is compatible. No BGP route exchange is
+// modeled (see routes.go), so an existing vif honestly reports zero routes,
+// while a nonexistent one returns DirectConnectClientException.
 func TestRoundTripListVirtualInterfaceRoutes(t *testing.T) {
 	t.Parallel()
 

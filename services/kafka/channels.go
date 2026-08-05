@@ -8,38 +8,27 @@ import (
 	"time"
 )
 
-// channelARN builds the ARN for a channel on clusterArn, reusing the
-// cluster's own "<name>/<uuid>" resource path segment the same way topicARN
-// does: arn:{partition}:kafka:{region}:{account}:channel/{clusterName}/{clusterUUID}/{channelName}.
-// CreateChannelInput.ChannelName's doc comment ("Must be unique within the
-// cluster") means this ARN is deterministic per (clusterArn, channelName),
-// which doubles as the table's duplicate-name check in CreateChannel.
+// channelARN builds arn:{partition}:kafka:{region}:{account}:channel/{clusterName}/{clusterUUID}/{channelName},
+// reusing the cluster's own path segment like topicARN. Deterministic per
+// (clusterArn, channelName), which doubles as CreateChannel's duplicate check.
 func channelARN(clusterArn, channelName string) string {
 	const clusterMarker = ":cluster/"
 
 	prefix, clusterPath, ok := strings.Cut(clusterArn, clusterMarker)
 	if !ok {
-		// Malformed/test ARN without the usual "cluster/" resource marker:
-		// fall back to appending a channel resource segment directly.
+		// Malformed/test ARN with no "cluster/" marker: append directly.
 		return clusterArn + "/channel/" + channelName
 	}
 
 	return prefix + ":channel/" + clusterPath + "/" + channelName
 }
 
-// CreateChannel creates a channel on an MSK cluster. Real MSK channel
-// creation is asynchronous (CreateChannelOutput returns a ClusterOperationArn
-// tracking it, and DescribeChannelOutput.Status starts at CREATING), but --
-// matching CreateTopic's documented simplification, since this in-memory
-// emulator exposes no polling protocol either -- the channel is ACTIVE
-// immediately. ClusterOperationArn is populated on the value this function
-// returns (mirroring the real CreateChannelOutput response) but never
-// persisted on the stored Channel: by the time any subsequent
-// DescribeChannel/ListChannels call observes it, the real API would show
-// Status ACTIVE and an empty ClusterOperationArn too (that field is only
-// present "while the channel is in CREATING, UPDATING, or DELETING" -- see
-// types.go's DescribeChannelOutput doc comment), so leaving it empty on the
-// persisted record isn't an omission, it's the correct post-completion state.
+// CreateChannel creates a channel on an MSK cluster. Real MSK creation is
+// async (Status starts CREATING); this emulator makes it ACTIVE immediately,
+// matching CreateTopic's simplification. ClusterOperationArn is returned but
+// not persisted — real DescribeChannel/ListChannels would show it empty too
+// once Status is ACTIVE (it's only set while CREATING/UPDATING/DELETING, per
+// types.go's DescribeChannelOutput doc comment).
 func (b *InMemoryBackend) CreateChannel(
 	ctx context.Context,
 	clusterArn, channelName string,
@@ -103,12 +92,9 @@ func (b *InMemoryBackend) CreateChannel(
 	return result, nil
 }
 
-// validateCreateChannelInput applies the required-field rules from
-// validators.go's validateOpCreateChannelInput plus the server-side-only
-// "exactly one destination" rule CreateChannelInput's doc comments describe
-// ("Mutually exclusive with...") but the SDK's client-side validator does not
-// enforce (neither field is marked required there, since a real client could
-// omit both by mistake and only the service can reject that).
+// validateCreateChannelInput applies validators.go's required-field rules
+// plus the server-side-only "exactly one destination" rule (not enforced by
+// the SDK's client-side validator, since neither field is marked required).
 func validateCreateChannelInput(
 	channelName string,
 	topicConfigurationList []TopicConfiguration,
@@ -231,9 +217,7 @@ func validateIcebergDestinationConfig(cfg *IcebergDestinationConfiguration) erro
 }
 
 // DeleteChannel deletes a channel from an MSK cluster. Real MSK deletion is
-// asynchronous (DELETING, tracked by the returned ClusterOperationArn); this
-// emulator removes the channel immediately, matching the CreateChannel/
-// UpdateChannel simplification.
+// async (DELETING); this emulator removes it immediately.
 func (b *InMemoryBackend) DeleteChannel(ctx context.Context, clusterArn, channelArn string) (*Channel, error) {
 	region := regionFromARN(clusterArn, getRegion(ctx, b.region))
 
@@ -268,11 +252,9 @@ func (b *InMemoryBackend) DescribeChannel(_ context.Context, clusterArn, channel
 }
 
 // ListChannels returns channels for a cluster sorted by channel name,
-// optionally filtered to those whose underlying topic name matches
-// topicNameFilter. Unlike ListTopics' topicNameFilter -- whose own doc
-// comment explicitly says "starting with" (prefix match) -- ListChannels'
-// doc comment for topicNameFilter has no such qualifier ("whose topic name
-// matches the specified value"), so this is treated as an exact match.
+// optionally filtered by topicNameFilter. Unlike ListTopics' prefix-match
+// topicNameFilter, ListChannels' doc comment says "matches the specified
+// value" with no "starting with" qualifier, so this is an exact match.
 func (b *InMemoryBackend) ListChannels(_ context.Context, clusterArn, topicNameFilter string) ([]*Channel, error) {
 	b.mu.RLock("ListChannels")
 	defer b.mu.RUnlock()
@@ -298,10 +280,8 @@ func (b *InMemoryBackend) ListChannels(_ context.Context, clusterArn, topicNameF
 }
 
 // channelMatchesTopicName reports whether any of ch's topic configurations
-// references a topic named name. The topic name is recovered from the topic
-// ARN's trailing "/"-delimited resource segment: topicARN always builds an
-// ARN ending in "/{topicName}" (see topics.go), so this is exact -- not a
-// best-effort guess -- for any topic ARN this backend itself generated.
+// references a topic named name, recovered from the ARN's trailing
+// "/"-delimited segment (topicARN always ends "/{topicName}", see topics.go).
 func channelMatchesTopicName(ch *Channel, name string) bool {
 	for _, tc := range ch.TopicConfigurationList {
 		if idx := strings.LastIndex(tc.TopicArn, "/"); idx != -1 && idx+1 < len(tc.TopicArn) {
@@ -317,13 +297,9 @@ func channelMatchesTopicName(ch *Channel, name string) bool {
 }
 
 // UpdateChannel updates the destination-freshness setting of an existing
-// channel. Real MSK requires updating the same destination type the channel
-// was created with (api_op_UpdateChannel.go's doc comment: "You must update
-// the same destination type the channel was created with; the destination
-// type cannot be changed."); this is enforced server-side here since neither
-// IcebergDestinationUpdate nor S3DestinationUpdate is marked "required" in
-// validators.go (only the service, which knows the channel's actual
-// DestinationType, can reject a mismatch).
+// channel. The destination type cannot be changed (api_op_UpdateChannel.go
+// doc comment); enforced here server-side since neither update field is
+// marked required in validators.go.
 func (b *InMemoryBackend) UpdateChannel(
 	ctx context.Context,
 	clusterArn, channelArn string,
@@ -391,9 +367,7 @@ func applyChannelDestinationUpdateLocked(
 	return nil
 }
 
-// ----------------------------------------
-// Clone helpers (deep copies so returned values never alias backend state)
-// ----------------------------------------
+// Clone helpers below: deep copies so returned values never alias backend state.
 
 func cloneChannel(ch *Channel) *Channel {
 	return &Channel{

@@ -11,19 +11,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-// dynamodbSnapshotVersion identifies the shape of dbSnapshot. It must be
-// bumped whenever a change to Table, Backup, StoredGlobalTable, or
-// dbSnapshot itself would make an older snapshot unsafe to decode as the
-// current shape. Restore compares this against the persisted value and
-// discards (rather than attempts to partially decode) any mismatch -- see
-// Restore below. This mirrors the services/sqs pilot (commit 0f09d77c) and
-// the services/ec2 conversion (commit 12e611a4).
+// dynamodbSnapshotVersion identifies dbSnapshot's shape. Bump it ONLY when a
+// field change would make an older snapshot unsafe to decode as-is: Restore
+// discards (never partially decodes) any version mismatch, so a reflexive
+// bump silently throws away every user's persisted tables.
 //
-// Only tables/backups/globalTables are persisted here, matching the
-// pre-refactor behavior: deletingTables, exports, imports, txnTokens,
-// txnPending, and fisReplicationPaused were never part of the snapshot
-// either (deletingTables is a transient staging area drained by the
-// janitor; the rest are short-lived caches/metadata not worth persisting).
+// Only tables/backups/globalTables are persisted; deletingTables is a
+// transient staging area and the rest are short-lived caches not worth
+// persisting.
 const dynamodbSnapshotVersion = 1
 
 type dbSnapshot struct {
@@ -35,11 +30,9 @@ type dbSnapshot struct {
 	Version       int                  `json:"version"`
 }
 
-// Snapshot serialises the backend state to JSON.
-// It implements persistence.Persistable.
-// Per-table stream sequence counters (streamSeq) are unexported and therefore
-// not serialised directly; they are reconstructed during Restore from the
-// highest SequenceNumber found in each table's StreamRecords ring buffer.
+// Snapshot serialises the backend state to JSON; implements persistence.Persistable.
+// streamSeq is unexported and not serialised -- Restore reconstructs it from
+// the highest SequenceNumber in each table's StreamRecords ring buffer.
 func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 	db.mu.RLock("Snapshot")
 	defer db.mu.RUnlock()
@@ -55,7 +48,6 @@ func (db *InMemoryDB) Snapshot(ctx context.Context) []byte {
 
 	data, err := json.Marshal(snap)
 	if err != nil {
-		// Log the marshal failure so operators can detect data-loss scenarios.
 		logger.Load(ctx).WarnContext(ctx,
 			"DynamoDB: failed to serialise snapshot; state will not be persisted",
 			slog.String("error", err.Error()),
@@ -76,9 +68,8 @@ func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
-	// Reinitialise per-table mutexes and rebuild indexes before taking db.mu,
-	// matching the pre-refactor ordering (this touches only the freshly
-	// unmarshaled Table values, not any backend state).
+	// Reinitialise per-table mutexes and rebuild indexes before taking db.mu --
+	// this only touches the freshly unmarshaled Table values, not backend state.
 	for _, t := range snap.Tables {
 		if t.mu == nil {
 			t.mu = lockmetrics.New("ddb-table")
@@ -92,12 +83,8 @@ func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 	defer db.mu.Unlock()
 
 	if snap.Version != dynamodbSnapshotVersion {
-		// An incompatible (older/newer/absent) snapshot version must never be
-		// partially decoded as the current shape -- that risks silently
-		// misinterpreting fields. Discard cleanly and start empty instead of
-		// erroring, since this is an expected, recoverable condition (e.g.
-		// upgrading gopherstack across a snapshot-format change), not data
-		// corruption. Mirrors the services/sqs pilot (commit 0f09d77c).
+		// Never partially decode a version mismatch -- discard and start empty
+		// instead of erroring; this is an expected upgrade condition, not corruption.
 		logger.Load(ctx).WarnContext(ctx,
 			"DynamoDB: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", dynamodbSnapshotVersion,
@@ -114,7 +101,6 @@ func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 	db.defaultRegion = snap.DefaultRegion
 	db.accountID = snap.AccountID
 
-	// Rebuild the stream ARN reverse index from the restored tables.
 	db.streamARNIndex.Reset()
 
 	for _, t := range db.tables.All() {
@@ -126,10 +112,9 @@ func (db *InMemoryDB) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// restoreStreamSeq sets t.streamSeq to the maximum sequence number found in the
-// table's persisted StreamRecords. This ensures that newly-appended stream
-// records receive monotonically increasing sequence numbers after a restore.
-// Sequence numbers are stored as zero-padded decimal strings (see appendStreamRecord).
+// restoreStreamSeq sets t.streamSeq to the max sequence number in the table's
+// persisted StreamRecords, so post-restore appends stay monotonically
+// increasing (sequence numbers are zero-padded decimal strings, see appendStreamRecord).
 func restoreStreamSeq(t *Table) {
 	var maxSeq int64
 	for i := range t.StreamRecords {

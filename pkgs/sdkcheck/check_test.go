@@ -11,10 +11,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 )
 
-// ---- fake AWS SDK-like client types used in tests ----
-
-// fakeClient simulates an AWS SDK v2 Client with a minimal method set.
-// All methods have pointer receivers to match the real SDK convention.
+// fakeClient simulates an AWS SDK v2 Client; pointer receivers match SDK convention.
 type fakeClient struct{}
 
 func (*fakeClient) GetItem()    {}
@@ -22,12 +19,10 @@ func (*fakeClient) PutItem()    {}
 func (*fakeClient) DeleteItem() {}
 func (*fakeClient) Options()    {} // must be excluded by BuildSDKMethodSet
 
-// fakeClientEmpty has only the Options method, so the resulting method set is empty.
+// fakeClientEmpty has only Options, so its method set is empty.
 type fakeClientEmpty struct{}
 
 func (*fakeClientEmpty) Options() {}
-
-// ---- BuildSDKMethodSet tests ----
 
 func TestBuildSDKMethodSet(t *testing.T) {
 	t.Parallel()
@@ -58,8 +53,6 @@ func TestBuildSDKMethodSet(t *testing.T) {
 		})
 	}
 }
-
-// ---- BuildSet tests ----
 
 func TestBuildSet(t *testing.T) {
 	t.Parallel()
@@ -107,8 +100,6 @@ func TestBuildSet(t *testing.T) {
 	}
 }
 
-// ---- FindStale tests ----
-
 func TestFindStale(t *testing.T) {
 	t.Parallel()
 
@@ -154,8 +145,6 @@ func TestFindStale(t *testing.T) {
 	}
 }
 
-// ---- FindOverlapping tests ----
-
 func TestFindOverlapping(t *testing.T) {
 	t.Parallel()
 
@@ -200,8 +189,6 @@ func TestFindOverlapping(t *testing.T) {
 		})
 	}
 }
-
-// ---- FindUnaccounted tests ----
 
 func TestFindUnaccounted(t *testing.T) {
 	t.Parallel()
@@ -253,8 +240,6 @@ func TestFindUnaccounted(t *testing.T) {
 	}
 }
 
-// ---- CheckCompleteness happy-path integration tests ----
-
 func TestCheckCompleteness_Pass(t *testing.T) {
 	t.Parallel()
 
@@ -294,14 +279,12 @@ func TestCheckCompleteness_Pass(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// CheckCompleteness must not cause a test failure for valid inputs.
 			sdkcheck.CheckCompleteness(t, tt.sdkClientPtr, tt.supportedOps, tt.notImplemented)
 		})
 	}
 }
 
-// TestCheckCompleteness_FailureOnNil verifies that a nil sdkClientPtr causes an
-// immediate test failure with a clear message rather than a confusing panic.
+// TestCheckCompleteness_FailureOnNil verifies a nil sdkClientPtr fails cleanly.
 func TestCheckCompleteness_FailureOnNil(t *testing.T) {
 	t.Parallel()
 
@@ -310,8 +293,7 @@ func TestCheckCompleteness_FailureOnNil(t *testing.T) {
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is nil")
 }
 
-// TestCheckCompleteness_FailureOnNonPointer verifies that a non-pointer sdkClientPtr
-// is rejected with a clear message.
+// TestCheckCompleteness_FailureOnNonPointer verifies a non-pointer sdkClientPtr is rejected.
 func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	t.Parallel()
 
@@ -320,17 +302,9 @@ func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is not a pointer")
 }
 
-// TestCheckCompleteness_FailsOnUnallowlistedPhantomOp verifies that
-// CheckCompleteness catches the reverse defect — a supportedOps entry that
-// does not correspond to any real method on the SDK client (a "phantom"
-// operation) — and hard-fails the test when that name is not in
-// phantomAllowlist for the client type. This mirrors the real-world EMR bug
-// where GetSupportedOperations() listed ListTagsForResource even though no
-// such operation exists on the AWS SDK's emr client. The reverse check was a
-// non-fatal, reporting-only rollout for a period (see bd issue
-// gopherstack-vhw2); the rollout is over and every service's phantom
-// entries have been triaged (fixed, or added to phantomAllowlist as a
-// documented exception), so an unlisted phantom is now a hard failure.
+// TestCheckCompleteness_FailsOnUnallowlistedPhantomOp verifies a supportedOps
+// entry with no matching SDK method fails unless allowlisted (mirrors the
+// real-world EMR bug: GetSupportedOperations() listed a nonexistent op).
 func TestCheckCompleteness_FailsOnUnallowlistedPhantomOp(t *testing.T) {
 	t.Parallel()
 

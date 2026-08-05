@@ -99,21 +99,17 @@ func TestDataCatalogEncryptionSettings(t *testing.T) {
 	}
 }
 
-// TestDataCatalogExportConfiguration drives Get/PutDataCatalogExportConfiguration
-// through the real wire path (X-Amz-Target dispatch, JSON body), verifying
-// the default-disabled state, a real ENABLED transition with encryption
-// config round-tripping, and that ExportSetting is validated.
+// TestDataCatalogExportConfiguration verifies the default-disabled state, an
+// ENABLED transition with encryption config round-tripping, and ExportSetting validation.
 func TestDataCatalogExportConfiguration(t *testing.T) {
 	t.Parallel()
 	h := newGlueHandler(t)
 
-	// Default, never configured: DISABLED, no timestamps.
 	out := dispatchNewOp(t, h, "GetDataCatalogExportConfiguration", map[string]any{})
 	assert.Equal(t, "DISABLED", out["ExportSetting"])
 	assert.Equal(t, "DISABLED", out["Status"])
 	assert.Nil(t, out["CreatedAt"])
 
-	// PutDataCatalogExportConfiguration with ENABLED + encryption config.
 	putOut := dispatchNewOp(t, h, "PutDataCatalogExportConfiguration", map[string]any{
 		"ExportSetting": "ENABLED",
 		"EncryptionConfiguration": map[string]any{
@@ -125,22 +121,19 @@ func TestDataCatalogExportConfiguration(t *testing.T) {
 	encConf, _ := putOut["EncryptionConfiguration"].(map[string]any)
 	require.NotNil(t, encConf)
 	assert.Equal(t, "aws:kms", encConf["SseAlgorithm"])
-	// PutDataCatalogExportConfigurationOutput carries no Status/S3TableBucketArn/
-	// timestamps at all (see api_op_PutDataCatalogExportConfiguration.go).
+	// Output carries no Status/S3TableBucketArn/timestamps at all.
 	assert.Nil(t, putOut["Status"])
 	assert.Nil(t, putOut["S3TableBucketArn"])
 
-	// GetDataCatalogExportConfiguration now reflects the real, persisted state.
 	getOut := dispatchNewOp(t, h, "GetDataCatalogExportConfiguration", map[string]any{})
 	assert.Equal(t, "ENABLED", getOut["ExportSetting"])
 	assert.Equal(t, "ENABLED", getOut["Status"])
 	assert.NotNil(t, getOut["CreatedAt"])
 	assert.NotNil(t, getOut["UpdatedAt"])
-	// S3TableBucketArn has no corresponding input anywhere in this API -- see
-	// PARITY.md gaps -- so it must never be fabricated.
+	// S3TableBucketArn has no corresponding input anywhere in this API -- must
+	// never be fabricated (see PARITY.md gaps).
 	assert.Nil(t, getOut["S3TableBucketArn"])
 
-	// An invalid ExportSetting is rejected, not silently accepted.
 	rr := doGlueOp(t, h, "PutDataCatalogExportConfiguration", map[string]any{
 		"ExportSetting": "MAYBE",
 	})

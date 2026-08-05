@@ -958,11 +958,8 @@ type ConnectionPasswordEncryption struct {
 }
 
 // DataCatalogExportConfiguration holds the Glue Data Catalog's S3 Tables
-// metadata export configuration (GetDataCatalogExportConfiguration /
-// PutDataCatalogExportConfiguration). Unlike DataCatalogEncryptionSettings,
-// the real API's input/output shapes carry no CatalogId at all -- this is a
-// single backend-global (account+region) setting, not a per-catalog one; see
-// catalogs.go's PutDataCatalogExportConfiguration doc comment.
+// export configuration. Unlike DataCatalogEncryptionSettings, this API's
+// shapes carry no CatalogId -- a single backend-global setting; see catalogs.go.
 type DataCatalogExportConfiguration struct {
 	EncryptionConfiguration *ExportEncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
 	ExportSetting           string                         `json:"ExportSetting,omitempty"`

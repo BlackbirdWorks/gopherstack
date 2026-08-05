@@ -31,11 +31,8 @@ func postSearchVectors(t *testing.T, handler *dynamodb.DynamoDBHandler, body str
 	return w
 }
 
-// TestSearchVectors documents gopherstack's honest gap: DynamoDB vector
-// indexes have no backend model (CreateTable/UpdateTable cannot attach one),
-// so SearchVectors validates the request and real table state, then reports
-// the named vector index as not found -- never fabricating similarity
-// scores. See search_vectors.go and PARITY.md's gaps entry.
+// TestSearchVectors covers the honest-gap behavior in search_vectors.go:
+// no vector index model, so the named index always reports not found.
 func TestSearchVectors(t *testing.T) {
 	t.Parallel()
 

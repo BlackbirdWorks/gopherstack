@@ -9,39 +9,25 @@ import (
 	"time"
 )
 
-// This file implements the Application Status Check family exposed by the
-// aws-sdk-go-v2 ec2 v1.319 bump: a health-check definition
-// (CreateApplicationStatusCheck et al.) that can be associated with
-// instances or tags (Associate/DisassociateApplicationStatusCheck), whose
-// results can be temporarily suppressed
-// (Enable/DisableApplicationStatusCheckSuppression), and whose *aggregated,
-// instance-level* result is read back via DescribeApplicationStatus.
-//
-// DescribeApplicationStatus is the one operation in this family that a mock
-// backend cannot honestly fully implement: real AWS derives the
-// instance-level status from actually executing HTTP health checks against
-// the application running on the instance. This backend runs no such
-// checks, so it never fabricates "ok" / "impaired" / "initializing" results.
-// See computeApplicationStatusLocked's doc comment and PARITY.md's gaps
-// entry for the full reasoning.
-
-// ---- errors ----
+// Implements the Application Status Check family (aws-sdk-go-v2 ec2 v1.319):
+// health-check definitions, their instance/tag associations, suppression,
+// and the aggregated per-instance status read back via
+// DescribeApplicationStatus. That op never fabricates "ok"/"impaired"/
+// "initializing" since this backend runs no real HTTP health checks — see
+// computeApplicationStatusLocked.
 
 var (
-	// ErrApplicationStatusCheckNotFound is returned when an application status
-	// check ID does not exist (or refers to one already deleted).
+	// ErrApplicationStatusCheckNotFound is returned when a check ID doesn't
+	// exist or is deleted.
 	ErrApplicationStatusCheckNotFound = errors.New("InvalidApplicationStatusCheckId.NotFound")
 	// ErrInvalidParameterCombination is returned when Associate/
-	// DisassociateApplicationStatusCheck are called with both (or neither of)
-	// InstanceIds and TargetTagAssociations, matching the real AWS
-	// InvalidParameterCombination error documented for both operations.
+	// DisassociateApplicationStatusCheck gets both or neither of
+	// InstanceIds/TargetTagAssociations.
 	ErrInvalidParameterCombination = errors.New("InvalidParameterCombination")
-	// ErrTooManyApplicationStatusChecks is returned when CreateApplicationStatusCheck
-	// would exceed the real, documented 50-check-per-account limit.
+	// ErrTooManyApplicationStatusChecks is returned when
+	// CreateApplicationStatusCheck would exceed the real 50-per-account limit.
 	ErrTooManyApplicationStatusChecks = errors.New("ApplicationStatusCheckLimitExceeded")
 )
-
-// ---- constants ----
 
 const (
 	appStatusCheckProtocolHTTP  = "http"
@@ -50,12 +36,7 @@ const (
 	appStatusCheckAggregationIncluded = "included"
 	appStatusCheckAggregationExcluded = "excluded"
 
-	// Real, documented defaults from the CreateApplicationStatusCheck doc
-	// comment (aws-sdk-go-v2 api_op_CreateApplicationStatusCheck.go): "If you
-	// do not specify Aggregation, it defaults to included... Default values:
-	// Interval is 60 seconds, Timeout is 6 seconds, FailureThreshold is 2,
-	// SuccessThreshold is 5, StatusCodeMatcher is 200, InitializationGracePeriodSeconds
-	// is 300 seconds... Path... Default: /.
+	// Defaults per api_op_CreateApplicationStatusCheck.go doc comment.
 	appStatusCheckDefaultPath                   = "/"
 	appStatusCheckDefaultInterval               = 60
 	appStatusCheckDefaultTimeout                = 6
@@ -64,42 +45,33 @@ const (
 	appStatusCheckDefaultStatusCodeMatcher      = "200"
 	appStatusCheckDefaultInitGracePeriodSeconds = 300
 
-	// maxApplicationStatusChecksPerAccount is the real, documented AWS quota
-	// ("You can create a maximum of 50 application status checks per account").
+	// maxApplicationStatusChecksPerAccount: real AWS quota, 50/account.
 	maxApplicationStatusChecksPerAccount = 50
 
-	// appStatusAssocType{Instance,Tag} are the AssociationTypeEnum wire values
-	// used by ApplicationStatusCheckAssociationObject (DescribeApplicationStatusCheckAssociations).
+	// appStatusAssocType{Instance,Tag}: AssociationTypeEnum wire values used
+	// by ApplicationStatusCheckAssociationObject.
 	appStatusAssocTypeInstance = "instance-id"
 	appStatusAssocTypeTag      = "tag"
 
-	// appStatusAssocType{Instance,Tag}Wire are the DISTINCT vocabulary used by
-	// SuccessfulAssociationResponseObject/UnsuccessfulAssociationResponseObject.AssociationType
-	// (field-diffed against the installed SDK doc comment: "Valid values:
-	// EC2TAG and INSTANCE_ID" -- NOT the same strings as appStatusAssocType{Instance,Tag}
-	// above, a real, easy-to-miss wire-shape trap).
+	// appStatusAssocType{Instance,Tag}Wire: SuccessfulAssociationResponseObject/
+	// UnsuccessfulAssociationResponseObject.AssociationType use INSTANCE_ID/EC2TAG
+	// — a distinct vocabulary from appStatusAssocType{Instance,Tag} above.
 	appStatusAssocTypeInstanceWire = "INSTANCE_ID"
 	appStatusAssocTypeTagWire      = "EC2TAG"
 
 	// The three ApplicationStatusEnum values this backend can honestly
-	// compute from real, tracked state -- see computeApplicationStatusLocked.
+	// compute from tracked state — see computeApplicationStatusLocked.
 	appStatusNotApplicable    = "not-applicable"
 	appStatusInsufficientData = "insufficient-data"
 	appStatusSuppressed       = "suppressed"
 )
 
-// ---- models ----
-
-// ApplicationStatusCheck is a health-check definition (protocol/port/path/
-// thresholds) that, once associated with instances or tags via
-// AssociateApplicationStatusCheck, monitors their application health.
-// Mirrors the real AWS ApplicationStatusCheckResponseObject.
+// ApplicationStatusCheck is a health-check definition that, once associated
+// with instances or tags, monitors their application health. Mirrors the
+// real ApplicationStatusCheckResponseObject.
 //
-// Deleted checks are NOT removed from the backing store: real AWS retains a
-// deleted check, visible via DescribeApplicationStatusChecks(IncludeAll=true),
-// for an undocumented grace period. This backend retains deleted checks
-// indefinitely rather than inventing an unspecified grace-period duration --
-// see PARITY.md gaps.
+// Deleted checks are kept indefinitely rather than purged after real AWS's
+// undocumented grace period — see PARITY.md gaps.
 type ApplicationStatusCheck struct {
 	CreationTime                     time.Time `json:"creationTime"`
 	LastUpdatedAt                    time.Time `json:"lastUpdatedAt"`
@@ -122,10 +94,10 @@ type ApplicationStatusCheck struct {
 	Deleted                          bool      `json:"deleted,omitempty"`
 }
 
-// ApplicationStatusCheckParams carries the optional, independently-settable
-// fields shared by CreateApplicationStatusCheck and ModifyApplicationStatusCheck.
-// A nil field means "not specified in this request" -- Create applies the
-// real documented default, Modify leaves the check's current value alone.
+// ApplicationStatusCheckParams carries the optional fields shared by
+// CreateApplicationStatusCheck and ModifyApplicationStatusCheck. A nil field
+// means "not specified": Create applies the real default, Modify leaves the
+// current value alone.
 type ApplicationStatusCheckParams struct {
 	Protocol                         *string
 	Aggregation                      *string
@@ -161,11 +133,8 @@ type ApplicationStatusCheckAssociation struct {
 	TagValue                 string `json:"tagValue,omitempty"`
 }
 
-// ApplicationStatusAssociationResult is one outcome (successful or
-// unsuccessful) of Associate/DisassociateApplicationStatusCheck, matching
-// the real SuccessfulAssociationResponseObject /
-// UnsuccessfulAssociationResponseObject shapes (Reason is only ever set on
-// an unsuccessful result).
+// ApplicationStatusAssociationResult is one outcome of Associate/
+// DisassociateApplicationStatusCheck. Reason is only set when unsuccessful.
 type ApplicationStatusAssociationResult struct {
 	ApplicationStatusCheckID string
 	AssociationType          string
@@ -182,8 +151,8 @@ type ApplicationStatusSuppression struct {
 	InstanceID string    `json:"instanceID,omitempty"`
 }
 
-// ApplicationStatusSuppressionFailure is one Enable/DisableApplicationStatusCheckSuppression
-// failure, matching the real UnsuccessfulSuppressionResponseObject shape.
+// ApplicationStatusSuppressionFailure is one Enable/
+// DisableApplicationStatusCheckSuppression failure.
 type ApplicationStatusSuppressionFailure struct {
 	InstanceID string
 	Reason     string
@@ -203,15 +172,10 @@ type InstanceApplicationStatus struct {
 	Status             string
 }
 
-// ---- Application Status Checks: CRUD ----
-
-// applyApplicationStatusCheckParams validates and applies each field of p
-// that was explicitly provided (non-nil) onto check, leaving any field left
-// nil in p unchanged from check's current value. Used identically by
-// CreateApplicationStatusCheck (called against a check pre-populated with
-// the real documented defaults) and ModifyApplicationStatusCheck (called
-// against the existing stored check), so a field omitted from either
-// request keeps exactly the value it already had.
+// applyApplicationStatusCheckParams validates and applies each non-nil field
+// of p onto check, leaving fields left nil in p unchanged. Shared by Create
+// (against a check pre-populated with defaults) and Modify (against the
+// stored check).
 func applyApplicationStatusCheckParams(check *ApplicationStatusCheck, p ApplicationStatusCheckParams) error {
 	if err := applyAppStatusCheckProtocolAndPort(check, p); err != nil {
 		return err
@@ -476,10 +440,8 @@ func matchesAppStatusCheckFilters(c *ApplicationStatusCheck, filters map[string]
 	return true
 }
 
-// DeleteApplicationStatusCheck marks a check deleted (real AWS retains
-// deleted checks for a grace period rather than removing them outright; see
-// the ApplicationStatusCheck doc comment) and cascades the deletion to every
-// association targeting it.
+// DeleteApplicationStatusCheck soft-deletes a check (see the
+// ApplicationStatusCheck doc comment) and cascades to its associations.
 func (b *InMemoryBackend) DeleteApplicationStatusCheck(id string) (*ApplicationStatusCheck, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ApplicationStatusCheckId is required", ErrInvalidParameter)
@@ -506,8 +468,6 @@ func (b *InMemoryBackend) DeleteApplicationStatusCheck(id string) (*ApplicationS
 
 	return &cp, nil
 }
-
-// ---- Application Status Check associations ----
 
 func appStatusCheckAssociationKeyFn(a *ApplicationStatusCheckAssociation) string {
 	if a.AssociationType == appStatusAssocTypeInstance {
@@ -733,9 +693,7 @@ func (b *InMemoryBackend) disassociateTagsLocked(
 
 // DescribeApplicationStatusCheckAssociations returns associations,
 // optionally filtered by check ID and by the "association-type" filter.
-// Unlike most describe ops here, unrecognised check IDs are simply not
-// matched (rather than erroring), consistent with this package's existing
-// multi-ID describe convention (e.g. DescribeTransitGatewayPolicyTables).
+// Unrecognised check IDs are simply unmatched rather than erroring.
 func (b *InMemoryBackend) DescribeApplicationStatusCheckAssociations(
 	checkIDs []string,
 	filters map[string][]string,
@@ -787,12 +745,10 @@ func matchesAppStatusAssociationFilters(
 	return true
 }
 
-// ---- Application Status Check suppression ----
-
 // EnableApplicationStatusCheckSuppression suppresses application status
-// checks for the given instances. A durationSeconds of 0 or less suppresses
-// indefinitely, matching the real "If you do not specify DurationSeconds,
-// suppression continues indefinitely" documented behaviour.
+// checks for the given instances. durationSeconds <= 0 suppresses
+// indefinitely (matches real AWS: "If you do not specify DurationSeconds,
+// suppression continues indefinitely").
 func (b *InMemoryBackend) EnableApplicationStatusCheckSuppression(
 	instanceIDs []string,
 	durationSeconds int,
@@ -874,32 +830,18 @@ func applicationStatusSuppressionActiveLocked(sup *ApplicationStatusSuppression)
 	return sup.ResumeAt.IsZero() || sup.ResumeAt.After(time.Now().UTC())
 }
 
-// ---- DescribeApplicationStatus ----
-
-// DescribeApplicationStatus derives the aggregated instance-level
-// application status for the requested (or, if instanceIDs is empty, every)
-// instance.
+// DescribeApplicationStatus derives the aggregated instance-level status for
+// the requested (or, if empty, every) instance.
 //
-// IMPORTANT: this backend never actually executes HTTP health checks against
-// application code running inside an emulated instance, so it can never
-// honestly report "ok", "impaired", or "initializing" -- all three require a
-// real check result this backend does not and cannot have. Only the three
-// ApplicationStatusEnum values fully derivable from real, tracked backend
-// state are ever returned:
-//   - "suppressed"        -- a real, currently-active ApplicationStatusSuppression
-//     exists for the instance (EnableApplicationStatusCheckSuppression).
-//   - "not-applicable"    -- no "included"-aggregation check is associated
-//     with the instance (directly by instance ID, or via a matching tag),
-//     which is real AWS's own documented meaning for this value.
-//   - "insufficient-data" -- at least one "included"-aggregation check IS
-//     associated with the instance, but this backend has never run it, so
-//     there is genuinely no result data -- the honest answer for that real
-//     AWS value's own documented meaning, not a fabricated one.
+// This backend runs no real HTTP health checks, so it can never honestly
+// report "ok"/"impaired"/"initializing". It only ever returns the three
+// ApplicationStatusEnum values derivable from tracked state: "suppressed"
+// (active suppression), "not-applicable" (no included-aggregation check
+// associated), "insufficient-data" (a check is associated but never run —
+// AWS's own documented meaning, not fabricated).
 //
-// Details is always empty (there are never any real per-check results to
-// report) and StatusSince is always zero (this backend does not track
-// per-instance status-transition history) -- both documented, not
-// fabricated, gaps. See PARITY.md.
+// Details is always empty and StatusSince always zero — documented gaps, see
+// PARITY.md.
 func (b *InMemoryBackend) DescribeApplicationStatus(
 	instanceIDs []string,
 	filters map[string][]string,
@@ -934,11 +876,9 @@ func (b *InMemoryBackend) DescribeApplicationStatus(
 	return out
 }
 
-// includedAggregationChecksLocked returns every non-deleted application
-// status check whose Aggregation is "included" -- the only checks that can
-// ever affect an instance's DescribeApplicationStatus result, per real AWS's
-// documented "Checks with Aggregation set to excluded do not affect this
-// value" rule.
+// includedAggregationChecksLocked returns every non-deleted check with
+// Aggregation "included" — the only checks that affect
+// DescribeApplicationStatus (excluded checks don't, per real AWS docs).
 func (b *InMemoryBackend) includedAggregationChecksLocked() []*ApplicationStatusCheck {
 	out := make([]*ApplicationStatusCheck, 0)
 

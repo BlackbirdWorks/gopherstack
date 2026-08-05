@@ -503,10 +503,9 @@ type InMemoryBackend struct {
 	// attachments, image watermarks, account VPC Encryption Control, Capacity
 	// Manager monitored tag keys (nested in capacityManagerState), and
 	// account-level managed resource visibility.
-	tgwClientVpnAttachments     *store.Table[TransitGatewayClientVpnAttachment]
-	imageWatermarks             map[string][]string
-	accountVpcEncryptionControl *AccountVpcEncryptionControl
-	// Application Status Check additions (parity SDK-bump: ec2 v1.317 -> v1.319.1)
+	tgwClientVpnAttachments            *store.Table[TransitGatewayClientVpnAttachment]
+	imageWatermarks                    map[string][]string
+	accountVpcEncryptionControl        *AccountVpcEncryptionControl
 	applicationStatusChecks            *store.Table[ApplicationStatusCheck]
 	applicationStatusCheckAssociations *store.Table[ApplicationStatusCheckAssociation]
 	applicationStatusSuppressions      *store.Table[ApplicationStatusSuppression]
