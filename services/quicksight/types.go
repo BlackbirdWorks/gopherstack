@@ -213,6 +213,14 @@ type ThemeAlias struct {
 }
 
 // Topic represents a QuickSight topic (a natural-language Q&A data source).
+//
+// DataSetsV2, DataSetRelations, CustomInstructions, and PublishOption are
+// populated only by the TopicV2 ("Q topic") operations (CreateTopicV2,
+// UpdateTopicV2 -- see topics_v2.go); DataSets and UserExperienceVersion are
+// populated only by the V1 Topic operations (CreateTopic, UpdateTopic --
+// see topics.go). Both families read and write the SAME Topic identified by
+// TopicID: see topics_v2.go's doc comment for why these are the same
+// underlying resource, not two disconnected stores.
 type Topic struct {
 	CreatedTime           time.Time
 	LastUpdatedTime       time.Time
@@ -221,7 +229,11 @@ type Topic struct {
 	Name                  string
 	Description           string
 	UserExperienceVersion string
+	CustomInstructions    string
+	PublishOption         string
 	DataSets              []map[string]any
+	DataSetsV2            []map[string]any
+	DataSetRelations      []map[string]any
 	Permissions           []ResourcePermission
 }
 

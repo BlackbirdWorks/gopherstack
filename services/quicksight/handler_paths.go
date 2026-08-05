@@ -9,9 +9,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/labstack/echo/v5"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/labstack/echo/v5"
 )
 
 // ---- path classification ----
@@ -70,6 +71,7 @@ var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeCla
 		pathSegTemplates:           classifyTemplatePaths,
 		pathSegThemes:              classifyThemePaths,
 		pathSegTopics:              classifyTopicPaths,
+		pathSegTopicsV2:            classifyTopicV2Paths,
 		pathSegVPCConnections:      classifyVPCConnectionPaths,
 		pathSegActionConnectors:    classifyActionConnectorPaths,
 		pathSegBrands:              classifyBrandPaths,
@@ -883,6 +885,8 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 		return opSearchActionConnectors, ""
 	case pathSegTopics:
 		return opSearchTopics, ""
+	case pathSegTopicsV2:
+		return opSearchTopicsV2, ""
 	case pathSegAgents:
 		return opSearchAgents, ""
 	case pathSegKnowledgeBases:

@@ -12,6 +12,13 @@ import (
 const (
 	defaultTopicRefreshType = "FULL_REFRESH"
 
+	// topicUserExperienceVersionNewReaderExperience is the TopicUserExperienceVersion
+	// value (see types.TopicUserExperienceVersion in aws-sdk-go-v2) that names the
+	// reader experience TopicV2's schema exists to serve. CreateTopicV2 sets it
+	// automatically since CreateTopicV2Input carries no UserExperienceVersion
+	// parameter of its own -- see topics_v2.go's doc comment.
+	topicUserExperienceVersionNewReaderExperience = "NEW_READER_EXPERIENCE"
+
 	// filterTopicName is the SearchTopics filter Name for matching on a topic's
 	// display name (the "TOPIC_NAME" filter attribute per the QuickSight API).
 	filterTopicName = "TOPIC_NAME"
@@ -83,6 +90,11 @@ func (a *storedTopicReviewedAnswer) toTopicReviewedAnswer() *TopicReviewedAnswer
 }
 
 // storedTopic is the persisted representation of a QuickSight topic.
+//
+// CustomInstructions/PublishOption/DataSetsV2/DataSetRelations are written
+// only by the TopicV2 operations (topics_v2.go); DataSets/UserExperienceVersion
+// are written only by the V1 operations below. Both families share the same
+// TopicID/Arn/Name/Description/Permissions -- see topics_v2.go's doc comment.
 type storedTopic struct {
 	CreatedTime           time.Time                              `json:"createdTime"`
 	LastUpdatedTime       time.Time                              `json:"lastUpdatedTime"`
@@ -94,7 +106,11 @@ type storedTopic struct {
 	Name                  string                                 `json:"name"`
 	Description           string                                 `json:"description,omitempty"`
 	UserExperienceVersion string                                 `json:"userExperienceVersion,omitempty"`
+	CustomInstructions    string                                 `json:"customInstructions,omitempty"`
+	PublishOption         string                                 `json:"publishOption,omitempty"`
 	DataSets              []map[string]any                       `json:"dataSets,omitempty"`
+	DataSetsV2            []map[string]any                       `json:"dataSetsV2,omitempty"`
+	DataSetRelations      []map[string]any                       `json:"dataSetRelations,omitempty"`
 	Permissions           []ResourcePermission                   `json:"permissions,omitempty"`
 }
 
@@ -107,7 +123,11 @@ func (t *storedTopic) toTopic() *Topic {
 		Name:                  t.Name,
 		Description:           t.Description,
 		UserExperienceVersion: t.UserExperienceVersion,
+		CustomInstructions:    t.CustomInstructions,
+		PublishOption:         t.PublishOption,
 		DataSets:              t.DataSets,
+		DataSetsV2:            t.DataSetsV2,
+		DataSetRelations:      t.DataSetRelations,
 		Permissions:           clonePermissions(t.Permissions),
 	}
 }

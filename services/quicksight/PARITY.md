@@ -1,5 +1,5 @@
 service: quicksight
-sdk_module: aws-sdk-go-v2/service/quicksight@v1.121.0
+sdk_module: aws-sdk-go-v2/service/quicksight@v1.123.1
 last_audit_commit: 73f133771
 last_audit_date: 2026-07-30
 overall: A            # the 32 ops the v1.112.0->v1.121.0 SDK bump added (Agent,
@@ -135,6 +135,23 @@ ops:
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now checks InMemoryBackend.arnExists(resourceARN) (a data-driven scan over every independently-taggable resource family's live ARNs) before writing, returning ErrTaggableResourceNotFound (ResourceNotFoundException, 404) for an ARN this backend doesn't hold. Same fix applied to UntagResource/ListTagsForResource. See TestQuickSight_Tags_UnknownARN"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  # TopicV2 ("Q topics"): new op family, added by the v1.121.0 -> v1.123.1 SDK
+  # bump. Verified to be the SAME underlying topic resource as the V1 Topic ops
+  # above, not a parallel store -- see topics_v2.go's doc comment for the full
+  # evidence trail (shared TopicId namespace/ResourceExistsException, the V1-side
+  # TopicUserExperienceVersion.NEW_READER_EXPERIENCE enum value that already
+  # names what TopicV2's schema serves, and the byte-identical
+  # DescribeTopicPermissionsV2/UpdateTopicPermissionsV2 wire shape vs V1's). All
+  # eight ops read/write b.topics via topicKey(accountID, topicID), the same
+  # collection as CreateTopic/DescribeTopic/etc.
+  CreateTopicV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /accounts/{id}/topicsV2 (confirmed against serializers.go's opPath, distinct from V1's /accounts/{id}/topics). Sets UserExperienceVersion=NEW_READER_EXPERIENCE server-side since CreateTopicV2Input has no such parameter. No Permissions param accepted -- neither CreateTopicInput nor CreateTopicV2Input has one in the real SDK; permissions are set only via UpdateTopicPermissions{,V2}. ResourceExistsException on a TopicId collision with either family."}
+  DescribeTopicV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /accounts/{id}/topicsV2/{topicId}. Delegates to the same InMemoryBackend.DescribeTopic V1 uses (same storedTopic record); response is TopicV2Details' leaner shape (Name/Description/DataSets/DataSetRelations, no UserExperienceVersion/ConfigOptions) plus a top-level CustomInstructions object, confirmed against awsRestjson1_deserializeOpDocumentDescribeTopicV2Output."}
+  UpdateTopicV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /accounts/{id}/topicsV2/{topicId}. UpdateTopicV2Input.Topic (TopicV2Details) is a required, full-replace document (Name itself required) -- unlike V1 UpdateTopic's per-field optional partial-patch convention, this always overwrites Name/Description/DataSets/DataSetRelations wholesale, including clearing them when omitted. CustomInstructions/PublishOption are independent optional top-level members and keep leave-unchanged-if-absent semantics. See TestQuickSight_TopicV2CRUD's full-replace assertions."}
+  DeleteTopicV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /accounts/{id}/topicsV2/{topicId}. Deletes the same record DeleteTopic (V1) would. DeleteTopicV2Output carries Arn (confirmed against api_op_DeleteTopicV2.go) -- unlike this backend's existing V1 DeleteTopic response, which omits it (a pre-existing gap in the V1 handler, out of this pass's scope, not propagated into the V2 handler)."}
+  ListTopicsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /accounts/{id}/topicsV2, MaxResults/NextToken as \"max-results\"/\"next-token\" query params (confirmed against awsRestjson1_serializeOpHttpBindingsListTopicsV2Input). Delegates to the same InMemoryBackend.ListTopics V1 uses; response envelope uses TopicSummaryList (types.TopicV2Summary: Arn/Name/TopicId only, no UserExperienceVersion), distinct from V1 ListTopics' TopicsSummaries key."}
+  SearchTopicsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /accounts/{id}/search/topicsV2. Filters/MaxResults/NextToken travel in the JSON body, not query params -- confirmed against awsRestjson1_serializeOpDocumentSearchTopicsV2Input; its HTTP-bindings function binds only AwsAccountId. Reuses the same TopicSearchFilter wire shape (Name/Operator/Value) and filter-matching logic (matchesAllNameFilters/filterTopicName) as V1 SearchTopics. Response uses TopicSummaryList, same key as ListTopicsV2."}
+  DescribeTopicPermissionsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /accounts/{id}/topicsV2/{topicId}/permissions. Routed straight to the existing handleDescribeTopicPermissions (V1): DescribeTopicPermissionsV2Output's wire shape (Permissions/RequestId/Status/TopicArn/TopicId) is byte-identical to V1's, confirmed key-by-key against the deserializer switch, and both read the same storedTopic.Permissions."}
+  UpdateTopicPermissionsV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /accounts/{id}/topicsV2/{topicId}/permissions. Routed straight to the existing handleUpdateTopicPermissions (V1), same rationale as DescribeTopicPermissionsV2. See TestQuickSight_TopicV2Permissions, which grants via the V2 endpoint and reads it back via the V1 endpoint to prove the shared state."}
 families:
   # Every family below was audited this pass by (1) reading handler_dispatch.go's
   # exhaustive per-op routing comments, which enumerate exactly which backend method
@@ -161,7 +178,7 @@ families:
   Folder: {status: ok, note: "CRUD + membership + permissions real (folders.go, handler_folders.go); found+fixed a genuine gap this pass: Folder.SharingModel was never tracked/returned (real DescribeFolderOutput.Folder.SharingModel silently dropped) -- CreateFolder now accepts SharingModel, defaults to ACCOUNT per CreateFolderInput's doc comment when omitted, and folderToMap returns it. See TestQuickSight_FolderCRUD/DescribeFolder_returns_folder and .../CreateFolder_omitted_SharingModel_defaults_to_ACCOUNT"}
   Template: {status: ok, note: "CRUD + versions/aliases/permissions real (templates.go, handler_templates.go); classifyTemplateAlias decomposed from a flagged nolint this pass, behavior preserved verbatim including DeleteTemplateAlias's id-not-alias quirk (locked in handler_paths_test.go)"}
   Theme: {status: ok, note: "CRUD + versions/aliases/permissions real (themes.go, handler_themes.go); classifyThemeAlias decomposed from a flagged nolint this pass, same DeleteThemeAlias id-not-alias quirk preserved and locked"}
-  Topic: {status: ok, note: "CRUD + permissions + refresh schedules/reviewed answers real (topics.go, handler_topics.go); classifyTopicPaths decomposed from a flagged nolint this pass, behavior preserved verbatim"}
+  Topic: {status: ok, note: "CRUD + permissions + refresh schedules/reviewed answers real (topics.go, handler_topics.go); classifyTopicPaths decomposed from a flagged nolint this pass, behavior preserved verbatim. THIS PASS (v1.121.0 -> v1.123.1 SDK bump): added the 8 TopicV2 (\"Q topics\") ops -- CreateTopicV2/DescribeTopicV2/UpdateTopicV2/DeleteTopicV2/ListTopicsV2/SearchTopicsV2/DescribeTopicPermissionsV2/UpdateTopicPermissionsV2 (topics_v2.go, handler_topics_v2.go). Verified these operate on the SAME b.topics collection/TopicId namespace as the V1 ops, not a parallel store -- see topics_v2.go's doc comment and the per-op notes under ops: above. storedTopic gained CustomInstructions/PublishOption/DataSetsV2/DataSetRelations fields alongside V1's existing DataSets/UserExperienceVersion; Permissions/Arn/tags stay a single shared list per topic across both families."}
   VPCConnection: {status: ok, note: "CRUD real (vpcconnections.go). FIXED THIS PASS (gopherstack-i0n4): vpcConnectionToMap (handler_vpcconnections.go) was emitting a top-level SubnetIds field on both DescribeVPCConnection and ListVPCConnections. Confirmed against aws-sdk-go-v2/service/quicksight's types.VPCConnection/VPCConnectionSummary and the installed @aws-sdk/client-quicksight TypeScript defs (models_4.d.ts): neither the Describe nor List response type carries a SubnetIds field -- real AWS never echoes it back. SubnetIds IS a genuine field on Create/UpdateVPCConnectionRequest (models_3.d.ts/models_5.d.ts), so it's still accepted, stored on VPCConnection.SubnetIDs, and round-tripped for Create/Update purposes -- only the read-path (Describe/List) wire shape was wrong. Fixed by dropping keySubnetIDs from vpcConnectionToMap; TestQuickSight_VPCConnectionCRUD updated to assert SubnetIds is ABSENT from Describe/Update-then-Describe responses (it previously asserted presence, encoding the bug). Separately, NetworkInterfaces (AWS-populated once the VPC connection succeeds, and the only real place subnet placement is observable post-creation) remains unmodeled -- this backend's VPCConnection struct has no such field at all, and populating it would require fabricating NetworkInterfaceId/AvailabilityZone/Status this backend has no real ENI provisioning to derive them from, so it stays honestly absent rather than invented. The prior note here claimed this family was 'spot-checked in full depth... no other missing/incorrect fields found' -- that claim was false; this SubnetIds leak is proof a full-depth check was not actually done. Treat other families' 'spot-checked, fields match' claims in this file with corresponding caution until independently re-verified."}
   IAMPolicyAssignment: {status: ok, note: "CRUD + list-for-user real (iampolicyassignments.go, handler_iampolicyassignments.go)"}
   CustomPermissions: {status: ok, note: "CRUD + role membership + role/user custom-permission sub-families real (custompermissions.go, handler_custompermissions.go); spot-checked against types.CustomPermissions -- fields match exactly"}
@@ -181,7 +198,20 @@ families:
   KnowledgeBase: {status: ok, note: "new family (SDK v1.121.0): CreateKnowledgeBase/DescribeKnowledgeBase/UpdateKnowledgeBase/DeleteKnowledgeBase/BatchDeleteKnowledgeBase/ListKnowledgeBases/SearchKnowledgeBases/permissions real (knowledgebases.go, handler_knowledgebases.go), field-diffed against types.KnowledgeBase/KnowledgeBaseSummary. Found and correctly implemented a real API quirk: UpdateKnowledgeBase and UpdateKnowledgeBasePermissions are POST, not PUT, unlike every other resource family's Update* op in this backend -- confirmed against serializers.go, not assumed. Configuration/AccessControlConfiguration/MediaExtractionConfiguration are opaque pass-through documents (map[string]any), matching the Dashboard.Definition precedent for deeply-nested config blobs this backend has no processing logic for. BatchDeleteKnowledgeBase partitions per-ID success/failure for real (an unknown ID is a genuine per-item error, not swallowed into a whole-request failure)."}
   Space: {status: ok, note: "new family (SDK v1.121.0): CreateSpace/DescribeSpace/UpdateSpace/DeleteSpace/ListSpaces/SearchSpaces/permissions/ListSpaceResources/UpdateSpaceResources real (spaces.go, handler_spaces.go). Field-diffed against deserializers.go and found the Space family's wire shape is NOT PascalCase like every other family in this backend: spaceId/spaceArn are camelCase on every op's envelope, the nested Space/SpaceSummary document is fully camelCase, and UpdateSpacePermissionsOutput is uniquely fully-lowercase even for permissions/requestId (confirmed key-by-key against the deserializer switch statements, not assumed) -- see handler_spaces.go's wire-shape note. UpdateSpaceResources validates each resource ARN against arnExists before attaching it, same real-failure pattern as Agent's association updates. One documented, non-fabricated omission: DescribeSpace's Contributors is always an empty list and Space carries no ConsumedSourceSize/ConsumedSourceDocCount fields, because both require per-user raw-file-size attribution from a real ingestion pipeline this backend doesn't have -- an honest omission, matching the VPCConnection.NetworkInterfaces precedent from the prior pass."}
   UserIndexCapacity: {status: ok, note: "new op (SDK v1.121.0), ListUsersIndexCapacity: real, derived computation (userindexcapacity.go, handler_userindexcapacity.go) -- KBCount/SpaceCount and TotalKBCapacityBytes are computed by scanning this backend's actual KnowledgeBase/Space state for PrimaryOwnerArn/CreatedByArn matches against each user, never a fabricated placeholder. TotalSpaceCapacityBytes stays honestly 0 (Space carries no ConsumedSourceSize field to sum, per the Space family note above). Wire shape is fully camelCase (filters/maxResults/namespace/nextToken/sortBy/sortOrder on the request; nextToken/requestId/users on the response, with UserIndexCapacity's own fields all camelCase too) -- confirmed against (de)serializers.go, matching the Space family's convention rather than this backend's usual PascalCase."}
-gaps: []
+gaps:
+  - TopicV2 cross-family field projection: a topic's V1-only fields (ConfigOptions,
+    DataSets' full DatasetMetadata -- Columns/CalculatedFields/Filters/
+    NamedEntities/DataAggregation) are not visible through DescribeTopicV2, and a
+    topic's V2-only fields (DataSetRelations, the leaner TopicV2DataSetReference
+    DataSets, CustomInstructions) are not visible through DescribeTopic (V1). This
+    is a documented, non-fabricated omission, not a bug: TopicV2Details is not a
+    losslessly-convertible schema of V1's TopicDetails (verified field-by-field
+    against types.go -- neither is a superset of the other), and there is no SDK
+    evidence describing how real AWS projects one schema's fields into the other's
+    response, so synthesizing a translation would be exactly the kind of
+    unverified claim parity-principles.md warns against. Both families do share
+    the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
+    comment and TestQuickSight_TopicV2_SharesResourceWithV1.
   # All 5 previously-named gaps fixed several passes back (UpdateDataSet ingestion
   # reporting, CancelIngestion terminal-status handling, Tag/Untag/ListTags ARN
   # existence check, Folder.SharingModel). parity-5: Agent.CustomPromptInterface's
@@ -318,3 +348,53 @@ always succeeding -- the same real-failure pattern, and reusing the same
 extended this pass to include Agent/KnowledgeBase/Space ARNs so both this
 validation and `TagResource`/`UntagResource`/`ListTagsForResource` work on the new
 resource types.
+
+## SDK v1.121.0 -> v1.123.1 bump (this pass)
+
+The Go SDK module was bumped again, revealing 8 new operations: the TopicV2
+("Q topics") family -- `CreateTopicV2`, `DescribeTopicV2`, `UpdateTopicV2`,
+`DeleteTopicV2`, `ListTopicsV2`, `SearchTopicsV2`,
+`DescribeTopicPermissionsV2`, `UpdateTopicPermissionsV2`. All 8 are
+implemented for real (see the `Topic` family note and the per-op notes under
+`ops:` above) and added to `GetSupportedOperations()`; none were parked in
+`TestSDKCompleteness`'s `notImplemented` list. New files: `topics_v2.go`
+(backend), `handler_topics_v2.go` (wire/routing).
+
+**TopicV2 and V1 Topic are the same underlying resource, confirmed against
+the SDK, not assumed from the similar names** -- see `topics_v2.go`'s doc
+comment for the full evidence trail. This drove the whole design: both
+families read/write the same `b.topics` collection keyed by
+`topicKey(accountID, topicID)`, so `CreateTopic`/`CreateTopicV2` collide on a
+shared `TopicId`, `DeleteTopic`/`DeleteTopicV2` delete the one record, and
+permissions/tags/ARN are shared. Only `CreateTopicV2`/`UpdateTopicV2` needed
+new `StorageBackend` methods (a genuinely different accepted parameter set);
+`DescribeTopicV2`/`DeleteTopicV2`/`ListTopicsV2`/`SearchTopicsV2` call the
+existing V1 `DescribeTopic`/`DeleteTopic`/`ListTopics`/`SearchTopics`
+directly, and `DescribeTopicPermissionsV2`/`UpdateTopicPermissionsV2` route
+straight to the existing V1 permission handlers (byte-identical wire shape,
+confirmed key-by-key against the deserializers) -- see
+`handler_topics_v2.go`'s `dispatchTopicV2` doc comment.
+
+**`SearchTopicsV2` puts `MaxResults`/`NextToken` in the JSON body, not query
+params** -- confirmed against `awsRestjson1_serializeOpDocumentSearchTopicsV2Input`
+(its HTTP-bindings function binds only `AwsAccountId`), unlike `ListTopicsV2`
+which uses `max-results`/`next-token` query params (confirmed against
+`awsRestjson1_serializeOpHttpBindingsListTopicsV2Input`). Implemented
+correctly for `SearchTopicsV2`; see `TestQuickSight_SearchTopicsV2`'s
+body-pagination assertions.
+
+**Pre-existing V1 wire-shape findings, NOT fixed this pass (out of this
+task's assigned scope, which was the 8 TopicV2 ops only -- flagging for a
+follow-up pass):**
+
+- `SearchTopics` (V1)'s real `SearchTopicsInput` puts `MaxResults`/`NextToken`
+  in the JSON body (same as `SearchTopicsV2`, confirmed against
+  `awsRestjson1_serializeOpDocumentSearchTopicsInput`), but this backend's
+  existing `handleSearchTopics` reads them from query params via
+  `maxResultsParam(c)`/`nextTokenParam(c)` -- a real client's `MaxResults`/
+  `NextToken` would be silently ignored. `SearchTopicsV2` was implemented
+  correctly (body-based) rather than copying this bug forward.
+- `DeleteTopic` (V1)'s real `DeleteTopicOutput` carries an `Arn` field
+  (confirmed against `api_op_DeleteTopic.go`), but this backend's existing
+  `handleDeleteTopic` response omits it. `DeleteTopicV2`'s response correctly
+  includes `Arn` rather than copying this omission forward.
