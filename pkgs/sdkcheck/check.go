@@ -109,6 +109,16 @@ var phantomAllowlist = map[string]map[string]string{
 		"ListThingsWithShadows": "gopherstack admin-only extension; not a real iotdataplane op (Shadows)",
 		"RegisterConnection":    "gopherstack admin-only extension; not a real iotdataplane op (Register)",
 	},
+	"*bedrockagent.Client": {
+		// Real AWS operations, but on the bedrock-agent-runtime data-plane
+		// client, which this repo does not vendor as its own service — so they
+		// are absent from the bedrock-agent control-plane client checked here.
+		// Both are genuinely implemented and wire-shape-routed under
+		// /agents/{id}/agentversions/{v}/memories/... (see dispatchMemoryRoutes
+		// and the comment at services/bedrock/handler_agents_dispatch.go:137).
+		"GetAgentMemory":    "real op on the bedrock-agent-runtime client, which is not vendored here",
+		"DeleteAgentMemory": "real op on the bedrock-agent-runtime client, which is not vendored here",
+	},
 	"*rds.Client": {
 		// Deliberately kept: real Performance Insights functionality with no
 		// wire-shape-accurate replacement. The real op is GetResourceMetrics on
