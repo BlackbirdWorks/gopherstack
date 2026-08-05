@@ -83,6 +83,94 @@ func TestTGWPeripheralsHandler_PolicyTableLifecycle(t *testing.T) {
 	assert.Contains(t, notFoundRec.Body.String(), "InvalidTransitGatewayPolicyTableId.NotFound")
 }
 
+func TestTGWPeripheralsHandler_PolicyTableEntryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	tgwRec := postForm(t, h, "Action=CreateTransitGateway&Version=2016-11-15")
+	tgwID := extractTag(t, tgwRec.Body.String(), "transitGatewayId")
+
+	ptRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayPolicyTable&Version=2016-11-15&TransitGatewayId=%s",
+		tgwID,
+	))
+	policyTableID := extractTag(t, ptRec.Body.String(), "transitGatewayPolicyTableId")
+
+	rtRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayId=%s",
+		tgwID,
+	))
+	rtID := extractTag(t, rtRec.Body.String(), "transitGatewayRouteTableId")
+
+	otherRTRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayRouteTable&Version=2016-11-15&TransitGatewayId=%s",
+		tgwID,
+	))
+	otherRTID := extractTag(t, otherRTRec.Body.String(), "transitGatewayRouteTableId")
+
+	createRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayPolicyTableEntry&Version=2016-11-15"+
+			"&TransitGatewayPolicyTableId=%s&PolicyRuleNumber=100&TargetRouteTableId=%s"+
+			"&PolicyRule.SourceCidrBlock=10.0.0.0%%2F16&PolicyRule.DestinationCidrBlock=10.1.0.0%%2F16"+
+			"&PolicyRule.Protocol=6&PolicyRule.MetaData.MetaDataKey=env&PolicyRule.MetaData.MetaDataValue=prod",
+		policyTableID, rtID,
+	))
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createBody := createRec.Body.String()
+	assert.Contains(t, createBody, "<CreateTransitGatewayPolicyTableEntryResponse")
+	assert.Contains(t, createBody, "<policyRuleNumber>100</policyRuleNumber>")
+	assert.Contains(t, createBody, "<state>active</state>")
+	assert.Contains(t, createBody, "<sourceCidrBlock>10.0.0.0/16</sourceCidrBlock>")
+	assert.Contains(t, createBody, "<metaDataKey>env</metaDataKey>")
+	assert.Contains(t, createBody, "<metaDataValue>prod</metaDataValue>")
+	assert.Contains(t, createBody, fmt.Sprintf("<targetRouteTableId>%s</targetRouteTableId>", rtID))
+
+	getRec := postForm(t, h, fmt.Sprintf(
+		"Action=GetTransitGatewayPolicyTableEntries&Version=2016-11-15&TransitGatewayPolicyTableId=%s",
+		policyTableID,
+	))
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getBody := getRec.Body.String()
+	assert.Contains(t, getBody, "<item>")
+	assert.Contains(t, getBody, "<policyRuleNumber>100</policyRuleNumber>")
+
+	modifyRec := postForm(t, h, fmt.Sprintf(
+		"Action=ModifyTransitGatewayPolicyTableEntry&Version=2016-11-15"+
+			"&TransitGatewayPolicyTableId=%s&PolicyRuleNumber=100&TargetRouteTableId=%s",
+		policyTableID, otherRTID,
+	))
+	require.Equal(t, http.StatusOK, modifyRec.Code)
+	modifyBody := modifyRec.Body.String()
+	assert.Contains(t, modifyBody, "<ModifyTransitGatewayPolicyTableEntryResponse")
+	assert.Contains(t, modifyBody, fmt.Sprintf("<targetRouteTableId>%s</targetRouteTableId>", otherRTID))
+	// Fields not resent by Modify retain their previously stored value.
+	assert.Contains(t, modifyBody, "<sourceCidrBlock>10.0.0.0/16</sourceCidrBlock>")
+
+	deleteRec := postForm(t, h, fmt.Sprintf(
+		"Action=DeleteTransitGatewayPolicyTableEntry&Version=2016-11-15"+
+			"&TransitGatewayPolicyTableId=%s&PolicyRuleNumber=100",
+		policyTableID,
+	))
+	require.Equal(t, http.StatusOK, deleteRec.Code)
+	assert.Contains(t, deleteRec.Body.String(), "<state>deleted</state>")
+
+	getAfterDeleteRec := postForm(t, h, fmt.Sprintf(
+		"Action=GetTransitGatewayPolicyTableEntries&Version=2016-11-15&TransitGatewayPolicyTableId=%s",
+		policyTableID,
+	))
+	require.Equal(t, http.StatusOK, getAfterDeleteRec.Code)
+	assert.NotContains(t, getAfterDeleteRec.Body.String(), "<item>")
+
+	notFoundRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayPolicyTableEntry&Version=2016-11-15"+
+			"&TransitGatewayPolicyTableId=tgw-ptb-x&PolicyRuleNumber=1&TargetRouteTableId=%s",
+		rtID,
+	))
+	require.Equal(t, http.StatusBadRequest, notFoundRec.Code)
+	assert.Contains(t, notFoundRec.Body.String(), "InvalidTransitGatewayPolicyTableId.NotFound")
+}
+
 func TestTGWPeripheralsHandler_RouteTableAnnouncementLifecycle(t *testing.T) {
 	t.Parallel()
 

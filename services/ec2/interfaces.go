@@ -701,10 +701,30 @@ type Backend interface {
 		policyTableID string,
 	) []*TransitGatewayPolicyTableAssociation
 
-	// GetTransitGatewayPolicyTableEntries validates a policy table exists (entries are
-	// always empty; see the type doc comment on TransitGatewayPolicyTableEntry usage
-	// in the handler layer).
-	GetTransitGatewayPolicyTableEntries(policyTableID string) error
+	// GetTransitGatewayPolicyTableEntries returns the entries created against a
+	// policy table via CreateTransitGatewayPolicyTableEntry.
+	GetTransitGatewayPolicyTableEntries(policyTableID string) ([]*TransitGatewayPolicyTableEntry, error)
+
+	// CreateTransitGatewayPolicyTableEntry adds a traffic-matching rule to a
+	// policy table.
+	CreateTransitGatewayPolicyTableEntry(
+		policyTableID string,
+		entry *TransitGatewayPolicyTableEntry,
+	) (*TransitGatewayPolicyTableEntry, error)
+
+	// ModifyTransitGatewayPolicyTableEntry updates the target route table
+	// and/or matching rule of an existing policy table entry.
+	ModifyTransitGatewayPolicyTableEntry(
+		policyTableID string,
+		ruleNumber int,
+		updates *TransitGatewayPolicyTableEntry,
+	) (*TransitGatewayPolicyTableEntry, error)
+
+	// DeleteTransitGatewayPolicyTableEntry removes a single rule from a policy table.
+	DeleteTransitGatewayPolicyTableEntry(
+		policyTableID string,
+		ruleNumber int,
+	) (*TransitGatewayPolicyTableEntry, error)
 
 	// ---- Transit Gateway Route Table Announcements ----
 
@@ -2047,4 +2067,60 @@ type Backend interface {
 	// ModifyManagedResourceVisibility updates the account's default
 	// visibility setting for AWS-managed resources.
 	ModifyManagedResourceVisibility(defaultVisibility string) (string, error)
+
+	// ---- Application Status Checks (SDK bump: ec2 v1.317 -> v1.319.1) ----
+
+	// CreateApplicationStatusCheck creates a new application status check.
+	CreateApplicationStatusCheck(p ApplicationStatusCheckParams) (*ApplicationStatusCheck, error)
+
+	// ModifyApplicationStatusCheck updates an existing application status check.
+	ModifyApplicationStatusCheck(id string, p ApplicationStatusCheckParams) (*ApplicationStatusCheck, error)
+
+	// DescribeApplicationStatusChecks returns application status checks.
+	DescribeApplicationStatusChecks(
+		ids []string,
+		filters map[string][]string,
+		includeAll bool,
+	) []*ApplicationStatusCheck
+
+	// DeleteApplicationStatusCheck marks a check deleted and cascades to its associations.
+	DeleteApplicationStatusCheck(id string) (*ApplicationStatusCheck, error)
+
+	// AssociateApplicationStatusCheck associates a check with instances or tags.
+	AssociateApplicationStatusCheck(
+		checkID string,
+		instanceIDs []string,
+		tagAssociations []CustomTagKeyValue,
+	) (successful, unsuccessful []ApplicationStatusAssociationResult, err error)
+
+	// DisassociateApplicationStatusCheck removes an association.
+	DisassociateApplicationStatusCheck(
+		checkID string,
+		instanceIDs []string,
+		tagAssociations []CustomTagKeyValue,
+	) (successful, unsuccessful []ApplicationStatusAssociationResult, err error)
+
+	// DescribeApplicationStatusCheckAssociations returns associations for the given checks.
+	DescribeApplicationStatusCheckAssociations(
+		checkIDs []string,
+		filters map[string][]string,
+	) []*ApplicationStatusCheckAssociation
+
+	// EnableApplicationStatusCheckSuppression suppresses status checks for instances.
+	EnableApplicationStatusCheckSuppression(
+		instanceIDs []string,
+		durationSeconds int,
+	) (successful []*ApplicationStatusSuppression, unsuccessful []ApplicationStatusSuppressionFailure)
+
+	// DisableApplicationStatusCheckSuppression resumes status checks for instances.
+	DisableApplicationStatusCheckSuppression(
+		instanceIDs []string,
+	) (successful []*ApplicationStatusSuppression, unsuccessful []ApplicationStatusSuppressionFailure)
+
+	// DescribeApplicationStatus returns the aggregated, instance-level
+	// application status for the given (or all) instances.
+	DescribeApplicationStatus(
+		instanceIDs []string,
+		filters map[string][]string,
+	) []*InstanceApplicationStatus
 }

@@ -323,6 +323,7 @@ type InMemoryBackend struct {
 	tgwRTAssociations              *store.Table[TransitGatewayRouteTableAssociation]
 	tgwPolicyTables                *store.Table[TransitGatewayPolicyTable]
 	tgwPolicyTableAssociations     *store.Table[TransitGatewayPolicyTableAssociation]
+	tgwPolicyTableEntries          *store.Table[TransitGatewayPolicyTableEntry]
 	tgwRouteTableAnnouncements     *store.Table[TransitGatewayRouteTableAnnouncement]
 	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
 	vpnGateways                    *store.Table[VpnGateway]
@@ -502,10 +503,14 @@ type InMemoryBackend struct {
 	// attachments, image watermarks, account VPC Encryption Control, Capacity
 	// Manager monitored tag keys (nested in capacityManagerState), and
 	// account-level managed resource visibility.
-	tgwClientVpnAttachments          *store.Table[TransitGatewayClientVpnAttachment]
-	imageWatermarks                  map[string][]string
-	accountVpcEncryptionControl      *AccountVpcEncryptionControl
-	managedResourceDefaultVisibility string
+	tgwClientVpnAttachments     *store.Table[TransitGatewayClientVpnAttachment]
+	imageWatermarks             map[string][]string
+	accountVpcEncryptionControl *AccountVpcEncryptionControl
+	// Application Status Check additions (parity SDK-bump: ec2 v1.317 -> v1.319.1)
+	applicationStatusChecks            *store.Table[ApplicationStatusCheck]
+	applicationStatusCheckAssociations *store.Table[ApplicationStatusCheckAssociation]
+	applicationStatusSuppressions      *store.Table[ApplicationStatusSuppression]
+	managedResourceDefaultVisibility   string
 	// registry lets Reset collapse the ~150 converted resource maps' lifecycle
 	// to one call (registry.ResetAll()) instead of hand-rolled re-initialization
 	// of each map. See store_setup.go for every Table registration.

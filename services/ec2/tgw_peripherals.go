@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -26,6 +27,9 @@ const (
 	tgwAssocStateAssociated    = "associated"
 	tgwAssocStateDisassociated = "disassociated"
 	tgwAttachmentStateRejected = "rejected"
+	// tgwPolicyTableEntryStateActive mirrors the real AWS
+	// TransitGatewayPolicyTableEntryState "active" value.
+	tgwPolicyTableEntryStateActive = "active"
 )
 
 // ---- models ----
@@ -46,6 +50,24 @@ type TransitGatewayPolicyTableAssociation struct {
 	ResourceID                  string `json:"resourceID,omitempty"`
 	ResourceType                string `json:"resourceType,omitempty"`
 	State                       string `json:"state,omitempty"`
+}
+
+// TransitGatewayPolicyTableEntry represents a single traffic-matching rule
+// within a TGW policy table, directing matching traffic to a target transit
+// gateway route table. Mirrors the real AWS TransitGatewayPolicyTableEntry
+// shape (types.TransitGatewayPolicyTableEntry / TransitGatewayPolicyRule).
+type TransitGatewayPolicyTableEntry struct {
+	TransitGatewayPolicyTableID string `json:"transitGatewayPolicyTableID,omitempty"`
+	TargetRouteTableID          string `json:"targetRouteTableID,omitempty"`
+	State                       string `json:"state,omitempty"`
+	SourceCidrBlock             string `json:"sourceCidrBlock,omitempty"`
+	SourcePortRange             string `json:"sourcePortRange,omitempty"`
+	DestinationCidrBlock        string `json:"destinationCidrBlock,omitempty"`
+	DestinationPortRange        string `json:"destinationPortRange,omitempty"`
+	Protocol                    string `json:"protocol,omitempty"`
+	MetaDataKey                 string `json:"metaDataKey,omitempty"`
+	MetaDataValue               string `json:"metaDataValue,omitempty"`
+	PolicyRuleNumber            int    `json:"policyRuleNumber,omitempty"`
 }
 
 // TransitGatewayRouteTableAnnouncement represents a TGW route table
@@ -167,6 +189,12 @@ func (b *InMemoryBackend) DeleteTransitGatewayPolicyTable(id string) error {
 		}
 	}
 
+	for _, entry := range b.tgwPolicyTableEntries.All() {
+		if entry.TransitGatewayPolicyTableID == id {
+			b.tgwPolicyTableEntries.Delete(tgwPolicyTableEntriesKeyFn(entry))
+		}
+	}
+
 	return nil
 }
 
@@ -266,22 +294,204 @@ func (b *InMemoryBackend) GetTransitGatewayPolicyTableAssociations(
 }
 
 // GetTransitGatewayPolicyTableEntries validates that a policy table exists
-// and returns an empty entry list. Real AWS exposes no API to create policy
-// table entries directly (they are derived internally from attached
-// resources), so an empty list is the correct, non-placeholder shape here.
-func (b *InMemoryBackend) GetTransitGatewayPolicyTableEntries(policyTableID string) error {
+// and returns the entries created against it via
+// CreateTransitGatewayPolicyTableEntry.
+func (b *InMemoryBackend) GetTransitGatewayPolicyTableEntries(
+	policyTableID string,
+) ([]*TransitGatewayPolicyTableEntry, error) {
 	if policyTableID == "" {
-		return fmt.Errorf("%w: TransitGatewayPolicyTableId is required", ErrInvalidParameter)
+		return nil, fmt.Errorf("%w: TransitGatewayPolicyTableId is required", ErrInvalidParameter)
 	}
 
 	b.mu.RLock("GetTransitGatewayPolicyTableEntries")
 	defer b.mu.RUnlock()
 
 	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
-		return fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
+		return nil, fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
 	}
 
-	return nil
+	out := make([]*TransitGatewayPolicyTableEntry, 0)
+
+	for _, e := range b.tgwPolicyTableEntries.All() {
+		if e.TransitGatewayPolicyTableID != policyTableID {
+			continue
+		}
+
+		cp := *e
+		out = append(out, &cp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].PolicyRuleNumber < out[j].PolicyRuleNumber
+	})
+
+	return out, nil
+}
+
+// CreateTransitGatewayPolicyTableEntry adds a traffic-matching rule to a
+// policy table, directing matching traffic to a target transit gateway route
+// table. entry's TransitGatewayPolicyTableID and State are set by this call;
+// the caller fills in PolicyRuleNumber, TargetRouteTableID, and the
+// rule-matching fields.
+func (b *InMemoryBackend) CreateTransitGatewayPolicyTableEntry(
+	policyTableID string,
+	entry *TransitGatewayPolicyTableEntry,
+) (*TransitGatewayPolicyTableEntry, error) {
+	if policyTableID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayPolicyTableId is required", ErrInvalidParameter)
+	}
+
+	if entry == nil || entry.PolicyRuleNumber <= 0 {
+		return nil, fmt.Errorf("%w: PolicyRuleNumber is required", ErrInvalidParameter)
+	}
+
+	if entry.TargetRouteTableID == "" {
+		return nil, fmt.Errorf("%w: TargetRouteTableId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("CreateTransitGatewayPolicyTableEntry")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
+	}
+
+	if _, ok := b.tgwRouteTables.Get(entry.TargetRouteTableID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, entry.TargetRouteTableID)
+	}
+
+	stored := *entry
+	stored.TransitGatewayPolicyTableID = policyTableID
+	stored.State = tgwPolicyTableEntryStateActive
+
+	b.tgwPolicyTableEntries.Put(&stored)
+
+	cp := stored
+
+	return &cp, nil
+}
+
+// ModifyTransitGatewayPolicyTableEntry updates the target route table and/or
+// matching rule of an existing policy table entry. Fields left unset in
+// updates (empty string / zero value) retain their current stored value,
+// mirroring the real API's "Unspecified fields retain their current values"
+// documented behaviour for TargetRouteTableId and the PolicyRule fields.
+func (b *InMemoryBackend) ModifyTransitGatewayPolicyTableEntry(
+	policyTableID string,
+	ruleNumber int,
+	updates *TransitGatewayPolicyTableEntry,
+) (*TransitGatewayPolicyTableEntry, error) {
+	if policyTableID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayPolicyTableId is required", ErrInvalidParameter)
+	}
+
+	if ruleNumber <= 0 {
+		return nil, fmt.Errorf("%w: PolicyRuleNumber is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ModifyTransitGatewayPolicyTableEntry")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
+	}
+
+	key := policyTableID + ":" + strconv.Itoa(ruleNumber)
+
+	entry, ok := b.tgwPolicyTableEntries.Get(key)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: policy table entry %d in %s not found",
+			ErrInvalidParameter,
+			ruleNumber,
+			policyTableID,
+		)
+	}
+
+	if updates != nil {
+		if updates.TargetRouteTableID != "" {
+			if _, rtOK := b.tgwRouteTables.Get(updates.TargetRouteTableID); !rtOK {
+				return nil, fmt.Errorf("%w: %s", ErrTGWRouteTableNotFound, updates.TargetRouteTableID)
+			}
+
+			entry.TargetRouteTableID = updates.TargetRouteTableID
+		}
+
+		applyTGWPolicyRuleUpdates(entry, updates)
+	}
+
+	cp := *entry
+
+	return &cp, nil
+}
+
+// applyTGWPolicyRuleUpdates copies non-empty PolicyRule-matching fields from
+// updates onto entry, leaving fields entry already has unset in updates
+// untouched.
+func applyTGWPolicyRuleUpdates(entry, updates *TransitGatewayPolicyTableEntry) {
+	if updates.SourceCidrBlock != "" {
+		entry.SourceCidrBlock = updates.SourceCidrBlock
+	}
+
+	if updates.SourcePortRange != "" {
+		entry.SourcePortRange = updates.SourcePortRange
+	}
+
+	if updates.DestinationCidrBlock != "" {
+		entry.DestinationCidrBlock = updates.DestinationCidrBlock
+	}
+
+	if updates.DestinationPortRange != "" {
+		entry.DestinationPortRange = updates.DestinationPortRange
+	}
+
+	if updates.Protocol != "" {
+		entry.Protocol = updates.Protocol
+	}
+
+	if updates.MetaDataKey != "" {
+		entry.MetaDataKey = updates.MetaDataKey
+	}
+
+	if updates.MetaDataValue != "" {
+		entry.MetaDataValue = updates.MetaDataValue
+	}
+}
+
+// DeleteTransitGatewayPolicyTableEntry removes a single rule from a policy
+// table.
+func (b *InMemoryBackend) DeleteTransitGatewayPolicyTableEntry(
+	policyTableID string,
+	ruleNumber int,
+) (*TransitGatewayPolicyTableEntry, error) {
+	if policyTableID == "" {
+		return nil, fmt.Errorf("%w: TransitGatewayPolicyTableId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("DeleteTransitGatewayPolicyTableEntry")
+	defer b.mu.Unlock()
+
+	if _, ok := b.tgwPolicyTables.Get(policyTableID); !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTGWPolicyTableNotFound, policyTableID)
+	}
+
+	key := policyTableID + ":" + strconv.Itoa(ruleNumber)
+
+	entry, ok := b.tgwPolicyTableEntries.Get(key)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: policy table entry %d in %s not found",
+			ErrInvalidParameter,
+			ruleNumber,
+			policyTableID,
+		)
+	}
+	b.tgwPolicyTableEntries.Delete(key)
+
+	cp := *entry
+	cp.State = tgwRouteStateDeleted
+
+	return &cp, nil
 }
 
 // ---- Transit Gateway Route Table Announcements ----

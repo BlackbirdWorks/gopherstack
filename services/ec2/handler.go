@@ -165,6 +165,7 @@ func aggregateExtSupportedOperations() []string {
 		declarativePoliciesSupportedOperations,
 		networkPerformanceSupportedOperations,
 		managedResourceVisibilitySupportedOperations,
+		applicationStatusChecksSupportedOperations,
 		stubSupportedOperations,
 	}
 
@@ -503,6 +504,7 @@ func (h *Handler) opRegistrars() []func(*Handler, map[string]ec2ActionFn) {
 		registerDeclarativePoliciesOps,
 		registerNetworkPerformanceOps,
 		registerManagedResourceVisibilityOps,
+		registerApplicationStatusChecksOps,
 		// registerAdvancedNetworkingOps must run last to override stub entries.
 		registerAdvancedNetworkingOps,
 		registerIpamDiscoveryOps,
@@ -730,6 +732,9 @@ var errCodeLookup = []struct {
 	{ErrMissingParameter, "MissingParameter"},
 	{ErrInvalidPaginationToken, "InvalidPaginationToken"},
 	{ErrOperationNotPermitted, "OperationNotPermitted"},
+	{ErrApplicationStatusCheckNotFound, "InvalidApplicationStatusCheckId.NotFound"},
+	{ErrInvalidParameterCombination, "InvalidParameterCombination"},
+	{ErrTooManyApplicationStatusChecks, "ApplicationStatusCheckLimitExceeded"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.

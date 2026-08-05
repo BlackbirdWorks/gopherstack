@@ -161,6 +161,9 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	{"ipv4pool-coip-", "coip-pool"},
 	{"ipv4pool-ec2-", "ipv4pool-ec2"},
 	{"ipv6pool-ec2-", "ipv6pool-ec2"},
+
+	// ---- application status checks ----
+	{"asc-", "application-status-check"},
 }
 
 // resourceTypeByID infers the EC2 resource type from the ID prefix.
@@ -188,7 +191,8 @@ func (b *InMemoryBackend) resourceExistsLocked(id string) bool {
 		b.resourceExistsIpamLocked(id) ||
 		b.resourceExistsVerifiedAccessAndMirrorLocked(id) ||
 		b.resourceExistsInsightsAndRouteServerLocked(id) ||
-		b.resourceExistsSecondaryAndMiscLocked(id)
+		b.resourceExistsSecondaryAndMiscLocked(id) ||
+		b.applicationStatusChecks.Has(id)
 }
 
 // resourceExistsCoreLocked checks the original core resource maps (instances,
