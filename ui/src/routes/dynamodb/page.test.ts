@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DynamoDBPage from "./+page.svelte";
-import { setMockPageUrl } from "$lib/mock-page.svelte";
+import { setMockPageUrl, getMockPage } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -880,6 +880,133 @@ describe("DynamoDB Page", () => {
         TableName: "Orders",
         PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
       });
+    });
+
+    it("hydrates the table and renders the PITR panel from a ?table=X&tab=pitr deep link, with no click at all", async () => {
+      setMockPageUrl(new URL("http://localhost/dynamodb?table=Orders&tab=pitr"));
+      // Both the table-list load and the deep-link hydration effect fire on
+      // mount, so their DDB calls interleave rather than following the
+      // strict sequence openOrdersTable()'s click-driven flow relies on.
+      // Dispatch by command type instead of by call order.
+      mockSend.mockImplementation((command: unknown) => {
+        switch (commandName(command)) {
+          case "ListTablesCommand":
+            return Promise.resolve({ TableNames: ["Orders"] });
+          case "DescribeTableCommand":
+            return Promise.resolve({ Table: baseTable });
+          case "DescribeTimeToLiveCommand":
+            return Promise.resolve({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+          case "DescribeContinuousBackupsCommand":
+            return Promise.resolve({
+              ContinuousBackupsDescription: {
+                PointInTimeRecoveryDescription: { PointInTimeRecoveryStatus: "ENABLED" },
+              },
+            });
+          default:
+            return Promise.resolve({});
+        }
+      });
+
+      render(DynamoDBPage);
+
+      // The PITR panel is visible straight from the URL: no row click, no tab click.
+      await waitFor(() => expect(screen.getByText("Enabled")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+      expect(screen.getByText("Delete Table")).toBeInTheDocument();
+      expect(callCount("DescribeContinuousBackupsCommand")).toBe(1);
+    });
+
+    it("shows an error alert and an 'Unknown' status when DescribeContinuousBackups rejects, not a false 'Disabled'", async () => {
+      await openOrdersTable();
+      mockSend.mockRejectedValueOnce(new Error("Throttled"));
+      await fireEvent.click(screen.getByText("PITR"));
+
+      await waitFor(() =>
+        expect(screen.getByText("Failed to load continuous-backups status")).toBeInTheDocument(),
+      );
+      expect(screen.getByText(/Throttled/)).toBeInTheDocument();
+      expect(screen.getByText("Unknown")).toBeInTheDocument();
+      expect(screen.queryByText("Disabled")).not.toBeInTheDocument();
+    });
+
+    it("clicking a table row sets ?table= in the URL and resets the tab to overview", async () => {
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders", "Users"] });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({
+        Table: {
+          TableName: "Users",
+          TableStatus: "ACTIVE",
+          ItemCount: 1,
+          KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+        },
+      });
+
+      render(DynamoDBPage);
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Orders"));
+      await waitFor(() => expect(screen.getByText("Delete Table")).toBeInTheDocument());
+
+      mockSend.mockResolvedValueOnce({ BackupSummaries: [] });
+      await fireEvent.click(screen.getByText("Backups"));
+      await waitFor(() => expect(getMockPage().url.searchParams.get("tab")).toBe("backups"));
+      expect(getMockPage().url.searchParams.get("table")).toBe("Orders");
+
+      await fireEvent.click(screen.getByText("Tables"));
+      await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument());
+
+      mockSend.mockResolvedValueOnce({
+        Table: {
+          TableName: "Users",
+          TableStatus: "ACTIVE",
+          ItemCount: 1,
+          KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+        },
+      });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Users"));
+      await waitFor(() => expect(getMockPage().url.searchParams.get("table")).toBe("Users"));
+      expect(getMockPage().url.searchParams.get("tab")).toBeNull();
+    });
+
+    // The global `goto` mock (vitest.setup.ts) defers its `page.url` write
+    // by a microtask, matching the real `@sveltejs/kit` client runtime:
+    // `goto()` reassigns `page.url` only after `await navigate(...)`
+    // resolves, deep inside its async pipeline -- never synchronously
+    // before returning. A row-click handler that calls `.set()` on two
+    // different urlState instances back to back (no `await` between them)
+    // has both `set()` calls compute their next URL from the SAME
+    // `page.url` snapshot, since neither `goto()` has had a chance to
+    // land before the second snapshot is taken -- so the second `goto()`
+    // clobbers the first instead of composing with it. This test proves
+    // the fix (`setUrlParams()`, which computes one URL from one snapshot
+    // and fires a single `goto()`) actually closes that gap, using the
+    // exact browser repro that surfaced the bug: land on `?tab=pitr` with
+    // no table selected, then click a row.
+    it("does not lose the tab reset to a same-tick goto() race when selecting a table from a URL that already has ?tab=", async () => {
+      setMockPageUrl(new URL("http://localhost/dynamodb?tab=pitr"));
+
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      render(DynamoDBPage);
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Orders"));
+
+      await waitFor(() => expect(getMockPage().url.searchParams.get("table")).toBe("Orders"));
+      // The real bug this reproduces: a stale-snapshot second set() call
+      // leaves the old `tab=pitr` in the URL instead of resetting it, so
+      // the table page opens back onto the PITR tab instead of Overview.
+      expect(getMockPage().url.searchParams.get("tab")).toBeNull();
     });
 
     it("updates TTL via the exact UpdateTimeToLive TimeToLiveSpecification", async () => {

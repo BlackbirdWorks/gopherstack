@@ -56,10 +56,33 @@ vi.mock("$app/navigation", async () => {
     // which let every urlState-driven component test pass while the real app
     // silently never re-rendered on a tab/filter click — caught by e2e, not
     // by these tests, until this mock was corrected to match reality.
+    //
+    // The write is deferred by one microtask (`Promise.resolve().then(...)`)
+    // rather than applied synchronously here, because the real `goto()`
+    // isn't synchronous either: reading `@sveltejs/kit`'s shipped
+    // client.js, `goto()` reassigns `page.url` only after `await
+    // navigate(...)` resolves, deep inside its async pipeline — never
+    // before returning. A synchronous mock write is MORE convenient for
+    // tests but was hiding a real bug: two `urlState.set()` calls issued
+    // back to back with no `await` between them (e.g. a click handler
+    // doing `tab.set('overview'); table.set(name)`) each compute their
+    // next URL from `new URL(page.url)`. With a synchronous mock, the
+    // first call's write lands before the second call's snapshot is
+    // taken, so the two compose correctly — which is NOT what happens in
+    // a real browser, where both snapshots are taken before either
+    // `goto()` has had a chance to update anything, and the second
+    // `goto()`'s write clobbers the first. Deferring here reproduces that
+    // ordering so tests can catch it. Callers that need to change more
+    // than one urlState value in one handler must use `setUrlParams()`
+    // (see `url-state.svelte.ts`), which computes a single URL from a
+    // single snapshot and fires one `goto()` — see
+    // `routes/dynamodb/page.test.ts` for an end-to-end repro of the bug
+    // this deferral catches.
     goto: vi.fn((url: string | URL, opts?: { state?: Record<string, unknown> }) => {
-      setMockPageUrl(new URL(url));
-      setMockPageState(opts?.state ?? {});
-      return Promise.resolve();
+      return Promise.resolve().then(() => {
+        setMockPageUrl(new URL(url));
+        setMockPageState(opts?.state ?? {});
+      });
     }),
     invalidateAll: vi.fn(),
     // Deliberately inert: does NOT touch the mock page, matching the real
