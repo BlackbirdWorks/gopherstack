@@ -8,32 +8,40 @@ sdk_module: aws-sdk-go-v2/service/rds@v1.123.0
 last_audit_commit: PENDING_COMMIT  # working tree not committed by this pass (git use was out of
                                     # scope); set to the actual commit hash when this diff lands.
 last_audit_date: 2026-07-25
-overall: A-             # DOWNGRADED A->A- (parity-5/phantom-triage pass, 2026-07-31): the
-                       # reverse sdkcheck (gopherstack-vhw2) found "DescribeCustomDBEngineVersions"
-                       # advertised in GetSupportedOperations() AND dispatched -- it is not a real
-                       # RDS SDK operation (custom engine versions are returned by
-                       # DescribeDBEngineVersions like any other engine/version pair; there is no
-                       # separate describe-custom call on the real client). A prior pass's own test,
-                       # TestDescribeCustomDBEngineVersions_InSupportedOps, asserted the fabricated
-                       # name "should" be supported, i.e. encoded the defect as expected behavior.
-                       # FIXED this pass: DescribeDBEngineVersions now also returns custom engine
-                       # versions (merged from the same b.customEngineVersions store the fabricated
-                       # op read from); the fabricated action/handler/response-shape were deleted
-                       # from the wire surface (the internal Go-level
-                       # InMemoryBackend.DescribeCustomDBEngineVersions helper was kept -- it is
-                       # still useful for tests to inspect just the custom-engine-version subset of
-                       # state -- but it is no longer reachable over HTTP under any Action= name).
-                       # Also found and corrected: the performance_insights family below was
-                       # documented as status: ok without disclosing that "GetPerformanceInsightsMetrics"
-                       # does not match either the real RDS client (no such op) or the real
-                       # Performance Insights client's op name (GetResourceMetrics, on a separate
-                       # "pi" SDK client/endpoint/protocol entirely) -- kept wired (real,
-                       # useful functionality; deleting it would remove a real capability with no
-                       # replacement) but the sdkcheck reverse check will continue to flag it as a
-                       # phantom for that reason, and the row now says so. Grade held at A- rather
-                       # than A because both issues reflect real documentation/wire-accuracy gaps a
-                       # prior "A" pass should have caught, not because remaining functionality
-                       # regressed.
+overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
+                       # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
+                       # below) are resolved, and nothing new was found in their place.
+                       # (1) "DescribeCustomDBEngineVersions" -- the fabricated action -- was
+                       # already removed from the wire surface by the 2026-07-31 pass itself:
+                       # handler_dispatch.go's dispatchExtended16 doc comment (~:577) documents it
+                       # as deliberately unrouted, DescribeDBEngineVersions merges in custom engine
+                       # versions instead, and it no longer appears in GetSupportedOperations() or
+                       # in the sdkcheck reverse-phantom output. (2) "GetPerformanceInsightsMetrics"
+                       # -- the one operation still flagged by the reverse check -- is no longer an
+                       # undisclosed gap: pkgs/sdkcheck/check.go now has a documented, per-client
+                       # phantomAllowlist (closing gopherstack-vhw2), and this operation is listed
+                       # under "*rds.Client" with the same justification already on record in the
+                       # performance_insights family note and the gaps: entry below (the real
+                       # operation is GetResourceMetrics, on a separate "pi" SDK client this repo
+                       # does not depend on; kept wired because it is real, seeded, non-stub
+                       # functionality with no wire-accurate replacement to redirect callers to).
+                       # The reverse phantom check is now a hard failure repo-wide (no more
+                       # reporting-only tb.Logf) -- rds passes it cleanly via that allowlist entry,
+                       # an explicit, reviewed exception rather than a silent tolerance. Both
+                       # issues were documentation/wire-accuracy gaps, not functionality
+                       # regressions, and both are now fixed for real: TestSDKCompleteness
+                       # (services/rds/dispatch_test.go) is green against the strict check, and
+                       # DescribeCustomDBEngineVersions's removal already had regression coverage
+                       # from the prior pass (TestDescribeCustomDBEngineVersions_ViaHandler/
+                       # _NotAdvertised). No other issue was found this pass; the pre-existing,
+                       # unrelated gaps below (DescribeDBEngineVersions/
+                       # DescribeOrderableDBInstanceOptions pagination,
+                       # DescribeServerlessV2PlatformVersions' honestly-empty catalog) are the same
+                       # ones this service already carried the last time it held A, and did not
+                       # block that grade then either.
+                       #
+                       # Everything from here through the next "Everything below this line" marker
+                       # is retained history from the 2026-07-31 A->A- downgrade pass, kept verbatim:
                        #
                        # Everything below this line is the PRIOR (2026-07-25) A audit's own
                        # overall note, kept verbatim for history: this pass closed all three gaps

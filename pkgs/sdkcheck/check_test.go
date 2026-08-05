@@ -3,7 +3,6 @@ package sdkcheck_test
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -321,17 +320,18 @@ func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is not a pointer")
 }
 
-// TestCheckCompleteness_ReportsPhantomOpNonFatally verifies that
+// TestCheckCompleteness_FailsOnUnallowlistedPhantomOp verifies that
 // CheckCompleteness catches the reverse defect — a supportedOps entry that
 // does not correspond to any real method on the SDK client (a "phantom"
-// operation) — and reports it via Logf, without failing the test. This
-// mirrors the real-world EMR bug where GetSupportedOperations() listed
-// ListTagsForResource even though no such operation exists on the AWS SDK's
-// emr client. The check is currently non-fatal (see the rollout note in
-// check.go): a repo-wide sweep found phantom entries across a meaningful
-// fraction of services on first run, so this is reporting-only until each
-// service's findings are triaged.
-func TestCheckCompleteness_ReportsPhantomOpNonFatally(t *testing.T) {
+// operation) — and hard-fails the test when that name is not in
+// phantomAllowlist for the client type. This mirrors the real-world EMR bug
+// where GetSupportedOperations() listed ListTagsForResource even though no
+// such operation exists on the AWS SDK's emr client. The reverse check was a
+// non-fatal, reporting-only rollout for a period (see bd issue
+// gopherstack-vhw2); the rollout is over and every service's phantom
+// entries have been triaged (fixed, or added to phantomAllowlist as a
+// documented exception), so an unlisted phantom is now a hard failure.
+func TestCheckCompleteness_FailsOnUnallowlistedPhantomOp(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
@@ -340,10 +340,8 @@ func TestCheckCompleteness_ReportsPhantomOpNonFatally(t *testing.T) {
 		[]string{"GetItem", "PutItem", "DeleteItem", "ListTagsForResource"},
 		nil,
 	)
-	require.False(t, spy.Failed(),
-		"CheckCompleteness should not fail the test for a phantom op — it is reporting-only for now")
-	require.True(t, spy.loggedContains("ListTagsForResource"),
-		"CheckCompleteness should log the phantom op name so it's discoverable in verbose test output")
+	require.True(t, spy.Failed(),
+		"CheckCompleteness should fail the test for a phantom op that is not in phantomAllowlist")
 }
 
 // spyT wraps a [testing.TB] to intercept failure calls so we can test that
@@ -360,17 +358,6 @@ func newSpyT(tb testing.TB) *spyT {
 	tb.Helper()
 
 	return &spyT{TB: tb}
-}
-
-// loggedContains reports whether any captured Logf/Log call contains substr.
-func (s *spyT) loggedContains(substr string) bool {
-	for _, l := range s.logs {
-		if strings.Contains(l, substr) {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (s *spyT) Helper()                   {}
