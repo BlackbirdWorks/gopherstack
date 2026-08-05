@@ -226,6 +226,7 @@ require (
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
+	github.com/palkan/mulint v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
@@ -371,6 +372,7 @@ require (
 )
 
 tool (
+	github.com/palkan/mulint/cmd/mulint-vet
 	golang.org/x/vuln/cmd/govulncheck
 	gotest.tools/gotestsum
 )
