@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -406,8 +405,8 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 // call. Caller must hold sourceTable.mu.RLock.
 //
 // Behaviour:
-//   - UseLatestRestorableTime or RestoreDateTime empty → current items.
-//   - RestoreDateTime parseable → newest snapshot whose Taken <= RestoreDateTime.
+//   - UseLatestRestorableTime or RestoreDateTime nil → current items.
+//   - RestoreDateTime set → newest snapshot whose Taken <= RestoreDateTime.
 //   - No matching snapshot (e.g. requested time is before the table was created
 //     or the snapshot window has rotated past it) → nil, signalling the caller
 //     to return InvalidRestoreTimeException (real AWS returns this, not an
@@ -416,21 +415,15 @@ func selectPITRItems(
 	sourceTable *Table,
 	req models.RestoreTableToPointInTimeInput,
 ) []map[string]any {
-	if req.UseLatestRestorableTime || req.RestoreDateTime == "" {
+	if req.UseLatestRestorableTime || req.RestoreDateTime == nil {
 		return deepCopyItems(sourceTable.Items)
 	}
 
-	t, err := time.Parse(time.RFC3339Nano, req.RestoreDateTime)
-	if err != nil {
-		// Fallback to seconds-since-epoch which the AWS SDK marshals when
-		// using the JSON 1.0 number form.
-		if secs, parseErr := strconv.ParseFloat(req.RestoreDateTime, 64); parseErr == nil {
-			const nanosPerSec = float64(time.Second / time.Nanosecond)
-			t = time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
-		} else {
-			return deepCopyItems(sourceTable.Items)
-		}
-	}
+	// RestoreDateTime is Unix epoch seconds (with optional fractional part),
+	// the wire shape the real AWS SDK's awsjson1_0 protocol emits.
+	secs := *req.RestoreDateTime
+	const nanosPerSec = float64(time.Second / time.Nanosecond)
+	t := time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
 
 	// Newest snapshot at-or-before t. Snapshots are appended in time order so
 	// scanning backwards is O(k) where k is the index from the end.

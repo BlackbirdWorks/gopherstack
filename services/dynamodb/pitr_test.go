@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
-	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 )
 
 // enablePITR flips PointInTimeRecoveryEnabled on for tableName via the wire
@@ -161,16 +160,26 @@ func TestPITR_RestoreOutsideWindow_ReturnsInvalidRestoreTimeException(t *testing
 	earliest := tbl.PITRSnapshots[0].Taken
 
 	// Well before the only available snapshot -- outside the recovery window.
-	restoreTime := earliest.Add(-1 * time.Hour).UTC().Format(time.RFC3339Nano)
+	//
+	// Sent as a raw JSON number (Unix epoch seconds), not through
+	// models.RestoreTableToPointInTimeInput -- the real AWS SDK's awsjson1_0
+	// protocol serializes RestoreDateTime as a JSON number via
+	// smithytime.FormatEpochSeconds, never a JSON string. Building the request
+	// through our own Go struct would make the test tautological: it would
+	// pass even if RestoreDateTime were (wrongly) typed as a Go string, since
+	// json.Marshal/Unmarshal would round-trip against themselves. Driving the
+	// handler through the actual wire payload is what catches a regression in
+	// the field's wire type.
+	restoreTime := float64(earliest.Add(-1*time.Hour).UTC().UnixNano()) / float64(time.Second)
 
 	code, resp := doBackupRequest(
 		t,
 		h,
 		"DynamoDB_20120810.RestoreTableToPointInTime",
-		models.RestoreTableToPointInTimeInput{
-			SourceTableName: "PITROOWTable",
-			TargetTableName: "PITROOWRestored",
-			RestoreDateTime: restoreTime,
+		map[string]any{
+			"SourceTableName": "PITROOWTable",
+			"TargetTableName": "PITROOWRestored",
+			"RestoreDateTime": restoreTime,
 		},
 	)
 

@@ -655,11 +655,18 @@ type RestoreTableFromBackupOutput struct {
 }
 
 // RestoreTableToPointInTimeInput is the wire format for RestoreTableToPointInTime.
+//
+// RestoreDateTime is a pointer to Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string. A pointer (rather than a bare float64) lets us
+// distinguish "field omitted" from "epoch zero" (1970-01-01), which a bare
+// zero value cannot.
 type RestoreTableToPointInTimeInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	RestoreDateTime               *float64               `json:"RestoreDateTime,omitempty"`
 	SourceTableName               string                 `json:"SourceTableName"`
 	TargetTableName               string                 `json:"TargetTableName"`
-	RestoreDateTime               string                 `json:"RestoreDateTime,omitempty"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
