@@ -9,14 +9,13 @@
 | --- | --- |
 | Operations audited | 49 (49 ok) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - CreateTable's Metadata field (Iceberg schema at creation) is accepted by the real API but not parsed/stored by this emulator; no read path currently exposes table schema, so this was left deferred rather than half-wired (bd: TODO -- file if schema support becomes a priority)
-- Table bucket names and namespace/table names are not validated against AWS's real naming rules (bucket: 3-63 chars, lowercase+digits+hyphens, no leading/trailing hyphen, reserved prefix/suffix denylist; namespace/table: 1-255 chars, lowercase+digits+underscores ONLY -- no hyphens -- confirmed via https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html). Verified this IS a real gap (the aws-sdk-go-v2 client only validates required-ness client-side, so an invalid name reaches the server -- i.e. this emulator -- unrejected). NOT fixed this pass: the existing test corpus pervasively uses hyphenated namespace/table fixture names (e.g. "acme-ns", "test-ns") and t.Name()-derived bucket names containing underscores across ~10+ files outside this pass's scope; enforcing the real character sets would require a coordinated fixture rename across the whole service package, which is a separate, larger undertaking than the wire-shape/state fixes this pass targeted. Confirmed via a scoped experiment (implemented + immediately reverted) that this breaks TestHandler_Table_*, TestHandler_Namespace_CRUD, TestHandler_MaintenanceConfiguration, TestHandler_Encryption, and others. (bd: TODO -- file as a dedicated fixture-rename + validation pass)
 
 ## More
 

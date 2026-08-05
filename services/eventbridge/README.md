@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 59 (57 ok, 2 partial) |
+| Operations audited | 61 (57 ok, 4 partial) |
 | Feature families | 3 (3 ok) |
 | Known gaps | none |
 | Deferred items | 2 |
@@ -15,7 +15,7 @@
 
 ### Deferred
 
-- Schema registry (CreateRegistry..GetCodeBindingSource, 17 ops) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; not audited this pass.
+- Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check.
 - PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix.
 
 ## More

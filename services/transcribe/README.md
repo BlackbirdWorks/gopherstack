@@ -8,17 +8,15 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 43 (43 ok) |
-| Feature families | 4 (4 ok) |
-| Known gaps | 4 |
+| Feature families | 6 (6 ok) |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- MaxResults (all List* ops) is accepted on the wire but not honored -- page size is a fixed constant (transcribeDefaultPageSize=100) regardless of the caller's requested MaxResults. AWS documents MaxResults as an upper bound the service may return fewer than, so this is non-conformant but not client-breaking (real SDK clients page via NextToken, not by asserting exact page sizes). Not fixed this pass; tracked as a future follow-up.
-- CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority.
-- MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking.
-- LanguageIdSettings keys are not cross-validated against LanguageOptions/IdentifyMultipleLanguages the way real AWS does (real API returns a validation error if a LanguageIdSettings key isn't also present in LanguageOptions). gopherstack accepts and echoes any keys supplied. Low priority correctness gap, not a wire-shape bug.
+- CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority. Re-checked this pass (gopherstack-5or5): still true, still no backing data to populate Skipped[] truthfully, left undone rather than fabricated.
+- MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking. Re-checked this pass (gopherstack-5or5): still true.
 
 ## More
 

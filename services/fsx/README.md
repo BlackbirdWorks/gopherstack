@@ -8,16 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 13 (13 ok) |
-| Known gaps | 5 |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass.
-- CreateFileSystem does not require SubnetIds (real AWS requires at least one, and exactly two for Windows/ONTAP MULTI_AZ_1 deployments). Not fixed this pass: nearly every existing test fixture across the whole package creates file systems without SubnetIds, and this emulator does not model Availability Zones, so a real per-subnet-AZ MULTI_AZ_1 validation would be more theater than substance. Flagging for a future pass that also wants to model AZs.
-- No idempotency-token (ClientRequestToken) dedup on CreateFileSystem: two calls with the same token and matching parameters should return the existing file system's description instead of creating a second one, and mismatched parameters should return IncompatibleParameterError. Not modeled -- createFileSystemInput has no ClientRequestToken field at all. Needs a bd issue for a follow-up pass (moderate scope: token->result cache with a TTL-free 'seen tokens' map).
-- InvalidRegion/InvalidNetworkSettings (malformed/cross-region subnet or security-group IDs) are not validated: this emulator does not model VPC/subnet/AZ topology at all, so there is nothing to validate a SubnetId against. Consistent with the rest of gopherstack's networking-light emulation approach; not fixed this pass.
+- Delete*Output shapes (DeleteFileSystem, DeleteVolume) do not include the optional WindowsResponse/LustreResponse/OpenZFSConfiguration finalizer sub-objects (e.g. FinalBackupTags) that real AWS returns when a final backup is requested at delete time. Low traffic; not fixed this pass (gopherstack-wjjl was scoped to idempotency + network validation, not this).
+- CreateFileSystem still does not REQUIRE SubnetIds (real AWS: Required: Yes, and exactly two for Windows/ONTAP MULTI_AZ_1 deployments). Re-confirmed this pass (gopherstack-wjjl) against the live API reference (docs.aws.amazon.com/fsx/latest/APIReference/API_CreateFileSystem.html): SubnetIds is genuinely required. Still not enforced: grep confirms zero test fixtures across the entire fsx package (5 test files, 28+ CreateFileSystem call sites) ever populate SubnetIds, so flipping it to required would be a wholesale fixture migration, not a small fix, and this emulator still does not model Availability Zone topology needed for the exactly-one-vs-exactly-two-subnets MULTI_AZ_1 rule. What WAS fixed this pass: SubnetIds/SecurityGroupIds, when supplied, are now format-validated against the real ID patterns (subnet-[0-9a-f]{8,} / sg-[0-9a-f]{8,}) and rejected with InvalidNetworkSettings if malformed -- see families note below.
 - ActiveDirectoryError (AD-join failures for WINDOWS/ONTAP file systems joining a directory) is not modeled: ActiveDirectoryId is accepted and echoed back but never validated against a real Directory Service resource (gopherstack's ds package). Not fixed this pass -- cross-service validation, out of scope for a single-service parity pass.
 
 ## More

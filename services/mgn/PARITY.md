@@ -1,76 +1,170 @@
 ---
-# PARITY MANIFEST — IMPLEMENTED THIS PASS. See "Implementation summary (this pass)" below the
-# frontmatter for the hard-design-problem decisions, corrections found, and gate results. The
-# original pre-implementation audit prose (everything from "## Purpose of this document" onward)
-# is left otherwise unmodified as the wire-shape ground truth the implementation was built from.
-# services/mgn/ does not exist yet (confirmed: no dir before this file was written, no cli.go
-# registration, no go.mod entry, zero Go symbols anywhere in the tree -- grepped case-insensitively
-# for "\bmgn\b" across services/ and cli.go: zero hits after excluding false positives; grepped for
-# "migration"/"Migration": only dms/opensearch/elasticache/ec2/waf unrelated hits, confirmed by
-# reading each hit's context, none reference AWS Application Migration Service). This document is a
-# wire-shape + behavior SPEC for the implementer, not a record of existing code. No .go files were
-# written to produce it; every claim below was read directly from the SDK module cache, grepped/read
-# from this repo's existing services, or fetched from botocore's service model / the real Terraform
-# AWS provider source (cited per-claim).
+# PARITY MANIFEST — IMPLEMENTED. See "Implementation summary (this pass)" below the frontmatter for
+# the hard-design-problem decisions, corrections found, and gate results from the original
+# 2026-08-01 implementation pass and its gopherstack-i6oz cli.go-wiring follow-up. The original
+# pre-implementation audit prose (everything from "## Purpose of this document" onward) is left
+# otherwise unmodified as the wire-shape ground truth the implementation was built from.
+#
+# 2026-08-05 pass (this one): the frontmatter above this comment previously still read as a
+# pre-implementation spec -- every families: row said "gap", and there was no ops: key at all --
+# despite the body of this same file documenting a completed implementation in detail ("all 95 ops
+# routed/backed/persisted", gate results, an A- grade). This pass corrected that mismatch: read the
+# actual .go files (all backend files: sourceservers.go, jobs.go, applications.go, waves.go,
+# connectors.go, vcenterclients.go, exportimport.go, s3import.go, actions.go, serviceinit.go,
+# networkmigration.go, networkmigrationjobs.go, launchconfig.go, replicationconfig.go, tagging.go)
+# and verified GetSupportedOperations()/routes() against the SDK's own 95-op list, confirmed
+# `go test ./services/mgn/...` and `go test -race -count=1 ./services/mgn/...` both pass, confirmed
+# wireMGNS3 is present and called in cli.go, confirmed SeedSourceServer was in fact removed, and
+# confirmed several specific honest-gap claims already made in prose below (mapper segments always
+# empty/404, StartImport's ModifiedCount always zero, ListManagedAccounts always returns only the
+# caller's own account, StartTest/StartCutover mint a synthetic non-cross-checked EC2 instance ID)
+# by reading the exact code paths, not by trusting the prose. overall: is left unchanged (see its own
+# note below).
 service: mgn
-sdk_module: aws-sdk-go-v2/service/mgn@v1.48.3   # resolved via `go get .../mgn@latest` in a throwaway
-# scratch module (`go mod init probe && go get`, run in this session's scratchpad, NEVER touching
-# this repo's go.mod -- another agent was concurrently editing go.mod/go.sum/cli.go during this pass;
-# this audit did not read or write any of those three files).
-last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is no prior MGN code in
-# the tree at all, so this is a from-scratch pre-implementation audit, matching the directconnect/
-# outposts/resiliencehub audits done in the same pass.
-last_audit_date: 2026-08-01
-overall: A-   # raised from B+ by a second 2026-08-01 follow-up pass that applied the one remaining
-# piece the gopherstack-i6oz pass above could not: cli.go wiring. wireMGNS3(byName["MGN"],
-# byName["S3"]) is now called from wireStorageAndSecretsIntegrations (mirroring wireDynamoDBS3
-# exactly), and was verified end-to-end -- not just compiled -- via a throwaway test that ran this
-# repo's own initializeServices/wireCrossServiceDependencies, put a real object through the real S3
-# backend, and confirmed StartImport created real SourceServers from it (see "cli.go wiring" section
-# below). That closes the wire-reachability gap this service was originally docked a full letter
-# grade for, both in this package's own code and in the actual running application. Not raised to A:
-# everything else about this service is unchanged from the gopherstack-i6oz pass -- StartImport's
-# CSV schema is still this emulator's own best-effort invention (AWS never published a real one),
-# ModifiedCount is still always zero, and the two corrections/simplifications noted in the original
-# "Implementation summary" (NetworkMigrationExecutionID auto-vivification, mapper segments left
-# genuinely empty) still stand -- none of those are wire-reachability problems, but they are real,
-# documented gaps against a hypothetical perfect emulator, which is what keeps this at A- rather than
-# higher. All 95 ops routed/backed/persisted; see "Implementation
-# summary" section immediately below for the ORIGINAL hard-design-problem decisions (SeedSourceServer/
-# SeedVcenterClient, NetworkMigrationExecutionID auto-vivification, mapper segments left genuinely
-# empty -- SeedSourceServer itself was REMOVED by the follow-up pass, see below), two corrections
-# this pass found in its own pre-implementation audit, and gate results.
-# All 95 ops confirmed present in aws-sdk-go-v2/service/mgn@v1.48.3 (`ls api_op_*.go | grep -v
-# _test.go | wc -l` => 95, matching this task's ~95 estimate exactly). None are implemented.
-# Method/path verified by parsing every awsRestjson1_serializeOp<Op>.HandleSerialize's
-# httpbinding.SplitURI(...) literal and request.Method assignment in serializers.go via a Python
-# regex pass over the whole file (all 95 matched, not sampled -- see Notes for the extraction
-# method). Error sets verified by parsing every op's own awsRestjson1_deserializeOpError<Op> switch
-# body in deserializers.go for strings.EqualFold("X", errorCode) case literals (all 95, not sampled
-# from the shared types/errors.go list, which enumerates all 8 shapes without saying which ops use
-# which -- same trap the directconnect/outposts/resiliencehub audits flagged).
-# Grouped by family per this task's own guidance (95 ops is too many for 95 prose blocks); every op
-# appears in exactly one family table in the body below.
+sdk_module: aws-sdk-go-v2/service/mgn@v1.48.3   # unchanged since the 2026-08-01 audit; this pass did
+# not re-resolve @latest.
+last_audit_commit: b850093a6
+last_audit_date: 2026-08-05
+overall: A-   # NOT reassessed by this pass -- left exactly as found (see the original A- rationale
+# in the comment block above, still accurate per this pass's own code reading). This pass's mandate
+# was to correct ops:/families:/gaps: against the actual code, not to re-decide the grade;
+# gopherstack-r9yz's open question about this service's integration-test coverage bears on that
+# decision and this pass did not resolve it.
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  # source_server_lifecycle (16)
+  DescribeSourceServers: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateSourceServer: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateSourceServerReplicationType: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteSourceServer: {wire: ok, errors: ok, state: ok, persist: ok}
+  ChangeServerLifeCycleState: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisconnectFromService: {wire: ok, errors: ok, state: ok, persist: ok}
+  FinalizeCutover: {wire: ok, errors: ok, state: ok, persist: ok}
+  MarkAsArchived: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartTest: {wire: ok, errors: ok, state: partial, persist: ok, note: "on Job completion, mints a synthetic gopherstack-format LaunchedInstance.Ec2InstanceID (jobs.go:191, newSyntheticInstanceID) never cross-checked against a real services/ec2 instance -- real EC2 launch on cutover was assessed and deliberately not done this pass"}
+  StartCutover: {wire: ok, errors: ok, state: partial, persist: ok, note: "same synthetic Ec2InstanceID as StartTest (jobs.go:177-193)"}
+  StartReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  StopReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  PauseReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  ResumeReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  RetryDataReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  TerminateTargetInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover"}
+  # jobs (3)
+  DescribeJobs: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeJobLogItems: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  # launch_configuration (6)
+  GetLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape backed by an internal LaunchConfiguration type this package invented -- no named SDK struct exists for it (models.go)"}
+  UpdateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeLaunchConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLaunchConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  # replication_configuration (6)
+  GetReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape, same invented-internal-type pattern as GetLaunchConfiguration"}
+  UpdateReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeReplicationConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  # applications (8)
+  CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "AggregatedStatus rollup (rollupHealthStatus/rollupProgressStatus, applications.go) is this package's own invented aggregation rule, not SDK-specified"}
+  ArchiveApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  UnarchiveApplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateSourceServers: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateSourceServers: {wire: ok, errors: ok, state: ok, persist: ok}
+  # waves (8)
+  CreateWave: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateWave: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteWave: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListWaves: {wire: ok, errors: ok, state: ok, persist: ok, note: "AggregatedStatus rollup (waves.go), same invented-aggregation-rule pattern as ListApplications"}
+  ArchiveWave: {wire: ok, errors: ok, state: ok, persist: ok}
+  UnarchiveWave: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateApplications: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateApplications: {wire: ok, errors: ok, state: ok, persist: ok}
+  # connectors (4)
+  CreateConnector: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateConnector: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteConnector: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListConnectors: {wire: ok, errors: ok, state: ok, persist: ok}
+  # vcenter_clients (2) -- no Create op exists in this SDK surface at all (real AWS creates these via
+  # the vCenter connector appliance registering itself); SeedVcenterClient is this package's own
+  # non-SDK, unrouted creation seam, documented in the "gaps" list below, not counted as one of the 95.
+  DescribeVcenterClients: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteVcenterClient: {wire: ok, errors: ok, state: ok, persist: ok}
+  # export_import (8)
+  StartExport: {wire: ok, errors: ok, state: ok, persist: ok, note: "Summary is a real live count of the account's Applications/Waves/SourceServers, never fabricated"}
+  ListExports: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListExportErrors: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartImport: {wire: ok, errors: ok, state: partial, persist: ok, note: "genuinely reads and parses a real S3 object via S3Accessor (s3import.go), creating real SourceServers with real per-row ImportTaskError on malformed rows; ModifiedCount is always zero -- no natural key exists in this backend to detect a row that re-describes a previously-imported server (documented simplification, exportimport.go)"}
+  ListImports: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListImportErrors: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartImportFileEnrichment: {wire: ok, errors: ok, state: partial, persist: ok, note: "PENDING->STARTED->SUCCEEDED bookkeeping only (exportimport.go:301-343) -- never reads or actually enriches the target S3 object with real network/segment metadata; no such discovery engine exists"}
+  ListImportFileEnrichments: {wire: ok, errors: ok, state: ok, persist: ok}
+  # actions (6) -- state-only (documents listed/ordered/active), never invokes any SSM document; this
+  # repo has no SSM execution engine, and real AWS's own public API for this family is likewise
+  # metadata-only (execution happens as part of a launch, outside this API surface).
+  PutSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListSourceServerActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  RemoveSourceServerAction: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTemplateActions: {wire: ok, errors: ok, state: ok, persist: ok}
+  RemoveTemplateAction: {wire: ok, errors: ok, state: ok, persist: ok}
+  # service_init (2)
+  InitializeService: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListManagedAccounts: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns exactly one ManagedAccount (the caller's own AccountID, serviceinit.go:49-58) regardless of any delegated-admin/cross-account AWS Organizations relationship -- no cross-account simulation exists"}
+  # tagging (3)
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  # network_migration_definitions (13)
+  CreateNetworkMigrationDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetNetworkMigrationDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateNetworkMigrationDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteNetworkMigrationDefinition: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationDefinitions: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetNetworkMigrationMapperSegmentConstruct: {wire: ok, errors: ok, state: partial, persist: ok, note: "always 404s (networkmigration.go:233-253) -- no network-analysis engine ever produces a segment construct to return"}
+  ListNetworkMigrationMapperSegmentConstructs: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list after validating the (definition, execution) scope exists (networkmigration.go:254-277)"}
+  ListNetworkMigrationMapperSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty list, same reason as ListNetworkMigrationMapperSegmentConstructs (networkmigration.go:278-287)"}
+  UpdateNetworkMigrationMapperSegment: {wire: ok, errors: ok, state: partial, persist: ok, note: "always 404s -- no segment ever exists to update (networkmigration.go:288-297)"}
+  ListNetworkMigrationMappings: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationMappingUpdates: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartNetworkMigrationMapping: {wire: ok, errors: ok, state: ok, persist: ok, note: "auto-vivifies a NetworkMigrationExecution on first reference to an unseen (DefinitionID, ExecutionID) pair, since no op in this SDK surface creates one explicitly (resolveOrCreateExecutionLocked, networkmigrationjobs.go:74-118) -- a documented, deliberate convention, not independently confirmed against real AWS behavior"}
+  StartNetworkMigrationMappingUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "same auto-vivification convention as StartNetworkMigrationMapping"}
+  # network_migration_analysis_deploy (10)
+  StartNetworkMigrationAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real PENDING->STARTED->SUCCEEDED job bookkeeping (networkmigrationjobs.go); same auto-vivification convention"}
+  ListNetworkMigrationAnalyses: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationAnalysisResults: {wire: ok, errors: ok, state: partial, persist: ok, note: "always returns an empty Items list even after the parent job SUCCEEDS (networkmigrationjobs.go:207-211) -- no real network-analysis engine exists to produce findings"}
+  StartNetworkMigrationCodeGeneration: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationCodeGenerations: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationCodeGenerationSegments: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items, same reason as ListNetworkMigrationAnalysisResults (networkmigrationjobs.go:230-234) -- no code-generation engine exists"}
+  StartNetworkMigrationDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationDeployments: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListNetworkMigrationDeployedStacks: {wire: ok, errors: ok, state: partial, persist: ok, note: "always empty Items -- no real CloudFormation-equivalent deployment engine exists (networkmigrationjobs.go:250-257)"}
+  ListNetworkMigrationExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  source_server_lifecycle: {status: gap, note: "16 ops: DescribeSourceServers, UpdateSourceServer, UpdateSourceServerReplicationType, DeleteSourceServer, ChangeServerLifeCycleState, DisconnectFromService, FinalizeCutover, MarkAsArchived, StartTest, StartCutover, StartReplication, StopReplication, PauseReplication, ResumeReplication, RetryDataReplication, TerminateTargetInstances. No CreateSourceServer op exists anywhere in this 95-op surface -- see gaps."}
-  jobs: {status: gap, note: "3 ops: DescribeJobs, DescribeJobLogItems, DeleteJob."}
-  launch_configuration: {status: gap, note: "6 ops: per-server GetLaunchConfiguration/UpdateLaunchConfiguration (flattened wire shape, no types.LaunchConfiguration struct exists) plus the separate LaunchConfigurationTemplate family (Create/Delete/Describe/Update)."}
-  replication_configuration: {status: gap, note: "6 ops: per-server GetReplicationConfiguration/UpdateReplicationConfiguration (flattened, no types.ReplicationConfiguration struct exists) plus the separate ReplicationConfigurationTemplate family (Create/Delete/Describe/Update)."}
-  applications: {status: gap, note: "8 ops: CreateApplication, UpdateApplication, DeleteApplication, ListApplications, ArchiveApplication, UnarchiveApplication, AssociateSourceServers, DisassociateSourceServers."}
-  waves: {status: gap, note: "8 ops: CreateWave, UpdateWave, DeleteWave, ListWaves, ArchiveWave, UnarchiveWave, AssociateApplications, DisassociateApplications."}
-  connectors: {status: gap, note: "4 ops: CreateConnector, UpdateConnector, DeleteConnector, ListConnectors."}
-  vcenter_clients: {status: gap, note: "2 ops: DescribeVcenterClients (the ONLY GET besides the tagging trio), DeleteVcenterClient. No CreateVcenterClient op exists -- see gaps."}
-  export_import: {status: gap, note: "8 ops: StartExport/ListExports/ListExportErrors, StartImport/ListImports/ListImportErrors, plus StartImportFileEnrichment/ListImportFileEnrichments which live under the /network-migration/ path despite being about the core-MGN import flow, not network migration -- see wire-shape traps."}
-  actions: {status: gap, note: "6 ops: PutSourceServerAction/ListSourceServerActions/RemoveSourceServerAction and the template-scoped PutTemplateAction/ListTemplateActions/RemoveTemplateAction -- post-launch custom SSM-document actions, two distinct but structurally near-identical families."}
-  service_init: {status: gap, note: "2 ops: InitializeService, ListManagedAccounts."}
-  tagging: {status: gap, note: "3 ops: TagResource/UntagResource/ListTagsForResource, the only ops sharing the /tags/{resourceArn} path and a distinct error set (AccessDenied/InternalServer/ResourceNotFound/Throttling/Validation) from every other op family in this service."}
-  network_migration_definitions: {status: gap, note: "13 ops under /network-migration/: CreateNetworkMigrationDefinition, GetNetworkMigrationDefinition, UpdateNetworkMigrationDefinition, DeleteNetworkMigrationDefinition, ListNetworkMigrationDefinitions, GetNetworkMigrationMapperSegmentConstruct, ListNetworkMigrationMapperSegmentConstructs, ListNetworkMigrationMapperSegments, UpdateNetworkMigrationMapperSegment, ListNetworkMigrationMappings, ListNetworkMigrationMappingUpdates, StartNetworkMigrationMapping, StartNetworkMigrationMappingUpdate. This is a structurally separate sub-product (network-topology analysis/codegen/deployment) bolted onto the MGN API namespace -- see Missing simulated functionality."}
-  network_migration_analysis_deploy: {status: gap, note: "10 ops under /network-migration/: StartNetworkMigrationAnalysis, ListNetworkMigrationAnalyses, ListNetworkMigrationAnalysisResults, StartNetworkMigrationCodeGeneration, ListNetworkMigrationCodeGenerations, ListNetworkMigrationCodeGenerationSegments, StartNetworkMigrationDeployment, ListNetworkMigrationDeployments, ListNetworkMigrationDeployedStacks, ListNetworkMigrationExecutions. CRITICAL GAP: no op anywhere in this 95-op surface CREATES a NetworkMigrationExecutionID (StartNetworkMigrationMapping/Analysis/CodeGeneration/Deployment all REQUIRE one as input; ListNetworkMigrationExecutions only lists, never creates) -- see gaps."}
+  source_server_lifecycle: {status: partial, note: "16 ops, real state mutation throughout; StartTest/StartCutover mint a synthetic, non-cross-checked EC2 instance ID rather than launching a real services/ec2 instance -- see their ops: entries. No CreateSourceServer op exists anywhere in this 95-op surface (see gaps) -- StartImport is the only public-API creation path."}
+  jobs: {status: ok, note: "3 ops: DescribeJobs, DescribeJobLogItems, DeleteJob -- real listing/deletion over Job records created by the source-server-lifecycle and export_import families."}
+  launch_configuration: {status: ok, note: "6 ops: per-server GetLaunchConfiguration/UpdateLaunchConfiguration (flattened wire shape, backed by an internal type since no types.LaunchConfiguration struct exists) plus the separate LaunchConfigurationTemplate family (Create/Delete/Describe/Update), all real CRUD."}
+  replication_configuration: {status: ok, note: "6 ops, same real-CRUD pattern as launch_configuration."}
+  applications: {status: ok, note: "8 ops, real CRUD; AggregatedStatus rollup rules are this package's own invented, documented aggregation logic, not SDK-specified."}
+  waves: {status: ok, note: "8 ops, same real-CRUD + invented-aggregation-rollup pattern as applications."}
+  connectors: {status: ok, note: "4 ops, real CRUD."}
+  vcenter_clients: {status: ok, note: "2 ops: DescribeVcenterClients (the ONLY GET besides the tagging trio), DeleteVcenterClient -- both real. No CreateVcenterClient op exists in this SDK surface (see gaps); SeedVcenterClient is this package's own non-SDK, unrouted creation seam."}
+  export_import: {status: partial, note: "8 ops; StartExport/ListExports/ListExportErrors/ListImports/ListImportErrors/ListImportFileEnrichments are real. StartImport genuinely reads S3 and creates real SourceServers but ModifiedCount is always zero (no natural key for re-import detection). StartImportFileEnrichment is PENDING->STARTED->SUCCEEDED bookkeeping only -- it never reads or actually enriches the target S3 object, since no network/segment discovery engine exists."}
+  actions: {status: ok, note: "6 ops: PutSourceServerAction/ListSourceServerActions/RemoveSourceServerAction and the template-scoped PutTemplateAction/ListTemplateActions/RemoveTemplateAction -- real state-only bookkeeping (documents listed/ordered/active), matching real AWS's own API scope (SSM document execution happens at launch time, outside this API)."}
+  service_init: {status: partial, note: "2 ops: InitializeService is real. ListManagedAccounts always returns exactly one ManagedAccount (the caller's own account) regardless of AccountID -- no cross-account AWS Organizations delegation is simulated."}
+  tagging: {status: ok, note: "3 ops: TagResource/UntagResource/ListTagsForResource, the only ops sharing the /tags/{resourceArn} path and a distinct error set (AccessDenied/InternalServer/ResourceNotFound/Throttling/Validation) from every other op family in this service. Real ARN-keyed tag store."}
+  network_migration_definitions: {status: partial, note: "13 ops under /network-migration/; CreateNetworkMigrationDefinition/Get/Update/Delete/List and ListNetworkMigrationMappings/ListNetworkMigrationMappingUpdates/StartNetworkMigrationMapping/StartNetworkMigrationMappingUpdate (9 ops) are real. The 4 mapper-segment ops (GetNetworkMigrationMapperSegmentConstruct, ListNetworkMigrationMapperSegmentConstructs, ListNetworkMigrationMapperSegments, UpdateNetworkMigrationMapperSegment) always return empty/404 -- no network-analysis engine ever produces a segment to report, a deliberate scope decision documented in 'Implementation summary' below (mapper segments left genuinely empty rather than given a second synthetic seeding seam)."}
+  network_migration_analysis_deploy: {status: partial, note: "10 ops under /network-migration/; the 5 Start*/List*(non-Results/Segments/Stacks) ops (StartNetworkMigrationAnalysis, ListNetworkMigrationAnalyses, StartNetworkMigrationCodeGeneration, ListNetworkMigrationCodeGenerations, StartNetworkMigrationDeployment, ListNetworkMigrationDeployments, ListNetworkMigrationExecutions -- 7 ops) run a real PENDING->STARTED->SUCCEEDED job bookkeeping state machine with auto-vivified NetworkMigrationExecutionID (see gaps). ListNetworkMigrationAnalysisResults/ListNetworkMigrationCodeGenerationSegments/ListNetworkMigrationDeployedStacks (3 ops) always return an empty Items list -- no real analysis/codegen/deployment engine exists to produce content, honestly flagged rather than fabricated."}
 gaps:
-  - "Zero operations implemented -- from-scratch audit only, per this task's explicit instructions not to write any .go files. All 95 ops need building. (bd: none filed yet by this pass -- filing is the implementer's responsibility per the standard workflow.)"
-  - "No CreateSourceServer op exists anywhere in this SDK's 95 operations. In real AWS, a SourceServer record is created only by the MGN Replication Agent (installed on the actual on-prem/cloud source machine) calling an internal, non-public control-plane API to register itself -- that registration call is NOT part of this public SDK surface at all. The only PUBLIC-API path that creates SourceServer records is StartImport's bulk CSV import (types.ImportTaskSummaryServers.CreatedCount confirms StartImport creates them), which is a metadata-only bulk-load mechanism (for migration-wave planning), not a live-replicating-agent registration. An implementer needs a deliberate, explicitly-documented decision for how SourceServer records get seeded in this emulator (e.g. a gopherstack-only synthetic 'RegisterSourceServer'-equivalent, or requiring StartImport as the only creation path) -- there is no way to derive AWS's real internal registration call from this SDK, and inventing one would be fabrication."
-  - "No CreateVcenterClient op exists either, for the same reason: VcenterClient records are created by the MGN vCenter connector appliance registering itself, not via any public API in this surface. DescribeVcenterClients/DeleteVcenterClient are read/delete only."
-  - "No op creates a NetworkMigrationExecutionID. StartNetworkMigrationMapping, StartNetworkMigrationMappingUpdate, StartNetworkMigrationAnalysis, StartNetworkMigrationCodeGeneration, and StartNetworkMigrationDeployment all take NetworkMigrationExecutionID as a REQUIRED input field (confirmed by reading all five api_op_*.go Input structs directly), and ListNetworkMigrationExecutions only lists existing ones filtered by NetworkMigrationDefinitionID -- it has no create-side counterpart. Either AWS's real console/internal API creates executions through a channel not exposed in this public SDK, or execution creation is an implicit side effect of some other call not documented as such in the Go types. This audit could not resolve which, and does not guess -- an implementer must treat NetworkMigrationExecutionID as coming from an unconfirmed source and pick a defensible convention (e.g. minting one automatically the first time StartNetworkMigrationMapping is called for a given definition with no prior execution), documenting the choice explicitly rather than presenting it as derived from AWS's real behavior."
+  - "No CreateSourceServer op exists anywhere in this SDK's 95 operations. In real AWS, a SourceServer record is created only by the MGN Replication Agent (installed on the actual on-prem/cloud source machine) calling an internal, non-public control-plane API to register itself -- that registration call is NOT part of this public SDK surface at all. StartImport's bulk CSV import is therefore the ONLY public-API path that creates SourceServer records in this implementation (createSourceServerLocked, sourceservers.go) -- confirmed by direct code read; the earlier non-SDK SeedSourceServer seam was removed once StartImport became wire-reachable (see gopherstack-i6oz below)."
+  - "No CreateVcenterClient op exists either, for the same reason: VcenterClient records are created by the MGN vCenter connector appliance registering itself, not via any public API in this surface. DescribeVcenterClients/DeleteVcenterClient are read/delete only; SeedVcenterClient (vcenterclients.go) remains this emulator's only way to get a VcenterClient into the backend at all -- confirmed still present and still the only creation seam, by direct code read this pass."
+  - "No op creates a NetworkMigrationExecutionID. StartNetworkMigrationMapping, StartNetworkMigrationMappingUpdate, StartNetworkMigrationAnalysis, StartNetworkMigrationCodeGeneration, and StartNetworkMigrationDeployment all take NetworkMigrationExecutionID as a REQUIRED input field, and ListNetworkMigrationExecutions only lists existing ones. This implementation's resolution (confirmed by direct code read, resolveOrCreateExecutionLocked, networkmigrationjobs.go:74-118): auto-vivify a NetworkMigrationExecution the first time any of the 5 Start* ops references an unseen (DefinitionID, ExecutionID) pair -- a documented, deliberate convention, not independently confirmed against real AWS behavior."
   - "The Network Migration sub-product (CreateNetworkMigrationDefinition through StartNetworkMigrationDeployment/ListNetworkMigrationDeployedStacks -- 25 of the 95 ops, wire-routed under /network-migration/) analyzes exported on-prem network configuration (SourceEnvironment enum: NSX/VSPHERE/FORTIGATE_FIREWALL/PALO_ALTO_FIREWALL/CISCO_ACI/LOGICAL_MODEL/MODELIZE_IT/AWS_DISCOVERY_COLLECTOR), maps it onto a target AWS network topology (TargetNetworkTopology: ISOLATED_VPC/HUB_AND_SPOKE), generates infrastructure-as-code artifacts (NetworkMigrationCodeGenerationArtifact), and deploys them as real CloudFormation-equivalent stacks (types/types.go's own doc comment on NetworkMigrationDeployedStackDetails: 'Details about a CloudFormation stack that has been deployed as part of the network migration'). None of analysis, code generation, or deployment can be honestly performed by this emulator without either (a) a real network-analysis/codegen engine that does not exist in this repo, or (b) fabricating analysis findings and generated code as free-text strings. The state-bookkeeping shell (definitions, executions, mapper segments/constructs with their CRUD and status enums) is honestly simulatable; the analysis/codegen/deployment CONTENT is not, and should be represented as opaque placeholder text/empty artifact lists clearly flagged as such, never invented realistic-looking network analysis output."
   - "Terraform's AWS provider has ZERO MGN resources: `internal/service/mgn/` (confirmed via GitHub API directory listing) contains only 4 auto-generated boilerplate files (generate.go, service_endpoint_resolver_gen.go, service_endpoints_gen_test.go, service_package_gen.go) with FrameworkResources()/SDKResources() both returning empty slices -- no application.go/source_server.go/wave.go etc. exist. This means, unlike directconnect/outposts, there is no Terraform-provider-source corroboration available at all for any MGN ARN resource-path format (source-server/application/wave/job/launch-configuration-template/replication-configuration-template/connector/vcenter-client/network-migration-definition/...). AWS's own Service Authorization Reference page for MGN returned only a JS-shell body to WebFetch (same failure mode the outposts/grafana audits hit on the same docs.aws.amazon.com domain). The ONLY corroborating evidence found this pass is botocore's service-2.json metadata (`endpointPrefix`/`serviceId`/`signingName` all literally \"mgn\"), which is consistent with (but does not prove) the ARN service segment also being \"mgn\" -- this is the overwhelmingly common case across AWS services but not a guarantee (efs/stepfunctions/several others in this repo's own campaign history diverge). Every specific resource-path segment below (e.g. \"source-server/<id>\") is this audit's best-effort guess from AWS naming convention, NOT a confirmed value -- flagged honestly rather than presented as verified."
   - "No AWS::MGN::* CloudFormation resource type exists in this repo (`grep -rli 'mgn\\b' services/cloudformation/` returned zero hits across all 71 resources_*.go files) -- confirmed absent, not silently skipped. This is consistent with MGN being an operational/orchestration API (agent-driven replication, time-boxed cutover jobs) rather than typical declarative infrastructure; this audit found no evidence AWS's real CloudFormation supports MGN resources either, but that claim is about this repo's tree, not independently verified against AWS's own CFN resource-type registry."

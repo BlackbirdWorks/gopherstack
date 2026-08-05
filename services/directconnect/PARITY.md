@@ -14,10 +14,12 @@ sdk_module: aws-sdk-go-v2/service/directconnect@v1.44.1   # bumped since origina
 # in a throwaway scratch module (`go mod init probe && go get`), run in this session's scratchpad,
 # NEVER touching this repo's go.mod (another agent was concurrently editing go.mod/go.sum/cli.go
 # during this pass; this audit did not read or write any of those three files).
-last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is no prior Direct
-# Connect code in the tree at all, so this is a from-scratch pre-implementation audit, matching the
-# outposts/resiliencehub audits done in the same pass.
-last_audit_date: 2026-08-01
+last_audit_commit: b850093a6   # bumped 2026-08-05: this pass re-read handler_*.go/store.go against
+# the ops: table below (already fully populated by the 2026-08-01 implementation pass) and found it
+# accurate -- the only correction needed was the stale "Zero operations implemented" gaps: opener
+# (contradicted by every ops: row below it, which already says ok). last_audit_commit was 7922e4c4d
+# (HEAD when this manifest was originally written, before any Direct Connect code existed).
+last_audit_date: 2026-08-05   # was 2026-08-01
 overall: B   # implemented this pass, all 63 ops routed/backed/persisted; see "Implementation summary"
 # section below for judgment calls, the partner/reseller and static-data honest-gap scope, and one
 # correction to this audit's own DescribeLoa/DescribeConnectionLoa deprecation-direction claim.
@@ -100,7 +102,7 @@ ops:
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
 gaps:
-  - "Zero operations implemented -- from-scratch audit only, per this task's explicit instructions not to write any .go files. All 63 ops need building. (bd: none filed yet by this pass -- filing is the implementer's responsibility per the standard workflow.)"
+  - "(2026-08-05: this bullet previously read 'Zero operations implemented -- from-scratch audit only... All 63 ops need building', left over from the 2026-08-01 pre-implementation pass. That is no longer true: all 63 ops are implemented, routed, and persisted -- see every ops: entry above, all status ok/partial, and 'Implementation summary (this pass)' below. Corrected this pass after re-reading handler_*.go/store.go and confirming go test ./services/directconnect/... passes.)"
   - "Interconnect/hosted-connection/reseller (partner) flow: CreateInterconnect, AllocateConnectionOnInterconnect, AllocateHostedConnection, ConfirmConnection, DescribeConnectionsOnInterconnect, DescribeHostedConnections model AWS's Direct Connect PARTNER program, where a partner (not a typical gopherstack caller) owns physical cross-connect infrastructure and allocates sub-connections to end customers. There is no physical cross-connect to simulate; honest simulation here is pure state bookkeeping (create an Interconnect record, let AllocateHostedConnection/AllocateConnectionOnInterconnect create Connection records against it, and run the ConnectionState/InterconnectState machines on timers) -- there is no way to make 'is this physically cross-connected' meaningfully real, and no implementation should pretend otherwise."
   - "LOA-CFA (Letter of Authorization - Connecting Facility Assignment) ops (DescribeLoa, DescribeConnectionLoa, DescribeInterconnectLoa) return LoaContent []byte typed as application/pdf. Real AWS generates an actual signed PDF authorizing physical cross-connect work at a colocation facility. A defensible stand-in is a minimal valid PDF byte stream (this repo likely has no PDF-generation library; check before assuming one must be added) clearly documented as a placeholder, never a fabricated 'real-looking' authorization document."
   - "DescribeLocations/DescribeRouterConfiguration (RouterType catalog) are static AWS-maintained reference data (real physical colocation facilities and router vendor/OS combinations) not encoded anywhere in the SDK -- same class of gap as outposts' catalog items and resiliencehub's suggested-policy defaults. A small defensible static seed list is reasonable, clearly flagged as a stand-in, not the authoritative AWS-maintained list."
