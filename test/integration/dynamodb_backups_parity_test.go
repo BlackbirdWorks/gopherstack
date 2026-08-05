@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -43,7 +45,11 @@ func TestIntegration_DDB_BackupsParity(t *testing.T) {
 	require.NoError(t, err, "CreateTable should succeed")
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+		// Not ctx: t.Context() is cancelled just before cleanups run.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
@@ -128,7 +134,11 @@ func TestIntegration_DDB_BackupsParity(t *testing.T) {
 	assert.Equal(t, types.TableStatusActive, restoreOut.TableDescription.TableStatus)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(ctx, &dynamodb.DeleteTableInput{
+		// Not ctx: t.Context() is cancelled just before cleanups run.
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(restoredName),
 		})
 	})
