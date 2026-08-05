@@ -52,14 +52,12 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 
 	return &models.CreateBackupOutput{
 		BackupDetails: models.BackupDetails{
-			BackupArn:    aws.ToString(bd.BackupArn),
-			BackupName:   aws.ToString(bd.BackupName),
-			BackupStatus: string(bd.BackupStatus),
-			BackupType:   string(bd.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupCreationDateTime).
-				UTC().
-				Format(time.RFC3339),
-			BackupSizeBytes: aws.ToInt64(bd.BackupSizeBytes),
+			BackupArn:              aws.ToString(bd.BackupArn),
+			BackupName:             aws.ToString(bd.BackupName),
+			BackupStatus:           string(bd.BackupStatus),
+			BackupType:             string(bd.BackupType),
+			BackupCreationDateTime: float64(aws.ToTime(bd.BackupCreationDateTime).UTC().Unix()),
+			BackupSizeBytes:        aws.ToInt64(bd.BackupSizeBytes),
 		},
 	}, nil
 }
@@ -110,9 +108,9 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 				BackupName:   aws.ToString(bd.BackupDetails.BackupName),
 				BackupStatus: string(bd.BackupDetails.BackupStatus),
 				BackupType:   string(bd.BackupDetails.BackupType),
-				BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
-					UTC().
-					Format(time.RFC3339),
+				BackupCreationDateTime: float64(
+					aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
+				),
 				BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 			},
 			SourceTableDetails: models.SourceTableDetails{
@@ -208,7 +206,7 @@ func collectBackupSummaries(
 			BackupName:             b.BackupName,
 			BackupStatus:           b.BackupStatus,
 			BackupType:             b.BackupType,
-			BackupCreationDateTime: b.CreationDateTime.UTC().Format(time.RFC3339),
+			BackupCreationDateTime: float64(b.CreationDateTime.UTC().Unix()),
 			TableName:              b.TableName,
 			TableArn:               b.TableArn,
 			TableID:                b.TableID,
@@ -564,9 +562,9 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 			BackupName:   aws.ToString(bd.BackupDetails.BackupName),
 			BackupStatus: string(bd.BackupDetails.BackupStatus),
 			BackupType:   string(bd.BackupDetails.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
-				UTC().
-				Format(time.RFC3339),
+			BackupCreationDateTime: float64(
+				aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
+			),
 			BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 		}
 	}

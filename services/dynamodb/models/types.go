@@ -569,13 +569,18 @@ type CreateBackupOutput struct {
 }
 
 // BackupDetails contains details of a backup.
+//
+// BackupCreationDateTime is Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string.
 type BackupDetails struct {
-	BackupArn              string `json:"BackupArn"`
-	BackupName             string `json:"BackupName"`
-	BackupStatus           string `json:"BackupStatus"`
-	BackupType             string `json:"BackupType"`
-	BackupCreationDateTime string `json:"BackupCreationDateTime"`
-	BackupSizeBytes        int64  `json:"BackupSizeBytes,omitempty"`
+	BackupArn              string  `json:"BackupArn"`
+	BackupName             string  `json:"BackupName"`
+	BackupStatus           string  `json:"BackupStatus"`
+	BackupType             string  `json:"BackupType"`
+	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
+	BackupSizeBytes        int64   `json:"BackupSizeBytes,omitempty"`
 }
 
 // BackupDescription contains a full description of a backup.
@@ -624,15 +629,20 @@ type ListBackupsInput struct {
 }
 
 // BackupSummary contains summary information about a backup.
+//
+// BackupCreationDateTime is Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string.
 type BackupSummary struct {
-	BackupArn              string `json:"BackupArn"`
-	BackupName             string `json:"BackupName"`
-	BackupStatus           string `json:"BackupStatus"`
-	BackupType             string `json:"BackupType"`
-	BackupCreationDateTime string `json:"BackupCreationDateTime"`
-	TableName              string `json:"TableName"`
-	TableArn               string `json:"TableArn,omitempty"`
-	TableID                string `json:"TableId,omitempty"`
+	BackupArn              string  `json:"BackupArn"`
+	BackupName             string  `json:"BackupName"`
+	BackupStatus           string  `json:"BackupStatus"`
+	BackupType             string  `json:"BackupType"`
+	TableName              string  `json:"TableName"`
+	TableArn               string  `json:"TableArn,omitempty"`
+	TableID                string  `json:"TableId,omitempty"`
+	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
 }
 
 // ListBackupsOutput is the wire format for ListBackups response.
