@@ -111,18 +111,22 @@ type autoScalingThroughput struct {
 }
 
 // pitrSnapshot captures the items of a PITR-enabled table at a point in time.
-// Snapshots are taken by the janitor on its sweep interval (typically 1 minute);
-// RestoreTableToPointInTime returns the latest snapshot at or before the
-// requested RestoreDateTime.
+// Snapshots are taken by the janitor on its own PITR ticker (defaultPITRSnapshotInterval
+// in janitor.go, 1 minute); RestoreTableToPointInTime returns the latest snapshot at or
+// before the requested RestoreDateTime.
+//
+// The type itself stays unexported (it never crosses the wire on its own), but its
+// fields carry json tags because it is serialised as part of Table.PITRSnapshots --
+// see that field's doc comment for why the tags matter.
 type pitrSnapshot struct {
-	Taken time.Time
-	Items []map[string]any
+	Taken time.Time        `json:"Taken"`
+	Items []map[string]any `json:"Items"`
 }
 
 // maxPITRSnapshots bounds the per-table snapshot ring so memory cost stays
-// predictable. With a 1-minute janitor sweep this gives ~1 hour of
-// point-in-time recovery coverage — enough for tests, well short of AWS's
-// real 35-day window.
+// predictable. With the janitor's 1-minute PITR ticker (defaultPITRSnapshotInterval
+// in janitor.go) this gives ~1 hour of point-in-time recovery coverage — enough for
+// tests, well short of AWS's real 35-day window.
 const maxPITRSnapshots = 60
 
 // Caps for retained metadata maps. Beyond these counts the oldest entries are
@@ -232,40 +236,46 @@ const (
 //
 
 type Table struct {
-	StreamCreatedAt            time.Time `json:"StreamCreatedAt"`
-	CreationDateTime           time.Time `json:"CreationDateTime"`
-	kinesisEmitter             KinesisEmitter
-	pkIndex                    map[string]int
-	pkskIndex                  map[string]map[string]int
-	itemsByOffset              map[int]map[string]any
-	mu                         *lockmetrics.RWMutex
-	activateTimer              *time.Timer
-	Tags                       *tags.Tags                    `json:"Tags,omitempty"`
-	AutoScaling                *autoScalingSettings          `json:"AutoScaling,omitempty"`
-	OnDemandMaxWriteRRU        *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
-	OnDemandMaxReadRRU         *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
-	ResourcePolicy             string                        `json:"ResourcePolicy,omitempty"`
-	TTLAttribute               string                        `json:"TTLAttribute,omitempty"`
-	StreamViewType             string                        `json:"StreamViewType,omitempty"`
-	StreamARN                  string                        `json:"StreamARN,omitempty"`
-	GlobalTableName            string                        `json:"GlobalTableName,omitempty"`
-	TableArn                   string                        `json:"TableArn"`
-	Status                     string                        `json:"Status"`
-	TableID                    string                        `json:"TableID"`
-	SSEType                    string                        `json:"SSEType,omitempty"`
-	TableClass                 string                        `json:"TableClass,omitempty"`
-	BillingMode                string                        `json:"BillingMode,omitempty"`
-	Name                       string                        `json:"Name"`
-	SSEKMSMasterKeyArn         string                        `json:"SSEKMSMasterKeyArn,omitempty"`
-	AttributeDefinitions       []models.AttributeDefinition  `json:"AttributeDefinitions"`
-	GlobalSecondaryIndexes     []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
-	Replicas                   []models.ReplicaDescription   `json:"Replicas,omitempty"`
-	LocalSecondaryIndexes      []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
-	KeySchema                  []models.KeySchemaElement     `json:"KeySchema"`
-	KinesisDestinations        []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
-	Items                      []map[string]any              `json:"Items"`
-	itemSizes                  []int
-	pitrSnapshots              []pitrSnapshot
+	StreamCreatedAt        time.Time `json:"StreamCreatedAt"`
+	CreationDateTime       time.Time `json:"CreationDateTime"`
+	kinesisEmitter         KinesisEmitter
+	pkIndex                map[string]int
+	pkskIndex              map[string]map[string]int
+	itemsByOffset          map[int]map[string]any
+	mu                     *lockmetrics.RWMutex
+	activateTimer          *time.Timer
+	Tags                   *tags.Tags                    `json:"Tags,omitempty"`
+	AutoScaling            *autoScalingSettings          `json:"AutoScaling,omitempty"`
+	OnDemandMaxWriteRRU    *int64                        `json:"OnDemandMaxWriteRRU,omitempty"`
+	OnDemandMaxReadRRU     *int64                        `json:"OnDemandMaxReadRRU,omitempty"`
+	ResourcePolicy         string                        `json:"ResourcePolicy,omitempty"`
+	TTLAttribute           string                        `json:"TTLAttribute,omitempty"`
+	StreamViewType         string                        `json:"StreamViewType,omitempty"`
+	StreamARN              string                        `json:"StreamARN,omitempty"`
+	GlobalTableName        string                        `json:"GlobalTableName,omitempty"`
+	TableArn               string                        `json:"TableArn"`
+	Status                 string                        `json:"Status"`
+	TableID                string                        `json:"TableID"`
+	SSEType                string                        `json:"SSEType,omitempty"`
+	TableClass             string                        `json:"TableClass,omitempty"`
+	BillingMode            string                        `json:"BillingMode,omitempty"`
+	Name                   string                        `json:"Name"`
+	SSEKMSMasterKeyArn     string                        `json:"SSEKMSMasterKeyArn,omitempty"`
+	AttributeDefinitions   []models.AttributeDefinition  `json:"AttributeDefinitions"`
+	GlobalSecondaryIndexes []models.GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
+	Replicas               []models.ReplicaDescription   `json:"Replicas,omitempty"`
+	LocalSecondaryIndexes  []models.LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	KeySchema              []models.KeySchemaElement     `json:"KeySchema"`
+	KinesisDestinations    []KinesisDestinationEntry     `json:"KinesisDestinations,omitempty"`
+	Items                  []map[string]any              `json:"Items"`
+	itemSizes              []int
+	// PITRSnapshots is the per-table PITR ring buffer (see pitrSnapshot). It must be
+	// exported with a json tag -- encoding/json silently skips unexported fields, so an
+	// unexported name here means every PITR snapshot is discarded on restart even
+	// though PITREnabled (persisted) still reports ENABLED. Do not revert this to
+	// unexported; see dynamodbSnapshotVersion's comment in persistence.go for why
+	// adding this field did not require bumping the snapshot version.
+	PITRSnapshots              []pitrSnapshot `json:"PITRSnapshots,omitempty"`
 	streamShards               []StreamShard
 	StreamRecords              []models.StreamRecord                   `json:"StreamRecords,omitempty"`
 	ProvisionedThroughput      models.ProvisionedThroughputDescription `json:"ProvisionedThroughput"`

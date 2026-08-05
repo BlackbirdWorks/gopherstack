@@ -410,7 +410,8 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 //   - RestoreDateTime parseable → newest snapshot whose Taken <= RestoreDateTime.
 //   - No matching snapshot (e.g. requested time is before the table was created
 //     or the snapshot window has rotated past it) → nil, signalling the caller
-//     to return a validation error.
+//     to return InvalidRestoreTimeException (real AWS returns this, not an
+//     empty table, when RestoreDateTime falls outside the recoverable window).
 func selectPITRItems(
 	sourceTable *Table,
 	req models.RestoreTableToPointInTimeInput,
@@ -433,7 +434,7 @@ func selectPITRItems(
 
 	// Newest snapshot at-or-before t. Snapshots are appended in time order so
 	// scanning backwards is O(k) where k is the index from the end.
-	for _, snap := range slices.Backward(sourceTable.pitrSnapshots) {
+	for _, snap := range slices.Backward(sourceTable.PITRSnapshots) {
 		if !snap.Taken.After(t) {
 			return deepCopyItems(snap.Items)
 		}
@@ -475,7 +476,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	}
 
 	if itemsCopy == nil {
-		return nil, NewValidationException(
+		return nil, NewInvalidRestoreTimeException(
 			"requested RestoreDateTime is outside the available recovery window for table: " +
 				req.SourceTableName,
 		)

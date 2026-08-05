@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DynamoDBPage from "./+page.svelte";
-import { setMockPageUrl } from "$lib/mock-page.svelte";
+import { setMockPageUrl, getMockPage } from "$lib/mock-page.svelte";
 
 const mockSend = vi.fn();
 
@@ -880,6 +880,98 @@ describe("DynamoDB Page", () => {
         TableName: "Orders",
         PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
       });
+    });
+
+    it("hydrates the table and renders the PITR panel from a ?table=X&tab=pitr deep link, with no click at all", async () => {
+      setMockPageUrl(new URL("http://localhost/dynamodb?table=Orders&tab=pitr"));
+      // Both the table-list load and the deep-link hydration effect fire on
+      // mount, so their DDB calls interleave rather than following the
+      // strict sequence openOrdersTable()'s click-driven flow relies on.
+      // Dispatch by command type instead of by call order.
+      mockSend.mockImplementation((command: unknown) => {
+        switch (commandName(command)) {
+          case "ListTablesCommand":
+            return Promise.resolve({ TableNames: ["Orders"] });
+          case "DescribeTableCommand":
+            return Promise.resolve({ Table: baseTable });
+          case "DescribeTimeToLiveCommand":
+            return Promise.resolve({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+          case "DescribeContinuousBackupsCommand":
+            return Promise.resolve({
+              ContinuousBackupsDescription: {
+                PointInTimeRecoveryDescription: { PointInTimeRecoveryStatus: "ENABLED" },
+              },
+            });
+          default:
+            return Promise.resolve({});
+        }
+      });
+
+      render(DynamoDBPage);
+
+      // The PITR panel is visible straight from the URL: no row click, no tab click.
+      await waitFor(() => expect(screen.getByText("Enabled")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+      expect(screen.getByText("Delete Table")).toBeInTheDocument();
+      expect(callCount("DescribeContinuousBackupsCommand")).toBe(1);
+    });
+
+    it("shows an error alert and an 'Unknown' status when DescribeContinuousBackups rejects, not a false 'Disabled'", async () => {
+      await openOrdersTable();
+      mockSend.mockRejectedValueOnce(new Error("Throttled"));
+      await fireEvent.click(screen.getByText("PITR"));
+
+      await waitFor(() =>
+        expect(screen.getByText("Failed to load continuous-backups status")).toBeInTheDocument(),
+      );
+      expect(screen.getByText(/Throttled/)).toBeInTheDocument();
+      expect(screen.getByText("Unknown")).toBeInTheDocument();
+      expect(screen.queryByText("Disabled")).not.toBeInTheDocument();
+    });
+
+    it("clicking a table row sets ?table= in the URL and resets the tab to overview", async () => {
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders", "Users"] });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({
+        Table: {
+          TableName: "Users",
+          TableStatus: "ACTIVE",
+          ItemCount: 1,
+          KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+        },
+      });
+
+      render(DynamoDBPage);
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument(), {
+        timeout: 3000,
+      });
+
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Orders"));
+      await waitFor(() => expect(screen.getByText("Delete Table")).toBeInTheDocument());
+
+      mockSend.mockResolvedValueOnce({ BackupSummaries: [] });
+      await fireEvent.click(screen.getByText("Backups"));
+      await waitFor(() => expect(getMockPage().url.searchParams.get("tab")).toBe("backups"));
+      expect(getMockPage().url.searchParams.get("table")).toBe("Orders");
+
+      await fireEvent.click(screen.getByText("Tables"));
+      await waitFor(() => expect(screen.getByText("Users")).toBeInTheDocument());
+
+      mockSend.mockResolvedValueOnce({
+        Table: {
+          TableName: "Users",
+          TableStatus: "ACTIVE",
+          ItemCount: 1,
+          KeySchema: [{ AttributeName: "id", KeyType: "HASH" }],
+        },
+      });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+      await fireEvent.click(screen.getByText("Users"));
+      await waitFor(() => expect(getMockPage().url.searchParams.get("table")).toBe("Users"));
+      expect(getMockPage().url.searchParams.get("tab")).toBeNull();
     });
 
     it("updates TTL via the exact UpdateTimeToLive TimeToLiveSpecification", async () => {

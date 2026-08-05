@@ -24,6 +24,20 @@ import (
 // txnPending, and fisReplicationPaused were never part of the snapshot
 // either (deletingTables is a transient staging area drained by the
 // janitor; the rest are short-lived caches/metadata not worth persisting).
+//
+// Do NOT bump this reflexively whenever a field is added to Table, Backup, or
+// StoredGlobalTable. encoding/json is decode-compatible with new fields: an
+// older snapshot missing a newly-added field decodes fine, leaving it at its
+// zero value. Bumping the version on every such change makes Restore hit the
+// mismatch branch above and discard (registry.ResetAll()) every table,
+// backup, and global table a user already had persisted -- i.e. it destroys
+// their data on the very upgrade meant to add a harmless new field. Only bump
+// this when a change is genuinely decode-incompatible: a field's type
+// changes, a field is removed and its old meaning can't be safely defaulted,
+// or existing field semantics change in a way that misinterprets old data.
+// (Table.PITRSnapshots, added to fix PITR snapshots not surviving a restart,
+// is the case that prompted this comment: exporting the field was pure
+// decode-compatible addition and did not warrant a bump.)
 const dynamodbSnapshotVersion = 1
 
 type dbSnapshot struct {

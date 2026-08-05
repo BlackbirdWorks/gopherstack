@@ -26,6 +26,9 @@ test/e2e/failures/go.mod.bak
 copilot_changes.patch
 ui/node_modules/
 ui/.svelte-kit/
+# Stray generated dir left behind when svelte-kit is run from the repo root
+# instead of ui/. Ignored so it can't be committed by accident.
+/.svelte-kit/
 ui/build/
 /dashboard/static/spa/*
 !/dashboard/static/spa/.keep

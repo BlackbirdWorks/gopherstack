@@ -15,6 +15,27 @@ import (
 const (
 	defaultDDBJanitorInterval  = 500 * time.Millisecond
 	defaultDDBTTLSweepInterval = 5 * time.Second
+	// defaultPITRSnapshotInterval is the cadence at which the janitor takes a new
+	// PITR (point-in-time recovery) snapshot of every PITR-enabled table. It runs on
+	// its own ticker, independent of the 500ms housekeeping sweep
+	// (defaultDDBJanitorInterval): pairing PITR snapshotting with the 500ms sweep
+	// previously gave only maxPITRSnapshots(60) * 500ms = 30s of real recovery
+	// coverage, while the ring's own doc comment (store.go) promised ~1 hour. This
+	// constant is what makes maxPITRSnapshots(60) * defaultPITRSnapshotInterval
+	// actually equal ~1 hour, as documented.
+	//
+	// Memory trade-off: each snapshot is a full deep-copy of every item in a
+	// PITR-enabled table. Retaining maxPITRSnapshots (60) of them means a
+	// PITR-enabled table's persisted snapshot footprint can grow up to ~61x its live
+	// item size (60 historical copies plus the live Items slice). The slower
+	// 1-minute cadence -- versus the old 500ms -- is what keeps that acceptable; at
+	// 500ms the same 60-slot ring would churn through its coverage in 30 seconds
+	// instead of an hour, forcing a choice between more memory or less coverage.
+	// Persisting the ring at all (rather than dropping it, e.g. on PITR
+	// disable/re-enable) is still correct: the alternative is exactly the bug this
+	// cadence fix accompanies -- Table.PITRSnapshots being unexported and silently
+	// discarded by encoding/json across a restart (see persistence.go).
+	defaultPITRSnapshotInterval = time.Minute
 	// defaultTTLSweepBatchSize is the maximum number of items checked per lock acquisition
 	// in sweepTableTTL. Smaller values reduce lock hold time at the cost of more
 	// lock round-trips; 1 000 is a reasonable balance for typical table sizes.
@@ -69,12 +90,16 @@ func NewJanitor(backend *InMemoryDB, settings Settings) *Janitor {
 }
 
 // Run runs the janitor loop until ctx is cancelled.
-// Two independent tickers are used:
+// Three independent tickers are used:
 //   - the main ticker (Interval, default 500ms): housekeeping tasks (table
 //     cleanup, txn-token sweeps, expression-cache evictions).
 //   - the TTL ticker (defaultDDBTTLSweepInterval, 5s): per-table TTL and
 //     stream-record sweeps, which are O(tables × items) and too expensive to run
 //     every 500ms.
+//   - the PITR ticker (defaultPITRSnapshotInterval, 1 minute): per-table PITR
+//     snapshotting, deliberately decoupled from the 500ms main ticker so the
+//     snapshot ring's documented ~1-hour coverage window is real -- see
+//     defaultPITRSnapshotInterval's doc comment for why.
 //
 // Each sweep is panic-recovered and bounded by TaskTimeout (if non-zero) by the
 // worker primitive.
@@ -82,19 +107,20 @@ func (j *Janitor) Run(ctx context.Context) {
 	g := worker.NewGroup(ctx, "dynamodb")
 	g.Ticker("TableCleaner", j.Interval, j.TaskTimeout, j.sweepMain)
 	g.Ticker("TTLSweeper", defaultDDBTTLSweepInterval, j.TaskTimeout, j.sweepTTLAndStreams)
+	g.Ticker("PITRSnapshotter", defaultPITRSnapshotInterval, j.TaskTimeout, j.snapshotPITRTables)
 
 	<-ctx.Done()
 	g.Stop()
 }
 
 // sweepMain runs the housekeeping pass: txn-token/pending sweeps, cache
-// evictions, PITR snapshots, and finalising tables queued for deletion.
+// evictions, and finalising tables queued for deletion. PITR snapshotting runs
+// on its own slower ticker (see Run) and is not part of this pass.
 func (j *Janitor) sweepMain(ctx context.Context) {
 	j.sweepTxnTokens(ctx)
 	j.sweepTxnPending(ctx)
 	j.Backend.exprCache.Sweep()
 	j.Backend.iteratorStore.Sweep()
-	j.snapshotPITRTables(ctx)
 	j.runTableCleaner(ctx)
 }
 
@@ -105,8 +131,10 @@ func (j *Janitor) sweepTTLAndStreams(ctx context.Context) {
 	j.sweepStreamRecords(ctx)
 }
 
-// runOnce orchestrates all janitor tasks in a single synchronous pass.
-// Called by tests; production code uses the two-ticker Run loop above.
+// runOnce orchestrates all janitor tasks -- including a PITR snapshot pass,
+// which in production runs on its own slower ticker (see Run) -- in a single
+// synchronous pass. Called by tests via SweepOnce; production code uses the
+// three-ticker Run loop above.
 func (j *Janitor) runOnce(ctx context.Context) {
 	j.sweepTTL(ctx)
 	j.sweepTxnTokens(ctx)
@@ -155,9 +183,9 @@ func snapshotTablePITRLocked(t *Table, now time.Time) {
 	}
 
 	snap := pitrSnapshot{Taken: now, Items: deepCopyItems(t.Items)}
-	t.pitrSnapshots = append(t.pitrSnapshots, snap)
-	if len(t.pitrSnapshots) > maxPITRSnapshots {
-		t.pitrSnapshots = t.pitrSnapshots[len(t.pitrSnapshots)-maxPITRSnapshots:]
+	t.PITRSnapshots = append(t.PITRSnapshots, snap)
+	if len(t.PITRSnapshots) > maxPITRSnapshots {
+		t.PITRSnapshots = t.PITRSnapshots[len(t.PITRSnapshots)-maxPITRSnapshots:]
 	}
 }
 

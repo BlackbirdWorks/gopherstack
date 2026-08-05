@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { getDynamoDBClient, getDynamoDBStreamsClient } from '$lib/aws-client';
 import { currentRegion } from '$lib/region.svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
@@ -92,7 +92,12 @@ import { DescribeStreamCommand, GetShardIteratorCommand, GetRecordsCommand } fro
 	let sortKeyType = $state<ScalarAttributeType>('S');
 
 	// Detail State
-	let selectedTable = $state<string | null>(null);
+	// URL-backed (?table=...); see url-state.svelte.ts. Setting '' removes the
+	// param, so "nothing selected" yields a clean /dashboard/dynamodb. Not read
+	// inside the onRegionChange effect below (onRegionChange(loadTables) doesn't
+	// reference it), so no untrack() is needed at that call site.
+	const selectedTableParam = urlState<string>('table', '');
+	let selectedTable = $derived(selectedTableParam.get() || null);
 	let selectedTableDesc = $state<TableDescription | null>(null);
 	// URL-backed (?tab=...); see url-state.svelte.ts. Not read inside the
 	// onRegionChange effect below (onRegionChange(loadTables) doesn't
@@ -148,6 +153,7 @@ let scanLastKey = $state<unknown>(null);
 	let pitrStatus = $state<'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING' | null>(null);
 	let pitrLoading = $state(false);
 	let pitrEarliestRestoreDate = $state<Date | null>(null);
+	let pitrError = $state('');
 
 	// Global Tables / Replicas State
 	let tableReplicas = $state<{ RegionName?: string; ReplicaStatus?: string }[]>([]);
@@ -479,7 +485,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 		try {
 			for (const name of tableNames) await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success('All tables purged');
-			selectedTable = null;
+			selectedTableParam.set('');
 			await loadTables();
 		} catch (err: unknown) {
 			toast.error(`Failed to purge: ${describeError(err)}`);
@@ -491,7 +497,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 		try {
 			await ddb().send(new DeleteTableCommand({ TableName: name }));
 			toast.success(`Table "${name}" deleted`);
-			if (selectedTable === name) { selectedTable = null; selectedTableDesc = null; }
+			if (selectedTable === name) { selectedTableParam.set(''); selectedTableDesc = null; }
 			await loadTables();
 		} catch (err: unknown) {
 			toast.error(`Failed to delete table: ${describeError(err)}`);
@@ -500,9 +506,12 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 
 	// Detail Operations
 	let openTableError = $state('');
-	async function openTable(name: string) {
-		selectedTable = name;
-		activeTabParam.set('overview');
+	// Tracks which table's detail data is currently loaded, so the hydration
+	// effect below (which drives this from selectedTable, including on a
+	// `?table=` deep link) doesn't refetch on every unrelated re-run. Set on
+	// success at the end of hydrateTable.
+	let loadedTable = $state<string | null>(null);
+	async function hydrateTable(name: string) {
 		queryResults = []; scanResults = []; partiqlResults = []; itemsResults = []; backups = [];
 		itemsLastKey = null; itemsSelectedKeys = new Set();
 		streamEventsHtml = ''; streamInfo = null;
@@ -524,6 +533,7 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 			editBillingMode = desc.Table?.BillingModeSummary?.BillingMode ?? 'PAY_PER_REQUEST';
 			editRcu = desc.Table?.ProvisionedThroughput?.ReadCapacityUnits ?? 5;
 			editWcu = desc.Table?.ProvisionedThroughput?.WriteCapacityUnits ?? 5;
+			loadedTable = name;
 		} catch (err: unknown) {
 			openTableError = describeError(err);
 			toast.error(`Failed to describe table: ${openTableError}`);
@@ -531,8 +541,20 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	}
 
 	async function refreshTable(): Promise<void> {
-		if (selectedTable) await openTable(selectedTable);
+		if (selectedTable) await hydrateTable(selectedTable);
 	}
+
+	// Drives detail hydration from selectedTable itself (URL-backed), rather
+	// than only from the row-click handler, so a deep link like
+	// `?table=Orders&tab=pitr` hydrates the table on load too. `loadedTable`
+	// is read with `untrack()` to avoid this effect re-firing itself once
+	// hydrateTable sets it -- the same hazard `url-state.svelte.ts:36-55`
+	// documents for `onRegionChange`.
+	$effect(() => {
+		const t = selectedTable;
+		if (!t) { selectedTableDesc = null; openTableError = ''; loadedTable = null; return; }
+		if (t !== untrack(() => loadedTable)) void hydrateTable(t);
+	});
 
 	// Query
 	// reset=true (the default) starts a fresh search from page 1; reset=false ("Load More")
@@ -787,13 +809,16 @@ function exportJson(data: Record<string, unknown>[], filename: string): void {
 	async function loadPitr(): Promise<void> {
 		if (!selectedTable) return;
 		pitrLoading = true;
+		pitrError = '';
 		try {
 			const res = await ddb().send(new DescribeContinuousBackupsCommand({ TableName: selectedTable }));
 			const pitr = res.ContinuousBackupsDescription?.PointInTimeRecoveryDescription;
 			pitrStatus = (pitr?.PointInTimeRecoveryStatus as 'ENABLED' | 'DISABLED' | 'ENABLING' | 'DISABLING') ?? 'DISABLED';
 			pitrEarliestRestoreDate = pitr?.EarliestRestorableDateTime ?? null;
-		} catch {
+		} catch (err: unknown) {
 			pitrStatus = null;
+			pitrEarliestRestoreDate = null;
+			pitrError = describeError(err);
 		} finally {
 			pitrLoading = false;
 		}
@@ -1273,7 +1298,7 @@ function setPartiqlExample(query: string) {
 		<nav class="flex" aria-label="Breadcrumb">
 			<ol class="inline-flex items-center space-x-1 md:space-x-2">
 				<li class="inline-flex items-center">
-					<button onclick={() => { selectedTable = null; selectedTableDesc = null; }}
+					<button onclick={() => { selectedTableParam.set(''); }}
 						class="inline-flex items-center text-sm font-medium text-slate-700 hover:text-blue-600 dark:text-slate-400 dark:hover:text-white">
 						<svg class="w-3 h-3 me-2.5" fill="currentColor" viewBox="0 0 20 20"><path d="m19.707 9.293-2-2-7-7a1 1 0 0 0-1.414 0l-7 7-2 2a1 1 0 0 0 1.414 1.414L2 10.414V18a2 2 0 0 0 2 2h3a1 1 0 0 0 1-1v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4a1 1 0 0 0 1 1h3a2 2 0 0 0 2-2v-7.586l.293.293a1 1 0 0 0 1.414-1.414Z" /></svg>
 						Tables
@@ -2244,6 +2269,12 @@ function setPartiqlExample(query: string) {
 						{pitrLoading ? 'Loading...' : 'Refresh'}
 					</button>
 				</div>
+				{#if pitrError}
+					<div role="alert" class="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+						<p class="font-medium">Failed to load continuous-backups status</p>
+						<p>{pitrError}</p>
+					</div>
+				{/if}
 				{#if pitrLoading}
 					<div class="flex justify-center p-8"><svg class="w-8 h-8 animate-spin text-slate-200 dark:text-slate-600 fill-blue-600" viewBox="0 0 100 101" fill="none"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/></svg></div>
 				{:else}
@@ -2254,14 +2285,16 @@ function setPartiqlExample(query: string) {
 								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">Enabled</span>
 							{:else if pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'}
 								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300">{pitrStatus}&#8230;</span>
-							{:else}
+							{:else if pitrStatus === 'DISABLED'}
 								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300">Disabled</span>
+							{:else}
+								<span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-600 dark:text-slate-300">Unknown</span>
 							{/if}
 						</div>
 						{#if pitrEarliestRestoreDate}
 							<p class="text-sm text-slate-600 dark:text-slate-400">Earliest restore point: <span class="font-mono font-medium text-slate-900 dark:text-white">{pitrEarliestRestoreDate.toLocaleString()}</span></p>
 						{/if}
-						<p class="text-sm text-slate-500 dark:text-slate-400">PITR lets you restore this table to any point in the last 35 days.</p>
+						<p class="text-sm text-slate-500 dark:text-slate-400">PITR lets you restore this table to a point within roughly the last hour -- continuous backups here are kept as a rolling window of snapshots, not a 35-day history.</p>
 						<button onclick={restorePitr} class="px-3 py-2 border rounded hover:bg-gray-100 text-sm">Restore</button>
 					<button onclick={togglePitr} disabled={pitrStatus === 'ENABLING' || pitrStatus === 'DISABLING'} class="text-white font-medium rounded-lg text-sm px-4 py-2 disabled:opacity-50 {pitrStatus === 'ENABLED' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}">
 							{pitrStatus === 'ENABLED' ? 'Disable PITR' : 'Enable PITR'}
@@ -2422,7 +2455,7 @@ function setPartiqlExample(query: string) {
 					{@const desc = tableDetails.get(tableName)}
 					<div id="table-{tableName}" class="p-5 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl hover:shadow-md transition-shadow cursor-pointer group">
 						<div class="flex justify-between items-start">
-							<button onclick={() => openTable(tableName)} class="flex-1 text-left">
+							<button onclick={() => { activeTabParam.set('overview'); selectedTableParam.set(tableName); }} class="flex-1 text-left">
 								<h3 class="text-base font-semibold text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{tableName}</h3>
 								<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{getKeySchema(desc)}</p>
 								<div class="flex items-center gap-2 mt-2 flex-wrap">
