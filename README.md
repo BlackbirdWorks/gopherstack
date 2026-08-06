@@ -690,14 +690,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 40 | clean |
-| [Directconnect](services/directconnect/README.md) | B | 64 | 12 gaps; 2 deferred |
+| [Directconnect](services/directconnect/README.md) | A | 64 | 2 gaps; 8 structural gaps; 1 deferred |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 8 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 gaps |
-| [Mgn](services/mgn/README.md) | A- | 95 | 9 gaps; 1 deferred |
+| [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 5 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 5 gaps; 2 structural gaps |
-| [Outposts](services/outposts/README.md) | B | 43 | 10 gaps |
+| [Outposts](services/outposts/README.md) | B | 43 | 4 gaps; 4 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | B | 63 | 11 gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |
 | [WorkSpaces](services/workspaces/README.md) | A | 32 | 2 deferred |
