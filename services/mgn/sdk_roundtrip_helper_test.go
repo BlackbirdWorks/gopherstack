@@ -121,7 +121,7 @@ func seedSourceServerViaImport(
 	ctx := t.Context()
 
 	s3 := newMockS3()
-	s3.put("mgn-import-bucket", "servers.csv", "hostname\n"+hostname+"\n")
+	s3.put("mgn-import-bucket", "servers.csv", "mgn:server:hostname\n"+hostname+"\n")
 	h.Backend.SetS3Backend(s3)
 
 	_, err := client.StartImport(ctx, &mgnsdk.StartImportInput{

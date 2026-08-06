@@ -156,8 +156,9 @@ func (b *InMemoryBackend) tickJobConvertingLocked(jobID string) {
 }
 
 // tickJobLaunchingLocked writes per-participant CONVERSION_END/LAUNCH_START
-// log entries and mints each non-terminate participant's synthetic EC2
-// instance ID.
+// log entries and launches each non-terminate participant's target instance
+// (launchParticipantInstanceLocked, cross_service.go) -- a real services/ec2
+// instance when the EC2 backend is wired, else a synthetic fallback ID.
 func (b *InMemoryBackend) tickJobLaunchingLocked(jobID, initiatedBy string) {
 	b.mu.Lock("JobLaunching-async")
 	defer b.mu.Unlock()
@@ -172,7 +173,7 @@ func (b *InMemoryBackend) tickJobLaunchingLocked(jobID, initiatedBy string) {
 		b.addJobLogLocked(jobID, JobLogEventLaunchStart, &JobLogEventData{SourceServerID: p.SourceServerID})
 
 		if initiatedBy != InitiatedByTerminate {
-			p.LaunchedEc2InstanceID = newSyntheticInstanceID()
+			p.LaunchedEc2InstanceID = b.launchParticipantInstanceLocked(p.SourceServerID)
 		}
 	}
 }
@@ -216,11 +217,9 @@ func (b *InMemoryBackend) finishJobLocked(jobID, initiatedBy string) {
 
 // newSyntheticInstanceID mints a gopherstack-format EC2 instance ID
 // ("i-" + 17 hex chars, matching real EC2's own ID shape) for a Job's
-// LaunchedInstance.Ec2InstanceID. This is a bookkeeping-only synthetic ID,
-// NOT cross-checked against a real services/ec2 instance -- see
-// models.go's LaunchedInstance doc comment and PARITY.md's cross-service
-// wiring section (real EC2 launch on cutover is a documented follow-on, out
-// of this pass's scope).
+// LaunchedInstance.Ec2InstanceID. Used only as launchParticipantInstanceLocked's
+// fallback (cross_service.go) when no EC2 backend is wired or RunInstances
+// itself fails -- the normal path launches a real services/ec2 instance.
 func newSyntheticInstanceID() string { return "i-" + randomHexID() + randomHexID()[:2] }
 
 // DescribeJobsFilters mirrors types.DescribeJobsRequestFilters. FromDate/

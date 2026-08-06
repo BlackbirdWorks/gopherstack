@@ -175,11 +175,11 @@ type LastKnownCheck struct {
 	Type      string
 }
 
-// LaunchedInstance mirrors types.LaunchedInstance. Ec2InstanceID is a
-// synthetic, gopherstack-format ID (e.g. "i-" + hex), NOT cross-checked
-// against a real services/ec2 instance -- see PARITY.md's cross-service
-// wiring section: real EC2 instance launch on cutover is scoped as a
-// documented follow-on, not implemented this pass.
+// LaunchedInstance mirrors types.LaunchedInstance. Ec2InstanceID is a real
+// services/ec2 instance ID when the EC2 backend is wired (cross_service.go's
+// launchParticipantInstanceLocked), falling back to a synthetic,
+// gopherstack-format ID (e.g. "i-" + hex) only when EC2 isn't wired or
+// RunInstances itself fails -- see PARITY.md's cross-service wiring section.
 type LaunchedInstance struct {
 	Ec2InstanceID            string
 	FirstBoot                string
@@ -874,12 +874,16 @@ type S3BucketSource struct {
 	S3Key         string
 }
 
-// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount is a
-// real, live count of the SourceServers StartImport actually parsed and created
-// (s3import.go) -- never fabricated. ModifiedCount is always zero: no natural key
-// exists to detect a re-describing row, so every successfully-parsed row creates
-// a new SourceServer. Applications/Waves are always zero -- the documented CSV
-// schema only carries SourceServer-level columns.
+// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount/
+// ModifiedCount are real, live counts of what StartImport actually did
+// (s3import.go/exportimport.go) -- never fabricated. A row whose
+// mgn:server:user-provided-id matches an existing SourceServer updates it
+// (ModifiedCount), matching AWS's own documented dedup-by-user-provided-id
+// behavior; every other successfully-parsed row creates a new SourceServer
+// (CreatedCount). Applications/Waves are always zero -- this pass's importer
+// only implements the SourceServer-scoped subset of AWS's documented CSV
+// schema (see s3import.go's doc comment for the mgn:app:*/mgn:wave:*/
+// mgn:launch:* scope decision).
 type ImportTaskSummary struct {
 	Applications countPair
 	Servers      countPair

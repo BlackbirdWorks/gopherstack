@@ -16,9 +16,9 @@ import (
 // writes real S3 object bytes -- its Summary is a real, live count of this
 // account's resources, never derived from written content -- but StartImport
 // DOES read a real S3 object via the S3Accessor cross-service seam
-// (s3import.go). Every SourceServer StartImport creates comes from an
-// actually-parsed row; every malformed row becomes a real ImportTaskError, never
-// silently dropped nor fabricated as a success. SeedVcenterClient
+// (s3import.go). Every SourceServer StartImport creates or updates comes from
+// an actually-parsed row; every malformed row becomes a real ImportTaskError,
+// never silently dropped nor fabricated as a success. SeedVcenterClient
 // (vcenterclients.go) remains the only non-SDK creation seam -- no import path
 // exists for VcenterClient.
 
@@ -188,11 +188,12 @@ func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource
 
 // finishImportLocked records readImportSourceServers' real outcome onto
 // importID's ImportTask: a whole-object read/parse failure (parseErr set) fails
-// the task with one recorded ImportTaskError and zero created records;
-// otherwise every successfully-parsed row creates a real SourceServer, every
-// malformed row's error is recorded, and the task SUCCEEDS with
-// Summary.Servers.CreatedCount set to the real created count -- partial success
-// is still SUCCEEDED, matching real AWS's ImportTaskSummary/ListImportErrors split.
+// the task with one recorded ImportTaskError and zero created/modified records;
+// otherwise every successfully-parsed row either updates an existing
+// SourceServer (dedup by UserProvidedID, ModifiedCount) or creates a new one
+// (CreatedCount), every malformed row's error is recorded, and the task
+// SUCCEEDS -- partial success is still SUCCEEDED, matching real AWS's
+// ImportTaskSummary/ListImportErrors split.
 func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult, parseErr error) {
 	b.mu.Lock("ImportSucceeded-async")
 	defer b.mu.Unlock()
@@ -216,18 +217,29 @@ func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult,
 		return
 	}
 
-	var created int64
+	var created, modified int64
 
 	for _, row := range result.servers {
-		b.createSourceServerLocked(sourceServerSeed{
-			UserProvidedID:   row.userProvidedID,
-			SourceProperties: row.sourceProperties,
-		})
+		seed := sourceServerSeed{
+			UserProvidedID:         row.userProvidedID,
+			FqdnForActionFramework: row.fqdnForActionFramework,
+			SourceProperties:       row.sourceProperties,
+			ImportTags:             row.importTags,
+		}
+
+		if existing, found := b.resolveSourceServerByUserProvidedIDLocked(row.userProvidedID); found {
+			b.applyImportRowLocked(existing, seed)
+			modified++
+
+			continue
+		}
+
+		b.createSourceServerLocked(seed)
 		created++
 	}
 
 	t.Errors = append(t.Errors, result.errors...)
-	t.Summary.Servers = countPair{CreatedCount: created}
+	t.Summary.Servers = countPair{CreatedCount: created, ModifiedCount: modified}
 	t.Status = TaskStatusSucceeded
 }
 

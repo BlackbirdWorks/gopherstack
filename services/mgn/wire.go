@@ -240,10 +240,17 @@ type sourceServerIDRequest struct {
 	AccountID      string `json:"accountID,omitempty"`
 }
 
+// Platform (real wire field: "platform") is deliberately not modeled here --
+// see SourceServerUpdate's doc comment (sourceservers.go) for why: JSON
+// unmarshal silently ignores unknown keys, so a caller-sent "platform" is
+// accepted and dropped, matching the real SDK's own SourceServer output
+// shape, which has no Platform field to read it back from either.
 type updateSourceServerRequest struct {
-	ConnectorAction *connectorActionWire `json:"connectorAction,omitempty"`
-	SourceServerID  string               `json:"sourceServerID"`
-	AccountID       string               `json:"accountID,omitempty"`
+	ConnectorAction        *connectorActionWire `json:"connectorAction,omitempty"`
+	FqdnForActionFramework *string              `json:"fqdnForActionFramework,omitempty"`
+	UserProvidedID         *string              `json:"userProvidedID,omitempty"`
+	SourceServerID         string               `json:"sourceServerID"`
+	AccountID              string               `json:"accountID,omitempty"`
 }
 
 type updateSourceServerReplicationTypeRequest struct {

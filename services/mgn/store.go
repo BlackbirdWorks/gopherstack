@@ -23,10 +23,10 @@ import (
 // SourceServers; TagResource resolves an ARN into any of 12 taggable resource
 // kinds), so the invariant boundary is the whole backend.
 type InMemoryBackend struct {
-	sourceServers               *store.Table[SourceServer]
-	launchConfigs               *store.Table[LaunchConfiguration]
-	replicationConfigs          *store.Table[ReplicationConfiguration]
-	launchTemplates             *store.Table[LaunchConfigurationTemplate]
+	s3                          S3Accessor
+	appConfig                   any
+	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
+	nmJobs                      *store.Table[NetworkMigrationJob]
 	replicationTemplates        *store.Table[ReplicationConfigurationTemplate]
 	jobs                        *store.Table[Job]
 	jobLogs                     *store.Table[JobLog]
@@ -39,22 +39,22 @@ type InMemoryBackend struct {
 	importTasks                 *store.Table[ImportTask]
 	importFileEnrichments       *store.Table[ImportFileEnrichment]
 	sourceServerActions         *store.Table[SourceServerActionDocument]
-	sourceServerActionsByServer *store.Index[SourceServerActionDocument]
-	templateActions             *store.Table[TemplateActionDocument]
-	templateActionsByTemplate   *store.Index[TemplateActionDocument]
+	launchTemplates             *store.Table[LaunchConfigurationTemplate]
+	sourceServers               *store.Table[SourceServer]
+	registry                    *store.Registry
 	nmDefinitions               *store.Table[NetworkMigrationDefinition]
 	nmExecutions                *store.Table[NetworkMigrationExecution]
 	nmExecutionsByDef           *store.Index[NetworkMigrationExecution]
-	nmJobs                      *store.Table[NetworkMigrationJob]
+	templateActions             *store.Table[TemplateActionDocument]
 	nmJobsByExecution           *store.Index[NetworkMigrationJob]
-	registry                    *store.Registry
-
-	mu                 *lockmetrics.RWMutex
-	work               *worker.Group
-	s3                 S3Accessor
-	accountID          string
-	region             string
-	serviceInitialized bool
+	templateActionsByTemplate   *store.Index[TemplateActionDocument]
+	mu                          *lockmetrics.RWMutex
+	work                        *worker.Group
+	replicationConfigs          *store.Table[ReplicationConfiguration]
+	launchConfigs               *store.Table[LaunchConfiguration]
+	region                      string
+	accountID                   string
+	serviceInitialized          bool
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Application Migration

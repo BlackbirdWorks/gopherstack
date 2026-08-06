@@ -37,6 +37,49 @@ func (b *InMemoryBackend) resolveSourceServerLocked(sourceServerID string) (*Sou
 	return b.sourceServers.Get(sourceServerID)
 }
 
+// resolveSourceServerByUserProvidedIDLocked finds the SourceServer whose
+// UserProvidedID matches, or false if none does. Backs StartImport's
+// re-import dedup: real AWS documents "mgn:server:user-provided-id" as "used
+// by MGN to consistently recognize the server replication, and avoid
+// duplication when importing inventory from a CSV file" (MGN User Guide,
+// Import parameters) -- the natural key this backend uses to decide whether
+// a row updates an existing SourceServer (ModifiedCount) or creates a new
+// one (CreatedCount). Callers must hold b.mu.
+func (b *InMemoryBackend) resolveSourceServerByUserProvidedIDLocked(userProvidedID string) (*SourceServer, bool) {
+	if userProvidedID == "" {
+		return nil, false
+	}
+
+	for _, s := range b.sourceServers.Snapshot() {
+		if s.UserProvidedID == userProvidedID {
+			return s, true
+		}
+	}
+
+	return nil, false
+}
+
+// applyImportRowLocked overwrites an existing SourceServer's
+// SourceProperties/FqdnForActionFramework/tags with a re-imported row's
+// values -- the "update" half of StartImport's dedup-by-UserProvidedID
+// convention (see resolveSourceServerByUserProvidedIDLocked). Callers must
+// hold b.mu.
+func (b *InMemoryBackend) applyImportRowLocked(s *SourceServer, seed sourceServerSeed) {
+	s.SourceProperties = seed.SourceProperties
+
+	if seed.FqdnForActionFramework != "" {
+		s.FqdnForActionFramework = seed.FqdnForActionFramework
+	}
+
+	if s.SourceProperties != nil {
+		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	}
+
+	if s.Tags != nil {
+		s.Tags.Merge(seed.ImportTags)
+	}
+}
+
 // sourceServerSeed configures createSourceServerLocked -- the single
 // creation path behind every SourceServer this backend ever stores (see
 // this file's package doc comment). Every field is optional; zero values
@@ -44,12 +87,14 @@ func (b *InMemoryBackend) resolveSourceServerLocked(sourceServerID string) (*Sou
 // comment) rather than an AWS-confirmed one, since no real source machine
 // exists to derive defaults from.
 type sourceServerSeed struct {
-	SourceProperties  *SourceProperties
-	SourceServerID    string
-	UserProvidedID    string
-	ReplicationType   string
-	DiskDeviceName    string
-	TotalStorageBytes int64
+	SourceProperties       *SourceProperties
+	ImportTags             map[string]string
+	SourceServerID         string
+	UserProvidedID         string
+	FqdnForActionFramework string
+	ReplicationType        string
+	DiskDeviceName         string
+	TotalStorageBytes      int64
 }
 
 // createSourceServerLocked creates a new SourceServer directly in this
@@ -81,14 +126,16 @@ func (b *InMemoryBackend) createSourceServerLocked(seed sourceServerSeed) *Sourc
 
 	now := nowRFC3339()
 	t := tags.New("mgn.sourceserver." + id + ".tags")
+	t.Merge(seed.ImportTags)
 
 	s := &SourceServer{
-		SourceServerID:   id,
-		Arn:              b.sourceServerARN(id),
-		UserProvidedID:   seed.UserProvidedID,
-		ReplicationType:  replicationType,
-		SourceProperties: seed.SourceProperties,
-		Tags:             t,
+		SourceServerID:         id,
+		Arn:                    b.sourceServerARN(id),
+		UserProvidedID:         seed.UserProvidedID,
+		FqdnForActionFramework: seed.FqdnForActionFramework,
+		ReplicationType:        replicationType,
+		SourceProperties:       seed.SourceProperties,
+		Tags:                   t,
 		LifeCycle: &LifeCycle{
 			State:                     LifeCycleStateNotReady,
 			AddedToServiceDateTime:    now,
@@ -305,12 +352,25 @@ func (b *InMemoryBackend) DescribeSourceServers(
 	return page.New(filtered, token, limit, defaultPageLimit), nil
 }
 
-// UpdateSourceServer applies a ConnectorAction to sourceServerID and returns
-// the flattened SourceServer (PARITY.md wire-trap #1).
-func (b *InMemoryBackend) UpdateSourceServer(
-	sourceServerID string,
-	action *SourceServerConnectorAction,
-) (*SourceServer, error) {
+// SourceServerUpdate configures UpdateSourceServer -- every field is a
+// pointer so a field absent from the caller's JSON body (nil) leaves the
+// corresponding SourceServer field unchanged, matching real AWS's
+// partial-update semantics for this op (never wiping ConnectorAction just
+// because a caller only meant to set FqdnForActionFramework). Platform has
+// no field to land in deliberately: the real SDK's own SourceServer/
+// SourceProperties output shape has no Platform field to read it back from
+// either (confirmed by direct SDK read, same as s3import.go's identical
+// finding for mgn:server:platform) -- accepted and silently dropped, not a
+// bug.
+type SourceServerUpdate struct {
+	ConnectorAction        *SourceServerConnectorAction
+	FqdnForActionFramework *string
+	UserProvidedID         *string
+}
+
+// UpdateSourceServer applies update to sourceServerID and returns the
+// flattened SourceServer (PARITY.md wire-trap #1).
+func (b *InMemoryBackend) UpdateSourceServer(sourceServerID string, update SourceServerUpdate) (*SourceServer, error) {
 	b.mu.Lock("UpdateSourceServer")
 	defer b.mu.Unlock()
 
@@ -323,7 +383,17 @@ func (b *InMemoryBackend) UpdateSourceServer(
 		return nil, notFoundError(resourceSourceServer, sourceServerID)
 	}
 
-	s.ConnectorAction = action
+	if update.ConnectorAction != nil {
+		s.ConnectorAction = update.ConnectorAction
+	}
+
+	if update.FqdnForActionFramework != nil {
+		s.FqdnForActionFramework = *update.FqdnForActionFramework
+	}
+
+	if update.UserProvidedID != nil {
+		s.UserProvidedID = *update.UserProvidedID
+	}
 
 	return s.clone(), nil
 }
