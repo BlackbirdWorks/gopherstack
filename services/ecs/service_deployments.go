@@ -79,13 +79,10 @@ func (b *InMemoryBackend) deleteServiceDeploymentsForServiceLocked(serviceArn st
 // syncServiceDeploymentsLocked upserts a ServiceDeployment record for every
 // entry currently on svc.Deployments. CreateService, UpdateService, and the
 // deployment-circuit-breaker rollback path (deployment.go) all mutate
-// svc.Deployments directly and must call this afterward so
-// DescribeServiceDeployments/ListServiceDeployments/StopServiceDeployment stay
-// in sync — without it, those three routed ops only ever see data seeded by
-// the AddServiceDeploymentInternal test helper, never anything a real
-// deployment created (see parity-principles.md rule 4: a "real-looking" op
-// filtering a never-populated map is a disguised stub). Must be called with
-// the write lock held.
+// svc.Deployments directly and must call this afterward, or
+// DescribeServiceDeployments/ListServiceDeployments/StopServiceDeployment never
+// see a real deployment (parity-principles.md rule 4). Must be called with the
+// write lock held.
 func (b *InMemoryBackend) syncServiceDeploymentsLocked(svc *Service) {
 	for i := range svc.Deployments {
 		b.recordServiceDeploymentLocked(svc, &svc.Deployments[i])
@@ -163,14 +160,11 @@ const (
 	deploymentLifecycleActionRollback = "ROLLBACK"
 )
 
-// ContinueServiceDeployment continues or rolls back a service deployment that
-// is paused at a lifecycle hook. Real ECS only pauses a deployment when a
-// PAUSE-stage lifecycle hook (a Lambda-backed hook configured on the service)
-// is present; this backend does not model lifecycle hooks, so a deployment is
-// never actually paused. The op still validates the deployment exists and the
-// required hookId is present before reporting that there is no such paused
-// hook — it does not fabricate a successful continue/rollback for state that
-// was never paused.
+// ContinueServiceDeployment continues or rolls back a service deployment paused
+// at a lifecycle hook. This backend does not model lifecycle hooks, so a
+// deployment is never actually paused; the op still validates the deployment
+// exists and hookId is present before reporting no such paused hook, rather than
+// fabricating a successful continue/rollback.
 func (b *InMemoryBackend) ContinueServiceDeployment(
 	serviceDeploymentArn, hookID, action string,
 ) (*ServiceDeployment, error) {

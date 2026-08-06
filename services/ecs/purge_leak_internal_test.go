@@ -278,15 +278,9 @@ func TestPurgeCluster_CleansDaemonRevisionsAndDeployments(t *testing.T) {
 	}
 }
 
-// TestDeleteResource_CleansGhostResourceTags proves that deleting a cluster,
-// service, container instance, task set, or express gateway service also
-// removes its resourceTags side-map entry. Previously TagResource-applied
-// tags on these resources were never cleaned up on delete: for
-// deterministic-ARN resources (clusters, services, container instances,
-// express gateway services -- their ARN is derived from name, not a random
-// ID) a delete+recreate cycle with the same name would resurrect stale
-// tags; for random-ID resources (task sets) the resourceTags map grew by one
-// permanent row per resource ever created and deleted.
+// TestDeleteResource_CleansGhostResourceTags proves deleting a cluster, service,
+// container instance, task set, or express gateway service also removes its
+// resourceTags side-map entry (see deleteResourceTagsLocked in tags.go).
 func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
 	t.Parallel()
 

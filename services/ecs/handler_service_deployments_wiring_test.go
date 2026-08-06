@@ -9,16 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestECS_ServiceDeployments_RealDeploymentsAreVisible proves that
-// CreateService/UpdateService now record a real ServiceDeployment for every
+// TestECS_ServiceDeployments_RealDeploymentsAreVisible proves
+// CreateService/UpdateService record a real ServiceDeployment for every
 // deployment they create on a service, so ListServiceDeployments and
-// DescribeServiceDeployments — which filter/read the same backing map — see
-// live data. Previously nothing but the AddServiceDeploymentInternal test
-// seed helper ever populated that map, so a real client following the
-// documented CreateService -> ListServiceDeployments -> DescribeServiceDeployments
-// workflow always got an empty result, even though the service had an active
-// deployment (see parity-principles.md rule 4: a "real-looking" op filtering
-// a never-populated map is a disguised stub).
+// DescribeServiceDeployments -- which filter/read the same backing map -- see
+// live data (parity-principles.md rule 4: a "real-looking" op filtering a
+// never-populated map is a disguised stub).
 func TestECS_ServiceDeployments_RealDeploymentsAreVisible(t *testing.T) {
 	t.Parallel()
 

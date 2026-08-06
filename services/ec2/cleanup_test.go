@@ -425,17 +425,11 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 	)
 }
 
-// TestTerminateInstances_DetachesNonLaunchENIs verifies that terminating an
-// instance only DELETES the primary ENI that AWS auto-created at launch
-// (DeleteOnTermination=true); an ENI created separately via
-// CreateNetworkInterface and attached later has DeleteOnTermination=false by
-// default in real AWS, so it survives termination, merely reverting to
-// "available". A prior version of this test asserted the opposite (every
-// attached ENI deleted, "preventing ENI accumulation") — that encoded a real
-// bug as expected behaviour: real AWS deliberately leaves detached ENIs
-// behind in this scenario (a well-known operational gotcha), it does not
-// delete them. See aws-sdk-go-v2 types.NetworkInterfaceAttachment.DeleteOnTermination
-// and types.NetworkInterfaceAttachmentChanges (ModifyNetworkInterfaceAttribute).
+// TestTerminateInstances_DetachesNonLaunchENIs verifies terminating an instance
+// only deletes the launch-created primary ENI (DeleteOnTermination=true); an ENI
+// attached later via CreateNetworkInterface defaults to DeleteOnTermination=false
+// and survives, reverting to "available" -- real AWS's documented "leftover ENI"
+// behaviour. See aws-sdk-go-v2 types.NetworkInterfaceAttachment.DeleteOnTermination.
 func TestTerminateInstances_DetachesNonLaunchENIs(t *testing.T) {
 	t.Parallel()
 

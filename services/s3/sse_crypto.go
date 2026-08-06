@@ -150,29 +150,19 @@ func setSSEResponseHeaders(w http.ResponseWriter, info sseInfo) {
 	}
 }
 
-// encryptWithSSE applies envelope-style AES-256-GCM encryption to the supplied
-// plaintext when the request specified server-side encryption. Returns the
-// ciphertext along with the data key (DEK) and nonce that must be persisted
-// on the object version so decryption can round-trip on a later GET.
+// encryptWithSSE applies envelope-style AES-256-GCM encryption to plaintext when
+// the request specified server-side encryption. Returns ciphertext plus the data
+// key (DEK) and nonce to persist on the object version for a later GET to decrypt.
 //
-// Modes implemented:
+// SSE-S3/SSE-KMS both generate a random 256-bit DEK (KMS additionally records the
+// key ID for the response header); the DEK is held in memory, mirroring envelope
+// encryption without actually wrapping it under a CMK. SSE-C derives the DEK from
+// the customer-supplied key and returns a nil DEK, since the customer must
+// re-supply it on every GET.
 //
-//   - SSE-S3 (AES256): generates a random 256-bit DEK. The DEK is held in
-//     memory next to the version, which mirrors envelope encryption at the
-//     bit-pattern level even though we don't actually wrap it under a CMK.
-//
-//   - SSE-KMS (aws:kms / aws:kms:dsse): generates a random 256-bit DEK, same
-//     as SSE-S3. The KMS key ID is recorded on the version for the
-//     subsequent x-amz-server-side-encryption-aws-kms-key-id header.
-//
-//   - SSE-C: derives the DEK from the customer-supplied key bytes (base64-
-//     encoded in the X-Amz-Server-Side-Encryption-Customer-Key header).
-//     Returns nil DEK so callers know NOT to persist it — SSE-C requires
-//     the customer to re-supply the key on every GET.
-//
-// Real AWS computes ETag = MD5(plaintext) for SSE-S3, an opaque value for
-// SSE-KMS/SSE-C. For tests we keep ETag = MD5(plaintext) across the board so
-// existing checksum-based assertions still match.
+// Real AWS computes ETag = MD5(plaintext) for SSE-S3 only, an opaque value for
+// SSE-KMS/SSE-C; here ETag = MD5(plaintext) across the board so existing
+// checksum-based assertions still match.
 func encryptWithSSE(
 	plaintext []byte,
 	sse sseInfo,

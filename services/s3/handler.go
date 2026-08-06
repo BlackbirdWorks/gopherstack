@@ -324,17 +324,11 @@ func (h *S3Handler) enforceBucketRegion(
 		return true
 	}
 
-	// 301 responses are cacheable by browsers by default even with no explicit
-	// caching headers (redirects are heuristically "permanent"). Without this,
-	// a dashboard client that ever signs one request for the wrong region gets
-	// this redirect cached against the exact request URL -- and keeps replaying
-	// it forever afterwards, even once the region selector is corrected and
-	// later requests are signed correctly, because the browser HTTP cache is
-	// keyed on method+URL, not on the Authorization header. See bd
-	// gopherstack-pejf: the dashboard S3 view kept showing a stale bucket
-	// region no matter what the region selector said, reproduced end-to-end
-	// with Playwright by diffing a live (cache: 'reload') fetch against the
-	// SDK's default-cache fetch for the same signed request.
+	// 301 responses are cacheable by browsers by default (redirects are
+	// heuristically "permanent"), and the browser HTTP cache is keyed on
+	// method+URL, not the Authorization header. Without no-store, a client that
+	// ever signs one request for the wrong region gets this redirect cached and
+	// keeps replaying it forever, even after later requests are signed correctly.
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Amz-Bucket-Region", bucketRegion)
 	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{

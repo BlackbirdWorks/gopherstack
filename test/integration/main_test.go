@@ -280,6 +280,19 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	})
 }
 
+// waitForDDBTableActive polls DescribeTable until the table reaches ACTIVE.
+func waitForDDBTableActive(t *testing.T, client *dynamodb.Client, tableName string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+
+		return err == nil && out.Table != nil && out.Table.TableStatus == types.TableStatusActive
+	}, 10*time.Second, 20*time.Millisecond)
+}
+
 // createDynamoDBStreamsClient returns a DynamoDB Streams client pointed at the shared test container.
 func createDynamoDBStreamsClient(t *testing.T) *dynamodbstreams.Client {
 	t.Helper()

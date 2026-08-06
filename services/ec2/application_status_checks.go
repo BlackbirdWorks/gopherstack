@@ -833,15 +833,10 @@ func applicationStatusSuppressionActiveLocked(sup *ApplicationStatusSuppression)
 // DescribeApplicationStatus derives the aggregated instance-level status for
 // the requested (or, if empty, every) instance.
 //
-// This backend runs no real HTTP health checks, so it can never honestly
-// report "ok"/"impaired"/"initializing". It only ever returns the three
-// ApplicationStatusEnum values derivable from tracked state: "suppressed"
-// (active suppression), "not-applicable" (no included-aggregation check
-// associated), "insufficient-data" (a check is associated but never run —
-// AWS's own documented meaning, not fabricated).
-//
-// Details is always empty and StatusSince always zero — documented gaps, see
-// PARITY.md.
+// No real HTTP health checks run here, so this never fabricates "ok"/"impaired"/
+// "initializing" — only "suppressed", "not-applicable", or "insufficient-data"
+// (AWS's own documented meaning for a check that's associated but never run).
+// Details and StatusSince stay empty/zero; see PARITY.md.
 func (b *InMemoryBackend) DescribeApplicationStatus(
 	instanceIDs []string,
 	filters map[string][]string,

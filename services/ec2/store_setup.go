@@ -271,29 +271,15 @@ func vpnConnectionRoutesKeyFn(v *VpnConnectionRoute) string {
 func vpnConnectionsKeyFn(v *VpnConnection) string { return v.VpnConnectionID }
 func vpnGatewaysKeyFn(v *VpnGateway) string       { return v.VpnGatewayID }
 
-// registerAllTables registers every converted resource map on b.registry
-// exactly once. It must be called during construction only (immediately after
-// b.registry is created), never on every Reset() -- store.Register panics on a
-// duplicate name, so runtime resets go through registry.ResetAll() instead
-// (see InMemoryBackend.Reset in accept_ops.go).
+// registerAllTables registers every converted resource map on b.registry exactly
+// once, during construction only -- store.Register panics on a duplicate name, so
+// runtime resets go through registry.ResetAll() instead (see InMemoryBackend.Reset
+// in accept_ops.go).
 //
-// The following resource fields are deliberately left as plain maps (not
-// registered here) because their key is not a pure function of the stored
-// value's own fields, which store.Table requires:
-//   - addressTransfers: mixed keying convention across call sites (AllocationID
-//     in normal flow vs PublicIP in AddAddressTransferInternal test-seed
-//     helper) -- pre-existing quirk, not a pure function of value identity
-//   - instanceIMDSOptions: value type IMDSOptions carries no identity field of
-//     its own; keyed externally by instanceID
-//   - verifiedAccessEndpointPolicies: value type VerifiedAccessPolicy carries
-//     no identity field; keyed externally by endpoint ID
-//   - verifiedAccessGroupPolicies: value type VerifiedAccessPolicy carries no
-//     identity field; keyed externally by group ID (shares type with
-//     verifiedAccessEndpointPolicies)
-//   - vpcCidrAssociations: key composite (vpcID+":"+AssociationID) requires
-//     vpcID which is not stored on VpcCidrBlockAssociation value
-//   - vpcPeeringOptions: value type PeeringConnectionOptions carries no
-//     identity field of its own; keyed externally by peeringID
+// addressTransfers, instanceIMDSOptions, verifiedAccessEndpointPolicies,
+// verifiedAccessGroupPolicies, vpcCidrAssociations, and vpcPeeringOptions stay
+// plain maps here: their key isn't a pure function of the stored value's own
+// fields, which store.Table requires.
 func registerAllTables(b *InMemoryBackend) {
 	for _, register := range tableRegistrations {
 		register(b)

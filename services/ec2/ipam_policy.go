@@ -8,14 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// ipam_policy.go implements the IPAM Policy / Governance sub-family layered on top of
-// the core Ipam/IpamPool state in advanced_networking.go: IPAM policies
-// (Create/Describe/DeleteIpamPolicy), their enablement for the current account and for
-// Organizations targets (Enable/DisableIpamPolicy, GetEnabledIpamPolicy,
-// GetIpamPolicyOrganizationTargets), a policy's public IPv4 allocation rules
-// (Get/ModifyIpamPolicyAllocationRules), the IPAM Organizations delegated admin account setting
-// (Enable/DisableIpamOrganizationAdminAccount), and moving an existing BYOIP CIDR into an IPAM
-// pool (MoveByoipCidrToIpam).
+// ipam_policy.go: IPAM Policy/Governance layered on the core Ipam/IpamPool state
+// in advanced_networking.go.
 
 // ---- Errors ----
 

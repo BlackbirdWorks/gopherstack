@@ -7,30 +7,20 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family I (8 ops): StartExport, ListExports,
-// ListExportErrors, StartImport, ListImports, ListImportErrors, plus
-// StartImportFileEnrichment/ListImportFileEnrichments (wire-routed under
-// /network-migration/ despite being conceptually part of this family --
-// PARITY.md wire-shape trap #4).
+// StartImportFileEnrichment/ListImportFileEnrichments are wire-routed under
+// /network-migration/ despite being conceptually part of this family
+// (PARITY.md wire-shape trap #4).
 //
 // StartExport writes a metadata dump of Applications/Waves/Servers to a
-// caller-supplied S3 bucket; StartImport reads one back in. StartExport
-// never writes real S3 object bytes (no cross-service S3 wiring is
-// needed for it: its Summary is a real, live count of this account's
-// Applications/Waves/SourceServers, never derived from written content) --
-// but StartImport DOES read a real S3 object, via the S3Accessor
-// cross-service seam (s3import.go, wired by cli.go onto the in-process S3
-// backend, same pattern as services/dynamodb's ImportTable/
-// ExportTableToPointInTime). gopherstack-i6oz (resolved 2026-08-01): AWS
-// does not publish StartImport's CSV column schema anywhere in this SDK, so
-// s3import.go documents this package's own best-effort assumption (see its
-// doc comment and PARITY.md) rather than inventing content -- every
-// SourceServer StartImport creates comes from an actually-parsed row, and
-// every malformed row is recorded as a real ImportTaskError (ListImportErrors),
-// never silently dropped nor fabricated as a success. SeedVcenterClient
-// (vcenterclients.go) remains this emulator's non-SDK seam for
-// VcenterClient specifically -- no import (or any other public creation)
-// path exists for that resource at all.
+// caller-supplied S3 bucket; StartImport reads one back in. StartExport never
+// writes real S3 object bytes -- its Summary is a real, live count of this
+// account's resources, never derived from written content -- but StartImport
+// DOES read a real S3 object via the S3Accessor cross-service seam
+// (s3import.go). Every SourceServer StartImport creates comes from an
+// actually-parsed row; every malformed row becomes a real ImportTaskError, never
+// silently dropped nor fabricated as a success. SeedVcenterClient
+// (vcenterclients.go) remains the only non-SDK creation seam -- no import path
+// exists for VcenterClient.
 
 // StartExport starts a new (Pending -> Started -> Succeeded) async
 // ExportTask, snapshotting this account's real current Applications/Waves/
@@ -197,15 +187,12 @@ func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource
 }
 
 // finishImportLocked records readImportSourceServers' real outcome onto
-// importID's ImportTask: a whole-object read/parse failure (parseErr set)
-// fails the task with one recorded ImportTaskError and zero created
-// records; otherwise every successfully-parsed row becomes a real
-// SourceServer (createSourceServerLocked), every malformed row's error is
-// recorded, and the task SUCCEEDS with Summary.Servers.CreatedCount set to
-// the real number of rows that actually created a SourceServer -- partial
-// success (some good rows, some bad) is still SUCCEEDED, matching real
-// AWS's own ImportTaskSummary/ListImportErrors split between aggregate
-// counts and per-row error detail.
+// importID's ImportTask: a whole-object read/parse failure (parseErr set) fails
+// the task with one recorded ImportTaskError and zero created records;
+// otherwise every successfully-parsed row creates a real SourceServer, every
+// malformed row's error is recorded, and the task SUCCEEDS with
+// Summary.Servers.CreatedCount set to the real created count -- partial success
+// is still SUCCEEDED, matching real AWS's ImportTaskSummary/ListImportErrors split.
 func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult, parseErr error) {
 	b.mu.Lock("ImportSucceeded-async")
 	defer b.mu.Unlock()

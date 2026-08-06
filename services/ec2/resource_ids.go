@@ -6,14 +6,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// This file centralizes ID-generator helpers for the many EC2 resource
-// families that mint an ID as "<prefix>-" followed by hex characters taken
-// from a fresh UUID. uuid.New().String() is hyphenated (8-4-4-4-12), so a
-// naive [:N] slice embeds literal "-" characters into the ID once N crosses
-// a hyphen boundary, producing shapes real AWS never returns (e.g.
-// "subnet-44eea3bc-ae2c-4c2" instead of "subnet-44eea3bcae2c4c2..."). Every
-// helper below strips the hyphens first via newHexUUID, matching the fix
-// already applied to newSubnetID in subnets.go.
+// uuid.New().String() is hyphenated (8-4-4-4-12), so a naive [:N] slice embeds
+// literal "-" once N crosses a hyphen boundary, producing shapes AWS never
+// returns. Every helper below strips hyphens first via newHexUUID.
 
 // ec2IDHexLen is the hex-character length AWS uses for the current
 // (post-2016) EC2 resource ID format, e.g. "i-0123456789abcdef0". A handful

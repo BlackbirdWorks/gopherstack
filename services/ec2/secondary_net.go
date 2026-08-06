@@ -8,15 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// secondary_net.go implements the Secondary Network / Secondary Subnet /
-// Secondary Interface family (CreateSecondaryNetwork/DeleteSecondaryNetwork/
-// DescribeSecondaryNetworks, CreateSecondarySubnet/DeleteSecondarySubnet/
-// DescribeSecondarySubnets, DescribeSecondaryInterfaces) plus the read-only
-// Outpost LAG / Service Link Virtual Interface family (DescribeOutpostLags,
-// DescribeServiceLinkVirtualInterfaces). Secondary interfaces, Outpost LAGs, and
-// service link virtual interfaces have no Create API in EC2 -- they are
-// physical/attached resources that only support Describe, so (mirroring
-// local_gateway.go's LocalGatewayVirtualInterface precedent) they are
+// secondary_net.go: secondary interfaces, Outpost LAGs, and service link virtual
+// interfaces have no Create API in EC2 -- they're physical/attached, Describe-only
+// resources, so (like local_gateway.go's LocalGatewayVirtualInterface) they're
 // exposed via Seed* methods for tests and start out empty.
 
 var (

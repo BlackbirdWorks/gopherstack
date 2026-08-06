@@ -411,27 +411,20 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 			// Poll SQS for the forwarded message.
 			var receivedBody string
 
-			deadline := time.Now().Add(10 * time.Second)
-
-			for time.Now().Before(deadline) {
+			require.Eventually(t, func() bool {
 				msgOut, receiveErr := sqsClient.ReceiveMessage(t.Context(), &sqs.ReceiveMessageInput{
 					QueueUrl:            &queueURL,
 					MaxNumberOfMessages: 1,
 					WaitTimeSeconds:     2,
 				})
-
 				if receiveErr != nil || len(msgOut.Messages) == 0 {
-					time.Sleep(500 * time.Millisecond)
-
-					continue
+					return false
 				}
 
 				receivedBody = *msgOut.Messages[0].Body
 
-				break
-			}
-
-			assert.NotEmpty(t, receivedBody, "expected SQS message forwarded by IoT rule")
+				return true
+			}, 10*time.Second, 500*time.Millisecond, "expected SQS message forwarded by IoT rule")
 			assert.Equal(t, matchingPayload, receivedBody)
 		})
 	}

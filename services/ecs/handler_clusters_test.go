@@ -380,14 +380,10 @@ func TestCreateCluster_WithSettings(t *testing.T) {
 	assert.Equal(t, "enabled", settings[0].(map[string]any)["value"])
 }
 
-// TestUpdateCluster_DoesNotAcceptCapacityProviders proves that UpdateCluster
-// does not wire up capacityProviders/defaultCapacityProviderStrategy: the
-// real UpdateClusterRequest has neither field (only cluster, settings,
-// configuration, serviceConnectDefaults) -- capacity-provider association is
-// managed exclusively by the separate PutClusterCapacityProviders operation
-// (see TestCluster_PutCapacityProviders_WithStrategy). Even if a caller
-// sends these fields anyway, as a real typed SDK client cannot, they must be
-// silently ignored rather than applied.
+// TestUpdateCluster_DoesNotAcceptCapacityProviders proves UpdateCluster doesn't
+// wire up capacityProviders/defaultCapacityProviderStrategy: the real
+// UpdateClusterRequest has neither field, so even if a caller sends them anyway
+// they must be silently ignored rather than applied.
 func TestUpdateCluster_DoesNotAcceptCapacityProviders(t *testing.T) {
 	t.Parallel()
 

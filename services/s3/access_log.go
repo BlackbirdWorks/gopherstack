@@ -18,15 +18,11 @@ import (
 
 const accessLogDispatchTimeout = 5 * time.Second
 
-// dispatchAccessLog appends an AWS-format access log entry to the target
-// bucket when the source bucket has logging configured. This goes beyond
-// LocalStack — which stores the LoggingConfig but never actually writes log
-// records — to give downstream tooling (Athena queries, log analysis tests)
-// a realistic stream to read.
-//
-// Real S3 batches log records and flushes hourly; here we write one object
-// per request to keep the flow synchronous and inspectable in tests. The
-// dispatch runs in a goroutine so the response isn't held up.
+// dispatchAccessLog appends an AWS-format access log entry to the target bucket
+// when the source bucket has logging configured, giving downstream tooling
+// (Athena queries, log analysis tests) a real stream to read rather than just
+// storing the LoggingConfig. Real S3 batches and flushes hourly; here one object
+// is written per request, in a goroutine so the response isn't held up.
 func (h *S3Handler) dispatchAccessLog(
 	ctx context.Context,
 	r *http.Request,

@@ -61,16 +61,10 @@ func TestDeclarativePoliciesReport_HTTP_Lifecycle(t *testing.T) { //nolint:paral
 	assert.Contains(t, cancelResp, "<return>true</return>")
 }
 
-// TestDeclarativePoliciesReport_TagDualWritePathVisibility proves that
-// declarative_policies.go's DeclarativePoliciesReport consolidated onto the
-// shared tag store: a tag supplied at create time (TagSpecification) and a
-// tag added afterwards via CreateTags are BOTH visible through
-// DescribeDeclarativePoliciesReports AND through the generic DescribeTags
-// call. Before the fix, the report carried its own embedded Tags field
-// populated only at create time, invisible to a post-creation CreateTags
-// call. (StartDeclarativePoliciesReportResponse itself only echoes the
-// ReportId, not TagSet, matching the real API -- so the create-time tag is
-// checked via Describe rather than on the create response.)
+// TestDeclarativePoliciesReport_TagDualWritePathVisibility proves a create-time
+// tag and one added later via CreateTags are BOTH visible through
+// DescribeDeclarativePoliciesReports and DescribeTags. StartDeclarativePoliciesReportResponse
+// itself only echoes ReportId, not TagSet, matching the real API.
 func TestDeclarativePoliciesReport_TagDualWritePathVisibility(t *testing.T) {
 	t.Parallel()
 

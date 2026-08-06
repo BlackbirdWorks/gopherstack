@@ -2,16 +2,12 @@ package mgn
 
 import "github.com/blackbirdworks/gopherstack/pkgs/page"
 
-// This file backs family J (6 ops): PutSourceServerAction/
-// ListSourceServerActions/RemoveSourceServerAction (source-server-scoped)
-// and PutTemplateAction/ListTemplateActions/RemoveTemplateAction
-// (template-scoped) -- two structurally near-identical, but distinct,
-// post-launch custom SSM-document action families (PARITY.md). This repo
-// has no SSM document execution engine (no services/ssm backend found), so
-// these ops track STATE only (documents listed, ordered, active/inactive)
-// -- never actually invoking any SSM document, matching this campaign's
-// MACsec/BGP-peering bookkeeping-only precedent from the directconnect
-// audit.
+// PutSourceServerAction/ListSourceServerActions/RemoveSourceServerAction and
+// PutTemplateAction/ListTemplateActions/RemoveTemplateAction are two structurally
+// near-identical, distinct, post-launch custom SSM-document action families. This
+// repo has no SSM document execution engine, so these ops track STATE only
+// (documents listed, ordered, active/inactive) -- never actually invoking any
+// SSM document.
 
 // PutSourceServerActionInput mirrors PutSourceServerActionInput.
 type PutSourceServerActionInput struct {

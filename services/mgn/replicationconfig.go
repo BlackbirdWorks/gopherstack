@@ -5,16 +5,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family D (6 ops): GetReplicationConfiguration,
-// UpdateReplicationConfiguration (per-SourceServer, flattened -- PARITY.md
-// wire-trap #2, no types.ReplicationConfiguration struct exists) plus
-// CreateReplicationConfigurationTemplate,
-// DeleteReplicationConfigurationTemplate,
-// DescribeReplicationConfigurationTemplates,
-// UpdateReplicationConfigurationTemplate (the separate, account-level,
-// reusable Template family). Same "no exposed template -> per-server
-// application mechanism" gap as launchconfig.go -- see that file's doc
-// comment, which applies identically here.
+// GetReplicationConfiguration/UpdateReplicationConfiguration are per-SourceServer
+// and flattened (PARITY.md wire-trap #2, no types.ReplicationConfiguration struct
+// exists), separate from the account-level, reusable Template family. Same "no
+// exposed template -> per-server application mechanism" gap as launchconfig.go.
 
 // GetReplicationConfiguration returns sourceServerID's per-server
 // ReplicationConfiguration.

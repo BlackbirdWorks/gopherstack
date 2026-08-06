@@ -26,13 +26,9 @@ const rtTestRegion = "us-east-1"
 
 const rtTestAccountID = "000000000000"
 
-// defaultAsyncWait/defaultAsyncPoll bound require.Eventually calls polling
-// this service's async state machines. This service's longest chain (a
-// StartImport-created SourceServer's 2-tick import completion PLUS its own
-// separate 3-tick replication progression to READY_FOR_TEST) is
-// 5*asyncTransitionDelay = 500ms; 5s is generous relative to that for CI
-// jitter, matching services/resiliencehub/outposts/grafana's identical
-// rationale for their own defaultAsyncWait.
+// defaultAsyncWait/defaultAsyncPoll bound require.Eventually calls polling this
+// service's async state machines. Longest chain (import completion + replication
+// to READY_FOR_TEST) is 5*asyncTransitionDelay = 500ms; 5s is generous for CI jitter.
 const (
 	defaultAsyncWait = 5 * time.Second
 	defaultAsyncPoll = 20 * time.Millisecond
@@ -40,18 +36,12 @@ const (
 
 // newRoundTripClient stands up the real aws-sdk-go-v2 mgn client against an
 // httptest server running this package's Handler, wired through the same
-// pkgs/service registry/router used in production -- including the
-// RouteMatcher and MatchPriority a unit test calling h.Handler()(c) directly
-// would bypass. Round-tripping through the genuine SDK serializer/
-// deserializer is what actually proves a request path and error response
-// are wire-compatible: this service's lowerCamel JSON members (with
-// embedded-acronym casing like "sourceServerID"), its literal PascalCase
-// action paths (and the /network-migration/ prefix on 25 of them), its
-// percent-encoded ARN-in-path /tags/{resourceArn} route, and its
-// epoch-seconds vs. RFC3339-string dual timestamp convention all look fine
-// to ad-hoc JSON assertions but fail against the real client if the wire
-// shape is wrong -- matching services/outposts/resiliencehub/grafana's
-// identical rationale for this helper.
+// pkgs/service registry/router used in production -- including the RouteMatcher
+// and MatchPriority a unit test calling h.Handler()(c) directly would bypass.
+// Round-tripping through the genuine SDK serializer/deserializer is what proves
+// wire-compatibility (lowerCamel JSON, PascalCase action paths, the
+// percent-encoded ARN-in-path /tags/{resourceArn} route, and the epoch-seconds
+// vs. RFC3339 dual timestamp convention) that ad-hoc JSON assertions would miss.
 func newRoundTripClient(t *testing.T, h *mgn.Handler) *mgnsdk.Client {
 	t.Helper()
 
@@ -118,14 +108,11 @@ func (m *mockS3) GetObject(_ context.Context, in *s3sdk.GetObjectInput) (*s3sdk.
 	return &s3sdk.GetObjectOutput{Body: io.NopCloser(bytes.NewReader(data))}, nil
 }
 
-// seedSourceServerViaImport drives the real, wire-reachable StartImport
-// path (s3import.go) to create a single SourceServer with the given
-// hostname, replacing this package's former SeedSourceServer non-SDK test
-// convenience (removed once StartImport itself became a genuine creation
-// path -- see sourceservers.go's package doc comment). It waits for the
-// ImportTask to reach SUCCEEDED, then returns the one SourceServer
-// DescribeSourceServers reports -- callers use a fresh backend per test, so
-// a single-row import always yields exactly one result.
+// seedSourceServerViaImport drives the real, wire-reachable StartImport path
+// (s3import.go) to create a single SourceServer with the given hostname. It waits
+// for the ImportTask to reach SUCCEEDED, then returns the one SourceServer
+// DescribeSourceServers reports -- callers use a fresh backend per test, so a
+// single-row import always yields exactly one result.
 func seedSourceServerViaImport(
 	t *testing.T, h *mgn.Handler, client *mgnsdk.Client, hostname string,
 ) mgntypes.SourceServer {

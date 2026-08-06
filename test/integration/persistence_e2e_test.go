@@ -147,9 +147,10 @@ func TestPersistence_E2E_ContainerRestart(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Wait long enough for the debounced save to fire (>500 ms).
-	time.Sleep(1200 * time.Millisecond)
-
+	// No wait needed here: SaveAll unconditionally snapshots every registered
+	// backend's current in-memory state on shutdown, regardless of whether the
+	// debounce timer already fired, so the queue/parameter above are captured
+	// either way.
 	// Stop the container gracefully (SIGTERM → SaveAll → flush snapshots).
 	gracePeriod := 10 * time.Second
 	require.NoError(t, container1.Stop(ctx, &gracePeriod))

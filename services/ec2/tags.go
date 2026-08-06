@@ -67,14 +67,11 @@ func (b *InMemoryBackend) DeleteTags(resourceIDs []string, keys []string) error 
 	return nil
 }
 
-// setTagsLocked writes the given tags for id directly into the shared tag store.
-// Unlike CreateTags, callers must already hold b.mu (write lock) and the resource
-// existence pre-check is skipped — this is meant to be called from within a
-// Create<Resource> method for the resource it just created in the same critical
-// section, so existence is already guaranteed. This is the single source of truth
-// for tags: resource structs must NOT carry their own embedded Tags field, or the
-// two copies drift (a tag written via CreateTags becomes invisible to a Describe
-// that reads the embedded field, and vice versa).
+// setTagsLocked writes tags for id directly into the shared tag store. Unlike
+// CreateTags, callers must already hold b.mu (write lock); existence isn't
+// checked since this runs inside the same critical section as the Create<Resource>
+// that just made id. This is the single source of truth for tags -- resource
+// structs must NOT carry their own embedded Tags field, or the two copies drift.
 func (b *InMemoryBackend) setTagsLocked(id string, tags map[string]string) {
 	if len(tags) == 0 {
 		return

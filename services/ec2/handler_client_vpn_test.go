@@ -231,23 +231,9 @@ func TestClientVPN_DisassociateWrongIDReturnsError(t *testing.T) {
 		"non-existent association ID must return error")
 }
 
-// TestClientVPN_RoutesXMLElementName verifies that
-// DescribeClientVpnRoutes wraps the route list in <routes>, matching the real
-// aws-sdk-go-v2 wire format (see DescribeClientVpnRoutesOutput's
-// "routes" case in deserializers.go). A prior version of this test asserted
-// the opposite (<clientVpnRouteSet>), which was itself the bug parity.md
-// flagged under "EC2 — sub-resource ops (ClientVPN...)" ("ClientVPN routes
-// use `routes` not `clientVpnRouteSet`") — this corrects the assertion to
-// match the documented, SDK-verified fix rather than the bug.
-
-// TestClientVPN_RoutesXMLElementName verifies that
-// DescribeClientVpnRoutes wraps the route list in <routes>, matching the real
-// aws-sdk-go-v2 wire format (see DescribeClientVpnRoutesOutput's
-// "routes" case in deserializers.go). A prior version of this test asserted
-// the opposite (<clientVpnRouteSet>), which was itself the bug parity.md
-// flagged under "EC2 — sub-resource ops (ClientVPN...)" ("ClientVPN routes
-// use `routes` not `clientVpnRouteSet`") — this corrects the assertion to
-// match the documented, SDK-verified fix rather than the bug.
+// TestClientVPN_RoutesXMLElementName verifies DescribeClientVpnRoutes wraps the
+// route list in <routes>, per aws-sdk-go-v2's DescribeClientVpnRoutesOutput
+// "routes" case in deserializers.go (not <clientVpnRouteSet>).
 func TestClientVPN_RoutesXMLElementName(t *testing.T) {
 	t.Parallel()
 

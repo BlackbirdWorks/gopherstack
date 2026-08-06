@@ -26,18 +26,17 @@ func waitForStackStatus(
 	t.Helper()
 
 	ctx := t.Context()
-	cutoff := time.Now().Add(deadline)
+	var status string
 
-	for {
+	require.Eventually(t, func() bool {
 		descOut, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{
 			StackName: aws.String(stackName),
 		})
-		require.NoError(t, err)
-		require.NotEmpty(t, descOut.Stacks)
+		if err != nil || len(descOut.Stacks) == 0 {
+			return false
+		}
 
-		status := string(descOut.Stacks[0].StackStatus)
-
-		// Terminal states – stop polling.
+		status = string(descOut.Stacks[0].StackStatus)
 
 		switch types.StackStatus(status) {
 		case types.StackStatusCreateComplete,
@@ -48,19 +47,13 @@ func waitForStackStatus(
 			types.StackStatusUpdateFailed,
 			types.StackStatusDeleteComplete,
 			types.StackStatusDeleteFailed:
-			return status
+			return true
 		default:
-			// In-progress or other transient states — keep polling.
+			return false
 		}
+	}, deadline, 250*time.Millisecond, "timeout waiting for stack %s to reach a terminal state", stackName)
 
-		if time.Now().After(cutoff) {
-			require.Fail(t, "timeout waiting for stack to reach a terminal state", "last status: %s", status)
-
-			return status
-		}
-
-		time.Sleep(250 * time.Millisecond)
-	}
+	return status
 }
 
 func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {

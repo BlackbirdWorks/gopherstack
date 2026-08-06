@@ -13,22 +13,15 @@ import (
 	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-// This file backs StartImport's real, wire-reachable SourceServer creation
-// path (exportimport.go's StartImport/scheduleImportLocked call into it).
-// gopherstack-i6oz: the only PUBLIC AWS API that creates a SourceServer is
-// StartImport's bulk CSV load, but AWS does not publish that CSV's column
-// schema anywhere in this SDK module (types.SourceServer/SourceProperties
-// are the wire OUTPUT shape, never an input schema). This package's
-// resolution -- an explicit, documented emulator decision, never presented
-// as derived AWS behavior -- is the column set below: a header row plus one
-// required column ("hostname") and a liberal set of optional columns, each
-// mapped onto a real field this backend's SourceServer/SourceProperties
-// already models (see models.go). One CPU/Disk/NetworkInterface entry per
-// row, not the full multi-value arrays a real per-server inventory tool
-// might report -- CSV's one-row-one-record shape does not naturally carry
-// repeating groups without a much richer, still-unpublished convention, and
-// PARITY.md's own guidance is to pick a defensible simpler shape rather than
-// invent one. See PARITY.md's "CSV import schema (this pass)" section.
+// Backs StartImport's real SourceServer creation path (exportimport.go's
+// StartImport/scheduleImportLocked call into it). AWS does not publish
+// StartImport's CSV column schema anywhere in this SDK module
+// (types.SourceServer/SourceProperties are the wire OUTPUT shape only), so the
+// column set below is an explicit, documented emulator decision, not derived AWS
+// behavior: a header row, one required column ("hostname"), and optional columns
+// mapped onto real SourceServer/SourceProperties fields (models.go). One
+// CPU/Disk/NetworkInterface entry per row rather than multi-value arrays -- see
+// PARITY.md's "CSV import schema (this pass)" section.
 
 // maxImportObjectBytes caps how many bytes StartImport reads from the
 // caller's S3 object, matching services/dynamodb's identical import-source
@@ -152,16 +145,13 @@ const (
 	csvColNetworkInterfaceIPs     = "networkinterfaceips"
 )
 
-// parseSourceServerCSV parses data as this package's documented CSV schema
-// (see this file's doc comment and the csvCol* constants above). The first
-// row is always the header (StartImport's Input carries no format-options
-// field to say otherwise -- confirmed by direct read of S3BucketSource, the
-// only input StartImport takes beyond Tags). A missing "hostname" header or
-// an empty/unparseable body fails the entire parse (whole-ImportTask
-// FAILED, via errImportSourceUnreadable) -- anything past that point is a
-// per-row concern: a malformed row is recorded as a real ImportTaskError
-// (never silently dropped, never counted as created), while every other row
-// still creates its SourceServer.
+// parseSourceServerCSV parses data as this package's documented CSV schema (see
+// this file's doc comment and the csvCol* constants above). The first row is
+// always the header (StartImport's S3BucketSource input carries no format-options
+// field to say otherwise). A missing "hostname" header or an empty/unparseable
+// body fails the whole parse (ImportTask FAILED, via errImportSourceUnreadable);
+// past that, a malformed row becomes a real ImportTaskError (never silently
+// dropped) while every other row still creates its SourceServer.
 func parseSourceServerCSV(data []byte) (*importCSVResult, error) {
 	reader := csv.NewReader(bytes.NewReader(data))
 	reader.FieldsPerRecord = -1

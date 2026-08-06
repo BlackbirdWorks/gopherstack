@@ -12,36 +12,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 )
 
-// s3SnapshotVersion identifies the shape of backendSnapshot's Tables blob
-// (i.e. the set/shape of resources registered on b.registry -- see
-// NewInMemoryBackend in store.go). It must be bumped whenever a
-// change there would make an older snapshot unsafe to decode as the current
-// shape. Restore compares this against the persisted value and discards
-// (rather than attempts to partially decode) any mismatch -- see Restore
-// below. This mirrors services/ec2 (commit 12e611a4) and the services/sqs
-// pilot (commit 0f09d77c) that introduced the same pattern.
+// s3SnapshotVersion identifies the shape of backendSnapshot's Tables blob (the
+// set/shape of resources registered on b.registry -- see NewInMemoryBackend in
+// store.go). Must be bumped whenever a change there would make an older snapshot
+// unsafe to decode as the current shape; Restore compares this against the
+// persisted value and discards (rather than partially decodes) any mismatch.
 //
-// Bumping to 1 here (from the previous versionless shape) is a deliberate,
-// one-time break: the old {"buckets": {region: {name: ...}}, "uploads": {bucket:
-// {uploadID: ...}}} shape (and its legacy flat-uploads variant, see the removed
-// migrateUploads) is superseded by the registry's {"tables": {"buckets": [...],
-// "uploads": [...]}} shape. Any snapshot written before this change decodes
-// with Version == 0, fails the guard below, and is discarded cleanly rather
-// than silently misinterpreted -- the same tradeoff services/ec2 and
-// services/sqs made for their own Phase 3.x conversions.
+// Bumped to 1 here from the previous versionless shape: any snapshot written
+// before this change decodes with Version == 0, fails the guard below, and is
+// discarded cleanly rather than silently misinterpreted.
 const s3SnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the S3 backend.
 //
 // Tables holds one JSON-encoded array per registered table, produced by
 // [store.Registry.SnapshotAll] -- currently "buckets" ([]*StoredBucket) and
-// "uploads" ([]*StoredMultipartUpload). Both value types serialise directly
-// (no DTO layer): StoredBucket's and StoredMultipartUpload's only
-// non-serialisable fields (mu, and StoredMultipartUpload.closed) are
-// unexported, so encoding/json already skips them -- the same reason
-// services/ec2's conversion needed zero DTOs. Restore re-initialises those
-// skipped fields via reinitBucketMutexes/reinitUploadMutexes below, exactly as
-// the pre-conversion code did.
+// "uploads" ([]*StoredMultipartUpload). Both serialise directly (no DTO layer):
+// their only non-serialisable fields (mu, StoredMultipartUpload.closed) are
+// unexported, so encoding/json already skips them. Restore re-initialises those
+// skipped fields via reinitBucketMutexes/reinitUploadMutexes below.
 type backendSnapshot struct {
 	Tables        map[string]json.RawMessage `json:"tables"`
 	Tags          map[string][]types.Tag     `json:"tags"`

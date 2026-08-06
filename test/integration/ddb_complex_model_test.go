@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -51,7 +50,7 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 		assert.NoError(t, deleteErr)
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	waitForDDBTableActive(t, client, tableName)
 
 	// Seed data: 3 users across 2 orgs with deep nested attributes
 	type seedUser struct {

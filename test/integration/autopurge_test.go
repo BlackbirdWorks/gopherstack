@@ -183,24 +183,20 @@ func seedPurgeResources(ctx context.Context, t *testing.T, c purgeClients, prefi
 func waitForOldBucketPurge(ctx context.Context, t *testing.T, c *s3.Client, bucketOld string) {
 	t.Helper()
 
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		result, listErr := c.ListBuckets(ctx, &s3.ListBucketsInput{})
-		if listErr == nil {
-			found := false
-			for _, b := range result.Buckets {
-				if *b.Name == bucketOld {
-					found = true
+		if listErr != nil {
+			return false
+		}
 
-					break
-				}
-			}
-			if !found {
-				break
+		for _, b := range result.Buckets {
+			if *b.Name == bucketOld {
+				return false
 			}
 		}
-		time.Sleep(2 * time.Second)
-	}
+
+		return true
+	}, 60*time.Second, 2*time.Second)
 }
 
 // assertS3Purged verifies the old bucket is gone and the new bucket remains.
@@ -331,7 +327,9 @@ func TestIntegration_AutoPurgeTTL_SupportsGranularPurge(t *testing.T) {
 	// 2. Create "old" resources
 	oldNames := seedPurgeResources(ctx, t, clients, "old")
 
-	// 3. Wait for TTL to pass (20s + buffer)
+	// 3. Wait for TTL to pass (20s + buffer). Real wall-clock wait: no API exposes
+	// "has the TTL elapsed", so this can't be turned into a poll without just
+	// busy-waiting on the clock — the elapsed time itself is what's under test.
 	t.Log("Waiting for resources to expire...")
 	time.Sleep(22 * time.Second)
 

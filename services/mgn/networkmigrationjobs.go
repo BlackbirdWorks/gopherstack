@@ -5,46 +5,23 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs the shared NetworkMigrationExecution/NetworkMigrationJob
-// bookkeeping engine used by family N (10 ops, all under
-// /network-migration/): StartNetworkMigrationAnalysis,
-// ListNetworkMigrationAnalyses, ListNetworkMigrationAnalysisResults,
-// StartNetworkMigrationCodeGeneration, ListNetworkMigrationCodeGenerations,
-// ListNetworkMigrationCodeGenerationSegments, StartNetworkMigrationDeployment,
-// ListNetworkMigrationDeployments, ListNetworkMigrationDeployedStacks,
-// ListNetworkMigrationExecutions -- plus StartNetworkMigrationMapping/
-// StartNetworkMigrationMappingUpdate/ListNetworkMigrationMappings/
-// ListNetworkMigrationMappingUpdates from family M (networkmigration.go),
-// which share this same engine.
+// Shared NetworkMigrationExecution/NetworkMigrationJob bookkeeping engine for
+// family N (networkmigrationjobs.go) and family M (networkmigration.go).
 //
-// # The hard design problem: NetworkMigrationExecutionID
-//
-// No op anywhere in this 95-op surface CREATES a NetworkMigrationExecutionID
-// (PARITY.md's gaps section): StartNetworkMigrationMapping/MappingUpdate/
-// Analysis/CodeGeneration/Deployment all REQUIRE one as input, and
-// ListNetworkMigrationExecutions only lists, never creates. This backend's
-// documented resolution: resolveOrCreateExecutionLocked auto-vivifies a
-// NetworkMigrationExecution the first time any of those 5 Start* ops
-// references an (DefinitionID, ExecutionID) pair not previously seen --
-// exactly the convention this pass's task explicitly names as defensible
-// ("minting one automatically the first time StartNetworkMigrationMapping is
-// called ... with no prior execution"), generalized here to all 5 Start*
-// entry points since none of the five is more privileged than the others as
-// a creation trigger. This is an explicit, documented gopherstack
-// convention, never presented as derived AWS behavior.
-//
-// # Analysis/code-generation/deployment CONTENT is never fabricated
+// No op in this SDK surface CREATES a NetworkMigrationExecutionID -- the five
+// Start* ops all REQUIRE one as input, and ListNetworkMigrationExecutions only
+// lists. resolveOrCreateExecutionLocked auto-vivifies a NetworkMigrationExecution
+// the first time any Start* op references an unseen (DefinitionID, ExecutionID)
+// pair -- an explicit, documented gopherstack convention, never presented as
+// derived AWS behavior.
 //
 // ListNetworkMigrationAnalysisResults, ListNetworkMigrationCodeGenerationSegments,
-// and ListNetworkMigrationDeployedStacks always return an empty Items list,
-// even after their parent job SUCCEEDS: analyzing real network topology,
-// generating real infrastructure code, and deploying real CloudFormation
-// stacks all require engines this repo does not have (PARITY.md's "Network
-// Migration sub-product -- largely bookkeeping-only" section is explicit
-// that fabricating this content "would misrepresent what the emulator
-// actually did"). The state-bookkeeping shell -- job status walking
-// PENDING -> STARTED -> SUCCEEDED, executions tracking Stage/Activity/
-// Status -- is the honestly-simulatable half this file provides.
+// and ListNetworkMigrationDeployedStacks always return an empty Items list, even
+// after their parent job SUCCEEDS: analyzing topology, generating code, and
+// deploying stacks all require engines this repo does not have, and fabricating
+// that content would misrepresent what the emulator did (PARITY.md). The
+// state-bookkeeping shell -- job status PENDING -> STARTED -> SUCCEEDED,
+// executions tracking Stage/Activity/Status -- is the honest half this file provides.
 
 // nmActivityToStage maps an ExecutionStageActivity to its ExecutionStage --
 // identical for 5 of 6 values; MAPPING_UPDATE (Activity-only, no Stage

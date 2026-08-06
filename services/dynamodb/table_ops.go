@@ -472,14 +472,11 @@ func (db *InMemoryDB) DeleteTable(
 		db.streamARNIndex.Delete(table.StreamARN)
 	}
 
-	// Capture state for return. The table has already been unlinked from
-	// db.tables above, but PutItem/BatchWriteItem/UpdateTable etc. resolve a
-	// *Table once via getTable and then mutate table.Items/
-	// table.GlobalSecondaryIndexes under table.mu WITHOUT re-checking db.tables,
-	// so a caller that grabbed this same *Table just before this delete can
-	// still be actively writing to it concurrently. Reading those fields here
-	// without table.mu is a real data race (caught by -race); take a read lock
-	// for the snapshot, consistent with this backend's db.mu -> table.mu order.
+	// The table is already unlinked from db.tables, but a caller that grabbed
+	// this same *Table just before this delete can still be actively writing to
+	// it under table.mu without re-checking db.tables -- reading these fields
+	// here without table.mu would be a real data race, so take a read lock for
+	// the snapshot, consistent with this backend's db.mu -> table.mu order.
 	gsis, keySchema, attrDefs, itemCountSnapshot := snapshotTableForDeleteOutputRLocked(table)
 
 	gsiDescs := make([]models.GlobalSecondaryIndexDescription, len(gsis))

@@ -185,16 +185,15 @@ const defaultMultipartMaxAge = 24 * time.Hour
 
 // cleanupDefaultMultipart aborts multipart uploads older than 24 hours.
 //
-// The 24h default applies UNCONDITIONALLY (including to buckets with lifecycle
-// rules) because not every lifecycle configuration includes an
-// AbortIncompleteMultipartUpload rule — without this floor, uploads can leak
-// indefinitely. When a bucket's lifecycle DOES specify abort-incomplete with a
-// shorter window, sweepLifecycle still runs first on the same tick and will
-// remove uploads earlier; this pass is the safety net.
+// The 24h default applies UNCONDITIONALLY, even to buckets with lifecycle rules,
+// since not every lifecycle configuration includes AbortIncompleteMultipartUpload
+// -- without this floor, uploads can leak indefinitely. sweepLifecycle still runs
+// first on the same tick and removes uploads earlier if a shorter window is set;
+// this pass is the safety net.
 //
-// Performance: expired upload IDs are collected under a read lock, then deleted
-// under a write lock. This keeps the write-lock critical section proportional to
-// the number of expired uploads rather than the total number of in-progress uploads.
+// Expired upload IDs are collected under a read lock, then deleted under a write
+// lock, so the write-lock section is proportional to expired uploads, not total
+// in-progress uploads.
 func (j *Janitor) cleanupDefaultMultipart(_ context.Context) {
 	b := j.Backend
 	now := time.Now().UTC()

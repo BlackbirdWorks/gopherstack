@@ -738,31 +738,9 @@ func parseEC2Filters(vals url.Values) map[string][]string {
 	return filters
 }
 
-// applyInstanceFilters returns only instances matching all filters (AND across filters,
-// OR within each filter's values). Supports the following filter names:
-//
-//   - instance-state-name (already handled by backend but re-applied for multi-value)
-//   - image-id
-//   - vpc-id
-//   - subnet-id
-//   - instance-type
-//   - key-name
-//   - private-ip-address
-//   - ip-address (public IP)
-//   - tag:<key>
-
-// applyInstanceFilters returns only instances matching all filters (AND across filters,
-// OR within each filter's values). Supports the following filter names:
-//
-//   - instance-state-name (already handled by backend but re-applied for multi-value)
-//   - image-id
-//   - vpc-id
-//   - subnet-id
-//   - instance-type
-//   - key-name
-//   - private-ip-address
-//   - ip-address (public IP)
-//   - tag:<key>
+// applyInstanceFilters ANDs across filter names, ORs within each filter's values.
+// Supports instance-state-name, image-id, vpc-id, subnet-id, instance-type, key-name,
+// private-ip-address, ip-address, and tag:<key>.
 func applyInstanceFilters(instances []*Instance, filters map[string][]string, b Backend) []*Instance {
 	if len(filters) == 0 {
 		return instances

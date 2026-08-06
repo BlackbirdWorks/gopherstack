@@ -131,15 +131,11 @@ type routeEntry struct {
 	op string
 }
 
-// routeKey builds the flat lookup key routes() is keyed by: the HTTP method
-// plus the operation-name path segment. 92 of 95 ops are literal
-// POST /<OperationName> with the operation name AS the path (PARITY.md
-// routing section) -- 25 of those are namespaced POST
-// /network-migration/<OperationName> instead, so operationSegment strips
-// that prefix before building the key. The tags trio is keyed by method +
-// "tags" regardless of the ARN segment that follows (mirroring
-// services/resiliencehub's identical routeKey for its own /tags/{resourceArn}
-// trio).
+// routeKey builds the flat lookup key routes() is keyed by: HTTP method plus the
+// operation-name path segment. 92 of 95 ops are literal POST /<OperationName>; 25
+// of those are namespaced POST /network-migration/<OperationName> instead, so
+// operationSegment strips that prefix first. The tags trio is keyed by method +
+// "tags" regardless of the ARN segment that follows.
 func routeKey(method string, segs []string) string {
 	return method + " " + operationSegment(segs)
 }

@@ -8,15 +8,7 @@ import (
 	"time"
 )
 
-// handler_instance_attrs.go implements the HTTP handlers for the
-// instance-attribute misc operation cluster, backed by
-// instance_attrs.go: ModifyAvailabilityZoneGroup, ModifyHosts,
-// ModifyInstanceCapacityReservationAttributes, ModifyInstanceCpuOptions,
-// ModifyInstanceEventStartTime, ModifyInstanceMaintenanceOptions,
-// ModifyInstanceNetworkPerformanceOptions, ModifyInstancePlacement,
-// ModifyPrivateDnsNameOptions, ModifyPublicIpDnsNameOptions,
-// AssociateInstanceEventWindow, DisassociateInstanceEventWindow,
-// GetInstanceTpmEkPub, and GetInstanceUefiData.
+// handler_instance_attrs.go: HTTP handlers backed by instance_attrs.go.
 
 func registerInstanceAttrOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["ModifyAvailabilityZoneGroup"] = h.handleModifyAvailabilityZoneGroup

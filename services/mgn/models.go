@@ -7,24 +7,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file holds every internal resource representation this backend
-// stores, plus a clone() (or cloneX helper) for each -- see
-// .claude/memories/parity-principles.md and outposts/resiliencehub's
-// clone()-per-type idiom: every store.Table[V].Get/Snapshot/All caller in
-// this package must deep-copy before returning to a handler, since
-// SourceServer/Job/NetworkMigration* all carry deeply nested slices AND
-// this service has async, timer-driven state progression (replication
-// init steps, Job log walks, export/import/network-migration-job
-// progress) that mutates those same nested structures in place.
+// Every store.Table[V].Get/Snapshot/All caller in this package must deep-copy
+// (clone()/cloneX) before returning to a handler: SourceServer/Job/
+// NetworkMigration* carry deeply nested slices, and this service's async,
+// timer-driven state progression mutates those same structures in place.
 //
-// Fields mirroring an SDK *string "DateTime"-suffixed member (confirmed by
-// direct SDK read to deserialize via a bare `value.(string)` type assertion,
-// NOT smithytime -- see PARITY.md) are stored/emitted as RFC3339 strings,
-// a defensible convention documented once here rather than at each site;
-// fields mirroring a real smithy *time.Time member (confirmed via
-// smithytime.ParseEpochSeconds in the SDK's own deserializer) are stored as
-// time.Time and wire-encoded as epoch-seconds via pkgs/awstime.Epoch,
-// matching every other service in this campaign.
+// Fields mirroring an SDK *string "DateTime"-suffixed member (deserializes via a
+// bare `value.(string)` assertion, NOT smithytime) are stored/emitted as RFC3339
+// strings; fields mirroring a real smithy *time.Time member (smithytime.ParseEpochSeconds)
+// are stored as time.Time and wire-encoded as epoch-seconds via pkgs/awstime.Epoch.
 
 // ---- SourceServer and its nested shapes ----
 
@@ -142,14 +133,11 @@ type DataReplicationInfoReplicatedDisk struct {
 	TotalStorageBytes      int64
 }
 
-// DataReplicationInfo mirrors types.DataReplicationInfo. This is the
-// inherently bookkeeping-only sub-state-machine PARITY.md documents: no
-// real source machine or replication agent exists, so DataReplicationState/
-// ReplicatedDisks progress on a deterministic timer (see sourceservers.go's
-// scheduleReplication), never a fabricated realistic-looking bandwidth/lag
-// figure. DataReplicationError is left permanently nil (no real failure
-// condition exists to trigger any of the 18 DataReplicationErrorString
-// values).
+// DataReplicationInfo mirrors types.DataReplicationInfo. No real source machine
+// or replication agent exists, so DataReplicationState/ReplicatedDisks progress
+// on a deterministic timer (sourceservers.go's scheduleReplication), never a
+// fabricated bandwidth/lag figure. DataReplicationError stays permanently nil --
+// no real failure condition exists to trigger any DataReplicationErrorString value.
 type DataReplicationInfo struct {
 	DataReplicationError      *DataReplicationError
 	DataReplicationInitiation *DataReplicationInitiation
@@ -285,16 +273,8 @@ func (l *LifeCycle) clone() *LifeCycle {
 	return &cp
 }
 
-// SourceServer mirrors types.SourceServer -- the central resource this
-// service exists to manage. See PARITY.md's "hard design problem": no
-// public SDK operation creates one directly; the only wire-reachable path
-// is StartImport's real CSV-driven bulk load (s3import.go parses the
-// caller's S3 object per this package's documented column assumption and
-// creates one SourceServer per valid row -- see exportimport.go). That is
-// this emulator's one and only SourceServer creation path, a deliberate
-// resolution of the gap, never presented as derived AWS behavior (AWS's own
-// creation mechanism -- the MGN Replication Agent's internal registration
-// call -- is not part of this public SDK surface at all).
+// SourceServer mirrors types.SourceServer -- the central resource this service
+// exists to manage. See sourceservers.go's doc comment for how it gets created.
 type SourceServer struct {
 	Tags                   *tags.Tags
 	ConnectorAction        *SourceServerConnectorAction
@@ -497,12 +477,9 @@ func (p *PostLaunchActions) clone() *PostLaunchActions {
 
 // LaunchConfiguration mirrors the shape GetLaunchConfiguration/
 // UpdateLaunchConfiguration flatten onto their Output -- there is NO
-// types.LaunchConfiguration struct anywhere in this SDK module (confirmed:
-// PARITY.md wire-trap #2). One exists per SourceServer, auto-created
-// alongside it (see sourceservers.go's seedSourceServerLocked) since no
-// dedicated Create/Delete op exists for this resource kind (PARITY.md's
-// "four distinct configuration-family resources" section) -- a documented,
-// invented convention, not derived from AWS behavior.
+// types.LaunchConfiguration struct anywhere in this SDK module (PARITY.md
+// wire-trap #2). One exists per SourceServer, auto-created alongside it since no
+// dedicated Create/Delete op exists for this resource kind.
 type LaunchConfiguration struct {
 	Licensing                           *Licensing
 	PostLaunchActions                   *PostLaunchActions
@@ -897,32 +874,24 @@ type S3BucketSource struct {
 	S3Key         string
 }
 
-// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount is
-// a real, live count of the SourceServers StartImport actually parsed and
-// created from the caller's CSV object (see s3import.go) -- never
-// fabricated. ModifiedCount is always zero: this emulator has no natural
-// key to detect "this row re-describes a previously-imported server" (no
-// AWS-published convention for that exists), so every successfully-parsed
-// row always creates a new SourceServer, documented as a simplification.
-// Applications/Waves are always zero-valued: StartImport's CSV schema (this
-// package's own documented assumption, see PARITY.md) only carries
-// SourceServer-level columns, matching the "hard design problem" this
-// service exists to solve (SourceServer creation, not Application/Wave
-// bulk-load).
+// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount is a
+// real, live count of the SourceServers StartImport actually parsed and created
+// (s3import.go) -- never fabricated. ModifiedCount is always zero: no natural key
+// exists to detect a re-describing row, so every successfully-parsed row creates
+// a new SourceServer. Applications/Waves are always zero -- the documented CSV
+// schema only carries SourceServer-level columns.
 type ImportTaskSummary struct {
 	Applications countPair
 	Servers      countPair
 	Waves        countPair
 }
 
-// ImportErrorData mirrors types.ImportErrorData -- one CSV row's failure
-// detail. AccountID/ApplicationID/Ec2LaunchTemplateID are always empty in
-// this emulator: no delegated-account import path, no ApplicationID column
-// in the documented CSV schema (SourceServer<->Application association is
-// real AWS's own AssociateSourceServers, a separate call, not part of
-// StartImport), and no per-server EC2 launch template concept modeled at
-// import time. RowNumber/RawError are always real, describing the actual
-// malformed row parseSourceServerCSV rejected.
+// ImportErrorData mirrors types.ImportErrorData -- one CSV row's failure detail.
+// AccountID/ApplicationID/Ec2LaunchTemplateID are always empty: no
+// delegated-account import path, no ApplicationID column in the documented CSV
+// schema, and no per-server EC2 launch template modeled at import time.
+// RowNumber/RawError are always real, describing the actual malformed row
+// parseSourceServerCSV rejected.
 type ImportErrorData struct {
 	RawError  string
 	RowNumber int64
@@ -1230,16 +1199,12 @@ func (e *NetworkMigrationExecution) clone() *NetworkMigrationExecution {
 }
 
 // NetworkMigrationJob is this backend's single generic bookkeeping record
-// backing every one of StartNetworkMigrationMapping/MappingUpdate/Analysis/
-// CodeGeneration/Deployment -- all five real SDK job-details types
-// (NetworkMigrationMappingJobDetails, NetworkMigrationMappingUpdateJobDetails,
-// NetworkMigrationAnalysisJobDetails, NetworkMigrationCodeGenerationJobDetails,
-// NetworkMigrationDeployerJobDetails) share an IDENTICAL {CreatedAt, EndedAt,
-// JobID, NetworkMigrationDefinitionID, NetworkMigrationExecutionID, Status,
-// StatusDetails} shape (confirmed by direct read of types.go), differing
-// only in which List* op reads them back -- so one internal table
-// discriminated by Activity, rather than five duplicate tables, is the
-// honest, non-redundant representation. See networkmigrationjobs.go.
+// backing StartNetworkMigrationMapping/MappingUpdate/Analysis/CodeGeneration/
+// Deployment -- all five real SDK job-details types share an IDENTICAL
+// {CreatedAt, EndedAt, JobID, NetworkMigrationDefinitionID,
+// NetworkMigrationExecutionID, Status, StatusDetails} shape (confirmed by direct
+// read of types.go), differing only in which List* op reads them back -- so one
+// table discriminated by Activity, not five duplicates. See networkmigrationjobs.go.
 type NetworkMigrationJob struct {
 	CreatedAt                    time.Time
 	EndedAt                      time.Time

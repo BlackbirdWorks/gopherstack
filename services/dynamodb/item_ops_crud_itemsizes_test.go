@@ -1,15 +1,10 @@
 package dynamodb_test
 
-// item_ops_crud_itemsizes_test.go — regression tests for the itemSizes/Items
-// invariant.
-//
-// doUpdate/doPut/deleteItemAtIndex all index table.itemSizes by the same
-// position as table.Items (see item_ops_crud.go). If a write path grows or
-// shrinks Items without keeping itemSizes in step, a later UpdateItem/PutItem
-// panics with "index out of range" at item_ops_crud.go:817. The batch-write
-// path used to append to Items without touching itemSizes, so a BatchWriteItem
-// into an empty table followed by an UpdateItem panicked with
-// "index out of range [0] with length 0".
+// Regression tests for the itemSizes/Items invariant: doUpdate/doPut/
+// deleteItemAtIndex all index table.itemSizes by the same position as
+// table.Items (item_ops_crud.go). If a write path grows or shrinks Items
+// without keeping itemSizes in step, a later UpdateItem/PutItem panics with
+// "index out of range" at item_ops_crud.go:817.
 
 import (
 	"context"

@@ -7,59 +7,29 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family A (16 ops): DescribeSourceServers, UpdateSourceServer,
-// UpdateSourceServerReplicationType, DeleteSourceServer,
-// ChangeServerLifeCycleState, DisconnectFromService, FinalizeCutover,
-// MarkAsArchived, StartTest, StartCutover, StartReplication, StopReplication,
-// PauseReplication, ResumeReplication, RetryDataReplication,
-// TerminateTargetInstances.
+// Real AWS creates a SourceServer only via the MGN Replication Agent's internal,
+// non-public registration call. The only PUBLIC creation path is StartImport's
+// bulk metadata load (exportimport.go): s3import.go reads the caller-supplied S3
+// object and parses it as a documented, best-effort CSV schema (AWS does not
+// publish the real one), creating one SourceServer per valid row via
+// createSourceServerLocked. Every server starts NOT_READY/INITIATING and
+// progresses to READY_FOR_TEST/CONTINUOUS over 3 asyncTransitionDelay ticks
+// (scheduleReplicationLocked).
 //
-// # The hard design problem: how a SourceServer comes to exist at all
+// LifeCycleState transitions (documented, SDK-inferred, not independently
+// confirmed against AWS's unpublished state machine):
 //
-// No public operation in this 95-op SDK surface creates a SourceServer
-// directly. Real AWS creates one only when the MGN Replication Agent,
-// installed on the actual source machine, calls an internal, non-public
-// control-plane API to register itself -- that call is not part of this
-// SDK. The only PUBLIC creation path is StartImport's bulk metadata load
-// (see exportimport.go), and gopherstack-i6oz's resolution (2026-08-01) is
-// to make that path real: s3import.go reads the caller-supplied S3 object
-// through this package's cross-service S3Accessor seam and parses it as a
-// documented, best-effort CSV schema (AWS does not publish the real one
-// anywhere in this SDK), creating one SourceServer per valid row via
-// createSourceServerLocked below. This is now the ONLY SourceServer
-// creation path in this backend -- the earlier non-SDK SeedSourceServer
-// seam has been removed now that the real wire path works, closing the
-// wire-reachability gap this service was originally graded down for. A
-// newly created SourceServer starts `NOT_READY`/`INITIATING` and progresses
-// to `READY_FOR_TEST`/`CONTINUOUS` over 3 `asyncTransitionDelay` ticks
-// (scheduleReplicationLocked below) regardless of which row created it.
+//	PENDING_INSTALLATION/DISCOVERED are skipped -- seeded directly into NOT_READY.
+//	NOT_READY -> READY_FOR_TEST   once DataReplicationState reaches CONTINUOUS.
+//	READY_FOR_TEST -> TESTING     via StartTest.
+//	TESTING -> READY_FOR_CUTOVER  once the Job completes.
+//	READY_FOR_CUTOVER -> CUTTING_OVER  via StartCutover.
+//	CUTTING_OVER -> CUTOVER       via FinalizeCutover (a distinct call, not automatic).
+//	CUTOVER -> DISCONNECTED       via DisconnectFromService, the terminal state.
 //
-// # LifeCycleState transition table (documented, SDK-inferred -- NOT
-// independently confirmed against AWS's real, unpublished state machine)
-//
-//	PENDING_INSTALLATION -> NOT_READY   once the (simulated) replication agent
-//	                                    "reports in" -- this backend skips
-//	                                    PENDING_INSTALLATION/DISCOVERED
-//	                                    entirely and seeds directly into
-//	                                    NOT_READY, since there is no real
-//	                                    agent-discovery event to model.
-//	NOT_READY            -> READY_FOR_TEST   once DataReplicationState reaches
-//	                                          CONTINUOUS (scheduleReplication).
-//	READY_FOR_TEST       -> TESTING          via StartTest.
-//	TESTING              -> READY_FOR_CUTOVER  once the Job completes.
-//	READY_FOR_CUTOVER    -> CUTTING_OVER     via StartCutover.
-//	CUTTING_OVER         -> CUTOVER          via FinalizeCutover (does NOT
-//	                                          happen automatically on Job
-//	                                          completion -- FinalizeCutover is
-//	                                          a distinct, separate call).
-//	CUTOVER              -> DISCONNECTED     via DisconnectFromService, the
-//	                                          terminal, expected end state.
-//
-// ChangeServerLifeCycleState is the one caller-driven escape hatch: it can
-// force State directly to READY_FOR_TEST/READY_FOR_CUTOVER/CUTOVER (the only
-// 3 values types.ChangeServerLifeCycleStateSourceServerLifecycleState
-// exposes), bypassing the table above -- exactly matching real AWS's own
-// documented purpose for this call (a manual override for operators).
+// ChangeServerLifeCycleState is the one caller-driven escape hatch: it can force
+// State directly to READY_FOR_TEST/READY_FOR_CUTOVER/CUTOVER, bypassing the table
+// above -- matching real AWS's documented manual-override purpose for this call.
 
 // resolveSourceServerLocked resolves sourceServerID to its stored
 // SourceServer. Callers must hold b.mu.
@@ -178,25 +148,15 @@ func seedInitiationSteps() []DataReplicationInitiationStep {
 }
 
 // scheduleReplicationLocked walks a newly seeded/restarted SourceServer's
-// DataReplicationInfo through INITIATING -> INITIAL_SYNC -> BACKLOG ->
-// CONTINUOUS over 3 asyncTransitionDelay ticks, monotonically increasing
-// ReplicatedStorageBytes toward TotalStorageBytes -- a deterministic,
-// time-based progression (PARITY.md's explicit guidance), never a
-// fabricated realistic-looking bandwidth/lag figure. All 12
+// DataReplicationInfo through INITIATING -> INITIAL_SYNC -> BACKLOG -> CONTINUOUS
+// over 3 asyncTransitionDelay ticks, monotonically increasing
+// ReplicatedStorageBytes toward TotalStorageBytes -- deterministic, time-based
+// progression per PARITY.md, never a fabricated bandwidth/lag figure. All 12
 // DataReplicationInitiationStep entries are marked SUCCEEDED together at the
-// first tick rather than walked one real timer-tick per step: the SDK
-// documents 12 discrete steps, but per-step ticks would need ~1.2s of real
-// wall-clock time per seeded server purely for test-timing reasons with no
-// additional honesty gained (PARITY.md explicitly sanctions "returning them
-// all at once ... if explicitly documented" as a defensible simpler pass).
-// Every tick re-checks the server still exists and is still in the state
-// this scheduler put it in before mutating, so a later
-// Stop/Pause/DisconnectFromService call correctly halts further progression
-// without needing to cancel the underlying timer. Each tick's own mutation
-// is a separate named tickReplicationXLocked method purely to keep this
-// function's own cognitive complexity low (decomposition, not suppression
-// -- see .claude/memories/parity-principles.md's ban on cyclop/funlen/
-// gocyclo/gocognit suppressions).
+// first tick rather than one real timer-tick per step (PARITY.md sanctions this
+// as a defensible simpler pass). Every tick re-checks the server still exists and
+// is still in the state this scheduler put it in, so a later
+// Stop/Pause/DisconnectFromService halts progression without cancelling the timer.
 func (b *InMemoryBackend) scheduleReplicationLocked(sourceServerID string) {
 	b.work.After("ReplicationInitiated", asyncTransitionDelay, func() {
 		b.tickReplicationInitiatedLocked(sourceServerID)

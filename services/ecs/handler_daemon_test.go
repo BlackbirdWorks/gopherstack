@@ -351,16 +351,13 @@ func TestECS_DescribeDaemon(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting proves, through the
-// real aws-sdk-go-v2 ECS client, that DescribeDaemonOutput.Daemon
+// TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting proves, through the real
+// aws-sdk-go-v2 ECS client, that DescribeDaemonOutput.Daemon
 // (types.DaemonDetail) round-trips its revision-nested shape correctly:
 // CurrentRevisions is a list of DaemonRevisionDetail, each carrying its own
-// CapacityProviders list of DaemonCapacityProvider{Arn, RunningCount} -- not
-// a flattened daemon-level CapacityProviderArns list. A flattened shape would
-// decode CurrentRevisions as empty (or fail entirely) through the real
-// client's deserializer, even though TestECS_DescribeDaemon's
-// map[string]any-based assertions above happened to still see a
-// "currentRevisions" key.
+// CapacityProviders list of DaemonCapacityProvider{Arn, RunningCount} -- not a
+// flattened daemon-level CapacityProviderArns list, which would decode
+// CurrentRevisions as empty through the real client's deserializer.
 func TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting(t *testing.T) {
 	t.Parallel()
 

@@ -752,14 +752,10 @@ func (b *InMemoryBackend) resetBatch4MapsLocked() {
 
 // StartLifecycleReconciler starts the background goroutine that advances
 // instances through their transitional states (pending→running, stopping→stopped,
-// shutting-down→terminated). It is started by the production provider; tests
-// drive lifecycle transitions deterministically via TickLifecycleForTest and so
-// deliberately do NOT start the background ticker (which would otherwise race
-// with their direct ticks and state assertions). Idempotent — safe to call
-// multiple times; only the first call starts the goroutine.
-//
-// The goroutine exits when ctx is cancelled OR when StopLifecycleReconciler is
-// called, whichever comes first.
+// shutting-down→terminated), until ctx is cancelled or StopLifecycleReconciler is
+// called. Idempotent. Started by the production provider only; tests drive
+// transitions via TickLifecycleForTest and must not start the ticker, or it
+// races with their direct ticks and state assertions.
 func (b *InMemoryBackend) StartLifecycleReconciler(ctx context.Context) {
 	b.lifecycleOnce.Do(func() {
 		go func() {

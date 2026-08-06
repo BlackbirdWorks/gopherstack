@@ -43,33 +43,22 @@ func TestIntegration_DDB_CustomWaitForDeletion(t *testing.T) {
 
 	// Implement custom wait logic (like a user might do)
 	start := time.Now()
-	maxWait := 30 * time.Second
-	pollInterval := 1 * time.Second
 
-	for {
+	require.Eventually(t, func() bool {
 		_, describeErr := client.DescribeTable(ctx, &dynamodb.DescribeTableInput{
 			TableName: aws.String(tableName),
 		})
 
-		if describeErr != nil {
-			// Check if it's ResourceNotFoundException
-			var rnfe *types.ResourceNotFoundException
-			if errors.As(describeErr, &rnfe) {
-				t.Logf("Table deleted successfully, detected via ResourceNotFoundException")
-
-				break
-			}
-			// Other error - fail the test
-			require.NoError(t, describeErr, "Unexpected error while waiting for table deletion")
+		if describeErr == nil {
+			return false
 		}
 
-		// Table still exists
-		if time.Since(start) > maxWait {
-			require.Failf(t, "timeout", "Timeout waiting for table deletion after %v", time.Since(start))
-		}
+		var rnfe *types.ResourceNotFoundException
 
-		time.Sleep(pollInterval)
-	}
+		return errors.As(describeErr, &rnfe)
+	}, 30*time.Second, 1*time.Second, "Timeout waiting for table deletion")
+
+	t.Logf("Table deleted successfully, detected via ResourceNotFoundException")
 
 	elapsed := time.Since(start)
 	t.Logf("Custom wait completed in %v", elapsed)

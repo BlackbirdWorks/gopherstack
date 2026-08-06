@@ -202,12 +202,9 @@ func (b *InMemoryBackend) CreateService(input CreateServiceInput) (*Service, err
 
 	// Mirror tags into the resourceTags side map so TagResource/UntagResource/
 	// ListTagsForResource (and DescribeServices with Include=[TAGS], which reads
-	// tags from this map -- see DescribeServices/enrichService below) see the
-	// same tags applied at creation. Previously svc.Tags and resourceTags were
-	// two independent, never-synchronized copies: a TagResource call on this
-	// ARN silently never showed up on Describe, and creation-time tags were
-	// invisible to ListTagsForResource. Mirrors the identical fix applied to
-	// ExpressGatewayService (see CreateExpressGatewayService in express_gateway.go).
+	// tags from this map -- see enrichService below) see the tags applied at
+	// creation; svc.Tags and resourceTags are independent copies that must stay
+	// synchronized.
 	if len(input.Tags) > 0 {
 		b.setResourceTagsLocked(svc.ServiceArn, input.Tags)
 	}

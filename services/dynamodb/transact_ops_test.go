@@ -431,14 +431,11 @@ func TestTransactWriteItems_TokenNotCommittedOnFailure(t *testing.T) {
 	require.Error(t, err, "second call with uncommitted token should also fail")
 }
 
-// TestTransactWriteItems_Update_RejectsKeyModification verifies that a
+// TestTransactWriteItems_Update_RejectsKeyModification verifies a
 // TransactWriteItems Update action is rejected when its UpdateExpression
-// touches a key attribute, matching the restriction plain UpdateItem already
-// enforces. Before this validation was added, such an update would silently
-// rewrite the item's key in place while leaving a stale entry in the
-// PK/PK+SK index (updateIndexes only ever adds/overwrites the new key's
-// index slot; it never removes the old one) — corrupting subsequent lookups
-// by the original key.
+// touches a key attribute, matching plain UpdateItem's restriction -- without
+// it, updateIndexes only adds/overwrites the new key's index slot and never
+// removes the old one, corrupting subsequent lookups by the original key.
 func TestTransactWriteItems_Update_RejectsKeyModification(t *testing.T) {
 	t.Parallel()
 

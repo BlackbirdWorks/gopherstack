@@ -117,8 +117,7 @@ func TestIntegration_IoT_SearchIndexFindsCreatedThings(t *testing.T) {
 	// reflect the newly created thing on the very next call, but poll briefly for robustness.
 	var found bool
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
+	require.Eventually(t, func() bool {
 		searchOut, searchErr := client.SearchIndex(ctx, &iotsdk.SearchIndexInput{
 			QueryString: aws.String("thingName:" + thingName),
 		})
@@ -131,14 +130,8 @@ func TestIntegration_IoT_SearchIndexFindsCreatedThings(t *testing.T) {
 			}
 		}
 
-		if found {
-			break
-		}
-
-		time.Sleep(200 * time.Millisecond)
-	}
-
-	assert.True(t, found, "SearchIndex should find the newly created thing")
+		return found
+	}, 5*time.Second, 200*time.Millisecond, "SearchIndex should find the newly created thing")
 }
 
 // TestIntegration_IoT_ThingRegistrationTaskLifecycle drives StartThingRegistrationTask followed

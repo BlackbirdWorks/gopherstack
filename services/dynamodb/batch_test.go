@@ -377,17 +377,11 @@ func TestBatchWriteItem_OversizedItem_ReturnedAsValidationError(t *testing.T) {
 	assert.Contains(t, err.Error(), "ValidationException")
 }
 
-//
-// Covers seven accuracy gaps in BatchGetItem and BatchWriteItem:
-//   1. BatchGetItem: empty RequestItems → ValidationException
-//   2. BatchGetItem: empty Keys for a table → ValidationException
-//   3. BatchGetItem: AttributesToGet projection applied when ProjectionExpression absent
-//   4. BatchGetItem: ProjectionExpression + AttributesToGet mutual exclusion
-//   5. BatchGetItem: ConsistentRead doubles RCU in ConsumedCapacity
-//   6. BatchWriteItem: null WriteRequest (neither Put nor Delete) → ValidationException
-//   7. BatchWriteItem: PutRequest item exceeding 400 KB → ValidationException
-//   8. BatchWriteItem: PutRequest missing primary key → ValidationException
-//   9. BatchWriteItem: DeleteRequest missing primary key → ValidationException
+// Covers BatchGetItem/BatchWriteItem accuracy gaps: empty RequestItems/Keys,
+// AttributesToGet projection, ProjectionExpression+AttributesToGet mutual
+// exclusion, ConsistentRead doubling RCU, null WriteRequest, oversized
+// PutRequest item, and missing primary key on Put/DeleteRequest -- all
+// ValidationException except the RCU/projection cases.
 
 func newBatchTestDB(t *testing.T) *dynamodb.InMemoryDB {
 	t.Helper()
@@ -768,14 +762,10 @@ func TestBatchWriteItem_DeleteRequest_MissingPK_Rejected(t *testing.T) {
 	assertBatchValidationErr(t, err)
 }
 
-// Regression: valid batch write still succeeds after adding validation.
-//
-// Note: the Delete key is deliberately distinct from both Put keys. AWS
-// DynamoDB rejects a BatchWriteItem whose per-table request list targets the
-// same primary key more than once (e.g. Put(k1) + Delete(k1) together) with
-// "ValidationException: Provided list of item keys contains duplicates" — this
-// test previously (incorrectly) exercised exactly that duplicate-key shape and
-// asserted it should succeed, which does not match real AWS behaviour.
+// The Delete key is deliberately distinct from both Put keys: AWS DynamoDB
+// rejects a BatchWriteItem whose per-table request list targets the same
+// primary key more than once (e.g. Put(k1) + Delete(k1) together) with
+// "ValidationException: Provided list of item keys contains duplicates".
 func TestBatchWriteItem_ValidRequests_NotAffectedByValidation(t *testing.T) {
 	t.Parallel()
 	d := newBatchTestDB(t)

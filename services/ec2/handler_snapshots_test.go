@@ -335,15 +335,9 @@ func TestHandlerDeleteSnapshot(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, rec.Code)
 }
 
-// TestSnapshotWireFields_EncryptedOwnerIDTags verifies that CreateSnapshot,
+// TestSnapshotWireFields_EncryptedOwnerIDTags verifies CreateSnapshot,
 // CreateSnapshots, CopySnapshot, and DescribeSnapshots all surface Encrypted,
-// KmsKeyId, OwnerId, and TagSet on the wire. Previously these response items
-// only ever rendered SnapshotId/VolumeId/State/Progress/Description/StartTime/
-// VolumeSize - Encrypted/KmsKeyId were tracked in the backend but never
-// rendered, OwnerId (trivially b.AccountID) was never set at all, and
-// TagSpecifications on the three create ops were never parsed (create-time
-// tagging silently discarded, and even tags added afterward via CreateTags
-// never appeared back on Describe).
+// KmsKeyId, OwnerId, and TagSet on the wire.
 func TestSnapshotWireFields_EncryptedOwnerIDTags(t *testing.T) {
 	t.Parallel()
 

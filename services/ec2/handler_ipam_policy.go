@@ -6,14 +6,9 @@ import (
 	"net/url"
 )
 
-// handler_ipam_policy.go implements the HTTP handlers for the IPAM Policy / Governance
-// sub-family: IPAM policies (Create/Describe/DeleteIpamPolicy), their enablement for the
-// current account and for Organizations targets (Enable/DisableIpamPolicy,
-// GetEnabledIpamPolicy, GetIpamPolicyOrganizationTargets), a policy's public IPv4 allocation
-// rules (Get/ModifyIpamPolicyAllocationRules), the IPAM Organizations delegated admin account
-// setting (Enable/DisableIpamOrganizationAdminAccount), and moving an existing BYOIP CIDR into
-// an IPAM pool (MoveByoipCidrToIpam). The IPAM core (Ipam/IpamScope/IpamPool) lives in
-// handler_advanced_networking.go; this file extends the same family.
+// handler_ipam_policy.go: HTTP handlers for IPAM Policy/Governance. The IPAM
+// core (Ipam/IpamScope/IpamPool) lives in handler_advanced_networking.go; this
+// file extends the same family.
 
 // ---- Handler registration ----
 

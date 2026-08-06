@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,12 +37,18 @@ func TestIntegration_CloudFormation_StackLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, createOut.StackId)
 
-	// Wait for stack to complete
-	time.Sleep(500 * time.Millisecond)
+	// Wait for stack to reach CREATE_COMPLETE.
+	var descOut *cloudformationsdk.DescribeStacksOutput
+	require.Eventually(t, func() bool {
+		var descErr error
+		descOut, descErr = client.DescribeStacks(
+			ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)},
+		)
 
-	// DescribeStacks
-	descOut, err := client.DescribeStacks(ctx, &cloudformationsdk.DescribeStacksInput{StackName: aws.String(stackName)})
-	require.NoError(t, err)
+		return descErr == nil && len(descOut.Stacks) > 0 &&
+			descOut.Stacks[0].StackStatus == cftypes.StackStatusCreateComplete
+	}, 10*time.Second, 50*time.Millisecond)
+
 	require.NotEmpty(t, descOut.Stacks)
 	assert.Equal(t, stackName, *descOut.Stacks[0].StackName)
 

@@ -540,14 +540,10 @@ func TestDeleteVpc_SecondaryIndexes(t *testing.T) {
 	}
 }
 
-// TestPersistence_SecondaryIndexRebuild is the guard test for the Restore
-// secondary-index rebuild. It creates a VPC with instances and ENIs, snapshots,
-// restores into a fresh backend, and asserts that (a) DeleteVpc still correctly
-// reports DependencyViolation for dependents restored via secondary indexes
-// (proving instanceIDsByVPC / subnetIDsByVPC / natGatewayIDsByVPC were
-// rebuilt, and that tearing dependents down in AWS order still lets DeleteVpc
-// succeed) and (b) ENI-by-instance termination cleanup still works (proving
-// eniIDsByInstance was rebuilt).
+// TestPersistence_SecondaryIndexRebuild guards Restore's secondary-index
+// rebuild: after snapshot/restore, DeleteVpc still reports DependencyViolation
+// via instanceIDsByVPC/subnetIDsByVPC/natGatewayIDsByVPC, and ENI-by-instance
+// termination cleanup still works via eniIDsByInstance.
 func TestPersistence_SecondaryIndexRebuild(t *testing.T) {
 	t.Parallel()
 
@@ -720,17 +716,9 @@ func TestDeleteVpc_PerVPCIndexCascade(t *testing.T) {
 	})
 }
 
-// TestModifyInstanceAttribute_Validation covers the handler-level attribute
-// selection and stopped-state guard rules for ModifyInstanceAttribute.
-
-// TestPagination_ForgedTokenRejected asserts that a forged/tampered NextToken is
+// TestPagination_ForgedTokenRejected asserts a forged/tampered NextToken is
 // rejected with InvalidPaginationToken across the opaque-token describe
-// operations, rather than silently re-paging from offset 0. DescribeSnapshots
-// and DescribeNetworkAcls previously used a plain, unauthenticated integer
-// offset as NextToken (fmt.Sscan straight into the offset, silently ignoring
-// a parse failure and falling back to offset 0) instead of the HMAC-signed
-// opaque token every other paginated describe op here uses - a forged or
-// malformed token was silently accepted rather than rejected.
+// operations (HMAC-signed), rather than silently re-paging from offset 0.
 func TestPagination_ForgedTokenRejected(t *testing.T) {
 	t.Parallel()
 

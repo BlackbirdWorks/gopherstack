@@ -5,25 +5,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family B (3 ops): DescribeJobs, DescribeJobLogItems,
-// DeleteJob -- plus createAndScheduleJobLocked, the shared Job-creation/
-// progression engine sourceservers.go's StartTest/StartCutover/
-// TerminateTargetInstances all delegate to.
-//
-// # Job progression (an honest async walk, per PARITY.md's guidance)
-//
-// PENDING -> STARTED -> [per participating server: SNAPSHOT_START/END ->
+// Job progression: PENDING -> STARTED -> [per server: SNAPSHOT_START/END ->
 // CONVERSION_START/END -> LAUNCH_START] -> JOB_END -> COMPLETED, over 4
-// asyncTransitionDelay ticks. This is a deterministic simulation that always
-// succeeds (no JobLogEvent value describing failure/skip/cancel --
-// SERVER_SKIPPED, CLEANUP_*, LAUNCH_FAILED, JOB_CANCEL -- is ever emitted,
-// since no real launch engine exists to fail): JobStatus itself has no
-// FAILED value at all (only PENDING/STARTED/COMPLETED, confirmed by direct
-// SDK read), so this backend's own rollup rule -- "COMPLETED once every
-// participating server's LaunchStatus is terminal" -- is a documented
-// implementation choice (not SDK-specified) that this simulation never
-// actually needs to test the FAILED-adjacent half of, since nothing here
-// ever fails.
+// asyncTransitionDelay ticks. Always succeeds -- no failure/skip/cancel
+// JobLogEvent is ever emitted, since no real launch engine exists to fail.
+// JobStatus itself has no FAILED value (only PENDING/STARTED/COMPLETED,
+// confirmed by direct SDK read); "COMPLETED once every participating server's
+// LaunchStatus is terminal" is this backend's own documented rollup rule, not
+// SDK-specified.
 
 // createAndScheduleJobLocked creates a new Job spanning servers, applies the
 // (documented, SDK-inferred) LifeCycleState transition each initiatedBy
@@ -103,16 +92,11 @@ func (b *InMemoryBackend) addJobLogLocked(jobID, event string, data *JobLogEvent
 	})
 }
 
-// scheduleJobLocked walks jobID through its 4-tick progression (see this
-// file's doc comment), guarding every tick on the Job's still being in the
-// state this scheduler expects -- matching sourceservers.go's
-// scheduleReplicationLocked idiom, so a DeleteJob mid-flight simply makes
-// later ticks harmless no-ops. Each tick's own mutation is a separate named
-// tickXLocked method purely to keep this function's own cognitive
-// complexity low (decomposition, not suppression -- see
-// .claude/memories/parity-principles.md's ban on cyclop/funlen/gocyclo/
-// gocognit suppressions). Callers must hold b.mu (this method itself only
-// schedules; it does not mutate synchronously).
+// scheduleJobLocked walks jobID through its 4-tick progression (see this file's
+// doc comment), guarding every tick on the Job's still being in the state this
+// scheduler expects -- matching scheduleReplicationLocked's idiom, so a
+// DeleteJob mid-flight makes later ticks harmless no-ops. Callers must hold b.mu
+// (this method only schedules; it doesn't mutate synchronously).
 func (b *InMemoryBackend) scheduleJobLocked(jobID, initiatedBy string) {
 	b.work.After("JobStarted", asyncTransitionDelay, func() {
 		b.tickJobStartedLocked(jobID)

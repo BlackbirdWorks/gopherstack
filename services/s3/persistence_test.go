@@ -202,16 +202,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	}
 }
 
-// TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshot verifies that a
-// snapshot whose "version" field doesn't match the current s3SnapshotVersion —
-// including every snapshot written before the Phase 3.3 pkgs/store conversion
-// (which predates the version field entirely, and used the old
-// {"buckets": {region: {name: ...}}, "uploads": {bucket: {uploadID: ...}}}
-// shape, with a legacy flat-uploads variant on top of that) — is discarded
-// cleanly (Restore returns no error, backend ends up empty) rather than
-// partially decoded as the current {"tables": {...}} shape. This mirrors the
-// services/ec2 and services/sqs Phase 3.x conversions, which made the same
-// tradeoff.
+// TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshot verifies a snapshot
+// whose "version" field doesn't match the current s3SnapshotVersion is discarded
+// cleanly (Restore returns no error, backend ends up empty) rather than partially
+// decoded as the current {"tables": {...}} shape.
 func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshot(t *testing.T) {
 	t.Parallel()
 

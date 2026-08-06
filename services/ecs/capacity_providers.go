@@ -128,12 +128,10 @@ func filterRefsByClusterAssociation(refs, clusterCapacityProviders []string) []s
 
 // resolveCapacityProviderRefsLocked resolves the effective set of capacity
 // provider name/ARN references to describe, applying the optional Cluster
-// filter (AWS's documented DescribeCapacityProvidersInput.Cluster parameter:
-// when set, only capacity providers associated with that cluster are
-// considered). The second return value reports whether the cluster filter
-// caused an early "cluster not found -> empty result" outcome, matching AWS's
-// filter-parameter semantics (as opposed to a hard 404). Must be called with
-// at least a read lock held.
+// filter. The second return value reports whether the cluster filter caused an
+// early "cluster not found -> empty result" outcome, matching AWS's
+// filter-parameter semantics (not a hard 404). Must be called with at least a
+// read lock held.
 func (b *InMemoryBackend) resolveCapacityProviderRefsLocked(
 	nameOrArns []string,
 	cluster string,

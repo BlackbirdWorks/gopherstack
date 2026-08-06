@@ -16,32 +16,23 @@ type Snapshottable interface {
 	Restore(context.Context, []byte) error
 }
 
-// ecsSnapshotVersion identifies the shape of backendSnapshot's Tables blob
-// (i.e. the set/shape of resources registered on b.registry -- see
-// registerAllTables in store_setup.go). It must be bumped whenever a change
-// there would make an older snapshot unsafe to decode as the current shape.
-// Restore compares this against the persisted value and discards (rather than
-// attempts to partially decode) any mismatch -- see Restore below. This
-// mirrors the ec2 (commit 12e611a4) and sqs (commit 0f09d77c) Phase 3.3
-// conversions.
+// ecsSnapshotVersion identifies the shape of backendSnapshot's Tables blob (the
+// set/shape of resources registered on b.registry -- see registerAllTables in
+// store_setup.go). Must be bumped whenever a change there would make an older
+// snapshot unsafe to decode as the current shape; Restore compares this against
+// the persisted value and discards (rather than partially decodes) any mismatch.
 const ecsSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the ECS backend.
 //
-// Tables holds one JSON-encoded array per registry-registered store.Table
-// (clusters, services, tasks, containerInstances, taskSets, capacityProviders,
-// accountSettings, taskProtections, serviceDeployments, expressGatewayServices,
-// daemons, daemonRevisions, daemonDeployments -- see registerAllTables),
-// produced by store.Registry.SnapshotAll(). The nested cluster/service-scoped
-// resources (services, tasks, containerInstances, taskSets, daemons) are
-// stored flatly, keyed by their store.Table composite primary key, rather than
-// as nested JSON objects the way the pre-conversion map[string]map[string]*T
-// fields were -- Version guards against decoding an older snapshot (with the
-// old nested shape) as though it were this shape.
+// Tables holds one JSON-encoded array per registry-registered store.Table (see
+// registerAllTables), produced by store.Registry.SnapshotAll(). Cluster/
+// service-scoped resources are stored flatly, keyed by their store.Table
+// composite primary key, not as nested JSON objects; Version guards against
+// decoding an older, differently-shaped snapshot.
 //
-// The remaining fields are resources deliberately left as plain maps by the
-// conversion (see the exclusion list in registerAllTables' doc comment) and
-// so are still serialised directly, exactly as before.
+// The remaining fields are resources deliberately left as plain maps by
+// registerAllTables (see its exclusion list) and so are still serialised directly.
 type backendSnapshot struct {
 	Tables                map[string]json.RawMessage         `json:"tables"`
 	TaskDefinitions       map[string][]*TaskDefinition       `json:"taskDefinitions"`
@@ -174,13 +165,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if snap.Version != ecsSnapshotVersion {
 		// An incompatible (older/newer/absent) snapshot version must never be
 		// partially decoded as the current shape -- that risks silently
-		// misinterpreting fields (e.g. the pre-conversion nested
-		// map[string]map[string]*T shape for services/tasks/containerInstances/
-		// taskSets/daemons vs. the flat store.Table composite-key shape).
-		// Discard cleanly and start empty instead of erroring, since this is an
-		// expected, recoverable condition (e.g. upgrading gopherstack across a
-		// snapshot-format change), not data corruption. Mirrors the ec2/sqs
-		// Phase 3.3 conversions.
+		// misinterpreting fields. Discard cleanly and start empty instead of
+		// erroring, since this is an expected, recoverable condition (e.g.
+		// upgrading gopherstack across a snapshot-format change), not corruption.
 		logger.Load(ctx).WarnContext(ctx,
 			"ecs: discarding incompatible snapshot version, starting empty",
 			"gotVersion", snap.Version, "wantVersion", ecsSnapshotVersion)

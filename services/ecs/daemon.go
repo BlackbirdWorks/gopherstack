@@ -389,15 +389,12 @@ func (b *InMemoryBackend) DeleteDaemon(daemonArn string) (*Daemon, error) {
 	return &out, nil
 }
 
-// deleteDaemonAncillaryLocked removes daemonRevisions and daemonDeployments
-// rows belonging to daemonArn. Both tables are keyed by their own ARN (not
-// DaemonArn), so matching entries must be found by scanning and filtering on
-// the .DaemonArn field. Previously DeleteDaemon never called this at all
-// (only the daemons table entry itself was removed), permanently leaking one
-// daemonRevisions row per UpdateDaemon call and one daemonDeployments row per
-// deployment ever made against the deleted daemon. Shared with
-// purgeDaemonsLocked (purge.go), which deletes daemons in bulk when their
-// owning cluster is deleted/purged. Must be called with the write lock held.
+// deleteDaemonAncillaryLocked removes daemonRevisions and daemonDeployments rows
+// belonging to daemonArn. Both tables are keyed by their own ARN (not
+// DaemonArn), so matching entries must be found by scanning and filtering on the
+// .DaemonArn field -- skip this and DeleteDaemon leaks one daemonRevisions row
+// per UpdateDaemon call and one daemonDeployments row per deployment ever made.
+// Shared with purgeDaemonsLocked (purge.go). Must be called with the write lock held.
 func (b *InMemoryBackend) deleteDaemonAncillaryLocked(daemonArn string) {
 	for _, rev := range b.daemonRevisions.All() {
 		if rev.DaemonArn == daemonArn {
@@ -792,13 +789,10 @@ func (b *InMemoryBackend) ListDaemonDeployments(input ListDaemonDeploymentsInput
 	return out, nil
 }
 
-// addServiceRevisionLocked is a compatibility hook for callers (CreateService/
-// UpdateService in services.go, and the deployment circuit-breaker rollback in
-// deployment.go) that record a ServiceRevision snapshot whenever a service's
-// Deployments change. This backend derives ServiceRevision snapshots on demand
-// from each deployment's ServiceRevisionArn instead (see DescribeServiceRevisions
-// in services.go and buildServiceRevision in services.go), so no
-// additional bookkeeping is required here; svc's new deployment already carries
-// its ServiceRevisionArn by the time this is called. Must be called with the
+// addServiceRevisionLocked is a compatibility hook for callers that record a
+// ServiceRevision snapshot whenever a service's Deployments change. This backend
+// derives ServiceRevision snapshots on demand from each deployment's
+// ServiceRevisionArn instead (see DescribeServiceRevisions/buildServiceRevision
+// in services.go), so no bookkeeping is required here. Must be called with the
 // write lock held.
 func (b *InMemoryBackend) addServiceRevisionLocked(_ *Service) {}

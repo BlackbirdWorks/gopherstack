@@ -20,14 +20,10 @@ func (b *InMemoryBackend) InitializeService() {
 	b.serviceInitialized = true
 }
 
-// requireInitializedLocked returns an UninitializedAccountException-shaped
-// error if InitializeService has never been called for this account.
-// Callers must hold b.mu (either lock). Called first by every legacy
-// (non-tagging, non-/network-migration/) op whose own error set includes
-// UninitializedAccountException -- see PARITY.md's per-op tables; ops
-// outside that 69-op legacy set (the tagging trio, all 25
-// /network-migration/ ops, and InitializeService itself) must NOT call
-// this.
+// requireInitializedLocked returns an UninitializedAccountException-shaped error
+// if InitializeService has never been called for this account. Callers must hold
+// b.mu (either lock). The tagging trio, /network-migration/ ops, and
+// InitializeService itself must NOT call this -- see PARITY.md's per-op tables.
 func (b *InMemoryBackend) requireInitializedLocked() error {
 	if !b.serviceInitialized {
 		return uninitializedAccountError("account has not been initialized; call InitializeService first")

@@ -314,14 +314,11 @@ func TestRoundTrip_VcenterClients(t *testing.T) {
 	require.Empty(t, describedAfter.Items)
 }
 
-// TestRoundTrip_ExportImport drives StartExport/ListExports/ListExportErrors
-// and StartImport/ListImports/ListImportErrors, confirming StartExport's
-// counts are real (a live snapshot of this account's resources) and
-// StartImport's are now ALSO real: it genuinely reads the S3 object and
-// parses it per this package's documented CSV schema (s3import.go),
-// creating one real SourceServer per valid row -- never a fabricated count
-// (gopherstack-i6oz). See TestStartImport_CSVSchema for the malformed-row
-// and unreadable-object edge cases.
+// TestRoundTrip_ExportImport drives StartExport/ListExports/ListExportErrors and
+// StartImport/ListImports/ListImportErrors, confirming both counts are real, not
+// fabricated: StartExport reflects a live snapshot of this account's resources,
+// and StartImport genuinely reads and parses the S3 object (s3import.go). See
+// TestStartImport_CSVSchema for malformed-row and unreadable-object edge cases.
 func TestRoundTrip_ExportImport(t *testing.T) {
 	t.Parallel()
 

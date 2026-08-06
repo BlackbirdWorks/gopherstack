@@ -2,20 +2,12 @@ package ec2
 
 import "strings"
 
-// This file centralises the mapping from an EC2 resource ID to (a) whether the
-// resource is known to the backend (resourceExistsLocked, gating CreateTags /
-// DeleteTags) and (b) its AWS ResourceType string (resourceTypeByID, used by
-// DescribeTags and the resource-type Filter). Both were previously limited to
-// a handful of core resource types (instance, security-group, vpc, subnet,
-// volume, internet-gateway, route-table, natgateway, elastic-ip), which meant
-// CreateTags/DeleteTags/DescribeTags silently failed or mis-typed the large
-// majority of EC2 resources this backend actually models (AMIs, snapshots,
-// network ACLs, transit gateways and their attachments, VPN/customer
-// gateways, VPC endpoints, launch templates, IPAM objects, and so on). The
-// tables below cover every resource type in this backend that AWS exposes as
-// independently taggable (per aws-sdk-go-v2 ec2/types.ResourceType); IDs for
-// non-taggable association/index objects (e.g. route-table associations,
-// subnet CIDR associations) are intentionally omitted.
+// This file maps an EC2 resource ID to (a) whether the resource is known to the
+// backend (resourceExistsLocked, gating CreateTags/DeleteTags) and (b) its AWS
+// ResourceType string (resourceTypeByID, used by DescribeTags and the
+// resource-type Filter). Covers every resource type this backend models that AWS
+// exposes as independently taggable (per aws-sdk-go-v2 ec2/types.ResourceType);
+// non-taggable association/index objects are intentionally omitted.
 
 // resourceTypePrefix pairs an ID prefix with its AWS ResourceType string.
 type resourceTypePrefix struct {

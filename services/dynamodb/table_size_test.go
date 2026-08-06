@@ -15,17 +15,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestDescribeTable_BatchWriteItem_TableSizeBytesMatchesItems is a regression test for
-// gopherstack-0mtk: the DynamoDB dashboard showed TableSizeBytes: 0 for a table with
-// ~40 items. Root cause: table.itemSizes and table.totalItemSizeBytes (the running
-// total DescribeTable reads) were only maintained by the regular PutItem/UpdateItem/
-// DeleteItem paths (doPut / deleteItemAtIndex in item_ops_crud.go). The BatchWriteItem
-// path (handleBatchPutWithIndex / applyBatchDeletes in item_ops_batch.go) mutated
-// table.Items directly without ever updating table.itemSizes or
-// table.totalItemSizeBytes, so any table populated via BatchWriteItem reported
-// TableSizeBytes: 0 forever, and the two parallel slices could drift out of length
-// sync (a latent index-out-of-range panic risk for later single-item writes/deletes
-// and for global-table replica cloning, which assumes len(itemSizes) == len(Items)).
+// TestDescribeTable_BatchWriteItem_TableSizeBytesMatchesItems guards
+// table.itemSizes/table.totalItemSizeBytes staying in sync with table.Items
+// after BatchWriteItem (handleBatchPutWithIndex/applyBatchDeletes in
+// item_ops_batch.go), not just the single-item PutItem/UpdateItem/DeleteItem
+// paths -- a length mismatch is a latent index-out-of-range panic risk for
+// later writes and for global-table replica cloning, which assumes
+// len(itemSizes) == len(Items).
 func TestDescribeTable_BatchWriteItem_TableSizeBytesMatchesItems(t *testing.T) {
 	t.Parallel()
 

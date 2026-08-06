@@ -111,13 +111,10 @@ type autoScalingThroughput struct {
 }
 
 // pitrSnapshot captures the items of a PITR-enabled table at a point in time.
-// Snapshots are taken by the janitor on its own PITR ticker (defaultPITRSnapshotInterval
-// in janitor.go, 1 minute); RestoreTableToPointInTime returns the latest snapshot at or
-// before the requested RestoreDateTime.
-//
-// The type itself stays unexported (it never crosses the wire on its own), but its
-// fields carry json tags because it is serialised as part of Table.PITRSnapshots --
-// see that field's doc comment for why the tags matter.
+// Snapshots are taken by the janitor's PITR ticker (defaultPITRSnapshotInterval
+// in janitor.go); RestoreTableToPointInTime returns the latest snapshot at or
+// before the requested RestoreDateTime. The type stays unexported, but its
+// fields carry json tags since it's serialised as part of Table.PITRSnapshots.
 type pitrSnapshot struct {
 	Taken time.Time        `json:"Taken"`
 	Items []map[string]any `json:"Items"`
@@ -677,30 +674,15 @@ func (db *InMemoryDB) TaggedTables() []TaggedTableInfo {
 	return result
 }
 
-// stopTableTimers stops all in-flight timers held by the table — the activation
-// timer for newly-created tables and the index-status timers for any GSI that is
-// mid-CREATING or mid-DELETING transition. Must be called before the table is
-// discarded so that the AfterFunc goroutines are not left running.
-// Idempotent: safe to call even when timers are nil or already stopped.
+// stopTableTimers stops all in-flight timers held by the table -- the activation
+// timer for newly-created tables and the index-status timers for any GSI mid-
+// CREATING or mid-DELETING transition. Must be called before the table is
+// discarded so the AfterFunc goroutines aren't left running. Idempotent.
 //
-// Takes table.mu itself (callers must NOT already hold it -- see call sites in
-// DeleteTable and the janitor's runTableCleaner, neither of which holds
-// table.mu at their call site). This is required, not cosmetic: table.mu is
-// the same lock applyGSICreate/applyGSIUpdate/applyGSIDelete (table_ops.go)
-// and their async GSI-activation/-removal AfterFunc callbacks use to mutate
-// table.GlobalSecondaryIndexes and table.activateTimer. Reading those fields
-// here without table.mu raced the slice-shrinking path in applyGSIDelete: the
-// `for i := range table.GlobalSecondaryIndexes` loop re-reads the (possibly
-// already-shrunk) slice on every iteration, so a concurrent GSI delete could
-// shrink the backing slice out from under this loop mid-iteration, producing
-// "panic: runtime error: index out of range" here -- reachable from a live
-// HTTP request (DeleteTable) or from the background janitor, in both cases
-// with no other lock held, so a caller resolving a stale *Table just before a
-// delete and racing a GSI update on it would crash the request instead of
-// cleanly returning. Acquiring table.mu here restores db.mu -> table.mu
-// ordering in the DeleteTable case (db.mu is already held by the caller) and
-// introduces no new lock in the janitor case (neither db.mu nor table.mu is
-// held there).
+// Takes table.mu itself; callers (DeleteTable, the janitor's runTableCleaner)
+// must NOT already hold it. Required, not cosmetic -- see
+// TestStopTableTimers_ConcurrentGSIDelete_NoPanic for the index-out-of-range
+// panic this prevents.
 func stopTableTimers(table *Table) {
 	table.mu.Lock("stopTableTimers")
 	defer table.mu.Unlock()

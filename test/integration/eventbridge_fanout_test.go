@@ -179,9 +179,7 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Wait briefly and verify no messages arrived.
-	time.Sleep(500 * time.Millisecond)
-
+	// ReceiveMessage's own long poll (WaitTimeSeconds) is the wait; verify no messages arrived.
 	msgs, err := sqsClient.ReceiveMessage(ctx, &sqssdk.ReceiveMessageInput{
 		QueueUrl:            queueOut.QueueUrl,
 		MaxNumberOfMessages: 1,

@@ -6,7 +6,6 @@ package e2e_test
 import (
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/assert"
@@ -161,7 +160,6 @@ func TestRoute53ResolverDashboard_CreateAndDelete(t *testing.T) {
 	err = page.Locator("button:has-text('Endpoints')").Click()
 	require.NoError(t, err)
 
-	time.Sleep(200 * time.Millisecond)
 	err = page.Locator("text=ui-test-endpoint").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(10000),
