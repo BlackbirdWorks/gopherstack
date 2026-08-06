@@ -11,11 +11,11 @@ import (
 // CreateTransitGatewayPeering/GetTransitGatewayPeering) is future-proofing
 // rather than a live second case -- see PARITY.md.
 //
-// TransitGatewayArn is accepted unvalidated against services/ec2 (same
-// cross-service scope decision as associations.go/attachments.go).
-// TransitGatewayPeeringAttachmentId (real AWS's underlying EC2 transit
-// gateway peering attachment ID) is left empty rather than fabricated,
-// since this backend does not model that EC2-side resource.
+// TransitGatewayArn is validated against services/ec2's real state via
+// EC2Resolver (crossservice.go, same pattern as associations.go/
+// attachments.go). TransitGatewayPeeringAttachmentId (real AWS's underlying
+// EC2 transit gateway peering attachment ID) is left empty rather than
+// fabricated, since this backend does not model that EC2-side resource.
 
 func (b *InMemoryBackend) CreateTransitGatewayPeering(
 	coreNetworkID, transitGatewayArn string, tagMap map[string]string,
@@ -30,6 +30,10 @@ func (b *InMemoryBackend) CreateTransitGatewayPeering(
 
 	if transitGatewayArn == "" {
 		return nil, validationError("TransitGatewayArn is required")
+	}
+
+	if b.ec2Resolver != nil && !b.ec2Resolver.ResolveTransitGateway(transitGatewayArn) {
+		return nil, notFoundError(resourceEC2TransitGateway, transitGatewayArn)
 	}
 
 	id := newPeeringID()

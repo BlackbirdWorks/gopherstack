@@ -340,6 +340,24 @@ func ExtractServiceFromRequest(r *http.Request) string {
 	return ""
 }
 
+// TagsPathPrefix is the shared "/tags/{resourceArn}" prefix multiple
+// services expose for TagResource/UntagResource/ListTagsForResource.
+const TagsPathPrefix = "/tags/"
+
+// MatchesTaggedResourceARN reports whether path is a "/tags/{resourceArn}"
+// request whose ARN names serviceName (arn:{partition}:{serviceName}:...).
+// Several services share the "/tags/" prefix; only the ARN's own service
+// segment reliably disambiguates the true owner -- a bare prefix match
+// steals every other service's tag requests too (see gopherstack-sokq).
+func MatchesTaggedResourceARN(path, serviceName string) bool {
+	after, ok := strings.CutPrefix(path, TagsPathPrefix)
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(after, ":"+serviceName+":")
+}
+
 // SanitizeHeaderString removes all characters except alphanumeric, hyphens,
 // underscores, and periods. This breaks the taint for static analysis tools
 // like CodeQL which flag raw header values in logs.

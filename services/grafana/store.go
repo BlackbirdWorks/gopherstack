@@ -47,10 +47,13 @@ type InMemoryBackend struct {
 	tokensByServiceAccount     *store.Index[ServiceAccountToken]
 	mu                         *lockmetrics.RWMutex
 	work                       *worker.Group
-	accountID                  string
-	region                     string
-	nextServiceAccountID       uint64
-	nextTokenID                uint64
+	// appConfig is service.AppContext.Config, captured for lazy sibling-service
+	// and chaos fault-store lookups -- see cross_service.go's SetAppConfig.
+	appConfig            any
+	accountID            string
+	region               string
+	nextServiceAccountID uint64
+	nextTokenID          uint64
 }
 
 // NewInMemoryBackend creates a new in-memory Amazon Managed Grafana backend.

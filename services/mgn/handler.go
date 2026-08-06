@@ -94,6 +94,15 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 // to a known routeEntry via routeKey.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
+		segs := rawPathSegments(c.Request())
+
+		// The tags trio is keyed by method + "tags" alone (see routeKey), so
+		// it must not claim another service's /tags/{arn} request -- only
+		// the ARN's own service segment disambiguates the true owner.
+		if len(segs) > 0 && segs[0] == "tags" {
+			return httputils.MatchesTaggedResourceARN(c.Request().URL.Path, mgnServiceName)
+		}
+
 		_, ok := h.dispatch(c.Request())
 
 		return ok

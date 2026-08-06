@@ -2845,6 +2845,15 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// VpnGateway/TransitGateway records, and DescribeVirtualGateways proxies
 	// EC2's own VpnGateway list instead of maintaining a duplicate store.
 	wireDirectConnectEC2(byName["DirectConnect"], byName["EC2"])
+
+	// Wire Network Manager → EC2/DirectConnect so cross-service ARNs
+	// (CustomerGatewayArn/TransitGatewayArn/TransitGatewayConnectPeerArn/
+	// VpcArn/SubnetArns/VpnConnectionArn/TransitGatewayRouteTableArn/
+	// DirectConnectGatewayArn) are validated against real backend state
+	// instead of accepted as opaque strings, and StartRouteAnalysis can walk
+	// real EC2 Transit Gateway route-table state.
+	wireNetworkManagerEC2(byName["NetworkManager"], byName["EC2"])
+	wireNetworkManagerDirectConnect(byName["NetworkManager"], byName["DirectConnect"])
 }
 
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
@@ -2891,6 +2900,166 @@ func wireDirectConnectEC2(directconnectReg, ec2Reg service.Registerable) {
 	}
 
 	directconnectH.Backend.SetEC2GatewayResolver(&directConnectEC2ResolverAdapter{backend: ec2Bk})
+}
+
+// arnResourceID extracts the trailing resource-id segment of an ARN's
+// resource part (e.g. "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-0123"
+// -> "vpc-0123"), the shape every EC2/DirectConnect resource kind
+// networkManagerEC2ResolverAdapter/networkManagerDirectConnectResolverAdapter
+// look up by. A bare (non-ARN) id string passes through unchanged.
+func arnResourceID(arnStr string) string {
+	if i := strings.LastIndex(arnStr, "/"); i >= 0 {
+		return arnStr[i+1:]
+	}
+
+	return arnStr
+}
+
+// networkManagerEC2ResolverAdapter adapts the EC2 backend to the
+// networkmanager.EC2Resolver interface.
+type networkManagerEC2ResolverAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveVpc(vpcArn string) bool {
+	return len(a.backend.DescribeVpcs([]string{arnResourceID(vpcArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool {
+	return len(a.backend.DescribeSubnets([]string{arnResourceID(subnetArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
+	return len(a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {
+	return len(a.backend.DescribeTransitGateways([]string{arnResourceID(transitGatewayArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveVpnConnection(vpnConnectionArn string) bool {
+	return len(a.backend.DescribeVpnConnections([]string{arnResourceID(vpnConnectionArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayConnectPeer(transitGatewayConnectPeerArn string) bool {
+	return len(a.backend.DescribeTransitGatewayConnectPeers([]string{arnResourceID(transitGatewayConnectPeerArn)})) > 0
+}
+
+func (a *networkManagerEC2ResolverAdapter) ResolveTransitGatewayRouteTable(transitGatewayRouteTableArn string) bool {
+	return len(a.backend.DescribeTransitGatewayRouteTables([]string{arnResourceID(transitGatewayRouteTableArn)})) > 0
+}
+
+// TransitGatewayRouteTableForAttachment resolves a TGW VPC attachment to
+// the route table it is associated with, by scanning its owning transit
+// gateway's route tables for an association naming this attachment --
+// services/ec2 has no direct "route table for attachment" index, only the
+// reverse (GetTransitGatewayRouteTableAssociations(routeTableID)).
+func (a *networkManagerEC2ResolverAdapter) TransitGatewayRouteTableForAttachment(
+	transitGatewayAttachmentArn string,
+) (string, bool) {
+	attachmentID := arnResourceID(transitGatewayAttachmentArn)
+
+	atts := a.backend.DescribeTransitGatewayVpcAttachments([]string{attachmentID})
+	if len(atts) == 0 || atts[0].State != "available" {
+		return "", false
+	}
+
+	for _, rt := range a.backend.DescribeTransitGatewayRouteTables(nil) {
+		if rt.TransitGatewayID != atts[0].TransitGatewayID {
+			continue
+		}
+
+		assocs, err := a.backend.GetTransitGatewayRouteTableAssociations(rt.RouteTableID)
+		if err != nil {
+			continue
+		}
+
+		for _, assoc := range assocs {
+			if assoc.TransitGatewayAttachmentID == attachmentID {
+				return rt.RouteTableID, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+func (a *networkManagerEC2ResolverAdapter) TransitGatewayRoutes(
+	routeTableID string,
+) []networkmanagerbackend.EC2TransitGatewayRoute {
+	routes, err := a.backend.SearchTransitGatewayRoutes(routeTableID, nil)
+	if err != nil {
+		return nil
+	}
+
+	out := make([]networkmanagerbackend.EC2TransitGatewayRoute, 0, len(routes))
+
+	for _, r := range routes {
+		out = append(out, networkmanagerbackend.EC2TransitGatewayRoute{
+			DestinationCIDRBlock: r.DestinationCidrBlock,
+			State:                r.State,
+			AttachmentID:         r.TransitGatewayAttachmentID,
+		})
+	}
+
+	return out
+}
+
+// wireNetworkManagerEC2 wires the Network Manager backend to the EC2
+// backend -- see networkManagerEC2ResolverAdapter. Validates
+// CustomerGatewayArn/TransitGatewayArn/TransitGatewayConnectPeerArn/VpcArn/
+// SubnetArns/VpnConnectionArn/TransitGatewayRouteTableArn against real EC2
+// state instead of accepting any string, and lets StartRouteAnalysis walk
+// real EC2 Transit Gateway route-table state.
+func wireNetworkManagerEC2(networkmanagerReg, ec2Reg service.Registerable) {
+	networkmanagerH, ok := networkmanagerReg.(*networkmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2H, ok := ec2Reg.(*ec2backend.Handler)
+	if !ok {
+		return
+	}
+
+	ec2Bk, ok := ec2H.Backend.(*ec2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	networkmanagerH.Backend.SetEC2Resolver(&networkManagerEC2ResolverAdapter{backend: ec2Bk})
+}
+
+// networkManagerDirectConnectResolverAdapter adapts the DirectConnect
+// backend to the networkmanager.DirectConnectResolver interface.
+type networkManagerDirectConnectResolverAdapter struct {
+	backend *directconnectbackend.InMemoryBackend
+}
+
+func (a *networkManagerDirectConnectResolverAdapter) ResolveDirectConnectGateway(
+	directConnectGatewayArn string,
+) bool {
+	return len(a.backend.DescribeDirectConnectGateways(arnResourceID(directConnectGatewayArn))) > 0
+}
+
+// wireNetworkManagerDirectConnect wires the Network Manager backend to the
+// DirectConnect backend -- see networkManagerDirectConnectResolverAdapter.
+// Validates DirectConnectGatewayArn against real DirectConnect state
+// instead of accepting any string.
+func wireNetworkManagerDirectConnect(networkmanagerReg, directconnectReg service.Registerable) {
+	networkmanagerH, ok := networkmanagerReg.(*networkmanagerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	directconnectH, ok := directconnectReg.(*directconnectbackend.Handler)
+	if !ok {
+		return
+	}
+
+	networkmanagerH.Backend.SetDirectConnectResolver(
+		&networkManagerDirectConnectResolverAdapter{backend: directconnectH.Backend},
+	)
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit

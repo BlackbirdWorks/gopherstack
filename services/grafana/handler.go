@@ -92,7 +92,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 
 		return strings.HasPrefix(path, "/workspaces") ||
 			path == "/versions" ||
-			strings.HasPrefix(path, "/tags/")
+			httputils.MatchesTaggedResourceARN(path, grafanaService)
 	}
 }
 
@@ -342,6 +342,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		addResourceFields(body, apiErr)
 	case errors.Is(err, errValidationSentinel):
 		status, errType = http.StatusBadRequest, "ValidationException"
+	case errors.Is(err, errQuotaSentinel):
+		status, errType = http.StatusPaymentRequired, "ServiceQuotaExceededException"
 	case errors.Is(err, errUnknownPath):
 		status, errType = http.StatusNotFound, "ResourceNotFoundException"
 	}

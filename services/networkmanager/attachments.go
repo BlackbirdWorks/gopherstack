@@ -23,15 +23,13 @@ import (
 // workflow is modeled) -- an honest, documented scope reduction, not a
 // silent gap.
 //
-// Cross-service FK scope decision (loudly documented, matching
-// associations.go's identical choice): VpcArn/SubnetArns,
-// VpnConnectionArn, DirectConnectGatewayArn, and
-// TransitGatewayRouteTableArn are all accepted as opaque, non-empty
-// strings, NOT validated against services/ec2 or services/directconnect's
-// real state (which would require a live cross-service backend reference
-// wired through cli.go, judged out of scope for this pass -- see the
-// top-level report). TransportAttachmentId (Connect) and PeeringId
-// (Transit Gateway Route Table) DO get validated, since both name
+// Cross-service FK validation (matching associations.go's identical
+// pattern): VpcArn/SubnetArns, VpnConnectionArn, DirectConnectGatewayArn,
+// and TransitGatewayRouteTableArn are validated against services/ec2's or
+// services/directconnect's real state via EC2Resolver/DirectConnectResolver
+// (crossservice.go) when cli.go has wired one in; a nil resolver accepts
+// any non-empty string. TransportAttachmentId (Connect) and PeeringId
+// (Transit Gateway Route Table) always get validated, since both name
 // resources this package itself creates.
 
 func (b *InMemoryBackend) coreNetworkArnOrEmpty(coreNetworkID string) string {
@@ -197,6 +195,18 @@ func (b *InMemoryBackend) CreateVpcAttachment(
 		return nil, validationError("VpcArn and SubnetArns are required")
 	}
 
+	if b.ec2Resolver != nil {
+		if !b.ec2Resolver.ResolveVpc(vpcArn) {
+			return nil, notFoundError(resourceEC2Vpc, vpcArn)
+		}
+
+		for _, subnetArn := range subnetArns {
+			if !b.ec2Resolver.ResolveSubnet(subnetArn) {
+				return nil, notFoundError(resourceEC2Subnet, subnetArn)
+			}
+		}
+	}
+
 	if opts == nil {
 		opts = &VpcOptions{SecurityGroupReferencingSupport: true}
 	}
@@ -306,6 +316,10 @@ func (b *InMemoryBackend) CreateSiteToSiteVpnAttachment(
 		return nil, validationError("VpnConnectionArn is required")
 	}
 
+	if b.ec2Resolver != nil && !b.ec2Resolver.ResolveVpnConnection(vpnConnectionArn) {
+		return nil, notFoundError(resourceEC2VpnConnection, vpnConnectionArn)
+	}
+
 	a := b.newAttachmentLocked(coreNetworkID, attachmentTypeSiteToSiteVpn, "", vpnConnectionArn, nil, tagMap)
 	a.VpnConnectionArn = vpnConnectionArn
 	a.RoutingPolicyLabel = routingPolicyLabel
@@ -334,6 +348,10 @@ func (b *InMemoryBackend) CreateDirectConnectGatewayAttachment(
 
 	if directConnectGatewayArn == "" || len(edgeLocations) == 0 {
 		return nil, validationError("DirectConnectGatewayArn and EdgeLocations are required")
+	}
+
+	if b.dxResolver != nil && !b.dxResolver.ResolveDirectConnectGateway(directConnectGatewayArn) {
+		return nil, notFoundError(resourceDXGateway, directConnectGatewayArn)
 	}
 
 	a := b.newAttachmentLocked(
@@ -382,6 +400,10 @@ func (b *InMemoryBackend) CreateTransitGatewayRouteTableAttachment(
 
 	if transitGatewayRouteTableArn == "" {
 		return nil, validationError("TransitGatewayRouteTableArn is required")
+	}
+
+	if b.ec2Resolver != nil && !b.ec2Resolver.ResolveTransitGatewayRouteTable(transitGatewayRouteTableArn) {
+		return nil, notFoundError(resourceEC2TransitGatewayRouteTable, transitGatewayRouteTableArn)
 	}
 
 	a := b.newAttachmentLocked(

@@ -691,12 +691,12 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 40 | clean |
 | [Directconnect](services/directconnect/README.md) | B | 64 | 12 gaps; 2 deferred |
-| [Grafana](services/grafana/README.md) | B | 25 | 4 gaps |
+| [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |
 | [Lightsail](services/lightsail/README.md) | A | — | 28 families; 8 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 gaps |
 | [Mgn](services/mgn/README.md) | A- | 95 | 9 gaps; 1 deferred |
-| [Networkmanager](services/networkmanager/README.md) | gap | 95 | 9 gaps; 1 deferred |
+| [Networkmanager](services/networkmanager/README.md) | A | 95 | 5 gaps; 2 structural gaps |
 | [Outposts](services/outposts/README.md) | B | 43 | 10 gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | B | 63 | 11 gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |

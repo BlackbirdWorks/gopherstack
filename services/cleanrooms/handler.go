@@ -60,7 +60,8 @@ const (
 )
 
 const (
-	cleanroomsHostPrefix = "cleanrooms."
+	cleanroomsHostPrefix  = "cleanrooms."
+	cleanroomsServiceName = "cleanrooms"
 
 	opBatchGetCollaborationAnalysisTemplate                = "BatchGetCollaborationAnalysisTemplate"
 	opBatchGetSchema                                       = "BatchGetSchema"
@@ -314,11 +315,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		host := c.Request().Host
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(host, cleanroomsHostPrefix) ||
+		if strings.HasPrefix(host, cleanroomsHostPrefix) ||
 			strings.HasPrefix(path, "/collaborations") ||
 			strings.HasPrefix(path, "/configuredTables") ||
-			strings.HasPrefix(path, "/memberships") ||
-			strings.HasPrefix(path, "/tags/")
+			strings.HasPrefix(path, "/memberships") {
+			return true
+		}
+
+		return httputils.MatchesTaggedResourceARN(path, cleanroomsServiceName)
 	}
 }
 

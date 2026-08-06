@@ -106,12 +106,17 @@ const (
 // ---------------------------------------------------------------------------
 
 const (
-	agentsBase     = "/agents"
-	kbBase         = "/knowledgebases"
-	flowsBase      = "/flows"
-	promptsBase    = "/prompts"
-	tagsBase       = "/tags/"
-	baService      = "bedrock-agent"
+	agentsBase  = "/agents"
+	kbBase      = "/knowledgebases"
+	flowsBase   = "/flows"
+	promptsBase = "/prompts"
+	tagsBase    = "/tags/"
+	baService   = "bedrock-agent"
+	// baSigV4Service is the real aws-sdk-go-v2 SigV4 signing name for this
+	// service ("bedrock", not "bedrock-agent" -- confirmed via bedrockagent's
+	// own endpoints.go). RouteMatcher must check both: baService for
+	// ChaosServiceName-style callers, baSigV4Service for genuine requests.
+	baSigV4Service = "bedrock"
 	baPriority     = 87
 	splitTwo       = 2
 	splitThree     = 3
@@ -222,6 +227,19 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		svc := httputils.ExtractServiceFromRequest(c.Request())
 		if svc == baService {
 			return true
+		}
+
+		// baSigV4Service ("bedrock") is the real signing name shared by
+		// bedrock, bedrockruntime, AND bedrockagent -- ambiguous within the
+		// family, so it falls through to the path check below just like an
+		// empty/unknown scope (bedrockagent's higher MatchPriority already
+		// resolves the /agents,/flows,/prompts overlap with plain bedrock).
+		// Any OTHER known, non-empty scope names a genuinely different
+		// service and must not be swallowed by this prefix fallback --
+		// /tags/, /agents, etc. are shared prefixes other services also
+		// serve (e.g. networkmanager, grafana).
+		if svc != "" && svc != baSigV4Service {
+			return false
 		}
 
 		path := c.Request().URL.Path

@@ -2,6 +2,7 @@ package networkmanager
 
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // This file implements PARITY.md families G-J: four Global-Networks
@@ -13,19 +14,71 @@ import (
 // ConnectPeer -- the one real structural bridge between this service's two
 // product halves, PARITY.md family J).
 //
-// Scope decision (loudly documented, not silent): this backend does NOT
-// validate CustomerGatewayArn/TransitGatewayArn/TransitGatewayConnectPeerArn
-// against services/ec2's real state. Doing so honestly would require a
-// live cross-service backend reference wired through cli.go at
-// Provider.Init time (this package cannot reach into another service's
-// package-private state on its own), which was judged out of scope for
-// this implementation pass given the size of the rest of this service --
-// see the top-level report. These three ARN fields are therefore accepted
-// as opaque, non-empty strings, same treatment as DirectConnectGatewayArn
-// (family Q4, which PARITY.md itself flags as unvalidated since
-// services/directconnect has no reachable backend reference either).
-// ConnectPeerId, by contrast, names a resource this OWN package creates
-// (family K) and IS validated below.
+// Cross-service validation: CustomerGatewayArn/TransitGatewayArn/
+// TransitGatewayConnectPeerArn are validated against services/ec2's real
+// state via EC2Resolver (crossservice.go) when cli.go's
+// wireNetworkManagerEC2 has wired one in; a nil resolver (isolated unit
+// tests) accepts any non-empty ARN, matching this package's original scope
+// decision. ConnectPeerId, by contrast, names a resource this OWN package
+// creates (family K) and is always validated below.
+
+// requireLinkedDevice reports a ResourceNotFoundException unless deviceID
+// names a real device belonging to globalNetworkID. Callers must hold b.mu.
+func (b *InMemoryBackend) requireLinkedDevice(globalNetworkID, deviceID string) error {
+	if d, ok := b.devices.Get(deviceID); !ok || d.GlobalNetworkID != globalNetworkID {
+		return notFoundError(resourceDevice, deviceID)
+	}
+
+	return nil
+}
+
+// requireCrossServiceARN validates arnValue is non-empty and, when resolve
+// is non-nil (an EC2Resolver/DirectConnectResolver method wired in),
+// resolves against real cross-service state -- the shared shape behind
+// AssociateCustomerGateway/AssociateTransitGatewayConnectPeer's identical
+// validate-then-store flow.
+func requireCrossServiceARN(arnValue, fieldName string, resolve func(string) bool, notFoundResourceType string) error {
+	if arnValue == "" {
+		return validationError(fieldName + " is required")
+	}
+
+	if resolve != nil && !resolve(arnValue) {
+		return notFoundError(notFoundResourceType, arnValue)
+	}
+
+	return nil
+}
+
+// associateDeviceLinkedResource is the shared shape behind
+// AssociateCustomerGateway/AssociateTransitGatewayConnectPeer: validate
+// deviceID belongs to globalNetworkID, validate/resolve the cross-service
+// ARN, store the caller-built PENDING association, and schedule its real
+// PENDING->AVAILABLE advance.
+func associateDeviceLinkedResource[T any, PT interface {
+	*T
+	clone() *T
+}](
+	b *InMemoryBackend,
+	label, globalNetworkID, deviceID, arnValue, fieldName string,
+	resolve func(string) bool, notFoundResourceType string,
+	table *store.Table[T], key string,
+	build func() PT,
+	statePtr func(*T) *string,
+) (*T, error) {
+	if err := b.requireLinkedDevice(globalNetworkID, deviceID); err != nil {
+		return nil, err
+	}
+
+	if err := requireCrossServiceARN(arnValue, fieldName, resolve, notFoundResourceType); err != nil {
+		return nil, err
+	}
+
+	v := build()
+	table.Put(v)
+	scheduleAdvance(b, label, table, key, statePtr, assocStatePending, assocStateAvailable)
+
+	return v.clone(), nil
+}
 
 // ---- Customer Gateway Association ----
 
@@ -35,25 +88,23 @@ func (b *InMemoryBackend) AssociateCustomerGateway(
 	b.mu.Lock("AssociateCustomerGateway")
 	defer b.mu.Unlock()
 
-	if d, ok := b.devices.Get(deviceID); !ok || d.GlobalNetworkID != globalNetworkID {
-		return nil, notFoundError(resourceDevice, deviceID)
+	var resolve func(string) bool
+	if b.ec2Resolver != nil {
+		resolve = b.ec2Resolver.ResolveCustomerGateway
 	}
 
-	if customerGatewayArn == "" {
-		return nil, validationError("CustomerGatewayArn is required")
-	}
-
-	a := &CustomerGatewayAssociation{
-		CustomerGatewayArn: customerGatewayArn, DeviceID: deviceID, GlobalNetworkID: globalNetworkID, LinkID: linkID,
-		State: assocStatePending,
-	}
-	b.customerGatewayAssociations.Put(a)
-
-	key := customerGatewayAssociationKey(globalNetworkID, customerGatewayArn)
-	scheduleAdvance(b, "CustomerGatewayAssociationAvailable", b.customerGatewayAssociations, key,
-		func(v *CustomerGatewayAssociation) *string { return &v.State }, assocStatePending, assocStateAvailable)
-
-	return a.clone(), nil
+	return associateDeviceLinkedResource(
+		b, "CustomerGatewayAssociationAvailable", globalNetworkID, deviceID, customerGatewayArn,
+		"CustomerGatewayArn", resolve, resourceEC2CustomerGateway,
+		b.customerGatewayAssociations, customerGatewayAssociationKey(globalNetworkID, customerGatewayArn),
+		func() *CustomerGatewayAssociation {
+			return &CustomerGatewayAssociation{
+				CustomerGatewayArn: customerGatewayArn, DeviceID: deviceID, GlobalNetworkID: globalNetworkID,
+				LinkID: linkID, State: assocStatePending,
+			}
+		},
+		func(v *CustomerGatewayAssociation) *string { return &v.State },
+	)
 }
 
 func (b *InMemoryBackend) DisassociateCustomerGateway(
@@ -111,6 +162,10 @@ func (b *InMemoryBackend) RegisterTransitGateway(
 
 	if transitGatewayArn == "" {
 		return nil, validationError("TransitGatewayArn is required")
+	}
+
+	if b.ec2Resolver != nil && !b.ec2Resolver.ResolveTransitGateway(transitGatewayArn) {
+		return nil, notFoundError(resourceEC2TransitGateway, transitGatewayArn)
 	}
 
 	r := &TransitGatewayRegistration{
@@ -185,32 +240,24 @@ func (b *InMemoryBackend) AssociateTransitGatewayConnectPeer(
 	b.mu.Lock("AssociateTransitGatewayConnectPeer")
 	defer b.mu.Unlock()
 
-	if d, ok := b.devices.Get(deviceID); !ok || d.GlobalNetworkID != globalNetworkID {
-		return nil, notFoundError(resourceDevice, deviceID)
+	var resolve func(string) bool
+	if b.ec2Resolver != nil {
+		resolve = b.ec2Resolver.ResolveTransitGatewayConnectPeer
 	}
 
-	if transitGatewayConnectPeerArn == "" {
-		return nil, validationError("TransitGatewayConnectPeerArn is required")
-	}
-
-	a := &TransitGatewayConnectPeerAssociation{
-		DeviceID: deviceID, GlobalNetworkID: globalNetworkID, LinkID: linkID,
-		TransitGatewayConnectPeerArn: transitGatewayConnectPeerArn, State: assocStatePending,
-	}
-	b.transitGatewayConnectPeerAssociations.Put(a)
-
-	key := transitGatewayConnectPeerAssociationKey(globalNetworkID, transitGatewayConnectPeerArn)
-	scheduleAdvance(
-		b,
-		"TransitGatewayConnectPeerAssociationAvailable",
+	return associateDeviceLinkedResource(
+		b, "TransitGatewayConnectPeerAssociationAvailable", globalNetworkID, deviceID, transitGatewayConnectPeerArn,
+		"TransitGatewayConnectPeerArn", resolve, resourceEC2TransitGatewayConnectPeer,
 		b.transitGatewayConnectPeerAssociations,
-		key,
+		transitGatewayConnectPeerAssociationKey(globalNetworkID, transitGatewayConnectPeerArn),
+		func() *TransitGatewayConnectPeerAssociation {
+			return &TransitGatewayConnectPeerAssociation{
+				DeviceID: deviceID, GlobalNetworkID: globalNetworkID, LinkID: linkID,
+				TransitGatewayConnectPeerArn: transitGatewayConnectPeerArn, State: assocStatePending,
+			}
+		},
 		func(v *TransitGatewayConnectPeerAssociation) *string { return &v.State },
-		assocStatePending,
-		assocStateAvailable,
 	)
-
-	return a.clone(), nil
 }
 
 func (b *InMemoryBackend) DisassociateTransitGatewayConnectPeer(

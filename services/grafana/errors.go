@@ -18,15 +18,16 @@ var (
 	errNotFoundSentinel   = errors.New("resource not found")
 	errConflictSentinel   = errors.New("conflict")
 	errValidationSentinel = errors.New("validation error")
+	errQuotaSentinel      = errors.New("service quota exceeded")
 )
 
-// apiError carries the fields needed to render one of Grafana's four
+// apiError carries the fields needed to render one of Grafana's five
 // modeled wire error shapes (ValidationException/ConflictException/
-// ResourceNotFoundException, plus the InternalServerException fallback --
-// see handler.go's handleError). AccessDeniedException,
-// ServiceQuotaExceededException, and ThrottlingException are real,
-// wire-accurate SDK error types this emulator declares no trigger path for
-// (no auth or quota model) -- see PARITY.md.
+// ResourceNotFoundException/ServiceQuotaExceededException, plus the
+// InternalServerException fallback -- see handler.go's handleError).
+// AccessDeniedException and ThrottlingException have no organic trigger
+// path (no auth model) but are reachable via pkgs/chaos fault injection,
+// wired generically for every service -- see PARITY.md.
 type apiError struct {
 	cause        error
 	message      string
@@ -61,6 +62,11 @@ func conflictError(resourceType, resourceID, msg string) error {
 // validationError builds a ValidationException-shaped error.
 func validationError(msg string) error {
 	return &apiError{cause: errValidationSentinel, message: msg}
+}
+
+// quotaError builds a ServiceQuotaExceededException-shaped error.
+func quotaError(msg string) error {
+	return &apiError{cause: errQuotaSentinel, message: msg}
 }
 
 // notActiveError builds the ConflictException-shaped error CreateWorkspace's

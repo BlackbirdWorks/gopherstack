@@ -394,12 +394,14 @@ func (h *Handler) dispatchGetCoreNetworkChangeSet(
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
-	err := h.Backend.GetCoreNetworkChangeSet(params["CoreNetworkId"], parsePolicyVersionID(params["PolicyVersionId"]))
+	changes, err := h.Backend.GetCoreNetworkChangeSet(
+		params["CoreNetworkId"], parsePolicyVersionID(params["PolicyVersionId"]),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: []struct{}{}})
+	return marshalResponse(getCoreNetworkChangeSetResponse{CoreNetworkChanges: toCoreNetworkChangesWire(changes)})
 }
 
 func (h *Handler) dispatchGetCoreNetworkChangeEvents(
@@ -408,7 +410,7 @@ func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 	params routeParams,
 	_ []byte,
 ) ([]byte, error) {
-	err := h.Backend.GetCoreNetworkChangeEvents(
+	events, err := h.Backend.GetCoreNetworkChangeEvents(
 		params["CoreNetworkId"],
 		parsePolicyVersionID(params["PolicyVersionId"]),
 	)
@@ -416,7 +418,9 @@ func (h *Handler) dispatchGetCoreNetworkChangeEvents(
 		return nil, err
 	}
 
-	return marshalResponse(getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: []struct{}{}})
+	return marshalResponse(
+		getCoreNetworkChangeEventsResponse{CoreNetworkChangeEvents: toCoreNetworkChangeEventsWire(events)},
+	)
 }
 
 func (h *Handler) dispatchExecuteCoreNetworkChangeSet(

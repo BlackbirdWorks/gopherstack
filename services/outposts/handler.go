@@ -111,14 +111,14 @@ func (h *Handler) RouteMatcher() service.Matcher {
 		for _, prefix := range []string{
 			"/outposts", "/outpost/", "/orders", "/list-orders", "/quotes",
 			"/renewals", "/sites", "/catalog/", "/instanceTypes", "/connections",
-			"/capacity/", "/tags/",
+			"/capacity/",
 		} {
 			if strings.HasPrefix(path, prefix) {
 				return true
 			}
 		}
 
-		return false
+		return httputils.MatchesTaggedResourceARN(path, outpostsService)
 	}
 }
 
