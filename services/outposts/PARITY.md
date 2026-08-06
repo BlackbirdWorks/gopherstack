@@ -6,35 +6,37 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: outposts
 sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (prior manifest said v1.66.0, stale)
-last_audit_commit: ef896bcf1
+last_audit_commit: 9c8570bbd
 last_audit_date: 2026-08-06
-# Grade held at B this pass. What changed: (1) added the first SDK-driven integration suite
-# (test/integration/outposts_test.go) -- the prior B had ZERO integration proof, only unit tests,
-# which parity-principles.md rule 3 does not accept as parity evidence; (2) fixed 6 real ID/ARN
-# format bugs found by reading the actual AWS API docs (docs.aws.amazon.com/outposts/latest/
-# APIReference/), not guessed: Site/Order/Quote/CapacityTask/LineItem/QuoteOption ID lengths and
-# two wrong prefixes (CapacityTaskId "ct-" -> "cap-", LineItemId "li-" -> "ooi-", QuoteOptionId
-# "qo-" -> "oqo-"), plus Asset/Connection IDs dropping an invalid '-' their real patterns forbid;
-# (3) discovered and fixed a real bug: Quote DOES accept an ARN-shaped QuoteIdentifier on
-# GetQuote/UpdateQuote/DeleteQuote/CreateOrder (confirmed via the SDK's own Pattern regex), which
-# the prior audit's "Quotes have no ARN form" note got wrong -- added resolveQuoteLocked; (4)
-# implemented real ServiceQuotaExceededException enforcement on CreateSite/CreateOutpost against
-# AWS's own published default quotas (100 sites/Region, 10 Outposts/site --
-# docs.aws.amazon.com/outposts/latest/userguide/outposts-limits.html), previously undocumented and
-# untriggered; (5) moved 3 gaps to structural_gaps with individual justification (LifeCycleStatus
-# has no SDK enum at all, catalog/pricing data is proprietary AWS-published data with no SDK
-# source, Connection key material requires a real cryptographic install-time exchange no emulator
-# can perform); (6) confirmed the CloudFormation "gap" was never a real gap (real AWS itself has no
-# AWS::Outposts::* CFN support) and dropped it from gaps entirely.
-# NOT raised to A: the single highest-value remaining gap (RunInstances -> Outposts capacity-ledger
-# wiring) is a genuine cross-service blocker, not unfinished work -- services/ec2's Subnet/Instance
-# structs have ZERO Outpost-placement fields to read (confirmed by direct grep of
-# services/ec2/store.go and instance_attrs.go), so even grafana's read-only cross_service.go
-# pattern has no data source to read from yet. That requires an ec2-side change, which is out of
-# this session's file-ownership scope (services/outposts/ only) -- filed as gopherstack-9ij1 for a
-# future ec2-owning pass. Two smaller gaps (Order/CapacityTask single-hop lifecycle, 15-of-17
-# unevaluated OrderingRequirement checks) also remain open, deferred for effort/scope reasons this
-# pass, not because they're unbuildable -- see gaps below.
+# Grade held at B this pass (gopherstack-9ij1 + gopherstack-b9mg). What changed: closed the
+# single highest-value gap the prior pass flagged -- services/ec2's RunInstances now really
+# consumes this service's Outposts capacity ledger, and TerminateInstances really returns it.
+# Added services/ec2's Subnet.OutpostArn (CreateSubnet input, cross-validated against a real
+# Outpost) and Instance.OutpostArn (top-level, sibling of Placement -- confirmed via the pinned
+# SDK's deserializers.go, NOT nested under Placement as the prior pass's filed issue assumed);
+# added services/outposts/capacity_ledger.go's ConsumeCapacity/ReleaseCapacity, called by
+# services/ec2's own new cross_service.go (ec2 -> outposts; the reverse of grafana's/mgn's
+# direction, chosen because RunInstances must validate/consume synchronously as part of the EC2
+# request, not as a background reconciliation read) at RunInstances/TerminateInstances time.
+# GetOutpostInstanceTypes now genuinely depletes (a fully-consumed instance type drops out of the
+# list, matching real AWS "currently configured" semantics under this pass's capacity-as-available
+# model) and ListAssetInstances now returns real running-instance data (InstanceId/InstanceType/
+# AssetId/AccountId/AwsServiceName=EC2) recorded by ConsumeCapacity -- not the outposts package
+# reading services/ec2's Instance table (that would create an ec2<->outposts import cycle, since
+# ec2 already imports outposts); outposts keeps its own minimal runningInstances ledger instead.
+# CreateSubnet with a real OutpostArn is accepted; with an unknown one it's rejected
+# (InvalidParameterValue, the generic EC2 code -- no dedicated typed exception exists, confirmed
+# via aws-sdk-go-v2/service/ec2/types/errors.go); RunInstances exceeding configured capacity is
+# rejected with the real, well-known InsufficientInstanceCapacity code. Proven end to end via a
+# new test/integration/outposts_test.go case (TestIntegration_Outposts_EC2CapacityCoupling) driving
+# the REAL EC2 client: create Outpost + capacity, create an Outpost subnet, RunInstances, observe
+# GetOutpostInstanceTypes/ListAssetInstances reflect the drop, TerminateInstances, observe it return.
+# NOT raised to A: two smaller gaps this pass's task did not touch remain open and are still
+# genuinely buildable, not structural -- Order/CapacityTask's single-hop lifecycle (skips the real
+# IN_PROGRESS/DELIVERED/WAITING_FOR_EVACUATION/CANCELLATION_IN_PROGRESS SDK states) and
+# quotes.go's buildOrderingRequirements evaluating only 2 of 17 real OrderingRequirementType
+# checks. Both were already flagged as "deferred, not unbuildable" by the prior pass and are
+# unrelated to Outposts placement/capacity -- see gaps below.
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -49,7 +51,7 @@ ops:
   ListOutposts: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts; AvailabilityZoneFilter/AvailabilityZoneIdFilter/LifeCycleStatusFilter all as repeated PascalCase query params (confirmed via serializers.go, NOT lowerCamel like grafana -- see wire.go), paginated via pkgs/page"}
   StartOutpostDecommission: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /outposts/{OutpostIdentifier}/decommission; SKIPPED on idempotent replay, REQUESTED otherwise, BLOCKED never occurs (no cross-service blocking-resource data -- see gaps); ValidateOnly performs no mutation"}
   GetOutpostBillingInformation: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outpost/{OutpostIdentifier}/billing-information (singular path, routed correctly -- see Grade note); accumulates ORIGINAL subscription on order completion (orders.go) and RENEWAL on CreateRenewal (renewals.go)"}
-  GetOutpostInstanceTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostId}/instanceTypes; aggregates the CONFIGURED capacity across the Outpost's Assets (mutated by StartCapacityTask completion), distinct from GetOutpostSupportedInstanceTypes"}
+  GetOutpostInstanceTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostId}/instanceTypes; aggregates the CONFIGURED capacity across the Outpost's Assets (mutated by StartCapacityTask completion, and by capacity_ledger.go's ConsumeCapacity/ReleaseCapacity as services/ec2 launches/terminates instances onto it as of this pass -- a fully-depleted instance type drops out of the list), distinct from GetOutpostSupportedInstanceTypes"}
   GetOutpostSupportedInstanceTypes: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /outposts/{OutpostIdentifier}/supportedInstanceTypes; returns the static seed catalog filtered by hardware type -- AssetId/OrderId are validated to exist but do not further filter the result (documented simplification, see gaps)"}
   GetRenewalPricing: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /outpost/{OutpostIdentifier}/renewal-pricing (singular path, routed correctly); PRICED for an ACTIVE Outpost, UNABLE_TO_PRICE otherwise"}
   CreateRenewal: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /renewals; ClientToken idempotency implemented (renewals.go's renewalIdempotency cache); pricing is a documented synthetic placeholder formula -- see gaps"}
@@ -74,9 +76,9 @@ ops:
   GetCapacityTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET .../capacity/{CapacityTaskId}"}
   StartCapacityTask: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /outposts/{OutpostIdentifier}/capacity; enforces one-active-task-per-(Outpost,Order); single-hop REQUESTED -> COMPLETED mutates the target Asset's real capacity ledger; WAITING_FOR_EVACUATION never occurs (no cross-service blocking-instance data) -- see gaps; DryRun completes synchronously without mutating capacity"}
   ListCapacityTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /capacity/tasks; status + OutpostIdentifierFilter"}
-  ListBlockingInstancesForCapacityTask: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET .../blockingInstances; validates the capacity task exists, always returns empty (no cross-service EC2-on-Outposts placement data -- honest-empty, not a stub, see gaps)"}
+  ListBlockingInstancesForCapacityTask: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET .../blockingInstances; validates the capacity task exists, always returns empty. As of this pass real EC2-on-Outposts instance data DOES exist (capacity_ledger.go's runningInstances, see ListAssetInstances) but this op answers a narrower question -- instances blocking a capacity REDUCTION -- and StartCapacityTask's model is additive-only (mergeInstanceTypeCapacity only ever grows InstanceTypeCapacities, never shrinks), so no running instance can ever legitimately block a task in this backend; empty remains the honest answer, not a stub, see gaps"}
   ListAssets: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostIdentifier}/assets; filters by AssetTypeFilter/HostIdFilter/StatusFilter against the seeded Asset(s)"}
-  ListAssetInstances: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET .../assetInstances; validates the Outpost exists, always returns empty -- same honest-empty EC2-coupling gap as ListBlockingInstancesForCapacityTask"}
+  ListAssetInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET .../assetInstances; returns real running-instance data as of this pass (InstanceId/InstanceType/AssetId/AccountId/AwsServiceName=EC2), recorded by capacity_ledger.go's ConsumeCapacity when services/ec2's RunInstances launches onto this Outpost -- AccountIdFilter/AssetIdFilter/AwsServiceFilter/InstanceTypeFilter all wired (repeated PascalCase query params, confirmed via serializers.go)"}
   GetCatalogItem: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /catalog/item/{CatalogItemId}; served from seed_data.go's static 3-item catalog, not real AWS data -- see gaps"}
   ListCatalogItems: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /catalog/items; ItemClass/EC2Family/SupportedStorage filters over the same static seed"}
   ListOrderableInstanceTypes: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /instanceTypes; static 5-entry seed (seed_data.go), also backs GetOutpostInstanceTypes'/GetOutpostSupportedInstanceTypes' VCPU lookups"}
@@ -90,10 +92,9 @@ families:
   tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingOutposts, the 31st service. Both Outpost.Tags and Site.Tags share one ARN-keyed store (tagging.go's resolveTaggableLocked), resourceTypeFromARN derives outposts:outpost vs outposts:site per-ARN since this is a two-resource-kind tag store (unlike Grafana's single-kind constantResourceType)."}
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps:
-  - "EC2 capacity/launch integration: services/ec2's RunInstances is not wired to check or decrement this service's Outposts capacity ledger (ComputeAttributes.InstanceTypeCapacities). NOT a documentation gap this time -- confirmed this pass that services/ec2's Subnet/Instance/CapacityReservation structs carry ZERO Outpost-placement fields (no Subnet.OutpostArn, no Instance.Placement.OutpostArn, no RunInstances Placement.OutpostArn wire input; grepped services/ec2/store.go and instance_attrs.go directly). services/grafana's cross_service.go read-only pattern only works when the sibling service already exposes the needed data (DescribeSubnets/DescribeSecurityGroups did); here it doesn't yet. Requires an ec2-side change (Subnet.OutpostArn + Instance.Placement.OutpostArn + RunInstances wire input) before outposts can read it -- filed as gopherstack-9ij1, out of this session's services/outposts/-only scope. This is the reason overall stays B."
-  - "ListAssetInstances and ListBlockingInstancesForCapacityTask always return an empty result after validating their required resources exist -- same missing EC2-side data as above (this backend has no cross-service EC2-on-Outposts instance-placement source to read). This is an honest empty result, not a stub, per parity-principles.md's guidance on real-logic-then-empty-result. Blocked on gopherstack-9ij1."
-  - "Order/CapacityTask lifecycle uses a single-hop async transition (PREPARING->COMPLETED, REQUESTED->COMPLETED) via pkgs/worker, mirroring services/grafana's scheduleWorkspaceTransition -- the intermediate states each type's SDK enum declares (Order: IN_PROGRESS/DELIVERED; CapacityTask: WAITING_FOR_EVACUATION/CANCELLATION_IN_PROGRESS) are real, wire-accurate constants this emulator never transitions through. Deferred this pass for scope/effort, not unbuildable: a defensible multi-hop timeline through the same real enum values could be modeled (no rollup *rule* is SDK-encoded, but transitioning through more of the real states is strictly more accurate than fewer, unlike inventing new data)."
-  - "quotes.go's buildOrderingRequirements evaluates only 2 of the 17 real OrderingRequirementType checks (OUTPOST_ID_MISSING_ON_QUOTE_ERROR, OUTPOST_ACTIVE_CHECK_ERROR). Deferred, not unbuildable: at least one more (MAXIMUM_ALLOWED_ORDERS_CHECK_ERROR) is plausibly derivable from real order-count state without fabricating AWS data, but was not attempted this pass; the remaining ones (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) would require a support-plan/address-validation model this backend has no state for."
+  - "ListBlockingInstancesForCapacityTask always returns an empty result after validating the capacity task exists. Real EC2-on-Outposts instance data now exists (capacity_ledger.go's runningInstances, populated by services/ec2's RunInstances as of this pass -- see ListAssetInstances), but this op only has meaning for a capacity REDUCTION a running instance would block, and StartCapacityTask's model here is additive-only (mergeInstanceTypeCapacity never shrinks InstanceTypeCapacities). Buildable if the Order/CapacityTask lifecycle gap below is ever addressed with a real reduction path; empty is the honest answer today, not a stub."
+  - "Order/CapacityTask lifecycle uses a single-hop async transition (PREPARING->COMPLETED, REQUESTED->COMPLETED) via pkgs/worker, mirroring services/grafana's scheduleWorkspaceTransition -- the intermediate states each type's SDK enum declares (Order: IN_PROGRESS/DELIVERED; CapacityTask: WAITING_FOR_EVACUATION/CANCELLATION_IN_PROGRESS) are real, wire-accurate constants this emulator never transitions through. Deferred this pass for scope/effort (unrelated to gopherstack-9ij1/gopherstack-b9mg's EC2-capacity-coupling task), not unbuildable: a defensible multi-hop timeline through the same real enum values could be modeled (no rollup *rule* is SDK-encoded, but transitioning through more of the real states is strictly more accurate than fewer, unlike inventing new data)."
+  - "quotes.go's buildOrderingRequirements evaluates only 2 of the 17 real OrderingRequirementType checks (OUTPOST_ID_MISSING_ON_QUOTE_ERROR, OUTPOST_ACTIVE_CHECK_ERROR). Deferred, not unbuildable, and unrelated to this pass's task: at least one more (MAXIMUM_ALLOWED_ORDERS_CHECK_ERROR) is plausibly derivable from real order-count state without fabricating AWS data, but was not attempted this pass; the remaining ones (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) would require a support-plan/address-validation model this backend has no state for."
 structural_gaps:
   - "LifeCycleStatus (types.Outpost.LifeCycleStatus is a bare *string) has NO SDK enum type anywhere in this module (confirmed by direct grep of types/enums.go -- zero LifeCycleStatus-named type exists) and the AWS API docs (API_Outpost.html) publish only a generic non-empty-string Pattern, no value set. Unlike the other gaps above, there is no more SDK/doc source to converge on even in principle: ACTIVE on CreateOutpost and PENDING_DECOMMISSION on StartOutpostDecommission success (consts.go) are this implementation's own defensible choice, and will remain so regardless of future effort unless AWS itself publishes an enum."
   - "ListCatalogItems/GetCatalogItem/ListOrderableInstanceTypes are served from a small static seed table (seed_data.go: 3 catalog items, 5 orderable instance types) standing in for AWS's own published, centrally-maintained hardware catalog and pricing model. This is proprietary AWS operational/billing data (which rack/server SKUs are currently orderable, real subscription pricing) with no public machine-readable source anywhere -- not in the SDK, not in Terraform, not in AWS's docs. No amount of implementation effort in this emulator can produce the real values; this is the exact 'no billing/settlement system' case structural_gaps exists for. pricing.go's deterministic formula is the same case: real Outposts subscription pricing is not published data."
@@ -101,6 +102,83 @@ structural_gaps:
   - "ServiceQuotaExceededException has no trigger path on CreateOrder specifically (CreateSite/CreateOutpost now enforce the two real published quotas -- see ops table). No AWS-published default per-account Order quota exists to enforce without fabricating a number, matching services/grafana's identical treatment of AccessDeniedException."
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for)."}
 ---
+
+## EC2 capacity-coupling pass (2026-08-06, gopherstack-9ij1 + gopherstack-b9mg)
+
+Closed the single highest-value gap the prior pass identified and explicitly could not build
+without an `ec2`-side change: `services/ec2`'s `RunInstances` now really consumes this service's
+Outposts capacity ledger, and `TerminateInstances` really returns it. This session owned both
+`services/ec2` and `services/outposts`, unblocking the fix.
+
+**`services/ec2` additions** (verified against the pinned `aws-sdk-go-v2/service/ec2@v1.319.1`
+checkout, not assumed from the filed issue's guess):
+- `Subnet.OutpostArn` (`store.go`), settable via `CreateSubnetWithOutpost` (a new method;
+  `CreateSubnet` now delegates to it with `outpostArn=""` so none of the ~30 existing call sites,
+  including `services/cloudformation`, needed to change). `CreateSubnetInput.OutpostArn` is a
+  flat, top-level `*string` field (confirmed via `serializers.go`'s
+  `awsEc2query_serializeOpDocumentCreateSubnetInput`) -- no nesting.
+- `Instance.OutpostArn` (`store.go`), populated from the launch subnet at `RunInstances` time.
+  **Correction to the filed issue's assumption**: this is a top-level field on `types.Instance`,
+  a *sibling* of `Placement`, not `Placement.OutpostArn` -- `types.Placement` (the struct used by
+  both `RunInstancesInput.Placement` and `Instance.Placement`) has **no** `OutpostArn` member at
+  all (confirmed by reading the full `Placement` struct in `types/types.go`); the response XML
+  deserializer reads `outpostArn` and `placement` as two separate elements
+  (`awsEc2query_deserializeDocumentInstance`). Surfaced on `RunInstances` and `DescribeInstances`
+  responses (`instanceItem.OutpostArn`, XML tag `outpostArn`, sibling of the `placement` element).
+
+**Cross-service wiring** (`services/ec2/cross_service.go`, new file): `ec2` imports
+`services/outposts` directly and resolves its handler lazily via `SetAppConfig`/`GetOutpostsHandler`
+-- both already exist on `*CLI` from the prior `outposts` pass, so **no `cli.go` edit was needed**.
+This is the mirror image of `services/grafana`'s/`services/mgn`'s cross-service direction (they read
+`ec2`'s state passively); here `ec2`'s own `RunInstances`/`TerminateInstances` must synchronously
+call into `outposts` as part of handling the EC2 request itself (validate-and-consume, or fail the
+whole launch), the same pattern `services/mgn`'s `launchParticipantInstanceLocked` already uses to
+call `ec2Bk.RunInstances` while holding its own lock -- there is real in-repo precedent for a
+cross-service call made while the caller's own backend lock is held, so `RunInstances`'s existing
+lock scope did not need restructuring. `outposts` was deliberately **not** made to import `ec2` in
+the other direction (that would create an `ec2` <-> `outposts` import cycle, since `ec2` already
+imports `outposts`) -- `outposts` instead keeps its own minimal `runningInstances` ledger
+(`capacity_ledger.go`), populated by the very cross-service calls `ec2` makes into it, rather than
+reading `ec2`'s `Instance` table directly.
+
+**`services/outposts/capacity_ledger.go`** (new file): `ConsumeCapacity(outpostArn, instanceType,
+accountID, instanceIDs)` atomically checks-then-decrements `Asset.ComputeAttributes.
+InstanceTypeCapacities[].Count` for the Outpost's single seeded Asset (there is still no public
+`CreateAsset` op, so multi-asset draining logic was deliberately not built -- see the prior pass's
+"Asset seeding" note, unchanged) and records one `runningInstance` row per instance ID; `Count`
+represents currently-available capacity, decremented by `ConsumeCapacity`/incremented by
+`ReleaseCapacity`, distinct from `StartCapacityTask`'s unrelated (and still additive-only, see
+gaps) mutation of the same field. `ReleaseCapacity(instanceID)` looks up and deletes that row,
+crediting the unit back. Both return/no-op honestly when the Outposts backend isn't wired (unit
+tests constructing `ec2.InMemoryBackend` directly) or the referenced Outpost/Asset no longer
+exists, matching `services/grafana`'s established graceful-degradation convention for optional
+cross-service backends.
+
+**Errors, verified against the real SDK, not invented**: `aws-sdk-go-v2/service/ec2/types/errors.go`
+declares no typed exception for either failure mode (EC2's query-protocol error model predates
+smithy's typed-exception generation for most codes). `CreateSubnetWithOutpost` rejecting an unknown
+`OutpostArn` maps to the generic `InvalidParameterValue` code, matching this file's existing
+treatment of every other no-dedicated-code cross-reference failure (e.g. `ErrCoipCidrNotFound`).
+`RunInstances` exceeding available capacity maps to `InsufficientInstanceCapacity`, the real,
+well-known EC2 client error for capacity shortfalls (used for AZ/Capacity-Reservation/Outpost
+capacity failures alike per AWS's own error-code documentation) -- not fabricated for this pass.
+
+**Proof**: `test/integration/outposts_test.go` gained two new SDK-driven cases --
+`TestIntegration_Outposts_EC2CapacityCoupling` drives the full loop through the *real* `aws-sdk-go-v2`
+EC2 client end to end (create Outpost, configure capacity via `StartCapacityTask`, `CreateSubnet`
+with the real `OutpostArn`, `RunInstances`, observe `GetOutpostInstanceTypes`/`ListAssetInstances`
+reflect the drop, a second launch rejected with `InsufficientInstanceCapacity`,
+`TerminateInstances`, observe capacity and the asset-instance listing both reverse, and the freed
+unit consumable again) and `..._NonexistentOutpostArn` proves the `CreateSubnet`-time rejection.
+Both ran green against the Docker container (`make build-linux` + the real test harness), alongside
+unit-level coverage in both packages (`services/ec2/cross_service_test.go`,
+`services/outposts/capacity_ledger_test.go`) for the permutation/error cases (insufficient capacity,
+exact-capacity, unconfigured instance type, unknown Outpost, unwired-backend no-ops, filter
+matching) that don't need the full container.
+
+**Not raised to A**: see the frontmatter's grade note -- the Order/CapacityTask single-hop
+lifecycle and the 15-of-17 unevaluated `OrderingRequirement` checks are unrelated, pre-existing,
+still-buildable gaps this pass's task did not touch.
 
 ## Integration-test and gap-closure pass (2026-08-06)
 
@@ -484,11 +562,11 @@ workflow being fundamentally a support-ticket-adjacent process rather than a dec
 lifecycle).
 
 **EC2 capacity coupling**: real AWS ties `RunInstances` on an Outpost-hosted subnet to that
-Outpost's currently configured `InstanceTypeCapacity`. `services/ec2` today has no such coupling
-(confirmed: it stores `OutpostArn` as an opaque string on `LocalGateway`/`OutpostLag`, per above,
-with no capacity-check hook). Building that coupling is explicitly NOT this audit's scope and
-should not be assumed as part of a first Outposts implementation -- flagged as a gap, and as a
-concrete idea for a later cross-service pass once both sides exist.
+Outpost's currently configured `InstanceTypeCapacity`. **SUPERSEDED by the 2026-08-06 EC2
+capacity-coupling pass, see that section above** -- at the time this note was written (before
+either service existed), `services/ec2` had no such coupling and building it was out of scope;
+`services/ec2` now has `Subnet.OutpostArn`/`Instance.OutpostArn` and calls into
+`services/outposts/capacity_ledger.go` from `RunInstances`/`TerminateInstances`.
 
 ## Top 5 hardest/riskiest things about implementing this service (for the caller's final report)
 

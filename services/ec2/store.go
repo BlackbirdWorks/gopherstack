@@ -154,6 +154,12 @@ type Instance struct {
 	// "User initiated (2016-05-...)").
 	StateTransitionReason string `json:"stateTransitionReason,omitempty"`
 	ImageID               string `json:"imageID,omitempty"`
+	// OutpostArn is the real SDK's types.Instance.OutpostArn -- a top-level
+	// field, sibling to Placement (not nested under it; confirmed via
+	// deserializers.go's awsEc2query_deserializeDocumentInstance, which reads
+	// "outpostArn" and "placement" as separate XML elements). Set from the
+	// launch subnet's Subnet.OutpostArn at RunInstances time.
+	OutpostArn string `json:"outpostArn,omitempty"`
 	// StateReasonCode/StateReasonMessage mirror AWS's <stateReason> element,
 	// populated on user-initiated stop/terminate and cleared on start.
 	StateReasonMessage    string                `json:"stateReasonMessage,omitempty"`
@@ -271,18 +277,29 @@ type VPC struct {
 
 // Subnet represents an EC2 Subnet.
 type Subnet struct {
-	ID                  string `json:"id,omitempty"`
-	VPCID               string `json:"vpcID,omitempty"`
-	CIDRBlock           string `json:"cidrBlock,omitempty"`
-	AvailabilityZone    string `json:"availabilityZone,omitempty"`
+	ID               string `json:"id,omitempty"`
+	VPCID            string `json:"vpcID,omitempty"`
+	CIDRBlock        string `json:"cidrBlock,omitempty"`
+	AvailabilityZone string `json:"availabilityZone,omitempty"`
+	// OutpostArn is the Outpost this subnet is hosted on, set via
+	// CreateSubnetWithOutpost and cross-validated against the real
+	// services/outposts backend (cross_service.go) when wired. Empty for a
+	// normal (non-Outpost) subnet.
+	OutpostArn          string `json:"outpostArn,omitempty"`
 	IsDefault           bool   `json:"isDefault,omitempty"`
 	MapPublicIPOnLaunch bool   `json:"mapPublicIpOnLaunch,omitempty"`
 }
 
 // InMemoryBackend is the in-memory store for EC2 resources.
 type InMemoryBackend struct {
-	compute                        Compute
-	dnsRegistrar                   DNSRegistrar
+	compute      Compute
+	dnsRegistrar DNSRegistrar
+	// appConfig is the service.AppContext.Config value Provider.Init
+	// received, recorded so RunInstances/TerminateInstances can resolve the
+	// Outposts backend on demand -- see cross_service.go's SetAppConfig doc
+	// comment for why this must be lazy rather than resolved at
+	// construction time.
+	appConfig                      any
 	addressTransfers               map[string]*AddressTransfer
 	capacityReservations           *store.Table[CapacityReservation]
 	vpcs                           *store.Table[VPC]
@@ -877,11 +894,33 @@ func (b *InMemoryBackend) RunInstances(
 	vpcID := ""
 	mapPublicIP := false
 	availabilityZone := ""
+	outpostArn := ""
 
 	if sub, ok := b.subnets.Get(subnetID); ok {
 		vpcID = sub.VPCID
 		mapPublicIP = sub.MapPublicIPOnLaunch
 		availabilityZone = sub.AvailabilityZone
+		outpostArn = sub.OutpostArn
+	}
+
+	// Real AWS depletes an Outpost's configured instance-type capacity as
+	// instances launch onto it (see services/outposts/capacity_ledger.go's
+	// ConsumeCapacity doc comment). Reserve capacity for the WHOLE batch
+	// before creating any instance, using pre-minted IDs, so a rejected
+	// batch (Outpost gone, insufficient capacity) never creates an
+	// ec2.Instance at all -- matches real RunInstances failing atomically.
+	var instanceIDs []string
+	if outpostArn != "" {
+		instanceIDs = make([]string, count)
+		for i := range instanceIDs {
+			instanceIDs[i] = newInstanceID()
+		}
+
+		if outpostsBk, ok := b.outpostsBackend(); ok {
+			if err := outpostsBk.ConsumeCapacity(outpostArn, instanceType, b.AccountID, instanceIDs); err != nil {
+				return nil, translateOutpostsCapacityErr(err)
+			}
+		}
 	}
 
 	// No capacity hint — user-derived values in the make capacity position
@@ -890,8 +929,12 @@ func (b *InMemoryBackend) RunInstances(
 	//nolint:prealloc,nolintlint // satisfies CodeQL by removing tainted capacity hint
 	instances := make([]*Instance, 0)
 
-	for range count {
+	for i := range count {
 		id := newInstanceID()
+		if len(instanceIDs) > 0 {
+			id = instanceIDs[i]
+		}
+
 		inst := &Instance{
 			ID:           id,
 			ImageID:      imageID,
@@ -900,6 +943,7 @@ func (b *InMemoryBackend) RunInstances(
 			State:      StatePending,
 			VPCID:      vpcID,
 			SubnetID:   subnetID,
+			OutpostArn: outpostArn,
 			LaunchTime: time.Now(),
 			EnaSupport: true,
 		}

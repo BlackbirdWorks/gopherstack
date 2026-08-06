@@ -104,6 +104,10 @@ type Backend interface {
 	// CreateSubnet creates a new subnet in the given VPC.
 	CreateSubnet(vpcID, cidr, az string) (*Subnet, error)
 
+	// CreateSubnetWithOutpost is CreateSubnet plus an optional OutpostArn,
+	// cross-validated against the real Outposts backend when wired.
+	CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error)
+
 	// DeleteSubnet removes a subnet by ID.
 	DeleteSubnet(id string) error
 

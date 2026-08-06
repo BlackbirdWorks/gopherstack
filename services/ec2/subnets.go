@@ -282,12 +282,24 @@ func (b *InMemoryBackend) DescribeSubnets(ids []string) []*Subnet {
 
 // CreateSubnet creates a new subnet in the given VPC.
 func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) {
+	return b.CreateSubnetWithOutpost(vpcID, cidr, az, "")
+}
+
+// CreateSubnetWithOutpost is CreateSubnet plus an optional OutpostArn,
+// cross-validated against the real Outposts backend when wired (see
+// cross_service.go's validateOutpostArn) -- matches real AWS CreateSubnet
+// rejecting an OutpostArn that doesn't resolve to a real Outpost.
+func (b *InMemoryBackend) CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn string) (*Subnet, error) {
 	if vpcID == "" {
 		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
 	}
 
 	if cidr == "" {
 		return nil, fmt.Errorf("%w: CidrBlock is required", ErrInvalidParameter)
+	}
+
+	if err := b.validateOutpostArn(outpostArn); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateSubnet")
@@ -320,6 +332,7 @@ func (b *InMemoryBackend) CreateSubnet(vpcID, cidr, az string) (*Subnet, error) 
 		VPCID:            vpcID,
 		CIDRBlock:        cidr,
 		AvailabilityZone: az,
+		OutpostArn:       outpostArn,
 	}
 	b.subnets.Put(s)
 	b.indexSubnetLocked(id, vpcID)

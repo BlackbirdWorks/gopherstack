@@ -42,7 +42,13 @@ type InMemoryBackend struct {
 	assets                 *store.Table[Asset]
 	assetsByOutpost        *store.Index[Asset]
 	connections            *store.Table[Connection]
-	registry               *store.Registry
+	runningInstances       *store.Table[runningInstance]
+
+	// runningInstancesByOutpost backs ListAssetInstances -- see
+	// capacity_ledger.go's ConsumeCapacity/ReleaseCapacity, which are this
+	// index's only writers (via runningInstances.Put/Delete).
+	runningInstancesByOutpost *store.Index[runningInstance]
+	registry                  *store.Registry
 
 	// renewalIdempotency caches CreateRenewal's response keyed by
 	// outpostID+"::"+clientToken so a retried request with the same

@@ -255,7 +255,11 @@ func (b *InMemoryBackend) GetOutpostBillingInformation(idOrARN string) (*Outpost
 // the response) and the instance-type capacities CURRENTLY CONFIGURED on
 // it -- the aggregate of every seeded Asset's
 // ComputeAttributes.InstanceTypeCapacities, which StartCapacityTask mutates
-// on completion. This is deliberately distinct from
+// on completion and capacity_ledger.go's ConsumeCapacity/ReleaseCapacity
+// deplete/restore as services/ec2 launches/terminates instances onto it.
+// An instance type whose available Count has been fully consumed is
+// omitted -- matching real AWS depleting an Outpost's currently-configured
+// capacity as instances launch onto it. This is deliberately distinct from
 // GetOutpostSupportedInstanceTypes (below), which answers a different
 // question -- see PARITY.md's trap #5.
 func (b *InMemoryBackend) GetOutpostInstanceTypes(idOrARN string) (*Outpost, []InstanceTypeCapacity, error) {
@@ -280,7 +284,11 @@ func (b *InMemoryBackend) GetOutpostInstanceTypes(idOrARN string) (*Outpost, []I
 	}
 
 	instanceTypes := make([]string, 0, len(totals))
-	for it := range totals {
+	for it, count := range totals {
+		if count <= 0 {
+			continue
+		}
+
 		instanceTypes = append(instanceTypes, it)
 	}
 

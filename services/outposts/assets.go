@@ -109,21 +109,61 @@ func (ca *ComputeAttributes) clone() *ComputeAttributes {
 	return &cp
 }
 
+// assetInstanceFilter holds ListAssetInstances' optional filters.
+type assetInstanceFilter struct {
+	accountIDs    []string
+	assetIDs      []string
+	awsServices   []string
+	instanceTypes []string
+}
+
+func matchesAssetInstanceFilter(ri *runningInstance, f assetInstanceFilter) bool {
+	if len(f.accountIDs) > 0 && !containsStr(f.accountIDs, ri.AccountID) {
+		return false
+	}
+
+	if len(f.assetIDs) > 0 && !containsStr(f.assetIDs, ri.AssetID) {
+		return false
+	}
+
+	if len(f.awsServices) > 0 && !containsStr(f.awsServices, awsServiceNameEC2) {
+		return false
+	}
+
+	if len(f.instanceTypes) > 0 && !containsStr(f.instanceTypes, ri.InstanceType) {
+		return false
+	}
+
+	return true
+}
+
 // ListAssetInstances returns the EC2 instances placed on outpostIdentifier's
-// assets. This backend has no cross-service EC2-on-Outposts placement data
-// (see PARITY.md's "EC2 capacity coupling" gap) -- after validating the
-// Outpost exists, it always returns an empty, real (not fabricated) result,
-// matching parity-principles.md's guidance that a correctly-empty result
-// after real validation is not a stub.
-func (b *InMemoryBackend) ListAssetInstances(outpostIdentifier string) error {
+// assets -- real data recorded by services/ec2's RunInstances via
+// ConsumeCapacity (capacity_ledger.go), not a fabricated result. An Outpost
+// with no instances launched onto it (or before any ec2 RunInstances call
+// has ever consumed its capacity) legitimately returns empty.
+func (b *InMemoryBackend) ListAssetInstances(
+	outpostIdentifier string, f assetInstanceFilter,
+) ([]*runningInstance, error) {
 	b.mu.RLock("ListAssetInstances")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.resolveOutpostLocked(outpostIdentifier); !ok {
-		return notFoundError(resourceOutpost, outpostIdentifier)
+	o, ok := b.resolveOutpostLocked(outpostIdentifier)
+	if !ok {
+		return nil, notFoundError(resourceOutpost, outpostIdentifier)
 	}
 
-	return nil
+	all := b.runningInstancesByOutpost.Get(o.ID)
+	out := make([]*runningInstance, 0, len(all))
+
+	for _, ri := range all {
+		if matchesAssetInstanceFilter(ri, f) {
+			cp := *ri
+			out = append(out, &cp)
+		}
+	}
+
+	return out, nil
 }
 
 func containsStr(haystack []string, needle string) bool {

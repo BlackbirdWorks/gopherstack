@@ -32,21 +32,21 @@ const asyncTransitionDelay = 100 * time.Millisecond
 // invariant boundary is the whole backend -- see
 // .claude/memories/pkgs-catalog.md's locking rule.
 type InMemoryBackend struct {
-	apps              *store.Table[App]
-	policies          *store.Table[ResiliencyPolicy]
-	assessments       *store.Table[AppAssessment]
+	appConfig         any
+	metricsExports    *store.Table[MetricsExport]
+	groupingByApp     *store.Index[GroupingTask]
 	assessmentsByApp  *store.Index[AppAssessment]
 	templates         *store.Table[RecommendationTemplate]
 	templatesByAssess *store.Index[RecommendationTemplate]
-	metricsExports    *store.Table[MetricsExport]
+	apps              *store.Table[App]
 	groupingTasks     *store.Table[GroupingTask]
-	groupingByApp     *store.Index[GroupingTask]
+	assessments       *store.Table[AppAssessment]
 	registry          *store.Registry
-
-	mu        *lockmetrics.RWMutex
-	work      *worker.Group
-	accountID string
-	region    string
+	mu                *lockmetrics.RWMutex
+	work              *worker.Group
+	policies          *store.Table[ResiliencyPolicy]
+	region            string
+	accountID         string
 }
 
 // NewInMemoryBackend creates a new in-memory AWS Resilience Hub backend.

@@ -258,8 +258,9 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	vpcID := vals.Get("VpcId")
 	cidr := vals.Get("CidrBlock")
 	az := vals.Get("AvailabilityZone")
+	outpostArn := vals.Get("OutpostArn")
 
-	s, err := h.Backend.CreateSubnet(vpcID, cidr, az)
+	s, err := h.Backend.CreateSubnetWithOutpost(vpcID, cidr, az, outpostArn)
 	if err != nil {
 		return nil, err
 	}
@@ -300,6 +301,7 @@ func toSubnetItem(s *Subnet) subnetItem {
 		VPCID:            s.VPCID,
 		CIDRBlock:        s.CIDRBlock,
 		AvailabilityZone: s.AvailabilityZone,
+		OutpostArn:       s.OutpostArn,
 		State:            stateAvailable,
 	}
 }
@@ -309,6 +311,7 @@ type subnetItem struct {
 	VPCID            string `xml:"vpcId"`
 	CIDRBlock        string `xml:"cidrBlock"`
 	AvailabilityZone string `xml:"availabilityZone"`
+	OutpostArn       string `xml:"outpostArn,omitempty"`
 	State            string `xml:"state"`
 }
 

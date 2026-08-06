@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	outpostssdk "github.com/aws/aws-sdk-go-v2/service/outposts"
 	outpoststypes "github.com/aws/aws-sdk-go-v2/service/outposts/types"
 	smithy "github.com/aws/smithy-go"
@@ -1044,4 +1046,197 @@ func TestIntegration_Outposts_SemanticValidation(t *testing.T) {
 			assert.Equal(t, "ValidationException", outpostsErrorCode(err))
 		})
 	}
+}
+
+// TestIntegration_Outposts_EC2CapacityCoupling drives the full loop this
+// pass was built for, end to end, through the REAL EC2 client: create an
+// Outpost and configure capacity for one instance type on it, create an
+// Outpost-hosted subnet via the real EC2 client, RunInstances onto it and
+// observe the Outposts capacity ledger drop (GetOutpostInstanceTypes,
+// ListAssetInstances), then TerminateInstances and observe it return. A
+// sequential lifecycle, not a permutation table -- see
+// gopherstack-tests's guidance that lifecycles stay straight-line.
+//
+//nolint:paralleltest // sequential by design; shared Outpost/subnet fixtures
+func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+	outpostsClient := createOutpostsClient(t)
+	ec2Client := createEC2Client(t)
+
+	const instanceType = "m5.xlarge"
+
+	site := createTestSite(ctx, t, outpostsClient)
+	outpost := createTestOutpost(ctx, t, outpostsClient, aws.ToString(site.SiteId))
+	outpostID := aws.ToString(outpost.OutpostId)
+	outpostARN := aws.ToString(outpost.OutpostArn)
+	assetID := seededAssetID(ctx, t, outpostsClient, outpostID)
+
+	startOut, startErr := outpostsClient.StartCapacityTask(ctx, &outpostssdk.StartCapacityTaskInput{
+		OutpostIdentifier: aws.String(outpostID),
+		AssetId:           aws.String(assetID),
+		InstancePools: []outpoststypes.InstanceTypeCapacity{
+			{InstanceType: aws.String(instanceType), Count: 1},
+		},
+	})
+	require.NoError(t, startErr, "StartCapacityTask should succeed")
+
+	require.Eventually(t, func() bool {
+		out, getErr := outpostsClient.GetCapacityTask(ctx, &outpostssdk.GetCapacityTaskInput{
+			OutpostIdentifier: aws.String(outpostID),
+			CapacityTaskId:    startOut.CapacityTaskId,
+		})
+
+		return getErr == nil && out.CapacityTaskStatus == outpoststypes.CapacityTaskStatusCompleted
+	}, 5*time.Second, 50*time.Millisecond, "capacity task should complete before launching instances")
+
+	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.90.0.0/16")})
+	require.NoError(t, err, "CreateVpc should succeed")
+
+	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
+	t.Cleanup(func() {
+		cctx, cancel := outpostsCleanupCtx()
+		defer cancel()
+		_, _ = ec2Client.DeleteVpc(cctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
+	})
+
+	subnetOut, err := ec2Client.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
+		VpcId:      aws.String(vpcID),
+		CidrBlock:  aws.String("10.90.1.0/24"),
+		OutpostArn: aws.String(outpostARN),
+	})
+	require.NoError(t, err, "CreateSubnet with a real OutpostArn should be accepted")
+	require.Equal(t, outpostARN, aws.ToString(subnetOut.Subnet.OutpostArn),
+		"the created Subnet should echo the real OutpostArn back")
+
+	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
+	t.Cleanup(func() {
+		cctx, cancel := outpostsCleanupCtx()
+		defer cancel()
+		_, _ = ec2Client.DeleteSubnet(cctx, &ec2sdk.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+	})
+
+	runOut, err := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String("ami-12345678"),
+		InstanceType: ec2types.InstanceType(instanceType),
+		SubnetId:     aws.String(subnetID),
+		MinCount:     aws.Int32(1),
+		MaxCount:     aws.Int32(1),
+	})
+	require.NoError(t, err, "RunInstances onto an Outpost subnet with available capacity should succeed")
+	require.Len(t, runOut.Instances, 1)
+	assert.Equal(t, outpostARN, aws.ToString(runOut.Instances[0].OutpostArn),
+		"the launched Instance should carry the real OutpostArn")
+
+	instanceID := aws.ToString(runOut.Instances[0].InstanceId)
+
+	t.Run("capacity_drops_after_launch", func(t *testing.T) {
+		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(ctx, &outpostssdk.GetOutpostInstanceTypesInput{
+			OutpostId: aws.String(outpostID),
+		})
+		require.NoError(t, typesErr, "GetOutpostInstanceTypes should succeed")
+		assert.Empty(t, typesOut.InstanceTypes,
+			"the single configured unit of capacity was consumed by RunInstances")
+
+		listOut, listErr := outpostsClient.ListAssetInstances(ctx, &outpostssdk.ListAssetInstancesInput{
+			OutpostIdentifier: aws.String(outpostID),
+		})
+		require.NoError(t, listErr, "ListAssetInstances should succeed")
+		require.Len(t, listOut.AssetInstances, 1)
+		assert.Equal(t, instanceID, aws.ToString(listOut.AssetInstances[0].InstanceId))
+		assert.Equal(t, instanceType, aws.ToString(listOut.AssetInstances[0].InstanceType))
+		assert.Equal(t, assetID, aws.ToString(listOut.AssetInstances[0].AssetId))
+		assert.Equal(t, outpoststypes.AWSServiceNameEc2, listOut.AssetInstances[0].AwsServiceName)
+	})
+
+	t.Run("second_launch_exceeds_capacity", func(t *testing.T) {
+		_, secondErr := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+			ImageId:      aws.String("ami-12345678"),
+			InstanceType: ec2types.InstanceType(instanceType),
+			SubnetId:     aws.String(subnetID),
+			MinCount:     aws.Int32(1),
+			MaxCount:     aws.Int32(1),
+		})
+		require.Error(t, secondErr, "a second launch with no remaining configured capacity should be rejected")
+
+		var apiErr smithy.APIError
+		require.ErrorAs(t, secondErr, &apiErr)
+		assert.Equal(t, "InsufficientInstanceCapacity", apiErr.ErrorCode())
+	})
+
+	_, err = ec2Client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	require.NoError(t, err, "TerminateInstances should succeed")
+
+	t.Run("capacity_returns_after_termination", func(t *testing.T) {
+		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(ctx, &outpostssdk.GetOutpostInstanceTypesInput{
+			OutpostId: aws.String(outpostID),
+		})
+		require.NoError(t, typesErr, "GetOutpostInstanceTypes should succeed")
+		require.Len(t, typesOut.InstanceTypes, 1, "terminating the instance should return its capacity")
+		assert.Equal(t, instanceType, aws.ToString(typesOut.InstanceTypes[0].InstanceType))
+
+		listOut, listErr := outpostsClient.ListAssetInstances(ctx, &outpostssdk.ListAssetInstancesInput{
+			OutpostIdentifier: aws.String(outpostID),
+		})
+		require.NoError(t, listErr, "ListAssetInstances should succeed")
+		assert.Empty(t, listOut.AssetInstances, "the terminated instance should no longer be listed as running")
+
+		// The freed capacity can be consumed again.
+		runAgainOut, runErr := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+			ImageId:      aws.String("ami-12345678"),
+			InstanceType: ec2types.InstanceType(instanceType),
+			SubnetId:     aws.String(subnetID),
+			MinCount:     aws.Int32(1),
+			MaxCount:     aws.Int32(1),
+		})
+		require.NoError(t, runErr, "released capacity should be consumable again")
+		require.Len(t, runAgainOut.Instances, 1)
+
+		t.Cleanup(func() {
+			cctx, cancel := outpostsCleanupCtx()
+			defer cancel()
+			_, _ = ec2Client.TerminateInstances(cctx, &ec2sdk.TerminateInstancesInput{
+				InstanceIds: []string{aws.ToString(runAgainOut.Instances[0].InstanceId)},
+			})
+		})
+	})
+}
+
+// TestIntegration_Outposts_EC2CapacityCoupling_NonexistentOutpostArn proves
+// the AWS-accurate error for launching onto (here: subnetting onto) an
+// Outpost ARN that does not exist, via the real EC2 client. Real AWS
+// cross-validates CreateSubnet's OutpostArn against the Outposts control
+// plane at subnet-creation time -- this is that check, not RunInstances,
+// since a Subnet's OutpostArn is fixed at creation and RunInstances only
+// ever inherits it.
+func TestIntegration_Outposts_EC2CapacityCoupling_NonexistentOutpostArn(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+	ec2Client := createEC2Client(t)
+
+	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})
+	require.NoError(t, err, "CreateVpc should succeed")
+
+	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
+	t.Cleanup(func() {
+		cctx, cancel := outpostsCleanupCtx()
+		defer cancel()
+		_, _ = ec2Client.DeleteVpc(cctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
+	})
+
+	_, err = ec2Client.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
+		VpcId:      aws.String(vpcID),
+		CidrBlock:  aws.String("10.91.1.0/24"),
+		OutpostArn: aws.String("arn:aws:outposts:us-east-1:000000000000:outpost/op-doesnotexist00"),
+	})
+	require.Error(t, err, "CreateSubnet referencing an unknown OutpostArn should be rejected")
+
+	var apiErr smithy.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, "InvalidParameterValue", apiErr.ErrorCode())
 }

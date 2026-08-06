@@ -94,3 +94,24 @@ var (
 	// address (rather than allocation ID) fails.
 	ErrPublicIPNotFound = errors.New("InvalidAddress.NotFound")
 )
+
+// Outposts capacity coupling (RunInstances/TerminateInstances <->
+// services/outposts' real capacity ledger, see cross_service.go).
+var (
+	// ErrOutpostArnNotFound is returned when a Subnet's OutpostArn (or an
+	// OutpostArn passed to CreateSubnetWithOutpost) doesn't resolve to a
+	// real Outpost in the cross-service Outposts backend. No dedicated
+	// typed EC2 exception exists for this (confirmed: no "Outpost"-named
+	// error in aws-sdk-go-v2/service/ec2/types/errors.go) -- mapped to the
+	// generic InvalidParameterValue code in handler.go's errCodeLookup,
+	// matching this file's existing treatment of other no-dedicated-code
+	// cross-reference failures (e.g. ErrCoipCidrNotFound).
+	ErrOutpostArnNotFound = errors.New("outpost ARN does not resolve to an existing Outpost")
+
+	// ErrInsufficientInstanceCapacity backs the real, well-known EC2 error
+	// code "InsufficientInstanceCapacity" (docs.aws.amazon.com/AWSEC2/latest/
+	// APIReference/errors-overview.html's Client.InsufficientInstanceCapacity),
+	// returned by RunInstances when the target Outpost's configured capacity
+	// for the requested instance type cannot satisfy the request.
+	ErrInsufficientInstanceCapacity = errors.New("InsufficientInstanceCapacity")
+)

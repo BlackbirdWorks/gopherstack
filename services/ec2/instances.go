@@ -934,6 +934,8 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			CurrentState:  inst.State,
 		})
 
+		b.releaseOutpostCapacityIfFirstTermination(inst, id, prev)
+
 		// Mirror AWS behaviour: when the backing instance of a spot request is
 		// terminated, the request transitions to "closed" (not stateCancelled).
 		for _, req := range b.spotRequests.All() {
