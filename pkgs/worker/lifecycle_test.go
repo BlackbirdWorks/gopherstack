@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -54,24 +55,26 @@ func TestSingleRunStartsAndStops(t *testing.T) {
 func TestSingleRunSecondStartIsNoOpWhileActive(t *testing.T) {
 	t.Parallel()
 
-	var sr worker.SingleRun
+	synctest.Test(t, func(t *testing.T) {
+		var sr worker.SingleRun
 
-	r := newFakeRunner()
-	sr.Start(t.Context(), r)
+		r := newFakeRunner()
+		sr.Start(t.Context(), r)
 
-	select {
-	case <-r.started:
-	case <-time.After(time.Second):
-		t.Fatal("runner never started")
-	}
+		select {
+		case <-r.started:
+		case <-time.After(time.Second):
+			t.Fatal("runner never started")
+		}
 
-	// A second Start while the first run is still active must not spawn a
-	// second run.
-	sr.Start(t.Context(), r)
-	time.Sleep(20 * time.Millisecond)
-	assert.Equal(t, int32(1), r.runs.Load(), "Start must be a no-op while a run is active")
+		// A second Start while the first run is still active must not spawn a
+		// second run.
+		sr.Start(t.Context(), r)
+		synctest.Wait()
+		assert.Equal(t, int32(1), r.runs.Load(), "Start must be a no-op while a run is active")
 
-	sr.Stop(t.Context())
+		sr.Stop(t.Context())
+	})
 }
 
 func TestSingleRunStopIsIdempotent(t *testing.T) {
@@ -102,29 +105,36 @@ func TestSingleRunStopWithoutStartIsNoOp(t *testing.T) {
 func TestSingleRunStopReturnsWhenCallerContextDone(t *testing.T) {
 	t.Parallel()
 
-	var sr worker.SingleRun
+	synctest.Test(t, func(t *testing.T) {
+		var sr worker.SingleRun
 
-	// blockingRunner never exits on its own; Stop must still return once the
-	// caller's ctx is done, without waiting forever for the run to finish.
-	blocking := blockingRunner{}
-	sr.Start(t.Context(), blocking)
+		// blockingRunner never exits on its own; Stop must still return once the
+		// caller's ctx is done, without waiting forever for the run to finish.
+		blocking := blockingRunner{}
+		sr.Start(t.Context(), blocking)
 
-	time.Sleep(10 * time.Millisecond)
+		synctest.Wait()
 
-	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		defer cancel()
 
-	done := make(chan struct{})
-	go func() {
-		sr.Stop(ctx)
-		close(done)
-	}()
+		done := make(chan struct{})
+		go func() {
+			sr.Stop(ctx)
+			close(done)
+		}()
 
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Stop did not return when caller ctx was done")
-	}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("Stop did not return when caller ctx was done")
+		}
+
+		// blockingRunner's goroutine is still asleep past ctx's deadline (that's
+		// the point of this test); let it actually finish so every goroutine in
+		// the bubble exits before Test returns, instead of deadlocking.
+		time.Sleep(200 * time.Millisecond)
+	})
 }
 
 // blockingRunner lingers briefly past context cancellation, simulating a run

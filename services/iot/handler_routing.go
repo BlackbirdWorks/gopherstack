@@ -42,39 +42,18 @@ func matchCoreIoTPathPrimary(path string) bool {
 
 // matchCoreIoTPathSecondary covers the job-template, security-profile,
 // audit, and mitigation-action route families. Split out of
-// matchCoreIoTPath to keep that function's cyclomatic complexity down; the
-// two comments below document real, previously-undiscovered route-matcher
-// gaps found this pass (a real SDK client's request never even reached the
-// IoT handler's op dispatch for any of these paths -- see PARITY.md).
+// matchCoreIoTPath to keep that function's cyclomatic complexity down.
+// RouteMatcher is a separate, earlier gate than op dispatch — a path
+// missing here never reaches the handler regardless of whether
+// resolveSecurityProfileOps et al. would handle it correctly, and only a
+// real SDK client round-tripped through service.Router catches the gap
+// (direct h.Handler() calls bypass RouteMatcher entirely).
 func matchCoreIoTPathSecondary(path string) bool {
 	return matchJobAndTemplatePath(path) ||
 		strings.HasPrefix(path, "/security-profiles/") ||
-		// ListSecurityProfiles (GET /security-profiles, no trailing slash)
-		// and ListSecurityProfilesForTarget (GET
-		// /security-profiles-for-target) were both entirely absent from
-		// this route matcher -- op dispatch (resolveSecurityProfileOps)
-		// already handled both paths correctly, but a real client's
-		// request never reached op dispatch at all, because RouteMatcher
-		// is an earlier, separate gate. Same previously-undiscovered
-		// unreachable-op bug class as ListJobs's plain "/jobs" and the
-		// "/job-templates"/"/mitigationactions/" families documented
-		// below; only caught by round-tripping through a real generated
-		// SDK client via the actual service.Router path (see
-		// TestSecurityProfile_RoutingReachability). Fixed this pass.
 		path == "/security-profiles" ||
 		path == "/security-profiles-for-target" ||
 		strings.HasPrefix(path, "/audit/") ||
-		// /mitigationactions/actions[/{actionName}] (CreateMitigationAction/
-		// DescribeMitigationAction/UpdateMitigationAction/
-		// DeleteMitigationAction/ListMitigationActions) was entirely absent
-		// from this route matcher -- found only by round-tripping through a
-		// real generated SDK client via the actual service.Router path
-		// (handler-invocation tests that call h.Handler() directly bypass
-		// RouteMatcher entirely and never would have caught this). Without
-		// this, every MitigationAction management op -- foundational to
-		// StartAuditMitigationActionsTask's whole workflow -- never reached
-		// the IoT handler in a real deployment; the request fell through
-		// with no matching route at all. Fixed this pass.
 		strings.HasPrefix(path, "/mitigationactions/") ||
 		matchDeviceDefenderPath(path)
 }

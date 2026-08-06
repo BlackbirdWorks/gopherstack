@@ -720,14 +720,11 @@ func TestCreateAccessPoint_ShortAccountID(t *testing.T) {
 	}
 }
 
-// TestAccessPointScope_WireShape locks in a gopherstack-tir4 finding:
-// GetAccessPointScopeOutput/PutAccessPointScopeInput's Scope field is a
-// structured type (Permissions/Prefixes lists), NOT a flat string
-// (confirmed via aws-sdk-go-v2/service/s3control's
-// awsRestxml_deserializeDocumentScope). A previous version of this handler
-// treated "<Scope>" as plain character data, which would have mangled a
-// real client's nested Permissions/Prefixes structure. Round-trips a
-// realistic nested body through Put then Get.
+// TestAccessPointScope_WireShape locks in: GetAccessPointScopeOutput/
+// PutAccessPointScopeInput's Scope field is a structured type
+// (Permissions/Prefixes lists), not a flat string
+// (awsRestxml_deserializeDocumentScope). Round-trips a realistic nested
+// body through Put then Get.
 func TestAccessPointScope_WireShape(t *testing.T) {
 	t.Parallel()
 
@@ -751,15 +748,13 @@ func TestAccessPointScope_WireShape(t *testing.T) {
 	assert.Contains(t, body, "<Prefixes><member>data/</member></Prefixes>")
 }
 
-// TestListAccessPointsForDirectoryBuckets_ItemFields locks in a
-// gopherstack-tir4 finding: ListAccessPointsForDirectoryBucketsOutput
-// shares the exact same entry type as ListAccessPoints (types.AccessPoint,
-// confirmed via
+// TestListAccessPointsForDirectoryBuckets_ItemFields locks in:
+// ListAccessPointsForDirectoryBucketsOutput shares the same entry type as
+// ListAccessPoints (types.AccessPoint —
 // awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput
-// delegating to the identical AccessPointList deserializer). A previous
-// version of this handler emitted only Name/AccessPointArn/Bucket,
-// omitting BucketAccountId/NetworkOrigin/Alias despite this backend
-// tracking all of them.
+// delegates to the identical AccessPointList deserializer), so
+// BucketAccountId/NetworkOrigin/Alias must be present, not just
+// Name/AccessPointArn/Bucket.
 func TestListAccessPointsForDirectoryBuckets_ItemFields(t *testing.T) {
 	t.Parallel()
 

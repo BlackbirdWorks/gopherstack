@@ -552,16 +552,10 @@ type SearchIndexThingResult struct {
 	ThingGroupNames []string          `json:"thingGroupNames,omitempty"`
 }
 
-// SearchIndexThingGroupResult is a ThingGroup document returned by SearchIndex.
-//
-// Field names/shape verified against aws-sdk-go-v2/service/iot@v1.76.0's
-// awsRestjson1_deserializeDocumentThingGroupDocument: the real
-// ThingGroupDocument shape has "parentGroupNames" (a LIST of every ancestor
-// group name up to the root, not just the direct parent) and
-// "thingGroupDescription" -- a prior revision of this struct had a single
-// "parentGroupName" string (the immediate parent only) and no description
-// field at all, so a real SDK client's deserializer would never find the
-// "parentGroupNames" key it looks for and silently leave that field empty.
+// SearchIndexThingGroupResult is a ThingGroup document returned by
+// SearchIndex. "parentGroupNames" is a list of every ancestor group name up
+// to the root, not just the direct parent (types.ThingGroupDocument,
+// awsRestjson1_deserializeDocumentThingGroupDocument, v1.76.0).
 type SearchIndexThingGroupResult struct {
 	Attributes            map[string]string `json:"attributes"`
 	ThingGroupName        string            `json:"thingGroupName"`

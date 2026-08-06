@@ -14,6 +14,32 @@ import (
 // CREATING/UPDATING/etc. -> ACTIVE transition to have fired.
 const workspaceTransitionWait = 200 * time.Millisecond
 
+// waitForWorkspaceActive polls DescribeWorkspace until the workspace reaches
+// ACTIVE. These tests drive the backend over a real httptest.Server (a real
+// loopback HTTP connection), so the production transition timer fires from a
+// goroutine outside any test-local synctest bubble -- synctest can't durably
+// block on real network I/O, so this can't be converted to a fake clock and
+// falls back to require.Eventually instead.
+func waitForWorkspaceActive(t *testing.T, client *grafanasdk.Client, id string) *grafanasdk.DescribeWorkspaceOutput {
+	t.Helper()
+
+	var desc *grafanasdk.DescribeWorkspaceOutput
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeWorkspace(
+			t.Context(), &grafanasdk.DescribeWorkspaceInput{WorkspaceId: aws.String(id)},
+		)
+		if err != nil || out.Workspace.Status != types.WorkspaceStatusActive {
+			return false
+		}
+		desc = out
+
+		return true
+	}, workspaceTransitionWait*10, 10*time.Millisecond, "workspace never reached ACTIVE")
+
+	return desc
+}
+
 func minimalCreateWorkspaceInput() *grafanasdk.CreateWorkspaceInput {
 	return &grafanasdk.CreateWorkspaceInput{
 		AccountAccessType:       types.AccountAccessTypeCurrentAccount,
@@ -40,12 +66,7 @@ func TestCreateWorkspace_Lifecycle(t *testing.T) {
 
 	id := aws.ToString(out.Workspace.Id)
 
-	time.Sleep(workspaceTransitionWait)
-
-	desc, err := client.DescribeWorkspace(t.Context(), &grafanasdk.DescribeWorkspaceInput{WorkspaceId: aws.String(id)})
-	require.NoError(t, err)
-	require.Equal(t, types.WorkspaceStatusActive, desc.Workspace.Status,
-		"workspace must transition CREATING -> ACTIVE after the simulated delay")
+	desc := waitForWorkspaceActive(t, client, id)
 	require.Equal(t, id, aws.ToString(desc.Workspace.Id))
 }
 
@@ -123,7 +144,7 @@ func TestUpdateWorkspace_MergesNotOverwrites(t *testing.T) {
 	require.NoError(t, err)
 
 	id := aws.ToString(created.Workspace.Id)
-	time.Sleep(workspaceTransitionWait)
+	waitForWorkspaceActive(t, client, id)
 
 	updated, err := client.UpdateWorkspace(t.Context(), &grafanasdk.UpdateWorkspaceInput{
 		WorkspaceId:          aws.String(id),
@@ -135,11 +156,7 @@ func TestUpdateWorkspace_MergesNotOverwrites(t *testing.T) {
 		"omitted WorkspaceName must be left unchanged, not overwritten with empty")
 	require.Equal(t, types.WorkspaceStatusUpdating, updated.Workspace.Status)
 
-	time.Sleep(workspaceTransitionWait)
-
-	desc, err := client.DescribeWorkspace(t.Context(), &grafanasdk.DescribeWorkspaceInput{WorkspaceId: aws.String(id)})
-	require.NoError(t, err)
-	require.Equal(t, types.WorkspaceStatusActive, desc.Workspace.Status)
+	waitForWorkspaceActive(t, client, id)
 }
 
 func TestUpdateWorkspace_NetworkAccessRemoveAndSetConflict(t *testing.T) {
@@ -151,7 +168,7 @@ func TestUpdateWorkspace_NetworkAccessRemoveAndSetConflict(t *testing.T) {
 	require.NoError(t, err)
 
 	id := aws.ToString(created.Workspace.Id)
-	time.Sleep(workspaceTransitionWait)
+	waitForWorkspaceActive(t, client, id)
 
 	_, err = client.UpdateWorkspace(t.Context(), &grafanasdk.UpdateWorkspaceInput{
 		WorkspaceId:                      aws.String(id),
@@ -197,7 +214,7 @@ func TestDeleteWorkspace_CascadesChildren(t *testing.T) {
 	require.NoError(t, err)
 
 	id := aws.ToString(created.Workspace.Id)
-	time.Sleep(workspaceTransitionWait)
+	waitForWorkspaceActive(t, client, id)
 
 	_, err = client.CreateWorkspaceApiKey(t.Context(), &grafanasdk.CreateWorkspaceApiKeyInput{
 		WorkspaceId:   aws.String(id),

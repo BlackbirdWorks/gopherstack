@@ -335,6 +335,9 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 					errCh <- err
 				}()
 
+				// srv runs a real loopback HTTP server, so this can't be bubbled
+				// (network I/O isn't durably blocking) and Invoke exposes no
+				// observable "now blocked on the queue" signal to poll instead.
 				time.Sleep(50 * time.Millisecond)
 				cancel()
 
@@ -413,10 +416,12 @@ func (p *publicRuntimeServer) Stop(ctx context.Context) {
 func simulateContainerNext(t *testing.T, port int) string {
 	t.Helper()
 
-	// Poll until the invocation is queued (the invoke goroutine may not have run yet).
-	var resp *http.Response
+	// Polls a real loopback HTTP server (the invoke goroutine may not have run
+	// yet), so this can't be driven by a synctest fake clock -- network I/O is
+	// not durably blocking. require.Eventually is the fallback.
+	var requestID string
 
-	for range 20 {
+	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(
 			t.Context(),
 			http.MethodGet,
@@ -425,27 +430,20 @@ func simulateContainerNext(t *testing.T, port int) string {
 		)
 		require.NoError(t, err)
 
-		var doErr error
+		resp, doErr := http.DefaultClient.Do(req)
+		if doErr != nil {
+			return false
+		}
+		defer resp.Body.Close()
 
-		resp, doErr = http.DefaultClient.Do(req)
-		if doErr == nil && resp.StatusCode == http.StatusOK {
-			break
+		if resp.StatusCode != http.StatusOK {
+			return false
 		}
 
-		if resp != nil {
-			resp.Body.Close()
-		}
+		requestID = resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
 
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	require.NotNil(t, resp)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
-	require.NotEmpty(t, requestID)
+		return requestID != ""
+	}, time.Second, 50*time.Millisecond, "invocation was never queued")
 
 	return requestID
 }
@@ -730,6 +728,9 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 				resultCh <- invokeErr
 			}()
 
+			// bk runs the invocation over a real Docker-mock + loopback runtime
+			// API server, so this can't be bubbled (real I/O isn't durably
+			// blocking) and there's no exported signal to poll instead.
 			time.Sleep(200 * time.Millisecond)
 
 			var runtimePort int
@@ -829,7 +830,10 @@ func TestRuntimeServer_InvokeTimeoutRace(t *testing.T) {
 
 			requestID := simulateContainerNext(t, tt.port)
 
-			// Optionally delay the container response to force a timeout race.
+			// Optionally delay the container response to force a timeout race
+			// against srv's real loopback HTTP server; not bubbleable (real
+			// network I/O) and there's no boolean condition to poll here since
+			// the delay itself is the thing under test.
 			if tt.responseDelay > 0 {
 				time.Sleep(tt.responseDelay)
 			}

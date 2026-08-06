@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/sqs"
@@ -572,32 +573,34 @@ func TestDeleteQueueClosesNotifyChannel(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend(t)
-			qURL := createTestQueue(t, b, "close-notify-queue")
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend(t)
+				qURL := createTestQueue(t, b, "close-notify-queue")
 
-			errCh := make(chan error, 1)
-			go func() {
-				_, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-					QueueURL:            qURL,
-					MaxNumberOfMessages: 1,
-					WaitTimeSeconds:     10,
-				})
-				errCh <- err
-			}()
+				errCh := make(chan error, 1)
+				go func() {
+					_, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+						QueueURL:            qURL,
+						MaxNumberOfMessages: 1,
+						WaitTimeSeconds:     10,
+					})
+					errCh <- err
+				}()
 
-			// Give the goroutine time to enter the long-poll select.
-			time.Sleep(50 * time.Millisecond)
+				// Wait for the goroutine to enter the long-poll select.
+				synctest.Wait()
 
-			require.NoError(t, b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: qURL}))
+				require.NoError(t, b.DeleteQueue(&sqs.DeleteQueueInput{QueueURL: qURL}))
 
-			select {
-			case err := <-errCh:
-				// The closed notify channel should cause the goroutine to wake up and
-				// return ErrQueueNotFound from the next receiveOnce call.
-				require.ErrorIs(t, err, sqs.ErrQueueNotFound, tt.name)
-			case <-time.After(2 * time.Second):
-				require.FailNow(t, "goroutine did not wake up after queue deletion")
-			}
+				select {
+				case err := <-errCh:
+					// The closed notify channel should cause the goroutine to wake up and
+					// return ErrQueueNotFound from the next receiveOnce call.
+					require.ErrorIs(t, err, sqs.ErrQueueNotFound, tt.name)
+				case <-time.After(2 * time.Second):
+					require.FailNow(t, "goroutine did not wake up after queue deletion")
+				}
+			})
 		})
 	}
 }

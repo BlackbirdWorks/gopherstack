@@ -300,19 +300,11 @@ func TestDeviceDefender_Violations(t *testing.T) {
 	}
 }
 
-// TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter is a
-// table-driven test, asserted through a real generated AWS SDK v2 IoT
-// client, covering ListActiveViolations/ListViolationEvents'
-// listSuppressedAlerts filter -- previously entirely unimplemented. Real AWS
-// determines suppression from the security-profile Behavior's SuppressAlerts
-// setting, which this backend does not persist at all (CreateSecurityProfile
-// doesn't store Behaviors currently -- a separate, larger gap in the
-// security_profiles family). Modeling suppression as a directly-seedable
-// flag on ActiveViolation/ViolationEvent (mirroring AuditFinding.IsSuppressed's
-// identical simplification elsewhere in this service) is what makes the
-// filter honestly implementable without first building out that unrelated
-// subsystem; see device_defender.go's ActiveViolation.Suppressed doc
-// comment.
+// TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter covers
+// ListActiveViolations/ListViolationEvents' listSuppressedAlerts filter, a
+// directly-seedable flag standing in for the security-profile Behavior's
+// SuppressAlerts setting; see device_defender.go's ActiveViolation.Suppressed
+// doc comment.
 func TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter(t *testing.T) {
 	t.Parallel()
 
@@ -383,18 +375,11 @@ func TestListActiveViolationsAndViolationEvents_SuppressedAlertsFilter(t *testin
 	}
 }
 
-// TestListActiveViolationsAndViolationEvents_BehaviorCriteriaTypeFilter is a
-// table-driven test, asserted through a real generated AWS SDK v2 IoT
-// client, covering ListActiveViolations/ListViolationEvents'
-// behaviorCriteriaType filter. This was previously unimplementable: real
-// AWS resolves a violation's behaviorCriteriaType from the STATIC/
-// STATISTICAL/MACHINE_LEARNING shape of the security-profile Behavior's
-// criteria (types.BehaviorCriteriaType), but CreateSecurityProfile didn't
-// persist Behaviors at all (see security_profiles.go's SecurityProfile doc
-// comment and PARITY.md's security_profiles family). Behaviors are now
-// real, persisted state, so the filter is resolved live against each
-// violation's owning security profile via
-// securityProfileBehaviorCriteriaTypeLocked.
+// TestListActiveViolationsAndViolationEvents_BehaviorCriteriaTypeFilter
+// covers ListActiveViolations/ListViolationEvents' behaviorCriteriaType
+// filter, resolved live against each violation's owning security profile's
+// persisted Behaviors via securityProfileBehaviorCriteriaTypeLocked
+// (types.BehaviorCriteriaType).
 func TestListActiveViolationsAndViolationEvents_BehaviorCriteriaTypeFilter(t *testing.T) {
 	t.Parallel()
 
@@ -533,15 +518,11 @@ func TestDeviceDefender_AuditFindingRelatedResources(t *testing.T) {
 	iotExpectError(t, h, "/audit/relatedResources?findingId=does-not-exist")
 }
 
-// TestDeviceDefender_AuditFinding_WireFieldsAndFilters is a table-driven
-// regression test covering this pass's field-diff of AuditFinding against
-// aws-sdk-go-v2/service/iot@v1.76.0's types.AuditFinding
-// (awsRestjson1_deserializeDocumentAuditFinding): isSuppressed,
-// reasonForNonComplianceCode, reasonForNonCompliance, and taskStartTime were
-// all missing entirely. Also covers ListAuditFindings' checkName/taskId/
-// listSuppressedFindings filters, previously unimplemented -- and previously
-// unreachable at all, since the op was misrouted on GET instead of the real
-// POST /audit/findings (fixed alongside the field diff; see PARITY.md).
+// TestDeviceDefender_AuditFinding_WireFieldsAndFilters covers AuditFinding's
+// isSuppressed/reasonForNonComplianceCode/reasonForNonCompliance/taskStartTime
+// wire fields (types.AuditFinding, v1.76.0) and ListAuditFindings'
+// checkName/taskId/listSuppressedFindings filters via the real POST
+// /audit/findings route.
 func TestDeviceDefender_AuditFinding_WireFieldsAndFilters(t *testing.T) {
 	t.Parallel()
 
@@ -642,16 +623,10 @@ func TestDeviceDefender_AuditFinding_WireFieldsAndFilters(t *testing.T) {
 	}
 }
 
-// TestListAuditFindings_ResourceIdentifierFilter is a table-driven test,
-// asserted through a real generated AWS SDK v2 IoT client, covering this
-// pass's ListAuditFindings.resourceIdentifier filter -- previously flagged
-// unimplemented in PARITY.md because AuditFinding.NonCompliantResource was a
-// freeform map[string]any that could not honestly discriminate against real
-// AWS's ~10 per-check-type ResourceIdentifier fields (deviceCertificateId,
-// policyVersionIdentifier, roleAliasArn, ...). NonCompliantResource is now a
-// real, fully-typed struct (see audit.go's ResourceIdentifier), so the
-// filter can honestly match the same way real AWS does: every field SET on
-// the filter must be present and equal on the finding's own identifier.
+// TestListAuditFindings_ResourceIdentifierFilter covers
+// ListAuditFindings.resourceIdentifier: every field SET on the filter must
+// be present and equal on the finding's own identifier (audit.go's
+// ResourceIdentifier).
 func TestListAuditFindings_ResourceIdentifierFilter(t *testing.T) {
 	t.Parallel()
 
@@ -750,19 +725,10 @@ func TestListAuditFindings_ResourceIdentifierFilter(t *testing.T) {
 	}
 }
 
-// TestStartAuditMitigationActionsTask_TargetResolution is a table-driven
-// regression test, asserted through a real generated AWS SDK v2 IoT client,
-// covering two real, previously-undiscovered bugs in
-// auditMitigationFindingIDs (device_defender.go): (1) when a target set both
-// auditTaskId and auditCheckToReasonCodeFilter, only auditTaskId was ever
-// honored (a switch's first matching case wins) -- auditCheckToReasonCodeFilter
-// was silently ignored instead of being combined with it, even though real
-// AWS's AuditMitigationActionsTaskTarget lets both apply together
-// ("findings from a specific audit" + "a specific reason code filter" is a
-// valid, narrower combination). (2) auditCheckToReasonCodeFilter matched by
-// check name alone, ignoring the actual reason-code list value -- real AWS
-// filters on the listed reason codes when the list is non-empty (an empty
-// list for a check means "any reason code for that check").
+// TestStartAuditMitigationActionsTask_TargetResolution covers
+// auditMitigationFindingIDs' (device_defender.go) target resolution:
+// auditTaskId and auditCheckToReasonCodeFilter combine as AND, and an empty
+// reason-code list for a check means "any reason code for that check".
 func TestStartAuditMitigationActionsTask_TargetResolution(t *testing.T) {
 	t.Parallel()
 
@@ -865,21 +831,10 @@ func TestStartAuditMitigationActionsTask_TargetResolution(t *testing.T) {
 	}
 }
 
-// TestDetectMitigationActionsTaskSummary_WireShape is a table-driven test,
-// asserted through a real generated AWS SDK v2 IoT client, covering this
-// pass's DetectMitigationActionsTaskSummary fixes: (1) the real wire field
-// is "actionsDefinition" (a list of full MitigationAction objects with
-// id/name/roleArn/actionParams), not "actions" (a list of bare action name
-// strings, which is what this backend previously emitted -- a real client's
-// deserializer would never have found the "actionsDefinition" key it looks
-// for and would silently leave every task's actions list empty). (2)
-// ListDetectMitigationActionsTasks previously returned a hand-picked 4-field
-// summary; real AWS uses the exact same DetectMitigationActionsTaskSummary
-// type for both Describe and List, so target/actionsDefinition/
-// taskStatistics/violationEventOccurrenceRange were all silently dropped
-// from every list entry. Both Describe and List are covered here to prove
-// they now agree. (3) violationEventOccurrenceRange, previously entirely
-// unmodeled, round-trips end to end.
+// TestDetectMitigationActionsTaskSummary_WireShape covers
+// DetectMitigationActionsTaskSummary: wire field is "actionsDefinition" (full
+// MitigationAction objects), not "actions" (bare names); Describe and List
+// share the same rich type; violationEventOccurrenceRange round-trips.
 func TestDetectMitigationActionsTaskSummary_WireShape(t *testing.T) {
 	t.Parallel()
 

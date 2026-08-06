@@ -5,6 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -63,67 +64,77 @@ func TestGroupGoIsJoinedByStop(t *testing.T) {
 func TestGroupTickerSweepsThenStops(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup(t.Context(), "svc")
+	synctest.Test(t, func(t *testing.T) {
+		g := worker.NewGroup(t.Context(), "svc")
 
-	var count atomic.Int64
-	g.Ticker("comp", time.Millisecond, 0, func(context.Context) { count.Add(1) })
+		var count atomic.Int64
+		g.Ticker("comp", time.Millisecond, 0, func(context.Context) { count.Add(1) })
 
-	require.Eventually(t, func() bool { return count.Load() >= 2 }, time.Second, time.Millisecond)
-	g.Stop()
+		require.Eventually(t, func() bool { return count.Load() >= 2 }, time.Second, time.Millisecond)
+		g.Stop()
 
-	after := count.Load()
-	time.Sleep(20 * time.Millisecond)
-	assert.Equal(t, after, count.Load(), "ticker must not fire after Stop")
+		// Stop joins the ticker goroutine before returning, so nothing else in
+		// the bubble can still be running; Wait just settles it deterministically.
+		after := count.Load()
+		synctest.Wait()
+		assert.Equal(t, after, count.Load(), "ticker must not fire after Stop")
+	})
 }
 
 func TestGroupAfterFiresAndIsCancellableByStop(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup(t.Context(), "svc")
+	synctest.Test(t, func(t *testing.T) {
+		g := worker.NewGroup(t.Context(), "svc")
 
-	fired := make(chan struct{}, 1)
-	g.After("comp", time.Millisecond, func() { fired <- struct{}{} })
+		fired := make(chan struct{}, 1)
+		g.After("comp", time.Millisecond, func() { fired <- struct{}{} })
 
-	select {
-	case <-fired:
-	case <-time.After(time.Second):
-		t.Fatal("After callback never fired")
-	}
+		select {
+		case <-fired:
+		case <-time.After(time.Second):
+			t.Fatal("After callback never fired")
+		}
 
-	// A long-delay timer must be cancelled by Stop, never firing.
-	g2 := worker.NewGroup(t.Context(), "svc")
-	var late atomic.Bool
-	g2.After("comp", time.Hour, func() { late.Store(true) })
-	g2.Stop()
-	time.Sleep(20 * time.Millisecond)
-	assert.False(t, late.Load(), "Stop must cancel pending timers")
+		// A long-delay timer must be cancelled by Stop, never firing.
+		g2 := worker.NewGroup(t.Context(), "svc")
+		var late atomic.Bool
+		g2.After("comp", time.Hour, func() { late.Store(true) })
+		g2.Stop()
+		synctest.Wait()
+		assert.False(t, late.Load(), "Stop must cancel pending timers")
+	})
 }
 
 func TestGroupAfterIsNoOpAfterStop(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup(t.Context(), "svc")
-	g.Stop()
+	synctest.Test(t, func(t *testing.T) {
+		g := worker.NewGroup(t.Context(), "svc")
+		g.Stop()
 
-	var ran atomic.Bool
-	g.After("comp", time.Millisecond, func() { ran.Store(true) })
-	time.Sleep(20 * time.Millisecond)
-	assert.False(t, ran.Load(), "After must be a no-op after Stop")
+		var ran atomic.Bool
+		g.After("comp", time.Millisecond, func() { ran.Store(true) })
+		synctest.Wait()
+		assert.False(t, ran.Load(), "After must be a no-op after Stop")
+	})
 }
 
 func TestGroupRecoversFromCallbackPanics(t *testing.T) {
 	t.Parallel()
 
-	g := worker.NewGroup(t.Context(), "svc")
+	synctest.Test(t, func(t *testing.T) {
+		g := worker.NewGroup(t.Context(), "svc")
 
-	// A panicking Go goroutine and a panicking After callback must both be
-	// recovered so Stop still completes cleanly.
-	g.Go("comp", func(context.Context) { panic("go boom") })
-	g.After("comp", time.Millisecond, func() { panic("after boom") })
+		// A panicking Go goroutine and a panicking After callback must both be
+		// recovered so Stop still completes cleanly.
+		g.Go("comp", func(context.Context) { panic("go boom") })
+		g.After("comp", time.Millisecond, func() { panic("after boom") })
 
-	time.Sleep(20 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)
 
-	require.NotPanics(t, g.Stop)
+		require.NotPanics(t, g.Stop)
+	})
 }
 
 func TestGroupStopIsIdempotent(t *testing.T) {

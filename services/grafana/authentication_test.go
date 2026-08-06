@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	grafanasdk "github.com/aws/aws-sdk-go-v2/service/grafana"
@@ -21,9 +20,10 @@ func createActiveWorkspace(t *testing.T, client *grafanasdk.Client, in *grafanas
 
 	out, err := client.CreateWorkspace(t.Context(), in)
 	require.NoError(t, err)
-	time.Sleep(workspaceTransitionWait)
+	id := aws.ToString(out.Workspace.Id)
+	waitForWorkspaceActive(t, client, id)
 
-	return aws.ToString(out.Workspace.Id)
+	return id
 }
 
 func TestDescribeWorkspaceAuthentication_AwsSso(t *testing.T) {

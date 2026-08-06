@@ -271,16 +271,11 @@ func TestBackend_SearchIndex_ThingGroups(t *testing.T) {
 	assert.Equal(t, "floor-1", out.ThingGroups[0].ThingGroupName)
 }
 
-// TestBackend_SearchIndex_ThingGroupWireShape is a regression test for a
-// wire-shape bug: SearchIndex's ThingGroup results previously sent a single
-// "parentGroupName" string (the direct parent only) and had no
-// "thingGroupDescription" field at all, but the real ThingGroupDocument
-// shape uses "parentGroupNames" (the FULL ancestor chain, as a list) and
-// does have "thingGroupDescription" -- verified against
-// aws-sdk-go-v2/service/iot@v1.76.0's
-// awsRestjson1_deserializeDocumentThingGroupDocument. A real SDK client's
-// deserializer would never find the "parentGroupNames" key it looks for
-// under the old shape, silently leaving that field empty.
+// TestBackend_SearchIndex_ThingGroupWireShape covers SearchIndex's
+// ThingGroupDocument shape: "parentGroupNames" is the full ancestor chain
+// as a list, not a single "parentGroupName" string, and
+// "thingGroupDescription" is present (aws-sdk-go-v2/service/iot@v1.76.0's
+// awsRestjson1_deserializeDocumentThingGroupDocument).
 func TestBackend_SearchIndex_ThingGroupWireShape(t *testing.T) {
 	t.Parallel()
 

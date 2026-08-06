@@ -265,18 +265,12 @@ func TestHandler_GetMultiRegionAccessPoint(t *testing.T) {
 	}
 }
 
-// TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved locks in the
-// gopherstack-tir4 removal of the synchronous "DELETE
-// /v20180820/mrap/instances/{Name}" route. It used to be routed to
-// DeleteMultiRegionAccessPoint, but no real aws-sdk-go-v2 client can ever
-// send it: awsRestxml_serializeOpDeleteMultiRegionAccessPoint
-// (s3control@v1.73.0 serializers.go) hardcodes "POST
-// /v20180820/async-requests/mrap/delete" as the op's one and only wire
-// binding, and the only serializer targeting
-// "/v20180820/mrap/instances/{Name+}" is GetMultiRegionAccessPoint's (method
-// GET). The route now correctly falls through to a generic 404, and the
-// resource is left untouched -- proving it is dead surface, not a
-// functioning alternate delete path.
+// TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved verifies "DELETE
+// /v20180820/mrap/instances/{Name}" falls through to a generic 404 with the
+// resource untouched: no real client can ever send it (real
+// awsRestxml_serializeOpDeleteMultiRegionAccessPoint hardcodes "POST
+// /v20180820/async-requests/mrap/delete" as the op's only wire binding), so
+// this proves it's dead surface, not a functioning alternate delete path.
 func TestHandler_DeleteMultiRegionAccessPoint_SyncRouteRemoved(t *testing.T) {
 	t.Parallel()
 

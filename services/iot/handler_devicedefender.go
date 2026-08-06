@@ -173,13 +173,10 @@ func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) erro
 }
 
 // handleListAuditMitigationActionsTasks builds
-// types.AuditMitigationActionsTaskMetadata's real wire shape (confirmed
-// against v1.76.0): {taskId, taskStatus, startTime} only -- unlike the
-// detect-mitigation side above, this really is a narrower summary type than
-// DescribeAuditMitigationActionsTaskOutput's. This previously also emitted
-// an invented "endTime" key not present on the real type; a real client's
-// deserializer ignores unknown fields so this was harmless rather than
-// reachability-breaking, but it's removed for wire-shape accuracy.
+// types.AuditMitigationActionsTaskMetadata's wire shape (v1.76.0):
+// {taskId, taskStatus, startTime} only — a narrower summary than
+// DescribeAuditMitigationActionsTaskOutput's, unlike the detect-mitigation
+// side below. No "endTime" key; not present on the real type.
 func (h *Handler) handleListAuditMitigationActionsTasks(c *echo.Context) error {
 	auditTaskID := c.QueryParam("auditTaskId")
 	taskStatus := c.QueryParam(keyTaskStatus)
@@ -224,9 +221,7 @@ func (h *Handler) handleListAuditMitigationActionsExecutions(c *echo.Context) er
 	return c.JSON(http.StatusOK, resp)
 }
 
-// ---------------------------------------------------------------------------
-// Handlers: Detect mitigation-action tasks
-// ---------------------------------------------------------------------------
+// Handlers: Detect mitigation-action tasks.
 
 func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error {
 	taskID := strings.TrimPrefix(c.Request().URL.Path, pathDetectMitigationTasks+"/")
@@ -258,15 +253,11 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 }
 
 // detectMitigationTaskSummaryWire builds the real
-// DetectMitigationActionsTaskSummary wire shape (confirmed against
-// aws-sdk-go-v2/service/iot/types@v1.76.0) from the internal
-// DetectMitigationTask domain type. Used by both
-// DescribeDetectMitigationActionsTask and ListDetectMitigationActionsTasks,
-// which share the exact same real response element type (unlike the
-// audit-mitigation side, where ListAuditMitigationActionsTasks uses a
-// genuinely narrower AuditMitigationActionsTaskMetadata type) -- so, unlike
-// the audit side, this must NOT be reduced to a hand-picked subset of
-// fields.
+// DetectMitigationActionsTaskSummary wire shape (aws-sdk-go-v2/service/iot/types@v1.76.0).
+// Shared by DescribeDetectMitigationActionsTask and
+// ListDetectMitigationActionsTasks, which use the same rich element type —
+// unlike the audit-mitigation side's narrower list summary — so must NOT be
+// reduced to a hand-picked subset of fields.
 func (h *Handler) detectMitigationTaskSummaryWire(t *DetectMitigationTask) map[string]any {
 	return map[string]any{
 		"taskId":                        t.TaskID,
@@ -293,16 +284,11 @@ func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) err
 	return c.JSON(http.StatusOK, map[string]any{"taskSummary": h.detectMitigationTaskSummaryWire(task)})
 }
 
-// handleListDetectMitigationActionsTasks previously built a hand-picked
-// 4-field summary ({taskId,taskStatus,taskStartTime,taskEndTime}), but real
-// AWS's ListDetectMitigationActionsTasksOutput.Tasks is
-// []types.DetectMitigationActionsTaskSummary -- the exact same rich type
-// DescribeDetectMitigationActionsTask returns (confirmed against v1.76.0),
-// not a narrower list-only summary. A real client's deserializer would have
-// silently dropped target/actionsDefinition/taskStatistics/
-// onlyActiveViolationsIncluded/suppressedAlertsIncluded/
-// violationEventOccurrenceRange from every list entry. Fixed by sharing
-// detectMitigationTaskSummaryWire with Describe.
+// handleListDetectMitigationActionsTasks: real AWS's
+// ListDetectMitigationActionsTasksOutput.Tasks is
+// []types.DetectMitigationActionsTaskSummary, the same rich type
+// DescribeDetectMitigationActionsTask returns (v1.76.0), not a narrower
+// list-only summary — hence sharing detectMitigationTaskSummaryWire.
 func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error {
 	startTime := parseIoTEpochQueryParam(c, "startTime")
 	endTime := parseIoTEpochQueryParam(c, "endTime")

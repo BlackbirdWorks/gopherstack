@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -655,35 +656,37 @@ func TestResolveVisibilityTimeoutInvalidAttr(t *testing.T) {
 func TestReQueueExpiredMixed(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend(t)
-	qURL := createTestQueue(t, b, "requeue-mixed-queue")
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend(t)
+		qURL := createTestQueue(t, b, "requeue-mixed-queue")
 
-	// Send 2 messages.
-	_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "a"})
-	require.NoError(t, err)
-	_, err = b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "b"})
-	require.NoError(t, err)
+		// Send 2 messages.
+		_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "a"})
+		require.NoError(t, err)
+		_, err = b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "b"})
+		require.NoError(t, err)
 
-	// Receive both with very short visibility timeout (1 second).
-	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            qURL,
-		MaxNumberOfMessages: 2,
-		VisibilityTimeout:   1,
+		// Receive both with very short visibility timeout (1 second).
+		out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL:            qURL,
+			MaxNumberOfMessages: 2,
+			VisibilityTimeout:   1,
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Messages, 2)
+
+		// Wait for visibility timeout to expire.
+		time.Sleep(1100 * time.Millisecond)
+
+		// Receive again — expired messages should be requeued.
+		out2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL:            qURL,
+			MaxNumberOfMessages: 2,
+			VisibilityTimeout:   30,
+		})
+		require.NoError(t, err)
+		assert.Len(t, out2.Messages, 2)
 	})
-	require.NoError(t, err)
-	require.Len(t, out.Messages, 2)
-
-	// Wait for visibility timeout to expire.
-	time.Sleep(1100 * time.Millisecond)
-
-	// Receive again — expired messages should be requeued.
-	out2, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            qURL,
-		MaxNumberOfMessages: 2,
-		VisibilityTimeout:   30,
-	})
-	require.NoError(t, err)
-	assert.Len(t, out2.Messages, 2)
 }
 
 func TestChangeMessageVisibility_NotFound(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/services/sqs"
@@ -186,20 +187,23 @@ func TestMessageRetentionPeriod_Validation(t *testing.T) {
 
 func TestMessageRetentionPeriod_ExpiredMessagesNotDelivered(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend(t)
 
-	qURL := b2createQueue(t, b, "mrp-expire")
+	synctest.Test(t, func(t *testing.T) {
+		b := b2newBackend(t)
 
-	// Inject a retention of 1 second (below minimum, so use test helper)
-	b2send(t, b, qURL, "will-expire")
+		qURL := b2createQueue(t, b, "mrp-expire")
 
-	// Use test helper to set 1s retention and fast-forward janitor
-	b.SetRetentionForTest(qURL, 1)
-	time.Sleep(2 * time.Millisecond)
-	b.RunJanitorOnceForTest(time.Now().Add(2 * time.Second))
+		// Inject a retention of 1 second (below minimum, so use test helper)
+		b2send(t, b, qURL, "will-expire")
 
-	msgs := b2receive(t, b, qURL, 1)
-	assert.Empty(t, msgs)
+		// Use test helper to set 1s retention and fast-forward janitor
+		b.SetRetentionForTest(qURL, 1)
+		time.Sleep(2 * time.Millisecond)
+		b.RunJanitorOnceForTest(time.Now().Add(2 * time.Second))
+
+		msgs := b2receive(t, b, qURL, 1)
+		assert.Empty(t, msgs)
+	})
 }
 
 func TestMessageRetentionPeriod_SetViaAttributes(t *testing.T) {
@@ -353,20 +357,23 @@ func TestSetGetAttributes_VisibilityTimeout(t *testing.T) {
 
 func TestSetGetAttributes_UpdatesLastModified(t *testing.T) {
 	t.Parallel()
-	b := b2newBackend(t)
 
-	qURL := b2createQueue(t, b, "sqa-lm")
-	before := b2getAttrs(t, b, qURL, "LastModifiedTimestamp")["LastModifiedTimestamp"]
+	synctest.Test(t, func(t *testing.T) {
+		b := b2newBackend(t)
 
-	time.Sleep(time.Millisecond)
+		qURL := b2createQueue(t, b, "sqa-lm")
+		before := b2getAttrs(t, b, qURL, "LastModifiedTimestamp")["LastModifiedTimestamp"]
 
-	require.NoError(t, b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
-		QueueURL:   qURL,
-		Attributes: map[string]string{"VisibilityTimeout": "15"},
-	}))
+		time.Sleep(time.Millisecond)
 
-	after := b2getAttrs(t, b, qURL, "LastModifiedTimestamp")["LastModifiedTimestamp"]
-	assert.GreaterOrEqual(t, after, before)
+		require.NoError(t, b.SetQueueAttributes(&sqs.SetQueueAttributesInput{
+			QueueURL:   qURL,
+			Attributes: map[string]string{"VisibilityTimeout": "15"},
+		}))
+
+		after := b2getAttrs(t, b, qURL, "LastModifiedTimestamp")["LastModifiedTimestamp"]
+		assert.GreaterOrEqual(t, after, before)
+	})
 }
 
 func TestSetQueueAttributes_InvalidRange(t *testing.T) {

@@ -12,13 +12,11 @@ import (
 )
 
 // iotSnapshotVersion identifies the shape of backendSnapshot's Tables blob
-// (i.e. the set/shape of resources registered on b.registry -- see
-// registerAllTables in store_setup.go -- plus the one "dirty" DTO table,
-// topicRuleDestinations). It must be bumped whenever a change there would
-// make an older snapshot unsafe to decode as the current shape. Restore
-// compares this against the persisted value and discards (rather than
-// attempts to partially decode) any mismatch -- see Restore below. This
-// mirrors the services/ec2 (12e611a4) and services/sqs (0f09d77c) pilots.
+// (the resources registered via registerAllTables in store_setup.go, plus
+// the one "dirty" DTO table, topicRuleDestinations). Bump whenever a change
+// there would make an older snapshot unsafe to decode; Restore compares
+// this against the persisted value and discards (rather than partially
+// decodes) any mismatch.
 const iotSnapshotVersion = 1
 
 type backendSnapshot struct {
@@ -356,28 +354,13 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// This section closes a persistence gap (gopherstack-264): several live
-// InMemoryBackend maps were never wired into backendSnapshot, so they
-// silently dropped on Snapshot/Restore. The helpers below mirror the
-// snapshotDeviceDefender/snapshotFinalOps pattern already used in
-// device_defender.go: each group of related fields gets its own bundle
-// struct plus a pair of snapshot/restore methods, keeping Snapshot()/
-// Restore() themselves within the cyclop/funlen limits.
-//
-// Phase 3.3 note: most of the *T-valued maps these groups used to carry
-// (ThingTypes, ThingGroups, Certificates, CertificateProviders,
-// CACertificates, Jobs, JobExecutions, JobTemplates, RoleAliases,
-// DomainConfigs, Authorizers, BillingGroups, ProvTemplates,
-// ScheduledAudits, MitigationActions, SecurityProfiles, AuditSuppressions,
-// AuditFindings, AuditTaskObjects, Dimensions, Streams, OTAUpdates,
-// IoTPackages, Commands, FleetMetrics, CustomMetrics, V2LoggingLevels) moved
-// to store.Table[T]s registered on b.registry (see store_setup.go) and now
-// round-trip via registry.SnapshotAll()/RestoreAll() above. What remains
-// here is exactly the raw (non-Table) state: slice-valued maps, nested
-// maps, and the one "dirty" table (TopicRuleDestination, handled directly
-// above via its own small DTO registry, mirroring the services/sqs pilot).
-// ---------------------------------------------------------------------------
+// The helpers below each cover one group of raw (non-Table) backend state —
+// slice-valued maps, nested maps, and the one "dirty" table
+// (TopicRuleDestination, handled directly above via its own small DTO
+// registry) — that isn't a store.Table[T] on b.registry (store_setup.go)
+// and so doesn't round-trip via registry.SnapshotAll()/RestoreAll(). Each
+// group gets its own bundle struct plus a snapshot/restore method pair,
+// keeping Snapshot()/Restore() themselves within the cyclop/funlen limits.
 
 // topicRuleDestSnap mirrors TopicRuleDestination for persistence purposes.
 // TopicRuleDestination.ConfirmationToken is tagged json:"-" so it never
@@ -426,14 +409,11 @@ func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
 }
 
 // snapshotTopicRuleDestinationsTable builds the "dirty" topicRuleDestinations
-// entry for backendSnapshot.Tables via a small throwaway DTO registry,
-// mirroring the services/sqs pilot's DTO-registry pattern but scoped to just
-// this one table. TopicRuleDestination.ConfirmationToken is tagged json:"-"
-// (AWS delivers it out-of-band and it must never leak into API responses),
-// so registry.SnapshotAll's generic per-table encoding of the live type would
-// otherwise silently drop it; the topicRuleDestSnap DTO carries it through
-// instead. Extracted from Snapshot to keep it within the repo's funlen limit.
-// Must be called with b.mu held (read or write).
+// entry for backendSnapshot.Tables via a small throwaway DTO registry.
+// TopicRuleDestination.ConfirmationToken is tagged json:"-" (AWS delivers it
+// out-of-band), so registry.SnapshotAll's generic encoding would drop it;
+// the topicRuleDestSnap DTO carries it through instead. Must be called with
+// b.mu held (read or write).
 func (b *InMemoryBackend) snapshotTopicRuleDestinationsTable() (map[string]json.RawMessage, error) {
 	destDTOReg := store.NewRegistry()
 	destDTOs := store.Register(destDTOReg, topicRuleDestinationsTableName, store.New(topicRuleDestSnapKey))

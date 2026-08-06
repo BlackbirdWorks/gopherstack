@@ -33,20 +33,12 @@ func respondConflict(c *echo.Context, msg string) error {
 }
 
 // writeIoTError maps a backend sentinel error to the AWS IoT restjson1 error
-// shape ({"__type", "message"}) and HTTP status. It is the single source of
-// truth for error-code mapping shared by respondErr (used by the
-// batch2/batch3 "extended" op handlers) and Handler.handleError (used by the
-// core op handlers), so every handler gets the exact same
-// ResourceNotFoundException/InvalidRequestException/
+// shape ({"__type", "message"}) and HTTP status. Single source of truth
+// shared by respondErr and Handler.handleError, so every handler gets the
+// same ResourceNotFoundException/InvalidRequestException/
 // ResourceAlreadyExistsException/VersionConflictException/
 // DeleteConflictException/VersionsLimitExceededException/
-// InvalidStateTransitionException mapping regardless
-// of which helper it calls. Previously respondErr only recognized
-// ErrResourceNotFound and ErrAlreadyExists, so domain-specific not-found
-// sentinels (ErrCertificateNotFound, ErrThingNotFound, etc.) and
-// ErrVersionConflict/ErrDeleteConflict/ErrVersionsLimitExceeded fell through
-// to a wrong status code (400 InvalidRequestException, or the 500 default)
-// in every handler that used respondErr instead of handleError.
+// InvalidStateTransitionException mapping.
 func writeIoTError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrThingNotFound),

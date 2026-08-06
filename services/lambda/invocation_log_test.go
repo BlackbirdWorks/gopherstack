@@ -3,6 +3,7 @@ package lambda_test
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -52,31 +53,33 @@ func TestLambda_PushInvocationLog_NonBlocking(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
-			closeBackend(t, bk)
+			synctest.Test(t, func(t *testing.T) {
+				bk := lambda.NewInMemoryBackend(nil, nil, lambda.DefaultSettings(), "000000000000", "us-east-1")
+				closeBackend(t, bk)
 
-			if tt.cwlDelay > 0 {
-				bk.SetCWLogsBackend(&slowCWLBackend{delay: tt.cwlDelay})
-			}
+				if tt.cwlDelay > 0 {
+					bk.SetCWLogsBackend(&slowCWLBackend{delay: tt.cwlDelay})
+				}
 
-			require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "log-test-fn"}))
+				require.NoError(t, bk.CreateFunction(&lambda.FunctionConfiguration{FunctionName: "log-test-fn"}))
 
-			start := time.Now()
+				start := time.Now()
 
-			// Run pushInvocationLog in a goroutine, just as the production code does.
-			done := make(chan struct{})
-			go func() {
-				lambda.PushInvocationLog(context.Background(), bk, "log-test-fn", []byte(`{}`), []byte(`"ok"`))
-				close(done)
-			}()
+				// Run pushInvocationLog in a goroutine, just as the production code does.
+				done := make(chan struct{})
+				go func() {
+					lambda.PushInvocationLog(context.Background(), bk, "log-test-fn", []byte(`{}`), []byte(`"ok"`))
+					close(done)
+				}()
 
-			select {
-			case <-done:
-				elapsed := time.Since(start)
-				assert.Less(t, elapsed, tt.wantMaxDelay, "pushInvocationLog took too long: %v", elapsed)
-			case <-time.After(tt.wantMaxDelay):
-				t.Fatalf("pushInvocationLog did not complete within %v", tt.wantMaxDelay)
-			}
+				select {
+				case <-done:
+					elapsed := time.Since(start)
+					assert.Less(t, elapsed, tt.wantMaxDelay, "pushInvocationLog took too long: %v", elapsed)
+				case <-time.After(tt.wantMaxDelay):
+					t.Fatalf("pushInvocationLog did not complete within %v", tt.wantMaxDelay)
+				}
+			})
 		})
 	}
 }

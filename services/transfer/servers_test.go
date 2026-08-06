@@ -2,6 +2,7 @@ package transfer_test
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,10 @@ import (
 const (
 	testAccountID = "123456789012"
 	testRegion    = "us-east-1"
+
+	// serverTransitionWait is strictly greater than transfer's unexported
+	// startServerTransitionDelay (100ms) so the state transition always fires.
+	serverTransitionWait = 101 * time.Millisecond
 )
 
 func newTestBackend(t *testing.T) *transfer.InMemoryBackend {
@@ -160,38 +165,36 @@ func TestDeleteServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend(t)
+			synctest.Test(t, func(t *testing.T) {
+				b := newTestBackend(t)
 
-			serverID := tt.serverID
+				serverID := tt.serverID
 
-			if serverID == "" {
-				s, err := b.CreateServer(nil, nil)
-				require.NoError(t, err)
-				serverID = s.ServerID
-				// AWS requires the server to be OFFLINE before deletion.
-				require.NoError(t, b.StopServer(serverID))
-				for range 30 {
+				if serverID == "" {
+					s, err := b.CreateServer(nil, nil)
+					require.NoError(t, err)
+					serverID = s.ServerID
+					// AWS requires the server to be OFFLINE before deletion.
+					require.NoError(t, b.StopServer(serverID))
+					time.Sleep(serverTransitionWait)
 					got, _ := b.DescribeServer(serverID)
-					if got != nil && got.State == "OFFLINE" {
-						break
-					}
-					time.Sleep(15 * time.Millisecond)
+					require.Equal(t, "OFFLINE", got.State)
 				}
-			}
 
-			err := b.DeleteServer(serverID)
+				err := b.DeleteServer(serverID)
 
-			if tt.wantErr {
+				if tt.wantErr {
+					require.Error(t, err)
+					assert.ErrorIs(t, err, awserr.ErrNotFound)
+
+					return
+				}
+
+				require.NoError(t, err)
+
+				_, err = b.DescribeServer(serverID)
 				require.Error(t, err)
-				assert.ErrorIs(t, err, awserr.ErrNotFound)
-
-				return
-			}
-
-			require.NoError(t, err)
-
-			_, err = b.DescribeServer(serverID)
-			require.Error(t, err)
+			})
 		})
 	}
 }
@@ -199,36 +202,28 @@ func TestDeleteServer(t *testing.T) {
 func TestStartStopServer(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend(t)
 
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	// Stop — state becomes STOPPING then asynchronously OFFLINE.
-	require.NoError(t, b.StopServer(s.ServerID))
-	// Poll until OFFLINE (async transition takes ~100ms).
-	var got *transfer.Server
-	for range 20 {
+		// Stop — state becomes STOPPING then asynchronously OFFLINE.
+		require.NoError(t, b.StopServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
+
+		got, err := b.DescribeServer(s.ServerID)
+		require.NoError(t, err)
+		assert.Equal(t, "OFFLINE", got.State)
+
+		// Start — state becomes STARTING then asynchronously ONLINE.
+		require.NoError(t, b.StartServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
+
 		got, err = b.DescribeServer(s.ServerID)
 		require.NoError(t, err)
-		if got.State == "OFFLINE" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	assert.Equal(t, "OFFLINE", got.State)
-
-	// Start — state becomes STARTING then asynchronously ONLINE.
-	require.NoError(t, b.StartServer(s.ServerID))
-	for range 20 {
-		got, err = b.DescribeServer(s.ServerID)
-		require.NoError(t, err)
-		if got.State == "ONLINE" {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	assert.Equal(t, "ONLINE", got.State)
+		assert.Equal(t, "ONLINE", got.State)
+	})
 }
 
 func TestStartStopServer_NotFound(t *testing.T) {
@@ -270,40 +265,39 @@ func TestServerCountExport(t *testing.T) {
 func TestDeleteServerCascade(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
-	require.NoError(t, err)
+		_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateAccess(s.ServerID, "S-1-5-21-1234", "", "", nil)
-	require.NoError(t, err)
+		_, err = b.CreateAccess(s.ServerID, "S-1-5-21-1234", "", "", nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateAgreement(s.ServerID, "desc", "p-local", "p-partner", "/base", "arn:role", nil)
-	require.NoError(t, err)
+		_, err = b.CreateAgreement(s.ServerID, "desc", "p-local", "p-partner", "/base", "arn:role", nil)
+		require.NoError(t, err)
 
-	assert.Equal(t, 1, transfer.UserCount(b))
-	assert.Equal(t, 1, transfer.AccessCount(b))
-	assert.Equal(t, 1, transfer.AgreementCount(b))
+		assert.Equal(t, 1, transfer.UserCount(b))
+		assert.Equal(t, 1, transfer.AccessCount(b))
+		assert.Equal(t, 1, transfer.AgreementCount(b))
 
-	// AWS requires server to be OFFLINE before deletion.
-	require.NoError(t, b.StopServer(s.ServerID))
-	for range 30 {
+		// AWS requires server to be OFFLINE before deletion.
+		require.NoError(t, b.StopServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
+
 		got, _ := b.DescribeServer(s.ServerID)
-		if got != nil && got.State == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "OFFLINE", got.State)
 
-	require.NoError(t, b.DeleteServer(s.ServerID))
+		require.NoError(t, b.DeleteServer(s.ServerID))
 
-	assert.Equal(t, 0, transfer.ServerCount(b))
-	assert.Equal(t, 0, transfer.UserCount(b))
-	assert.Equal(t, 0, transfer.AccessCount(b))
-	assert.Equal(t, 0, transfer.AgreementCount(b))
+		assert.Equal(t, 0, transfer.ServerCount(b))
+		assert.Equal(t, 0, transfer.UserCount(b))
+		assert.Equal(t, 0, transfer.AccessCount(b))
+		assert.Equal(t, 0, transfer.AgreementCount(b))
+	})
 }
 
 // TestAddServerInternal verifies the AddServerInternal seed helper.
@@ -325,48 +319,45 @@ func TestAddServerInternal(t *testing.T) {
 func TestDeleteServerOnlineReturnsError(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
-	require.NoError(t, b.StartServer(s.ServerID))
+		// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
+		require.NoError(t, b.StartServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
 
-	for range 30 {
 		got, derr := b.DescribeServer(s.ServerID)
 		require.NoError(t, derr)
-		if got.State == "ONLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "ONLINE", got.State)
 
-	err = b.DeleteServer(s.ServerID)
-	require.Error(t, err)
-	require.ErrorIs(t, err, awserr.ErrConflict)
-	require.ErrorIs(t, err, transfer.ErrServerOnline)
+		err = b.DeleteServer(s.ServerID)
+		require.Error(t, err)
+		require.ErrorIs(t, err, awserr.ErrConflict)
+		require.ErrorIs(t, err, transfer.ErrServerOnline)
+	})
 }
 
 // TestDeleteServerOfflineSucceeds verifies that stopping then deleting works.
 func TestDeleteServerOfflineSucceeds(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	require.NoError(t, b.StopServer(s.ServerID))
-	// Wait for async OFFLINE transition.
-	for range 30 {
+		require.NoError(t, b.StopServer(s.ServerID))
+		// Wait for async OFFLINE transition.
+		time.Sleep(serverTransitionWait)
+
 		got, _ := b.DescribeServer(s.ServerID)
-		if got != nil && got.State == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "OFFLINE", got.State)
 
-	require.NoError(t, b.DeleteServer(s.ServerID))
-	assert.Equal(t, 0, transfer.ServerCount(b))
+		require.NoError(t, b.DeleteServer(s.ServerID))
+		assert.Equal(t, 0, transfer.ServerCount(b))
+	})
 }
 
 // TestDeleteServerAlsoDeletesSSHKeys verifies that SSH keys are removed
@@ -374,85 +365,81 @@ func TestDeleteServerOfflineSucceeds(t *testing.T) {
 func TestDeleteServerAlsoDeletesSSHKeys(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
-	require.NoError(t, err)
+		_, err = b.CreateUser(s.ServerID, "alice", "/alice", "", nil)
+		require.NoError(t, err)
 
-	_, err = b.ImportSSHPublicKey(
-		s.ServerID, "alice",
-		"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example",
-	)
-	require.NoError(t, err)
-	assert.Equal(t, 1, transfer.SSHPublicKeyCount(b))
+		_, err = b.ImportSSHPublicKey(
+			s.ServerID, "alice",
+			"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl test@example",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, 1, transfer.SSHPublicKeyCount(b))
 
-	// Stop and delete server.
-	require.NoError(t, b.StopServer(s.ServerID))
-	for range 30 {
+		// Stop and delete server.
+		require.NoError(t, b.StopServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
+
 		got, _ := b.DescribeServer(s.ServerID)
-		if got != nil && got.State == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	require.NoError(t, b.DeleteServer(s.ServerID))
+		require.Equal(t, "OFFLINE", got.State)
+		require.NoError(t, b.DeleteServer(s.ServerID))
 
-	assert.Equal(t, 0, transfer.SSHPublicKeyCount(b))
+		assert.Equal(t, 0, transfer.SSHPublicKeyCount(b))
+	})
 }
 
 // TestStartServerIdempotent verifies starting an ONLINE server is a no-op.
 func TestStartServerIdempotent(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
-	// AWS creates servers OFFLINE; bring it ONLINE first.
-	assert.Equal(t, "OFFLINE", s.State)
-	require.NoError(t, b.StartServer(s.ServerID))
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
+		// AWS creates servers OFFLINE; bring it ONLINE first.
+		assert.Equal(t, "OFFLINE", s.State)
+		require.NoError(t, b.StartServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
 
-	for range 30 {
 		got, derr := b.DescribeServer(s.ServerID)
 		require.NoError(t, derr)
-		if got.State == "ONLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "ONLINE", got.State)
 
-	// Starting an already-ONLINE server should not error.
-	require.NoError(t, b.StartServer(s.ServerID))
+		// Starting an already-ONLINE server should not error.
+		require.NoError(t, b.StartServer(s.ServerID))
 
-	got, err := b.DescribeServer(s.ServerID)
-	require.NoError(t, err)
-	assert.Equal(t, "ONLINE", got.State)
+		got, err = b.DescribeServer(s.ServerID)
+		require.NoError(t, err)
+		assert.Equal(t, "ONLINE", got.State)
+	})
 }
 
 // TestStopServerIdempotent verifies stopping an OFFLINE server is a no-op.
 func TestStopServerIdempotent(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	s, err := b.CreateServer(nil, nil)
-	require.NoError(t, err)
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		s, err := b.CreateServer(nil, nil)
+		require.NoError(t, err)
 
-	require.NoError(t, b.StopServer(s.ServerID))
-	for range 30 {
+		require.NoError(t, b.StopServer(s.ServerID))
+		time.Sleep(serverTransitionWait)
+
 		got, _ := b.DescribeServer(s.ServerID)
-		if got != nil && got.State == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "OFFLINE", got.State)
 
-	// Stopping an already-OFFLINE server should not error.
-	require.NoError(t, b.StopServer(s.ServerID))
+		// Stopping an already-OFFLINE server should not error.
+		require.NoError(t, b.StopServer(s.ServerID))
 
-	got, err := b.DescribeServer(s.ServerID)
-	require.NoError(t, err)
-	assert.Equal(t, "OFFLINE", got.State)
+		got, err = b.DescribeServer(s.ServerID)
+		require.NoError(t, err)
+		assert.Equal(t, "OFFLINE", got.State)
+	})
 }
 
 // TestListServersSortedByServerID verifies ListServers returns servers

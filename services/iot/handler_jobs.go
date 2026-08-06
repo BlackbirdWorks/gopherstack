@@ -61,15 +61,11 @@ func toJobExecutionSummaryWire(e *JobExecution) jobExecutionSummaryWire {
 	}
 }
 
-// handleListJobExecutionsForJob's response previously flattened
-// {"jobId","thingName","status"} directly at the top level of each summary
-// entry -- real AWS's ListJobExecutionsForJobOutput.executionSummaries is
-// []JobExecutionSummaryForJob{ThingArn, JobExecutionSummary{...}} (confirmed
-// against awsRestjson1_deserializeDocumentJobExecutionSummaryForJob), a
-// nested shape with no top-level "jobId"/"thingName"/"status" at all and
-// "thingArn" instead of "thingName". A real client's deserializer would
-// have found none of the keys it looks for and returned entirely empty
-// summaries. Fixed this pass; see PARITY.md.
+// handleListJobExecutionsForJob: real AWS's
+// ListJobExecutionsForJobOutput.executionSummaries is
+// []JobExecutionSummaryForJob{ThingArn, JobExecutionSummary{...}}
+// (awsRestjson1_deserializeDocumentJobExecutionSummaryForJob) — a nested
+// shape with "thingArn", not a flat "jobId"/"thingName"/"status".
 func (h *Handler) handleListJobExecutionsForJob(c *echo.Context) error {
 	// GET /jobs/{jobId}/things
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
@@ -87,10 +83,10 @@ func (h *Handler) handleListJobExecutionsForJob(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"executionSummaries": summaries})
 }
 
-// handleListJobExecutionsForThing has the same fix as
-// handleListJobExecutionsForJob above, for the sibling
-// JobExecutionSummaryForThing{JobId, JobExecutionSummary{...}} shape
-// (confirmed against awsRestjson1_deserializeDocumentJobExecutionSummaryForThing).
+// handleListJobExecutionsForThing: same nested-shape fix as
+// handleListJobExecutionsForJob, for the sibling
+// JobExecutionSummaryForThing{JobId, JobExecutionSummary{...}}
+// (awsRestjson1_deserializeDocumentJobExecutionSummaryForThing).
 func (h *Handler) handleListJobExecutionsForThing(c *echo.Context) error {
 	// GET /things/{thingName}/jobs
 	thingName := extractThingName(c.Request().URL.Path)
@@ -120,21 +116,13 @@ func resolveJobOps(path, method string) string {
 //
 // DescribeJobExecution/CancelJobExecution/DeleteJobExecution do NOT live
 // here: real AWS IoT paths them under /things/{thingName}/jobs/{jobId}[...],
-// not /jobs/{jobId}/things/{thingName} -- see resolveThingJobExecutionOps in
-// handler_routing.go (confirmed against aws-sdk-go-v2/service/iot@v1.76.0's
-// serializers.go http bindings). This function previously also matched a
-// /jobs/{jobId}/things/{thingName}/... shape for those three ops, which no
-// real client has ever sent -- a genuine, previously-undiscovered routing
-// bug that made all three ops unreachable by a real SDK client (they always
-// fell through to the generic per-Thing CRUD dispatcher instead). Fixed this
-// pass; see PARITY.md.
+// not /jobs/{jobId}/things/{thingName} — see resolveThingJobExecutionOps in
+// handler_routing.go (aws-sdk-go-v2/service/iot@v1.76.0's serializers.go
+// http bindings).
 //
-// GetJobDocument's path was also wrong: this previously matched
-// /jobs/{jobId}/document, but real AWS IoT's GetJobDocument path is
-// /jobs/{jobId}/job-document (confirmed against
-// awsRestjson1_serializeOpGetJobDocument's httpbinding.SplitURI call) --
-// another previously-undiscovered routing bug that made the op unreachable
-// by a real client. Fixed this pass.
+// GetJobDocument's real path is /jobs/{jobId}/job-document, not
+// /jobs/{jobId}/document (awsRestjson1_serializeOpGetJobDocument's
+// httpbinding.SplitURI call).
 func resolveJobExecutionSubPathOps(path, method string) string {
 	switch {
 	// GET /jobs/{jobId}/job-document → GetJobDocument
@@ -154,11 +142,8 @@ func resolveJobExecutionSubPathOps(path, method string) string {
 // resolveJobCrudOps resolves the plain /jobs and /jobs/{jobId} CRUD routes.
 //
 // CreateJob matches on PUT, not POST: real AWS IoT's CreateJob is
-// PUT /jobs/{jobId} (confirmed against awsRestjson1_serializeOpCreateJob's
-// request.Method assignment) -- gopherstack previously matched POST here,
-// meaning CreateJob was completely unreachable by any real SDK client (a
-// real PUT request would fall through this switch entirely and hit the
-// generic per-Thing CRUD dispatcher's default branch). Fixed this pass.
+// PUT /jobs/{jobId} (awsRestjson1_serializeOpCreateJob's request.Method
+// assignment).
 func resolveJobCrudOps(path, method string) string {
 	switch {
 	// GET /jobs → ListJobs
@@ -182,13 +167,9 @@ func resolveJobCrudOps(path, method string) string {
 }
 
 // resolveJobTemplateOps resolves the /job-templates and /job-templates/{id}
-// routes.
-//
-// CreateJobTemplate matches on PUT, not POST: real AWS IoT's
-// CreateJobTemplate is PUT /job-templates/{jobTemplateId} (confirmed against
-// awsRestjson1_serializeOpCreateJobTemplate's request.Method assignment) --
-// same previously-undiscovered unreachable-op bug as CreateJob above. Fixed
-// this pass.
+// routes. CreateJobTemplate matches on PUT, not POST: real AWS IoT's
+// CreateJobTemplate is PUT /job-templates/{jobTemplateId}
+// (awsRestjson1_serializeOpCreateJobTemplate's request.Method assignment).
 func resolveJobTemplateOps(path, method string) string {
 	switch {
 	case path == "/job-templates" && method == http.MethodGet:

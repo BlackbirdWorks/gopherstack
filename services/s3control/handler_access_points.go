@@ -124,16 +124,12 @@ func (h *Handler) dispatchAccessPointBasicOps(c *echo.Context, path, method stri
 
 // dispatchAccessPointSubResourceOps handles access point policy, status, and scope dispatch.
 //
-// NOTE: there is deliberately no "/publicAccessBlock" sub-resource route here.
-// aws-sdk-go-v2/service/s3control has no GetAccessPointPublicAccessBlock /
-// PutAccessPointPublicAccessBlock / DeleteAccessPointPublicAccessBlock
-// operations -- PublicAccessBlockConfiguration is account-level only
-// (GetPublicAccessBlock/PutPublicAccessBlock/DeletePublicAccessBlock) except
-// for the inline PublicAccessBlockConfiguration field real AWS embeds
-// directly in CreateAccessPointInput/GetAccessPointOutput. A prior pass had
-// invented three standalone REST operations for this; they were deleted
-// (see errors.go / access_points.go for the surviving internal storage
-// methods that back the inline field on Create/GetAccessPoint instead).
+// Deliberately no "/publicAccessBlock" sub-resource route here:
+// aws-sdk-go-v2/service/s3control has no Get/Put/DeleteAccessPointPublicAccessBlock
+// operations. PublicAccessBlockConfiguration is account-level only
+// (Get/Put/DeletePublicAccessBlock) except for the inline field real AWS
+// embeds directly in CreateAccessPointInput/GetAccessPointOutput — see
+// access_points.go for the storage methods backing that inline field.
 func (h *Handler) dispatchAccessPointSubResourceOps(c *echo.Context, path, method string) (bool, error) {
 	if isPrefixSuffix(pathAccessPointPrefix, path, "/policy") {
 		return h.dispatchAccessPointPolicyMethod(c, method)
@@ -268,14 +264,11 @@ type getAccessPointResponseXML struct {
 	CreationDate                   string                      `xml:"CreationDate,omitempty"`
 }
 
-// handleGetAccessPoint serves GetAccessPoint. Per aws-sdk-go-v2's
-// GetAccessPointOutput, PublicAccessBlockConfiguration travels inline in
-// this response -- it is NOT a separate operation (see the doc comment on
-// dispatchAccessPointSubResourceOps for the fabricated standalone ops this
-// replaced). GAP, not fabricated: the real GetAccessPointOutput also
-// carries DataSourceId, DataSourceType, and Endpoints (a map, used for
-// Multi-Region Access Point-backed access points on Outposts/Snow) --
-// AccessPoint in this backend (models.go) tracks none of the three.
+// handleGetAccessPoint serves GetAccessPoint. PublicAccessBlockConfiguration
+// travels inline in this response, not as a separate operation. GAP, not
+// fabricated: real GetAccessPointOutput also carries DataSourceId,
+// DataSourceType, and Endpoints (Multi-Region Access Point-backed access
+// points on Outposts/Snow) — AccessPoint (models.go) tracks none of the three.
 func (h *Handler) handleGetAccessPoint(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathAccessPointPrefix)
@@ -444,16 +437,11 @@ func (h *Handler) handleGetAccessPointPolicyStatus(c *echo.Context) error {
 // ---- Access Point Scope ----
 
 // handleGetAccessPointScope. GetAccessPointScopeOutput's Scope field is a
-// structured type (Permissions []ScopePermission, Prefixes []string; see
-// awsRestxml_deserializeDocumentScope), NOT a flat string -- a previous
-// version of this handler treated "<Scope>" as plain character data, which
-// would collapse a real client's "<Scope><Permissions><member>READ</member>
-// </Permissions>...</Scope>" structure into (mostly empty) whitespace text
-// on decode, and mis-encode it as escaped text rather than real nested
-// elements on the response side. This backend stores each access point's
-// scope as an opaque raw XML blob (accessPointScopes), so the real
-// Permissions/Prefixes structure is captured/replayed as raw inner XML
-// nested under "<Scope>" instead.
+// structured type (Permissions []ScopePermission, Prefixes []string;
+// awsRestxml_deserializeDocumentScope), not a flat string. This backend
+// stores each access point's scope as an opaque raw XML blob
+// (accessPointScopes), captured/replayed as raw inner XML nested under
+// "<Scope>" to preserve the real structure.
 func (h *Handler) handleGetAccessPointScope(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -518,15 +506,11 @@ func (h *Handler) handleDeleteAccessPointScope(c *echo.Context) error {
 }
 
 // handleListAccessPointsForDirectoryBuckets. ListAccessPointsForDirectoryBucketsOutput
-// shares the exact same "AccessPointList>AccessPoint" wrapper AND the same
-// types.AccessPoint entry type as ListAccessPoints (confirmed via
-// awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput,
-// which delegates to the identical awsRestxml_deserializeDocumentAccessPointList
-// ListAccessPoints uses) -- so this reuses listAccessPointItemXML rather
-// than a narrower ad hoc type. A previous version of this handler emitted
-// only Name/AccessPointArn/Bucket, omitting BucketAccountId/NetworkOrigin/
-// Alias/VpcConfiguration despite this backend tracking all of them on
-// every AccessPoint (see models.go).
+// shares the same "AccessPointList>AccessPoint" wrapper and types.AccessPoint
+// entry type as ListAccessPoints
+// (awsRestxml_deserializeOpDocumentListAccessPointsForDirectoryBucketsOutput
+// delegates to the same awsRestxml_deserializeDocumentAccessPointList), so
+// this reuses listAccessPointItemXML rather than a narrower ad hoc type.
 func (h *Handler) handleListAccessPointsForDirectoryBuckets(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	q := c.Request().URL.Query()

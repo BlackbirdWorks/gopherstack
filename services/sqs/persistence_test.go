@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -282,60 +283,61 @@ func TestInMemoryBackend_SnapshotRestore_RestoredQueueJanitor(t *testing.T) {
 
 func TestInMemoryBackend_SnapshotRestore_CompletedMoveTaskHistoryRoundTrip(t *testing.T) {
 	t.Parallel()
-	runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
-		_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "hist-dlq", Endpoint: "localhost"})
-		if err != nil {
-			return ""
-		}
 
-		_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "hist-dest", Endpoint: "localhost"})
-		if err != nil {
-			return ""
-		}
+	synctest.Test(t, func(t *testing.T) {
+		runSnapshotTest(t, func(b *sqs.InMemoryBackend) string {
+			_, err := b.CreateQueue(&sqs.CreateQueueInput{QueueName: "hist-dlq", Endpoint: "localhost"})
+			if err != nil {
+				return ""
+			}
 
-		dlqARN := "arn:aws:sqs:us-east-1:000000000000:hist-dlq"
+			_, err = b.CreateQueue(&sqs.CreateQueueInput{QueueName: "hist-dest", Endpoint: "localhost"})
+			if err != nil {
+				return ""
+			}
 
-		out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
-			SourceArn:      dlqARN,
-			DestinationArn: "arn:aws:sqs:us-east-1:000000000000:hist-dest",
-		})
-		if err != nil {
-			return ""
-		}
+			dlqARN := "arn:aws:sqs:us-east-1:000000000000:hist-dlq"
 
-		// Wait for the task to complete (queue was empty so it completes immediately).
-		for range 50 {
+			out, err := b.StartMessageMoveTask(&sqs.StartMessageMoveTaskInput{
+				SourceArn:      dlqARN,
+				DestinationArn: "arn:aws:sqs:us-east-1:000000000000:hist-dest",
+			})
+			if err != nil {
+				return ""
+			}
+
+			// Wait for the runMoveTask goroutine to finish (queue was empty, so it
+			// completes without ever durably blocking on rate-limit pacing).
+			synctest.Wait()
+
 			listOut, listErr := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
 				SourceArn:  dlqARN,
 				MaxResults: 1,
 			})
-			if listErr == nil && len(listOut.Results) > 0 &&
-				listOut.Results[0].Status == sqs.MoveTaskStatusCompleted {
-				break
-			}
+			require.NoError(t, listErr)
+			require.NotEmpty(t, listOut.Results)
+			require.Equal(t, sqs.MoveTaskStatusCompleted, listOut.Results[0].Status)
 
-			time.Sleep(20 * time.Millisecond)
-		}
-
-		return out.TaskHandle
-	},
-		func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
-			t.Helper()
-
-			// After restore, the completed task should still be visible.
-			dlqARN := "arn:aws:sqs:us-east-1:000000000000:hist-dlq"
-
-			out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
-				SourceArn:  dlqARN,
-				MaxResults: 1,
-			})
-			require.NoError(t, err)
-			require.Len(t, out.Results, 1, "completed task should survive snapshot/restore")
-			assert.Equal(t, sqs.MoveTaskStatusCompleted, out.Results[0].Status)
-			// TaskHandle is NOT populated for non-RUNNING tasks per AWS semantics.
-			assert.Empty(t, out.Results[0].TaskHandle)
+			return out.TaskHandle
 		},
-	)
+			func(t *testing.T, b *sqs.InMemoryBackend, _ string) {
+				t.Helper()
+
+				// After restore, the completed task should still be visible.
+				dlqARN := "arn:aws:sqs:us-east-1:000000000000:hist-dlq"
+
+				out, err := b.ListMessageMoveTasks(&sqs.ListMessageMoveTasksInput{
+					SourceArn:  dlqARN,
+					MaxResults: 1,
+				})
+				require.NoError(t, err)
+				require.Len(t, out.Results, 1, "completed task should survive snapshot/restore")
+				assert.Equal(t, sqs.MoveTaskStatusCompleted, out.Results[0].Status)
+				// TaskHandle is NOT populated for non-RUNNING tasks per AWS semantics.
+				assert.Empty(t, out.Results[0].TaskHandle)
+			},
+		)
+	})
 }
 
 func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T) {

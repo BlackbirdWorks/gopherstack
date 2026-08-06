@@ -70,19 +70,10 @@ func (b *InMemoryBackend) GetMultiRegionAccessPoint(accountID, name string) (*Mu
 
 // DeleteMultiRegionAccessPoint removes an MRAP and cascade-cleans its route
 // configuration (policy lives on the MultiRegionAccessPoint value itself via
-// PutMultiRegionAccessPointPolicy, so it goes away with the row).
-//
-// LEAK FIX: this previously only checked b.mraps.Has(key) and returned nil
-// without ever calling b.mraps.Delete(key) -- a deleted MRAP was never
-// actually removed from the backing table. Both the synchronous DELETE
-// /v20180820/mrap/instances/{Name} route and the async POST
-// /v20180820/async-requests/mrap/delete route call this same method, so
-// every DeleteMultiRegionAccessPoint call (sync or async) was a silent
-// no-op: the MRAP stayed retrievable via GetMultiRegionAccessPoint /
-// ListMultiRegionAccessPoints forever, and repeated create/delete cycles
-// under new names accumulated unbounded ghost rows in b.mraps. No existing
-// test caught this because the table-driven "delete_mrap" case only
-// asserted err == nil, never that the resource was actually gone.
+// PutMultiRegionAccessPointPolicy, so it goes away with the row). Must
+// actually call b.mraps.Delete(key), not just check b.mraps.Has(key) —
+// omitting the delete leaves a retrievable ghost row that accumulates
+// across repeated create/delete cycles.
 func (b *InMemoryBackend) DeleteMultiRegionAccessPoint(accountID, name string) error {
 	b.mu.Lock("DeleteMultiRegionAccessPoint")
 	defer b.mu.Unlock()

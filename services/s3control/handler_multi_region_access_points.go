@@ -52,19 +52,13 @@ func extractMRAPCreateListOp(path, method string) string {
 	return ""
 }
 
-// extractMRAPInstanceOp handles MRAP instance CRUD and sub-resource operations.
-//
-// Only GET is real here. A synchronous "DELETE /v20180820/mrap/instances/{Name}"
-// mapped to this same DeleteMultiRegionAccessPoint op name used to be handled
-// too, but the real SDK's awsRestxml_serializeOpDeleteMultiRegionAccessPoint
-// (s3control@v1.73.0
-// serializers.go) hardcodes "POST /v20180820/async-requests/mrap/delete" as
-// DeleteMultiRegionAccessPoint's one and only wire binding -- confirmed no
-// serializer anywhere in the SDK emits a DELETE to this path (the only other
-// consumer of "/v20180820/mrap/instances/{Name+}" is
-// awsRestxml_serializeOpGetMultiRegionAccessPoint, method GET). No real
-// aws-sdk-go-v2 client can ever reach a sync DELETE here, so it was removed;
-// DeleteMultiRegionAccessPoint remains fully served via the async route
+// extractMRAPInstanceOp handles MRAP instance CRUD and sub-resource
+// operations. Only GET is real here: real
+// awsRestxml_serializeOpDeleteMultiRegionAccessPoint (s3control@v1.73.0)
+// hardcodes "POST /v20180820/async-requests/mrap/delete" as
+// DeleteMultiRegionAccessPoint's only wire binding, so a sync DELETE to
+// "/v20180820/mrap/instances/{Name+}" is unreachable by any real client;
+// DeleteMultiRegionAccessPoint is fully served via the async route
 // (handleDeleteMultiRegionAccessPointAsync below).
 func extractMRAPInstanceOp(path, method string) string {
 	if isSimplePath(pathMRAPInstancePrefix, path) {
@@ -271,15 +265,10 @@ func (h *Handler) handleDeleteMultiRegionAccessPointAsync(c *echo.Context) error
 }
 
 // listMRAPsResponseXML mirrors ListMultiRegionAccessPointsOutput's real
-// wire shape: each entry is the SAME MultiRegionAccessPointReport type
-// GetMultiRegionAccessPoint returns (see getMRAPAccessPointXML), and the
-// list wraps under "AccessPoints" with member name "AccessPoint" -- NOT
-// "item" (confirmed via
-// awsRestxml_deserializeDocumentMultiRegionAccessPointReportList). A
-// previous version of this handler used "item" as the member name, which a
-// real client's field-matching loop would silently skip, yielding an empty
-// list on every real ListMultiRegionAccessPoints call, and omitted
-// CreatedAt/Regions despite this backend having real data for both.
+// wire shape: each entry is the same MultiRegionAccessPointReport type
+// GetMultiRegionAccessPoint returns (getMRAPAccessPointXML), and the list
+// wraps under "AccessPoints" with member name "AccessPoint", not "item"
+// (awsRestxml_deserializeDocumentMultiRegionAccessPointReportList).
 type listMRAPsResponseXML struct {
 	XMLName      xml.Name                `xml:"ListMultiRegionAccessPointsResult"`
 	NextToken    string                  `xml:"NextToken,omitempty"`
@@ -347,15 +336,13 @@ func (h *Handler) handlePutMultiRegionAccessPointPolicy(c *echo.Context) error {
 
 // --- MRAP handlers (describe / policy / routes) ---
 
-// handleDescribeMultiRegionAccessPointOperation. The real AsyncOperation
-// type also carries CreationTime, Operation, RequestParameters, and
-// ResponseDetails (confirmed via
-// awsRestxml_deserializeDocumentAsyncOperation) -- GAP, not fabricated:
+// handleDescribeMultiRegionAccessPointOperation. Real AsyncOperation also
+// carries CreationTime, Operation, RequestParameters, and ResponseDetails
+// (awsRestxml_deserializeDocumentAsyncOperation) — GAP, not fabricated:
 // MultiRegionAccessPointRequest (models.go) tracks only the request token
-// and name, not a full async-operation audit trail. RequestStatus is
-// hardcoded to "SUCCEEDED" rather than fabricated per se: every MRAP
-// mutation in this backend completes synchronously, so by the time this
-// endpoint can be queried the operation has, in fact, already succeeded.
+// and name. RequestStatus is hardcoded to "SUCCEEDED" because every MRAP
+// mutation in this backend completes synchronously, so by query time it has,
+// in fact, already succeeded.
 func (h *Handler) handleDescribeMultiRegionAccessPointOperation(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	requestToken := strings.TrimPrefix(c.Request().URL.Path, pathMRAPPrefix)
@@ -433,14 +420,12 @@ func (h *Handler) handleGetMultiRegionAccessPointPolicyStatus(c *echo.Context) e
 }
 
 // handleGetMultiRegionAccessPointRoutes. GetMultiRegionAccessPointRoutesOutput's
-// Routes field is a LIST of MultiRegionAccessPointRoute
+// Routes field is a list of MultiRegionAccessPointRoute
 // (Bucket/Region/TrafficDialPercentage), wrapped as
-// "<Routes><Route>...</Route></Routes>" -- NOT a flat string (confirmed via
-// awsRestxml_deserializeDocumentRouteList, whose member name is "Route").
-// This backend stores each MRAP's routing config as an opaque raw XML blob
-// (mrapRoutes), so the real per-route structure is captured/replayed as
-// raw inner XML nested under "<Routes>" rather than flattened to escaped
-// character data.
+// "<Routes><Route>...</Route></Routes>", not a flat string
+// (awsRestxml_deserializeDocumentRouteList, member name "Route"). This
+// backend stores each MRAP's routing config as an opaque raw XML blob
+// (mrapRoutes), captured/replayed as raw inner XML under "<Routes>".
 func (h *Handler) handleGetMultiRegionAccessPointRoutes(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -470,15 +455,11 @@ func (h *Handler) handleGetMultiRegionAccessPointRoutes(c *echo.Context) error {
 // ---- MRAP Routes (submit) ----
 
 // submitMRAPRoutesRequestXML mirrors SubmitMultiRegionAccessPointRoutesInput's
-// real wire shape: the field is named "RouteUpdates", NOT "Routes"
-// (confirmed via
-// awsRestxml_serializeOpDocumentSubmitMultiRegionAccessPointRoutesInput),
-// and it is a list of "<Route>" entries, not a flat string. A previous
-// version of this handler expected a "<Routes>" child element, which a
-// real aws-sdk-go-v2 client's request never sends -- SubmitMultiRegionAccessPointRoutes
-// silently stored an empty routing update for every real caller. The
-// payload is captured as raw inner XML (createJobXMLCapture) to preserve
-// the real per-route Bucket/Region/TrafficDialPercentage structure.
+// real wire shape: the field is named "RouteUpdates", not "Routes"
+// (awsRestxml_serializeOpDocumentSubmitMultiRegionAccessPointRoutesInput),
+// a list of "<Route>" entries, not a flat string. Captured as raw inner XML
+// (createJobXMLCapture) to preserve the real per-route
+// Bucket/Region/TrafficDialPercentage structure.
 type submitMRAPRoutesRequestXML struct {
 	XMLName      xml.Name            `xml:"SubmitMultiRegionAccessPointRoutesRequest"`
 	RouteUpdates createJobXMLCapture `xml:"RouteUpdates"`

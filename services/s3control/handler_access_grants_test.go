@@ -820,21 +820,12 @@ func TestHandler_CreateAccessGrant_EmptyPermission(t *testing.T) {
 
 // TestAccessGrantsResponseWireShape asserts the literal nested XML envelope
 // (not substrings) for GetAccessGrant and ListCallerAccessGrants against
-// aws-sdk-go-v2/service/s3control's deserializers.go. It locks in two
-// gopherstack-tir4 findings:
-//
-//  1. GetAccessGrantOutput carries AccessGrantsLocationId/GrantScope/
-//     ApplicationArn/CreatedAt in addition to AccessGrantId/AccessGrantArn/
-//     Permission/Grantee -- gopherstack's handler previously omitted all
-//     four despite having the backing data on every stored AccessGrant.
-//  2. ListCallerAccessGrantsOutput wraps its list under
-//     "CallerAccessGrantsList", NOT "AccessGrantsList" (the key
-//     ListAccessGrants -- a different operation -- uses), and its entries
-//     (ListCallerAccessGrantsEntry) have NO AccessGrantId field at all.
-//     gopherstack's handler previously reused the ListAccessGrants item
-//     type, which wrapped the list under the wrong key (making the list
-//     invisible to a real client, which skips unrecognized elements) and
-//     fabricated an AccessGrantId the real type never emits.
+// aws-sdk-go-v2/service/s3control's deserializers.go: GetAccessGrantOutput
+// carries AccessGrantsLocationId/GrantScope/ApplicationArn/CreatedAt
+// alongside AccessGrantId/AccessGrantArn/Permission/Grantee; and
+// ListCallerAccessGrantsOutput wraps its list under "CallerAccessGrantsList"
+// (not "AccessGrantsList"), with entries (ListCallerAccessGrantsEntry)
+// carrying no AccessGrantId field.
 func TestAccessGrantsResponseWireShape(t *testing.T) {
 	t.Parallel()
 
