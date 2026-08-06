@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -53,14 +52,12 @@ func (h *DynamoDBHandler) createBackup(ctx context.Context, body []byte) (any, e
 
 	return &models.CreateBackupOutput{
 		BackupDetails: models.BackupDetails{
-			BackupArn:    aws.ToString(bd.BackupArn),
-			BackupName:   aws.ToString(bd.BackupName),
-			BackupStatus: string(bd.BackupStatus),
-			BackupType:   string(bd.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupCreationDateTime).
-				UTC().
-				Format(time.RFC3339),
-			BackupSizeBytes: aws.ToInt64(bd.BackupSizeBytes),
+			BackupArn:              aws.ToString(bd.BackupArn),
+			BackupName:             aws.ToString(bd.BackupName),
+			BackupStatus:           string(bd.BackupStatus),
+			BackupType:             string(bd.BackupType),
+			BackupCreationDateTime: float64(aws.ToTime(bd.BackupCreationDateTime).UTC().Unix()),
+			BackupSizeBytes:        aws.ToInt64(bd.BackupSizeBytes),
 		},
 	}, nil
 }
@@ -111,9 +108,9 @@ func (h *DynamoDBHandler) deleteBackup(ctx context.Context, body []byte) (any, e
 				BackupName:   aws.ToString(bd.BackupDetails.BackupName),
 				BackupStatus: string(bd.BackupDetails.BackupStatus),
 				BackupType:   string(bd.BackupDetails.BackupType),
-				BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
-					UTC().
-					Format(time.RFC3339),
+				BackupCreationDateTime: float64(
+					aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
+				),
 				BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 			},
 			SourceTableDetails: models.SourceTableDetails{
@@ -209,7 +206,7 @@ func collectBackupSummaries(
 			BackupName:             b.BackupName,
 			BackupStatus:           b.BackupStatus,
 			BackupType:             b.BackupType,
-			BackupCreationDateTime: b.CreationDateTime.UTC().Format(time.RFC3339),
+			BackupCreationDateTime: float64(b.CreationDateTime.UTC().Unix()),
 			TableName:              b.TableName,
 			TableArn:               b.TableArn,
 			TableID:                b.TableID,
@@ -406,34 +403,29 @@ func (h *DynamoDBHandler) restoreTableFromBackup(ctx context.Context, body []byt
 // call. Caller must hold sourceTable.mu.RLock.
 //
 // Behaviour:
-//   - UseLatestRestorableTime or RestoreDateTime empty → current items.
-//   - RestoreDateTime parseable → newest snapshot whose Taken <= RestoreDateTime.
+//   - UseLatestRestorableTime or RestoreDateTime nil → current items.
+//   - RestoreDateTime set → newest snapshot whose Taken <= RestoreDateTime.
 //   - No matching snapshot (e.g. requested time is before the table was created
 //     or the snapshot window has rotated past it) → nil, signalling the caller
-//     to return a validation error.
+//     to return InvalidRestoreTimeException (real AWS returns this, not an
+//     empty table, when RestoreDateTime falls outside the recoverable window).
 func selectPITRItems(
 	sourceTable *Table,
 	req models.RestoreTableToPointInTimeInput,
 ) []map[string]any {
-	if req.UseLatestRestorableTime || req.RestoreDateTime == "" {
+	if req.UseLatestRestorableTime || req.RestoreDateTime == nil {
 		return deepCopyItems(sourceTable.Items)
 	}
 
-	t, err := time.Parse(time.RFC3339Nano, req.RestoreDateTime)
-	if err != nil {
-		// Fallback to seconds-since-epoch which the AWS SDK marshals when
-		// using the JSON 1.0 number form.
-		if secs, parseErr := strconv.ParseFloat(req.RestoreDateTime, 64); parseErr == nil {
-			const nanosPerSec = float64(time.Second / time.Nanosecond)
-			t = time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
-		} else {
-			return deepCopyItems(sourceTable.Items)
-		}
-	}
+	// RestoreDateTime is Unix epoch seconds (with optional fractional part),
+	// the wire shape the real AWS SDK's awsjson1_0 protocol emits.
+	secs := *req.RestoreDateTime
+	const nanosPerSec = float64(time.Second / time.Nanosecond)
+	t := time.Unix(int64(secs), int64((secs-float64(int64(secs)))*nanosPerSec)).UTC()
 
 	// Newest snapshot at-or-before t. Snapshots are appended in time order so
 	// scanning backwards is O(k) where k is the index from the end.
-	for _, snap := range slices.Backward(sourceTable.pitrSnapshots) {
+	for _, snap := range slices.Backward(sourceTable.PITRSnapshots) {
 		if !snap.Taken.After(t) {
 			return deepCopyItems(snap.Items)
 		}
@@ -475,7 +467,7 @@ func (h *DynamoDBHandler) restoreTableToPointInTime(ctx context.Context, body []
 	}
 
 	if itemsCopy == nil {
-		return nil, NewValidationException(
+		return nil, NewInvalidRestoreTimeException(
 			"requested RestoreDateTime is outside the available recovery window for table: " +
 				req.SourceTableName,
 		)
@@ -570,9 +562,9 @@ func buildBackupDescriptionFromSDK(bd *sdktypes.BackupDescription) models.Backup
 			BackupName:   aws.ToString(bd.BackupDetails.BackupName),
 			BackupStatus: string(bd.BackupDetails.BackupStatus),
 			BackupType:   string(bd.BackupDetails.BackupType),
-			BackupCreationDateTime: aws.ToTime(bd.BackupDetails.BackupCreationDateTime).
-				UTC().
-				Format(time.RFC3339),
+			BackupCreationDateTime: float64(
+				aws.ToTime(bd.BackupDetails.BackupCreationDateTime).UTC().Unix(),
+			),
 			BackupSizeBytes: aws.ToInt64(bd.BackupDetails.BackupSizeBytes),
 		}
 	}

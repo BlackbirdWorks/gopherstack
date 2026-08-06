@@ -196,6 +196,20 @@ func NewExportNotFoundException(msg string) *Error {
 	}
 }
 
+// NewInvalidRestoreTimeException indicates the requested RestoreDateTime for
+// RestoreTableToPointInTime falls outside the source table's
+// EarliestRestorableDateTime..LatestRestorableDateTime window. Confirmed against
+// aws-sdk-go-v2 service/dynamodb@v1.62.0: types/errors.go models
+// InvalidRestoreTimeException as a client-fault error with only a Message field,
+// and deserializers.go's awsAwsjson10_deserializeOpErrorRestoreTableToPointInTime
+// switch dispatches on this exact error code for this operation.
+func NewInvalidRestoreTimeException(msg string) *Error {
+	return &Error{
+		Type:    "com.amazonaws.dynamodb.v20120810#InvalidRestoreTimeException",
+		Message: msg,
+	}
+}
+
 // NewDuplicateItemException is returned by PartiQL INSERT when an item with the
 // same primary key already exists. AWS DynamoDB raises this instead of silently
 // overwriting (unlike PutItem which overwrites by default).

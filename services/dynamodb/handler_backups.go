@@ -101,8 +101,8 @@ func pitrStateRLocked(table *Table) (bool, time.Time, time.Time) {
 	// EarliestRestorableDateTime tracks the oldest available snapshot.
 	// LatestRestorableDateTime is "now" while PITR is active — AWS
 	// guarantees you can always recover to the current instant.
-	if pitrEnabled && len(table.pitrSnapshots) > 0 {
-		earliest = table.pitrSnapshots[0].Taken
+	if pitrEnabled && len(table.PITRSnapshots) > 0 {
+		earliest = table.PITRSnapshots[0].Taken
 		latest = time.Now().UTC()
 	}
 
@@ -129,7 +129,7 @@ func setPITREnabledLocked(table *Table, pitrEnabled bool) {
 	if !pitrEnabled {
 		// Releasing memory the moment the feature is turned off keeps the
 		// per-table footprint tight; re-enabling starts a fresh ring.
-		table.pitrSnapshots = nil
+		table.PITRSnapshots = nil
 	}
 }
 

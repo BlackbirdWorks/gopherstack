@@ -602,13 +602,18 @@ type CreateBackupOutput struct {
 }
 
 // BackupDetails contains details of a backup.
+//
+// BackupCreationDateTime is Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string.
 type BackupDetails struct {
-	BackupArn              string `json:"BackupArn"`
-	BackupName             string `json:"BackupName"`
-	BackupStatus           string `json:"BackupStatus"`
-	BackupType             string `json:"BackupType"`
-	BackupCreationDateTime string `json:"BackupCreationDateTime"`
-	BackupSizeBytes        int64  `json:"BackupSizeBytes,omitempty"`
+	BackupArn              string  `json:"BackupArn"`
+	BackupName             string  `json:"BackupName"`
+	BackupStatus           string  `json:"BackupStatus"`
+	BackupType             string  `json:"BackupType"`
+	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
+	BackupSizeBytes        int64   `json:"BackupSizeBytes,omitempty"`
 }
 
 // BackupDescription contains a full description of a backup.
@@ -657,15 +662,20 @@ type ListBackupsInput struct {
 }
 
 // BackupSummary contains summary information about a backup.
+//
+// BackupCreationDateTime is Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string.
 type BackupSummary struct {
-	BackupArn              string `json:"BackupArn"`
-	BackupName             string `json:"BackupName"`
-	BackupStatus           string `json:"BackupStatus"`
-	BackupType             string `json:"BackupType"`
-	BackupCreationDateTime string `json:"BackupCreationDateTime"`
-	TableName              string `json:"TableName"`
-	TableArn               string `json:"TableArn,omitempty"`
-	TableID                string `json:"TableId,omitempty"`
+	BackupArn              string  `json:"BackupArn"`
+	BackupName             string  `json:"BackupName"`
+	BackupStatus           string  `json:"BackupStatus"`
+	BackupType             string  `json:"BackupType"`
+	TableName              string  `json:"TableName"`
+	TableArn               string  `json:"TableArn,omitempty"`
+	TableID                string  `json:"TableId,omitempty"`
+	BackupCreationDateTime float64 `json:"BackupCreationDateTime"`
 }
 
 // ListBackupsOutput is the wire format for ListBackups response.
@@ -688,11 +698,18 @@ type RestoreTableFromBackupOutput struct {
 }
 
 // RestoreTableToPointInTimeInput is the wire format for RestoreTableToPointInTime.
+//
+// RestoreDateTime is a pointer to Unix epoch seconds (with optional fractional
+// part), matching how the real aws-sdk-go-v2 awsjson1_0 protocol serializes a
+// *time.Time via smithytime.FormatEpochSeconds -- it is emitted as a JSON
+// number, never a JSON string. A pointer (rather than a bare float64) lets us
+// distinguish "field omitted" from "epoch zero" (1970-01-01), which a bare
+// zero value cannot.
 type RestoreTableToPointInTimeInput struct {
 	ProvisionedThroughputOverride *ProvisionedThroughput `json:"ProvisionedThroughputOverride,omitempty"`
+	RestoreDateTime               *float64               `json:"RestoreDateTime,omitempty"`
 	SourceTableName               string                 `json:"SourceTableName"`
 	TargetTableName               string                 `json:"TargetTableName"`
-	RestoreDateTime               string                 `json:"RestoreDateTime,omitempty"`
 	BillingModeOverride           string                 `json:"BillingModeOverride,omitempty"`
 	UseLatestRestorableTime       bool                   `json:"UseLatestRestorableTime,omitempty"`
 }
