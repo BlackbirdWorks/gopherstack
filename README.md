@@ -576,7 +576,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ACM](services/acm/README.md) | A | 38 | 5 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 2 gaps; 2 deferred |
-| [GuardDuty](services/guardduty/README.md) | A- | 63 | 5 gaps; 4 deferred |
+| [GuardDuty](services/guardduty/README.md) | A | 63 | 4 gaps; 1 structural gap; 4 deferred |
 | [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 5 gaps; 2 deferred |
 | [Macie](services/macie2/README.md) | A | 82 | clean |
@@ -585,7 +585,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 4 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 1 gap |
-| [WAFv2](services/wafv2/README.md) | A- | 59 | 3 gaps |
+| [WAFv2](services/wafv2/README.md) | A | 59 | 2 gaps; 1 structural gap |
 
 ### Identity & Access
 

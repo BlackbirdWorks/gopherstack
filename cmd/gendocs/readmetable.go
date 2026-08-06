@@ -90,6 +90,9 @@ func notesCell(doc *ParityDoc) string {
 	if len(doc.Gaps) > 0 {
 		parts = append(parts, plural(len(doc.Gaps), "gap", "gaps"))
 	}
+	if len(doc.StructuralGaps) > 0 {
+		parts = append(parts, plural(len(doc.StructuralGaps), "structural gap", "structural gaps"))
+	}
 	if len(doc.Deferred) > 0 {
 		parts = append(parts, fmt.Sprintf("%d deferred", len(doc.Deferred)))
 	}

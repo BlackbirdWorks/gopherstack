@@ -37,7 +37,7 @@ var listItemRe = regexp.MustCompile(`^\s*-\s+(.*)$`)
 func isReservedKey(key string) bool {
 	switch key {
 	case "service", "sdk_module", "last_audit_commit", "last_audit_date",
-		"overall", "protocol", "ops", "families", "gaps", labelDeferred, "leaks":
+		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, "leaks":
 		return true
 	default:
 		return false
@@ -91,9 +91,9 @@ func extractFrontmatter(lines []string) []string {
 }
 
 // parseFrontmatter walks the frontmatter lines as a small state machine:
-// scalar keys consume one line, ops:/families:/gaps:/deferred: consume a
-// block of subsequent lines, and anything unrecognized is skipped until the
-// next reserved key resumes normal parsing.
+// scalar keys consume one line, ops:/families:/gaps:/structural_gaps:/deferred:
+// consume a block of subsequent lines, and anything unrecognized is skipped
+// until the next reserved key resumes normal parsing.
 func parseFrontmatter(lines []string, doc *ParityDoc) {
 	i := 0
 	for i < len(lines) {
@@ -105,40 +105,54 @@ func parseFrontmatter(lines []string, doc *ParityDoc) {
 		}
 
 		key, rest := m[1], m[2]
+		if parseScalarField(doc, key, rest) {
+			i++
+
+			continue
+		}
+
 		switch key {
-		case "service":
-			doc.Service = cleanScalar(rest)
-			i++
-		case "sdk_module":
-			doc.SDKModule = cleanScalar(rest)
-			i++
-		case "last_audit_commit":
-			doc.LastAuditCommit = cleanScalar(rest)
-			i++
-		case "last_audit_date":
-			doc.LastAuditDate = cleanScalar(rest)
-			i++
-		case "overall":
-			doc.Overall = cleanScalar(rest)
-			i++
-		case "protocol":
-			doc.Protocol = cleanScalar(rest)
-			i++
-		case "leaks":
-			doc.LeaksStatus = extractLeaksStatus(rest)
-			i++
 		case "ops":
 			doc.Ops, i = parseOpsBlock(lines, i+1)
 		case "families":
 			doc.Families, i = parseFamiliesBlock(lines, i+1)
 		case "gaps":
 			doc.Gaps, i = parseListBlock(lines, i, rest)
+		case "structural_gaps":
+			doc.StructuralGaps, i = parseListBlock(lines, i, rest)
 		case "deferred":
 			doc.Deferred, i = parseListBlock(lines, i, rest)
 		default:
 			i = skipUnknownBlock(lines, i+1)
 		}
 	}
+}
+
+// parseScalarField handles the single-line scalar keys (everything except
+// ops:/families:/gaps:/structural_gaps:/deferred:, which consume a block of
+// following lines). Returns false for any other key, leaving it to the
+// caller's block-consuming switch.
+func parseScalarField(doc *ParityDoc, key, rest string) bool {
+	switch key {
+	case "service":
+		doc.Service = cleanScalar(rest)
+	case "sdk_module":
+		doc.SDKModule = cleanScalar(rest)
+	case "last_audit_commit":
+		doc.LastAuditCommit = cleanScalar(rest)
+	case "last_audit_date":
+		doc.LastAuditDate = cleanScalar(rest)
+	case "overall":
+		doc.Overall = cleanScalar(rest)
+	case "protocol":
+		doc.Protocol = cleanScalar(rest)
+	case "leaks":
+		doc.LeaksStatus = extractLeaksStatus(rest)
+	default:
+		return false
+	}
+
+	return true
 }
 
 // cleanScalar trims a single-line frontmatter scalar value: strips a

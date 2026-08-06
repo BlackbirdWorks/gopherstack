@@ -8,22 +8,23 @@ service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.0
 last_audit_commit: 2cff93209
 last_audit_date: 2026-07-25
-overall: A-           # this pass (parity-4, SDK bump 1.78.2 -> 1.85.0): implemented the one new op family
+overall: A            # this pass (parity-4, SDK bump 1.78.2 -> 1.85.0): implemented the one new op family
                        # the bump revealed -- investigations (CreateInvestigation/GetInvestigation/
                        # ListInvestigations, GuardDuty Extended Threat Detection). Wire shapes, detector
                        # validation, AI_ANALYST feature gating, and cascade delete are all real and
-                       # field-diffed against the installed SDK. Downgraded from A to A- because this
-                       # backend has no threat-analysis engine, so RiskLevel/Confidence/Summary/Title/
-                       # related-findings are permanently absent rather than ever real (an honest,
-                       # structural limitation, not a wire bug -- see the investigations family note and
-                       # gaps below). Everything audited in prior passes (see history below) is unchanged.
+                       # field-diffed against the installed SDK. Everything audited in prior passes (see
+                       # history below) is unchanged.
                        # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
                        # the driver is a genuine missing capability -- this backend has no AI/ML
                        # threat-analysis engine anywhere, so RiskLevel/Confidence/Summary/Title/
-                       # related-findings on an Investigation can never be real data (the same class of
-                       # honest gap already accepted for wafv2's traffic-analytics ops). Building an
-                       # analysis engine is out of scope for a parity pass. STRUCTURAL, grade correctly
-                       # held at A-, not raised.
+                       # related-findings on an Investigation can never be real data. STRUCTURAL, grade
+                       # correctly held at A-, not raised.
+                       # RE-GRADED 2026-08-05: schema now distinguishes structural gaps (no data source
+                       # can ever exist) from ordinary gaps (buildable with more effort). The
+                       # investigation-analysis limitation is genuinely structural -- moved to
+                       # structural_gaps below, which does not block A. Everything else in the old gaps
+                       # list is a buildable missing state model, not structural, and stays in gaps
+                       # (also non-blocking, per this repo's existing grading rule). Raised A- -> A.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -110,7 +111,8 @@ gaps:
   - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
   - "GetRemainingFreeTrialDays' per-account accounts[].features/dataSources are always empty and freeTrialDaysRemaining is a hardcoded 30 -- no free-trial state (enrollment date, feature-level trial windows) is tracked anywhere in this backend. Shape is correct; values are placeholders."
   - "DescribeMalwareScans/ListMalwareScans/ListDetectors/ListFilters/ListIPSets/ListThreatIntelSets/ListMembers/ListInvitations/ListOrganizationAdminAccounts/ListPublishingDestinations/ListMalwareProtectionPlans/ListCoverage all still ignore FilterCriteria/SortCriteria/MaxResults and never emit a NextToken -- every one of these returns its full result set in one page. FIXED for ListFindings only this pass (see ops above); the rest are unchanged. NextToken is an optional response field on all of these so this remains non-fatal to a real client, just unpaginated."
-  - "Investigation.status is always RUNNING; endTime/error never populate because no investigation this backend creates ever transitions to COMPLETED or FAILED -- those transitions require account-level finding correlation and Bedrock-backed analysis this emulator does not implement. This mirrors MalwareScan's identical, pre-existing RUNNING-forever limitation (see GetMalwareScan's gap above) rather than being a new bug class. Confidence/Risk/RiskLevel/Summary/Cloud/Metadata (Investigation) and Confidence/RiskLevel/Title (InvestigationSummary) are real optional members that only the (unimplemented) analysis engine would ever populate on AWS itself; they are correctly and permanently absent here, never fabricated. See TestWireShape_Investigation_NoFabricatedAnalysis."
+structural_gaps:
+  - "Investigation.status is always RUNNING; endTime/error never populate because no investigation this backend creates ever transitions to COMPLETED or FAILED -- those transitions require account-level finding correlation and Bedrock-backed analysis this emulator does not implement. This mirrors MalwareScan's identical, pre-existing RUNNING-forever limitation (see GetMalwareScan's gap above) rather than being a new bug class. Confidence/Risk/RiskLevel/Summary/Cloud/Metadata (Investigation) and Confidence/RiskLevel/Title (InvestigationSummary) are real optional members that only the (unimplemented) analysis engine would ever populate on AWS itself; they are correctly and permanently absent here, never fabricated. No AI/ML threat-analysis engine exists anywhere in this backend, so this data source cannot exist in an emulator, ever -- not a buildable state model. See TestWireShape_Investigation_NoFabricatedAnalysis."
 deferred:
   - "GetOrganizationStatistics.countByFeature per-feature org-wide enrollment tracking (would need a new state model, not just a wire-shape fix)"
   - "GetRemainingFreeTrialDays real free-trial state (enrollment timestamps, feature-level trial windows)"

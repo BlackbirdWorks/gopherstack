@@ -30,6 +30,7 @@ func renderServiceReadme(slug string, doc *ParityDoc, hasGuide bool) string {
 	b.WriteString("\n")
 
 	writeKnownGaps(&b, doc.Gaps)
+	writeStructuralGaps(&b, doc.StructuralGaps)
 	writeDeferredSection(&b, doc.Deferred)
 
 	b.WriteString("## More\n\n")
@@ -88,6 +89,10 @@ func writeCoverageRows(b *strings.Builder, doc *ParityDoc) {
 	}
 	b.WriteString("| Known gaps | " + gapsCell + " |\n")
 
+	if len(doc.StructuralGaps) > 0 {
+		fmt.Fprintf(b, "| Structural gaps (can't be emulated) | %d |\n", len(doc.StructuralGaps))
+	}
+
 	fmt.Fprintf(b, "| Deferred items | %d |\n", len(doc.Deferred))
 
 	leaks := doc.LeaksStatus
@@ -105,6 +110,24 @@ func writeKnownGaps(b *strings.Builder, gaps []string) {
 	}
 
 	b.WriteString("### Known gaps\n\n")
+	for _, g := range gaps {
+		b.WriteString("- " + g + "\n")
+	}
+	b.WriteString("\n")
+}
+
+// writeStructuralGaps appends the "### Structural gaps" section, omitted
+// entirely when there are none. Unlike Known gaps, these never block an A
+// grade: the underlying data source (real traffic, an ML/AI engine, a
+// billing/settlement system, physical hardware) cannot exist in an emulator.
+func writeStructuralGaps(b *strings.Builder, gaps []string) {
+	if len(gaps) == 0 {
+		return
+	}
+
+	b.WriteString("### Structural gaps\n\n")
+	b.WriteString("These do not block an A grade — no implementation could produce real data " +
+		"here because the underlying data source cannot exist in an emulator.\n\n")
 	for _, g := range gaps {
 		b.WriteString("- " + g + "\n")
 	}

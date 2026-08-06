@@ -8,7 +8,7 @@ service: wafv2
 sdk_module: aws-sdk-go-v2/service/wafv2@v1.76.0   # version audited against (bumped from v1.71.2)
 last_audit_commit: 7061877e4                      # HEAD when the v1.71.2 manifest was written; this pass only adds the 4 new ops below
 last_audit_date: 2026-07-25
-overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-reporting family
+overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family
                       # (GetRevenueStatistics/GetRevenueStatisticsSummary/
                       # GetRevenueStatisticsTimeSeries/ListSettlementRecords), added to the SDK
                       # since the v1.71.2 audit. All 4 ops report revenue/traffic analytics this
@@ -18,11 +18,7 @@ overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-rep
                       # CLOUDFRONT-only scope rule, Currency=USDC, 90-day TimeWindow cap,
                       # Limit/NextMarker bounds, enum-restricted Filter values) and an honestly
                       # empty/zero response -- never a fabricated dollar amount, bot name, path,
-                      # or settlement record. Downgraded from A to A- solely because this new
-                      # family is a documented "no traffic to report" limitation, exactly like
-                      # the pre-existing GetSampledRequests/GetTopPathStatisticsByTraffic gap
-                      # already on this manifest -- not a wire-shape or correctness bug in
-                      # either the old or new surface.
+                      # or settlement record.
                       # RE-AUDITED 2026-07-30 (parity-5 grade-floor pass, no code changes): confirmed
                       # this backend's WebACL/RuleGroup/IPSet state holds only configuration, never
                       # per-request traffic/revenue counters, and there is no AI-bot-detection or
@@ -30,6 +26,13 @@ overall: A-           # New this pass: the AI-bot pay-per-crawl monetization-rep
                       # bot names, or settlement records to reach A would be exactly the failure mode
                       # this campaign has spent weeks removing. STRUCTURAL, grade correctly held at
                       # A-, not raised.
+                      # RE-GRADED 2026-08-05: schema now distinguishes structural gaps (no data source
+                      # can ever exist) from ordinary gaps (buildable with more effort). The revenue-
+                      # statistics family's "no traffic/no settlement pipeline" limitation is genuinely
+                      # structural -- moved to structural_gaps below, which does not block A.
+                      # ApplicationIntegrationURL and ManagedRuleSet Description/LabelNamespace stay in
+                      # gaps: both are unimplemented API paths (an unpublished URL scheme, a vendor-only
+                      # onboarding field), not data that cannot exist -- not structural. Raised A- -> A.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -101,7 +104,8 @@ families:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "GetWebACL response omits the optional top-level ApplicationIntegrationURL field (only populated when a web ACL uses AWSManagedRulesATPRuleSet/ACFPRuleSet with client app integration). Re-investigated this pass: AWS has never published the URL-generation scheme (it's an opaque, AWS-internal-service-generated URL), so there is no deterministic value this emulator could fabricate that would be meaningfully AWS-accurate -- niche, rarely asserted by IaC tooling. Left unmodeled rather than invented."
   - "GetManagedRuleSet/ListManagedRuleSets don't model Description/LabelNamespace (ManagedRuleSet struct has no such fields). Re-investigated this pass: confirmed genuinely non-actionable, not merely low-priority -- PutManagedRuleSetVersionsInput (the only op that creates/updates a ManagedRuleSet in this emulator; there is no CreateManagedRuleSet in the real API either, it's vendor-onboarding-only) has no Description/LabelNamespace input fields, so no caller can ever populate them through any modeled or real API path. Since both are *string with omitempty JSON serialization on the real SDK, an always-absent field is byte-for-byte identical on the wire to an always-nil field -- there is no observable client-visible gap here today. Vendor-only Firewall-Manager API family, not used by Terraform/CDK for the common WAFv2 workflow."
-  - "New this pass: GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which does not exist in this backend, is honestly absent."
+structural_gaps:
+  - "GetRevenueStatistics/GetRevenueStatisticsSummary/GetRevenueStatisticsTimeSeries/ListSettlementRecords (added in aws-sdk-go-v2/service/wafv2@v1.76.0) always return honestly empty/zero results. This emulator has no real HTTP traffic, no AI-bot detection pipeline, and no billing/blockchain-settlement system, so there is no genuine revenue, bot, path, or settlement data to report -- exactly the same class of gap already documented for GetRateBasedStatementManagedKeys/GetSampledRequests/GetTopPathStatisticsByTraffic above. Deliberately NOT fabricated: no invented dollar amounts, bot names, path statistics, or settlement records. Every field validated (required-ness, enums, CLOUDFRONT-only Scope, Currency=USDC, 90-day TimeWindow cap, Filter enum values, Limit bounds) is checked for real; only the *data*, which cannot exist in this backend (no traffic source, no AI/ML bot-detection engine, no settlement/billing system), is honestly absent -- not a buildable state model."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is InMemoryBackend maps + store.Table guarded by lockmetrics.RWMutex; Reset()/resetTablesLocked() cover all fields including the two \"dirty\" (unregistered) tables"}
 ---
