@@ -4,6 +4,17 @@ package outposts
 // caller omits MaxResults, matching services/grafana's convention.
 const defaultPageLimit = 100
 
+// maxSitesPerRegion/maxOutpostsPerSite are the real default account quotas
+// AWS publishes for Outposts (docs.aws.amazon.com/outposts/latest/userguide/
+// outposts-limits.html: "Outpost sites" = 100 per Region per account,
+// "Outposts per site" = 10 per site) -- CreateSite/CreateOutpost enforce
+// these, unlike the other 14 undocumented OrderingRequirementType checks
+// this backend has no published quota to back (see PARITY.md).
+const (
+	maxSitesPerRegion  = 100
+	maxOutpostsPerSite = 10
+)
+
 // LifeCycleStatus values. types.Outpost.LifeCycleStatus is a bare *string
 // with NO enum type anywhere in this SDK module (confirmed: no LifeCycleStatus
 // type exists in types/enums.go) -- these values are a documented, unconfirmed

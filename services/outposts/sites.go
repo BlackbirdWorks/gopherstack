@@ -14,6 +14,10 @@ func (b *InMemoryBackend) CreateSite(req *createSiteRequest) (*Site, error) {
 	b.mu.Lock("CreateSite")
 	defer b.mu.Unlock()
 
+	if b.sites.Len() >= maxSitesPerRegion {
+		return nil, quotaExceededError("maximum number of sites per Region reached")
+	}
+
 	id := newSiteID()
 	t := tags.New("outposts.site." + id + ".tags")
 	t.Merge(req.Tags)

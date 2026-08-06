@@ -150,43 +150,80 @@ func randomHexID() string {
 	return hex.EncodeToString(buf)
 }
 
-// newOutpostID generates an Outpost ID in the "op-xxxxxxxxxxxx" shape real
-// Outpost IDs use (visible in this repo's own test fixtures, e.g.
-// services/ec2/local_gateway_test.go's "op-1"). This exact-length format is a
-// reasonable emulation, not confirmed byte-for-byte (OutpostId is a bare
-// *string with no pattern trait reproduced in the Go source).
-func newOutpostID() string { return "op-" + randomHexID() }
+// idHexLen17 is the hex-digit length AWS uses for Outpost/Site/Order/Quote/
+// QuoteOption/CapacityTask/LineItem IDs, confirmed via the real ID Pattern
+// regexes published on docs.aws.amazon.com/outposts/latest/APIReference/
+// (e.g. Outpost.OutpostArn: "^arn:aws([a-z-]+)?:outposts:[a-z\d-]+:\d{12}:outpost/op-[a-f0-9]{17}$").
+const idHexLen17 = 17
 
-// newSiteID generates a Site ID. UNCONFIRMED format -- see PARITY.md.
-func newSiteID() string { return "os-" + randomHexID() }
+// randomHexID17 returns a random 17-character lowercase hex string, the
+// fixed length every AWS-Outposts-issued ID's hex suffix uses.
+func randomHexID17() string {
+	buf := make([]byte, idHexLen17/2+1) // ceil(17/2) bytes, trimmed to 17 hex chars below
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("%017x", time.Now().UnixNano())[:idHexLen17]
+	}
 
-// newOrderID generates an Order ID. UNCONFIRMED format -- see PARITY.md.
-func newOrderID() string { return "oo-" + randomHexID() }
+	return hex.EncodeToString(buf)[:idHexLen17]
+}
 
-// newQuoteID generates a Quote ID. UNCONFIRMED format -- see PARITY.md.
-func newQuoteID() string { return "oq-" + randomHexID() }
+// newOutpostID generates an Outpost ID matching the confirmed real pattern
+// "op-[a-f0-9]{17}" (Outpost.OutpostArn, docs.aws.amazon.com/outposts/latest/
+// APIReference/API_Outpost.html).
+func newOutpostID() string { return "op-" + randomHexID17() }
 
-// newCapacityTaskID generates a CapacityTask ID. UNCONFIRMED format -- see
-// PARITY.md.
-func newCapacityTaskID() string { return "ct-" + randomHexID() }
+// newSiteID generates a Site ID matching the confirmed real pattern
+// "os-[a-f0-9]{17}" (Site.SiteArn, docs.aws.amazon.com/outposts/latest/
+// APIReference/API_Site.html).
+func newSiteID() string { return "os-" + randomHexID17() }
 
-// newAssetID generates an Asset ID. UNCONFIRMED format -- see PARITY.md.
-func newAssetID() string { return "asset-" + randomHexID() }
+// newOrderID generates an Order ID matching the confirmed real pattern
+// "oo-[a-f0-9]{17}" (Order.OrderId, docs.aws.amazon.com/outposts/latest/
+// APIReference/API_Order.html).
+func newOrderID() string { return "oo-" + randomHexID17() }
 
-// newConnectionID generates a Connection ID. UNCONFIRMED format -- see
-// PARITY.md.
-func newConnectionID() string { return "conn-" + randomHexID() }
+// newQuoteID generates a Quote ID matching the confirmed real pattern
+// "oq-[a-f0-9]{17}" (Quote.QuoteId, docs.aws.amazon.com/outposts/latest/
+// APIReference/API_Quote.html). Quotes also accept an ARN-shaped identifier
+// on input ("arn:...:quote/oq-...", confirmed via GetQuote/Order.QuoteIdentifier's
+// own Pattern) even though Quote itself has no QuoteArn output field -- see
+// resolveQuoteLocked.
+func newQuoteID() string { return "oq-" + randomHexID17() }
 
-// newLineItemID generates a LineItem ID. UNCONFIRMED format -- see
-// PARITY.md.
-func newLineItemID() string { return "li-" + randomHexID() }
+// newCapacityTaskID generates a CapacityTask ID matching the confirmed real
+// pattern "cap-[a-f0-9]{17}" (CapacityTaskId, docs.aws.amazon.com/outposts/
+// latest/APIReference/API_GetCapacityTask.html) -- NOT the "ct-" prefix a
+// prior pass guessed.
+func newCapacityTaskID() string { return "cap-" + randomHexID17() }
 
-// newQuoteOptionID generates a QuoteOption ID. UNCONFIRMED format -- see
-// PARITY.md.
-func newQuoteOptionID() string { return "qo-" + randomHexID() }
+// newAssetID generates an Asset ID. AssetId's confirmed pattern is
+// "^(\w+)$" (docs.aws.amazon.com/outposts/latest/APIReference/API_StartConnection.html) --
+// \w excludes '-', so this deliberately omits the hyphen a prior pass used.
+func newAssetID() string { return "asset" + randomHexID() }
 
-// newSubscriptionID generates a Subscription ID. UNCONFIRMED format -- see
-// PARITY.md.
+// newConnectionID generates a Connection ID. ConnectionId's confirmed
+// pattern is "^[a-zA-Z0-9+/=]{1,1024}$" (docs.aws.amazon.com/outposts/latest/
+// APIReference/API_StartConnection.html) -- no '-' allowed, so this
+// deliberately omits the hyphen a prior pass used.
+func newConnectionID() string { return "conn" + randomHexID() }
+
+// newLineItemID generates a LineItem ID matching the confirmed real pattern
+// "ooi-[a-f0-9]{17}" (LineItem.LineItemId, docs.aws.amazon.com/outposts/
+// latest/APIReference/API_LineItem.html) -- NOT the "li-" prefix a prior
+// pass guessed.
+func newLineItemID() string { return "ooi-" + randomHexID17() }
+
+// newQuoteOptionID generates a QuoteOption ID matching the confirmed real
+// pattern "oqo-[a-f0-9]{17}" (Order.QuoteOptionIdentifier, docs.aws.amazon.com/
+// outposts/latest/APIReference/API_Order.html) -- NOT the "qo-" prefix a
+// prior pass guessed.
+func newQuoteOptionID() string { return "oqo-" + randomHexID17() }
+
+// newSubscriptionID generates a Subscription ID. Subscription.SubscriptionId's
+// confirmed pattern is the unconstrained "^[\S \n]+$" (docs.aws.amazon.com/
+// outposts/latest/APIReference/API_Subscription.html), so any non-whitespace
+// token is real-shaped; "sub-" + hex remains a reasonable, uncontradicted
+// choice.
 func newSubscriptionID() string { return "sub-" + randomHexID() }
 
 // cloneStrs returns a deep copy of a string slice (nil-safe).

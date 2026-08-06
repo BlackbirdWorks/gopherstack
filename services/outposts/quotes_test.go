@@ -151,7 +151,7 @@ func TestCreateOrder_ConsumesQuote(t *testing.T) {
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		QuoteIdentifier:   quote.Quote.QuoteId,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(1)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(1)},
 		},
 	})
 	require.NoError(t, err)
@@ -167,7 +167,7 @@ func TestCreateOrder_ConsumesQuote(t *testing.T) {
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		QuoteIdentifier:   quote.Quote.QuoteId,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(1)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(1)},
 		},
 	})
 	require.Error(t, err)

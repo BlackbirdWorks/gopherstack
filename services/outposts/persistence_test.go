@@ -35,7 +35,7 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 		OutpostIdentifier: created.OutpostId,
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(1)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(1)},
 		},
 	})
 	require.NoError(t, err)

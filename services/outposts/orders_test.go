@@ -26,7 +26,7 @@ func TestCreateOrder_Lifecycle(t *testing.T) {
 		OutpostIdentifier: created.OutpostId,
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(2)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(2)},
 		},
 	})
 	require.NoError(t, err)
@@ -72,7 +72,7 @@ func TestCreateOrder_ConcurrentReadDuringAsyncCompletion(t *testing.T) {
 		OutpostIdentifier: created.OutpostId,
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(2)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(2)},
 		},
 	})
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestCancelOrder(t *testing.T) {
 		OutpostIdentifier: created.OutpostId,
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(1)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(1)},
 		},
 	})
 	require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestListOrders_FiltersByOutpost(t *testing.T) {
 		OutpostIdentifier: created.OutpostId,
 		PaymentOption:     types.PaymentOptionAllUpfront,
 		LineItems: []types.LineItemRequest{
-			{CatalogItemId: aws.String("cat-rack-m5"), Quantity: aws.Int32(1)},
+			{CatalogItemId: aws.String("OR-RACKM05"), Quantity: aws.Int32(1)},
 		},
 	})
 	require.NoError(t, err)

@@ -108,6 +108,20 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
+		if httputils.MatchesTaggedResourceARN(path, outpostsService) {
+			return true
+		}
+
+		// "/connections" collides byte-for-byte with services/iotdataplane's own
+		// GET/DELETE /connections/{clientId} (SigV4 signing name "iotdata", not
+		// "outposts") -- gate the whole matcher on the real SigV4 service name,
+		// the same fix RAM's handler.go uses for its own path collisions,
+		// instead of a bare prefix match that would steal iotdataplane's
+		// requests too.
+		if httputils.ExtractServiceFromRequest(c.Request()) != outpostsService {
+			return false
+		}
+
 		for _, prefix := range []string{
 			"/outposts", "/outpost/", "/orders", "/list-orders", "/quotes",
 			"/renewals", "/sites", "/catalog/", "/instanceTypes", "/connections",
@@ -118,7 +132,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			}
 		}
 
-		return httputils.MatchesTaggedResourceARN(path, outpostsService)
+		return false
 	}
 }
 

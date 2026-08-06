@@ -5,19 +5,36 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: outposts
-sdk_module: aws-sdk-go-v2/service/outposts@v1.66.0   # real go.mod dependency now (go get run this pass)
-last_audit_commit: 7922e4c4d   # HEAD when the pre-implementation audit was written; this pass
-# implemented the full service on top of it (uncommitted at the time this manifest was updated).
-last_audit_date: 2026-08-01
-# Grade B: from-scratch implementation (nothing pre-existing to fix), every one of the 43
-# operations' wire shapes read directly from serializers.go/deserializers.go (never assumed
-# from Go struct field names alone), and proven via a real SDK round-trip test harness
-# (sdk_roundtrip_helper_test.go, following services/grafana's identical pattern) that caught
-# one real routing bug before it shipped: the two singular-`/outpost/`-path handlers
-# (GetOutpostBillingInformation, GetRenewalPricing) initially read the OutpostIdentifier from
-# the wrong path segment (segs[2], the literal "billing-information"/"renewal-pricing" string)
-# instead of segs[1] -- every round-trip test against those two ops 404'd until fixed. See
-# "Implementation summary" below for the full judgment-call list and what remains partial.
+sdk_module: aws-sdk-go-v2/service/outposts@v1.66.1   # go.mod's actual pin at this audit (prior manifest said v1.66.0, stale)
+last_audit_commit: ef896bcf1
+last_audit_date: 2026-08-06
+# Grade held at B this pass. What changed: (1) added the first SDK-driven integration suite
+# (test/integration/outposts_test.go) -- the prior B had ZERO integration proof, only unit tests,
+# which parity-principles.md rule 3 does not accept as parity evidence; (2) fixed 6 real ID/ARN
+# format bugs found by reading the actual AWS API docs (docs.aws.amazon.com/outposts/latest/
+# APIReference/), not guessed: Site/Order/Quote/CapacityTask/LineItem/QuoteOption ID lengths and
+# two wrong prefixes (CapacityTaskId "ct-" -> "cap-", LineItemId "li-" -> "ooi-", QuoteOptionId
+# "qo-" -> "oqo-"), plus Asset/Connection IDs dropping an invalid '-' their real patterns forbid;
+# (3) discovered and fixed a real bug: Quote DOES accept an ARN-shaped QuoteIdentifier on
+# GetQuote/UpdateQuote/DeleteQuote/CreateOrder (confirmed via the SDK's own Pattern regex), which
+# the prior audit's "Quotes have no ARN form" note got wrong -- added resolveQuoteLocked; (4)
+# implemented real ServiceQuotaExceededException enforcement on CreateSite/CreateOutpost against
+# AWS's own published default quotas (100 sites/Region, 10 Outposts/site --
+# docs.aws.amazon.com/outposts/latest/userguide/outposts-limits.html), previously undocumented and
+# untriggered; (5) moved 3 gaps to structural_gaps with individual justification (LifeCycleStatus
+# has no SDK enum at all, catalog/pricing data is proprietary AWS-published data with no SDK
+# source, Connection key material requires a real cryptographic install-time exchange no emulator
+# can perform); (6) confirmed the CloudFormation "gap" was never a real gap (real AWS itself has no
+# AWS::Outposts::* CFN support) and dropped it from gaps entirely.
+# NOT raised to A: the single highest-value remaining gap (RunInstances -> Outposts capacity-ledger
+# wiring) is a genuine cross-service blocker, not unfinished work -- services/ec2's Subnet/Instance
+# structs have ZERO Outpost-placement fields to read (confirmed by direct grep of
+# services/ec2/store.go and instance_attrs.go), so even grafana's read-only cross_service.go
+# pattern has no data source to read from yet. That requires an ec2-side change, which is out of
+# this session's file-ownership scope (services/outposts/ only) -- filed as gopherstack-9ij1 for a
+# future ec2-owning pass. Two smaller gaps (Order/CapacityTask single-hop lifecycle, 15-of-17
+# unevaluated OrderingRequirement checks) also remain open, deferred for effort/scope reasons this
+# pass, not because they're unbuildable -- see gaps below.
 overall: B
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -25,7 +42,7 @@ overall: B
 # (persistence.go). "partial" below marks operations where a genuinely unknowable input (no SDK
 # enum, no public AWS data) forced a documented, narrower-than-real-AWS behavior -- not a stub.
 ops:
-  CreateOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /outposts (outposts.go); seeds one COMPUTE Asset (assets.go); LifeCycleStatus set to ACTIVE immediately -- see gaps"}
+  CreateOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /outposts (outposts.go); seeds one COMPUTE Asset (assets.go); LifeCycleStatus set to ACTIVE immediately -- see structural_gaps; enforces the real 10-Outposts-per-site quota (ServiceQuotaExceededException) as of this pass"}
   GetOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /outposts/{OutpostId}, id-or-ARN via resolveOutpostLocked (resolve.go)"}
   DeleteOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /outposts/{OutpostId}; Conflict while a REQUESTED capacity task exists; cascades its seeded Asset(s)"}
   UpdateOutpost: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /outposts/{OutpostId}; merges Description/Name/SupportedHardwareType onto existing state"}
@@ -36,7 +53,7 @@ ops:
   GetOutpostSupportedInstanceTypes: {wire: ok, errors: ok, state: partial, persist: n/a, note: "GET /outposts/{OutpostIdentifier}/supportedInstanceTypes; returns the static seed catalog filtered by hardware type -- AssetId/OrderId are validated to exist but do not further filter the result (documented simplification, see gaps)"}
   GetRenewalPricing: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /outpost/{OutpostIdentifier}/renewal-pricing (singular path, routed correctly); PRICED for an ACTIVE Outpost, UNABLE_TO_PRICE otherwise"}
   CreateRenewal: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /renewals; ClientToken idempotency implemented (renewals.go's renewalIdempotency cache); pricing is a documented synthetic placeholder formula -- see gaps"}
-  CreateSite: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /sites; OperatingAddress flattened to 3 fields on output, ShippingAddress fully stored but only surfaced via GetSiteAddress"}
+  CreateSite: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /sites; OperatingAddress flattened to 3 fields on output, ShippingAddress fully stored but only surfaced via GetSiteAddress; enforces the real 100-sites-per-Region quota (ServiceQuotaExceededException) as of this pass"}
   GetSite: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /sites/{SiteId}, id-or-ARN"}
   UpdateSite: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /sites/{SiteId}; merges Description/Name/Notes"}
   DeleteSite: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /sites/{SiteId}; Conflict while any Outpost still references it"}
@@ -44,14 +61,14 @@ ops:
   GetSiteAddress: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /sites/{SiteId}/address; AddressType as query param, returns Shipping or Operating full Address"}
   UpdateSiteAddress: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /sites/{SiteId}/address; full replacement (not merge); Conflict while the Site has a PREPARING order"}
   UpdateSiteRackPhysicalProperties: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /sites/{SiteId}/rackPhysicalProperties; merges only non-empty fields; same in-progress-order Conflict check"}
-  CreateOrder: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /orders; OrderType always OUTPOST (CreateOrderInput has no OrderType member); single-hop PREPARING -> COMPLETED transition (no IN_PROGRESS/DELIVERED stop) -- see gaps; validates CatalogItemId and consumed Quote"}
+  CreateOrder: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /orders; OrderType always OUTPOST (CreateOrderInput has no OrderType member); single-hop PREPARING -> COMPLETED transition (no IN_PROGRESS/DELIVERED stop) -- see gaps; validates CatalogItemId and consumed Quote; QuoteIdentifier now resolves id-or-ARN, see GetQuote"}
   GetOrder: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /orders/{OrderId}, ID-only (no ARN form on this op)"}
   CancelOrder: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /orders/{OrderId}/cancel; Conflict once terminal"}
   ListOrders: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /list-orders; OutpostIdentifierFilter singular, paginated"}
   CreateQuote: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /quotes; single synthesized QuoteOption (not an N-option combinatorial shape); OrderingRequirements covers 2 of 17 real check types this backend has state to evaluate -- see gaps; pricing is a documented synthetic formula"}
-  GetQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /quotes/{QuoteIdentifier}; lazily flips CREATED -> EXPIRED past ExpirationDate"}
-  UpdateQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /quotes/{QuoteIdentifier}; OutpostIdentifier tri-state (nil=no-change, empty=clear, value=set) implemented via *string wire field; never returns Conflict (none in this op's wire error set)"}
-  DeleteQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /quotes/{QuoteIdentifier}"}
+  GetQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /quotes/{QuoteIdentifier}; lazily flips CREATED -> EXPIRED past ExpirationDate; QuoteIdentifier now resolves id-or-ARN via resolveQuoteLocked (this pass fixed a real bug -- the prior audit's 'Quotes have no ARN form' note was wrong, GetQuoteInput's own Pattern confirms an ARN-shaped form)"}
+  UpdateQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /quotes/{QuoteIdentifier}; OutpostIdentifier tri-state (nil=no-change, empty=clear, value=set) implemented via *string wire field; never returns Conflict (none in this op's wire error set); QuoteIdentifier now resolves id-or-ARN, see GetQuote"}
+  DeleteQuote: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /quotes/{QuoteIdentifier}; QuoteIdentifier now resolves id-or-ARN, see GetQuote"}
   ListQuotes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /quotes; no filters, paginated; lazily expires each"}
   CancelCapacityTask: {wire: ok, errors: ok, state: partial, persist: ok, note: "POST /outposts/{OutpostIdentifier}/capacity/{CapacityTaskId}; transitions directly REQUESTED -> CANCELLED (skips the transient CANCELLATION_IN_PROGRESS state -- documented simplification, see gaps)"}
   GetCapacityTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET .../capacity/{CapacityTaskId}"}
@@ -73,20 +90,81 @@ families:
   tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingOutposts, the 31st service. Both Outpost.Tags and Site.Tags share one ARN-keyed store (tagging.go's resolveTaggableLocked), resourceTypeFromARN derives outposts:outpost vs outposts:site per-ARN since this is a two-resource-kind tag store (unlike Grafana's single-kind constantResourceType)."}
   route-matcher: {status: ok, note: "handler.go's routeRequest uses a map-of-topLevelRouteFunc keyed by first path segment (kept cyclomatic complexity low without a nolint) rather than one large switch; RouteMatcher prefixes on all 12 top-level path segments; MatchPriority = PriorityPathVersioned"}
 gaps:
-  - "LifeCycleStatus (bare *string, no SDK enum -- confirmed, see prior audit) is set to ACTIVE immediately on CreateOutpost and PENDING_DECOMMISSION on StartOutpostDecommission success. Both string values are this implementation's own choice (documented in consts.go), not confirmed AWS fact -- no created->active transition workflow is invented since nothing in the SDK describes one."
-  - "ARN resource-path format for Site (site/<id>), Order, Quote, CatalogItem, Asset, Connection, and Subscription IDs are UNCONFIRMED formats (op-/os-/oo-/oq-/ct-/asset-/conn-/li-/qo-/sub- prefixes are this implementation's own choice, documented per-generator in store.go). Only the Outpost ARN shape (outpost/<id>) has corroborating in-repo precedent, as the prior audit found. Order/Quote/CatalogItem have no ARN at all in this implementation (not needed by any of the 43 ops; only Outpost and Site are tagged)."
-  - "Quote pricing/OrderingRequirements are a documented simplification, not real AWS data: (1) pricing.go's basePriceOneYear/ThreeYears/FiveYears figures are an emulator-invented deterministic formula (no public Outposts pricing data exists to model against) -- real, correctly-typed Currency/MonthlyRecurringPrice/UpfrontPrice fields, synthetic numbers; (2) quotes.go's buildOrderingRequirements evaluates only 2 of the 17 real OrderingRequirementType checks (OUTPOST_ID_MISSING_ON_QUOTE_ERROR, OUTPOST_ACTIVE_CHECK_ERROR) -- the other 15 (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) are real wire-accurate enum values this backend has no state to evaluate; (3) each Quote synthesizes exactly one QuoteOption with an always-empty Specifications list (no fabricated rack/server physical-spec numbers)."
-  - "Order/CapacityTask lifecycle uses a single-hop async transition (PREPARING->COMPLETED, REQUESTED->COMPLETED) via pkgs/worker, mirroring services/grafana's scheduleWorkspaceTransition -- the intermediate states each type's SDK enum declares (Order: IN_PROGRESS/DELIVERED; CapacityTask: WAITING_FOR_EVACUATION/CANCELLATION_IN_PROGRESS) are real, wire-accurate constants this emulator never transitions through, since no rollup rule is encoded anywhere in the SDK (per the prior audit's hardest-thing #1)."
-  - "ListAssetInstances and ListBlockingInstancesForCapacityTask always return an empty result after validating their required resources exist -- this backend has no cross-service EC2-on-Outposts instance-placement data (confirmed gap, not scoped to this pass -- see 'EC2 capacity/launch integration' below). This is an honest empty result, not a stub, per parity-principles.md's guidance on real-logic-then-empty-result."
-  - "ListCatalogItems/GetCatalogItem/ListOrderableInstanceTypes are served from a small static seed table (seed_data.go: 3 catalog items, 5 orderable instance types) standing in for AWS's own published, centrally-maintained hardware catalog -- a defensible placeholder (a la grafana's ListVersions), not the authoritative AWS catalog, exactly as the prior audit anticipated."
-  - "ServiceQuotaExceededException (declared on CreateOutpost/CreateSite/CreateOrder's own wire error sets) has no trigger path in this backend -- no account-level resource-count quota model exists, and no AWS-published default quota values were available to enforce without fabricating a number. Matches services/grafana's identical treatment of AccessDeniedException. Sentinel (errQuotaExceeded) and handleError branch are wired and ready if a future pass adds a real quota."
-  - "EC2 capacity/launch integration: services/ec2's RunInstances is not wired to check or decrement this service's Outposts capacity ledger (ComputeAttributes.InstanceTypeCapacities) -- explicitly out of scope for this pass, exactly as the prior audit flagged; a real cross-service feature for a future pass."
-  - "No AWS::Outposts::* CloudFormation resource type exists in this repo, and (per the prior audit) AWS's own CloudFormation likely does not support Outposts resources either -- unchanged from the prior audit, not scoped as parity work."
-  - "Connection/StartConnection key material (ServerPublicKey, tunnel addresses, UnderlayIpAddress) is synthetic and non-cryptographic (connections.go) -- explicitly documented, matching the prior audit's narrow-scope call on this WireGuard-style, install-time-only flow."
+  - "EC2 capacity/launch integration: services/ec2's RunInstances is not wired to check or decrement this service's Outposts capacity ledger (ComputeAttributes.InstanceTypeCapacities). NOT a documentation gap this time -- confirmed this pass that services/ec2's Subnet/Instance/CapacityReservation structs carry ZERO Outpost-placement fields (no Subnet.OutpostArn, no Instance.Placement.OutpostArn, no RunInstances Placement.OutpostArn wire input; grepped services/ec2/store.go and instance_attrs.go directly). services/grafana's cross_service.go read-only pattern only works when the sibling service already exposes the needed data (DescribeSubnets/DescribeSecurityGroups did); here it doesn't yet. Requires an ec2-side change (Subnet.OutpostArn + Instance.Placement.OutpostArn + RunInstances wire input) before outposts can read it -- filed as gopherstack-9ij1, out of this session's services/outposts/-only scope. This is the reason overall stays B."
+  - "ListAssetInstances and ListBlockingInstancesForCapacityTask always return an empty result after validating their required resources exist -- same missing EC2-side data as above (this backend has no cross-service EC2-on-Outposts instance-placement source to read). This is an honest empty result, not a stub, per parity-principles.md's guidance on real-logic-then-empty-result. Blocked on gopherstack-9ij1."
+  - "Order/CapacityTask lifecycle uses a single-hop async transition (PREPARING->COMPLETED, REQUESTED->COMPLETED) via pkgs/worker, mirroring services/grafana's scheduleWorkspaceTransition -- the intermediate states each type's SDK enum declares (Order: IN_PROGRESS/DELIVERED; CapacityTask: WAITING_FOR_EVACUATION/CANCELLATION_IN_PROGRESS) are real, wire-accurate constants this emulator never transitions through. Deferred this pass for scope/effort, not unbuildable: a defensible multi-hop timeline through the same real enum values could be modeled (no rollup *rule* is SDK-encoded, but transitioning through more of the real states is strictly more accurate than fewer, unlike inventing new data)."
+  - "quotes.go's buildOrderingRequirements evaluates only 2 of the 17 real OrderingRequirementType checks (OUTPOST_ID_MISSING_ON_QUOTE_ERROR, OUTPOST_ACTIVE_CHECK_ERROR). Deferred, not unbuildable: at least one more (MAXIMUM_ALLOWED_ORDERS_CHECK_ERROR) is plausibly derivable from real order-count state without fabricating AWS data, but was not attempted this pass; the remaining ones (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) would require a support-plan/address-validation model this backend has no state for."
+structural_gaps:
+  - "LifeCycleStatus (types.Outpost.LifeCycleStatus is a bare *string) has NO SDK enum type anywhere in this module (confirmed by direct grep of types/enums.go -- zero LifeCycleStatus-named type exists) and the AWS API docs (API_Outpost.html) publish only a generic non-empty-string Pattern, no value set. Unlike the other gaps above, there is no more SDK/doc source to converge on even in principle: ACTIVE on CreateOutpost and PENDING_DECOMMISSION on StartOutpostDecommission success (consts.go) are this implementation's own defensible choice, and will remain so regardless of future effort unless AWS itself publishes an enum."
+  - "ListCatalogItems/GetCatalogItem/ListOrderableInstanceTypes are served from a small static seed table (seed_data.go: 3 catalog items, 5 orderable instance types) standing in for AWS's own published, centrally-maintained hardware catalog and pricing model. This is proprietary AWS operational/billing data (which rack/server SKUs are currently orderable, real subscription pricing) with no public machine-readable source anywhere -- not in the SDK, not in Terraform, not in AWS's docs. No amount of implementation effort in this emulator can produce the real values; this is the exact 'no billing/settlement system' case structural_gaps exists for. pricing.go's deterministic formula is the same case: real Outposts subscription pricing is not published data."
+  - "Connection/StartConnection key material (ServerPublicKey, tunnel addresses, UnderlayIpAddress -- connections.go) is synthetic and non-cryptographic. Real values require an actual WireGuard cryptographic handshake with real AWS infrastructure during physical Outpost server installation (per both ops' own doc comments) -- there is no data source an emulator could read or compute this from; it is not a knowledge gap, it is a physical-hardware-install-time cryptographic exchange, the same class of thing structural_gaps' 'no physical hardware' clause covers."
+  - "ServiceQuotaExceededException has no trigger path on CreateOrder specifically (CreateSite/CreateOutpost now enforce the two real published quotas -- see ops table). No AWS-published default per-account Order quota exists to enforce without fabricating a number, matching services/grafana's identical treatment of AccessDeniedException."
 leaks: {status: clean, note: "InMemoryBackend.Reset() closes every Outpost's and Site's tags.Tags before clearing (store.go); Close() stops the worker.Group backing every scheduled Order/CapacityTask transition timer (mirrors services/grafana's scheduleWorkspaceActivation pattern the prior audit called out as the thing to watch for)."}
 ---
 
-## Implementation summary (this pass)
+## Integration-test and gap-closure pass (2026-08-06)
+
+Added `test/integration/outposts_test.go` (10 test funcs, real `aws-sdk-go-v2` client against the
+Docker container) -- the first SDK-driven parity proof this service has had; the prior B was proven
+only by unit tests + an in-process SDK round-trip harness, which parity-principles.md rule 3
+excludes as parity evidence. Coverage: Site/Outpost CRUD + decommission + the seeded Asset, the
+real 10-Outposts-per-site quota, catalog items + filters, Quote/Order lifecycle including the new
+id-or-ARN Quote resolution, CapacityTask lifecycle including the real capacity-ledger mutation,
+Connection lifecycle, tagging across both taggable resource kinds (Outpost and Site -- the exact
+surface the repo-wide `/tags/` routing fix targeted), NotFoundException across every resource kind,
+and semantic ValidationException cases the SDK's own client-side required-field checks can't
+intercept (confirmed via reading `validators.go`: it only checks field presence, never enum content
+or string length, so "invalid enum value"/"wrong length" cases are genuine server-side proof, while
+"missing required field" cases are not -- the SDK rejects those before the request is ever sent).
+
+Fixed real bugs found by reading `docs.aws.amazon.com/outposts/latest/APIReference/` directly
+(never assumed from existing code or field names) for every ID this service generates:
+- Outpost/Site/Order/Quote/CapacityTask/LineItem/QuoteOption IDs were all 12 lowercase hex
+  characters; the real pattern for every one of them is exactly 17 (e.g. `Outpost.OutpostArn`:
+  `^arn:aws([a-z-]+)?:outposts:[a-z\d-]+:\d{12}:outpost/op-[a-f0-9]{17}$`).
+- Two wrong prefixes: `CapacityTaskId` was `ct-`, the real prefix is `cap-`
+  (`API_GetCapacityTask.html`: `^cap-[a-f0-9]{17}$`); `LineItemId` was `li-`, the real prefix is
+  `ooi-` (`API_LineItem.html`: `ooi-[a-f0-9]{17}`); `QuoteOptionId` was `qo-`, the real prefix is
+  `oqo-` (`API_Order.html`'s `QuoteOptionIdentifier`: `^oqo-[a-f0-9]{17}$`).
+- AssetId and ConnectionId both used a `-` in their generated form; their real patterns
+  (`^(\w+)$` and `^[a-zA-Z0-9+/=]{1,1024}$` respectively, from `API_StartConnection.html`) do not
+  allow `-` at all -- fixed to drop it.
+- CatalogItem seed IDs (`cat-rack-m5` etc.) didn't match the real `OR-[A-Z0-9]{7}` pattern
+  (`API_CatalogItem.html`) at all -- replaced with `OR-RACKM05`/`OR-RACKC05`/`OR-SRVC6ID`.
+- Found and fixed a real bug, not just a format mismatch: `GetQuoteInput`/`UpdateQuoteInput`/
+  `DeleteQuoteInput`/`CreateOrderInput`'s `QuoteIdentifier` all accept an ARN-shaped form
+  (`^(arn:...:quote/)?oq-[a-f0-9]{17}$}`, confirmed via `API_GetQuote.html`) -- the prior pass's
+  "Quotes have no ARN form" conclusion was wrong. Added `resolveQuoteLocked` (mirrors
+  `resolveOutpostLocked`/`resolveSiteLocked`) and wired it into all four operations.
+- Implemented real `ServiceQuotaExceededException` enforcement on `CreateSite` (100 sites per
+  Region) and `CreateOutpost` (10 Outposts per site), using AWS's own published default quotas
+  (`docs.aws.amazon.com/outposts/latest/userguide/outposts-limits.html`) -- previously declared but
+  never triggered anywhere, exactly as the prior audit left it.
+- Confirmed the "No AWS::Outposts::* CloudFormation resource type" line from the prior audit's
+  gaps was never a real parity gap (real AWS CloudFormation has no Outposts support either) and
+  dropped it entirely rather than re-filing it as a structural_gap.
+
+Reclassified 3 gaps to `structural_gaps` with individual justification (LifeCycleStatus has no SDK
+enum anywhere to converge on; catalog/pricing data is proprietary AWS-published data with no public
+source; Connection key material requires a real cryptographic hardware-install exchange) -- see the
+frontmatter for why each qualifies under the strict "data source cannot exist" bar, not just
+"wasn't verified."
+
+**Why overall stays B, not A**: the single highest-value gap flagged for this pass -- wiring
+`services/ec2`'s `RunInstances` to decrement the Outposts capacity ledger -- turned out to be a
+genuine architectural blocker, not unfinished work. `services/ec2`'s `Subnet`/`Instance`/
+`CapacityReservation` structs carry zero Outpost-placement fields (no `Subnet.OutpostArn`, no
+`Instance.Placement.OutpostArn`, no `RunInstances` `Placement.OutpostArn` wire input -- confirmed
+by directly grepping `services/ec2/store.go` and `instance_attrs.go`, not assumed). `services/grafana`'s
+`cross_service.go` read-only pattern only works because `ec2` already exposed the data grafana
+needed (`DescribeSubnets`/`DescribeSecurityGroups`); here `ec2` has no comparable surface to read.
+Closing this requires an `ec2`-side change, which is out of this session's `services/outposts/`-only
+file-ownership scope -- filed as `gopherstack-9ij1` for a future `ec2`-owning pass. Two smaller gaps
+(Order/CapacityTask single-hop lifecycle, 15-of-17 unevaluated `OrderingRequirement` checks) were
+also left open, deferred for scope/effort this pass rather than closed -- see `gaps` above for why
+each is still genuinely buildable, not structural.
+
+## Implementation summary (2026-08-01 pass)
 
 All 43 operations are implemented with real backend state (no stubs): Outpost/Site CRUD with
 one seeded COMPUTE Asset per Outpost (there is no public CreateAsset API to provision one
@@ -135,13 +213,15 @@ SDK round-trip tests would (and did, during development, before the casing was c
    no enum type at all for this field. Chose immediate `ACTIVE` on create (no invented
    transition workflow with zero SDK backing) and `PENDING_DECOMMISSION` on a successful
    `StartOutpostDecommission`. Both are this implementation's own choice, not AWS fact.
-2. **ID/ARN formats for Site/Order/Quote/CapacityTask/Asset/Connection** (`os-`/`oo-`/`oq-`/
-   `ct-`/`asset-`/`conn-` prefixes, `site/<id>` ARN resource segment): none of these have any
-   confirming source (same conclusion the audit reached). Only `outpost/<id>` has in-repo
-   precedent. Order/Quote/CatalogItem/Asset/Connection do not get ARNs at all in this
-   implementation, since no operation among the 43 actually requires one (confirmed by
-   rereading every op's input/output shape) -- only Outpost and Site ARNs are ever constructed
-   or consumed.
+2. **SUPERSEDED by the 2026-08-06 pass, see that section above.** ID/ARN formats for
+   Site/Order/Quote/CapacityTask/Asset/Connection (`os-`/`oo-`/`oq-`/`ct-`/`asset-`/`conn-`
+   prefixes, `site/<id>` ARN resource segment): at the time, none of these had a confirming
+   source and `outpost/<id>` was the only one with in-repo precedent. The 2026-08-06 pass found
+   `docs.aws.amazon.com/outposts/latest/APIReference/` publishes exact `Pattern` regexes for all
+   of them (fixed 6 real ID-format bugs) and that Quote *does* accept an ARN-shaped identifier on
+   input (`GetQuote`/`UpdateQuote`/`DeleteQuote`/`CreateOrder`'s `QuoteIdentifier`) even though it
+   has no `QuoteArn` output field -- this pass's "no ARN at all" conclusion for Quote was wrong.
+   Order/CatalogItem/Asset/Connection still have no ARN form (unchanged, still correct).
 3. **Quote pricing and OrderingRequirements are a deliberately narrow model**, not an attempt to
    fake full AWS-equivalence: a synthetic deterministic pricing formula (documented in
    pricing.go, not real AWS numbers), and only 2 of 17 real `OrderingRequirementType` checks are

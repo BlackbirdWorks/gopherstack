@@ -15,10 +15,10 @@ func TestGetCatalogItem(t *testing.T) {
 	_, client := newTestHandlerAndClient(t)
 
 	out, err := client.GetCatalogItem(t.Context(), &outpostssdk.GetCatalogItemInput{
-		CatalogItemId: aws.String("cat-rack-m5"),
+		CatalogItemId: aws.String("OR-RACKM05"),
 	})
 	require.NoError(t, err)
-	require.Equal(t, "cat-rack-m5", aws.ToString(out.CatalogItem.CatalogItemId))
+	require.Equal(t, "OR-RACKM05", aws.ToString(out.CatalogItem.CatalogItemId))
 	require.NotEmpty(t, out.CatalogItem.EC2Capacities)
 	// Quantity/MaxSize are strings on the real wire type, not numbers.
 	require.NotEmpty(t, aws.ToString(out.CatalogItem.EC2Capacities[0].Quantity))

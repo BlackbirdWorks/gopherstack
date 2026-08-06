@@ -34,6 +34,10 @@ func (b *InMemoryBackend) CreateOutpost(req *createOutpostRequest) (*Outpost, er
 		return nil, notFoundError(resourceSite, req.SiteId)
 	}
 
+	if len(b.outpostsBySite.Get(site.ID)) >= maxOutpostsPerSite {
+		return nil, quotaExceededError("maximum number of Outposts per site reached")
+	}
+
 	id := newOutpostID()
 	t := tags.New("outposts.outpost." + id + ".tags")
 	t.Merge(req.Tags)

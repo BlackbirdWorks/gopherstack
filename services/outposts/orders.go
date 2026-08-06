@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateOrder(req *createOrderRequest) (*Order, error) {
 	var quote *Quote
 
 	if req.QuoteIdentifier != "" {
-		q, quoteOK := b.quotes.Get(req.QuoteIdentifier)
+		q, quoteOK := b.resolveQuoteLocked(req.QuoteIdentifier)
 		if !quoteOK {
 			return nil, notFoundError(resourceQuote, req.QuoteIdentifier)
 		}

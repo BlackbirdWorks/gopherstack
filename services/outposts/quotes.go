@@ -169,15 +169,15 @@ func expireQuoteIfNeededLocked(q *Quote) {
 	}
 }
 
-// GetQuote returns a copy of the quote with the given ID (Quotes have no
-// ARN form -- GetQuoteInput.QuoteIdentifier is "The ID of the quote").
-func (b *InMemoryBackend) GetQuote(id string) (*Quote, error) {
+// GetQuote returns a copy of the quote identified by idOrARN (a Quote ID, or
+// an "arn:...:quote/<id>"-shaped identifier -- see resolveQuoteLocked).
+func (b *InMemoryBackend) GetQuote(idOrARN string) (*Quote, error) {
 	b.mu.Lock("GetQuote")
 	defer b.mu.Unlock()
 
-	q, ok := b.quotes.Get(id)
+	q, ok := b.resolveQuoteLocked(idOrARN)
 	if !ok {
-		return nil, notFoundError(resourceQuote, id)
+		return nil, notFoundError(resourceQuote, idOrARN)
 	}
 
 	expireQuoteIfNeededLocked(q)
@@ -190,13 +190,13 @@ func (b *InMemoryBackend) GetQuote(id string) (*Quote, error) {
 // via serializers/deserializers -- see PARITY.md), so this never rejects
 // based on the quote's current status, even ORDER_SUBMITTED/EXPIRED --
 // there is no wire-accurate error to signal that with.
-func (b *InMemoryBackend) UpdateQuote(id string, req *updateQuoteRequest) (*Quote, error) {
+func (b *InMemoryBackend) UpdateQuote(idOrARN string, req *updateQuoteRequest) (*Quote, error) {
 	b.mu.Lock("UpdateQuote")
 	defer b.mu.Unlock()
 
-	q, ok := b.quotes.Get(id)
+	q, ok := b.resolveQuoteLocked(idOrARN)
 	if !ok {
-		return nil, notFoundError(resourceQuote, id)
+		return nil, notFoundError(resourceQuote, idOrARN)
 	}
 
 	if req.CountryCode != "" {
@@ -283,14 +283,17 @@ func (b *InMemoryBackend) quoteOutpostLocked(q *Quote) *Outpost {
 	return o
 }
 
-// DeleteQuote deletes the quote with the given ID.
-func (b *InMemoryBackend) DeleteQuote(id string) error {
+// DeleteQuote deletes the quote identified by idOrARN.
+func (b *InMemoryBackend) DeleteQuote(idOrARN string) error {
 	b.mu.Lock("DeleteQuote")
 	defer b.mu.Unlock()
 
-	if !b.quotes.Delete(id) {
-		return notFoundError(resourceQuote, id)
+	q, ok := b.resolveQuoteLocked(idOrARN)
+	if !ok {
+		return notFoundError(resourceQuote, idOrARN)
 	}
+
+	b.quotes.Delete(q.ID)
 
 	return nil
 }
