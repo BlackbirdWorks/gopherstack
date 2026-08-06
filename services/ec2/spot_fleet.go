@@ -798,7 +798,7 @@ func (b *InMemoryBackend) GetSpotPlacementScores(
 
 	regions := regionNames
 	if len(regions) == 0 {
-		regions = stubRegions
+		regions = awsRegions
 	}
 
 	seedSuffix := strings.Join(instanceTypes, ",")

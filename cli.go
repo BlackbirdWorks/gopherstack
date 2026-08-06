@@ -1915,7 +1915,7 @@ func run(ctx context.Context, cli CLI) error {
 		return err
 	}
 
-	setupPersistence(ctx, persistManager, services, cli.Persist)
+	setupPersistence(ctx, persistManager, services, cli.Persist, cli.Region)
 
 	if dnsSrv != nil {
 		wireDNSRegistrars(&cli, dnsSrv)
@@ -7625,6 +7625,11 @@ func setupRegistry(
 	// it does not depend on context values that are only set by the telemetry wrapper.
 	registry.Use(chaos.Middleware(faultStore))
 
+	// Records the region of every request so the dashboard can discover which
+	// regions hold data (see /dashboard/api/system/regions) without fanning
+	// out to every AWS region.
+	registry.Use(service.RegionTrackingMiddleware(globalCfg.GetRegion()))
+
 	if enforceIAM {
 		iamBackend := findIAMBackend(services)
 		if iamBackend != nil {
@@ -8098,12 +8103,39 @@ func extractServiceName(c *echo.Context, services []service.Registerable) string
 	return ""
 }
 
+// regionTrackerPersistenceName is the persistence.Manager entry name for the
+// region-tracking set (pkgs/service.KnownRegions), distinct from any AWS
+// service name.
+const regionTrackerPersistenceName = "system-regions"
+
+// regionTrackerPersistable adapts pkgs/service's region tracker to
+// persistence.Persistable, so the dashboard's known-region set (see
+// /dashboard/api/system/regions) survives a restart.
+//
+// This persists the tracker's own recorded history rather than trying to
+// reconstruct it by scanning other services' restored state: services like
+// "account" carry a baked-in region catalog as reference data (not
+// resource data), so a byte-scan over their snapshots produces false
+// positives indistinguishable from genuine per-region resources.
+type regionTrackerPersistable struct{}
+
+func (regionTrackerPersistable) Snapshot(_ context.Context) []byte {
+	return service.SnapshotKnownRegions()
+}
+
+func (regionTrackerPersistable) Restore(_ context.Context, data []byte) error {
+	service.RestoreKnownRegions(data)
+
+	return nil
+}
+
 // setupPersistence registers all persistable services with the manager and optionally restores state.
 func setupPersistence(
 	ctx context.Context,
 	m *persistence.Manager,
 	services []service.Registerable,
 	restore bool,
+	defaultRegion string,
 ) {
 	type persistable interface {
 		Snapshot(ctx context.Context) []byte
@@ -8115,6 +8147,13 @@ func setupPersistence(
 			m.Register(svc.Name(), p)
 		}
 	}
+
+	m.Register(regionTrackerPersistenceName, regionTrackerPersistable{})
+
+	// The default region is where a request lands absent an explicit
+	// X-Amz-Region header, so it is known from the start rather than
+	// waiting for the first live request to touch it.
+	service.SeedRegions(defaultRegion)
 
 	if restore {
 		m.RestoreAll(ctx)

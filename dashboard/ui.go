@@ -803,6 +803,15 @@ func (h *DashboardHandler) registerSystemRoutes() {
 		})
 	})
 
+	// regions backs the dashboard's Region:All mode: the UI fans out
+	// per-region calls only to regions this endpoint lists, instead of every
+	// AWS region on every page load.
+	h.SubRouter.GET("/dashboard/api/system/regions", func(c *echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]any{
+			"regions": service.KnownRegions(),
+		})
+	})
+
 	// system/settings exposes the server's effective configuration to the
 	// (unauthenticated) dashboard UI. The response is built as an explicit
 	// allow-list of named fields, NOT by marshaling dashboard.Settings
