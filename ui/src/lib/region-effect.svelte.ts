@@ -1,4 +1,4 @@
-import { currentRegion } from "$lib/region.svelte";
+import { currentRegion, currentRegionSelection } from "$lib/region.svelte";
 
 /**
  * Runs `callback` immediately and again every time the active region
@@ -13,7 +13,13 @@ import { currentRegion } from "$lib/region.svelte";
  */
 export function onRegionChange(callback: () => void): void {
   $effect(() => {
+    // Track both: currentRegion() alone is not enough to detect switching
+    // into/out of "All" mode when the resolved single-region value happens
+    // not to change (e.g. toggling All on while already sitting on
+    // DEFAULT_REGION) -- currentRegionSelection() changes on every picker
+    // action, All or concrete, so this always re-fires when it should.
     currentRegion();
+    currentRegionSelection();
     callback();
   });
 }

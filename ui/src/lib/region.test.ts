@@ -15,6 +15,50 @@ describe("region store", () => {
     expect(currentRegion()).toBe("us-east-1");
   });
 
+  it("defaults to All mode for a fresh user", async () => {
+    const { currentRegionSelection, isAllRegions, ALL_REGIONS } = await import("./region.svelte");
+
+    expect(currentRegionSelection()).toBe(ALL_REGIONS);
+    expect(isAllRegions()).toBe(true);
+  });
+
+  it("All mode round-trips through localStorage", async () => {
+    const { setStoredRegion, ALL_REGIONS } = await import("./region.svelte");
+    setStoredRegion(ALL_REGIONS);
+
+    expect(window.localStorage.getItem(REGION_STORAGE_KEY)).toBe(ALL_REGIONS);
+
+    const { currentRegionSelection, isAllRegions } = await import("./region.svelte");
+    expect(currentRegionSelection()).toBe(ALL_REGIONS);
+    expect(isAllRegions()).toBe(true);
+  });
+
+  it("currentRegion() resolves ALL_REGIONS down to DEFAULT_REGION", async () => {
+    const { currentRegion, setStoredRegion, ALL_REGIONS, DEFAULT_REGION } =
+      await import("./region.svelte");
+    setStoredRegion(ALL_REGIONS);
+
+    expect(currentRegion()).toBe(DEFAULT_REGION);
+  });
+
+  it("selecting a concrete region leaves All mode", async () => {
+    const { setStoredRegion, isAllRegions, currentRegion, currentRegionSelection } =
+      await import("./region.svelte");
+    setStoredRegion("eu-west-1");
+
+    expect(isAllRegions()).toBe(false);
+    expect(currentRegion()).toBe("eu-west-1");
+    expect(currentRegionSelection()).toBe("eu-west-1");
+  });
+
+  it("regionProvider never resolves to the ALL_REGIONS sentinel", async () => {
+    const { regionProvider, setStoredRegion, ALL_REGIONS, DEFAULT_REGION } =
+      await import("./region.svelte");
+    setStoredRegion(ALL_REGIONS);
+
+    await expect(regionProvider()).resolves.toBe(DEFAULT_REGION);
+  });
+
   it("initializes from a previously stored region", async () => {
     window.localStorage.setItem(REGION_STORAGE_KEY, "eu-west-1");
 

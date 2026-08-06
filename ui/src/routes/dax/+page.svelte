@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getDAXClient } from '$lib/aws-client';
 	import {
 		DescribeClustersCommand,
@@ -32,17 +35,31 @@
 		return activeStatuses.has(String(s)) ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
 	}
 
+	// Every row carries the region its DescribeXCommand call was made
+	// against -- populated by multiRegionList below, always exactly one
+	// region in single-region mode. Row actions (delete/update/etc.) must
+	// use THIS region, not the page's shared `client()`: in All mode the
+	// same cluster/param-group/subnet-group name can legitimately exist in
+	// two different regions, so name alone can't identify which one a
+	// button click means.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
 	let activeTab = $state<'clusters' | 'paramgroups' | 'subnetgroups'>('clusters');
 	let searchQuery = $state('');
-	let clustersData = $state<Cluster[]>([]);
-	let paramgroupsData = $state<ParameterGroup[]>([]);
-	let subnetgroupsData = $state<SubnetGroup[]>([]);
+	let clustersData = $state<Regioned<Cluster>[]>([]);
+	let paramgroupsData = $state<Regioned<ParameterGroup>[]>([]);
+	let subnetgroupsData = $state<Regioned<SubnetGroup>[]>([]);
 
 	const filteredClusters = $derived(clustersData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredParamgroups = $derived(paramgroupsData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 	const filteredSubnetgroups = $derived(subnetgroupsData.filter((x) => JSON.stringify(x).toLowerCase().includes(searchQuery.toLowerCase())));
 
+	// loadData always goes through multiRegionList, even for the three
+	// Describe*Commands below -- in single-region mode that collapses to
+	// exactly one call (no behavior change from calling `client().send(...)`
+	// directly), and in All mode it fans out across every region with data.
+	// Either way every row ends up tagged with its region.
 	async function loadData() {
 		loading = true;
 		try {
@@ -52,16 +69,19 @@
 			// and double-fetch the newly selected tab's data.
 			const tab = untrack(() => activeTab);
 			if (tab === 'clusters') {
-				const resp = await client().send(new DescribeClustersCommand({}));
-				clustersData = resp.Clusters ?? [];
+				const result = await multiRegionList((region) => getDAXClient(region).send(new DescribeClustersCommand({})), (r) => r.Clusters ?? []);
+				clustersData = result.items.map(({ region, item }) => ({ ...item, region }));
+				if (result.errors.length > 0) toast.error(`Failed to load clusters from ${result.errors.length} region(s)`);
 			}
 			if (tab === 'paramgroups') {
-				const resp = await client().send(new DescribeParameterGroupsCommand({}));
-				paramgroupsData = resp.ParameterGroups ?? [];
+				const result = await multiRegionList((region) => getDAXClient(region).send(new DescribeParameterGroupsCommand({})), (r) => r.ParameterGroups ?? []);
+				paramgroupsData = result.items.map(({ region, item }) => ({ ...item, region }));
+				if (result.errors.length > 0) toast.error(`Failed to load parameter groups from ${result.errors.length} region(s)`);
 			}
 			if (tab === 'subnetgroups') {
-				const resp = await client().send(new DescribeSubnetGroupsCommand({}));
-				subnetgroupsData = resp.SubnetGroups ?? [];
+				const result = await multiRegionList((region) => getDAXClient(region).send(new DescribeSubnetGroupsCommand({})), (r) => r.SubnetGroups ?? []);
+				subnetgroupsData = result.items.map(({ region, item }) => ({ ...item, region }));
+				if (result.errors.length > 0) toast.error(`Failed to load subnet groups from ${result.errors.length} region(s)`);
 			}
 		} catch (e) {
 			toast.error('Failed to load DAX data: ' + String(e));
@@ -95,46 +115,46 @@
 			toast.error(String(e));
 		}
 	}
-	async function deleteCluster(name: string) {
+	async function deleteCluster(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Cluster', message: `Delete ${name}?` })) return;
 		try {
-			await client().send(new DeleteClusterCommand({ ClusterName: name }));
+			await getDAXClient(region).send(new DeleteClusterCommand({ ClusterName: name }));
 			toast.success("Cluster deleted");
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
 		}
 	}
-	async function updateCluster(name: string) {
+	async function updateCluster(name: string, region: string) {
 		// eslint-disable-next-line no-alert
 		const desc = prompt("New Description:");
 		if (desc === null) return;
 		try {
-			await client().send(new UpdateClusterCommand({ ClusterName: name, Description: desc }));
+			await getDAXClient(region).send(new UpdateClusterCommand({ ClusterName: name, Description: desc }));
 			toast.success("Cluster updated");
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
 		}
 	}
-	async function increaseRep(name: string) {
+	async function increaseRep(name: string, region: string) {
 		try {
-			const c = clustersData.find(x => x.ClusterName === name);
+			const c = clustersData.find(x => x.ClusterName === name && x.region === region);
 			if (!c) return;
-			await client().send(new IncreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: (c.TotalNodes ?? 1) + 1 }));
+			await getDAXClient(region).send(new IncreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: (c.TotalNodes ?? 1) + 1 }));
 			toast.success("Replication factor increased");
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
 		}
 	}
-	async function decreaseRep(name: string) {
+	async function decreaseRep(name: string, region: string) {
 		try {
-			const c = clustersData.find(x => x.ClusterName === name);
+			const c = clustersData.find(x => x.ClusterName === name && x.region === region);
 			if (!c) return;
 			const n = (c.TotalNodes ?? 1) - 1;
 			if (n < 1) return toast.error("Cannot decrease below 1");
-			await client().send(new DecreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: n }));
+			await getDAXClient(region).send(new DecreaseReplicationFactorCommand({ ClusterName: name, NewReplicationFactor: n }));
 			toast.success("Replication factor decreased");
 			loadData();
 		} catch (e) {
@@ -154,17 +174,17 @@
 			toast.error(String(e));
 		}
 	}
-	async function deleteParamGroup(name: string) {
+	async function deleteParamGroup(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Parameter Group', message: `Delete ${name}?` })) return;
 		try {
-			await client().send(new DeleteParameterGroupCommand({ ParameterGroupName: name }));
+			await getDAXClient(region).send(new DeleteParameterGroupCommand({ ParameterGroupName: name }));
 			toast.success("Parameter Group deleted");
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
 		}
 	}
-	async function updateParamGroup(name: string) {
+	async function updateParamGroup(name: string, region: string) {
 		// eslint-disable-next-line no-alert
 		const pName = prompt("Parameter Name to update:");
 		if (!pName) return;
@@ -172,7 +192,7 @@
 		const pValue = prompt("Parameter Value:");
 		if (!pValue) return;
 		try {
-			await client().send(new UpdateParameterGroupCommand({
+			await getDAXClient(region).send(new UpdateParameterGroupCommand({
 				ParameterGroupName: name,
 				ParameterNameValues: [{ ParameterName: pName, ParameterValue: pValue }]
 			}));
@@ -195,22 +215,22 @@
 			toast.error(String(e));
 		}
 	}
-	async function deleteSubnetGroup(name: string) {
+	async function deleteSubnetGroup(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Subnet Group', message: `Delete ${name}?` })) return;
 		try {
-			await client().send(new DeleteSubnetGroupCommand({ SubnetGroupName: name }));
+			await getDAXClient(region).send(new DeleteSubnetGroupCommand({ SubnetGroupName: name }));
 			toast.success("Subnet Group deleted");
 			loadData();
 		} catch (e) {
 			toast.error(String(e));
 		}
 	}
-	async function updateSubnetGroup(name: string) {
+	async function updateSubnetGroup(name: string, region: string) {
 		// eslint-disable-next-line no-alert
 		const desc = prompt("New Description:");
 		if (desc === null) return;
 		try {
-			await client().send(new UpdateSubnetGroupCommand({ SubnetGroupName: name, Description: desc }));
+			await getDAXClient(region).send(new UpdateSubnetGroupCommand({ SubnetGroupName: name, Description: desc }));
 			toast.success("Subnet Group updated");
 			loadData();
 		} catch (e) {
@@ -233,10 +253,13 @@
 				<RefreshCw class="w-4 h-4" /> Refresh
 			</button>
 			{#if activeTab === 'clusters'}
+				<WriteRegionHint />
 				<button onclick={createCluster} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create cluster</button>
 			{:else if activeTab === 'paramgroups'}
+				<WriteRegionHint />
 				<button onclick={createParamGroup} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create param group</button>
 			{:else if activeTab === 'subnetgroups'}
+				<WriteRegionHint />
 				<button onclick={createSubnetGroup} class="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm"><Plus class="w-4 h-4"/> Create subnet group</button>
 			{/if}
 		</div>
@@ -270,7 +293,10 @@
 								<div class="flex items-center gap-3 min-w-0">
 									<Zap class="w-5 h-5 text-indigo-500 shrink-0" />
 									<div class="min-w-0">
-										<p class="font-medium text-gray-900 dark:text-white truncate">{a.ClusterName ?? '(unnamed)'}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white truncate">{a.ClusterName ?? '(unnamed)'}</p>
+											<RegionChip region={a.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{`${a.NodeType ?? '-'} · ${a.TotalNodes ?? 0} nodes`}</p>
 									</div>
 								</div>
@@ -278,10 +304,10 @@
 									{#if a.Status}
 										<span class="text-xs px-2 py-1 rounded-full shrink-0 {statusClass(a.Status)}">{a.Status}</span>
 									{/if}
-									<button onclick={() => decreaseRep(a.ClusterName!)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">- Rep</button>
-									<button onclick={() => increaseRep(a.ClusterName!)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">+ Rep</button>
-									<button onclick={() => updateCluster(a.ClusterName!)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit</button>
-									<button onclick={() => deleteCluster(a.ClusterName!)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
+									<button onclick={() => decreaseRep(a.ClusterName!, a.region)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">- Rep</button>
+									<button onclick={() => increaseRep(a.ClusterName!, a.region)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">+ Rep</button>
+									<button onclick={() => updateCluster(a.ClusterName!, a.region)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit</button>
+									<button onclick={() => deleteCluster(a.ClusterName!, a.region)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
 								</div>
 							</div>
 						{/each}
@@ -297,13 +323,16 @@
 								<div class="flex items-center gap-3 min-w-0">
 									<Zap class="w-5 h-5 text-indigo-500 shrink-0" />
 									<div class="min-w-0">
-										<p class="font-medium text-gray-900 dark:text-white truncate">{a.ParameterGroupName ?? '(unnamed)'}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white truncate">{a.ParameterGroupName ?? '(unnamed)'}</p>
+											<RegionChip region={a.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{`${a.Description ?? ''}`}</p>
 									</div>
 								</div>
 								<div class="flex items-center gap-2">
-									<button onclick={() => updateParamGroup(a.ParameterGroupName!)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit Params</button>
-									<button onclick={() => deleteParamGroup(a.ParameterGroupName!)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
+									<button onclick={() => updateParamGroup(a.ParameterGroupName!, a.region)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit Params</button>
+									<button onclick={() => deleteParamGroup(a.ParameterGroupName!, a.region)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
 								</div>
 							</div>
 						{/each}
@@ -319,13 +348,16 @@
 								<div class="flex items-center gap-3 min-w-0">
 									<Zap class="w-5 h-5 text-indigo-500 shrink-0" />
 									<div class="min-w-0">
-										<p class="font-medium text-gray-900 dark:text-white truncate">{a.SubnetGroupName ?? '(unnamed)'}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white truncate">{a.SubnetGroupName ?? '(unnamed)'}</p>
+											<RegionChip region={a.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400 truncate">{`VPC: ${a.VpcId ?? '-'}`}</p>
 									</div>
 								</div>
 								<div class="flex items-center gap-2">
-									<button onclick={() => updateSubnetGroup(a.SubnetGroupName!)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit</button>
-									<button onclick={() => deleteSubnetGroup(a.SubnetGroupName!)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
+									<button onclick={() => updateSubnetGroup(a.SubnetGroupName!, a.region)} class="text-xs px-2 py-1 rounded border hover:bg-gray-200 dark:hover:bg-slate-600">Edit</button>
+									<button onclick={() => deleteSubnetGroup(a.SubnetGroupName!, a.region)} class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4"/></button>
 								</div>
 							</div>
 						{/each}
