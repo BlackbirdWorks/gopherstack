@@ -133,7 +133,6 @@ func (h *Handler) handleCreateDeployment(
 		FileExistsBehavior:            in.FileExistsBehavior,
 		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
-		Creator:                       "user",
 		Revision:                      revisionFromWire(in.Revision),
 	}
 

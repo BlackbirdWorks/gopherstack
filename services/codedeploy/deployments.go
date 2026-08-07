@@ -10,6 +10,8 @@ import (
 const (
 	deployIDChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	deployIDLen   = 9
+
+	defaultDeploymentCreator = "user"
 )
 
 // simulatedDeployDuration is the simulated time for a deployment to complete.
@@ -40,7 +42,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 	}
 
 	if opts.Creator == "" {
-		opts.Creator = "user"
+		opts.Creator = defaultDeploymentCreator
 	}
 
 	deployID := generateDeploymentID()

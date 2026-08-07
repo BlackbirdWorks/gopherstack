@@ -60,6 +60,7 @@ const (
 	keyHostedZoneID       = "hostedZoneId"
 	keyPrivateDNSEnabled  = "privateDnsEnabled"
 	keyNameRequired       = "name is required"
+	keyDestinationARN     = "destinationArn"
 
 	keyType                        = "type"
 	keyVpcIdentifier               = "vpcIdentifier"

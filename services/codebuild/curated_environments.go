@@ -9,7 +9,7 @@ func (b *InMemoryBackend) ListCuratedEnvironmentImages() []map[string]any {
 				{
 					"language": "PYTHON",
 					"images": []map[string]any{
-						{"name": "aws/codebuild/standard:7.0"},
+						{keyName: "aws/codebuild/standard:7.0"},
 					},
 				},
 			},

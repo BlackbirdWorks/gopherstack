@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.0   # version audited against
-last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
-last_audit_date: 2026-07-25
+last_audit_commit: d2851f3db666dbb499891c5ede8af1534c00ddf0
+last_audit_date: 2026-08-07
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
                       # bug that caused the prior A->B downgrade is fixed and proven.
                       # dispatchKBDocuments (handler.go) now assigns PUT on the base
@@ -54,7 +54,13 @@ ops:
     ListAgentVersions) was misrouted to a fictional CreateAgentVersion op instead
     of List — fixed this sweep, see Notes"}
   GetAgentVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAgentVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAgentVersion: {wire: ok, errors: ok, state: fixed, persist: ok,
+    note: "(this sweep, gopherstack-rvyd) newly reachable ghost-row gap:
+    once numbered versions carry their own action-group/collaborator/KB-assoc
+    snapshot rows (see snapshotSubResourcesLocked below), deleting the
+    version left those rows behind. Fixed via a shared
+    deleteSubResourcesLocked helper, also now used by DeleteAgent's
+    per-version cleanup loop (agents.go) in place of its inlined duplicate."}
   CreateAgentActionGroup: {wire: fixed, errors: fixed, state: ok, persist: ok,
     note: "was ignoring the path agentVersion, always storing under DRAFT
     regardless of what the client sent. Real AWS constrains this URI path
@@ -63,7 +69,11 @@ ops:
     Verified via the AWS API reference (not just SDK source, which only
     encodes shape/required-ness, not path pattern constraints). Fixed:
     validates agentVersion == DRAFT, real ValidationException otherwise."}
-  GetAgentActionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAgentActionGroup: {wire: ok, errors: ok, state: fixed, persist: ok,
+    note: "(this sweep, gopherstack-rvyd) against a numbered agentVersion,
+    used to always 404 — no numbered version ever had action-group rows.
+    Fixed by snapshotting DRAFT's action groups into every new numbered
+    version at creation time — see Notes: version-snapshot-propagation."}
   UpdateAgentActionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAgentActionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentActionGroups: {wire: fixed, errors: ok, state: ok, persist: ok,
@@ -92,7 +102,9 @@ ops:
   AssociateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
     CreateAgentActionGroup, confirmed via the API reference — fixed"}
-  GetAgentCollaborator: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAgentCollaborator: {wire: ok, errors: ok, state: fixed, persist: ok,
+    note: "(this sweep, gopherstack-rvyd) same numbered-version snapshot fix
+    as GetAgentActionGroup — see Notes: version-snapshot-propagation."}
   UpdateAgentCollaborator: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateAgentCollaborator: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentCollaborators: {wire: fixed, errors: ok, state: ok, persist: ok,
@@ -111,7 +123,9 @@ ops:
   AssociateAgentKnowledgeBase: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
     CreateAgentActionGroup, confirmed via the API reference — fixed"}
-  GetAgentKnowledgeBase: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetAgentKnowledgeBase: {wire: ok, errors: ok, state: fixed, persist: ok,
+    note: "(this sweep, gopherstack-rvyd) same numbered-version snapshot fix
+    as GetAgentActionGroup — see Notes: version-snapshot-propagation."}
   UpdateAgentKnowledgeBase: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateAgentKnowledgeBase: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentKnowledgeBases: {wire: fixed, errors: ok, state: ok, persist: ok,
@@ -316,20 +330,12 @@ gaps:
     reads real state and returns the AWS-accurate empty-array shape); not a
     disguised no-op flag, just an easy target if flow-definition validation
     logic is ever wanted. Unchanged this sweep."
-  - "Real AWS snapshots an agent's action groups, collaborators, and agent-KB
-    associations into each numbered agent version at the moment
-    CreateAgentAlias auto-creates it (confirmed via GetAgentActionGroup's API
-    reference: its {agentVersion} path pattern is
-    `(DRAFT|[0-9]{0,4}[1-9][0-9]{0,4})`, i.e. Get/List/Update/Delete accept
-    non-DRAFT versions too, unlike Create/Associate which are DRAFT-only).
-    gopherstack's newAgentVersionLocked only snapshots the Agent's own
-    top-level fields, not these three sub-resource families, so
-    GetAgentActionGroup/ListAgentCollaborators/etc. against a real numbered
-    version always come back empty instead of a DRAFT-at-creation-time
-    snapshot. This is a deeper feature gap (snapshot-forward propagation),
-    not a simple bug; not fixed this sweep — found while verifying the new
-    DRAFT-only Create/Associate validation below, listed here for the next
-    sweep. (bd: TODO — file gopherstack-bedrockagent-version-snapshot)"
+  - "FIXED (gopherstack-rvyd, 2026-08-07). Was: 'Real AWS snapshots an
+    agent's action groups, collaborators, and agent-KB associations into
+    each numbered agent version at the moment CreateAgentAlias auto-creates
+    it ... gopherstack's newAgentVersionLocked only snapshots the Agent's
+    own top-level fields, not these three sub-resource families.' See Notes:
+    version-snapshot-propagation for the fix."
 deferred:
   - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration,
     vectorIngestionConfiguration, knowledgeBaseConfiguration,
@@ -351,7 +357,10 @@ deferred:
     (S3/web/Confluence/etc.) have no actual external content for this
     emulator to scan, so their statistics are always zero regardless of the
     dataSourceConfiguration blob — only documents pushed via the separate
-    IngestKnowledgeBaseDocuments custom-content API are counted."
+    IngestKnowledgeBaseDocuments custom-content API are counted.
+    Re-confirmed accurate and unchanged this sweep (gopherstack-rvyd,
+    2026-08-07) — still no prior-job snapshot mechanism to diff against, so
+    still correctly zero rather than fabricated."
 leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
   timers, or janitors — every operation is synchronous request-scoped state
   mutation guarded by b.mu (lockmetrics-style single coarse sync.RWMutex,
@@ -366,6 +375,38 @@ leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
 ---
 
 ## Notes
+
+**version-snapshot-propagation (gopherstack-rvyd, 2026-08-07 sweep).** Real
+AWS snapshots an agent's DRAFT action groups, collaborators, and agent-KB
+associations into a numbered agent version at the moment that version is
+created (confirmed via GetAgentActionGroup's API reference: its
+`{agentVersion}` path pattern `(DRAFT|[0-9]{0,4}[1-9][0-9]{0,4})` accepts
+non-DRAFT versions, so a real client can Get/List these against a numbered
+version and expects DRAFT's content at that point in time, not an empty
+result). gopherstack's `newAgentVersionLocked` (`agent_versions.go`)
+previously only copied the `Agent`'s own top-level fields into the new
+`AgentVersion` row; the three sub-resource families were left unsnapshotted,
+so every numbered-version Get/List for them always came back empty/404.
+
+Fixed with `snapshotSubResourcesLocked`, called from `newAgentVersionLocked`
+right after the new `AgentVersion` row is written: it reads DRAFT's current
+`actionGroups`/`agentCollaborators`/`agentKBAssocs` rows via their existing
+`byAgentVersion` index and writes a shallow copy of each into the new
+version's scope with `AgentVersion` rewritten to the new version string.
+Since `newAgentVersionLocked` is the sole path to a numbered version
+(`CreateAgentAlias`'s auto-create-on-empty-`routingConfiguration` and the
+internal-only `CreateAgentVersion`), this closes the gap on both paths.
+
+This introduced a new ghost-row surface for `DeleteAgentVersion`, which
+previously never had anything to clean up (numbered versions never carried
+sub-resource rows before this fix) — deleting a version now must also remove
+its snapshot rows or they become permanent orphans. Fixed via a shared
+`deleteSubResourcesLocked` helper, which also replaces `DeleteAgent`'s
+previously-inlined per-version cleanup loop (`agents.go`) — same logic, one
+definition. Locked in with `agent_version_snapshot_test.go`
+(`TestNewAgentVersion_SnapshotsSubResources`,
+`TestDeleteAgentVersion_CascadesSubResources`), both confirmed failing
+against the pre-fix code before the fix landed.
 
 **Route-matcher class bug (the main finding this sweep).** bedrockagent is
 restjson1. For every *nested* collection resource under an agent or knowledge

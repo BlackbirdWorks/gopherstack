@@ -17,6 +17,7 @@ import (
 
 const (
 	codebuildTargetPrefix = "CodeBuild_20161006."
+	keyName               = "name"
 )
 
 var (

@@ -167,7 +167,7 @@ func (h *Handler) handleDescribeTestCases(
 	result := make([]map[string]any, 0, len(cases))
 	for _, tc := range cases {
 		result = append(result, map[string]any{
-			"name":     tc.Name,
+			keyName:    tc.Name,
 			"status":   tc.Status,
 			"duration": tc.Duration,
 		})
