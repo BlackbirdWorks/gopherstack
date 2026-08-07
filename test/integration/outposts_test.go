@@ -113,6 +113,40 @@ func seededAssetID(
 	return aws.ToString(out.Assets[0].AssetId)
 }
 
+// awaitOrderStatus polls GetOrder until it reports want.
+func awaitOrderStatus(
+	ctx context.Context,
+	t *testing.T,
+	client *outpostssdk.Client,
+	orderID string,
+	want outpoststypes.OrderStatus,
+) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.GetOrder(ctx, &outpostssdk.GetOrderInput{OrderId: aws.String(orderID)})
+
+		return err == nil && out.Order.Status == want
+	}, 5*time.Second, 50*time.Millisecond, "order should reach status %s", want)
+}
+
+// awaitCapacityTaskStatus polls GetCapacityTask until it reports want.
+func awaitCapacityTaskStatus(
+	ctx context.Context, t *testing.T, client *outpostssdk.Client, outpostID, taskID string,
+	want outpoststypes.CapacityTaskStatus,
+) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.GetCapacityTask(ctx, &outpostssdk.GetCapacityTaskInput{
+			OutpostIdentifier: aws.String(outpostID),
+			CapacityTaskId:    aws.String(taskID),
+		})
+
+		return err == nil && out.CapacityTaskStatus == want
+	}, 5*time.Second, 50*time.Millisecond, "capacity task should reach status %s", want)
+}
+
 // quoteARNFromOutpostARN builds a Quote ARN from a real Outpost ARN by
 // swapping the resource segment -- both share the same
 // "arn:{partition}:outposts:{region}:{account}:" prefix (confirmed via
@@ -580,16 +614,49 @@ func TestIntegration_Outposts_OrderAndQuoteLifecycle(t *testing.T) {
 		_, _ = client.CancelOrder(cctx, &outpostssdk.CancelOrderInput{OrderId: aws.String(orderID)})
 	})
 
-	t.Run("completes_async", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		require.Eventually(t, func() bool {
-			out, getErr := client.GetOrder(
+	t.Run(
+		"transitions_through_real_intermediate_states",
+		func(t *testing.T) { //nolint:paralleltest // sequential by design
+			awaitOrderStatus(ctx, t, client, orderID, outpoststypes.OrderStatusInProgress)
+
+			inProgress, err := client.GetOrder(
 				ctx,
 				&outpostssdk.GetOrderInput{OrderId: aws.String(orderID)},
 			)
+			require.NoError(t, err, "GetOrder should succeed")
+			assert.Equal(
+				t,
+				outpoststypes.LineItemStatusBuilding,
+				inProgress.Order.LineItems[0].Status,
+			)
 
-			return getErr == nil && out.Order.Status == outpoststypes.OrderStatusCompleted
-		}, 5*time.Second, 50*time.Millisecond, "order should transition PREPARING -> COMPLETED")
-	})
+			awaitOrderStatus(ctx, t, client, orderID, outpoststypes.OrderStatusDelivered)
+
+			delivered, err := client.GetOrder(
+				ctx,
+				&outpostssdk.GetOrderInput{OrderId: aws.String(orderID)},
+			)
+			require.NoError(t, err, "GetOrder should succeed")
+			assert.Equal(
+				t,
+				outpoststypes.LineItemStatusDelivered,
+				delivered.Order.LineItems[0].Status,
+			)
+
+			awaitOrderStatus(ctx, t, client, orderID, outpoststypes.OrderStatusCompleted)
+
+			completed, err := client.GetOrder(
+				ctx,
+				&outpostssdk.GetOrderInput{OrderId: aws.String(orderID)},
+			)
+			require.NoError(t, err, "GetOrder should succeed")
+			assert.Equal(
+				t,
+				outpoststypes.LineItemStatusInstalled,
+				completed.Order.LineItems[0].Status,
+			)
+		},
+	)
 
 	t.Run("quote_consumed", func(t *testing.T) { //nolint:paralleltest // sequential by design
 		out, err := client.GetQuote(
@@ -672,17 +739,38 @@ func TestIntegration_Outposts_CapacityTaskLifecycle(t *testing.T) {
 
 	//nolint:paralleltest // sequential by design
 	t.Run(
+		"transitions_through_in_progress_before_completing",
+		func(t *testing.T) {
+			awaitCapacityTaskStatus(
+				ctx,
+				t,
+				client,
+				outpostID,
+				taskID,
+				outpoststypes.CapacityTaskStatusInProgress,
+			)
+
+			preCompletion, err := client.GetOutpostInstanceTypes(
+				ctx,
+				&outpostssdk.GetOutpostInstanceTypesInput{OutpostId: aws.String(outpostID)},
+			)
+			require.NoError(t, err, "GetOutpostInstanceTypes should succeed")
+			assert.Empty(t, preCompletion.InstanceTypes, "capacity must not apply until COMPLETED")
+		},
+	)
+
+	//nolint:paralleltest // sequential by design
+	t.Run(
 		"completes_async_and_mutates_capacity_ledger",
 		func(t *testing.T) {
-			require.Eventually(t, func() bool {
-				out, getErr := client.GetCapacityTask(ctx, &outpostssdk.GetCapacityTaskInput{
-					OutpostIdentifier: aws.String(outpostID),
-					CapacityTaskId:    aws.String(taskID),
-				})
-
-				return getErr == nil &&
-					out.CapacityTaskStatus == outpoststypes.CapacityTaskStatusCompleted
-			}, 5*time.Second, 50*time.Millisecond, "capacity task should transition REQUESTED -> COMPLETED")
+			awaitCapacityTaskStatus(
+				ctx,
+				t,
+				client,
+				outpostID,
+				taskID,
+				outpoststypes.CapacityTaskStatusCompleted,
+			)
 
 			typesOut, err := client.GetOutpostInstanceTypes(
 				ctx,
@@ -784,6 +872,50 @@ func TestIntegration_Outposts_CapacityTaskLifecycle(t *testing.T) {
 				typesOut.InstanceTypes,
 				1,
 				"a DryRun task must not mutate the capacity ledger",
+			)
+		},
+	)
+
+	//nolint:paralleltest // sequential by design
+	t.Run(
+		"cancel_pauses_at_cancellation_in_progress",
+		func(t *testing.T) {
+			cancelOut, err := client.StartCapacityTask(ctx, &outpostssdk.StartCapacityTaskInput{
+				OutpostIdentifier: aws.String(outpostID),
+				AssetId:           aws.String(assetID),
+				InstancePools: []outpoststypes.InstanceTypeCapacity{
+					{InstanceType: aws.String("c5.2xlarge"), Count: 1},
+				},
+			})
+			require.NoError(t, err, "StartCapacityTask should succeed")
+
+			cancelTaskID := aws.ToString(cancelOut.CapacityTaskId)
+
+			_, err = client.CancelCapacityTask(ctx, &outpostssdk.CancelCapacityTaskInput{
+				OutpostIdentifier: aws.String(outpostID),
+				CapacityTaskId:    aws.String(cancelTaskID),
+			})
+			require.NoError(t, err, "CancelCapacityTask should succeed")
+
+			immediate, err := client.GetCapacityTask(ctx, &outpostssdk.GetCapacityTaskInput{
+				OutpostIdentifier: aws.String(outpostID),
+				CapacityTaskId:    aws.String(cancelTaskID),
+			})
+			require.NoError(t, err, "GetCapacityTask should succeed")
+			assert.Equal(
+				t,
+				outpoststypes.CapacityTaskStatusCancellationInProgress,
+				immediate.CapacityTaskStatus,
+				"cancellation should pause at the transient state before resolving async",
+			)
+
+			awaitCapacityTaskStatus(
+				ctx,
+				t,
+				client,
+				outpostID,
+				cancelTaskID,
+				outpoststypes.CapacityTaskStatusCancelled,
 			)
 		},
 	)
@@ -1091,7 +1223,10 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 		return getErr == nil && out.CapacityTaskStatus == outpoststypes.CapacityTaskStatusCompleted
 	}, 5*time.Second, 50*time.Millisecond, "capacity task should complete before launching instances")
 
-	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.90.0.0/16")})
+	vpcOut, err := ec2Client.CreateVpc(
+		ctx,
+		&ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.90.0.0/16")},
+	)
 	require.NoError(t, err, "CreateVpc should succeed")
 
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
@@ -1114,7 +1249,10 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 	t.Cleanup(func() {
 		cctx, cancel := outpostsCleanupCtx()
 		defer cancel()
-		_, _ = ec2Client.DeleteSubnet(cctx, &ec2sdk.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+		_, _ = ec2Client.DeleteSubnet(
+			cctx,
+			&ec2sdk.DeleteSubnetInput{SubnetId: aws.String(subnetID)},
+		)
 	})
 
 	runOut, err := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
@@ -1124,7 +1262,11 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 		MinCount:     aws.Int32(1),
 		MaxCount:     aws.Int32(1),
 	})
-	require.NoError(t, err, "RunInstances onto an Outpost subnet with available capacity should succeed")
+	require.NoError(
+		t,
+		err,
+		"RunInstances onto an Outpost subnet with available capacity should succeed",
+	)
 	require.Len(t, runOut.Instances, 1)
 	assert.Equal(t, outpostARN, aws.ToString(runOut.Instances[0].OutpostArn),
 		"the launched Instance should carry the real OutpostArn")
@@ -1132,16 +1274,22 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 	instanceID := aws.ToString(runOut.Instances[0].InstanceId)
 
 	t.Run("capacity_drops_after_launch", func(t *testing.T) {
-		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(ctx, &outpostssdk.GetOutpostInstanceTypesInput{
-			OutpostId: aws.String(outpostID),
-		})
+		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(
+			ctx,
+			&outpostssdk.GetOutpostInstanceTypesInput{
+				OutpostId: aws.String(outpostID),
+			},
+		)
 		require.NoError(t, typesErr, "GetOutpostInstanceTypes should succeed")
 		assert.Empty(t, typesOut.InstanceTypes,
 			"the single configured unit of capacity was consumed by RunInstances")
 
-		listOut, listErr := outpostsClient.ListAssetInstances(ctx, &outpostssdk.ListAssetInstancesInput{
-			OutpostIdentifier: aws.String(outpostID),
-		})
+		listOut, listErr := outpostsClient.ListAssetInstances(
+			ctx,
+			&outpostssdk.ListAssetInstancesInput{
+				OutpostIdentifier: aws.String(outpostID),
+			},
+		)
 		require.NoError(t, listErr, "ListAssetInstances should succeed")
 		require.Len(t, listOut.AssetInstances, 1)
 		assert.Equal(t, instanceID, aws.ToString(listOut.AssetInstances[0].InstanceId))
@@ -1158,7 +1306,11 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 			MinCount:     aws.Int32(1),
 			MaxCount:     aws.Int32(1),
 		})
-		require.Error(t, secondErr, "a second launch with no remaining configured capacity should be rejected")
+		require.Error(
+			t,
+			secondErr,
+			"a second launch with no remaining configured capacity should be rejected",
+		)
 
 		var apiErr smithy.APIError
 		require.ErrorAs(t, secondErr, &apiErr)
@@ -1171,18 +1323,33 @@ func TestIntegration_Outposts_EC2CapacityCoupling(t *testing.T) {
 	require.NoError(t, err, "TerminateInstances should succeed")
 
 	t.Run("capacity_returns_after_termination", func(t *testing.T) {
-		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(ctx, &outpostssdk.GetOutpostInstanceTypesInput{
-			OutpostId: aws.String(outpostID),
-		})
+		typesOut, typesErr := outpostsClient.GetOutpostInstanceTypes(
+			ctx,
+			&outpostssdk.GetOutpostInstanceTypesInput{
+				OutpostId: aws.String(outpostID),
+			},
+		)
 		require.NoError(t, typesErr, "GetOutpostInstanceTypes should succeed")
-		require.Len(t, typesOut.InstanceTypes, 1, "terminating the instance should return its capacity")
+		require.Len(
+			t,
+			typesOut.InstanceTypes,
+			1,
+			"terminating the instance should return its capacity",
+		)
 		assert.Equal(t, instanceType, aws.ToString(typesOut.InstanceTypes[0].InstanceType))
 
-		listOut, listErr := outpostsClient.ListAssetInstances(ctx, &outpostssdk.ListAssetInstancesInput{
-			OutpostIdentifier: aws.String(outpostID),
-		})
+		listOut, listErr := outpostsClient.ListAssetInstances(
+			ctx,
+			&outpostssdk.ListAssetInstancesInput{
+				OutpostIdentifier: aws.String(outpostID),
+			},
+		)
 		require.NoError(t, listErr, "ListAssetInstances should succeed")
-		assert.Empty(t, listOut.AssetInstances, "the terminated instance should no longer be listed as running")
+		assert.Empty(
+			t,
+			listOut.AssetInstances,
+			"the terminated instance should no longer be listed as running",
+		)
 
 		// The freed capacity can be consumed again.
 		runAgainOut, runErr := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
@@ -1219,7 +1386,10 @@ func TestIntegration_Outposts_EC2CapacityCoupling_NonexistentOutpostArn(t *testi
 	ctx := t.Context()
 	ec2Client := createEC2Client(t)
 
-	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")})
+	vpcOut, err := ec2Client.CreateVpc(
+		ctx,
+		&ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.91.0.0/16")},
+	)
 	require.NoError(t, err, "CreateVpc should succeed")
 
 	vpcID := aws.ToString(vpcOut.Vpc.VpcId)

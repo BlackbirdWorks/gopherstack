@@ -36,22 +36,29 @@ const (
 	ResourceTypeOrder   = "ORDER"
 )
 
-// OrderStatus wire values (types.OrderStatus). This backend only ever
-// produces Preparing, Completed, Cancelled, and Error -- the deprecated
-// (RECEIVED/PENDING/PROCESSING/INSTALLING/FULFILLED) and intermediate
-// (IN_PROGRESS/DELIVERED) values are real, wire-accurate constants this
-// emulator declares no transition path through. See PARITY.md's "Order
-// lifecycle" note for the single-hop simplification this mirrors from
-// services/grafana's workspace-transition pattern.
+// OrderStatus wire values (types.OrderStatus) this backend produces:
+// PREPARING -> IN_PROGRESS -> DELIVERED -> COMPLETED (async, see
+// scheduleOrderCompletion), or CANCELLED. The deprecated values
+// (RECEIVED/PENDING/PROCESSING/INSTALLING/FULFILLED) and ERROR are real,
+// wire-accurate constants this emulator declares no transition path to --
+// deprecated because AWS itself no longer produces them, ERROR because this
+// backend has no failure trigger to base one on. See PARITY.md.
 const (
-	OrderStatusPreparing = "PREPARING"
-	OrderStatusCompleted = "COMPLETED"
-	OrderStatusCancelled = "CANCELLED"
+	OrderStatusPreparing  = "PREPARING"
+	OrderStatusInProgress = "IN_PROGRESS"
+	OrderStatusDelivered  = "DELIVERED"
+	OrderStatusCompleted  = "COMPLETED"
+	OrderStatusCancelled  = "CANCELLED"
 )
 
-// LineItemStatus wire values (types.LineItemStatus) this backend produces.
+// LineItemStatus wire values (types.LineItemStatus) this backend produces,
+// in lockstep with the owning Order's status transition (see
+// scheduleOrderCompletion) -- an invented but documented rollup rule, since
+// the SDK does not encode one (PARITY.md's hardest-things #1).
 const (
 	LineItemStatusPreparing = "PREPARING"
+	LineItemStatusBuilding  = "BUILDING"
+	LineItemStatusDelivered = "DELIVERED"
 	LineItemStatusInstalled = "INSTALLED"
 	LineItemStatusCancelled = "CANCELLED"
 )
@@ -63,15 +70,24 @@ const (
 	QuoteStatusExpired        = "EXPIRED"
 )
 
-// OrderingRequirementType/OrderingRequirementStatus subset this backend
-// actually evaluates -- see quotes.go's buildOrderingRequirements. The
-// other 15 OrderingRequirementType enum values declared by the SDK
-// (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) are real,
-// wire-accurate constants this emulator has no backing state to evaluate --
-// see PARITY.md.
+// OrderingRequirementType subset this backend evaluates from real state --
+// see quotes.go's buildOrderingRequirements for the full 17-check bucketing
+// and PARITY.md for why the remaining 5 (MAXIMUM_ALLOWED_ORDERS_CHECK_ERROR,
+// OUTPOST_GENERATION_MISMATCH_ERROR, UNSUPPORTED, ENTERPRISE_SUPPORT_ERROR,
+// OUTPOST_STATE_CHANGED_ERROR) are not.
 const (
-	OrderingRequirementTypeOutpostIDMissing = "OUTPOST_ID_MISSING_ON_QUOTE_ERROR"
-	OrderingRequirementTypeOutpostActive    = "OUTPOST_ACTIVE_CHECK_ERROR"
+	OrderingRequirementTypeOutpostIDMissing                    = "OUTPOST_ID_MISSING_ON_QUOTE_ERROR"
+	OrderingRequirementTypeOutpostActive                       = "OUTPOST_ACTIVE_CHECK_ERROR"
+	OrderingRequirementTypeOutpostNotFound                     = "OUTPOST_NOT_FOUND_ERROR"
+	OrderingRequirementTypeOutpostRenewalRequired              = "OUTPOST_RENEWAL_REQUIRED_ERROR"
+	OrderingRequirementTypeOperatingAddressExistence           = "OPERATING_ADDRESS_EXISTENCE_CHECK_ERROR"
+	OrderingRequirementTypeShippingAddressExistence            = "SHIPPING_ADDRESS_EXISTENCE_CHECK_ERROR"
+	OrderingRequirementTypeCountryCodeMismatch                 = "COUNTRY_CODE_MISMATCH_CHECK_ERROR"
+	OrderingRequirementTypeValidZipCode                        = "VALID_ZIP_CODE_CHECK_ERROR"
+	OrderingRequirementTypeRackPhysicalProperties              = "RACK_PHYSICAL_PROPERTIES_CHECK_ERROR"
+	OrderingRequirementTypeShippingAddressMissingContactName   = "SHIPPING_ADDRESS_MISSING_CONTACT_NAME_ERROR"
+	OrderingRequirementTypeShippingAddressMissingContactNumber = "SHIPPING_ADDRESS_MISSING_CONTACT_NUMBER_ERROR"
+	OrderingRequirementTypeShippingAddressMissingContactInfo   = "SHIPPING_ADDRESS_MISSING_CONTACT_INFO_ERROR"
 
 	OrderingRequirementStatusPass   = "PASS"
 	OrderingRequirementStatusFail   = "FAIL"
@@ -79,14 +95,20 @@ const (
 )
 
 // CapacityTaskStatus wire values (types.CapacityTaskStatus) this backend
-// produces. WAITING_FOR_EVACUATION never occurs: it requires a live blocking
-// EC2 instance, and this backend has no cross-service instance-placement
-// data (see ListAssetInstances/ListBlockingInstancesForCapacityTask, always
-// empty) -- see PARITY.md.
+// produces: REQUESTED -> IN_PROGRESS -> COMPLETED (async, see
+// scheduleCapacityTaskCompletion), or REQUESTED/IN_PROGRESS ->
+// CANCELLATION_IN_PROGRESS -> CANCELLED (see CancelCapacityTask).
+// WAITING_FOR_EVACUATION never occurs: StartCapacityTask's model here is
+// additive-only (mergeInstanceTypeCapacity never shrinks
+// InstanceTypeCapacities), so no running instance can ever legitimately
+// block a task -- see PARITY.md. FAILED never occurs: this backend has no
+// failure trigger to base one on.
 const (
-	CapacityTaskStatusRequested = "REQUESTED"
-	CapacityTaskStatusCompleted = "COMPLETED"
-	CapacityTaskStatusCancelled = "CANCELLED"
+	CapacityTaskStatusRequested              = "REQUESTED"
+	CapacityTaskStatusInProgress             = "IN_PROGRESS"
+	CapacityTaskStatusCompleted              = "COMPLETED"
+	CapacityTaskStatusCancellationInProgress = "CANCELLATION_IN_PROGRESS"
+	CapacityTaskStatusCancelled              = "CANCELLED"
 )
 
 // DecommissionRequestStatus wire values (types.DecommissionRequestStatus).

@@ -53,36 +53,35 @@ func toQuoteConstraintModel(w quoteConstraintWire) QuoteConstraint {
 	return QuoteConstraint(w)
 }
 
-// buildOrderingRequirements evaluates the subset of the 17
-// OrderingRequirementType checks this backend has real state to answer --
-// see consts.go and PARITY.md's "Quote pricing model" note for why the
-// other 15 (ENTERPRISE_SUPPORT_ERROR, VALID_ZIP_CODE_CHECK_ERROR, etc.) are
-// not fabricated here.
-func buildOrderingRequirements(outpost *Outpost) []OrderingRequirement {
+// siteForOutpostLocked resolves outpost's Site, or nil if outpost is nil or
+// its Site no longer exists. Callers must hold b.mu.
+func (b *InMemoryBackend) siteForOutpostLocked(outpost *Outpost) *Site {
 	if outpost == nil {
-		return []OrderingRequirement{
-			{
-				OrderingRequirementType: OrderingRequirementTypeOutpostIDMissing,
-				Status:                  OrderingRequirementStatusFail,
-				StatusMessage:           "no Outpost is associated with this quote",
-			},
-			{
-				OrderingRequirementType: OrderingRequirementTypeOutpostActive,
-				Status:                  OrderingRequirementStatusExempt,
-				StatusMessage:           "no Outpost to check",
-			},
-		}
+		return nil
 	}
 
-	activeStatus := OrderingRequirementStatusFail
-	if outpost.LifeCycleStatus == LifeCycleStatusActive {
-		activeStatus = OrderingRequirementStatusPass
+	s, ok := b.sites.Get(outpost.SiteID)
+	if !ok {
+		return nil
 	}
 
-	return []OrderingRequirement{
-		{OrderingRequirementType: OrderingRequirementTypeOutpostIDMissing, Status: OrderingRequirementStatusPass},
-		{OrderingRequirementType: OrderingRequirementTypeOutpostActive, Status: activeStatus},
-	}
+	return s
+}
+
+// buildOrderingRequirementsLocked resolves outpost's Site and delegates to
+// buildOrderingRequirements (see ordering_requirements.go for the full
+// 17-check bucketing). Callers must hold b.mu.
+func (b *InMemoryBackend) buildOrderingRequirementsLocked(
+	outpostID string,
+	outpost *Outpost,
+	countryCode string,
+) []OrderingRequirement {
+	return buildOrderingRequirements(
+		outpostID,
+		outpost,
+		b.siteForOutpostLocked(outpost),
+		countryCode,
+	)
 }
 
 // CreateQuote creates a new quote, optionally associated with an existing
@@ -99,7 +98,10 @@ func (b *InMemoryBackend) CreateQuote(req *createQuoteRequest) (*Quote, error) {
 	b.mu.Lock("CreateQuote")
 	defer b.mu.Unlock()
 
-	var outpost *Outpost
+	var (
+		outpost   *Outpost
+		outpostID string
+	)
 
 	if req.OutpostIdentifier != "" {
 		o, ok := b.resolveOutpostLocked(req.OutpostIdentifier)
@@ -108,6 +110,7 @@ func (b *InMemoryBackend) CreateQuote(req *createQuoteRequest) (*Quote, error) {
 		}
 
 		outpost = o
+		outpostID = o.ID
 	}
 
 	now := time.Now().UTC()
@@ -123,8 +126,15 @@ func (b *InMemoryBackend) CreateQuote(req *createQuoteRequest) (*Quote, error) {
 		QuoteOptionID:           newQuoteOptionID(),
 		RequestedPaymentOptions: cloneStrs(req.RequestedPaymentOptions),
 		RequestedPaymentTerms:   cloneStrs(req.RequestedPaymentTerms),
-		OrderingRequirements:    buildOrderingRequirements(outpost),
-		PricingOptions:          buildPricingOptions(req.RequestedPaymentOptions, req.RequestedPaymentTerms),
+		OrderingRequirements: b.buildOrderingRequirementsLocked(
+			outpostID,
+			outpost,
+			req.CountryCode,
+		),
+		PricingOptions: buildPricingOptions(
+			req.RequestedPaymentOptions,
+			req.RequestedPaymentTerms,
+		),
 	}
 
 	if outpost != nil {
@@ -164,7 +174,8 @@ func (q *Quote) clone() *Quote {
 // expireQuoteIfNeededLocked flips q to EXPIRED if its validity window has
 // elapsed. Callers must hold b.mu (write lock).
 func expireQuoteIfNeededLocked(q *Quote) {
-	if q.Status == QuoteStatusCreated && !q.ExpirationDate.IsZero() && time.Now().After(q.ExpirationDate) {
+	if q.Status == QuoteStatusCreated && !q.ExpirationDate.IsZero() &&
+		time.Now().After(q.ExpirationDate) {
 		q.Status = QuoteStatusExpired
 	}
 }
@@ -234,7 +245,11 @@ func (b *InMemoryBackend) UpdateQuote(idOrARN string, req *updateQuoteRequest) (
 	}
 
 	q.PricingOptions = buildPricingOptions(q.RequestedPaymentOptions, q.RequestedPaymentTerms)
-	q.OrderingRequirements = buildOrderingRequirements(b.quoteOutpostLocked(q))
+	q.OrderingRequirements = b.buildOrderingRequirementsLocked(
+		q.OutpostID,
+		b.quoteOutpostLocked(q),
+		q.CountryCode,
+	)
 
 	expireQuoteIfNeededLocked(q)
 
@@ -245,7 +260,10 @@ func (b *InMemoryBackend) UpdateQuote(idOrARN string, req *updateQuoteRequest) (
 // tri-state semantics: nil means "omitted, no change"; a non-nil empty
 // string means "clear the association" (per the SDK's own doc comment);
 // anything else must resolve to a real Outpost. Callers must hold b.mu.
-func (b *InMemoryBackend) applyQuoteOutpostIdentifierLocked(q *Quote, outpostIdentifier *string) error {
+func (b *InMemoryBackend) applyQuoteOutpostIdentifierLocked(
+	q *Quote,
+	outpostIdentifier *string,
+) error {
 	if outpostIdentifier == nil {
 		return nil
 	}

@@ -129,20 +129,51 @@ func (o *Order) clone() *Order {
 	return &cp
 }
 
-// scheduleOrderCompletion schedules a single-hop async transition of order
-// id from PREPARING directly to COMPLETED, mirroring services/grafana's
-// scheduleWorkspaceTransition. Real Order/LineItem status rollup rules are
-// not encoded anywhere in the SDK (see PARITY.md's hardest-things #1); this
-// backend picks the simplest defensible model -- one hop, no intermediate
-// IN_PROGRESS/DELIVERED stop -- rather than inventing an unverifiable
-// multi-stage timeline.
+// scheduleOrderCompletion schedules order id's async multi-hop transition
+// through the real SDK-declared, non-deprecated OrderStatus timeline:
+// PREPARING -> IN_PROGRESS -> DELIVERED -> COMPLETED, one hop per chained
+// b.work.After call (mirroring services/mgn's exportimport.go
+// scheduleExportLocked, which chains Pending -> Started -> Succeeded the
+// same way). Each hop's LineItems move in lockstep -- an invented but
+// documented rollup rule (see consts.go), since the SDK does not encode
+// one. A hop that finds the order not in the status it expects (already
+// cancelled, or restored from a snapshot mid-flight with no pending timer)
+// silently stops advancing the chain rather than forcing a transition.
 func (b *InMemoryBackend) scheduleOrderCompletion(id string) {
-	b.work.After("OrderCompletion", orderTransitionDelay, func() {
-		b.mu.Lock("OrderCompletion-async")
+	b.work.After("OrderInProgress", orderTransitionDelay, func() {
+		b.mu.Lock("OrderInProgress-async")
+		advanced := b.advanceOrderStatusLocked(id, OrderStatusPreparing, OrderStatusInProgress, LineItemStatusBuilding)
+		b.mu.Unlock()
+
+		if !advanced {
+			return
+		}
+
+		b.scheduleOrderDelivery(id)
+	})
+}
+
+func (b *InMemoryBackend) scheduleOrderDelivery(id string) {
+	b.work.After("OrderDelivered", orderTransitionDelay, func() {
+		b.mu.Lock("OrderDelivered-async")
+		advanced := b.advanceOrderStatusLocked(id, OrderStatusInProgress, OrderStatusDelivered, LineItemStatusDelivered)
+		b.mu.Unlock()
+
+		if !advanced {
+			return
+		}
+
+		b.scheduleOrderCompletionFinal(id)
+	})
+}
+
+func (b *InMemoryBackend) scheduleOrderCompletionFinal(id string) {
+	b.work.After("OrderCompleted", orderTransitionDelay, func() {
+		b.mu.Lock("OrderCompleted-async")
 		defer b.mu.Unlock()
 
 		o, ok := b.orders.Get(id)
-		if !ok || o.Status != OrderStatusPreparing {
+		if !ok || o.Status != OrderStatusDelivered {
 			return
 		}
 
@@ -157,15 +188,41 @@ func (b *InMemoryBackend) scheduleOrderCompletion(id string) {
 	})
 }
 
+// advanceOrderStatusLocked moves order id from fromStatus to toStatus and
+// sets every LineItem's Status to lineItemStatus, but only if the order is
+// still in fromStatus (a concurrent CancelOrder, or a restart with no
+// pending timer, means it isn't) -- reports whether it advanced. Callers
+// must hold b.mu.
+func (b *InMemoryBackend) advanceOrderStatusLocked(id, fromStatus, toStatus, lineItemStatus string) bool {
+	o, ok := b.orders.Get(id)
+	if !ok || o.Status != fromStatus {
+		return false
+	}
+
+	o.Status = toStatus
+	for i := range o.LineItems {
+		o.LineItems[i].Status = lineItemStatus
+	}
+
+	return true
+}
+
 // recordOriginalSubscriptionLocked appends an ORIGINAL Subscription to the
 // order's Outpost once the order completes, so GetOutpostBillingInformation
-// has real accumulated state to report even before any CreateRenewal call.
-// Callers must hold b.mu.
+// has real accumulated state to report even before any CreateRenewal call,
+// and sets the Outpost's ContractEndDate from the order's own PaymentTerm
+// (termYears, shared with CreateRenewal's identical computation in
+// pricing.go/renewals.go) so OUTPOST_RENEWAL_REQUIRED_ERROR has real state
+// to evaluate even before any renewal is ever created. Callers must hold
+// b.mu.
 func (b *InMemoryBackend) recordOriginalSubscriptionLocked(o *Order) {
 	outpost, ok := b.outposts.Get(o.OutpostID)
 	if !ok {
 		return
 	}
+
+	endDate := o.OrderFulfilledDate.AddDate(termYears(o.PaymentTerm), 0, 0)
+	outpost.ContractEndDate = endDate
 
 	outpost.Subscriptions = append(outpost.Subscriptions, Subscription{
 		SubscriptionID:     newSubscriptionID(),
@@ -173,6 +230,7 @@ func (b *InMemoryBackend) recordOriginalSubscriptionLocked(o *Order) {
 		SubscriptionStatus: SubscriptionStatusActive,
 		Currency:           currencyUSD,
 		BeginDate:          o.OrderFulfilledDate,
+		EndDate:            endDate,
 		OrderIDs:           []string{o.ID},
 	})
 }
@@ -193,7 +251,11 @@ func (b *InMemoryBackend) GetOrder(id string) (*Order, error) {
 }
 
 // CancelOrder cancels the order with the given ID. Rejected
-// (ConflictException) once the order has already reached a terminal state.
+// (ConflictException) once the order has reached DELIVERED or a terminal
+// state -- an order still PREPARING or IN_PROGRESS remains cancellable
+// (a documented generalization of the original PREPARING-only rule, now
+// that this backend actually transitions through IN_PROGRESS -- see
+// scheduleOrderCompletion).
 func (b *InMemoryBackend) CancelOrder(id string) error {
 	b.mu.Lock("CancelOrder")
 	defer b.mu.Unlock()
@@ -203,7 +265,7 @@ func (b *InMemoryBackend) CancelOrder(id string) error {
 		return notFoundError(resourceOrder, id)
 	}
 
-	if o.Status != OrderStatusPreparing {
+	if o.Status != OrderStatusPreparing && o.Status != OrderStatusInProgress {
 		return conflictErrorWithResource(ResourceTypeOrder, id, "order is not cancellable in status: "+o.Status)
 	}
 

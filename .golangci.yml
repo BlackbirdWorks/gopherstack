@@ -502,6 +502,16 @@ linters:
       # injectable RNG field, so it must live in the same package.
       - path: 'route53/routing_test.go'
         linters: [ testpackage ]
+      # ordering_requirements_test.go white-box tests buildOrderingRequirements
+      # and its unexported per-check helpers directly with hand-built Site/
+      # Outpost structs -- several of the real OrderingRequirementType checks
+      # (SHIPPING_ADDRESS_MISSING_CONTACT_*) need a partially-populated Address
+      # the real SDK client's own validators.go refuses to construct (every
+      # Address field is client-side required once OperatingAddress/
+      # ShippingAddress is non-nil), so this cannot be reached through the
+      # real SDK client the way this package's other tests are.
+      - path: 'outposts/ordering_requirements_test.go'
+        linters: [ testpackage ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'
