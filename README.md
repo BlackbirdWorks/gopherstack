@@ -596,7 +596,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 6 | 2 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
-| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 4 gaps |
+| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 2 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 2 gaps; 1 deferred |
@@ -629,13 +629,13 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | clean |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 6 gaps; 3 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 7 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 2 gaps; 2 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 19 | 8 gaps; 4 deferred |
-| [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 2 gaps; 1 deferred |
+| [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
 | [X-Ray](services/xray/README.md) | A | 38 | 6 gaps; 1 deferred |
 

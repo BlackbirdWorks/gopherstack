@@ -80,28 +80,63 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	domain, err := original.CreateDomain(ctx, "domain-1", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	repo, err := original.CreateRepository(ctx, "domain-1", "repo-1", "a repo", map[string]string{"team": "core"},
-		[]string{"upstream-1"})
+	repo, err := original.CreateRepository(
+		ctx,
+		"domain-1",
+		"repo-1",
+		"a repo",
+		map[string]string{"team": "core"},
+		[]string{"upstream-1"},
+	)
 	require.NoError(t, err)
 
-	pg, err := original.CreatePackageGroup(ctx, "domain-1", "/npm/pkg/*", "a group", "contact@example.com", nil)
+	pg, err := original.CreatePackageGroup(
+		ctx,
+		"domain-1",
+		"/npm/pkg/*",
+		"a group",
+		"contact@example.com",
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Auto-creates a stub Package entry.
 	_, err = original.DescribePackage(ctx, "domain-1", "repo-1", "npm", "", "pkg-1")
 	require.NoError(t, err)
 
-	pv, err := original.PublishPackageVersion(ctx, "domain-1", "repo-1", "npm", "", "pkg-1", "1.0.0",
-		codeartifact.AssetInfo{Name: "pkg-1-1.0.0.tgz", Size: 4, SHA256: "abcd", Content: []byte("data")})
+	pv, err := original.PublishPackageVersion(
+		ctx,
+		"domain-1",
+		"repo-1",
+		"npm",
+		"",
+		"pkg-1",
+		"1.0.0",
+		codeartifact.AssetInfo{
+			Name:    "pkg-1-1.0.0.tgz",
+			Size:    4,
+			SHA256:  "abcd",
+			Content: []byte("data"),
+		},
+	)
 	require.NoError(t, err)
 
 	_, err = original.AssociateExternalConnection(ctx, "domain-1", "repo-1", "public:npmjs")
 	require.NoError(t, err)
 
-	repoPol, err := original.PutRepositoryPermissionsPolicy(ctx, "domain-1", "repo-1", `{"Version":"2012-10-17"}`)
+	repoPol, err := original.PutRepositoryPermissionsPolicy(
+		ctx,
+		"domain-1",
+		"repo-1",
+		`{"Version":"2012-10-17"}`,
+	)
 	require.NoError(t, err)
 
-	domainPol, err := original.PutDomainPermissionsPolicy(ctx, "domain-1", `{"Version":"2012-10-17"}`)
+	domainPol, err := original.PutDomainPermissionsPolicy(
+		ctx,
+		"domain-1",
+		`{"Version":"2012-10-17"}`,
+	)
 	require.NoError(t, err)
 
 	snap := original.Snapshot(ctx)
@@ -196,7 +231,13 @@ func TestHandler_Persistence(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=persist-domain", nil)
-	doRequest(t, h, http.MethodPost, "/v1/repository?domain=persist-domain&repository=persist-repo", nil)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/repository?domain=persist-domain&repository=persist-repo",
+		nil,
+	)
 
 	// Snapshot and restore.
 	snap := h.Snapshot(t.Context())
@@ -208,7 +249,13 @@ func TestHandler_Persistence(t *testing.T) {
 	descRec := doRequest(t, h2, http.MethodGet, "/v1/domain?domain=persist-domain", nil)
 	assert.Equal(t, http.StatusOK, descRec.Code)
 
-	repoRec := doRequest(t, h2, http.MethodGet, "/v1/repository?domain=persist-domain&repository=persist-repo", nil)
+	repoRec := doRequest(
+		t,
+		h2,
+		http.MethodGet,
+		"/v1/repository?domain=persist-domain&repository=persist-repo",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, repoRec.Code)
 }
 
@@ -217,10 +264,22 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=persist2-domain", nil)
-	doRequest(t, h, http.MethodPost, "/v1/repository?domain=persist2-domain&repository=persist2-repo", nil)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/repository?domain=persist2-domain&repository=persist2-repo",
+		nil,
+	)
 
 	// Create package group.
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=persist2-domain", map[string]any{"pattern": "/npm/*"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=persist2-domain",
+		map[string]any{"packageGroup": "/npm/*"},
+	)
 
 	// Create package version entry.
 	doRequest(
@@ -259,7 +318,13 @@ func TestHandler_NewOperations_Persistence(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Verify package group survived.
-	pgRec := doRequest(t, h2, http.MethodGet, "/v1/package-group?domain=persist2-domain&package-group=/npm/*", nil)
+	pgRec := doRequest(
+		t,
+		h2,
+		http.MethodGet,
+		"/v1/package-group?domain=persist2-domain&package-group=/npm/*",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, pgRec.Code)
 
 	// Verify package version survived.

@@ -29,13 +29,13 @@ func TestHandler_CreatePackageGroup(t *testing.T) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pg-domain", nil)
 			},
 			path:       "/v1/package-group?domain=pg-domain",
-			body:       map[string]any{"pattern": "/*"},
+			body:       map[string]any{"packageGroup": "/*"},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing_domain",
 			path:       "/v1/package-group",
-			body:       map[string]any{"pattern": "/*"},
+			body:       map[string]any{"packageGroup": "/*"},
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -50,17 +50,23 @@ func TestHandler_CreatePackageGroup(t *testing.T) {
 		{
 			name:       "domain_not_found",
 			path:       "/v1/package-group?domain=nonexistent",
-			body:       map[string]any{"pattern": "/*"},
+			body:       map[string]any{"packageGroup": "/*"},
 			wantStatus: http.StatusNotFound,
 		},
 		{
 			name: "duplicate",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=pg-dup", nil)
-				doRequest(t, h, http.MethodPost, "/v1/package-group?domain=pg-dup", map[string]any{"pattern": "/npm/*"})
+				doRequest(
+					t,
+					h,
+					http.MethodPost,
+					"/v1/package-group?domain=pg-dup",
+					map[string]any{"packageGroup": "/npm/*"},
+				)
 			},
 			path:       "/v1/package-group?domain=pg-dup",
-			body:       map[string]any{"pattern": "/npm/*"},
+			body:       map[string]any{"packageGroup": "/npm/*"},
 			wantStatus: http.StatusConflict,
 		},
 	}
@@ -96,11 +102,17 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=crud-domain", nil)
 
 	// Create
-	createRec := doRequest(t, h, http.MethodPost, "/v1/package-group?domain=crud-domain", map[string]any{
-		"pattern":     "/npm/mygroup/*",
-		"description": "test group",
-		"tags":        []map[string]any{{"key": "env", "value": "test"}},
-	})
+	createRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=crud-domain",
+		map[string]any{
+			"packageGroup": "/npm/mygroup/*",
+			"description":  "test group",
+			"tags":         []map[string]any{{"key": "env", "value": "test"}},
+		},
+	)
 	assert.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
@@ -110,7 +122,13 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 	assert.Equal(t, "test group", pg["description"])
 
 	// Describe
-	descRec := doRequest(t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*", nil)
+	descRec := doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*",
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, descRec.Code)
 
 	// Delete
@@ -125,7 +143,11 @@ func TestHandler_PackageGroupCRUD(t *testing.T) {
 
 	// Verify gone
 	descRec2 := doRequest(
-		t, h, http.MethodGet, "/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-group?domain=crud-domain&package-group=/npm/mygroup/*",
+		nil,
 	)
 	assert.Equal(t, http.StatusNotFound, descRec2.Code)
 }
@@ -203,21 +225,21 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lspg-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 				doRequest(
 					t,
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lspg-domain",
-					map[string]any{"pattern": "/npm/react/*"},
+					map[string]any{"packageGroup": "/npm/react/*"},
 				)
 				doRequest(
 					t,
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lspg-domain",
-					map[string]any{"pattern": "/pypi/*"},
+					map[string]any{"packageGroup": "/pypi/*"},
 				)
 			},
 			path:       "/v1/package-groups/sub-groups?domain=lspg-domain&package-group=/npm/*",
@@ -233,7 +255,7 @@ func TestHandler_ListSubPackageGroups(t *testing.T) {
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lspg2-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-groups/sub-groups?domain=lspg2-domain&package-group=/npm/*",
@@ -285,10 +307,16 @@ func TestHandler_PackageGroupTags(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=pgt-domain", nil)
 
-	createRec := doRequest(t, h, http.MethodPost, "/v1/package-group?domain=pgt-domain", map[string]any{
-		"pattern": "/npm/*",
-		"tags":    []map[string]any{{"key": "env", "value": "prod"}},
-	})
+	createRec := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=pgt-domain",
+		map[string]any{
+			"packageGroup": "/npm/*",
+			"tags":         []map[string]any{{"key": "env", "value": "prod"}},
+		},
+	)
 	require.Equal(t, http.StatusOK, createRec.Code)
 
 	var createResp map[string]any
@@ -313,10 +341,34 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 	setupDomain(t, h, "hier-domain")
 
 	// Create parent and child package groups.
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/*"})
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/react/*"})
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/npm/lodash/*"})
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=hier-domain", map[string]any{"pattern": "/pypi/*"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=hier-domain",
+		map[string]any{"packageGroup": "/npm/*"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=hier-domain",
+		map[string]any{"packageGroup": "/npm/react/*"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=hier-domain",
+		map[string]any{"packageGroup": "/npm/lodash/*"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=hier-domain",
+		map[string]any{"packageGroup": "/pypi/*"},
+	)
 
 	// ListPackageGroups should return all 4.
 	allRec := doRequest(t, h, http.MethodPost, "/v1/package-groups?domain=hier-domain", nil)
@@ -328,7 +380,11 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 
 	// ListSubPackageGroups for /npm/* should return 2 sub-groups.
 	subRec := doRequest(
-		t, h, http.MethodGet, "/v1/package-groups/sub-groups?domain=hier-domain&package-group=/npm/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-groups/sub-groups?domain=hier-domain&package-group=/npm/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, subRec.Code)
 	var subResp map[string]any
@@ -338,7 +394,11 @@ func TestHandler_PackageGroupHierarchy(t *testing.T) {
 
 	// ListSubPackageGroups for /pypi/* should return 0 sub-groups.
 	subRec2 := doRequest(
-		t, h, http.MethodGet, "/v1/package-groups/sub-groups?domain=hier-domain&package-group=/pypi/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-groups/sub-groups?domain=hier-domain&package-group=/pypi/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, subRec2.Code)
 	var subResp2 map[string]any
@@ -395,10 +455,23 @@ func TestBackend_GetAssociatedPackageGroup(t *testing.T) {
 	_, err := b.CreateDomain(context.Background(), "apg-domain", "", nil)
 	require.NoError(t, err)
 
-	pg, err := b.GetAssociatedPackageGroup(context.Background(), "apg-domain", "npm", "", "lodash")
+	pg, assocType, err := b.GetAssociatedPackageGroup(
+		context.Background(),
+		"apg-domain",
+		"npm",
+		"",
+		"lodash",
+	)
 	require.NoError(t, err)
 	assert.Nil(t, pg)
+	assert.Empty(t, assocType)
 
-	_, err = b.GetAssociatedPackageGroup(context.Background(), "nonexistent", "npm", "", "lodash")
+	_, _, err = b.GetAssociatedPackageGroup(
+		context.Background(),
+		"nonexistent",
+		"npm",
+		"",
+		"lodash",
+	)
 	require.Error(t, err)
 }

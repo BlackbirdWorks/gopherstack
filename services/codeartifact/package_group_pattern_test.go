@@ -175,6 +175,96 @@ func TestGroupPattern_Matches(t *testing.T) {
 	}
 }
 
+func TestNormalizeWeak(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "casefold", input: "AsyncStorage", want: "asyncstorage"},
+		{name: "dash_to_dot", input: "foo-bar", want: "foo.bar"},
+		{name: "dot_unchanged", input: "foo.bar", want: "foo.bar"},
+		{name: "underscore_to_dot", input: "foo_bar", want: "foo.bar"},
+		{name: "run_of_separators_collapses", input: "foo..bar", want: "foo.bar"},
+		{name: "mixed_run_collapses", input: "foo-._bar", want: "foo.bar"},
+		{name: "no_separator_stays_distinct", input: "foobar", want: "foobar"},
+		{name: "empty", input: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, normalizeWeak(tt.input))
+		})
+	}
+}
+
+// TestGroupPattern_MatchesWeak pins AWS's documented weak-match examples
+// from "Strong and weak match" / "Additional variations": case variations
+// and dash/dot/underscore-run variations of a pattern's value weak-match
+// (but do not strong-match) that pattern.
+func TestGroupPattern_MatchesWeak(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                       string
+		pattern                    string
+		format, namespace, pkgName string
+		wantStrong, wantWeak       bool
+	}{
+		{
+			name: "exact_match_is_strong_and_weak", pattern: "/npm//anycompany-spicy-client$",
+			format: "npm", pkgName: "anycompany-spicy-client", wantStrong: true, wantWeak: true,
+		},
+		{
+			name: "case_variation_is_weak_only", pattern: "/npm//anycompany-spicy-client$",
+			format: "npm", pkgName: "AnyCompany-Spicy-Client", wantStrong: false, wantWeak: true,
+		},
+		{
+			name: "dash_dot_variation_is_weak_only", pattern: "/npm//my-package$",
+			format: "npm", pkgName: "my.package", wantStrong: false, wantWeak: true,
+		},
+		{
+			name: "underscore_variation_is_weak_only", pattern: "/npm//my-package$",
+			format: "npm", pkgName: "my_package", wantStrong: false, wantWeak: true,
+		},
+		{
+			name: "doubled_dash_variation_is_weak_only", pattern: "/npm//my-package$",
+			format: "npm", pkgName: "my--package", wantStrong: false, wantWeak: true,
+		},
+		{
+			name: "removed_separator_does_not_match", pattern: "/npm//my-package$",
+			format: "npm", pkgName: "mypackage", wantStrong: false, wantWeak: false,
+		},
+		{
+			name: "different_package_does_not_weak_match", pattern: "/npm//my-package$",
+			format: "npm", pkgName: "other-package", wantStrong: false, wantWeak: false,
+		},
+		{
+			name: "prefix_weak_match_case", pattern: "/npm/space/foo~",
+			format: "npm", namespace: "space", pkgName: "FOO-bar", wantStrong: false, wantWeak: true,
+		},
+		{
+			name: "wildcard_always_strong", pattern: "/npm/*",
+			format: "npm", pkgName: "Anything", wantStrong: true, wantWeak: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			p, err := parseGroupPattern(tt.pattern)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStrong, p.matches(tt.format, tt.namespace, tt.pkgName), "strong match")
+			assert.Equal(t, tt.wantWeak, p.matchesWeak(tt.format, tt.namespace, tt.pkgName), "weak match")
+		})
+	}
+}
+
 func TestIsProperSubsetPattern(t *testing.T) {
 	t.Parallel()
 

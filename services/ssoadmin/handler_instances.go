@@ -90,6 +90,20 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	// ListTagsForResource, matching every other taggable ssoadmin resource;
 	// see awsAwsjson11_deserializeOpDocumentDescribeInstanceOutput in the real
 	// SDK's deserializers.go.
+	//
+	// EncryptionConfigurationDetails: this SDK version has no
+	// Put/UpdateInstanceEncryptionConfiguration op at all -- encryption
+	// configuration is read-only via this API -- so every instance this
+	// backend can produce has the one true default state real AWS documents
+	// for an instance that was never (and can never be, via this API)
+	// switched to a customer-managed KMS key: ENABLED / AWS_OWNED_KMS_KEY,
+	// no KmsKeyArn. This is a real constant, not per-instance fabricated data.
+	//
+	// StatusReason (top-level, distinct from EncryptionConfigurationDetails'
+	// own EncryptionStatusReason) is documented as "particularly useful when
+	// an instance is in a non-ACTIVE state" -- this backend's instances are
+	// always ACTIVE (no CREATE_FAILED/DELETING-with-error path modeled), so
+	// omitting it is wire-correct, not a gap.
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyInstanceArn:    inst.InstanceArn,
 		"OwnerAccountId":  inst.OwnerAccountID,
@@ -97,6 +111,10 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 		keyName:           inst.Name,
 		keyStatus:         inst.Status,
 		"CreatedDate":     float64(inst.CreatedDate.Unix()),
+		"EncryptionConfigurationDetails": map[string]any{
+			"EncryptionStatus": "ENABLED",
+			"KeyType":          "AWS_OWNED_KMS_KEY",
+		},
 	})
 }
 

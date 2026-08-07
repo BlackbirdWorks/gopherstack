@@ -141,7 +141,17 @@ const (
 	pathV1PackageVersionReadme          = "/v1/package/version/readme"
 	pathV1PackageVersionAssets          = "/v1/package/version/assets"
 	pathV1PackageVersionDependencies    = "/v1/package/version/dependencies"
-	pathV1PackageVersionsPublish        = "/v1/package/versions/publish"
+	// pathV1PackageVersionPublish is PublishPackageVersion's real path --
+	// verified against aws-sdk-go-v2's generated serializers.go
+	// (httpbinding.SplitURI("/v1/package/version/publish")). Uses singular
+	// "version" like the other single-package-version ops (asset/readme/
+	// assets/dependencies), unlike the plural "versions" batch ops
+	// (copy/delete/dispose/update_status) -- a prior version of this constant
+	// used the plural form, which a real aws-sdk-go-v2 client's
+	// PublishPackageVersion call would never have matched (404
+	// UnknownOperationException), caught by
+	// test/integration/codeartifact_test.go's SDK-driven coverage.
+	pathV1PackageVersionPublish = "/v1/package/version/publish"
 	// PutPackageOriginConfiguration has no path of its own in the real API: it shares
 	// "/v1/package" (POST) with DescribePackage (GET) and DeletePackage (DELETE) -- see
 	// parsePackageRoute. There is no separate "/v1/package/origin-configuration" path.
@@ -284,7 +294,7 @@ func isPackageExtendedPath(path string) bool {
 	return path == pathV1PackageVersionsDispose || path == pathV1PackageVersionsUpdateStatus ||
 		path == pathV1PackageVersionAsset || path == pathV1PackageVersionReadme ||
 		path == pathV1PackageVersionAssets || path == pathV1PackageVersionDependencies ||
-		path == pathV1PackageVersionsPublish || path == pathV1PackageGroupAllowedRepos ||
+		path == pathV1PackageVersionPublish || path == pathV1PackageGroupAllowedRepos ||
 		path == pathV1PackageGroupOriginConfiguration || path == pathV1SubPackageGroups ||
 		path == pathV1Packages || path == pathV1PackageVersions
 }
@@ -385,7 +395,7 @@ var packageOpStaticRoutes = map[string]string{
 	pathV1PackageVersionsDelete:           opDeletePackageVersions,
 	pathV1PackageVersionsDispose:          opDisposePackageVersions,
 	pathV1PackageVersionsUpdateStatus:     opUpdatePackageVersionsStatus,
-	pathV1PackageVersionsPublish:          opPublishPackageVersion,
+	pathV1PackageVersionPublish:           opPublishPackageVersion,
 	pathV1PackageVersionAsset:             opGetPackageVersionAsset,
 	pathV1PackageVersionReadme:            opGetPackageVersionReadme,
 	pathV1PackageVersionAssets:            opListPackageVersionAssets,

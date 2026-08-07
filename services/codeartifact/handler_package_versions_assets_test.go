@@ -21,14 +21,14 @@ func TestHandler_PublishPackageVersion_AppearInList(t *testing.T) {
 	doRawRequest(
 		t,
 		h,
-		"/v1/package/versions/publish?domain=pub-list-domain"+
+		"/v1/package/version/publish?domain=pub-list-domain"+
 			"&repository=pub-list-repo&format=npm&package=react&version=18.0.0&asset=react-18.0.0.tgz",
 		[]byte("asset-content-18"),
 	)
 	doRawRequest(
 		t,
 		h,
-		"/v1/package/versions/publish?domain=pub-list-domain"+
+		"/v1/package/version/publish?domain=pub-list-domain"+
 			"&repository=pub-list-repo&format=npm&package=react&version=19.0.0&asset=react-19.0.0.tgz",
 		[]byte("asset-content-19"),
 	)
@@ -65,7 +65,7 @@ func TestHandler_GetPackageVersionAsset(t *testing.T) {
 				// creates a version record but no asset content.
 				doRawRequest(
 					t, h,
-					"/v1/package/versions/publish"+
+					"/v1/package/version/publish"+
 						"?domain=pva-domain&repository=pva-repo&format=npm&package=lodash&version=1.0.0"+
 						"&asset=lodash-1.0.0.tgz",
 					[]byte("tarball-content"),
@@ -228,7 +228,7 @@ func TestHandler_GetPackageVersionReadme_FromPublishedPackageJSON(t *testing.T) 
 	packageJSON := `{"name":"mypkg","version":"1.0.0","readme":"# My Package\n\nUsage instructions."}`
 	doRawRequest(
 		t, h,
-		"/v1/package/versions/publish?domain=pvrm-domain&repository=pvrm-repo&format=npm&package=mypkg"+
+		"/v1/package/version/publish?domain=pvrm-domain&repository=pvrm-repo&format=npm&package=mypkg"+
 			"&version=1.0.0&asset=package.json",
 		[]byte(packageJSON),
 	)
@@ -261,7 +261,7 @@ func TestHandler_GetPackageVersionReadme_NoPackageJSON(t *testing.T) {
 
 	doRawRequest(
 		t, h,
-		"/v1/package/versions/publish?domain=pvrnp-domain&repository=pvrnp-repo&format=npm&package=mypkg"+
+		"/v1/package/version/publish?domain=pvrnp-domain&repository=pvrnp-repo&format=npm&package=mypkg"+
 			"&version=1.0.0&asset=mypkg-1.0.0.tgz",
 		[]byte("binary-tarball-content"),
 	)
@@ -297,7 +297,7 @@ func TestHandler_ListPackageVersionDependencies_FromPublishedPackageJSON(t *test
 	}`
 	doRawRequest(
 		t, h,
-		"/v1/package/versions/publish?domain=lpvdm-domain&repository=lpvdm-repo&format=npm&package=mypkg"+
+		"/v1/package/version/publish?domain=lpvdm-domain&repository=lpvdm-repo&format=npm&package=mypkg"+
 			"&version=1.0.0&asset=package.json",
 		[]byte(packageJSON),
 	)
@@ -599,7 +599,7 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 				setupDomain(t, h, "ppv-domain")
 				setupRepo(t, h, "ppv-domain", "ppv-repo")
 			},
-			path: "/v1/package/versions/publish" +
+			path: "/v1/package/version/publish" +
 				"?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib&version=1.0.0&asset=mylib-1.0.0.tgz",
 			wantStatus: http.StatusOK,
 		},
@@ -611,38 +611,38 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 				doRawRequest(
 					t,
 					h,
-					"/v1/package/versions/publish"+
+					"/v1/package/version/publish"+
 						"?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0&asset=mylib-2.0.0.tgz",
 					[]byte("asset-content"),
 				)
 			},
-			path: "/v1/package/versions/publish" +
+			path: "/v1/package/version/publish" +
 				"?domain=ppv2-domain&repository=ppv2-repo&format=npm&package=mylib&version=2.0.0&asset=mylib-2.0.0.tgz",
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "missing_domain",
-			path:       "/v1/package/versions/publish?repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
+			path:       "/v1/package/version/publish?repository=ppv-repo&format=generic&package=mylib&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_repo",
-			path:       "/v1/package/versions/publish?domain=ppv-domain&format=generic&package=mylib&version=1.0.0",
+			path:       "/v1/package/version/publish?domain=ppv-domain&format=generic&package=mylib&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_format",
-			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&package=mylib&version=1.0.0",
+			path:       "/v1/package/version/publish?domain=ppv-domain&repository=ppv-repo&package=mylib&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_package",
-			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&version=1.0.0",
+			path:       "/v1/package/version/publish?domain=ppv-domain&repository=ppv-repo&format=generic&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "missing_version",
-			path:       "/v1/package/versions/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib",
+			path:       "/v1/package/version/publish?domain=ppv-domain&repository=ppv-repo&format=generic&package=mylib",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
@@ -651,7 +651,7 @@ func TestHandler_PublishPackageVersion(t *testing.T) {
 				setupDomain(t, h, "ppv3-domain")
 				setupRepo(t, h, "ppv3-domain", "ppv3-repo")
 			},
-			path: "/v1/package/versions/publish" +
+			path: "/v1/package/version/publish" +
 				"?domain=ppv3-domain&repository=ppv3-repo&format=generic&package=mylib&version=1.0.0",
 			wantStatus: http.StatusBadRequest,
 		},

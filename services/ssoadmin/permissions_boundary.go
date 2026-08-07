@@ -45,6 +45,7 @@ func (b *InMemoryBackend) PutPermissionsBoundaryToPermissionSet(
 	// store_setup.go) and is excluded from JSON via its json:"-" tag.
 	boundary.PermissionSetArn = permissionSetArn
 	b.permissionBoundaries.Put(boundary)
+	bumpModified(ps)
 
 	return nil
 }
@@ -83,6 +84,7 @@ func (b *InMemoryBackend) DeletePermissionsBoundaryFromPermissionSet(instanceArn
 		return ErrRequestNotFound
 	}
 	b.permissionBoundaries.Delete(permissionSetArn)
+	bumpModified(ps)
 
 	return nil
 }

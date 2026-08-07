@@ -63,6 +63,40 @@ func setupRepoAndBranch(t *testing.T, h *codecommit.Handler, repoName string) {
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
+// createBranchFromMain creates branchName pointing at repoName's current
+// "main" tip, then advances it with one more commit so it diverges from
+// main — giving merge tests two distinct, resolvable commit specifiers.
+func createBranchFromMain(t *testing.T, h *codecommit.Handler, repoName, branchName string) {
+	t.Helper()
+
+	rec := doRequest(t, h, "GetBranch", map[string]any{"repositoryName": repoName, "branchName": "main"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var branchResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &branchResp))
+	branchInfo, ok := branchResp["branch"].(map[string]any)
+	require.True(t, ok, "GetBranch response must include a branch object")
+	tipCommitID, _ := branchInfo["commitId"].(string)
+	require.NotEmpty(t, tipCommitID)
+
+	rec = doRequest(t, h, "CreateBranch", map[string]any{
+		"repositoryName": repoName,
+		"branchName":     branchName,
+		"commitId":       tipCommitID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": repoName,
+		"branchName":     branchName,
+		"authorName":     "test",
+		"email":          "test@example.com",
+		"commitMessage":  "on " + branchName,
+		"parentCommitId": tipCommitID,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
 func setupPR(t *testing.T, h *codecommit.Handler, repoName string) string {
 	t.Helper()
 	setupRepoAndBranch(t, h, repoName)
