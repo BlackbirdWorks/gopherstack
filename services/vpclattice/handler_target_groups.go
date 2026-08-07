@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) handleCreateTargetGroup(c *echo.Context, body map[string]any) error {
 	name, _ := body[keyName].(string)
-	tgType, _ := body["type"].(string)
+	tgType, _ := body[keyType].(string)
 
 	if name == "" || tgType == "" {
 		return c.JSON(
@@ -94,7 +94,7 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 		keyARN:           tg.ARN,
 		"id":             tg.ID,
 		keyName:          tg.Name,
-		"type":           tg.Type,
+		keyType:          tg.Type,
 		keyStatus:        tg.Status,
 		"serviceArns":    tg.ServiceARNs,
 		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
@@ -113,18 +113,18 @@ func targetGroupSummaryToJSON(tg *TargetGroupSummary) map[string]any {
 		keyARN:           tg.ARN,
 		"id":             tg.ID,
 		keyName:          tg.Name,
-		"type":           tg.Type,
+		keyType:          tg.Type,
 		keyStatus:        tg.Status,
 		keyPort:          tg.Port,
 		keyProtocol:      tg.Protocol,
-		"vpcIdentifier":  tg.VpcID,
+		keyVpcIdentifier: tg.VpcID,
 		"serviceArns":    tg.ServiceARNs,
 		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if tg.IPAddressType != "" {
-		m["ipAddressType"] = tg.IPAddressType
+		m[keyIPAddressType] = tg.IPAddressType
 	}
 
 	if tg.LambdaEventStructureVersion != "" {
@@ -139,11 +139,11 @@ func targetGroupConfigToJSON(c *TargetGroupConfig) map[string]any {
 		keyPort:           c.Port,
 		keyProtocol:       c.Protocol,
 		"protocolVersion": c.ProtocolVersion,
-		"vpcIdentifier":   c.VpcID,
+		keyVpcIdentifier:  c.VpcID,
 	}
 
 	if c.IPAddressType != "" {
-		m["ipAddressType"] = c.IPAddressType
+		m[keyIPAddressType] = c.IPAddressType
 	}
 
 	if c.LambdaEventStructureVersion != "" {
@@ -182,8 +182,8 @@ func extractTargetGroupConfig(body map[string]any) *TargetGroupConfig {
 	cfg.Port = bodyInt32(raw, keyPort)
 	cfg.Protocol, _ = raw[keyProtocol].(string)
 	cfg.ProtocolVersion, _ = raw["protocolVersion"].(string)
-	cfg.VpcID, _ = raw["vpcIdentifier"].(string)
-	cfg.IPAddressType, _ = raw["ipAddressType"].(string)
+	cfg.VpcID, _ = raw[keyVpcIdentifier].(string)
+	cfg.IPAddressType, _ = raw[keyIPAddressType].(string)
 	cfg.LambdaEventStructureVersion, _ = raw["lambdaEventStructureVersion"].(string)
 
 	if hcRaw, ok2 := raw["healthCheck"].(map[string]any); ok2 {

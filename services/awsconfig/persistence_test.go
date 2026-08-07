@@ -356,7 +356,7 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", "", ""))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", ""))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
@@ -406,7 +406,7 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
 	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", "", ""))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", ""))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 	require.NoError(t, b.PutStoredQuery("query-1"))

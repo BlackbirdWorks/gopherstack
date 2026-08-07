@@ -3,6 +3,8 @@ package awsconfig
 import (
 	"encoding/json"
 	"sort"
+
+	"gopkg.in/yaml.v3"
 )
 
 // resourceTypeConfigRule is the CloudFormation resource type a conformance
@@ -41,23 +43,35 @@ type conformancePackTemplate struct {
 
 // parseConformancePackConfigRules extracts the AWS::Config::ConfigRule
 // resources from a conformance pack's TemplateBody and returns the ConfigRule
-// values they deploy, sorted by logical ID for deterministic ordering. Only
-// JSON template bodies are supported (real AWS Config also accepts YAML,
-// TemplateS3Uri, and TemplateSSMDocumentDetails; this emulator has no template
-// fetcher/YAML parser, so those sources deploy no rules -- an honest gap, not
-// a silent misparse: a YAML or unparsable body simply deploys zero rules
-// rather than erroring, since PutConformancePack does not require a valid
-// template to succeed in this emulator). Each resource without an explicit
-// ConfigRuleName gets one derived deterministically from the pack name and
-// logical ID, mirroring the "<pack>-<logicalId>-<suffix>" naming AWS assigns.
+// values they deploy, sorted by logical ID for deterministic ordering.
+// TemplateBody is tried as JSON first (the common/fast case), falling back to
+// YAML (real AWS Config's documented alternative format -- "You can use a
+// YAML template...") via yamlToJSON when JSON decoding fails. TemplateS3Uri
+// and TemplateSSMDocumentDetails (the other two mutually-exclusive template
+// sources PutConformancePack accepts) are validated for presence by the
+// caller (see PutConformancePack) but deploy no rules here: fetching them
+// needs cross-service S3/SSM access this backend has no wiring for within
+// its edit boundary -- an honest gap (documented in PARITY.md), not a silent
+// misparse. An unparsable-as-either body also deploys zero rules rather than
+// erroring, matching PutConformancePack's existing "doesn't require a valid
+// template to succeed" behavior.
 func parseConformancePackConfigRules(templateBody, packName string) []*ConfigRule {
 	if templateBody == "" {
 		return nil
 	}
 
 	var tmpl conformancePackTemplate
-	if err := json.Unmarshal([]byte(templateBody), &tmpl); err != nil {
-		return nil
+
+	jsonBody := []byte(templateBody)
+	if err := json.Unmarshal(jsonBody, &tmpl); err != nil {
+		converted, yamlErr := yamlToJSON(jsonBody)
+		if yamlErr != nil {
+			return nil
+		}
+
+		if jsonErr := json.Unmarshal(converted, &tmpl); jsonErr != nil {
+			return nil
+		}
 	}
 
 	logicalIDs := make([]string, 0, len(tmpl.Resources))
@@ -105,4 +119,18 @@ func configRuleFromTemplateResource(
 		Source:                    props.Source,
 		Scope:                     props.Scope,
 	}
+}
+
+// yamlToJSON decodes a YAML document into a generic value and re-encodes it
+// as JSON, so the rest of the parser (which only understands JSON struct
+// tags) can consume either format uniformly. yaml.v3 decodes mappings into
+// map[string]any (unlike yaml.v2's map[interface{}]any), which is already
+// JSON-marshalable without a key-type conversion pass.
+func yamlToJSON(body []byte) ([]byte, error) {
+	var v any
+	if err := yaml.Unmarshal(body, &v); err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(v)
 }

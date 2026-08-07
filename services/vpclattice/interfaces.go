@@ -46,6 +46,7 @@ type StorageBackend interface {
 		serviceNetworkID, vpcID string,
 		securityGroupIDs []string,
 		privateDNSEnabled bool,
+		dnsOptions *DNSOptions,
 		tags map[string]string,
 	) (*ServiceNetworkVpcAssociation, error)
 	GetServiceNetworkVpcAssociation(snvaID string) (*ServiceNetworkVpcAssociation, error)
@@ -140,6 +141,87 @@ type StorageBackend interface {
 		maxResults int32,
 		nextToken string,
 	) ([]*AccessLogSubscriptionSummary, string, error)
+
+	CreateResourceGateway(
+		ctx context.Context,
+		name, vpcID, ipAddressType, resourceConfigDNSResolution string,
+		ipv4AddressesPerENI int32,
+		securityGroupIDs, subnetIDs []string,
+		tags map[string]string,
+	) (*ResourceGateway, error)
+	GetResourceGateway(id string) (*ResourceGateway, error)
+	UpdateResourceGateway(id string, securityGroupIDs []string) (*ResourceGateway, error)
+	DeleteResourceGateway(id string) (*ResourceGateway, error)
+	ListResourceGateways(
+		ctx context.Context,
+		maxResults int32,
+		nextToken string,
+	) ([]*ResourceGatewaySummary, string, error)
+
+	CreateResourceConfiguration(
+		ctx context.Context,
+		name, resourceType, protocol, resourceGatewayIdentifier, resourceConfigurationGroupIdentifier string,
+		allowAssociationToShareableServiceNetwork bool,
+		portRanges []string,
+		definition *ResourceConfigurationDefinition,
+		tags map[string]string,
+	) (*ResourceConfiguration, error)
+	GetResourceConfiguration(id string) (*ResourceConfiguration, error)
+	UpdateResourceConfiguration(
+		id string,
+		allowAssociationToShareableServiceNetwork *bool,
+		portRanges []string,
+		definition *ResourceConfigurationDefinition,
+	) (*ResourceConfiguration, error)
+	DeleteResourceConfiguration(id string) error
+	ListResourceConfigurations(
+		ctx context.Context,
+		resourceGatewayIdentifier, resourceConfigurationGroupIdentifier string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ResourceConfigurationSummary, string, error)
+
+	CreateServiceNetworkResourceAssociation(
+		ctx context.Context,
+		serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+		privateDNSEnabled bool,
+		tags map[string]string,
+	) (*ServiceNetworkResourceAssociation, error)
+	GetServiceNetworkResourceAssociation(id string) (*ServiceNetworkResourceAssociation, error)
+	DeleteServiceNetworkResourceAssociation(id string) (*ServiceNetworkResourceAssociation, error)
+	ListServiceNetworkResourceAssociations(
+		ctx context.Context,
+		serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ServiceNetworkResourceAssociationSummary, string, error)
+
+	StartDomainVerification(
+		ctx context.Context,
+		domainName string,
+		tags map[string]string,
+	) (*DomainVerification, error)
+	GetDomainVerification(id string) (*DomainVerification, error)
+	DeleteDomainVerification(id string) error
+	ListDomainVerifications(
+		ctx context.Context,
+		maxResults int32,
+		nextToken string,
+	) ([]*DomainVerificationSummary, string, error)
+
+	ListResourceEndpointAssociations(
+		ctx context.Context,
+		maxResults int32,
+		nextToken string,
+	) ([]*ResourceEndpointAssociationSummary, string, error)
+	DeleteResourceEndpointAssociation(id string) error
+
+	ListServiceNetworkVpcEndpointAssociations(
+		ctx context.Context,
+		serviceNetworkIdentifier string,
+		maxResults int32,
+		nextToken string,
+	) ([]*ServiceNetworkVpcEndpointAssociationSummary, string, error)
 
 	PutAuthPolicy(resourceID, policy string) (*AuthPolicy, error)
 	GetAuthPolicy(resourceID string) (*AuthPolicy, error)
@@ -247,6 +329,7 @@ type ServiceNetworkServiceAssociationSummary struct {
 
 // ServiceNetworkVpcAssociation is a VPC-to-service-network association.
 type ServiceNetworkVpcAssociation struct {
+	DNSOptions         *DNSOptions
 	CreatedAt          time.Time
 	LastUpdatedAt      time.Time
 	ARN                string
@@ -261,8 +344,17 @@ type ServiceNetworkVpcAssociation struct {
 	PrivateDNSEnabled  bool
 }
 
+// DNSOptions carries the DNS configuration options accepted by
+// CreateServiceNetworkVpcAssociation (the real SDK's types.DnsOptions) --
+// set only at creation time, real AWS has no update path for it.
+type DNSOptions struct {
+	PrivateDNSPreference       string
+	PrivateDNSSpecifiedDomains []string
+}
+
 // ServiceNetworkVpcAssociationSummary is a summary for list responses.
 type ServiceNetworkVpcAssociationSummary struct {
+	DNSOptions         *DNSOptions
 	CreatedAt          time.Time
 	ARN                string
 	ID                 string
@@ -482,6 +574,168 @@ type AccessLogSubscriptionSummary struct {
 type AuthPolicy struct {
 	Policy string
 	State  string
+}
+
+// ResourceGateway represents a VPC Lattice resource gateway -- a point of
+// ingress into a VPC where a resource (behind a ResourceConfiguration)
+// resides.
+type ResourceGateway struct {
+	CreatedAt                   time.Time
+	LastUpdatedAt               time.Time
+	ARN                         string
+	ID                          string
+	Name                        string
+	VpcID                       string
+	IPAddressType               string
+	ResourceConfigDNSResolution string
+	Status                      string
+	SecurityGroupIDs            []string
+	SubnetIDs                   []string
+	Ipv4AddressesPerEni         int32
+}
+
+// ResourceGatewaySummary is a resource gateway entry for list responses.
+type ResourceGatewaySummary struct {
+	CreatedAt                   time.Time
+	LastUpdatedAt               time.Time
+	ARN                         string
+	ID                          string
+	Name                        string
+	VpcID                       string
+	IPAddressType               string
+	ResourceConfigDNSResolution string
+	Status                      string
+	SecurityGroupIDs            []string
+	SubnetIDs                   []string
+	Ipv4AddressesPerEni         int32
+}
+
+// ResourceConfigurationDefinition identifies the underlying resource a
+// ResourceConfiguration points at (types.ResourceConfigurationDefinition, a
+// wire union of arnResource/dnsResource/ipResource). Exactly one of
+// ArnValue/DomainName+IPAddressType/IPAddress is populated, selected by Kind.
+type ResourceConfigurationDefinition struct {
+	Kind          string // "arnResource" | "dnsResource" | "ipResource"
+	ArnValue      string
+	DomainName    string
+	IPAddressType string
+	IPAddress     string
+}
+
+// ResourceConfiguration represents a VPC Lattice resource configuration.
+type ResourceConfiguration struct {
+	CreatedAt                    time.Time
+	LastUpdatedAt                time.Time
+	Definition                   *ResourceConfigurationDefinition
+	ARN                          string
+	ID                           string
+	Name                         string
+	Type                         string
+	Status                       string
+	Protocol                     string
+	ResourceGatewayID            string
+	ResourceConfigurationGroupID string
+	CustomDomainName             string
+	GroupDomain                  string
+	DomainVerificationID         string
+	PortRanges                   []string
+	AllowShareableAssoc          bool
+}
+
+// ResourceConfigurationSummary is a resource configuration entry for list
+// responses.
+type ResourceConfigurationSummary struct {
+	CreatedAt         time.Time
+	LastUpdatedAt     time.Time
+	ARN               string
+	ID                string
+	Name              string
+	Type              string
+	Status            string
+	ResourceGatewayID string
+}
+
+// ServiceNetworkResourceAssociation associates a resource configuration with
+// a service network.
+type ServiceNetworkResourceAssociation struct {
+	CreatedAt                 time.Time
+	LastUpdatedAt             time.Time
+	ARN                       string
+	ID                        string
+	ResourceConfigurationARN  string
+	ResourceConfigurationID   string
+	ResourceConfigurationName string
+	ServiceNetworkARN         string
+	ServiceNetworkID          string
+	ServiceNetworkName        string
+	Status                    string
+	CreatedBy                 string
+	PrivateDNSEnabled         bool
+}
+
+// ServiceNetworkResourceAssociationSummary is a summary for list responses.
+type ServiceNetworkResourceAssociationSummary struct {
+	CreatedAt                 time.Time
+	ARN                       string
+	ID                        string
+	ResourceConfigurationARN  string
+	ResourceConfigurationID   string
+	ResourceConfigurationName string
+	ServiceNetworkARN         string
+	ServiceNetworkID          string
+	ServiceNetworkName        string
+	Status                    string
+}
+
+// DomainVerification represents a custom domain ownership verification.
+type DomainVerification struct {
+	CreatedAt        time.Time
+	LastVerifiedTime *time.Time
+	ARN              string
+	ID               string
+	DomainName       string
+	Status           string
+}
+
+// DomainVerificationSummary is a summary for list responses.
+type DomainVerificationSummary struct {
+	CreatedAt        time.Time
+	LastVerifiedTime *time.Time
+	ARN              string
+	ID               string
+	DomainName       string
+	Status           string
+}
+
+// ResourceEndpointAssociationSummary is a summary for list responses.
+// Real AWS populates this from EC2 VPC endpoints of type Resource pointed at
+// a ResourceConfiguration -- vpc-lattice itself has no Create operation for
+// this resource. This backend has no EC2 VPC-endpoint cross-service
+// modeling, so ListResourceEndpointAssociations always returns empty (an
+// honest reflection of "never created", not a fabricated entry) -- see
+// service_network_resource_associations.go.
+type ResourceEndpointAssociationSummary struct {
+	CreatedAt                time.Time
+	ARN                      string
+	ID                       string
+	ResourceConfigurationARN string
+	ResourceConfigurationID  string
+	VpcEndpointID            string
+	VpcEndpointOwner         string
+}
+
+// ServiceNetworkVpcEndpointAssociationSummary is a summary for list
+// responses. Same structural note as ResourceEndpointAssociationSummary:
+// populated from EC2 VPC endpoints of type ServiceNetwork, which this
+// backend doesn't model.
+type ServiceNetworkVpcEndpointAssociationSummary struct {
+	CreatedAt         time.Time
+	ID                string
+	ServiceNetworkARN string
+	ServiceNetworkID  string
+	VpcEndpointID     string
+	VpcID             string
+	VpcEndpointOwner  string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

@@ -84,7 +84,7 @@ func (h *Handler) handleListSNSAs(c *echo.Context) error {
 
 func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	snID, _ := body["serviceNetworkIdentifier"].(string)
-	vpcID, _ := body["vpcIdentifier"].(string)
+	vpcID, _ := body[keyVpcIdentifier].(string)
 
 	if snID == "" || vpcID == "" {
 		return c.JSON(
@@ -94,7 +94,7 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	}
 
 	var sgs []string
-	if sgRaw, ok := body["securityGroupIds"].([]any); ok {
+	if sgRaw, ok := body[keySecurityGroupIDs].([]any); ok {
 		for _, v := range sgRaw {
 			if s, ok2 := v.(string); ok2 {
 				sgs = append(sgs, s)
@@ -103,11 +103,14 @@ func (h *Handler) handleCreateSNVA(c *echo.Context, body map[string]any) error {
 	}
 
 	privateDNSEnabled, _ := body[keyPrivateDNSEnabled].(bool)
+	dnsOptions := extractDNSOptions(body)
 
 	ctx := c.Request().Context()
 	tags := extractTags(body)
 
-	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(ctx, snID, vpcID, sgs, privateDNSEnabled, tags)
+	assoc, err := h.Backend.CreateServiceNetworkVpcAssociation(
+		ctx, snID, vpcID, sgs, privateDNSEnabled, dnsOptions, tags,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -126,7 +129,7 @@ func (h *Handler) handleGetSNVA(c *echo.Context, id string) error {
 
 func (h *Handler) handleUpdateSNVA(c *echo.Context, id string, body map[string]any) error {
 	var sgs []string
-	if sgRaw, ok := body["securityGroupIds"].([]any); ok {
+	if sgRaw, ok := body[keySecurityGroupIDs].([]any); ok {
 		for _, v := range sgRaw {
 			if s, ok2 := v.(string); ok2 {
 				sgs = append(sgs, s)
@@ -155,7 +158,7 @@ func (h *Handler) handleListSNVAs(c *echo.Context) error {
 	maxResults := queryInt32(c)
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
-	vpcID := c.QueryParam("vpcIdentifier")
+	vpcID := c.QueryParam(keyVpcIdentifier)
 
 	items, next, err := h.Backend.ListServiceNetworkVpcAssociations(
 		ctx,
@@ -194,7 +197,7 @@ func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
 		keyStatus:             s.Status,
-		"createdBy":           s.CreatedBy,
+		keyCreatedBy:          s.CreatedBy,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
 
@@ -250,24 +253,30 @@ func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
 	sgs := make([]string, len(s.SecurityGroupIDs))
 	copy(sgs, s.SecurityGroupIDs)
 
-	return map[string]any{
+	m := map[string]any{
 		keyARN:                s.ARN,
 		"id":                  s.ID,
 		keyVPCID:              s.VpcID,
 		keyServiceNetworkARN:  s.ServiceNetworkARN,
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
-		"securityGroupIds":    sgs,
+		keySecurityGroupIDs:   sgs,
 		keyStatus:             s.Status,
-		"createdBy":           s.CreatedBy,
+		keyCreatedBy:          s.CreatedBy,
 		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 		keyLastUpdatedAt:      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if dns := dnsOptionsToJSON(s.DNSOptions); dns != nil {
+		m["dnsOptions"] = dns
+	}
+
+	return m
 }
 
 func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyARN:                s.ARN,
 		"id":                  s.ID,
 		keyVPCID:              s.VpcID,
@@ -278,4 +287,52 @@ func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
 		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
 		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
 	}
+
+	if dns := dnsOptionsToJSON(s.DNSOptions); dns != nil {
+		m["dnsOptions"] = dns
+	}
+
+	return m
+}
+
+// extractDNSOptions parses CreateServiceNetworkVpcAssociation's dnsOptions
+// body field (types.DNSOptions: privateDnsPreference +
+// privateDnsSpecifiedDomains). Returns nil when absent, matching the real
+// API's optional field.
+func extractDNSOptions(body map[string]any) *DNSOptions {
+	raw, ok := body["dnsOptions"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	pref, _ := raw["privateDnsPreference"].(string)
+
+	var domains []string
+
+	if ds, hasDomains := raw["privateDnsSpecifiedDomains"].([]any); hasDomains {
+		for _, d := range ds {
+			if s, ok2 := d.(string); ok2 {
+				domains = append(domains, s)
+			}
+		}
+	}
+
+	return &DNSOptions{PrivateDNSPreference: pref, PrivateDNSSpecifiedDomains: domains}
+}
+
+func dnsOptionsToJSON(d *DNSOptions) map[string]any {
+	if d == nil {
+		return nil
+	}
+
+	m := map[string]any{}
+	if d.PrivateDNSPreference != "" {
+		m["privateDnsPreference"] = d.PrivateDNSPreference
+	}
+
+	if len(d.PrivateDNSSpecifiedDomains) > 0 {
+		m["privateDnsSpecifiedDomains"] = d.PrivateDNSSpecifiedDomains
+	}
+
+	return m
 }

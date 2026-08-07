@@ -109,6 +109,17 @@ func (b *InMemoryBackend) countSNVAs(snID string) int64 {
 	return count
 }
 
+func (b *InMemoryBackend) countSNRAs(snID string) int64 {
+	var count int64
+	for _, s := range b.snras.All() {
+		if s.ServiceNetworkID == snID {
+			count++
+		}
+	}
+
+	return count
+}
+
 // UpdateServiceNetwork updates a service network.
 func (b *InMemoryBackend) UpdateServiceNetwork(snID, authType string) (*ServiceNetwork, error) {
 	b.mu.Lock("UpdateServiceNetwork")
@@ -144,7 +155,7 @@ func (b *InMemoryBackend) DeleteServiceNetwork(snID string) error {
 		return ErrNotFound
 	}
 
-	if b.countSNSAs(id) > 0 || b.countSNVAs(id) > 0 {
+	if b.countSNSAs(id) > 0 || b.countSNVAs(id) > 0 || b.countSNRAs(id) > 0 {
 		return ErrDependencyConflict
 	}
 

@@ -36,6 +36,14 @@ import (
 const (
 	jsHandlerRequest  = "request"
 	jsHandlerResponse = "response"
+
+	// jsCtxKeyArguments/jsCtxKeyResult/jsCtxKeyPrev are the AppSync context
+	// object's JSON field names, shared between jsContext's own JSON
+	// decoding here and the context objects graphql.go's evalRequestMapping/
+	// evalResponseMapping build for a resolver/function's JS handlers.
+	jsCtxKeyArguments = "arguments"
+	jsCtxKeyResult    = "result"
+	jsCtxKeyPrev      = "prev"
 )
 
 var (
@@ -107,7 +115,7 @@ func parseJSContext(contextJSON string) (*jsContext, error) {
 		return nil, fmt.Errorf("%w: invalid context JSON", ErrValidation)
 	}
 
-	jc.Arguments = mapField(jc.Raw, "arguments")
+	jc.Arguments = mapField(jc.Raw, jsCtxKeyArguments)
 	jc.Args = mapField(jc.Raw, "args")
 	if jc.Arguments == nil {
 		jc.Arguments = jc.Args
@@ -115,8 +123,8 @@ func parseJSContext(contextJSON string) (*jsContext, error) {
 	if jc.Args == nil {
 		jc.Args = jc.Arguments
 	}
-	jc.Result = jc.Raw["result"]
-	jc.Prev = mapField(jc.Raw, "prev")
+	jc.Result = jc.Raw[jsCtxKeyResult]
+	jc.Prev = mapField(jc.Raw, jsCtxKeyPrev)
 	jc.Identity = jc.Raw["identity"]
 	jc.Source = jc.Raw["source"]
 	jc.Stash = mapField(jc.Raw, "stash")
@@ -337,11 +345,11 @@ func resolveContextPath(expr, ctxParam string, jc *jsContext) any {
 	// Normalize the well-known top-level aliases.
 	var cur any
 	switch segments[0] {
-	case "arguments", "args":
+	case jsCtxKeyArguments, "args":
 		cur = jc.Arguments
-	case "result":
+	case jsCtxKeyResult:
 		cur = jc.Result
-	case "prev":
+	case jsCtxKeyPrev:
 		cur = jc.Prev
 	case "identity":
 		cur = jc.Identity

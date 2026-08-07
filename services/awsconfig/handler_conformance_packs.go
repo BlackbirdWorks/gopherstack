@@ -67,22 +67,39 @@ func (h *Handler) handleDeleteConformancePack(
 	return &deleteConformancePackOutput{}, nil
 }
 
+// putConformancePackTemplateSSMDocumentDetails mirrors
+// types.TemplateSSMDocumentDetails: the name/ARN of the SSM document (plus
+// optional version) PutConformancePack uses as a template source.
+type putConformancePackTemplateSSMDocumentDetails struct {
+	DocumentName    string `json:"DocumentName"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
+}
+
 // PutConformancePack request/response types and handler.
 type putConformancePackInput struct {
-	ConformancePackName string `json:"ConformancePackName"`
-	DeliveryS3Bucket    string `json:"DeliveryS3Bucket,omitempty"`
-	DeliveryS3KeyPrefix string `json:"DeliveryS3KeyPrefix,omitempty"`
-	TemplateBody        string `json:"TemplateBody,omitempty"`
+	TemplateSSMDocumentDetails *putConformancePackTemplateSSMDocumentDetails `json:"TemplateSSMDocumentDetails,omitempty"`
+	ConformancePackName        string                                        `json:"ConformancePackName"`
+	DeliveryS3Bucket           string                                        `json:"DeliveryS3Bucket,omitempty"`
+	DeliveryS3KeyPrefix        string                                        `json:"DeliveryS3KeyPrefix,omitempty"`
+	TemplateBody               string                                        `json:"TemplateBody,omitempty"`
+	TemplateS3Uri              string                                        `json:"TemplateS3Uri,omitempty"`
 }
 
 func (h *Handler) handlePutConformancePack(
 	_ context.Context, in *putConformancePackInput,
 ) (*emptyOutput, error) {
+	ssmDocName := ""
+	if in.TemplateSSMDocumentDetails != nil {
+		ssmDocName = in.TemplateSSMDocumentDetails.DocumentName
+	}
+
 	return &emptyOutput{}, h.Backend.PutConformancePack(
 		in.ConformancePackName,
 		in.DeliveryS3Bucket,
 		in.DeliveryS3KeyPrefix,
 		in.TemplateBody,
+		in.TemplateS3Uri,
+		ssmDocName,
 	)
 }
 

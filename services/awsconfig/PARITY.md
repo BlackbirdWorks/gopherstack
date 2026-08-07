@@ -1,8 +1,8 @@
 ---
 service: awsconfig
 sdk_module: aws-sdk-go-v2/service/configservice@v1.68.0
-last_audit_commit: 97000ddd
-last_audit_date: 2026-07-25
+last_audit_commit: 198990e82
+last_audit_date: 2026-08-07
 overall: A            # this pass: implemented the 5 ops the SDK bump (v1.61.2 -> v1.68.0)
                        # revealed as newly-supported and missing from GetSupportedOperations:
                        # PutConnector/GetConnector/ListConnectors/DeleteConnector (a new
@@ -58,7 +58,7 @@ ops:
   ListResourceEvaluations: {wire: ok, errors: ok, state: ok, persist: ok}
 
   # --- ConformancePack family ---
-  PutConformancePack: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended (gopherstack-e0f1): now accepts TemplateBody and, when it's a JSON CloudFormation-shaped template with AWS::Config::ConfigRule resources, deploys those as real config rules linked to the pack (see conformance_pack_template.go) -- matching real AWS Config, where a conformance pack literally creates managed config rules. YAML/TemplateS3Uri/TemplateSSMDocumentDetails templates deploy zero rules (no fetcher/YAML parser modeled) rather than erroring -- an honest gap, documented in code"}
+  PutConformancePack: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "extended (gopherstack-e0f1): now accepts TemplateBody and, when it's a JSON or YAML CloudFormation-shaped template with AWS::Config::ConfigRule resources, deploys those as real config rules linked to the pack (see conformance_pack_template.go) -- matching real AWS Config, where a conformance pack literally creates managed config rules. FIXED this pass (gopherstack-ag85): (1) TemplateBody now also parses YAML, not JSON-only -- tried as JSON first, falling back to YAML via yamlToJSON; (2) TemplateS3Uri and TemplateSSMDocumentDetails, previously entirely absent from putConformancePackInput and therefore silently dropped by the JSON decoder even when a client sent them, are now parsed off the wire; (3) specifying more than one of TemplateBody/TemplateS3Uri/TemplateSSMDocumentDetails is now rejected with ValidationException, matching PutConformancePackInput's documented \"only one of\" constraint. TemplateS3Uri/TemplateSSMDocumentDetails still deploy zero rules (no S3/SSM fetcher -- see gaps); a request specifying zero sources is still accepted (deploys zero rules) rather than rejected, to avoid breaking this codebase's existing tests that call PutConformancePack with no template purely to set up pack existence -- the exact zero-sources validation is pre-existing deferred scope (gopherstack-eboy), not this pass's target."}
   DescribeConformancePacks: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteConformancePack: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended: cascade-deletes every config rule the pack deployed (and their evaluations), matching AWS"}
   DescribeConformancePackStatus: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -145,11 +145,24 @@ gaps:
     InvalidS3KeyPrefixException, InvalidS3KmsKeyArnException, InvalidSNSTopicARNException,
     and the full per-op taxonomy for every other Put* op (bd: gopherstack-eboy, updated
     this pass with a comment noting partial completion -- not closed)
-  - PutConformancePack's TemplateBody parser only understands JSON conformance-pack
-    templates; YAML templates (which real AWS Config also documents supporting) and
-    TemplateS3Uri/TemplateSSMDocumentDetails template sources deploy zero rules rather
-    than being fetched/parsed (no YAML parser or S3/SSM-document fetcher modeled in this
-    emulator). Honest limitation, documented in conformance_pack_template.go.
+  - PutConformancePack's TemplateS3Uri/TemplateSSMDocumentDetails template sources
+    (bd: gopherstack-ag85, JSON+YAML TemplateBody parsing FIXED this pass) still deploy
+    zero rules rather than being fetched/parsed: real fetching needs cross-service S3/SSM
+    access, which this service has no wiring for -- appsync/vpclattice-style cross-service
+    calls in this fleet are wired centrally in cli.go, outside this task's
+    services/awsconfig/ edit boundary. Buildable with that wiring in place (not a
+    structural impossibility), so kept in gaps rather than structural_gaps. Honest
+    limitation: the request is accepted and the source is stored on nothing (not
+    fabricated), documented in conformance_pack_template.go/conformance_packs.go.
+  - PutConformancePack accepts zero template sources (TemplateBody/TemplateS3Uri/
+    TemplateSSMDocumentDetails all empty) without erroring, though real AWS Config
+    requires exactly one. This pass added rejection for *more than one* source (a genuine
+    new validation, real and tested), but left the zero-sources case alone: this
+    codebase's existing test suite routinely calls PutConformancePack with no template
+    purely to establish a pack's existence for unrelated assertions (DeleteConformancePack,
+    ARN format, etc.), and enforcing the full requirement would need updating every one of
+    those call sites' intent, which is per-field validation-taxonomy work already tracked
+    under gopherstack-eboy, not this issue's scope.
   - MaxNumberOfConnectorsExceededException (PutConnector's per-account connector-count
     limit) is declared by the real API but its numeric value isn't published anywhere in
     AWS's docs (checked the API reference and the Config service-limits page as of this

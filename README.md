@@ -528,14 +528,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 6 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 1 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 4 gaps; 1 deferred |
-| [VPC Lattice](services/vpclattice/README.md) | A | 52 | 4 gaps; 1 deferred |
+| [VPC Lattice](services/vpclattice/README.md) | A | 73 | 4 gaps |
 
 ### Messaging & Integration
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 4 gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 74 | 3 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 2 gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | clean |
@@ -614,7 +614,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 4 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
 | [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 69 | 8 gaps; 3 deferred |
-| [Config](services/awsconfig/README.md) | A | 102 | 4 gaps; 1 deferred |
+| [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | A | 32 | 2 gaps; 2 deferred |

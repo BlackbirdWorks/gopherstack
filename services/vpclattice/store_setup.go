@@ -58,6 +58,17 @@ func targetGroupNameIndexKeyFn(v *storedTargetGroup) string { return v.Name }
 
 func alsKeyFn(v *storedALS) string { return v.ID }
 
+func resourceGatewayKeyFn(v *storedResourceGateway) string          { return v.ID }
+func resourceGatewayNameIndexKeyFn(v *storedResourceGateway) string { return v.Name }
+
+func resourceConfigurationKeyFn(v *storedResourceConfiguration) string          { return v.ID }
+func resourceConfigurationNameIndexKeyFn(v *storedResourceConfiguration) string { return v.Name }
+
+func snraKeyFn(v *storedSNRA) string { return v.ID }
+
+func domainVerificationKeyFn(v *storedDomainVerification) string            { return v.ID }
+func domainVerificationDomainIndexKeyFn(v *storedDomainVerification) string { return v.DomainName }
+
 // registerAllTables registers every backend resource table (and its
 // secondary indexes) exactly once. It must be called during construction
 // only, immediately after b.registry is created -- store.Register panics on
@@ -84,4 +95,19 @@ func registerAllTables(b *InMemoryBackend) {
 	b.tgsByName = b.targetGroups.AddIndex("byName", targetGroupNameIndexKeyFn)
 
 	b.alss = store.Register(b.registry, "alss", store.New(alsKeyFn))
+
+	b.resourceGateways = store.Register(b.registry, "resourceGateways", store.New(resourceGatewayKeyFn))
+	b.resourceGatewaysByName = b.resourceGateways.AddIndex("byName", resourceGatewayNameIndexKeyFn)
+
+	b.resourceConfigurations = store.Register(
+		b.registry, "resourceConfigurations", store.New(resourceConfigurationKeyFn),
+	)
+	b.resourceConfigurationsByName = b.resourceConfigurations.AddIndex(
+		"byName", resourceConfigurationNameIndexKeyFn,
+	)
+
+	b.snras = store.Register(b.registry, "snras", store.New(snraKeyFn))
+
+	b.domainVerifications = store.Register(b.registry, "domainVerifications", store.New(domainVerificationKeyFn))
+	b.domainVerificationsByDomain = b.domainVerifications.AddIndex("byDomain", domainVerificationDomainIndexKeyFn)
 }

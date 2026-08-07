@@ -39,6 +39,60 @@ func TestConformancePackARN(t *testing.T) {
 	assert.Equal(t, "my-delivery-bucket", out.ConformancePackDetails[0].DeliveryS3Bucket)
 }
 
+// TestConformancePackHandler_TemplateS3UriAndSSMDocumentDetails verifies the
+// wire body's TemplateS3Uri and TemplateSSMDocumentDetails fields are
+// actually parsed off the request (previously silently dropped by the JSON
+// decoder, since putConformancePackInput had no field for either) rather
+// than discarded, and that combining either with TemplateBody is rejected
+// (gopherstack-ag85).
+func TestConformancePackHandler_TemplateS3UriAndSSMDocumentDetails(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body     map[string]any
+		name     string
+		wantCode int
+	}{
+		{
+			name: "s3uri_alone_accepted",
+			body: map[string]any{
+				"ConformancePackName": "s3-pack",
+				"TemplateS3Uri":       "s3://bucket/template.yaml",
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "ssm_document_details_alone_accepted",
+			body: map[string]any{
+				"ConformancePackName": "ssm-pack",
+				"TemplateSSMDocumentDetails": map[string]any{
+					"DocumentName": "my-ssm-doc",
+				},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "body_and_s3uri_rejected",
+			body: map[string]any{
+				"ConformancePackName": "conflict-pack",
+				"TemplateBody":        `{"Resources":{}}`,
+				"TemplateS3Uri":       "s3://bucket/template.yaml",
+			},
+			wantCode: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestAWSConfigHandler(t)
+			rec := doAWSConfigRequest(t, h, "PutConformancePack", tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
 func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 	t.Parallel()
 
@@ -52,7 +106,7 @@ func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", "", ""))
+				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", "", "", "", ""))
 			},
 			body:     map[string]any{"ConformancePackName": "my-pack"},
 			wantCode: http.StatusOK,
@@ -132,7 +186,7 @@ func TestAWSConfigHandler_ListConformancePackComplianceScores(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
-	require.NoError(t, h.Backend.PutConformancePack("pack1", "", "", ""))
+	require.NoError(t, h.Backend.PutConformancePack("pack1", "", "", "", "", ""))
 
 	rec := doAWSConfigRequest(t, h, "ListConformancePackComplianceScores", map[string]any{
 		"Filters": map[string]any{"ConformancePackNames": []string{"pack1"}},

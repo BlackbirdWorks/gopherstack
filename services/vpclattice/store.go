@@ -24,15 +24,23 @@ const (
 	resourceRule                   = "rule"
 	resourceTargetGroup            = "targetgroup"
 	resourceAccessLogSubscription  = "accesslogsubscription"
+	resourceResourceGateway        = "resourcegateway"
+	resourceResourceConfiguration  = "resourceconfiguration"
+	resourceServiceNetworkResAssoc = "servicenetworkresourceassociation"
+	resourceDomainVerification     = "domainverification"
 
-	idPrefixService     = "svc-"
-	idPrefixNetwork     = "sn-"
-	idPrefixSNSA        = "snsa-"
-	idPrefixSNVA        = "snva-"
-	idPrefixListener    = "listener-"
-	idPrefixRule        = "rule-"
-	idPrefixTargetGroup = "tg-"
-	idPrefixALS         = "als-"
+	idPrefixService                = "svc-"
+	idPrefixNetwork                = "sn-"
+	idPrefixSNSA                   = "snsa-"
+	idPrefixSNVA                   = "snva-"
+	idPrefixListener               = "listener-"
+	idPrefixRule                   = "rule-"
+	idPrefixTargetGroup            = "tg-"
+	idPrefixALS                    = "als-"
+	idPrefixResourceGateway        = "rgw-"
+	idPrefixResourceConfiguration  = "rcfg-"
+	idPrefixServiceNetworkResAssoc = "snra-"
+	idPrefixDomainVerification     = "dv-"
 
 	statusActive           = "ACTIVE"
 	statusInactive         = "INACTIVE"
@@ -40,6 +48,12 @@ const (
 	statusDeleteInProgress = "DELETE_IN_PROGRESS"
 	statusDeleted          = "DELETED"
 	statusCreateFailed     = "CREATE_FAILED"
+
+	// verificationStatusPending is the only VerificationStatus this backend
+	// ever produces: real domain verification requires AWS to observe a
+	// caller-provisioned public DNS TXT record, which this mock has no way
+	// to do -- see DomainVerification's doc comment in domain_verifications.go.
+	verificationStatusPending = "PENDING"
 
 	authTypeNone  = "NONE"
 	protocolHTTP  = "HTTP"
@@ -78,7 +92,19 @@ type InMemoryBackend struct {
 	tgsByName    *store.Index[storedTargetGroup]
 	targets      map[string][]*storedTarget
 
-	alss             *store.Table[storedALS]
+	alss *store.Table[storedALS]
+
+	resourceGateways       *store.Table[storedResourceGateway]
+	resourceGatewaysByName *store.Index[storedResourceGateway]
+
+	resourceConfigurations       *store.Table[storedResourceConfiguration]
+	resourceConfigurationsByName *store.Index[storedResourceConfiguration]
+
+	snras *store.Table[storedSNRA]
+
+	domainVerifications         *store.Table[storedDomainVerification]
+	domainVerificationsByDomain *store.Index[storedDomainVerification]
+
 	authPolicies     map[string]string
 	resourcePolicies map[string]string
 	tags             map[string]map[string]string

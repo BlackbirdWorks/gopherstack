@@ -1,8 +1,12 @@
 service: vpclattice
-sdk_module: aws-sdk-go-v2/service/vpclattice@v1.22.2
-last_audit_commit: b9c3a4f3
-last_audit_date: 2026-07-23
-overall: A            # genuine wire-shape + state-machine fixes found across ~5 op families
+sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
+last_audit_commit: 198990e82
+last_audit_date: 2026-08-07
+overall: A            # gopherstack-lx2k: Resource Gateway/ResourceConfiguration/
+                      # ServiceNetworkResourceAssociation/DomainVerification families
+                      # (20 SDK ops) implemented for real against v1.25.5; PutAuthPolicy/
+                      # PutResourcePolicy ARN-normalization orphan bug fixed; SNVA DnsOptions
+                      # field (previously silently dropped) now round-trips. See ops/gaps below.
 ops:
   CreateService: {wire: ok, errors: ok, state: ok, persist: ok, note: "dnsEntry now includes hostedZoneId alongside domainName, matching real DnsEntry shape"}
   GetService: {wire: ok, errors: ok, state: ok, persist: ok, note: "same dnsEntry.hostedZoneId fix as Create"}
@@ -18,8 +22,8 @@ ops:
   GetServiceNetworkServiceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as Create"}
   DeleteServiceNetworkServiceAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListServiceNetworkServiceAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "summary also missing customDomainName/dnsEntry, now fixed; dnsEntry now also carries hostedZoneId"}
-  CreateServiceNetworkVpcAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "accepts and echoes privateDnsEnabled"}
-  GetServiceNetworkVpcAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same privateDnsEnabled fix as Create"}
+  CreateServiceNetworkVpcAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "accepts and echoes privateDnsEnabled; FIXED this pass (gopherstack-lx2k) -- dnsOptions (privateDnsPreference + privateDnsSpecifiedDomains) was accepted on the wire and silently discarded, now stored and echoed back"}
+  GetServiceNetworkVpcAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "same privateDnsEnabled fix as Create; dnsOptions now round-trips too"}
   UpdateServiceNetworkVpcAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against UpdateServiceNetworkVpcAssociationInput/Output: only securityGroupIds is accepted/echoed by the real op, no privateDnsEnabled param -- correctly left untouched"}
   DeleteServiceNetworkVpcAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListServiceNetworkVpcAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "summary now carries privateDnsEnabled too"}
@@ -47,23 +51,42 @@ ops:
   UpdateAccessLogSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessLogSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAccessLogSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutAuthPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetAuthPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns 404 when unset (fixed in a prior audit pass, see parity_a_test.go)"}
-  DeleteAuthPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass (gopherstack-lx2k) -- now normalizes resourceID (ID or ARN) to the resource's canonical ARN via resolvePolicyResourceARN before keying authPolicies, matching how DeleteService/DeleteServiceNetwork's cascade delete looks entries up. Previously a Put using the short ID left the entry permanently orphaned once the parent resource was deleted by ARN."}
+  GetAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "returns 404 when unset (fixed in a prior audit pass, see parity_a_test.go); now shares the same ARN normalization as PutAuthPolicy"}
+  DeleteAuthPolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same ARN normalization fix"}
+  PutResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same orphan fix as PutAuthPolicy"}
+  GetResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same ARN normalization fix"}
+  DeleteResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "same ARN normalization fix"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass (gopherstack-lx2k). Note the real API's field-name inconsistency preserved verbatim: Create/Summary echo vpcIdentifier, but Get/Update/Delete echo vpcId (verified against api_op_*ResourceGateway.go/types.ResourceGatewaySummary directly, not assumed)"}
+  GetResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  UpdateResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- only securityGroupIds is accepted, matching UpdateResourceGatewayInput"}
+  DeleteResourceGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- rejects with ConflictException while any resource configuration still references the gateway"}
+  ListResourceGateways: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  CreateResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- resourceConfigurationDefinition union (arnResource/dnsResource/ipResource) round-trips; CHILD type inherits ResourceGatewayId from its GROUP parent per the real API's documented behavior"}
+  GetResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  UpdateResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- allowAssociationToShareableServiceNetwork/portRanges/resourceConfigurationDefinition, matching UpdateResourceConfigurationInput"}
+  DeleteResourceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- rejects with ConflictException while any SNRA or CHILD configuration references it"}
+  ListResourceConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  CreateServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- both DeleteServiceNetwork and DeleteResourceConfiguration now also check for a referencing SNRA before allowing delete"}
+  GetServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  DeleteServiceNetworkResourceAssociation: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ListServiceNetworkResourceAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  StartDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass -- status is always PENDING and never advances to VERIFIED, see gaps: this backend has no DNS to observe a caller-provisioned TXT record with, and fabricating VERIFIED would be worse than honestly staying PENDING"}
+  GetDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  DeleteDomainVerification: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ListDomainVerifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW this pass"}
+  ListResourceEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, see gaps: this resource is populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoint type Resource), which this backend doesn't model; vpc-lattice itself has no Create op for it"}
+  DeleteResourceEndpointAssociation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always ResourceNotFoundException, see ListResourceEndpointAssociations note"}
+  ListServiceNetworkVpcEndpointAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "NEW this pass -- always returns an empty page, same structural note as ListResourceEndpointAssociations (populated via EC2 CreateVpcEndpoint of type ServiceNetwork)"}
 families:
   routing: {status: ok, note: "handleREST (was a ~50-case switch, nolint:gocyclo,cyclop,funlen, gocyclo=57) and classifyPath (was a flat switch, nolint:gocyclo,cyclop,funlen, gocyclo=31) were both decomposed into sync.OnceValue-built lookup tables (op-name -> handler adapter; path-collection -> create/list op + sub-classifier; method -> op for the auth-policy/resource-policy/tags singleton routes), matching the inspector2/apigatewayv2 onceOpTable convention already used elsewhere in the fleet. Both banned nolints are gone; gocyclo/cyclop/funlen all report 0 issues on the package now. Every (method, path, op) triple was preserved verbatim during the refactor -- the full existing routing/handler test suite (handler_test.go, handler_routing coverage via ExtractOperation/ExtractResource, and all handler_*_test.go CRUD tests) passes unchanged, confirming no method/path collisions or unreachable-op regressions were introduced. RouteMatcher is unchanged (still a boolean prefix chain for route eligibility, not a method/path->op mapping, so the same treatment doesn't apply there)."
   timestamps: {status: ok, note: "all createdAt/lastUpdatedAt use time.Time.Format(\"2006-01-02T15:04:05.000Z\") which smithytime.ParseDateTime (restjson1 DateTime shape) accepts; not epoch, correctly ISO-8601."}
 gaps:
-  - "Resource Gateway / ResourceConfiguration / ServiceNetworkResourceAssociation / ServiceNetworkVpcEndpointAssociation / DomainVerification op families are entirely unimplemented (newer VPC Lattice feature set). Already explicitly acknowledged in sdk_completeness_test.go's notImplemented list — not a silent gap, but still real missing surface. Out of scope for this pass (would blow the ~2000 LOC budget); flag for a dedicated future audit pass if these become load-bearing."
   - "GetServiceOutput/GetServiceNetworkVpcAssociationOutput failureCode/failureMessage fields (populated when a resource is stuck in a *_FAILED state) are never set because this backend's Create paths are synchronous and never fail after validation — acceptable since there's no in-progress/failed state machine to represent, but worth knowing if async failure simulation is ever added."
-  - "ServiceNetworkVpcAssociation is still missing the full DnsOptions substructure (PrivateDnsPreference enum + PrivateDnsSpecifiedDomains list) — privateDnsEnabled itself is now fixed (see CreateServiceNetworkVpcAssociation/GetServiceNetworkVpcAssociation/ListServiceNetworkVpcAssociations notes above), but the richer DnsOptions object it gates (added after this backend was authored) is deferred. Not exercised by common test/client flows."
-  - "PutAuthPolicy/PutResourcePolicy/CreateAccessLogSubscription's resourceID/resourceArn key into their maps by the exact literal string the caller passed (ID or ARN, un-normalized) except CreateAccessLogSubscription, which does resolve to a canonical ARN via resolveResourceARN. A caller that Puts an auth/resource policy using a service's ID and later deletes the service (whose new cascade-delete logic matches by ARN) will leave that policy orphaned in the map, since the two never shared a canonical key. Pre-existing gap (not introduced this pass); DeleteService/DeleteServiceNetwork's cascade is only guaranteed complete for policies set via the resource's ARN, which is the form real AWS clients conventionally use. Flag for a follow-up pass that normalizes PutAuthPolicy/PutResourcePolicy identifiers the same way CreateAccessLogSubscription already does."
-deferred:
-  - "Resource Gateway / ResourceConfiguration family (see gaps)"
+  - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (bd: gopherstack-lx2k). Both are populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoints of type Resource/ServiceNetwork referencing a ResourceConfiguration/ServiceNetwork ARN) — vpc-lattice itself exposes no Create operation for either, and this backend has no EC2 VPC-endpoint cross-service integration to source one from. Buildable with enough cross-service work (not structural), just out of scope this pass; the wire shape and empty-vs-error behavior is honest (List returns real empty, Delete honestly 404s) rather than fabricated."
+  - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
+  - "GetResourceGateway/UpdateResourceGateway/DeleteResourceGateway's ManagedBy/ServiceManaged fields (set when a resource gateway is provisioned by another AWS service, not directly by the caller) are never populated -- this backend has no cross-service provisioning path that would ever set them, so every resource gateway here is caller-managed. Not fabricated, just never non-default."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
