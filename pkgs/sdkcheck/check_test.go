@@ -1,4 +1,4 @@
-package sdkcheck_test
+package sdkcheck
 
 import (
 	"context"
@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 )
 
 // fakeClient simulates an AWS SDK v2 Client; pointer receivers match SDK convention.
@@ -48,7 +46,7 @@ func TestBuildSDKMethodSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.BuildSDKMethodSet(tt.input)
+			got := buildSDKMethodSet(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -93,7 +91,7 @@ func TestBuildSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotSet, gotDups := sdkcheck.BuildSet(tt.input)
+			gotSet, gotDups := buildSet(tt.input)
 			assert.Equal(t, tt.wantSet, gotSet)
 			assert.Equal(t, tt.wantDups, gotDups)
 		})
@@ -139,7 +137,7 @@ func TestFindStale(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindStale(tt.notImpl, tt.sdkMethod)
+			got := findStale(tt.notImpl, tt.sdkMethod)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -184,7 +182,7 @@ func TestFindOverlapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindOverlapping(tt.a, tt.b)
+			got := findOverlapping(tt.a, tt.b)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -234,7 +232,7 @@ func TestFindUnaccounted(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := sdkcheck.FindUnaccounted(tt.sdkMethods, tt.supportedSet, tt.notImplSet)
+			got := findUnaccounted(tt.sdkMethods, tt.supportedSet, tt.notImplSet)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -279,7 +277,7 @@ func TestCheckCompleteness_Pass(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sdkcheck.CheckCompleteness(t, tt.sdkClientPtr, tt.supportedOps, tt.notImplemented)
+			CheckCompleteness(t, tt.sdkClientPtr, tt.supportedOps, tt.notImplemented)
 		})
 	}
 }
@@ -289,7 +287,7 @@ func TestCheckCompleteness_FailureOnNil(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(spy, nil, nil, nil)
+	CheckCompleteness(spy, nil, nil, nil)
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is nil")
 }
 
@@ -298,7 +296,7 @@ func TestCheckCompleteness_FailureOnNonPointer(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(spy, fakeClient{}, nil, nil) // value, not pointer
+	CheckCompleteness(spy, fakeClient{}, nil, nil) // value, not pointer
 	require.True(t, spy.Failed(), "CheckCompleteness should report failure when sdkClientPtr is not a pointer")
 }
 
@@ -309,7 +307,7 @@ func TestCheckCompleteness_FailsOnUnallowlistedPhantomOp(t *testing.T) {
 	t.Parallel()
 
 	spy := newSpyT(t)
-	sdkcheck.CheckCompleteness(
+	CheckCompleteness(
 		spy, &fakeClient{},
 		[]string{"GetItem", "PutItem", "DeleteItem", "ListTagsForResource"},
 		nil,
@@ -319,7 +317,7 @@ func TestCheckCompleteness_FailsOnUnallowlistedPhantomOp(t *testing.T) {
 }
 
 // spyT wraps a [testing.TB] to intercept failure calls so we can test that
-// [sdkcheck.CheckCompleteness] correctly reports errors for bad inputs, without
+// [CheckCompleteness] correctly reports errors for bad inputs, without
 // propagating the failures to the parent test.
 type spyT struct {
 	testing.TB

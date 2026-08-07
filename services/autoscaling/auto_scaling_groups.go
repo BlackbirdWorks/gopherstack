@@ -687,9 +687,9 @@ func (b *InMemoryBackend) DescribeAccountLimits() (*AccountLimits, error) {
 	return &AccountLimits{
 		MaxNumberOfAutoScalingGroups:    maxAccountASGs,
 		MaxNumberOfLaunchConfigurations: maxAccountLaunchConfigs,
-		//nolint:gosec,G115 // bounded by maxAccountASGs
+		//nolint:gosec // G115: bounded by maxAccountASGs
 		NumberOfAutoScalingGroups: int32(b.groups.Len()),
-		//nolint:gosec,G115 // bounded by maxAccountLaunchConfigs
+		//nolint:gosec // G115: bounded by maxAccountLaunchConfigs
 		NumberOfLaunchConfigurations: int32(b.launchConfigurations.Len()),
 	}, nil
 }

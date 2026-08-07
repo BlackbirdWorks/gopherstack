@@ -166,40 +166,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "000000000000", fresh.AccountID())
 }
 
-// TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted documents
-// that directoryIpGroups (unlike imagePermissions, clientProperties, and
-// appAssociations, which remain ephemeral) now survives a Snapshot -> Restore
-// round trip -- fixed alongside the AssociateIpGroups/DisassociateIpGroups
-// persistence gap (see PARITY.md gaps history; previously all four raw maps
-// were ephemeral, matching pre-Phase-3.3 behavior).
-func TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted(t *testing.T) {
-	t.Parallel()
-
-	b := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
-	ctx := t.Context()
-
-	require.NoError(t, b.RegisterWorkspaceDirectory("d-1234567890", []string{"subnet-1"}))
-
-	_, err := b.CreateIpGroup("grp1", "desc", nil, nil)
-	require.NoError(t, err)
-	require.NoError(t, b.AssociateIpGroups("d-1234567890", []string{"grp1"}))
-
-	snap := b.Snapshot(ctx)
-	require.NotNil(t, snap)
-
-	fresh := workspaces.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, fresh.Restore(ctx, snap))
-
-	dirs, _, err := fresh.DescribeWorkspaceDirectories(ctx, nil, "")
-	require.NoError(t, err)
-	require.Len(t, dirs, 1)
-
-	groups, _, err := fresh.DescribeIpGroups(nil, 0, "")
-	require.NoError(t, err)
-	require.Len(t, groups, 1)
-
-	assert.Equal(t, []string{"grp1"}, workspaces.DirectoryIPGroupIDs(fresh, "d-1234567890"))
-}
+// TestInMemoryBackend_SnapshotRestore_DirectoryIpGroupsPersisted lives in
+// whitebox_test.go: it needs direct access to the unexported
+// directoryIpGroups map.
 
 // TestInMemoryBackend_RestoreVersionMismatch verifies that a snapshot whose
 // version doesn't match the current backend (including the pre-Phase-3.3

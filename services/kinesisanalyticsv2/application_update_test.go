@@ -12,70 +12,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 )
 
-// TestBackend_UpdateApplication_ConditionalToken verifies that
-// UpdateApplication's ConditionalToken implements the same
-// optimistic-concurrency check as CurrentApplicationVersionId (real AWS: "you
-// must provide the CurrentApplicationVersionId or the ConditionalToken"),
-// and that a mismatched token is rejected with ErrConcurrentModification
-// without mutating the application or bumping its version.
-func TestBackend_UpdateApplication_ConditionalToken(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-
-	t.Run("valid token succeeds and rotates", func(t *testing.T) {
-		t.Parallel()
-
-		b := newTestBackend(t)
-		app, err := b.CreateApplication(ctx, "token-app", "FLINK-1_18", "", "", "", nil)
-		require.NoError(t, err)
-
-		tok := kinesisanalyticsv2.ConditionalTokenForTest(app)
-
-		updated, opID, err := b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
-			Name:                   "token-app",
-			ConditionalToken:       tok,
-			ApplicationDescription: "updated via token",
-		})
-		require.NoError(t, err)
-		assert.NotEmpty(t, opID)
-		assert.Equal(t, int64(2), updated.ApplicationVersionID)
-		assert.NotEqual(
-			t,
-			tok,
-			kinesisanalyticsv2.ConditionalTokenForTest(updated),
-			"token must rotate on version bump",
-		)
-	})
-
-	t.Run("stale token rejected", func(t *testing.T) {
-		t.Parallel()
-
-		b := newTestBackend(t)
-		app, err := b.CreateApplication(ctx, "stale-token-app", "FLINK-1_18", "", "orig", "", nil)
-		require.NoError(t, err)
-
-		staleTok := kinesisanalyticsv2.ConditionalTokenForTest(app)
-
-		// Bump the version once via a normal update so staleTok no longer matches.
-		_, _, err = b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
-			Name:                   "stale-token-app",
-			ApplicationDescription: "first update",
-		})
-		require.NoError(t, err)
-
-		_, _, err = b.UpdateApplication(ctx, kinesisanalyticsv2.UpdateApplicationParams{
-			Name:                   "stale-token-app",
-			ConditionalToken:       staleTok,
-			ApplicationDescription: "should not apply",
-		})
-		require.ErrorIs(t, err, kinesisanalyticsv2.ErrConcurrentModification)
-
-		current, err := b.DescribeApplication(ctx, "stale-token-app")
-		require.NoError(t, err)
-		assert.Equal(t, "first update", current.ApplicationDescription, "rejected update must not mutate state")
-	})
-}
+// TestBackend_UpdateApplication_ConditionalToken lives in whitebox_test.go:
+// it needs direct access to the unexported conditionalToken derivation.
 
 // TestBackend_UpdateApplication_RuntimeEnvironmentUpdate verifies that
 // UpdateApplication's RuntimeEnvironmentUpdate field (previously accepted on

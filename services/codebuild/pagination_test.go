@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,31 +42,9 @@ func TestHandler_ListProjects_InvalidNextToken(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestHandler_ListProjects_SortByCreatedTime verifies sortBy=CREATED_TIME
-// orders projects by creation time rather than by name.
-func TestHandler_ListProjects_SortByCreatedTime(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	createTestProject(t, h, "created-z")
-	createTestProject(t, h, "created-a")
-	createTestProject(t, h, "created-m")
-
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	h.Backend.SetProjectTimestamps("created-z", base, base)
-	h.Backend.SetProjectTimestamps("created-a", base.Add(time.Hour), base.Add(time.Hour))
-	h.Backend.SetProjectTimestamps("created-m", base.Add(2*time.Hour), base.Add(2*time.Hour))
-
-	rec := doRequest(t, h, "ListProjects", map[string]any{"sortBy": "CREATED_TIME"})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var out struct {
-		Projects []string `json:"projects"`
-	}
-	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
-	assert.Equal(t, []string{"created-z", "created-a", "created-m"}, out.Projects,
-		"CREATED_TIME order must ignore name ordering")
-}
+// TestHandler_ListProjects_SortByCreatedTime lives in whitebox_test.go: it
+// needs direct access to unexported project timestamp fields to get a
+// deterministic ordering independent of wall-clock creation time.
 
 // TestHandler_ListFleets_MaxResultsPagination verifies maxResults/nextToken
 // page through the fleet list, matching real AWS ListFleets pagination.

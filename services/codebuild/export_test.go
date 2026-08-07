@@ -63,20 +63,6 @@ func (b *InMemoryBackend) ProjectCount() int {
 	return b.projects.Len()
 }
 
-// SetProjectTimestamps overrides a project's Created/LastModified fields.
-// Used only in tests to get deterministic orderings for
-// ListProjects(sortBy=CREATED_TIME|LAST_MODIFIED_TIME) assertions, since
-// real creation order and wall-clock time are otherwise entangled.
-func (b *InMemoryBackend) SetProjectTimestamps(name string, created, lastModified time.Time) {
-	b.mu.Lock("SetProjectTimestamps")
-	defer b.mu.Unlock()
-
-	if p, ok := b.projects.Get(name); ok {
-		p.Created = float64(created.Unix())
-		p.LastModified = float64(lastModified.Unix())
-	}
-}
-
 // GetJanitorTaskTimeout returns the TaskTimeout configured on the handler's janitor.
 // Used in tests to verify WithJanitor correctly propagates the timeout.
 func (h *Handler) GetJanitorTaskTimeout() time.Duration {

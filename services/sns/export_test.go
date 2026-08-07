@@ -22,18 +22,6 @@ const (
 
 	// ExportedMaxArchivedMessagesPerTopic exposes the archive cap for test assertions.
 	ExportedMaxArchivedMessagesPerTopic = maxArchivedMessagesPerTopic
-
-	// ExportedMaxFilterPoliciesPerTopic exposes the per-topic FilterPolicyLimitExceeded
-	// quota (200) for test assertions.
-	ExportedMaxFilterPoliciesPerTopic = maxFilterPoliciesPerTopic
-
-	// ExportedMaxFilterPoliciesPerAccount exposes the per-account
-	// FilterPolicyLimitExceeded quota (10,000) for test assertions.
-	ExportedMaxFilterPoliciesPerAccount = maxFilterPoliciesPerAccount
-
-	// ExportedMaxFilterPolicyKeys exposes the per-policy key-count cap (5) for
-	// test assertions.
-	ExportedMaxFilterPolicyKeys = maxFilterPolicyKeys
 )
 
 // IsValidTopicNameForTest exposes the topic name validation function for testing.
@@ -116,15 +104,6 @@ func FifoDedupEntryCountForTest(d *fifoDeduplication) int {
 	defer d.mu.Unlock()
 
 	return len(d.entries)
-}
-
-// SetSubscriptionLimitPerTopicForTest overrides the effective SubscriptionLimitExceeded
-// threshold so tests can exercise the limit without creating millions of
-// subscriptions (AWS's real default is 12,500,000 per topic).
-func SetSubscriptionLimitPerTopicForTest(b *InMemoryBackend, limit int) {
-	b.mu.Lock("SetSubscriptionLimitPerTopicForTest")
-	defer b.mu.Unlock()
-	b.subscriptionLimitPerTopic = limit
 }
 
 // AddOptedOutPhoneNumberForTest directly adds a phone number to the opted-out set,

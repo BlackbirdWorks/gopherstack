@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
 const selectTestArchive = "1,alice,30\n2,bob,25\n3,carol,40\n"
@@ -437,14 +435,4 @@ func TestDescribeJob_Select_EchoesParameters(t *testing.T) {
 	// select job").
 	_, hasSize := resp["ArchiveSizeInBytes"]
 	assert.False(t, hasSize)
-}
-
-// TestParseSelectExpression_ExportedHelperSmoke is a minimal sanity check that the
-// exported test hook itself behaves as documented (deeper coverage lives in
-// select_sql_test.go).
-func TestParseSelectExpression_ExportedHelperSmoke(t *testing.T) {
-	t.Parallel()
-
-	require.NoError(t, glacier.ParseSelectExpression("SELECT * FROM archive"))
-	require.Error(t, glacier.ParseSelectExpression("not sql"))
 }

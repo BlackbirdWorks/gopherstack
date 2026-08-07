@@ -813,88 +813,9 @@ func TestStreams_DescribeStream_ShardFilter_ChildShards(t *testing.T) {
 	assert.Empty(t, empty.StreamDescription.Shards)
 }
 
-// TestStreams_DescribeStream_ShardFilter_Validation covers the ShardFilter
-// input-validation branches (unsupported Type, missing ShardId) using a
-// deterministic 2-shard genealogy injected directly, avoiding the cost of
-// forcing a real ring-buffer split for every case.
-func TestStreams_DescribeStream_ShardFilter_Validation(t *testing.T) {
-	t.Parallel()
-
-	db := newStreamsTestDB(t)
-	ctx := t.Context()
-
-	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "KEYS_ONLY"))
-
-	db.SetStreamShardsForTest("StreamsTestTable", []ddb.StreamShard{
-		{ShardID: "shardId-parent", StartingSequenceNum: 1, EndingSequenceNum: 5},
-		{ShardID: "shardId-child", ParentShardID: "shardId-parent", StartingSequenceNum: 6},
-	})
-
-	table, ok := db.GetTable("StreamsTestTable")
-	require.True(t, ok)
-
-	tests := []struct {
-		name            string
-		filter          *streamstypes.ShardFilter
-		wantErrContains string
-		wantShardIDs    []string
-	}{
-		{
-			name:         "nil filter returns all shards",
-			filter:       nil,
-			wantShardIDs: []string{"shardId-parent", "shardId-child"},
-		},
-		{
-			name: "CHILD_SHARDS with matching parent returns only child",
-			filter: &streamstypes.ShardFilter{
-				Type:    streamstypes.ShardFilterTypeChildShards,
-				ShardId: aws.String("shardId-parent"),
-			},
-			wantShardIDs: []string{"shardId-child"},
-		},
-		{
-			name: "unsupported filter type is rejected",
-			filter: &streamstypes.ShardFilter{
-				Type:    "BOGUS_TYPE",
-				ShardId: aws.String("shardId-parent"),
-			},
-			wantErrContains: "Invalid ShardFilter Type",
-		},
-		{
-			name: "CHILD_SHARDS without ShardId is rejected",
-			filter: &streamstypes.ShardFilter{
-				Type: streamstypes.ShardFilterTypeChildShards,
-			},
-			wantErrContains: "ShardFilter.ShardId is required",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			out, descErr := db.DescribeStream(ctx, &dynamodbstreams.DescribeStreamInput{
-				StreamArn:   aws.String(table.StreamARN),
-				ShardFilter: tt.filter,
-			})
-
-			if tt.wantErrContains != "" {
-				require.Error(t, descErr)
-				assert.Contains(t, descErr.Error(), tt.wantErrContains)
-
-				return
-			}
-
-			require.NoError(t, descErr)
-
-			gotIDs := make([]string, 0, len(out.StreamDescription.Shards))
-			for _, s := range out.StreamDescription.Shards {
-				gotIDs = append(gotIDs, aws.ToString(s.ShardId))
-			}
-			assert.ElementsMatch(t, tt.wantShardIDs, gotIDs)
-		})
-	}
-}
+// TestStreams_DescribeStream_ShardFilter_Validation lives in whitebox_test.go:
+// it needs direct access to the unexported streamShards field to inject a
+// deterministic shard genealogy without forcing a real ring-buffer split.
 
 func TestStreams_DescribeStream_SequenceNumberRange(t *testing.T) {
 	t.Parallel()

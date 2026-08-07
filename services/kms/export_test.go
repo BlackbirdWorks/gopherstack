@@ -1,7 +1,6 @@
 package kms
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -19,20 +18,6 @@ func (h *Handler) RemoveTags(resourceID string, keys []string) { h.removeTags(re
 
 // GetTags exposes getTags for testing.
 func (h *Handler) GetTags(resourceID string) map[string]string { return h.getTags(resourceID) }
-
-// TagsMapLen returns the number of entries in Handler.tags, the handler-level
-// side map of *tags.Tags keyed by KeyID. Unlike GetTags (which returns an
-// empty map both when a resource has no tags AND when it has no map entry at
-// all), this distinguishes "entry present" from "entry absent" -- used by
-// leak-regression tests to prove a purged key's tag collection was actually
-// removed (and Close()'d, releasing its lockmetrics registration), not just
-// emptied.
-func (h *Handler) TagsMapLen() int {
-	h.tagsMu.RLock("TagsMapLen")
-	defer h.tagsMu.RUnlock()
-
-	return len(h.tags)
-}
 
 // HandlerOpsLen returns the number of pre-built dispatch operations.
 func HandlerOpsLen(h *Handler) int {
@@ -124,20 +109,6 @@ func (h *Handler) GetJanitorTaskTimeout() time.Duration {
 	}
 
 	return h.janitor.TaskTimeout
-}
-
-// SweepJanitorForTest runs a single janitor sweep through the handler's
-// configured janitor (as installed by WithJanitor), including any callbacks
-// wired to it (e.g. OnKeyPurged). Unlike constructing a bare *Janitor
-// directly via NewJanitor, this exercises the exact same janitor a real
-// gopherstack process would run, wiring included. No-op if WithJanitor was
-// never called.
-func (h *Handler) SweepJanitorForTest(ctx context.Context) {
-	if h.janitor == nil {
-		return
-	}
-
-	h.janitor.SweepOnce(ctx)
 }
 
 // ScheduleJanitorExpiry pushes an expiry entry into the janitor's heap for testing.

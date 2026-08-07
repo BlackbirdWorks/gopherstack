@@ -785,25 +785,5 @@ func TestSamplingRule_DefaultRuleUndeletableByARN(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestCreateSamplingRule_RuleLimitExceeded verifies the previously-unenforced
-// RuleLimitExceededException cap on the number of sampling rules per account.
-func TestCreateSamplingRule_RuleLimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandlerWithBackend(t)
-
-	// Seed up to the limit directly (bypassing validation) for speed; the Default
-	// rule already counts toward the limit.
-	for i := b.SamplingRuleCount(); i < xray.SamplingRuleLimitForTest(); i++ {
-		b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: fmt.Sprintf("seed-%d", i), Priority: 1})
-	}
-
-	rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
-		"SamplingRule": map[string]any{"RuleName": "one-too-many", "Priority": 1, "FixedRate": 0.1},
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "RuleLimitExceededException", resp["__type"])
-}
+// TestCreateSamplingRule_RuleLimitExceeded lives in whitebox_test.go: it
+// needs direct access to the unexported maxSamplingRules constant.

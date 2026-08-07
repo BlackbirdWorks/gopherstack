@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/services/codedeploy"
@@ -17,29 +16,8 @@ func TestBackend_Region(t *testing.T) {
 	assert.Equal(t, config.DefaultRegion, b.Region())
 }
 
-func TestStore_Reset(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	_, _ = h.Backend.CreateApplication("app-1", "Server", nil)
-	_, _ = h.Backend.CreateApplication("app-2", "Lambda", nil)
-	require.NoError(t, h.Backend.RegisterApplicationRevision("app-1", codedeploy.RevisionLocation{
-		RevisionType: "S3",
-		S3Location:   &codedeploy.RevisionS3Location{Bucket: "b", Key: "k"},
-	}, ""))
-
-	require.Equal(t, 2, h.Backend.ApplicationCount())
-	require.Equal(t, 1, h.Backend.ApplicationRevisionCount())
-
-	h.Reset()
-
-	assert.Equal(t, 0, h.Backend.ApplicationCount())
-	assert.Equal(t, 0, h.Backend.DeploymentCount())
-	assert.Equal(t, 0, h.Backend.ApplicationRevisionCount())
-	// 9 CodeDeployDefault.* configs are re-seeded on every Reset/NewInMemoryBackend.
-	assert.Equal(t, 9, h.Backend.DeploymentConfigCount())
-}
+// TestStore_Reset lives in whitebox_test.go: it needs direct access to the
+// unexported applicationRevisions map.
 
 func TestStore_SeedHelpersCounts(t *testing.T) {
 	t.Parallel()

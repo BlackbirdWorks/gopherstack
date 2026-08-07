@@ -17,55 +17,8 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/swf"
 )
 
-// TestDecisionHandlers_CoverAllDecisionTypes is a table-driven test over the
-// decision-type dispatch table (decision_tasks.go's decisionHandlers),
-// asserting every SWF decision type this service claims to support has a
-// registered handler -- guards against a decision type silently falling
-// through the dispatch table with no handler (a disguised no-op).
-func TestDecisionHandlers_CoverAllDecisionTypes(t *testing.T) {
-	t.Parallel()
-
-	want := []string{
-		"CancelTimer",
-		"CancelWorkflowExecution",
-		"CompleteWorkflowExecution",
-		"ContinueAsNewWorkflowExecution",
-		"FailWorkflowExecution",
-		"RecordMarker",
-		"RequestCancelActivityTask",
-		"RequestCancelExternalWorkflowExecution",
-		"ScheduleActivityTask",
-		"SignalExternalWorkflowExecution",
-		"StartChildWorkflowExecution",
-		"StartTimer",
-	}
-
-	got := swf.DecisionHandlerTypes()
-	assert.ElementsMatch(t, want, got, "every SWF decision type must have a dispatch table entry")
-
-	for _, dt := range want {
-		t.Run(dt, func(t *testing.T) {
-			t.Parallel()
-
-			b := swf.NewInMemoryBackend()
-			require.NoError(t, b.RegisterDomain("dom", "", "NONE"))
-			_, err := b.StartWorkflowExecution(swf.StartWorkflowExecutionInput{
-				Domain: "dom", WorkflowID: "wf-1", TaskList: "tasks",
-			})
-			require.NoError(t, err)
-
-			task := b.PollForDecisionTask("dom", "tasks", 0, "")
-			require.NotNil(t, task)
-
-			// A bare decision (nil attrs) must never panic or error --
-			// every handler is expected to treat missing attrs as a
-			// silent no-op, exactly like real AWS's per-decision-type
-			// attribute requirement (see e.g. ScheduleActivityTask).
-			err = b.RespondDecisionTaskCompleted(task.TaskToken, "", []swf.Decision{{DecisionType: dt}})
-			require.NoError(t, err)
-		})
-	}
-}
+// TestDecisionHandlers_CoverAllDecisionTypes lives in whitebox_test.go: it
+// needs direct access to the unexported decision dispatch table.
 
 func TestStartChildWorkflowExecutionDecision_Success(t *testing.T) {
 	t.Parallel()

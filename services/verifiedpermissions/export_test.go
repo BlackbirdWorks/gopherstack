@@ -48,16 +48,6 @@ func ARNIndexSize(b *InMemoryBackend) int {
 	return len(b.arnIndex)
 }
 
-// ResourceTagsSize returns the number of ARNs with a resourceTags entry (for
-// test use only) -- used to assert Delete* operations don't leave ghost tag
-// map rows behind after a resource (and its ARN index entry) is removed.
-func ResourceTagsSize(b *InMemoryBackend) int {
-	b.mu.RLock("ResourceTagsSize")
-	defer b.mu.RUnlock()
-
-	return len(b.resourceTags)
-}
-
 // HandlerOpsLen returns the number of supported operations for h (for test use only).
 func HandlerOpsLen(h *Handler) int {
 	return len(h.GetSupportedOperations())

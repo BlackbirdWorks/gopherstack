@@ -525,6 +525,20 @@ linters:
         linters: [ testpackage ]
       - path: 'autoscaling/scheduled_action_scheduler_test.go'
         linters: [ testpackage ]
+      # whitebox_test.go: the export_test.go cleanup (gopherstack-f84y) moved
+      # tests needing unexported field/const access out of the external _test
+      # package into these in-package files instead of re-exporting test-only
+      # helpers. One shared rule covers every service's whitebox_test.go.
+      - path: 'whitebox_test\.go$'
+        linters: [ testpackage ]
+      - path: 'sdkcheck/check_test.go'
+        linters: [ testpackage ]
+      - path: 'pkgs/telemetry/collector_test.go'
+        linters: [ testpackage ]
+      - path: 'cognitoidentity/errors_test.go'
+        linters: [ testpackage ]
+      - path: 'glacier/select_sql_test.go'
+        linters: [ testpackage ]
       - text: 'should have a package comment'
         linters: [ revive ]
       - text: 'exported \S+ \S+ should have comment( \(or a comment on this block\))? or be unexported'

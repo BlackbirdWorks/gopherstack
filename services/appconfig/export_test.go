@@ -47,33 +47,3 @@ func (b *InMemoryBackend) DeploymentStrategyByNameCount() int {
 
 	return b.deploymentStrategiesByName.Len()
 }
-
-// DeployedConfigCount returns the number of tracked deployed-configuration
-// entries. Used only in tests to verify cascade cleanup on delete.
-func (b *InMemoryBackend) DeployedConfigCount() int {
-	b.mu.RLock("DeployedConfigCount")
-	defer b.mu.RUnlock()
-
-	return len(b.deployedConfigs)
-}
-
-// ExtensionAssociationCount returns the number of extension associations in
-// the backend. Used only in tests to verify cascade cleanup on delete.
-func (b *InMemoryBackend) ExtensionAssociationCount() int {
-	b.mu.RLock("ExtensionAssociationCount")
-	defer b.mu.RUnlock()
-
-	return b.extensionAssociations.Len()
-}
-
-// DeploymentTimerCount returns the number of in-flight deployment
-// progression timers currently tracked. Used only in tests to verify the
-// background reconciler goroutine drains this map (and, transitively,
-// terminates itself) once every deployment reaches a terminal state --
-// rather than leaking timers or leaving the goroutine running forever.
-func (b *InMemoryBackend) DeploymentTimerCount() int {
-	b.mu.RLock("DeploymentTimerCount")
-	defer b.mu.RUnlock()
-
-	return len(b.deploymentTimers)
-}

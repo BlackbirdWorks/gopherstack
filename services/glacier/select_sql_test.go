@@ -1,11 +1,9 @@
-package glacier_test
+package glacier
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
 // TestParseSelectExpression_Valid verifies that the Glacier Select SQL subset
@@ -53,7 +51,7 @@ func TestParseSelectExpression_Valid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := glacier.ParseSelectExpression(tt.expr)
+			_, err := parseSelectQuery(tt.expr)
 			assert.NoError(t, err, "expression: %s", tt.expr)
 		})
 	}
@@ -90,7 +88,7 @@ func TestParseSelectExpression_Invalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := glacier.ParseSelectExpression(tt.expr)
+			_, err := parseSelectQuery(tt.expr)
 			assert.Error(t, err, "expression: %s", tt.expr)
 		})
 	}
