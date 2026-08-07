@@ -25,13 +25,21 @@ import (
 // Version (including one with no version field, which decodes as 0) is
 // discarded the same way any other incompatible snapshot is.
 //
-// Version 2 (current): the account-management wire-shape rewrite dropped the
+// Version 2: the account-management wire-shape rewrite dropped the
 // fictitious CloseAccount/DescribeAccount operations (CloseAccount is an AWS
 // Organizations concept, not Account Management -- see
 // services/organizations) in favor of the real GetAccountInformation
 // operation, which added AccountCreatedDate and removed the now-meaningless
 // Closed scalar. A v1 snapshot is therefore discarded like any other
 // incompatible version rather than decoded with a zero AccountCreatedDate.
+//
+// Do NOT bump this when a field is merely ADDED. encoding/json decodes an
+// older snapshot missing a new field fine, leaving it zero; bumping instead
+// sends Restore down the ResetAll path and destroys data the upgrade was
+// only meant to extend. PrimaryEmailUpdateStatus/PrimaryEmailUpdateAt were
+// added that way and correctly did not warrant a bump. Bump only for a
+// genuinely decode-incompatible change: a field retyped, or removed with no
+// safe default -- as version 2 was.
 const accountSnapshotVersion = 2
 
 // backendSnapshot is the top-level on-disk shape for the Account backend.
@@ -47,17 +55,19 @@ const accountSnapshotVersion = 2
 // key on) and Regions is a plain (non-map) slice, so both stay raw; the
 // rest are scalars.
 type backendSnapshot struct {
-	AccountCreatedDate time.Time                  `json:"accountCreatedDate"`
-	Tables             map[string]json.RawMessage `json:"tables"`
-	ContactInfo        *ContactInformation        `json:"contactInfo,omitempty"`
-	AccountID          string                     `json:"accountID"`
-	Region             string                     `json:"region"`
-	AccountName        string                     `json:"accountName"`
-	PrimaryEmail       string                     `json:"primaryEmail"`
-	PendingEmail       string                     `json:"pendingEmail"`
-	PendingOTP         string                     `json:"pendingOTP"`
-	Regions            []*Region                  `json:"regions"`
-	Version            int                        `json:"version"`
+	AccountCreatedDate       time.Time                  `json:"accountCreatedDate"`
+	Tables                   map[string]json.RawMessage `json:"tables"`
+	ContactInfo              *ContactInformation        `json:"contactInfo,omitempty"`
+	AccountID                string                     `json:"accountID"`
+	Region                   string                     `json:"region"`
+	AccountName              string                     `json:"accountName"`
+	PrimaryEmail             string                     `json:"primaryEmail"`
+	PendingEmail             string                     `json:"pendingEmail"`
+	PendingOTP               string                     `json:"pendingOTP"`
+	PrimaryEmailUpdateStatus PrimaryEmailUpdateStatus   `json:"primaryEmailUpdateStatus,omitempty"`
+	PrimaryEmailUpdateAt     time.Time                  `json:"primaryEmailUpdateAt"`
+	Regions                  []*Region                  `json:"regions"`
+	Version                  int                        `json:"version"`
 }
 
 // Snapshot serializes the backend state to JSON. It implements
@@ -74,17 +84,19 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:            accountSnapshotVersion,
-		Tables:             tables,
-		ContactInfo:        b.contactInfo,
-		Regions:            b.regions,
-		AccountID:          b.accountID,
-		Region:             b.region,
-		AccountName:        b.accountName,
-		PrimaryEmail:       b.primaryEmail,
-		PendingEmail:       b.pendingEmail,
-		PendingOTP:         b.pendingOTP,
-		AccountCreatedDate: b.accountCreatedDate,
+		Version:                  accountSnapshotVersion,
+		Tables:                   tables,
+		ContactInfo:              b.contactInfo,
+		Regions:                  b.regions,
+		AccountID:                b.accountID,
+		Region:                   b.region,
+		AccountName:              b.accountName,
+		PrimaryEmail:             b.primaryEmail,
+		PendingEmail:             b.pendingEmail,
+		PendingOTP:               b.pendingOTP,
+		PrimaryEmailUpdateStatus: b.primaryEmailUpdateStatus,
+		PrimaryEmailUpdateAt:     b.primaryEmailUpdateAt,
+		AccountCreatedDate:       b.accountCreatedDate,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "account", snap)
@@ -118,6 +130,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.primaryEmail = defaultPrimaryEmail
 		b.pendingEmail = ""
 		b.pendingOTP = ""
+		b.primaryEmailUpdateStatus = ""
+		b.primaryEmailUpdateAt = time.Time{}
 		b.accountCreatedDate = time.Now().UTC()
 		b.accountID = snap.AccountID
 		b.region = snap.Region
@@ -138,6 +152,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.primaryEmail = snap.PrimaryEmail
 	b.pendingEmail = snap.PendingEmail
 	b.pendingOTP = snap.PendingOTP
+	b.primaryEmailUpdateStatus = snap.PrimaryEmailUpdateStatus
+	b.primaryEmailUpdateAt = snap.PrimaryEmailUpdateAt
 	b.accountCreatedDate = snap.AccountCreatedDate
 
 	return nil

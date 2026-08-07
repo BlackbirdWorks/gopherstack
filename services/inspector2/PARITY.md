@@ -66,6 +66,19 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all resour
 
 ## Notes
 
+**2026-08-07 (fixed by a concurrent account-service pass, gopherstack-303i)**: `RouteMatcher`
+matched `pathEnable`/`pathDisable` (`"/enable"`/`"/disable"`) as raw path *prefixes* with no
+SigV4-service-name gate, so `strings.HasPrefix("/enableRegion", "/enable")` wrongly claimed
+`services/account`'s `POST /enableRegion`/`/disableRegion` before Account's own (correctly
+service-gated) `RouteMatcher` ever ran -- confirmed live via `test/integration/account_test.go`
+(501 NotImplementedException from Inspector2, not the expected Account response). Per this
+package's own `{method, path}` dispatch table, `/enable`/`/disable` are exact fixed paths with
+no children (real Inspector2 has no `/enableFoo` sub-resource), so prefix matching was never
+correct for these two entries regardless of Account. Fixed: `/enable`/`/disable` now require
+exact path equality in `RouteMatcher`, checked before the (unchanged) prefix loop that still
+serves every genuine directory-style prefix (`/filters/`, `/status/`, ...). All existing
+Inspector2 tests still pass unmodified.
+
 Protocol: restjson1. All request/response bodies are JSON; most ops are POST with
 an explicit action path (e.g. `/findings/list`), a handful use GET/PUT/DELETE
 (GetEncryptionKey=GET, Reset/UpdateEncryptionKey=PUT, StartCisSession/StopCisSession/

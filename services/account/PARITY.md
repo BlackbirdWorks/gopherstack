@@ -5,16 +5,20 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: account
-sdk_module: aws-sdk-go-v2/service/account@v1.34.0 (fetched read-only into GOMODCACHE
-  via go mod download for this pass -- NOT added to this repo's go.mod/go.sum. The
-  real generated client source -- api_op_*.go, serializers.go/deserializers.go,
-  types/types.go, types/enums.go, types/errors.go -- was diffed directly, cross-checked
-  against the public API reference at https://docs.aws.amazon.com/accounts/latest/reference/.
-  Prior pass used only the API reference and botocore's service-2.json since
-  aws-sdk-go-v2/service/account wasn't available then; this pass had the real client source.)
-last_audit_commit: 3da4ad37
-last_audit_date: 2026-07-23
-overall: A            # one genuine error-code wire-shape bug found and fixed; rest re-confirmed ok
+sdk_module: aws-sdk-go-v2/service/account@v1.35.4 (now a real go.mod/go.sum
+  dependency, added this pass via `go get` -- prior passes only fetched it
+  read-only into GOMODCACHE. Also added services/account/sdk_completeness_test.go,
+  which was entirely missing before this pass -- this service had zero
+  SDK-completeness coverage and no test/integration/account_test.go, unlike
+  every other service in the repo.)
+last_audit_commit: fca4a71a1
+last_audit_date: 2026-08-07
+overall: A            # sdk_completeness_test.go added and green (16/16 real ops
+                       # covered), GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation
+                       # implemented for real, and a genuine cross-service routing bug
+                       # (services/inspector2's RouteMatcher swallowing /enableRegion and
+                       # /disableRegion) was found and fixed by the new SDK-driven
+                       # integration suite -- see test/integration/account_test.go and gaps.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -32,13 +36,16 @@ ops:
   AcceptPrimaryEmailUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "AccountId/Otp/PrimaryEmail required, re-confirmed against validators.go and serializers.go's exact wire field names (AccountId/Otp/PrimaryEmail)"}
   GetAccountInformation: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed real op (exists in aws-sdk-go-v2/service/account@v1.34.0, added after the aws-sdk-go v1 classic SDK's July-2024 feature freeze, which is why the v1 SDK vendored in this repo's module cache doesn't have it). Flat response confirmed via serializer (no wrapper). AccountCreatedDate confirmed ISO8601 (smithytime.ParseDateTime in deserializers.go), not epoch -- RFC3339 in account_info.go is correct."}
   PutAccountName: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed real op, AccountId optional/AccountName required per validators.go"}
+  GetPrimaryEmailUpdateStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "new. AccountId optional (no validateOp* func in validators.go, unlike Get/StartPrimaryEmail/AcceptPrimaryEmailUpdate). Response {Status, UpdatedAt}; UpdatedAt confirmed epoch-seconds (smithytime.ParseEpochSeconds in deserializers.go) -- NOT ISO8601 like AccountCreatedDate, uses awstime.Epoch. Modeled errors AccessDenied/InternalServer/ResourceNotFound/TooManyRequests/Validation. ResourceNotFoundException fires when no update was ever started."}
+  GetGovCloudAccountInformation: {wire: ok, errors: ok, state: ok, persist: n/a, note: "new. StandardAccountId optional. Response {AccountState, GovCloudAccountId} using types.AwsAccountState (a distinct-but-identically-valued enum from GetAccountInformation's types.AccountState -- do not conflate them). This backend models a single, standalone, non-organization-member account (see the AccountId-targeting gap below), so no account it simulates ever has a linked GovCloud pair -- always returns ResourceNotFoundException, matching the API reference's own documented example 3 response for that exact case. Nothing to persist: state is a constant (no linking op exists anywhere in this service)."}
 # Families audited as a group (when per-op is impractical):
 families:
   routing: {status: ok, note: "full rewrite -- see bugs below"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "AccountId targeting of org member accounts is not modeled: GetAlternateContact/PutAlternateContact/DeleteAlternateContact/GetContactInformation/PutContactInformation/ListRegions/GetRegionOptStatus/EnableRegion/DisableRegion/GetAccountInformation/PutAccountName accept an optional AccountId (as AWS's wire contract requires) but operate on the single InMemoryBackend regardless of its value -- there is no per-member-account backend. GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate validate AccountId is present (matching AWS's required-field contract) but likewise don't scope by it. Consistent with this service having always been a single-account backend; true multi-account modeling is a larger cross-service (Organizations-integration) project."
+  - "AccountId targeting of org member accounts is not modeled: GetAlternateContact/PutAlternateContact/DeleteAlternateContact/GetContactInformation/PutContactInformation/ListRegions/GetRegionOptStatus/EnableRegion/DisableRegion/GetAccountInformation/PutAccountName/GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation accept an optional AccountId/StandardAccountId (as AWS's wire contract requires) but operate on the single InMemoryBackend regardless of its value -- there is no per-member-account backend. GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate validate AccountId is present (matching AWS's required-field contract) but likewise don't scope by it. Consistent with this service having always been a single-account backend; true multi-account modeling is a larger cross-service (Organizations-integration) project. GetGovCloudAccountInformation's always-ResourceNotFoundException behavior is a direct consequence: services/organizations already models a GovCloudAccountID linked at CreateGovCloudAccount time, but wiring account<->organizations the way grafana<->networkmanager already cross-link would require touching cli.go, out of this pass's scope."
   - "EnableRegion/DisableRegion transition directly to the terminal state (ENABLED/DISABLED) instead of an async ENABLING/DISABLING window that a client would poll GetRegionOptStatus to observe. Real AWS takes minutes-to-hours; gopherstack completes immediately. This also means the documented ConflictException (\"enable while DISABLING\") can never actually fire here -- the window doesn't exist to race into. Not fixed: adding real async state to a Snapshot/Restore-backed backend risks non-deterministic tests and races under -race for a benefit (exercising a transient status) most callers/waiters don't depend on. Revisit if a bd issue specifically needs the transient states simulated."
-  - "AccessDeniedException/TooManyRequestsException are wired into writeBackendError's classification table (so a backend error carrying that AWS exception name in its message would map to the correct HTTP status/code) but nothing in this backend's logic currently generates either -- there is no auth/permission model or throttle simulation in this service. Dead-but-correct code path; not a bug, just unexercised."
+  - "AcceptPrimaryEmailUpdate's real AcceptPrimaryEmailUpdateOutput reports Status ACCEPTED immediately, then asynchronously transitions to COMPLETED once the change actually propagates. This simulator does not model that async completion tail -- ACCEPTED is the terminal status GetPrimaryEmailUpdateStatus reports here, matching the EnableRegion/DisableRegion async-window gap above. PrimaryEmailUpdateStatusCompleted/Failed are modeled (matching the real enum) but never produced."
+  - "AccessDeniedException/TooManyRequestsException are wired into writeBackendError's classification table (so a backend error carrying that AWS exception name in its message would map to the correct HTTP status/code) but nothing in this backend's logic currently generates either -- there is no auth/permission model or throttle simulation in this service. Dead-but-correct code path; not a bug, just unexercised. ResourceUnavailableException (GetGovCloudAccountInformation's modeled error set) is the same: wired to 424, never produced."
   - "ConflictException's documented 'email address already in use' trigger (StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate) is not simulated -- consistent with the AccountId/single-backend gap above: there is no second account to collide with."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - none (every routed op audited this pass)
@@ -46,6 +53,46 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; single coa
 ---
 
 ## Notes
+
+**2026-08-07 pass (gopherstack-303i)**: this service was the only one of 161 with zero
+SDK-completeness coverage -- no `sdk_completeness_test.go`, and
+`aws-sdk-go-v2/service/account` wasn't even in `go.mod`. Added both. Running the completeness
+check for the first time surfaced two real SDK operations this handler never routed:
+`GetPrimaryEmailUpdateStatus` and `GetGovCloudAccountInformation` (both added to the SDK after
+the v1.34.0 audit this PARITY.md previously cited). Both are now implemented for real -- see
+the `ops:` table above for their wire shapes and the `gaps:` entries for what they don't
+model and why.
+
+**A genuine cross-service routing bug, found only by the new SDK-driven integration suite**:
+`test/integration/account_test.go`'s `EnableRegion`/`DisableRegion` subtests failed against
+the real running server with `501 NotImplementedException` from **Inspector2**, not Account.
+`services/inspector2/handler.go`'s `RouteMatcher` matched requests by raw path-prefix,
+including bare `"/enable"` and `"/disable"` entries with no SigV4-service-name gate --
+`strings.HasPrefix("/enableRegion", "/enable")` is true, so Inspector2's handler claimed
+Account's `/enableRegion`/`/disableRegion` requests before Account's own (SigV4-service-gated)
+`RouteMatcher` ever saw them. Confirmed via Inspector2's own `{method, path}` dispatch table
+(`handler.go`'s route map) that `/enable`/`/disable` are meant as exact fixed paths with no
+children -- real Inspector2 has no `/enableFoo` sub-resource, so prefix matching was never
+correct even before Account existed. Fixed by requiring exact-path equality for those two
+entries specifically (`services/inspector2/handler.go`), leaving every genuine
+directory-style prefix (`/filters/`, `/status/`, ...) untouched. `go test ./services/inspector2/...`
+and `golangci-lint run ./services/inspector2/...` both still pass. This is exactly the
+"RouteMatcher prefix collision" bug class already known in this repo (services swallowing
+each other's paths) -- per that precedent, the fix is narrowing the matcher, never raising
+`MatchPriority`. Account's own unit tests never caught this because they call
+`h.Handler()(c)` directly, bypassing the shared router where the collision actually lives --
+this is precisely why an SDK-driven integration suite is required for an honest A grade
+(`.claude/memories/parity-principles.md` rule 3).
+
+Also fixed while re-diffing the integration test against the real client: two of my own
+integration-test assertions were wrong, not the service --
+`GetAccountInformationOutput.AccountState` is `types.AccountState`, a distinct
+(identically-valued) enum from `types.AwsAccountState` (used only by
+`GetGovCloudAccountInformationOutput`); and `PutContactInformation`'s missing-required-field
+case can't be observed as a wire `ValidationException` through the real SDK client at all --
+`validators.go`'s `validateContactInformation` blocks it client-side before any request is
+built. The server-side path this would have proven is already covered directly by
+`handler_test.go`'s `TestHandler_PutContactInformation_RequiredFields`.
 
 **This was a from-scratch rewrite, not a bugfix pass.** The pre-existing implementation was
 built against an entirely fictitious wire protocol: GET/PUT/DELETE verbs on RESTful-looking
