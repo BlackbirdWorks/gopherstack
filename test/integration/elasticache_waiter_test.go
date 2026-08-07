@@ -31,7 +31,10 @@ func TestIntegration_ElastiCache_CacheClusterAvailableWaiter(t *testing.T) {
 	require.NotNil(t, createOut.CacheCluster)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteCacheCluster(ctx, &elasticachesdk.DeleteCacheClusterInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteCacheCluster(cleanupCtx, &elasticachesdk.DeleteCacheClusterInput{
 			CacheClusterId: aws.String(clusterID),
 		})
 	})

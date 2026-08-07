@@ -32,7 +32,10 @@ func TestIntegration_Support_CaseLifecycle(t *testing.T) {
 	require.NotEmpty(t, caseID)
 
 	t.Cleanup(func() {
-		_, _ = client.ResolveCase(ctx, &supportsdk.ResolveCaseInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.ResolveCase(cleanupCtx, &supportsdk.ResolveCaseInput{
 			CaseId: aws.String(caseID),
 		})
 	})

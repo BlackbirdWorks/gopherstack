@@ -72,7 +72,10 @@ func TestIntegration_Transcribe_TranscriptionJobLifecycle(t *testing.T) {
 			assert.Equal(t, tt.jobName, aws.ToString(startOut.TranscriptionJob.TranscriptionJobName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteTranscriptionJob(ctx, &transcribesdk.DeleteTranscriptionJobInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteTranscriptionJob(cleanupCtx, &transcribesdk.DeleteTranscriptionJobInput{
 					TranscriptionJobName: aws.String(tt.jobName),
 				})
 			})

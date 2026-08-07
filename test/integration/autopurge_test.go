@@ -55,7 +55,10 @@ func startPurgeContainer(t *testing.T, ttl string) (testcontainers.Container, st
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_ = container.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container.Terminate(cleanupCtx)
 	})
 
 	mappedPort, err := container.MappedPort(ctx, "8000")

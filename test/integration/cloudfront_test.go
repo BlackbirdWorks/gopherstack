@@ -64,14 +64,17 @@ func TestIntegration_CloudFront_DistributionLifecycle(t *testing.T) {
 	assert.Equal(t, "Deployed", aws.ToString(createOut.Distribution.Status))
 
 	t.Cleanup(func() {
-		getOut, gErr := client.GetDistribution(ctx, &cloudfront.GetDistributionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		getOut, gErr := client.GetDistribution(cleanupCtx, &cloudfront.GetDistributionInput{
 			Id: aws.String(distID),
 		})
 		if gErr != nil {
 			return
 		}
 
-		_, _ = client.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
+		_, _ = client.DeleteDistribution(cleanupCtx, &cloudfront.DeleteDistributionInput{
 			Id:      aws.String(distID),
 			IfMatch: getOut.ETag,
 		})

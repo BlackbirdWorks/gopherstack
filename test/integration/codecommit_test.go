@@ -31,7 +31,10 @@ func TestIntegration_CodeCommit_RepositoryLifecycle(t *testing.T) {
 	assert.Equal(t, repoName, aws.ToString(createOut.RepositoryMetadata.RepositoryName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &codecommitsdk.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &codecommitsdk.DeleteRepositoryInput{
 			RepositoryName: aws.String(repoName),
 		})
 	})

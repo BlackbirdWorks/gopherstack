@@ -259,6 +259,15 @@ func checkDocker() (err error) {
 	return err
 }
 
+// cleanupContext returns a fresh, live context for use inside t.Cleanup.
+// t.Context() is cancelled just before cleanup functions run, so AWS calls
+// made with it fail instantly with "context canceled".
+func cleanupContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
 // createDynamoDBClient returns a DynamoDB client pointed at the shared test container.
 
 func createDynamoDBClient(t *testing.T) *dynamodb.Client {
@@ -1396,6 +1405,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 	t.Helper()
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		if !t.Failed() {
 			return
 		}
@@ -1406,10 +1418,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 			return
 		}
 
-		ctx := t.Context()
 		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
 
-		logs, err := sharedContainer.Logs(ctx)
+		logs, err := sharedContainer.Logs(cleanupCtx)
 		if err != nil {
 			t.Logf("Failed to retrieve container logs: %v", err)
 

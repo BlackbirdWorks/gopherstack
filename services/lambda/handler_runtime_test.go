@@ -326,7 +326,7 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 
 			srv := newPublicRuntimeServer(t, tt.port)
 			t.Cleanup(func() {
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				srv.Stop(ctx)
 			})
@@ -376,7 +376,7 @@ func newTestRuntimeServer(t *testing.T, port int) testRuntimeServerIface {
 
 	srv := newPublicRuntimeServer(t, port)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		srv.Stop(ctx)
 	})

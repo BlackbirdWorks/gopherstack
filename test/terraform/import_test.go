@@ -369,7 +369,10 @@ func TestTerraformImport_Lambda(t *testing.T) {
 				// The role has no attached managed or inline policies (only a trust
 				// policy), so DeleteRole succeeds without any prior detach step.
 				t.Cleanup(func() {
-					_, delErr := iamClient.DeleteRole(t.Context(), &iamsvc.DeleteRoleInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, delErr := iamClient.DeleteRole(cleanupCtx, &iamsvc.DeleteRoleInput{
 						RoleName: aws.String(roleName),
 					})
 					if delErr != nil {
@@ -684,7 +687,10 @@ func TestTerraformImport_Route53(t *testing.T) {
 				// This cleanup is registered BEFORE the tofu-destroy cleanup in
 				// runImportTest, so it runs AFTER tofu destroy (LIFO order).
 				t.Cleanup(func() {
-					_, delErr := client.DeleteHostedZone(t.Context(), &route53svc.DeleteHostedZoneInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, delErr := client.DeleteHostedZone(cleanupCtx, &route53svc.DeleteHostedZoneInput{
 						Id: aws.String(rawZoneID),
 					})
 					if delErr != nil {

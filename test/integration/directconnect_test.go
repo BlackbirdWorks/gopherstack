@@ -151,22 +151,46 @@ func TestIntegration_DirectConnect_ConnectionAndLagLifecycle(t *testing.T) { //n
 		assert.Len(t, describeOut.Lags[0].Connections, 4)
 	})
 
-	t.Run("NotFoundErrors", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		_, err := client.DeleteConnection(ctx, &dxsdk.DeleteConnectionInput{
-			ConnectionId: aws.String("dxcon-doesnotexist"),
-		})
-		require.Error(t, err, "deleting an unknown connection should fail")
-		assert.Equal(t, "DirectConnectClientException", dxErrorCode(err))
+	t.Run("NotFoundErrors", func(t *testing.T) {
+		tests := []struct {
+			call func() error
+			name string
+		}{
+			{
+				name: "unknown connection",
+				call: func() error {
+					_, err := client.DeleteConnection(ctx, &dxsdk.DeleteConnectionInput{
+						ConnectionId: aws.String("dxcon-doesnotexist"),
+					})
 
-		var clientErr *dxtypes.DirectConnectClientException
-		require.ErrorAs(t, err, &clientErr, "error should deserialize as the real SDK exception type")
+					return err
+				},
+			},
+			{
+				name: "unknown lag",
+				call: func() error {
+					_, err := client.UpdateLag(ctx, &dxsdk.UpdateLagInput{
+						LagId:        aws.String("dxlag-doesnotexist"),
+						MinimumLinks: 1,
+					})
 
-		_, err = client.UpdateLag(ctx, &dxsdk.UpdateLagInput{
-			LagId:        aws.String("dxlag-doesnotexist"),
-			MinimumLinks: 1,
-		})
-		require.Error(t, err, "updating an unknown LAG should fail")
-		assert.Equal(t, "DirectConnectClientException", dxErrorCode(err))
+					return err
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				err := tc.call()
+				require.Error(t, err, "operating on an unknown resource should fail")
+				assert.Equal(t, "DirectConnectClientException", dxErrorCode(err))
+
+				var clientErr *dxtypes.DirectConnectClientException
+				require.ErrorAs(t, err, &clientErr, "error should deserialize as the real SDK exception type")
+			})
+		}
 	})
 }
 
@@ -644,43 +668,57 @@ func TestIntegration_DirectConnect_Tagging(t *testing.T) { //nolint:tparallel //
 		assert.Empty(t, afterUntag.ResourceTags[0].Tags)
 	})
 
-	t.Run("DuplicateTagKeysRejected", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		_, tagErr := client.TagResource(ctx, &dxsdk.TagResourceInput{
-			ResourceArn: aws.String(connARN),
-			Tags: []dxtypes.Tag{
-				{Key: aws.String("dup"), Value: aws.String("a")},
-				{Key: aws.String("dup"), Value: aws.String("b")},
-			},
-		})
-		require.Error(t, tagErr, "a duplicate tag key in one TagResource call should be rejected")
-		assert.Equal(t, "DuplicateTagKeysException", dxErrorCode(tagErr))
-	})
-
-	t.Run("TooManyTagsRejected", func(t *testing.T) { //nolint:paralleltest // sequential by design
+	t.Run("TagResourceValidationFailures", func(t *testing.T) {
 		const overLimit = 51 // maxTagsPerResource (errors.go) is 50
 
-		tags := make([]dxtypes.Tag, 0, overLimit)
+		tooManyTags := make([]dxtypes.Tag, 0, overLimit)
 		for i := range overLimit {
-			tags = append(tags, dxtypes.Tag{
+			tooManyTags = append(tooManyTags, dxtypes.Tag{
 				Key:   aws.String("k" + strconv.Itoa(i)),
 				Value: aws.String("v"),
 			})
 		}
 
-		_, tagErr := client.TagResource(ctx, &dxsdk.TagResourceInput{
-			ResourceArn: aws.String(connARN),
-			Tags:        tags,
-		})
-		require.Error(t, tagErr, "exceeding the per-resource tag cap should be rejected")
-		assert.Equal(t, "TooManyTagsException", dxErrorCode(tagErr))
-	})
+		tests := []struct {
+			resourceArn string
+			wantCode    string
+			name        string
+			tags        []dxtypes.Tag
+		}{
+			{
+				name:        "duplicate tag keys",
+				resourceArn: connARN,
+				tags: []dxtypes.Tag{
+					{Key: aws.String("dup"), Value: aws.String("a")},
+					{Key: aws.String("dup"), Value: aws.String("b")},
+				},
+				wantCode: "DuplicateTagKeysException",
+			},
+			{
+				name:        "too many tags",
+				resourceArn: connARN,
+				tags:        tooManyTags,
+				wantCode:    "TooManyTagsException",
+			},
+			{
+				name:        "unknown resource arn",
+				resourceArn: "arn:aws:directconnect:us-east-1:000000000000:dxcon/dxcon-doesnotexist",
+				tags:        []dxtypes.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
+				wantCode:    "DirectConnectClientException",
+			},
+		}
 
-	t.Run("UnknownResourceArn", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		_, tagErr := client.TagResource(ctx, &dxsdk.TagResourceInput{
-			ResourceArn: aws.String("arn:aws:directconnect:us-east-1:000000000000:dxcon/dxcon-doesnotexist"),
-			Tags:        []dxtypes.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
-		})
-		require.Error(t, tagErr, "tagging an unknown resource ARN should fail")
-		assert.Equal(t, "DirectConnectClientException", dxErrorCode(tagErr))
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				_, tagErr := client.TagResource(ctx, &dxsdk.TagResourceInput{
+					ResourceArn: aws.String(tc.resourceArn),
+					Tags:        tc.tags,
+				})
+				require.Error(t, tagErr, "invalid TagResource input should be rejected")
+				assert.Equal(t, tc.wantCode, dxErrorCode(tagErr))
+			})
+		}
 	})
 }

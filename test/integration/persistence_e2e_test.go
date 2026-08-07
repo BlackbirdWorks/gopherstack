@@ -160,7 +160,10 @@ func TestPersistence_E2E_ContainerRestart(t *testing.T) {
 	// --- Phase 2: restart container with same data dir, verify state ---
 	container2, ep2 := startPersistenceContainer(t, dataDir)
 	t.Cleanup(func() {
-		_ = container2.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container2.Terminate(cleanupCtx)
 	})
 
 	sqsClient2 := makeSQSClient(t, ep2)

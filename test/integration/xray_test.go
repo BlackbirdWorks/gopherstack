@@ -40,7 +40,10 @@ func TestIntegration_XRay_GroupAndSamplingRuleLifecycle(t *testing.T) {
 	assert.Equal(t, filterExpression, aws.ToString(createGroupOut.Group.FilterExpression))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteGroup(ctx, &xraysdk.DeleteGroupInput{GroupName: aws.String(groupName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteGroup(cleanupCtx, &xraysdk.DeleteGroupInput{GroupName: aws.String(groupName)})
 	})
 
 	// GetGroup.
@@ -87,7 +90,10 @@ func TestIntegration_XRay_GroupAndSamplingRuleLifecycle(t *testing.T) {
 	assert.Equal(t, ruleName, aws.ToString(createRuleOut.SamplingRuleRecord.SamplingRule.RuleName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteSamplingRule(ctx, &xraysdk.DeleteSamplingRuleInput{RuleName: aws.String(ruleName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteSamplingRule(cleanupCtx, &xraysdk.DeleteSamplingRuleInput{RuleName: aws.String(ruleName)})
 	})
 
 	// GetSamplingRules should include the new rule.

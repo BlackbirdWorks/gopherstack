@@ -57,7 +57,10 @@ func TestIntegration_Rekognition_CollectionLifecycle(t *testing.T) {
 			assert.NotEmpty(t, aws.ToString(createOut.CollectionArn), "collection ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteCollection(ctx, &rekognitionsdk.DeleteCollectionInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteCollection(cleanupCtx, &rekognitionsdk.DeleteCollectionInput{
 					CollectionId: aws.String(tt.collectionID),
 				})
 			})

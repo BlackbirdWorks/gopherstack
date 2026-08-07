@@ -33,7 +33,10 @@ func TestIntegration_CostExplorer_AnomalyMonitorLifecycle(t *testing.T) {
 	arn := aws.ToString(createOut.MonitorArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteAnomalyMonitor(ctx, &cesdk.DeleteAnomalyMonitorInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteAnomalyMonitor(cleanupCtx, &cesdk.DeleteAnomalyMonitorInput{
 			MonitorArn: aws.String(arn),
 		})
 	})

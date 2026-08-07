@@ -47,7 +47,10 @@ func startLatencyContainer(t *testing.T, latencyMs string) (testcontainers.Conta
 	require.NoError(t, err, "failed to start latency container")
 
 	t.Cleanup(func() {
-		_ = container.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container.Terminate(cleanupCtx)
 	})
 
 	mappedPort, err := container.MappedPort(ctx, "8000")

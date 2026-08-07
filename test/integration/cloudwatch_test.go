@@ -333,7 +333,10 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	require.NoError(t, err)
 	topicARN := aws.ToString(topicOut.TopicArn)
 	t.Cleanup(func() {
-		_, _ = snsClient.DeleteTopic(ctx, &sns.DeleteTopicInput{TopicArn: aws.String(topicARN)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = snsClient.DeleteTopic(cleanupCtx, &sns.DeleteTopicInput{TopicArn: aws.String(topicARN)})
 	})
 
 	// Create an SQS queue and subscribe it to the topic to capture published messages.
@@ -341,7 +344,10 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	require.NoError(t, err)
 	queueURL := aws.ToString(queueOut.QueueUrl)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
 	})
 
 	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
@@ -373,7 +379,10 @@ func TestIntegration_CloudWatch_AlarmActions_SNS(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = cwClient.DeleteAlarms(ctx, &cloudwatchsdk.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cwClient.DeleteAlarms(cleanupCtx, &cloudwatchsdk.DeleteAlarmsInput{AlarmNames: []string{alarmName}})
 	})
 
 	// Trigger the alarm by setting state to ALARM — should invoke SNS action.
@@ -420,7 +429,10 @@ func TestIntegration_CloudWatch_Dashboards(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteDashboards(ctx, &cloudwatchsdk.DeleteDashboardsInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDashboards(cleanupCtx, &cloudwatchsdk.DeleteDashboardsInput{
 			DashboardNames: []string{dashName},
 		})
 	})

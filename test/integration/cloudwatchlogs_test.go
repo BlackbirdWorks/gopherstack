@@ -107,7 +107,10 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_CRUD(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = cwlClient.DeleteLogGroup(ctx, &cloudwatchlogssdk.DeleteLogGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cwlClient.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
 			LogGroupName: aws.String(groupName),
 		})
 	})
@@ -196,7 +199,10 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_LimitEnforced(t *testing.
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = cwlClient.DeleteLogGroup(ctx, &cloudwatchlogssdk.DeleteLogGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cwlClient.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
 			LogGroupName: aws.String(groupName),
 		})
 	})
@@ -252,7 +258,10 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_KinesisDelivery(t *testin
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = kinesisClient.DeleteStream(ctx, &kinesissdk.DeleteStreamInput{StreamName: aws.String(streamName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = kinesisClient.DeleteStream(cleanupCtx, &kinesissdk.DeleteStreamInput{StreamName: aws.String(streamName)})
 	})
 
 	// Get Kinesis stream ARN.
@@ -269,7 +278,10 @@ func TestIntegration_CloudWatchLogs_SubscriptionFilter_KinesisDelivery(t *testin
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = cwlClient.DeleteLogGroup(ctx, &cloudwatchlogssdk.DeleteLogGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cwlClient.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
 			LogGroupName: aws.String(groupName),
 		})
 	})

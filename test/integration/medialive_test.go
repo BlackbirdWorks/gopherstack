@@ -61,7 +61,10 @@ func TestIntegration_MediaLive_InputSecurityGroupLifecycle(t *testing.T) {
 			require.NotEmpty(t, sgID, "security group id must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteInputSecurityGroup(ctx, &medialivesdk.DeleteInputSecurityGroupInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteInputSecurityGroup(cleanupCtx, &medialivesdk.DeleteInputSecurityGroupInput{
 					InputSecurityGroupId: aws.String(sgID),
 				})
 			})

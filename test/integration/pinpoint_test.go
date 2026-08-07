@@ -72,7 +72,10 @@ func TestIntegration_Pinpoint_AppLifecycle(t *testing.T) {
 			appARN := aws.ToString(createOut.ApplicationResponse.Arn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteApp(ctx, &pinpointSDK.DeleteAppInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteApp(cleanupCtx, &pinpointSDK.DeleteAppInput{
 					ApplicationId: aws.String(appID),
 				})
 			})

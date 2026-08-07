@@ -72,7 +72,10 @@ func startChaosContainer(t *testing.T) string {
 	require.NoError(t, err, "failed to start chaos test container")
 
 	t.Cleanup(func() {
-		_ = container.Terminate(ctx)
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_ = container.Terminate(cleanupCtx)
 	})
 
 	mappedPort, err := container.MappedPort(ctx, "8000")

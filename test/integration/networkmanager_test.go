@@ -256,7 +256,7 @@ func TestIntegration_NetworkManager_CoreNetworkPolicyChangeSet(t *testing.T) {
 // CREATING -> AVAILABLE attachment state machine via AcceptAttachment.
 // Also asserts real ResourceNotFoundException for VpcArn/SubnetArns that do
 // not resolve to a real EC2 resource.
-func TestIntegration_NetworkManager_VpcAttachmentLifecycle(t *testing.T) {
+func TestIntegration_NetworkManager_VpcAttachmentLifecycle(t *testing.T) { //nolint:tparallel // sequential subtests
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)
 
@@ -301,26 +301,49 @@ func TestIntegration_NetworkManager_VpcAttachmentLifecycle(t *testing.T) {
 	vpcArn := "arn:aws:ec2:us-east-1:000000000000:vpc/" + vpcID
 	subnetArn := "arn:aws:ec2:us-east-1:000000000000:subnet/" + subnetID
 
-	// Negative: a VpcArn naming no real EC2 VPC is rejected.
-	_, err = client.CreateVpcAttachment(ctx, &networkmanagersdk.CreateVpcAttachmentInput{
-		CoreNetworkId: cnID,
-		VpcArn:        aws.String("arn:aws:ec2:us-east-1:000000000000:vpc/vpc-doesnotexist"),
-		SubnetArns:    []string{subnetArn},
-	})
-	require.Error(t, err, "a VpcArn naming no real EC2 VPC should be rejected")
+	t.Run("RejectsUnknownEC2References", func(t *testing.T) {
+		tests := []struct {
+			buildInput   func() *networkmanagersdk.CreateVpcAttachmentInput
+			name         string
+			wantResource string
+		}{
+			{
+				name: "unknown vpc",
+				buildInput: func() *networkmanagersdk.CreateVpcAttachmentInput {
+					return &networkmanagersdk.CreateVpcAttachmentInput{
+						CoreNetworkId: cnID,
+						VpcArn:        aws.String("arn:aws:ec2:us-east-1:000000000000:vpc/vpc-doesnotexist"),
+						SubnetArns:    []string{subnetArn},
+					}
+				},
+				wantResource: "VPC",
+			},
+			{
+				name: "unknown subnet",
+				buildInput: func() *networkmanagersdk.CreateVpcAttachmentInput {
+					return &networkmanagersdk.CreateVpcAttachmentInput{
+						CoreNetworkId: cnID,
+						VpcArn:        aws.String(vpcArn),
+						SubnetArns:    []string{"arn:aws:ec2:us-east-1:000000000000:subnet/subnet-doesnotexist"},
+					}
+				},
+				wantResource: "SUBNET",
+			},
+		}
 
-	var nf *nmtypes.ResourceNotFoundException
-	require.ErrorAs(t, err, &nf, "should surface as ResourceNotFoundException")
-	assert.Equal(t, "VPC", aws.ToString(nf.ResourceType))
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
 
-	// Negative: a real VPC but a SubnetArn naming no real EC2 subnet.
-	_, err = client.CreateVpcAttachment(ctx, &networkmanagersdk.CreateVpcAttachmentInput{
-		CoreNetworkId: cnID, VpcArn: aws.String(vpcArn),
-		SubnetArns: []string{"arn:aws:ec2:us-east-1:000000000000:subnet/subnet-doesnotexist"},
+				_, attachErr := client.CreateVpcAttachment(ctx, tc.buildInput())
+				require.Error(t, attachErr, "a reference to a nonexistent EC2 resource should be rejected")
+
+				var nf *nmtypes.ResourceNotFoundException
+				require.ErrorAs(t, attachErr, &nf, "should surface as ResourceNotFoundException")
+				assert.Equal(t, tc.wantResource, aws.ToString(nf.ResourceType))
+			})
+		}
 	})
-	require.Error(t, err, "a SubnetArn naming no real EC2 subnet should be rejected")
-	require.ErrorAs(t, err, &nf)
-	assert.Equal(t, "SUBNET", aws.ToString(nf.ResourceType))
 
 	// Positive: real EC2 VPC/subnet ARNs succeed.
 	attOut, err := client.CreateVpcAttachment(ctx, &networkmanagersdk.CreateVpcAttachmentInput{

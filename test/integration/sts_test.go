@@ -131,7 +131,10 @@ func TestIntegration_STS_AssumeRole_ExternalID_Validation(t *testing.T) {
 	roleARN := *roleOut.Role.Arn
 
 	t.Cleanup(func() {
-		_, _ = iamClient.DeleteRole(ctx, &iamsdk.DeleteRoleInput{RoleName: aws.String(roleName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = iamClient.DeleteRole(cleanupCtx, &iamsdk.DeleteRoleInput{RoleName: aws.String(roleName)})
 	})
 
 	// Correct ExternalId: should succeed.

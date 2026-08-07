@@ -36,7 +36,10 @@ func TestIntegration_DDB_PutItem_Complex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})
@@ -124,7 +127,10 @@ func TestIntegration_DDB_PutItem_CompositeComplex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

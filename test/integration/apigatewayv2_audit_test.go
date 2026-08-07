@@ -46,7 +46,10 @@ func TestIntegration_APIGWv2Audit_ImportApiCreatesRoutes(t *testing.T) {
 	assert.Equal(t, "audit-imported-api", aws.ToString(importOut.Name), "API name should come from info.title")
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(ctx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	routesOut, err := client.GetRoutes(ctx, &apigwv2sdk.GetRoutesInput{ApiId: aws.String(apiID)})
@@ -90,7 +93,10 @@ func TestIntegration_APIGWv2Audit_ReimportApiReplacesRoutes(t *testing.T) {
 	apiID := aws.ToString(importOut.ApiId)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApi(ctx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApi(cleanupCtx, &apigwv2sdk.DeleteApiInput{ApiId: aws.String(apiID)})
 	})
 
 	const reimportBody = `{

@@ -45,7 +45,10 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDatabase(ctx, &gluesdk.DeleteDatabaseInput{Name: aws.String(dbName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDatabase(cleanupCtx, &gluesdk.DeleteDatabaseInput{Name: aws.String(dbName)})
 	})
 
 	// GetDatabase.
@@ -89,7 +92,10 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTable(ctx, &gluesdk.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTable(cleanupCtx, &gluesdk.DeleteTableInput{
 			DatabaseName: aws.String(dbName),
 			Name:         aws.String(tableName),
 		})
@@ -116,7 +122,10 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteCrawler(ctx, &gluesdk.DeleteCrawlerInput{Name: aws.String(crawlerName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteCrawler(cleanupCtx, &gluesdk.DeleteCrawlerInput{Name: aws.String(crawlerName)})
 	})
 
 	crawlerOut, err := client.GetCrawler(ctx, &gluesdk.GetCrawlerInput{Name: aws.String(crawlerName)})
@@ -140,7 +149,10 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteConnection(ctx, &gluesdk.DeleteConnectionInput{ConnectionName: aws.String(connName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteConnection(cleanupCtx, &gluesdk.DeleteConnectionInput{ConnectionName: aws.String(connName)})
 	})
 
 	connOut, err := client.GetConnection(ctx, &gluesdk.GetConnectionInput{Name: aws.String(connName)})
@@ -168,7 +180,10 @@ func TestIntegration_Glue_CatalogLifecycle(t *testing.T) {
 	assert.Equal(t, jobName, aws.ToString(jobCreateOut.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteJob(ctx, &gluesdk.DeleteJobInput{JobName: aws.String(jobName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteJob(cleanupCtx, &gluesdk.DeleteJobInput{JobName: aws.String(jobName)})
 	})
 
 	jobOut, err := client.GetJob(ctx, &gluesdk.GetJobInput{JobName: aws.String(jobName)})

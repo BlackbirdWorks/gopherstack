@@ -32,7 +32,10 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 
 	queueURL := createOut.QueueUrl
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
 	})
 
 	msgBody := "metric-test-body-" + uuid.NewString()
@@ -117,7 +120,10 @@ func TestIntegration_SQS_QueuePolicy(t *testing.T) {
 
 	queueURL := createOut.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
 	})
 
 	// Get the queue ARN first.

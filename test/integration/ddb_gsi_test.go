@@ -57,8 +57,11 @@ func TestIntegration_DDB_GSI(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Cleanup(func() {
+			cleanupCtx, cancel := cleanupContext(t)
+			defer cancel()
+
 			client.DeleteTable(
-				t.Context(),
+				cleanupCtx,
 				&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 			)
 		})

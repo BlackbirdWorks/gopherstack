@@ -32,7 +32,10 @@ func TestIntegration_DocDB_ClusterLifecycle(t *testing.T) {
 	assert.Equal(t, "docdb", aws.ToString(createOut.DBCluster.Engine))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDBCluster(ctx, &docdb.DeleteDBClusterInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDBCluster(cleanupCtx, &docdb.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(clusterID),
 			SkipFinalSnapshot:   aws.Bool(true),
 		})
@@ -93,10 +96,13 @@ func TestIntegration_DocDB_DBInstanceLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDBInstance(ctx, &docdb.DeleteDBInstanceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDBInstance(cleanupCtx, &docdb.DeleteDBInstanceInput{
 			DBInstanceIdentifier: aws.String(instanceID),
 		})
-		_, _ = client.DeleteDBCluster(ctx, &docdb.DeleteDBClusterInput{
+		_, _ = client.DeleteDBCluster(cleanupCtx, &docdb.DeleteDBClusterInput{
 			DBClusterIdentifier: aws.String(clusterID),
 			SkipFinalSnapshot:   aws.Bool(true),
 		})

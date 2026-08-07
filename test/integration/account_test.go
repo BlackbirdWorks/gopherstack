@@ -137,6 +137,8 @@ func TestIntegration_Account_GetGovCloudAccountInformation_NotLinked(t *testing.
 // AlternateContact (keyed by type) or most other services' named resources,
 // there is exactly one account here, so these subtests share state and run
 // sequentially by design rather than in parallel with each other.
+//
+//nolint:tparallel // subtests share the single account, so they run in order
 func TestIntegration_Account_SingletonLifecycle(t *testing.T) {
 	t.Parallel()
 	dumpContainerLogsOnFailure(t)

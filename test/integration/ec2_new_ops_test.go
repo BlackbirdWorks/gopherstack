@@ -38,7 +38,10 @@ func TestIntegration_EC2_NetworkInterface(t *testing.T) {
 	assert.Equal(t, "integration-test-eni", aws.ToString(createOut.NetworkInterface.Description))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteNetworkInterface(ctx, &ec2sdk.DeleteNetworkInterfaceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteNetworkInterface(cleanupCtx, &ec2sdk.DeleteNetworkInterfaceInput{
 			NetworkInterfaceId: aws.String(eniID),
 		})
 	})
@@ -161,7 +164,10 @@ func TestIntegration_EC2_PlacementGroups(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeletePlacementGroup(ctx, &ec2sdk.DeletePlacementGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeletePlacementGroup(cleanupCtx, &ec2sdk.DeletePlacementGroupInput{
 			GroupName: aws.String(pgName),
 		})
 	})
@@ -203,7 +209,10 @@ func TestIntegration_EC2_InstanceAttributes(t *testing.T) {
 	instanceID := aws.ToString(runOut.Instances[0].InstanceId)
 
 	t.Cleanup(func() {
-		_, _ = client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 			InstanceIds: []string{instanceID},
 		})
 	})
@@ -259,7 +268,10 @@ func TestIntegration_EC2_VolumeSnapshotAttributes(t *testing.T) {
 	require.NotEmpty(t, volumeID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteVolume(ctx, &ec2sdk.DeleteVolumeInput{VolumeId: aws.String(volumeID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteVolume(cleanupCtx, &ec2sdk.DeleteVolumeInput{VolumeId: aws.String(volumeID)})
 	})
 
 	// DescribeVolumeAttribute

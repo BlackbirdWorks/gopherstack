@@ -61,7 +61,10 @@ func TestIntegration_DirectoryService_DirectoryLifecycle(t *testing.T) {
 			require.NotEmpty(t, dirID, "directory id must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteDirectory(ctx, &dssdk.DeleteDirectoryInput{DirectoryId: aws.String(dirID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteDirectory(cleanupCtx, &dssdk.DeleteDirectoryInput{DirectoryId: aws.String(dirID)})
 			})
 
 			descOut, err := client.DescribeDirectories(ctx, &dssdk.DescribeDirectoriesInput{

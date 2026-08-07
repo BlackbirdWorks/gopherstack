@@ -642,13 +642,49 @@ func TestIntegration_Grafana_CrossServiceValidation(t *testing.T) { //nolint:tpa
 		})
 	}
 
-	t.Run("RejectsNonexistentRole", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		in := baseInput("integ-badrole-" + uuid.NewString()[:8])
-		in.WorkspaceRoleArn = aws.String("arn:aws:iam::123456789012:role/does-not-exist-" + uuid.NewString()[:8])
+	t.Run("RejectsNonexistentReferences", func(t *testing.T) {
+		tests := []struct {
+			mutate func(*grafanasdk.CreateWorkspaceInput)
+			name   string
+		}{
+			{
+				name: "role",
+				mutate: func(in *grafanasdk.CreateWorkspaceInput) {
+					in.WorkspaceRoleArn = aws.String(
+						"arn:aws:iam::123456789012:role/does-not-exist-" + uuid.NewString()[:8],
+					)
+				},
+			},
+			{
+				name: "vpc configuration",
+				mutate: func(in *grafanasdk.CreateWorkspaceInput) {
+					in.VpcConfiguration = &grafanatypes.VpcConfiguration{
+						SubnetIds:        []string{"subnet-" + uuid.NewString()[:8]},
+						SecurityGroupIds: []string{"sg-" + uuid.NewString()[:8]},
+					}
+				},
+			},
+			{
+				name: "organizational unit",
+				mutate: func(in *grafanasdk.CreateWorkspaceInput) {
+					in.AccountAccessType = grafanatypes.AccountAccessTypeOrganization
+					in.WorkspaceOrganizationalUnits = []string{"ou-doesnotexist-" + uuid.NewString()[:8]}
+				},
+			},
+		}
 
-		_, err := grafanaClient.CreateWorkspace(ctx, in)
-		require.Error(t, err, "a WorkspaceRoleArn that doesn't exist should be rejected")
-		assert.Equal(t, "ValidationException", awsErrorCode(err))
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				in := baseInput("integ-badref-" + uuid.NewString()[:8])
+				tc.mutate(in)
+
+				_, err := grafanaClient.CreateWorkspace(ctx, in)
+				require.Error(t, err, "a reference that doesn't exist should be rejected")
+				assert.Equal(t, "ValidationException", awsErrorCode(err))
+			})
+		}
 	})
 
 	t.Run("AcceptsRealRole", func(t *testing.T) { //nolint:paralleltest // sequential by design
@@ -672,18 +708,6 @@ func TestIntegration_Grafana_CrossServiceValidation(t *testing.T) { //nolint:tpa
 		out, err := grafanaClient.CreateWorkspace(ctx, in)
 		require.NoError(t, err, "a WorkspaceRoleArn for a real role should be accepted")
 		cleanupWorkspace(t, aws.ToString(out.Workspace.Id))
-	})
-
-	t.Run("RejectsNonexistentVpcConfiguration", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		in := baseInput("integ-badvpc-" + uuid.NewString()[:8])
-		in.VpcConfiguration = &grafanatypes.VpcConfiguration{
-			SubnetIds:        []string{"subnet-" + uuid.NewString()[:8]},
-			SecurityGroupIds: []string{"sg-" + uuid.NewString()[:8]},
-		}
-
-		_, err := grafanaClient.CreateWorkspace(ctx, in)
-		require.Error(t, err, "a VpcConfiguration referencing unknown subnets/security groups should be rejected")
-		assert.Equal(t, "ValidationException", awsErrorCode(err))
 	})
 
 	t.Run("AcceptsRealVpcConfiguration", func(t *testing.T) { //nolint:paralleltest // sequential by design
@@ -723,16 +747,6 @@ func TestIntegration_Grafana_CrossServiceValidation(t *testing.T) { //nolint:tpa
 		out, err := grafanaClient.CreateWorkspace(ctx, in)
 		require.NoError(t, err, "a VpcConfiguration referencing real EC2 resources should be accepted")
 		cleanupWorkspace(t, aws.ToString(out.Workspace.Id))
-	})
-
-	t.Run("RejectsNonexistentOrganizationalUnit", func(t *testing.T) { //nolint:paralleltest // sequential by design
-		in := baseInput("integ-badou-" + uuid.NewString()[:8])
-		in.AccountAccessType = grafanatypes.AccountAccessTypeOrganization
-		in.WorkspaceOrganizationalUnits = []string{"ou-doesnotexist-" + uuid.NewString()[:8]}
-
-		_, err := grafanaClient.CreateWorkspace(ctx, in)
-		require.Error(t, err, "a WorkspaceOrganizationalUnits entry that doesn't exist should be rejected")
-		assert.Equal(t, "ValidationException", awsErrorCode(err))
 	})
 
 	t.Run("AcceptsRealOrganizationalUnit", func(t *testing.T) { //nolint:paralleltest // sequential by design

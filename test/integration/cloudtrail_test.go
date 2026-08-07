@@ -32,7 +32,10 @@ func TestIntegration_CloudTrail_TrailLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.TrailARN))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTrail(ctx, &cloudtrail.DeleteTrailInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTrail(cleanupCtx, &cloudtrail.DeleteTrailInput{
 			Name: aws.String(trailName),
 		})
 	})
@@ -98,7 +101,10 @@ func TestIntegration_CloudTrail_ListTrails(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTrail(ctx, &cloudtrail.DeleteTrailInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTrail(cleanupCtx, &cloudtrail.DeleteTrailInput{
 			Name: aws.String(trailName),
 		})
 	})
@@ -145,7 +151,10 @@ func TestIntegration_CloudTrail_LookupEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTrail(ctx, &cloudtrail.DeleteTrailInput{Name: aws.String(trailName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTrail(cleanupCtx, &cloudtrail.DeleteTrailInput{Name: aws.String(trailName)})
 	})
 
 	out, err := client.LookupEvents(ctx, &cloudtrail.LookupEventsInput{

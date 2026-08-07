@@ -38,7 +38,10 @@ func TestIntegration_CodeDeploy_ApplicationAndDeploymentGroupLifecycle(t *testin
 	assert.NotEmpty(t, aws.ToString(createAppOut.ApplicationId))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApplication(ctx, &codedeploysdk.DeleteApplicationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApplication(cleanupCtx, &codedeploysdk.DeleteApplicationInput{
 			ApplicationName: aws.String(appName),
 		})
 	})

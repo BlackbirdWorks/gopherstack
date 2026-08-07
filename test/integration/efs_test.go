@@ -33,7 +33,10 @@ func TestIntegration_EFS_FileSystemLifecycle(t *testing.T) {
 	assert.Equal(t, "available", string(createOut.LifeCycleState))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFileSystem(cleanupCtx, &efs.DeleteFileSystemInput{
 			FileSystemId: aws.String(fsID),
 		})
 	})
@@ -95,18 +98,21 @@ func TestIntegration_EFS_MountTargetLifecycle(t *testing.T) {
 	fsID := aws.ToString(createOut.FileSystemId)
 
 	t.Cleanup(func() {
-		mts, mErr := client.DescribeMountTargets(ctx, &efs.DescribeMountTargetsInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		mts, mErr := client.DescribeMountTargets(cleanupCtx, &efs.DescribeMountTargetsInput{
 			FileSystemId: aws.String(fsID),
 		})
 		if mErr == nil {
 			for _, mt := range mts.MountTargets {
-				_, _ = client.DeleteMountTarget(ctx, &efs.DeleteMountTargetInput{
+				_, _ = client.DeleteMountTarget(cleanupCtx, &efs.DeleteMountTargetInput{
 					MountTargetId: mt.MountTargetId,
 				})
 			}
 		}
 
-		_, _ = client.DeleteFileSystem(ctx, &efs.DeleteFileSystemInput{
+		_, _ = client.DeleteFileSystem(cleanupCtx, &efs.DeleteFileSystemInput{
 			FileSystemId: aws.String(fsID),
 		})
 	})

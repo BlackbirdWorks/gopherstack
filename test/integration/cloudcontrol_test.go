@@ -35,7 +35,10 @@ func TestIntegration_CloudControl_ResourceLifecycle(t *testing.T) {
 	require.NotNil(t, createOut.ProgressEvent)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteResource(ctx, &cloudcontrolsdk.DeleteResourceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteResource(cleanupCtx, &cloudcontrolsdk.DeleteResourceInput{
 			TypeName:   aws.String(typeName),
 			Identifier: aws.String(identifier),
 		})

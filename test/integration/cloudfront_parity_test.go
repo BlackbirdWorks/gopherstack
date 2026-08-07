@@ -58,8 +58,11 @@ func TestIntegration_CloudFront_StreamingDistributionLifecycle(t *testing.T) {
 	require.NotEmpty(t, etag)
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		getOut, gErr := client.GetStreamingDistribution(
-			ctx,
+			cleanupCtx,
 			&cloudfront.GetStreamingDistributionInput{Id: aws.String(id)},
 		)
 		if gErr != nil {
@@ -68,7 +71,7 @@ func TestIntegration_CloudFront_StreamingDistributionLifecycle(t *testing.T) {
 
 		disabled := *cfg
 		disabled.Enabled = aws.Bool(false)
-		updOut, uErr := client.UpdateStreamingDistribution(ctx, &cloudfront.UpdateStreamingDistributionInput{
+		updOut, uErr := client.UpdateStreamingDistribution(cleanupCtx, &cloudfront.UpdateStreamingDistributionInput{
 			Id:                          aws.String(id),
 			StreamingDistributionConfig: &disabled,
 			IfMatch:                     getOut.ETag,
@@ -77,7 +80,7 @@ func TestIntegration_CloudFront_StreamingDistributionLifecycle(t *testing.T) {
 			return
 		}
 
-		_, _ = client.DeleteStreamingDistribution(ctx, &cloudfront.DeleteStreamingDistributionInput{
+		_, _ = client.DeleteStreamingDistribution(cleanupCtx, &cloudfront.DeleteStreamingDistributionInput{
 			Id:      aws.String(id),
 			IfMatch: updOut.ETag,
 		})
@@ -184,12 +187,15 @@ func TestIntegration_CloudFront_TrustStoreLifecycle(t *testing.T) {
 	)
 
 	t.Cleanup(func() {
-		getOut, gErr := client.GetTrustStore(ctx, &cloudfront.GetTrustStoreInput{Identifier: aws.String(id)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		getOut, gErr := client.GetTrustStore(cleanupCtx, &cloudfront.GetTrustStoreInput{Identifier: aws.String(id)})
 		if gErr != nil {
 			return
 		}
 
-		_, _ = client.DeleteTrustStore(ctx, &cloudfront.DeleteTrustStoreInput{
+		_, _ = client.DeleteTrustStore(cleanupCtx, &cloudfront.DeleteTrustStoreInput{
 			Id:      aws.String(id),
 			IfMatch: getOut.ETag,
 		})
@@ -243,11 +249,14 @@ func TestIntegration_CloudFront_DistributionTenantLifecycle(t *testing.T) {
 	require.NotEmpty(t, distID)
 
 	t.Cleanup(func() {
-		getOut, gErr := client.GetDistribution(ctx, &cloudfront.GetDistributionInput{Id: aws.String(distID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		getOut, gErr := client.GetDistribution(cleanupCtx, &cloudfront.GetDistributionInput{Id: aws.String(distID)})
 		if gErr != nil {
 			return
 		}
-		_, _ = client.DeleteDistribution(ctx, &cloudfront.DeleteDistributionInput{
+		_, _ = client.DeleteDistribution(cleanupCtx, &cloudfront.DeleteDistributionInput{
 			Id:      aws.String(distID),
 			IfMatch: getOut.ETag,
 		})
@@ -275,13 +284,16 @@ func TestIntegration_CloudFront_DistributionTenantLifecycle(t *testing.T) {
 	assert.Equal(t, domain, aws.ToString(createOut.DistributionTenant.Domains[0].Domain))
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		getOut, gErr := client.GetDistributionTenant(
-			ctx, &cloudfront.GetDistributionTenantInput{Identifier: aws.String(tenantID)},
+			cleanupCtx, &cloudfront.GetDistributionTenantInput{Identifier: aws.String(tenantID)},
 		)
 		if gErr != nil {
 			return
 		}
-		_, _ = client.DeleteDistributionTenant(ctx, &cloudfront.DeleteDistributionTenantInput{
+		_, _ = client.DeleteDistributionTenant(cleanupCtx, &cloudfront.DeleteDistributionTenantInput{
 			Id:      aws.String(tenantID),
 			IfMatch: getOut.ETag,
 		})
@@ -344,14 +356,17 @@ func TestIntegration_CloudFront_ConnectionGroupAndFunctionLifecycle(t *testing.T
 	require.NotEmpty(t, cgEtag)
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		getOut, gErr := client.GetConnectionGroup(
-			ctx,
+			cleanupCtx,
 			&cloudfront.GetConnectionGroupInput{Identifier: aws.String(cgID)},
 		)
 		if gErr != nil {
 			return
 		}
-		_, _ = client.DeleteConnectionGroup(ctx, &cloudfront.DeleteConnectionGroupInput{
+		_, _ = client.DeleteConnectionGroup(cleanupCtx, &cloudfront.DeleteConnectionGroupInput{
 			Id:      aws.String(cgID),
 			IfMatch: getOut.ETag,
 		})
@@ -384,13 +399,16 @@ func TestIntegration_CloudFront_ConnectionGroupAndFunctionLifecycle(t *testing.T
 	require.NotEmpty(t, cfnEtag)
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		descOut, dErr := client.DescribeConnectionFunction(
-			ctx, &cloudfront.DescribeConnectionFunctionInput{Identifier: aws.String(cfnID)},
+			cleanupCtx, &cloudfront.DescribeConnectionFunctionInput{Identifier: aws.String(cfnID)},
 		)
 		if dErr != nil {
 			return
 		}
-		_, _ = client.DeleteConnectionFunction(ctx, &cloudfront.DeleteConnectionFunctionInput{
+		_, _ = client.DeleteConnectionFunction(cleanupCtx, &cloudfront.DeleteConnectionFunctionInput{
 			Id:      aws.String(cfnID),
 			IfMatch: descOut.ETag,
 		})

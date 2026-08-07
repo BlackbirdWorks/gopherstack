@@ -41,20 +41,23 @@ func TestIntegration_CWLogs_Firehose_SubscriptionReceipt(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateBucket should succeed")
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		// Empty the bucket before deleting.
-		listOut, listErr := s3Client.ListObjectsV2(ctx, &s3svc.ListObjectsV2Input{
+		listOut, listErr := s3Client.ListObjectsV2(cleanupCtx, &s3svc.ListObjectsV2Input{
 			Bucket: aws.String(bucketName),
 		})
 		if listErr == nil {
 			for _, obj := range listOut.Contents {
-				_, _ = s3Client.DeleteObject(ctx, &s3svc.DeleteObjectInput{
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3svc.DeleteObjectInput{
 					Bucket: aws.String(bucketName),
 					Key:    obj.Key,
 				})
 			}
 		}
 
-		_, _ = s3Client.DeleteBucket(ctx, &s3svc.DeleteBucketInput{Bucket: aws.String(bucketName)})
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3svc.DeleteBucketInput{Bucket: aws.String(bucketName)})
 	})
 
 	// Create Firehose delivery stream with S3 destination.
@@ -75,7 +78,10 @@ func TestIntegration_CWLogs_Firehose_SubscriptionReceipt(t *testing.T) {
 	require.NoError(t, err, "CreateDeliveryStream should succeed")
 	fhARN := aws.ToString(createFHOut.DeliveryStreamARN)
 	t.Cleanup(func() {
-		_, _ = fhClient.DeleteDeliveryStream(ctx, &firehosesdk.DeleteDeliveryStreamInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = fhClient.DeleteDeliveryStream(cleanupCtx, &firehosesdk.DeleteDeliveryStreamInput{
 			DeliveryStreamName: aws.String(fhStreamName),
 		})
 	})
@@ -86,7 +92,10 @@ func TestIntegration_CWLogs_Firehose_SubscriptionReceipt(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateLogGroup should succeed")
 	t.Cleanup(func() {
-		_, _ = cwlClient.DeleteLogGroup(ctx, &cloudwatchlogssdk.DeleteLogGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cwlClient.DeleteLogGroup(cleanupCtx, &cloudwatchlogssdk.DeleteLogGroupInput{
 			LogGroupName: aws.String(groupName),
 		})
 	})

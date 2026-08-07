@@ -35,7 +35,10 @@ func TestIntegration_QuickSight_FolderMembershipLifecycle(t *testing.T) {
 	assert.Equal(t, folderID, aws.ToString(createOut.FolderId))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFolder(ctx, &quicksight.DeleteFolderInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFolder(cleanupCtx, &quicksight.DeleteFolderInput{
 			AwsAccountId: aws.String(quicksightAccountID),
 			FolderId:     aws.String(folderID),
 		})
@@ -136,7 +139,10 @@ func TestIntegration_QuickSight_TemplateVersionLifecycle(t *testing.T) {
 	assert.NotEmpty(t, string(createOut.CreationStatus), "CreationStatus should be a real value")
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTemplate(ctx, &quicksight.DeleteTemplateInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTemplate(cleanupCtx, &quicksight.DeleteTemplateInput{
 			AwsAccountId: aws.String(quicksightAccountID),
 			TemplateId:   aws.String(templateID),
 		})

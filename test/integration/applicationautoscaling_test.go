@@ -41,7 +41,10 @@ func TestIntegration_ApplicationAutoScaling_ScalableTargetAndPolicyLifecycle(t *
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeregisterScalableTarget(ctx, &applicationautoscalingsdk.DeregisterScalableTargetInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeregisterScalableTarget(cleanupCtx, &applicationautoscalingsdk.DeregisterScalableTargetInput{
 			ServiceNamespace:  namespace,
 			ResourceId:        aws.String(resourceID),
 			ScalableDimension: dimension,
@@ -77,7 +80,10 @@ func TestIntegration_ApplicationAutoScaling_ScalableTargetAndPolicyLifecycle(t *
 	assert.NotEmpty(t, aws.ToString(putOut.PolicyARN))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteScalingPolicy(ctx, &applicationautoscalingsdk.DeleteScalingPolicyInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteScalingPolicy(cleanupCtx, &applicationautoscalingsdk.DeleteScalingPolicyInput{
 			PolicyName:        aws.String(policyName),
 			ServiceNamespace:  namespace,
 			ResourceId:        aws.String(resourceID),

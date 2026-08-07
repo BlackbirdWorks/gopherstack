@@ -75,7 +75,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = ssmClient.DeleteParameter(t.Context(), &ssmsdk.DeleteParameterInput{Name: aws.String(paramName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ssmClient.DeleteParameter(cleanupCtx, &ssmsdk.DeleteParameterInput{Name: aws.String(paramName)})
 	})
 
 	stackName := "cfn-dynref-ssm-" + uuid.NewString()[:8]
@@ -105,7 +108,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSM(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -158,7 +164,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SSMMissing(t *testing.T) {
 	assert.True(t, failureFound, "expected a CREATE_FAILED event with a status reason")
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -180,7 +189,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = smClient.DeleteSecret(t.Context(), &secretsmanagersdk.DeleteSecretInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = smClient.DeleteSecret(cleanupCtx, &secretsmanagersdk.DeleteSecretInput{
 			SecretId:                   aws.String(secretName),
 			ForceDeleteWithoutRecovery: aws.Bool(true),
 		})
@@ -213,7 +225,10 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManager(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }
 
@@ -248,6 +263,9 @@ func TestIntegration_CloudFormation_DynamicRefs_SecretsManagerMissing(t *testing
 	assert.Equal(t, "CREATE_FAILED", finalStatus)
 
 	t.Cleanup(func() {
-		_, _ = cfnClient.DeleteStack(t.Context(), &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = cfnClient.DeleteStack(cleanupCtx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(stackName)})
 	})
 }

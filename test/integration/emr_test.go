@@ -45,7 +45,10 @@ func TestIntegration_EMR_ClusterLifecycle(t *testing.T) {
 	clusterID := aws.ToString(runOut.JobFlowId)
 
 	t.Cleanup(func() {
-		_, _ = client.TerminateJobFlows(ctx, &emr.TerminateJobFlowsInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.TerminateJobFlows(cleanupCtx, &emr.TerminateJobFlowsInput{
 			JobFlowIds: []string{clusterID},
 		})
 	})

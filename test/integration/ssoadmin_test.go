@@ -28,7 +28,10 @@ func TestIntegration_SSOAdmin_InstanceAndPermissionSet(t *testing.T) {
 	instArn := aws.ToString(createInst.InstanceArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteInstance(ctx, &ssoadminsdk.DeleteInstanceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteInstance(cleanupCtx, &ssoadminsdk.DeleteInstanceInput{
 			InstanceArn: aws.String(instArn),
 		})
 	})
@@ -60,7 +63,10 @@ func TestIntegration_SSOAdmin_InstanceAndPermissionSet(t *testing.T) {
 	require.NotEmpty(t, psArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeletePermissionSet(ctx, &ssoadminsdk.DeletePermissionSetInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeletePermissionSet(cleanupCtx, &ssoadminsdk.DeletePermissionSetInput{
 			InstanceArn:      aws.String(instArn),
 			PermissionSetArn: aws.String(psArn),
 		})

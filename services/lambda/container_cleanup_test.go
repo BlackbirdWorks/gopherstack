@@ -164,7 +164,7 @@ func TestCleanupTimedOutRuntime_RemovesFromMap(t *testing.T) {
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
-				stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				srv.Stop(stopCtx)
 			})
@@ -238,7 +238,7 @@ func TestCleanupTimedOutRuntime_StopsContainer(t *testing.T) {
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
-				stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				srv.Stop(stopCtx)
 			})
@@ -531,7 +531,7 @@ func TestCleanupTimedOutRuntime_NonExistentFunction(t *testing.T) {
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
-				stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				srv.Stop(stopCtx)
 			})
@@ -711,7 +711,7 @@ func TestAsyncInvocation_TimeoutCleansUpRuntime(t *testing.T) {
 			require.NoError(t, srv.Start(t.Context()))
 
 			t.Cleanup(func() {
-				stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+				stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				srv.Stop(stopCtx)
 			})

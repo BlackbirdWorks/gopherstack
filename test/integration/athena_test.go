@@ -43,7 +43,10 @@ func TestIntegration_Athena_WorkGroupAndNamedQueryLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteWorkGroup(ctx, &athenasdk.DeleteWorkGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteWorkGroup(cleanupCtx, &athenasdk.DeleteWorkGroupInput{
 			WorkGroup: aws.String(workGroup),
 		})
 	})
@@ -85,7 +88,10 @@ func TestIntegration_Athena_WorkGroupAndNamedQueryLifecycle(t *testing.T) {
 	require.NotEmpty(t, queryID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteNamedQuery(ctx, &athenasdk.DeleteNamedQueryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteNamedQuery(cleanupCtx, &athenasdk.DeleteNamedQueryInput{
 			NamedQueryId: aws.String(queryID),
 		})
 	})
@@ -137,7 +143,10 @@ func TestIntegration_Athena_DDLAndDMLQueryLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteWorkGroup(ctx, &athenasdk.DeleteWorkGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteWorkGroup(cleanupCtx, &athenasdk.DeleteWorkGroupInput{
 			WorkGroup: aws.String(workGroup),
 		})
 	})

@@ -92,7 +92,10 @@ func TestIntegration_SQS_SetQueueAttributes(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	_, err = client.SetQueueAttributes(ctx, &sqs.SetQueueAttributesInput{
@@ -159,7 +162,10 @@ func TestIntegration_SQS_MessageAttributesFilter(t *testing.T) {
 
 			qURL := *qOut.QueueUrl
 			t.Cleanup(func() {
-				_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 			})
 
 			_, sendErr := client.SendMessage(ctx, &sqs.SendMessageInput{
@@ -215,7 +221,10 @@ func TestIntegration_SQS_QueueTags(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	// Tag the queue.
@@ -268,7 +277,10 @@ func TestIntegration_SQS_ApproxMessagesDelayed(t *testing.T) {
 
 	qURL := *out.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: aws.String(qURL)})
 	})
 
 	// Send 2 delayed messages (900 seconds delay).

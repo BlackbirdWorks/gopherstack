@@ -52,7 +52,10 @@ func runAuditInstance(t *testing.T, client *ec2sdk.Client) string {
 	require.NotEmpty(t, instanceID)
 
 	t.Cleanup(func() {
-		_, _ = client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 			InstanceIds: []string{instanceID},
 		})
 	})
@@ -185,7 +188,10 @@ func TestIntegration_EC2Audit_AssociateInstanceEventWindow(t *testing.T) {
 	require.NotEmpty(t, windowID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteInstanceEventWindow(ctx, &ec2sdk.DeleteInstanceEventWindowInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteInstanceEventWindow(cleanupCtx, &ec2sdk.DeleteInstanceEventWindowInput{
 			InstanceEventWindowId: aws.String(windowID),
 		})
 	})

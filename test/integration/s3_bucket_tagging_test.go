@@ -115,7 +115,10 @@ func TestIntegration_S3_BucketTagging(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -159,7 +162,10 @@ func TestIntegration_S3_DeleteBucketTagging(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	// Store tags.

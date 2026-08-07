@@ -58,7 +58,10 @@ func TestIntegration_DataSync_AgentLifecycle(t *testing.T) {
 			require.NotEmpty(t, agentArn, "agent ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteAgent(ctx, &datasyncsdk.DeleteAgentInput{AgentArn: aws.String(agentArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteAgent(cleanupCtx, &datasyncsdk.DeleteAgentInput{AgentArn: aws.String(agentArn)})
 			})
 
 			descOut, err := client.DescribeAgent(ctx, &datasyncsdk.DescribeAgentInput{AgentArn: aws.String(agentArn)})
@@ -130,7 +133,10 @@ func TestIntegration_DataSync_TaskLifecycle(t *testing.T) {
 			require.NotEmpty(t, taskArn, "task ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteTask(ctx, &datasyncsdk.DeleteTaskInput{TaskArn: aws.String(taskArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteTask(cleanupCtx, &datasyncsdk.DeleteTaskInput{TaskArn: aws.String(taskArn)})
 			})
 
 			descOut, err := client.DescribeTask(ctx, &datasyncsdk.DescribeTaskInput{TaskArn: aws.String(taskArn)})

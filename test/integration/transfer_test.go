@@ -36,7 +36,10 @@ func TestIntegration_Transfer_ServerAndUserLifecycle(t *testing.T) {
 	require.NotEmpty(t, serverID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteServer(ctx, &transfersdk.DeleteServerInput{ServerId: aws.String(serverID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteServer(cleanupCtx, &transfersdk.DeleteServerInput{ServerId: aws.String(serverID)})
 	})
 
 	// DescribeServer.
@@ -76,7 +79,10 @@ func TestIntegration_Transfer_ServerAndUserLifecycle(t *testing.T) {
 	assert.Equal(t, serverID, aws.ToString(createUserOut.ServerId))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteUser(ctx, &transfersdk.DeleteUserInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteUser(cleanupCtx, &transfersdk.DeleteUserInput{
 			ServerId: aws.String(serverID),
 			UserName: aws.String(userName),
 		})

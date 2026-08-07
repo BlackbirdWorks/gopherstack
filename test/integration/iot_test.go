@@ -369,7 +369,10 @@ func TestIntegration_IoT_Rule_ForwardsToSQS(t *testing.T) {
 	queueURL := *createOut.QueueUrl
 
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(t.Context(), &sqs.DeleteQueueInput{QueueUrl: &queueURL})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: &queueURL})
 	})
 
 	// Create an IoT rule that forwards matching messages to the SQS queue.

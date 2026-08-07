@@ -53,7 +53,10 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	assert.Equal(t, elbv2types.LoadBalancerTypeEnumApplication, createLBOut.LoadBalancers[0].Type)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteLoadBalancer(ctx, &elbv2sdk.DeleteLoadBalancerInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLoadBalancer(cleanupCtx, &elbv2sdk.DeleteLoadBalancerInput{
 			LoadBalancerArn: aws.String(lbArn),
 		})
 	})
@@ -97,7 +100,10 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	assert.Equal(t, tgName, aws.ToString(createTGOut.TargetGroups[0].TargetGroupName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTargetGroup(ctx, &elbv2sdk.DeleteTargetGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTargetGroup(cleanupCtx, &elbv2sdk.DeleteTargetGroupInput{
 			TargetGroupArn: aws.String(tgArn),
 		})
 	})
@@ -159,7 +165,10 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	require.NotEmpty(t, listenerArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteListener(ctx, &elbv2sdk.DeleteListenerInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteListener(cleanupCtx, &elbv2sdk.DeleteListenerInput{
 			ListenerArn: aws.String(listenerArn),
 		})
 	})
@@ -197,7 +206,10 @@ func TestIntegration_ELBv2_ALBLifecycle(t *testing.T) {
 	require.NotEmpty(t, ruleArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRule(ctx, &elbv2sdk.DeleteRuleInput{RuleArn: aws.String(ruleArn)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRule(cleanupCtx, &elbv2sdk.DeleteRuleInput{RuleArn: aws.String(ruleArn)})
 	})
 
 	// DescribeRules should return at least the new rule + the auto-created default rule.
@@ -309,7 +321,10 @@ func TestIntegration_ELBv2_NLB(t *testing.T) {
 	assert.Equal(t, elbv2types.LoadBalancerTypeEnumNetwork, createOut.LoadBalancers[0].Type)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteLoadBalancer(ctx, &elbv2sdk.DeleteLoadBalancerInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLoadBalancer(cleanupCtx, &elbv2sdk.DeleteLoadBalancerInput{
 			LoadBalancerArn: aws.String(lbArn),
 		})
 	})
@@ -326,7 +341,10 @@ func TestIntegration_ELBv2_NLB(t *testing.T) {
 	tgArn := aws.ToString(tgOut.TargetGroups[0].TargetGroupArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteTargetGroup(ctx, &elbv2sdk.DeleteTargetGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteTargetGroup(cleanupCtx, &elbv2sdk.DeleteTargetGroupInput{
 			TargetGroupArn: aws.String(tgArn),
 		})
 	})
@@ -344,7 +362,10 @@ func TestIntegration_ELBv2_NLB(t *testing.T) {
 	listenerArn := aws.ToString(listOut.Listeners[0].ListenerArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteListener(ctx, &elbv2sdk.DeleteListenerInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteListener(cleanupCtx, &elbv2sdk.DeleteListenerInput{
 			ListenerArn: aws.String(listenerArn),
 		})
 	})

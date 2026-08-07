@@ -35,7 +35,10 @@ func TestIntegration_CodeArtifact_DomainAndRepositoryLifecycle(t *testing.T) {
 	assert.Equal(t, domainName, aws.ToString(createDomainOut.Domain.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDomain(ctx, &codeartifactsdk.DeleteDomainInput{Domain: aws.String(domainName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDomain(cleanupCtx, &codeartifactsdk.DeleteDomainInput{Domain: aws.String(domainName)})
 	})
 
 	// DescribeDomain.
@@ -74,7 +77,10 @@ func TestIntegration_CodeArtifact_DomainAndRepositoryLifecycle(t *testing.T) {
 	assert.Equal(t, domainName, aws.ToString(createRepoOut.Repository.DomainName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteRepository(ctx, &codeartifactsdk.DeleteRepositoryInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteRepository(cleanupCtx, &codeartifactsdk.DeleteRepositoryInput{
 			Domain:     aws.String(domainName),
 			Repository: aws.String(repoName),
 		})

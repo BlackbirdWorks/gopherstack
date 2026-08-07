@@ -41,7 +41,10 @@ func TestIntegration_EventBridge_SFN_TargetReceipt(t *testing.T) {
 	require.NoError(t, err, "CreateStateMachine should succeed")
 	smARN := aws.ToString(createSMOut.StateMachineArn)
 	t.Cleanup(func() {
-		_, _ = sfnClient.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sfnClient.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
 			StateMachineArn: aws.String(smARN),
 		})
 	})
@@ -52,7 +55,10 @@ func TestIntegration_EventBridge_SFN_TargetReceipt(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateEventBus should succeed")
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteEventBus(cleanupCtx, &eventbridgesdk.DeleteEventBusInput{
 			Name: aws.String(busName),
 		})
 	})
@@ -66,12 +72,15 @@ func TestIntegration_EventBridge_SFN_TargetReceipt(t *testing.T) {
 	})
 	require.NoError(t, err, "PutRule should succeed")
 	t.Cleanup(func() {
-		_, _ = ebClient.RemoveTargets(ctx, &eventbridgesdk.RemoveTargetsInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.RemoveTargets(cleanupCtx, &eventbridgesdk.RemoveTargetsInput{
 			Rule:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 			Ids:          []string{"sfn-target"},
 		})
-		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 		})

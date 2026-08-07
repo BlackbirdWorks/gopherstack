@@ -31,7 +31,10 @@ func TestIntegration_Lambda_FunctionExistsWaiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFunction(ctx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFunction(cleanupCtx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
 
 	waiter := lambdaclientsdk.NewFunctionExistsWaiter(client)
@@ -62,7 +65,10 @@ func TestIntegration_Lambda_FunctionActiveV2Waiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFunction(ctx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFunction(cleanupCtx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
 
 	// Verify the State is Active
@@ -99,7 +105,10 @@ func TestIntegration_Lambda_FunctionUpdatedV2Waiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFunction(ctx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFunction(cleanupCtx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
 
 	// Verify LastUpdateStatus is Successful
@@ -137,7 +146,10 @@ func TestIntegration_Lambda_FunctionUpdatedV2Waiter_AfterUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteFunction(ctx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteFunction(cleanupCtx, &lambdaclientsdk.DeleteFunctionInput{FunctionName: aws.String(fnName)})
 	})
 
 	// Update the function configuration

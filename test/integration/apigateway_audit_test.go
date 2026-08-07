@@ -58,7 +58,10 @@ func TestIntegration_APIGatewayAudit_ImportApiKeysThenGetApiKeys(t *testing.T) {
 	importedID := importOut.Ids[0]
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApiKey(ctx, &apigwsdk.DeleteApiKeyInput{ApiKey: aws.String(importedID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApiKey(cleanupCtx, &apigwsdk.DeleteApiKeyInput{ApiKey: aws.String(importedID)})
 	})
 
 	// GetApiKeys must reflect the imported key.

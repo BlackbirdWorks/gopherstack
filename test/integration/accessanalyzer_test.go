@@ -58,7 +58,13 @@ func TestIntegration_AccessAnalyzer_AnalyzerLifecycle(t *testing.T) {
 			assert.NotEmpty(t, aws.ToString(createOut.Arn), "analyzer ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteAnalyzer(ctx, &aasdk.DeleteAnalyzerInput{AnalyzerName: aws.String(tt.analyzerName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteAnalyzer(
+					cleanupCtx,
+					&aasdk.DeleteAnalyzerInput{AnalyzerName: aws.String(tt.analyzerName)},
+				)
 			})
 
 			getOut, err := client.GetAnalyzer(ctx, &aasdk.GetAnalyzerInput{AnalyzerName: aws.String(tt.analyzerName)})
@@ -116,7 +122,13 @@ func TestIntegration_AccessAnalyzer_ArchiveRuleLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateAnalyzer should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteAnalyzer(ctx, &aasdk.DeleteAnalyzerInput{AnalyzerName: aws.String(tt.analyzerName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteAnalyzer(
+					cleanupCtx,
+					&aasdk.DeleteAnalyzerInput{AnalyzerName: aws.String(tt.analyzerName)},
+				)
 			})
 
 			_, err = client.CreateArchiveRule(ctx, &aasdk.CreateArchiveRuleInput{

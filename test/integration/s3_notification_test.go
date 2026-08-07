@@ -35,7 +35,10 @@ func TestIntegration_S3_NotificationToSQS(t *testing.T) {
 	queueURL := aws.ToString(createOut.QueueUrl)
 
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(t.Context(), &sqssdk.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
 	})
 
 	// Get the queue ARN.
@@ -53,15 +56,18 @@ func TestIntegration_S3_NotificationToSQS(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		out, _ := s3Client.ListObjects(t.Context(), &s3.ListObjectsInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		out, _ := s3Client.ListObjects(cleanupCtx, &s3.ListObjectsInput{Bucket: aws.String(bucket)})
 		if out != nil {
 			for _, obj := range out.Contents {
-				_, _ = s3Client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{
 					Bucket: aws.String(bucket), Key: obj.Key,
 				})
 			}
 		}
-		_, _ = s3Client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	// Configure bucket notifications to send ObjectCreated events to the SQS queue.
