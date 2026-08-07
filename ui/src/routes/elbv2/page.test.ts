@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import ELBv2Page from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -16,10 +17,22 @@ vi.mock("$lib/confirm-dialog", () => ({
   confirmDestructive: vi.fn().mockResolvedValue(true),
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("ELBv2 Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -231,5 +244,67 @@ describe("ELBv2 Page", () => {
     const addButtons = screen.getAllByText("Add");
     await fireEvent.click(addButtons.at(-1)!);
     expect(screen.getByText("Add Certificate")).toBeInTheDocument();
+  });
+
+  describe("All regions mode", () => {
+    it("fans DescribeLoadBalancers out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({
+          LoadBalancers: [{ LoadBalancerArn: "arn:lb:us", LoadBalancerName: "us-alb" }],
+        })
+        .mockResolvedValueOnce({
+          LoadBalancers: [{ LoadBalancerArn: "arn:lb:eu", LoadBalancerName: "eu-alb" }],
+        })
+        .mockResolvedValue({ TargetGroups: [], Listeners: [], TrustStores: [] });
+
+      render(ELBv2Page);
+
+      await waitFor(() => expect(screen.getByText("us-alb")).toBeInTheDocument());
+      expect(screen.getByText("eu-alb")).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one DescribeLoadBalancers call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({
+        LoadBalancers: [{ LoadBalancerArn: "arn:lb:1", LoadBalancerName: "my-alb" }],
+      });
+      mockSend.mockResolvedValue({ TargetGroups: [], Listeners: [], TrustStores: [] });
+      render(ELBv2Page);
+      await waitFor(() => expect(screen.getByText("my-alb")).toBeInTheDocument());
+      const lbCalls = mockSend.mock.calls.filter(
+        ([cmd]) => cmd.constructor.name === "DescribeLoadBalancersCommand",
+      );
+      expect(lbCalls).toHaveLength(1);
+    });
+
+    it("renders the same load balancer name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({
+          LoadBalancers: [{ LoadBalancerArn: "arn:lb:us", LoadBalancerName: "shared-alb" }],
+        })
+        .mockResolvedValueOnce({
+          LoadBalancers: [{ LoadBalancerArn: "arn:lb:eu", LoadBalancerName: "shared-alb" }],
+        })
+        .mockResolvedValue({ TargetGroups: [], Listeners: [], TrustStores: [] });
+
+      render(ELBv2Page);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-alb");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) => within(r.closest("tr") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

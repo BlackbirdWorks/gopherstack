@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import { isAllRegions, currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getECSClient } from '$lib/aws-client';
 	import {
 		ListClustersCommand,
@@ -173,34 +177,67 @@
 	// rather than being folded into this list.
 	const clusterScopedTabs: TabId[] = ['services', 'tasks', 'containerInstances'];
 
+	// Every child tab's calls (services/tasks/containerInstances/taskSets)
+	// must go to the SELECTED cluster's own region, not the picker's region
+	// -- in All mode the cluster driving the drill-down can be from any
+	// fanned region, unrelated to whatever the picker currently shows.
+	type Regioned<T> = T & { region: string };
+
 	let activeTab = $state<TabId>('clusters');
 	let searchQuery = $state('');
 
 	// ==================== Clusters ====================
 
-	let clusters = $state<Cluster[]>([]);
+	let clusters = $state<Regioned<Cluster>[]>([]);
 	let clustersNextToken = $state<string | undefined>();
 	let loadingMoreClusters = $state(false);
 
 	let selectedClusterArn = $state('');
+	let selectedClusterRegion = $state('');
 	const selectedCluster = $derived(clusters.find((c) => c.clusterArn === selectedClusterArn));
 
+	// In All mode, fans ListClusters+DescribeClusters out across every region
+	// with data and tags each row; pagination (nextToken) is inherently
+	// single-region, so "Load More" only appends within the currently
+	// selected region.
 	async function fetchClusters(reset: boolean): Promise<void> {
-		const list = await client().send(
-			new ListClustersCommand({ nextToken: reset ? undefined : clustersNextToken, maxResults: 20 })
-		);
-		const arns = list.clusterArns ?? [];
-		clustersNextToken = list.nextToken;
-		let page: Cluster[] = [];
-		if (arns.length > 0) {
-			const desc = await client().send(
-				new DescribeClustersCommand({ clusters: arns, include: ['TAGS', 'SETTINGS'] })
+		if (reset && isAllRegions()) {
+			const result = await multiRegionList(
+				async (region) => {
+					const rc = getECSClient(region);
+					const list = await rc.send(new ListClustersCommand({ maxResults: 20 }));
+					const arns = list.clusterArns ?? [];
+					if (arns.length === 0) return { clusters: [] as Cluster[] };
+					const desc = await rc.send(new DescribeClustersCommand({ clusters: arns, include: ['TAGS', 'SETTINGS'] }));
+					return { clusters: desc.clusters ?? [] };
+				},
+				(r) => r.clusters
 			);
-			page = desc.clusters ?? [];
+			clusters = result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<Cluster>);
+			clustersNextToken = undefined;
+			if (result.errors.length > 0) {
+				toast.error(`Failed to load clusters from ${result.errors.length} region(s)`);
+			}
+		} else {
+			const list = await client().send(
+				new ListClustersCommand({ nextToken: reset ? undefined : clustersNextToken, maxResults: 20 })
+			);
+			const arns = list.clusterArns ?? [];
+			clustersNextToken = list.nextToken;
+			let page: Cluster[] = [];
+			if (arns.length > 0) {
+				const desc = await client().send(
+					new DescribeClustersCommand({ clusters: arns, include: ['TAGS', 'SETTINGS'] })
+				);
+				page = desc.clusters ?? [];
+			}
+			const region = currentRegion();
+			const tagged = page.map((c) => ({ ...c, region }) as Regioned<Cluster>);
+			clusters = reset ? tagged : [...clusters, ...tagged];
 		}
-		clusters = reset ? page : [...clusters, ...page];
 		if (!selectedClusterArn && clusters.length > 0) {
 			selectedClusterArn = clusters[0].clusterArn ?? '';
+			selectedClusterRegion = clusters[0].region;
 		}
 	}
 
@@ -217,6 +254,7 @@
 
 	function onClusterSelect(arn: string): void {
 		selectedClusterArn = arn;
+		selectedClusterRegion = clusters.find((c) => c.clusterArn === arn)?.region ?? currentRegion();
 		taskSetServiceArn = '';
 		taskSets = [];
 		if (clusterScopedTabs.includes(activeTab) || activeTab === 'taskSets') {
@@ -272,11 +310,11 @@
 	let editClusterModal = $state<Modal | null>(null);
 	let updatingCluster = $state(false);
 	let updateClusterError = $state<string | null>(null);
-	let editClusterTarget = $state<Cluster | null>(null);
+	let editClusterTarget = $state<Regioned<Cluster> | null>(null);
 	let editClusterContainerInsights = $state(false);
 	let editClusterCapacityProviders = $state('');
 
-	function openEditClusterModal(c: Cluster): void {
+	function openEditClusterModal(c: Regioned<Cluster>): void {
 		editClusterTarget = c;
 		editClusterContainerInsights = (c.settings ?? []).some(
 			(s) => s.name === 'containerInsights' && (s.value === 'enabled' || s.value === 'enhanced')
@@ -303,7 +341,7 @@
 		updatingCluster = true;
 		updateClusterError = null;
 		try {
-			await client().send(
+			await getECSClient(editClusterTarget.region).send(
 				new UpdateClusterCommand({
 					cluster: editClusterTarget.clusterArn,
 					settings: [{ name: 'containerInsights', value: editClusterContainerInsights ? 'enabled' : 'disabled' }]
@@ -311,7 +349,7 @@
 			);
 			const providers = parseCommaList(editClusterCapacityProviders);
 			if (providers.length > 0) {
-				await client().send(
+				await getECSClient(editClusterTarget.region).send(
 					new PutClusterCapacityProvidersCommand({
 						cluster: editClusterTarget.clusterArn,
 						capacityProviders: providers,
@@ -331,7 +369,7 @@
 		}
 	}
 
-	async function handleDeleteCluster(c: Cluster): Promise<void> {
+	async function handleDeleteCluster(c: Regioned<Cluster>): Promise<void> {
 		if (!c.clusterArn) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete cluster',
@@ -339,10 +377,11 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(new DeleteClusterCommand({ cluster: c.clusterArn }));
+			await getECSClient(c.region).send(new DeleteClusterCommand({ cluster: c.clusterArn }));
 			toast.success('Cluster deleted');
 			if (selectedClusterArn === c.clusterArn) {
 				selectedClusterArn = '';
+				selectedClusterRegion = '';
 			}
 			await tabLoader.refresh('clusters');
 		} catch (e) {
@@ -351,9 +390,9 @@
 	}
 
 	let clusterDetailModal = $state<Modal | null>(null);
-	let viewedCluster = $state<Cluster | null>(null);
+	let viewedCluster = $state<Regioned<Cluster> | null>(null);
 
-	function openClusterDetail(c: Cluster): void {
+	function openClusterDetail(c: Regioned<Cluster>): void {
 		viewedCluster = c;
 		clusterDetailModal?.open();
 	}
@@ -370,7 +409,7 @@
 			servicesNextToken = undefined;
 			return;
 		}
-		const list = await client().send(
+		const list = await getECSClient(selectedClusterRegion).send(
 			new ListServicesCommand({
 				cluster: selectedClusterArn,
 				nextToken: reset ? undefined : servicesNextToken,
@@ -383,7 +422,7 @@
 		// DescribeServices accepts up to 10 services per call.
 		for (let i = 0; i < arns.length; i += 10) {
 			const chunk = arns.slice(i, i + 10);
-			const desc = await client().send(
+			const desc = await getECSClient(selectedClusterRegion).send(
 				new DescribeServicesCommand({ cluster: selectedClusterArn, services: chunk, include: ['TAGS'] })
 			);
 			page = [...page, ...(desc.services ?? [])];
@@ -431,7 +470,7 @@
 		creatingService = true;
 		createServiceError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new CreateServiceCommand({
 					cluster: selectedClusterArn,
 					serviceName: newServiceName,
@@ -474,7 +513,7 @@
 		updatingService = true;
 		updateServiceError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new UpdateServiceCommand({
 					cluster: selectedClusterArn,
 					service: editServiceTarget.serviceName,
@@ -503,7 +542,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new DeleteServiceCommand({ cluster: selectedClusterArn, service: s.serviceName, force: true })
 			);
 			toast.success('Service deletion started');
@@ -536,7 +575,7 @@
 			tasksNextToken = undefined;
 			return;
 		}
-		const list = await client().send(
+		const list = await getECSClient(selectedClusterRegion).send(
 			new ListTasksCommand({
 				cluster: selectedClusterArn,
 				nextToken: reset ? undefined : tasksNextToken,
@@ -547,7 +586,7 @@
 		tasksNextToken = list.nextToken;
 		let page: Task[] = [];
 		if (arns.length > 0) {
-			const desc = await client().send(
+			const desc = await getECSClient(selectedClusterRegion).send(
 				new DescribeTasksCommand({ cluster: selectedClusterArn, tasks: arns })
 			);
 			page = desc.tasks ?? [];
@@ -595,7 +634,7 @@
 		runningTask = true;
 		runTaskError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new RunTaskCommand({
 					cluster: selectedClusterArn,
 					taskDefinition: runTaskDef,
@@ -624,7 +663,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new StopTaskCommand({
 					cluster: selectedClusterArn,
 					task: t.taskArn,
@@ -904,7 +943,7 @@
 			containerInstancesNextToken = undefined;
 			return;
 		}
-		const list = await client().send(
+		const list = await getECSClient(selectedClusterRegion).send(
 			new ListContainerInstancesCommand({
 				cluster: selectedClusterArn,
 				nextToken: reset ? undefined : containerInstancesNextToken,
@@ -915,7 +954,7 @@
 		containerInstancesNextToken = list.nextToken;
 		let page: ContainerInstance[] = [];
 		if (arns.length > 0) {
-			const desc = await client().send(
+			const desc = await getECSClient(selectedClusterRegion).send(
 				new DescribeContainerInstancesCommand({
 					cluster: selectedClusterArn,
 					containerInstances: arns,
@@ -947,7 +986,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new DeregisterContainerInstanceCommand({
 					cluster: selectedClusterArn,
 					containerInstance: ci.containerInstanceArn,
@@ -979,7 +1018,7 @@
 		draining = true;
 		drainError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new UpdateContainerInstancesStateCommand({
 					cluster: selectedClusterArn,
 					containerInstances: [drainTarget.containerInstanceArn],
@@ -1001,7 +1040,7 @@
 	async function handleUpdateAgent(ci: ContainerInstance): Promise<void> {
 		if (!selectedClusterArn || !ci.containerInstanceArn) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new UpdateContainerAgentCommand({
 					cluster: selectedClusterArn,
 					containerInstance: ci.containerInstanceArn
@@ -1228,7 +1267,7 @@
 			taskSets = [];
 			return;
 		}
-		const resp = await client().send(
+		const resp = await getECSClient(selectedClusterRegion).send(
 			new DescribeTaskSetsCommand({
 				cluster: selectedClusterArn,
 				service: taskSetServiceArn,
@@ -1272,7 +1311,7 @@
 		creatingTaskSet = true;
 		createTaskSetError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new CreateTaskSetCommand({
 					cluster: selectedClusterArn,
 					service: taskSetServiceArn,
@@ -1312,7 +1351,7 @@
 		updatingTaskSet = true;
 		updateTaskSetError = null;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new UpdateTaskSetCommand({
 					cluster: selectedClusterArn,
 					service: taskSetServiceArn,
@@ -1340,7 +1379,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new DeleteTaskSetCommand({
 					cluster: selectedClusterArn,
 					service: taskSetServiceArn,
@@ -1358,7 +1397,7 @@
 	async function handleSetPrimaryTaskSet(ts: TaskSet): Promise<void> {
 		if (!selectedClusterArn || !taskSetServiceArn || !ts.taskSetArn) return;
 		try {
-			await client().send(
+			await getECSClient(selectedClusterRegion).send(
 				new UpdateServicePrimaryTaskSetCommand({
 					cluster: selectedClusterArn,
 					service: taskSetServiceArn,
@@ -1523,6 +1562,7 @@
 	// reloading whichever tab is active.
 	onRegionChange(() => {
 		selectedClusterArn = '';
+		selectedClusterRegion = '';
 		taskSetServiceArn = '';
 		clusters = [];
 		clustersNextToken = undefined;
@@ -1573,6 +1613,7 @@
 	>
 		{#snippet actions()}
 			{#if activeTab === 'clusters'}
+				<WriteRegionHint />
 				<button
 					onclick={openCreateClusterModal}
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm"
@@ -1644,10 +1685,13 @@
 						{#if clusters.length === 0}
 							<option value="">No clusters</option>
 						{/if}
-						{#each clusters as c (c.clusterArn)}
-							<option value={c.clusterArn}>{clusterShortName(c.clusterArn)}</option>
+						{#each clusters as c (c.region + '::' + c.clusterArn)}
+							<option value={c.clusterArn}>{clusterShortName(c.clusterArn)} — {c.region}</option>
 						{/each}
 					</select>
+					{#if selectedClusterRegion}
+						<RegionChip region={selectedClusterRegion} />
+					{/if}
 				</div>
 			{:else if activeTab === 'taskSets'}
 				<div class="flex items-center gap-2 flex-wrap">
@@ -1661,10 +1705,13 @@
 						{#if clusters.length === 0}
 							<option value="">No clusters</option>
 						{/if}
-						{#each clusters as c (c.clusterArn)}
-							<option value={c.clusterArn}>{clusterShortName(c.clusterArn)}</option>
+						{#each clusters as c (c.region + '::' + c.clusterArn)}
+							<option value={c.clusterArn}>{clusterShortName(c.clusterArn)} — {c.region}</option>
 						{/each}
 					</select>
+					{#if selectedClusterRegion}
+						<RegionChip region={selectedClusterRegion} />
+					{/if}
 					<label for="ts-service-select" class="text-sm text-gray-500 dark:text-gray-400">Service</label>
 					<select
 						id="ts-service-select"
@@ -1702,21 +1749,25 @@
 			{/if}
 
 			{#if activeTab === 'clusters'}
-				{#snippet clusterStatusCell(c: Cluster)}
+				{#snippet clusterRegionCell(c: Regioned<Cluster>)}
+					<RegionChip region={c.region} />
+				{/snippet}
+				{#snippet clusterStatusCell(c: Regioned<Cluster>)}
 					<span class="text-xs px-2 py-1 rounded-full {statusClass(c.status === 'ACTIVE')}">{c.status ?? '—'}</span>
 				{/snippet}
-				{#snippet clusterCountsCell(c: Cluster)}
+				{#snippet clusterCountsCell(c: Regioned<Cluster>)}
 					{c.runningTasksCount ?? 0} running / {c.activeServicesCount ?? 0} svcs
 				{/snippet}
-				{#snippet clusterActionsCell(c: Cluster)}
+				{#snippet clusterActionsCell(c: Regioned<Cluster>)}
 					<div class="flex items-center gap-2 justify-end">
 						<button onclick={() => openClusterDetail(c)} title="View" aria-label="View cluster {c.clusterName}" class="text-gray-400 hover:text-purple-500"><Eye class="w-4 h-4" /></button>
 						<button onclick={() => openEditClusterModal(c)} title="Update" aria-label="Update cluster {c.clusterName}" class="text-gray-400 hover:text-purple-500"><Pencil class="w-4 h-4" /></button>
 						<button onclick={() => handleDeleteCluster(c)} title="Delete" aria-label="Delete cluster {c.clusterName}" class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button>
 					</div>
 				{/snippet}
-				{@const clusterColumns = defineColumns<Cluster>([
+				{@const clusterColumns = defineColumns<Regioned<Cluster>>([
 					{ key: 'clusterName', label: 'Name' },
+					{ key: 'region', label: 'Region', render: clusterRegionCell },
 					{ key: 'status', label: 'Status', render: clusterStatusCell },
 					{ key: 'counts', label: 'Tasks / Services', render: clusterCountsCell },
 					{ key: 'registeredContainerInstancesCount', label: 'Instances' },
@@ -1724,7 +1775,7 @@
 				])}
 				<DataTable
 					rows={filteredClusters}
-					rowKey={(c) => c.clusterArn ?? ''}
+					rowKey={(c) => c.region + '::' + (c.clusterArn ?? '')}
 					columns={clusterColumns}
 					loading={tabLoader.isLoading('clusters')}
 					emptyMessage="No clusters found"
