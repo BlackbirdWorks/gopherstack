@@ -291,7 +291,10 @@ func TestTerraform_FSxLustre(t *testing.T) {
 			setup: func(t *testing.T, _ string) map[string]any {
 				t.Helper()
 
-				return map[string]any{"Name": "tf-fsx-" + uuid.NewString()[:8]}
+				vars := vpcCIDRVars(t)
+				vars["Name"] = "tf-fsx-" + uuid.NewString()[:8]
+
+				return vars
 			},
 			verify: func(t *testing.T, ctx context.Context, _ map[string]any) {
 				t.Helper()

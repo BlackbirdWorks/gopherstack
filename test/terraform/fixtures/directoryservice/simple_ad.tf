@@ -1,5 +1,5 @@
 resource "aws_vpc" "this" {
-  cidr_block = "10.0.0.0/16"
+  cidr_block = "{{.VPCCidr}}"
 
   tags = {
     Name = "{{.VPCName}}"
@@ -8,13 +8,13 @@ resource "aws_vpc" "this" {
 
 resource "aws_subnet" "a" {
   vpc_id            = aws_vpc.this.id
-  cidr_block        = "10.0.1.0/24"
+  cidr_block        = "{{.SubnetCidrA}}"
   availability_zone = "us-east-1a"
 }
 
 resource "aws_subnet" "b" {
   vpc_id            = aws_vpc.this.id
-  cidr_block        = "10.0.2.0/24"
+  cidr_block        = "{{.SubnetCidrB}}"
   availability_zone = "us-east-1b"
 }
 

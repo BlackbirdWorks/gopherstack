@@ -85,7 +85,7 @@ func TestQuickSight_TopicV2CRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, updateMissingRec.Code)
 
-	// DeleteTopicV2Output carries Arn, unlike V1's DeleteTopic response.
+	// DeleteTopicV2Output carries Arn, same as V1's DeleteTopic response.
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/topicsV2/tv1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
 	deleteBody := parseBody(t, deleteRec)

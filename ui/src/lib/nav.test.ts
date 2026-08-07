@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -9,6 +13,35 @@ import {
   sidebarCategories,
   type DashboardCategory,
 } from "./nav";
+
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
+const servicesDir = resolve(repoRoot, "services");
+const cliGoSource = readFileSync(resolve(repoRoot, "cli.go"), "utf8");
+
+// Route ids whose backend lives under a services/<dir> whose name differs
+// from the dashboard route id (Go package-name collisions with stdlib/3rd
+// party names, or historical renames). Verified against cli.go's imports.
+const ROUTE_ID_TO_SERVICE_DIR: Record<string, string> = {
+  config: "awsconfig",
+  costexplorer: "ce",
+  inspector: "inspector2",
+  msk: "kafka",
+  sagemakeruntime: "sagemakerruntime",
+  sfn: "stepfunctions",
+  timestream: "timestreamwrite",
+};
+
+// Dashboard chrome carried in implementedDashboardRouteIds that isn't
+// backed by an AWS service emulator at all — nothing to check a services/
+// dir or cli.go registration against.
+const BACKEND_CHECK_EXEMPT_ROUTE_IDS = new Set<string>(["chaos", "resources"]);
+
+// Known gap, not swept under the rug: the dashboard advertises this route
+// (nav entry + page) but no services/globalaccelerator backend exists yet
+// and cli.go never registers one. Remove this entry once the backend
+// lands — from that point the guard below holds it to the same standard
+// as every other route.
+const KNOWN_BACKEND_GAP_ROUTE_IDS = new Set<string>(["globalaccelerator"]);
 
 // Route directories under src/routes/ that are deliberately NOT linked from
 // sidebarCategories. Every entry here is a conscious exemption from the
@@ -186,6 +219,37 @@ describe("nav catalog matches the routes directory (drift guard)", () => {
     expect(
       missing,
       `implementedDashboardRouteIds ids with no matching routes/<id>/+page.svelte directory: ${missing.join(", ") || "(none)"}`,
+    ).toEqual([]);
+  });
+
+  it("every implementedDashboardRouteIds id has a services/<id> backend directory and a cli.go registration", () => {
+    const missingServiceDir: string[] = [];
+    const missingCliRegistration: string[] = [];
+
+    for (const id of implementedDashboardRouteIds) {
+      if (BACKEND_CHECK_EXEMPT_ROUTE_IDS.has(id) || KNOWN_BACKEND_GAP_ROUTE_IDS.has(id)) {
+        continue;
+      }
+
+      const serviceDir = ROUTE_ID_TO_SERVICE_DIR[id] ?? id;
+
+      if (!existsSync(resolve(servicesDir, serviceDir))) {
+        missingServiceDir.push(id);
+      }
+
+      if (!cliGoSource.includes(`gopherstack/services/${serviceDir}"`)) {
+        missingCliRegistration.push(id);
+      }
+    }
+
+    expect(
+      missingServiceDir,
+      `implementedDashboardRouteIds ids with no services/<dir> backend directory (add a ` +
+        `ROUTE_ID_TO_SERVICE_DIR entry if the dir is legitimately named differently): ${missingServiceDir.join(", ") || "(none)"}`,
+    ).toEqual([]);
+    expect(
+      missingCliRegistration,
+      `implementedDashboardRouteIds ids never imported/registered in cli.go: ${missingCliRegistration.join(", ") || "(none)"}`,
     ).toEqual([]);
   });
 

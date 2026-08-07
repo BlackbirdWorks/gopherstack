@@ -84,6 +84,26 @@ jobs:
       - name: go fix (modernize)
         run: go fix -diff ./...
 
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ env.GH_CI_TOKEN }}
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Generate docs
+        run: make docs
+
+      - name: Fail if docs are out of date
+        run: git diff --exit-code
+
   govulncheck:
     runs-on: ubuntu-latest
     steps:

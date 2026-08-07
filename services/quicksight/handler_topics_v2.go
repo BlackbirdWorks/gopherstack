@@ -191,8 +191,9 @@ func (h *Handler) handleUpdateTopicV2(c *echo.Context) error {
 	})
 }
 
-// DeleteTopicV2Output carries an Arn field (api_op_DeleteTopicV2.go), unlike
-// V1, so this handler describes the topic first to capture its Arn.
+// DeleteTopicV2Output carries an Arn field (api_op_DeleteTopicV2.go), so this
+// handler describes the topic first to capture its Arn — same as V1's
+// DeleteTopic.
 func (h *Handler) handleDeleteTopicV2(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)

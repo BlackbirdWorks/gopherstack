@@ -605,7 +605,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Account](services/account/README.md) | A | 14 | 4 gaps; 1 deferred |
+| [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
 | [AppConfig](services/appconfig/README.md) | A | 56 | 6 gaps; 1 deferred |
 | [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 1 gap |
 | [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 2 deferred |
