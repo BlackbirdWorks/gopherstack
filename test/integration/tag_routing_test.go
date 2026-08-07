@@ -2,6 +2,8 @@ package integration_test
 
 import (
 	"context"
+	"encoding/base64"
+	"net/http"
 	"testing"
 	"time"
 
@@ -21,6 +23,7 @@ import (
 	fistypes "github.com/aws/aws-sdk-go-v2/service/fis/types"
 	grafanasdk "github.com/aws/aws-sdk-go-v2/service/grafana"
 	grafanatypes "github.com/aws/aws-sdk-go-v2/service/grafana/types"
+	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
 	managedblockchainsdk "github.com/aws/aws-sdk-go-v2/service/managedblockchain"
 	managedblockchaintypes "github.com/aws/aws-sdk-go-v2/service/managedblockchain/types"
 	networkmanagersdk "github.com/aws/aws-sdk-go-v2/service/networkmanager"
@@ -968,4 +971,74 @@ func TestIntegration_TagRouting_CrossServiceIsolation(t *testing.T) {
 	for _, p := range probes {
 		require.NoErrorf(t, p.untag(ctx), "%s UntagResource should succeed", p.service)
 	}
+}
+
+// registerIoTDataPlaneConnection seeds a connection via the gopherstack-only
+// admin path (POST /_admin/connections/{clientId}). RegisterConnection has
+// no real AWS wire equivalent, so it isn't reachable through the SDK client
+// -- this raw HTTP call is the only way to seed one for the real GetConnection
+// wire path exercised below.
+func registerIoTDataPlaneConnection(ctx context.Context, t *testing.T, clientID string) {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(
+		ctx, http.MethodPost, endpoint+"/_admin/connections/"+clientID, nil,
+	)
+	require.NoError(t, err)
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err, "registering iotdataplane connection should succeed")
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+}
+
+// TestIntegration_ConnectionsRouting_CrossServiceIsolation exercises the real
+// AWS "GET /connections/{id}" wire path for both IoT Data Plane and Outposts
+// in one test binary run against the shared multi-service router --
+// iotdataplane's own GetConnection collided with Outposts' GetConnection on
+// this exact path (gopherstack-vpoh), and each service's own test suite
+// passing in isolation is exactly what hid it: neither ran the other's
+// requests through the shared router in the same process. See
+// TestIntegration_TagRouting_CrossServiceIsolation for the equivalent
+// "/tags/" coverage, and services/iotdataplane's Handler.RouteMatcher /
+// pkgs/httputils.ScopedPrefixMatch for the fix.
+func TestIntegration_ConnectionsRouting_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+
+	clientID := "integ-conn-" + uuid.NewString()[:8]
+	registerIoTDataPlaneConnection(ctx, t, clientID)
+
+	outpostsClient := createOutpostsClient(t)
+	site := createTestSite(ctx, t, outpostsClient)
+	outpost := createTestOutpost(ctx, t, outpostsClient, aws.ToString(site.SiteId))
+	assetID := seededAssetID(ctx, t, outpostsClient, aws.ToString(outpost.OutpostId))
+	clientKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+
+	startOut, startErr := outpostsClient.StartConnection(ctx, &outpostssdk.StartConnectionInput{
+		AssetId:                     aws.String(assetID),
+		ClientPublicKey:             aws.String(clientKey),
+		NetworkInterfaceDeviceIndex: 0,
+	})
+	require.NoError(t, startErr, "outposts StartConnection should succeed")
+	connectionID := aws.ToString(startOut.ConnectionId)
+
+	iotDataClient := createIoTDataPlaneClient(t)
+
+	iotOut, iotErr := iotDataClient.GetConnection(ctx, &iotdataplanesdk.GetConnectionInput{
+		ClientId: aws.String(clientID),
+	})
+	require.NoError(t, iotErr, "iotdataplane GetConnection should succeed")
+	assert.Equal(t, clientID, aws.ToString(iotOut.ClientId))
+	assert.True(t, iotOut.Connected)
+
+	outOut, outErr := outpostsClient.GetConnection(ctx, &outpostssdk.GetConnectionInput{
+		ConnectionId: aws.String(connectionID),
+	})
+	require.NoError(t, outErr, "outposts GetConnection should succeed")
+	assert.Equal(t, connectionID, aws.ToString(outOut.ConnectionId))
+	require.NotNil(t, outOut.ConnectionDetails)
+	assert.Equal(t, clientKey, aws.ToString(outOut.ConnectionDetails.ClientPublicKey))
 }

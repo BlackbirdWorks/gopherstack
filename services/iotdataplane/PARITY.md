@@ -91,6 +91,18 @@ error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and
   `/connections` show up again in a "cleanup", check whether DeleteConnection
   is being swept along with the fake ops before touching it.
 
+- **`/connections/{id}` collides with Outposts' real GetConnection wire path**
+  (gopherstack-vpoh): both services expose a real, published op at this exact
+  path. `RouteMatcher` used to claim it by path+method alone, silently
+  swallowing correctly-signed Outposts `GetConnection` requests since this
+  handler's `MatchPriority` (88) outranks Outposts' (85). Fixed by gating the
+  real-wire-path branch on the SigV4 signing scope via the new
+  `pkgs/httputils.ScopedPrefixMatch` (unsigned requests still match; a
+  request signed for a different, known service does not). See
+  `test/integration/tag_routing_test.go`'s
+  `TestIntegration_ConnectionsRouting_CrossServiceIsolation` for the
+  cross-service regression coverage.
+
 - **Named/classic shadow key**: `shadowKey(thingName, shadowName)` = `"<thingName>#<shadowName>"`,
   classic shadow uses `shadowName == ""`. `#` cannot appear in either
   component given their validation regexes, so no collision risk.

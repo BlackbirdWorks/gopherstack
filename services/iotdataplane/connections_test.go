@@ -112,6 +112,42 @@ func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_RouteMatcher_ConnectionsSigV4Scope verifies the real AWS
+// "/connections/{id}" wire path (which collides with Outposts' own
+// GetConnection) matches when unsigned or signed for iotdata, but not when
+// signed for a different service -- see gopherstack-vpoh.
+func TestHandler_RouteMatcher_ConnectionsSigV4Scope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		authScope string
+		wantMatch bool
+	}{
+		{name: "unsigned", authScope: "", wantMatch: true},
+		{name: "signed_iotdata", authScope: "iotdata", wantMatch: true},
+		{name: "signed_outposts", authScope: "outposts", wantMatch: false},
+		{name: "signed_ram", authScope: "ram", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/connections/client-001", nil)
+			if tt.authScope != "" {
+				req.Header.Set("Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.authScope+"/aws4_request")
+			}
+			c := e.NewContext(req, httptest.NewRecorder())
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
 func TestBackend_DeleteConnection_UnknownClientNotFound(t *testing.T) {
 	t.Parallel()
 

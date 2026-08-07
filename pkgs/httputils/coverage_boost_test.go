@@ -120,6 +120,56 @@ func TestExtractServiceFromRequest(t *testing.T) {
 	}
 }
 
+func TestScopedPrefixMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		path          string
+		prefix        string
+		serviceName   string
+		authorization string
+		want          bool
+	}{
+		{name: "no prefix match", path: "/other", prefix: "/connections/", serviceName: "iotdata", want: false},
+		{
+			name:        "unsigned matches",
+			path:        "/connections/c1",
+			prefix:      "/connections/",
+			serviceName: "iotdata",
+			want:        true,
+		},
+		{
+			name: "signed for own service matches", path: "/connections/c1", prefix: "/connections/",
+			serviceName: "iotdata",
+			authorization: "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/iotdata/aws4_request, " +
+				"SignedHeaders=host, Signature=abc",
+			want: true,
+		},
+		{
+			name: "signed for other service does not match", path: "/connections/c1", prefix: "/connections/",
+			serviceName: "iotdata",
+			authorization: "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/outposts/aws4_request, " +
+				"SignedHeaders=host, Signature=abc",
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tt.authorization != "" {
+				req.Header.Set("Authorization", tt.authorization)
+			}
+
+			got := httputils.ScopedPrefixMatch(req, tt.path, tt.prefix, tt.serviceName)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 // TestWriteJSON_WriteError exercises the write error path in WriteJSON by using
 // a responseWriter that fails on Write.
 func TestWriteJSON_WriteError(t *testing.T) {

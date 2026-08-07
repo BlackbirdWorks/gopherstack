@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	"github.com/labstack/echo/v5"
 )
@@ -50,6 +51,11 @@ const (
 	// connectionsSubMessages is the SendDirectMessage sub-resource segment:
 	// POST /connections/{clientId}/messages.
 	connectionsSubMessages = "messages"
+	// iotDataServiceName is the SigV4 signing name for IoT Data Plane. The
+	// real "/connections/{id}" wire path collides with Outposts'
+	// GetConnection (see gopherstack-vpoh); RouteMatcher uses this to
+	// disambiguate via httputils.ScopedPrefixMatch instead of a bare prefix.
+	iotDataServiceName = "iotdata"
 	// defaultPageSize is the default number of items returned per page (AWS default).
 	defaultPageSize = 25
 	// maxPageSize is the maximum number of items returned per page (AWS cap).
@@ -110,7 +116,7 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "iotdata" }
+func (h *Handler) ChaosServiceName() string { return iotDataServiceName }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }
@@ -123,15 +129,22 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/topics/") ||
+		if strings.HasPrefix(path, "/topics/") ||
 			isShadowPath(path) ||
 			strings.HasPrefix(path, listNamedShadowsPrefix) ||
 			path == listThingsWithShadowsPath ||
 			path == adminConnectionsPath ||
 			strings.HasPrefix(path, adminConnectionsPathSlash) ||
-			connectionsWireOperation(path, c.Request().Method) != "" ||
 			path == retainedMessagePath ||
-			strings.HasPrefix(path, retainedMessagePathSlash)
+			strings.HasPrefix(path, retainedMessagePathSlash) {
+			return true
+		}
+
+		// connectionsPathSlash ("/connections/") is also Outposts' real
+		// GetConnection wire path -- gate on the SigV4 scope so a
+		// correctly-signed Outposts request isn't swallowed here.
+		return connectionsWireOperation(path, c.Request().Method) != "" &&
+			httputils.ScopedPrefixMatch(c.Request(), path, connectionsPathSlash, iotDataServiceName)
 	}
 }
 
