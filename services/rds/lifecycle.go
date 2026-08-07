@@ -165,6 +165,7 @@ func (b *InMemoryBackend) AddClusterInternal(id, engine string) *DBCluster {
 
 	c := &DBCluster{
 		DBClusterIdentifier: id,
+		DBClusterArn:        b.rdsARN("cluster", id),
 		Engine:              engine,
 		Status:              instanceStatusAvailable,
 	}
@@ -181,6 +182,7 @@ func (b *InMemoryBackend) AddInstanceInternal(id, engine string) *DBInstance {
 
 	inst := &DBInstance{
 		DBInstanceIdentifier: id,
+		DBInstanceArn:        b.rdsARN("db", id),
 		Engine:               engine,
 		DBInstanceStatus:     instanceStatusAvailable,
 		DBInstanceClass:      defaultInstanceClass,

@@ -263,6 +263,7 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	}
 	x := xmlDBCluster{
 		DBClusterIdentifier:             c.DBClusterIdentifier,
+		DBClusterArn:                    c.DBClusterArn,
 		DBClusterResourceID:             c.DBClusterResourceID,
 		Engine:                          c.Engine,
 		EngineVersion:                   c.EngineVersion,
@@ -389,6 +390,7 @@ type xmlDBCluster struct {
 	EnabledCloudwatchLogsExports     *xmlLogTypeList          `xml:"EnabledCloudwatchLogsExports,omitempty"`
 	AvailabilityZones                *xmlAvailabilityZoneList `xml:"AvailabilityZones,omitempty"`
 	DBClusterIdentifier              string                   `xml:"DBClusterIdentifier"`
+	DBClusterArn                     string                   `xml:"DBClusterArn,omitempty"`
 	DBClusterResourceID              string                   `xml:"DbClusterResourceId,omitempty"`
 	Engine                           string                   `xml:"Engine"`
 	EngineVersion                    string                   `xml:"EngineVersion,omitempty"`

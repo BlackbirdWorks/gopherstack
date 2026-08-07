@@ -87,6 +87,7 @@ type CustomDBEngineVersion struct {
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
+	DBInstanceArn                     string                       `json:"dbInstanceArn,omitempty"`
 	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
 	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
 	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
@@ -147,6 +148,7 @@ type PendingModifiedValues struct {
 type DBSnapshot struct {
 	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
 	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
+	DBSnapshotArn        string    `json:"dbSnapshotArn,omitempty"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
 	DbiResourceID        string    `json:"dbiResourceId,omitempty"`
 	Engine               string    `json:"engine"`
@@ -195,6 +197,7 @@ type DBParameter struct {
 type DBParameterGroup struct {
 	Parameters             map[string]DBParameter `json:"parameters"`
 	DBParameterGroupName   string                 `json:"dbParameterGroupName"`
+	DBParameterGroupArn    string                 `json:"dbParameterGroupArn,omitempty"`
 	DBParameterGroupFamily string                 `json:"dbParameterGroupFamily"`
 	Description            string                 `json:"description"`
 }
@@ -230,6 +233,7 @@ type DBCluster struct {
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
 	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	DBClusterArn                    string                            `json:"dbClusterArn,omitempty"`
 	DBClusterResourceID             string                            `json:"dbClusterResourceId,omitempty"`
 	Engine                          string                            `json:"engine"`
 	EngineVersion                   string                            `json:"engineVersion,omitempty"`
@@ -267,6 +271,7 @@ type DBCluster struct {
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`

@@ -375,6 +375,7 @@ func buildCreateTableOutput(
 
 	td := &types.TableDescription{
 		TableName:              input.TableName,
+		TableArn:               aws.String(t.TableArn),
 		TableStatus:            tableStatus,
 		KeySchema:              keySchema,
 		AttributeDefinitions:   attrDefs,
@@ -510,6 +511,7 @@ func (db *InMemoryDB) DeleteTable(
 	return &dynamodb.DeleteTableOutput{
 		TableDescription: &types.TableDescription{
 			TableName:              input.TableName,
+			TableArn:               aws.String(table.TableArn),
 			TableStatus:            types.TableStatusDeleting,
 			KeySchema:              sdkKeySchema,
 			AttributeDefinitions:   sdkAttrDefs,
@@ -1516,6 +1518,7 @@ func buildUpdateTableOutput(
 	return &dynamodb.UpdateTableOutput{
 		TableDescription: &types.TableDescription{
 			TableName:              input.TableName,
+			TableArn:               aws.String(table.TableArn),
 			TableStatus:            types.TableStatusActive,
 			KeySchema:              models.ToSDKKeySchema(table.KeySchema),
 			AttributeDefinitions:   models.ToSDKAttributeDefinitions(table.AttributeDefinitions),

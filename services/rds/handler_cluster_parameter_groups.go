@@ -50,6 +50,7 @@ func (h *Handler) handleDescribeDBClusterParameterGroups(vals url.Values) (any, 
 func toXMLClusterParameterGroup(pg *DBParameterGroup) xmlDBClusterParameterGroup {
 	return xmlDBClusterParameterGroup{
 		DBClusterParameterGroupName: pg.DBParameterGroupName,
+		DBClusterParameterGroupArn:  pg.DBParameterGroupArn,
 		DBParameterGroupFamily:      pg.DBParameterGroupFamily,
 		Description:                 pg.Description,
 	}
@@ -57,6 +58,7 @@ func toXMLClusterParameterGroup(pg *DBParameterGroup) xmlDBClusterParameterGroup
 
 type xmlDBClusterParameterGroup struct {
 	DBClusterParameterGroupName string `xml:"DBClusterParameterGroupName"`
+	DBClusterParameterGroupArn  string `xml:"DBClusterParameterGroupArn,omitempty"`
 	DBParameterGroupFamily      string `xml:"DBParameterGroupFamily"`
 	Description                 string `xml:"Description"`
 }

@@ -18,6 +18,7 @@ func (b *InMemoryBackend) CreateDBParameterGroup(name, family, description strin
 	}
 	pg := &DBParameterGroup{
 		DBParameterGroupName:   name,
+		DBParameterGroupArn:    b.rdsARN("pg", name),
 		DBParameterGroupFamily: family,
 		Description:            description,
 		Parameters:             make(map[string]DBParameter),
@@ -200,6 +201,7 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 	}
 
 	pg := copyParameterGroupTo(src, targetGroupName, targetDescription)
+	pg.DBParameterGroupArn = b.rdsARN("pg", targetGroupName)
 	b.parameterGroups.Put(pg)
 
 	cp := copyDBParameterGroup(pg)

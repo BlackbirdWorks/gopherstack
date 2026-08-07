@@ -38,6 +38,7 @@ func (b *InMemoryBackend) newManualClusterSnapshotLocked(snapshotID string, clus
 	return &DBClusterSnapshot{
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: snapshotID,
+		DBClusterSnapshotArn:        b.rdsARN("cluster-snapshot", snapshotID),
 		DBClusterIdentifier:         cluster.DBClusterIdentifier,
 		DBClusterResourceID:         cluster.DBClusterResourceID,
 		Engine:                      cluster.Engine,
@@ -191,6 +192,7 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 	snap := &DBClusterSnapshot{
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: targetSnapshotID,
+		DBClusterSnapshotArn:        b.rdsARN("cluster-snapshot", targetSnapshotID),
 		DBClusterIdentifier:         source.DBClusterIdentifier,
 		DBClusterResourceID:         source.DBClusterResourceID,
 		Engine:                      source.Engine,

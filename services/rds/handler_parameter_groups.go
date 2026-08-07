@@ -130,6 +130,7 @@ func (h *Handler) handleResetDBParameterGroup(vals url.Values) (any, error) {
 func toXMLParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 	return xmlDBParameterGroup{
 		DBParameterGroupName:   pg.DBParameterGroupName,
+		DBParameterGroupArn:    pg.DBParameterGroupArn,
 		DBParameterGroupFamily: pg.DBParameterGroupFamily,
 		Description:            pg.Description,
 	}
@@ -137,6 +138,7 @@ func toXMLParameterGroup(pg *DBParameterGroup) xmlDBParameterGroup {
 
 type xmlDBParameterGroup struct {
 	DBParameterGroupName   string `xml:"DBParameterGroupName"`
+	DBParameterGroupArn    string `xml:"DBParameterGroupArn,omitempty"`
 	DBParameterGroupFamily string `xml:"DBParameterGroupFamily"`
 	Description            string `xml:"Description"`
 }

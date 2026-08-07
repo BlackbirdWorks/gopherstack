@@ -289,6 +289,7 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 	}
 	result := xmlDBInstance{
 		DBInstanceIdentifier:              inst.DBInstanceIdentifier,
+		DBInstanceArn:                     inst.DBInstanceArn,
 		DbiResourceID:                     inst.DbiResourceID,
 		DBInstanceClass:                   inst.DBInstanceClass,
 		DBClusterIdentifier:               inst.DBClusterIdentifier,
@@ -448,6 +449,7 @@ type xmlDBInstance struct {
 	EnhancedMonitoringResourceArn     string                        `xml:"EnhancedMonitoringResourceArn,omitempty"`
 	PreferredMaintenanceWindow        string                        `xml:"PreferredMaintenanceWindow,omitempty"`
 	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
+	DBInstanceArn                     string                        `xml:"DBInstanceArn,omitempty"`
 	KmsKeyID                          string                        `xml:"KmsKeyId,omitempty"`
 	InstanceCreateTime                string                        `xml:"InstanceCreateTime,omitempty"`
 	EngineLifecycleSupport            string                        `xml:"EngineLifecycleSupport,omitempty"`
