@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { regionalClient } from '$lib/region-effect.svelte';
+	import { currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import { getSageMakerRuntimeClient } from '$lib/aws-client';
 	import {
 		InvokeEndpointCommand,
@@ -14,9 +16,10 @@
 		outputLocation: string;
 		endpointName: string;
 		startedAt: string;
+		region: string;
 	}
 
-	const smr = getSageMakerRuntimeClient();
+	const smr = regionalClient(getSageMakerRuntimeClient);
 
 	let activeTab = $state<'invoke' | 'streaming' | 'async'>('invoke');
 
@@ -47,7 +50,7 @@
 		invoking = true;
 		invokeResponse = null;
 		try {
-			const resp = await smr.send(
+			const resp = await smr().send(
 				new InvokeEndpointCommand({
 					EndpointName: invokeEndpoint.trim(),
 					Body: new TextEncoder().encode(invokeBody),
@@ -72,7 +75,7 @@
 		streaming = true;
 		streamChunks = [];
 		try {
-			const resp = await smr.send(
+			const resp = await smr().send(
 				new InvokeEndpointWithResponseStreamCommand({
 					EndpointName: streamEndpoint.trim(),
 					Body: new TextEncoder().encode(streamBody),
@@ -110,7 +113,7 @@
 		}
 		asyncInvoking = true;
 		try {
-			const resp = await smr.send(
+			const resp = await smr().send(
 				new InvokeEndpointAsyncCommand({
 					EndpointName: asyncEndpoint.trim(),
 					InputLocation: asyncInputLocation.trim() || 's3://mock-bucket/input',
@@ -123,7 +126,8 @@
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
 				outputLocation: (resp as any).OutputLocation ?? 's3://mock-bucket/output',
 				endpointName: asyncEndpoint.trim(),
-				startedAt: new Date().toISOString()
+				startedAt: new Date().toISOString(),
+				region: currentRegion()
 			};
 			asyncInvocations = [inv, ...asyncInvocations];
 			toast.success('Async invocation submitted: ' + inv.inferenceId);
@@ -134,9 +138,6 @@
 		}
 	}
 
-	onMount(() => {
-		// nothing to auto-load; invocations are built up interactively
-	});
 </script>
 
 <div class="p-6 space-y-6">
@@ -268,7 +269,10 @@
 						{#each asyncInvocations as inv}
 							<div class="p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 space-y-1">
 								<div class="flex items-center justify-between">
-									<span class="text-sm font-medium text-gray-900 dark:text-white">{inv.endpointName}</span>
+									<span class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
+										{inv.endpointName}
+										<RegionChip region={inv.region} />
+									</span>
 									<span class="text-xs text-gray-400 dark:text-gray-500">{inv.startedAt}</span>
 								</div>
 								<p class="text-xs text-gray-500 dark:text-gray-400">Inference ID: <span class="font-mono text-gray-700 dark:text-gray-300">{inv.inferenceId}</span></p>

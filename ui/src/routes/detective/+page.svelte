@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDetectiveClient } from '$lib/aws-client';
+	import { currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import {
 		ListGraphsCommand,
 		CreateGraphCommand,
@@ -35,7 +37,7 @@
 	import Modal from '$lib/components/Modal.svelte';
 	import { Search, Plus, Trash2, Eye, Check, X } from 'lucide-svelte';
 
-	const client = getDetectiveClient();
+	const client = regionalClient(getDetectiveClient);
 
 	type TabId = 'graphs' | 'members' | 'invitations' | 'investigations';
 
@@ -83,7 +85,7 @@
 	let loadingMoreInvestigations = $state(false);
 
 	async function fetchGraphs(reset: boolean): Promise<void> {
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListGraphsCommand({ NextToken: reset ? undefined : graphsNextToken })
 		);
 		graphs = reset ? (resp.GraphList ?? []) : [...graphs, ...(resp.GraphList ?? [])];
@@ -99,7 +101,7 @@
 			membersNextToken = undefined;
 			return;
 		}
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListMembersCommand({
 				GraphArn: selectedGraphArn,
 				NextToken: reset ? undefined : membersNextToken
@@ -110,7 +112,7 @@
 	}
 
 	async function fetchInvitations(reset: boolean): Promise<void> {
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListInvitationsCommand({ NextToken: reset ? undefined : invitationsNextToken })
 		);
 		invitations = reset ? (resp.Invitations ?? []) : [...invitations, ...(resp.Invitations ?? [])];
@@ -123,7 +125,7 @@
 			investigationsNextToken = undefined;
 			return;
 		}
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListInvestigationsCommand({
 				GraphArn: selectedGraphArn,
 				NextToken: reset ? undefined : investigationsNextToken
@@ -277,7 +279,7 @@
 		creatingGraph = true;
 		createGraphError = null;
 		try {
-			await client.send(new CreateGraphCommand({}));
+			await client().send(new CreateGraphCommand({}));
 			toast.success('Behavior graph created');
 			createGraphModal?.close();
 			await tabLoader.refresh('graphs');
@@ -298,7 +300,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteGraphCommand({ GraphArn: g.Arn }));
+			await client().send(new DeleteGraphCommand({ GraphArn: g.Arn }));
 			toast.success('Behavior graph deleted');
 			if (selectedGraphArn === g.Arn) {
 				selectedGraphArn = '';
@@ -348,7 +350,7 @@
 		creatingMember = true;
 		createMemberError = null;
 		try {
-			const resp = await client.send(
+			const resp = await client().send(
 				new CreateMembersCommand({
 					GraphArn: selectedGraphArn,
 					Accounts: [{ AccountId: newMemberAccountId, EmailAddress: newMemberEmail }],
@@ -383,7 +385,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(
+			await client().send(
 				new DeleteMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
 			);
 			toast.success('Member removed');
@@ -405,7 +407,7 @@
 		if (!m.AccountId || !selectedGraphArn) return;
 		memberDetailLoading = true;
 		try {
-			const resp = await client.send(
+			const resp = await client().send(
 				new GetMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
 			);
 			const unprocessed = resp.UnprocessedAccounts ?? [];
@@ -433,7 +435,7 @@
 	async function handleAcceptInvitation(i: MemberDetail): Promise<void> {
 		if (!i.GraphArn) return;
 		try {
-			await client.send(new AcceptInvitationCommand({ GraphArn: i.GraphArn }));
+			await client().send(new AcceptInvitationCommand({ GraphArn: i.GraphArn }));
 			toast.success('Invitation accepted');
 			await tabLoader.refresh('invitations');
 		} catch (e) {
@@ -449,7 +451,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new RejectInvitationCommand({ GraphArn: i.GraphArn }));
+			await client().send(new RejectInvitationCommand({ GraphArn: i.GraphArn }));
 			toast.success('Invitation rejected');
 			await tabLoader.refresh('invitations');
 		} catch (e) {
@@ -488,7 +490,7 @@
 		startingInvestigation = true;
 		startInvestigationError = null;
 		try {
-			await client.send(
+			await client().send(
 				new StartInvestigationCommand({
 					GraphArn: selectedGraphArn,
 					EntityArn: newEntityArn,
@@ -523,13 +525,13 @@
 		investigationDetailLoading = true;
 		try {
 			const [detailResp, indicatorsResp] = await Promise.all([
-				client.send(
+				client().send(
 					new GetInvestigationCommand({
 						GraphArn: selectedGraphArn,
 						InvestigationId: inv.InvestigationId
 					})
 				),
-				client.send(
+				client().send(
 					new ListIndicatorsCommand({
 						GraphArn: selectedGraphArn,
 						InvestigationId: inv.InvestigationId
@@ -679,6 +681,9 @@
 			{/if}
 
 			{#if activeTab === 'graphs'}
+				{#snippet graphRegionCell(_g: Graph)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet graphCreatedCell(g: Graph)}
 					{formatDate(g.CreatedTime)}
 				{/snippet}
@@ -700,6 +705,7 @@
 				{/snippet}
 				{@const graphColumns = defineColumns<Graph>([
 					{ key: 'Arn', label: 'ARN' },
+					{ key: 'region', label: 'Region', render: graphRegionCell },
 					{ key: 'CreatedTime', label: 'Created', render: graphCreatedCell },
 					{ key: 'actions', label: '', render: graphActionsCell }
 				])}
@@ -716,6 +722,9 @@
 					onLoadMore={loadMoreGraphs}
 				/>
 			{:else if activeTab === 'members'}
+				{#snippet memberRegionCell(_m: MemberDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet memberStatusCell(m: MemberDetail)}
 					<span
 						class="text-xs px-2 py-1 rounded-full {m.Status === 'ENABLED'
@@ -748,6 +757,7 @@
 				{@const memberColumns = defineColumns<MemberDetail>([
 					{ key: 'AccountId', label: 'Account ID' },
 					{ key: 'EmailAddress', label: 'Email' },
+					{ key: 'region', label: 'Region', render: memberRegionCell },
 					{ key: 'Status', label: 'Status', render: memberStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: memberInvitedCell },
 					{ key: 'actions', label: '', render: memberActionsCell }
@@ -765,6 +775,9 @@
 					onLoadMore={loadMoreMembers}
 				/>
 			{:else if activeTab === 'invitations'}
+				{#snippet invitationRegionCell(_i: MemberDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet invitationStatusCell(i: MemberDetail)}
 					<span
 						class="text-xs px-2 py-1 rounded-full {i.Status === 'ENABLED'
@@ -803,6 +816,7 @@
 				{@const invitationColumns = defineColumns<MemberDetail>([
 					{ key: 'GraphArn', label: 'Behavior Graph' },
 					{ key: 'AdministratorId', label: 'Administrator' },
+					{ key: 'region', label: 'Region', render: invitationRegionCell },
 					{ key: 'Status', label: 'Status', render: invitationStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: invitationInvitedCell },
 					{ key: 'actions', label: '', render: invitationActionsCell }
@@ -820,6 +834,9 @@
 					onLoadMore={loadMoreInvitations}
 				/>
 			{:else if activeTab === 'investigations'}
+				{#snippet investigationRegionCell(_inv: InvestigationDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet investigationCreatedCell(inv: InvestigationDetail)}
 					{formatDate(inv.CreatedTime)}
 				{/snippet}
@@ -847,6 +864,7 @@
 				{@const investigationColumns = defineColumns<InvestigationDetail>([
 					{ key: 'InvestigationId', label: 'Investigation ID' },
 					{ key: 'EntityArn', label: 'Entity' },
+					{ key: 'region', label: 'Region', render: investigationRegionCell },
 					{ key: 'Severity', label: 'Severity', render: investigationSeverityCell },
 					{ key: 'Status', label: 'Status' },
 					{ key: 'State', label: 'State' },

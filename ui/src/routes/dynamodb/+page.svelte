@@ -998,19 +998,22 @@ async function togglePitr(): Promise<void> {
 	
 async function loadNativeStreams() {
   if (!streamARN) return;
+  // Capture the client once, synchronously, rather than calling the
+  // regionalClient() accessor again after each await below.
+  const client = ddbStreams();
   try {
-    const desc = await ddbStreams().send(new DescribeStreamCommand({StreamArn: streamARN}));
+    const desc = await client.send(new DescribeStreamCommand({StreamArn: streamARN}));
     if (!desc.StreamDescription?.Shards) return;
     let recordsHtml = '';
     for (const shard of desc.StreamDescription.Shards) {
       if (!shard.ShardId) continue;
-      const it = await ddbStreams().send(new GetShardIteratorCommand({
+      const it = await client.send(new GetShardIteratorCommand({
         StreamArn: streamARN,
         ShardId: shard.ShardId,
         ShardIteratorType: "TRIM_HORIZON"
       }));
       if (!it.ShardIterator) continue;
-      const recs = await ddbStreams().send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
+      const recs = await client.send(new GetRecordsCommand({ShardIterator: it.ShardIterator, Limit: 100}));
       if (recs.Records) {
          for (const r of recs.Records) {
            recordsHtml += `<div>Native Stream Record: ${r.eventName} ${JSON.stringify(r.dynamodb)}</div>`;
@@ -1072,6 +1075,16 @@ async function loadStreamEvents() {
 		}
 	}
 
+	// loadStreamEvents()'s first line reads streamEventsHtml (to decide whether
+	// to show a loading spinner). Called synchronously here, that read happens
+	// while this effect is still tracking -- making the effect depend on
+	// streamEventsHtml. Since this effect also writes streamEventsHtml (both
+	// directly, above, and via loadStreamEvents/loadNativeStreams once their
+	// fetch resolves), every write becomes a trigger to run again, which
+	// writes streamEventsHtml = '' and immediately re-fetches: an infinite
+	// ping-pong loop, observed hammering the backend at ~2ms intervals.
+	// untrack() keeps the initial fire from being read as a dependency, the
+	// same hazard region-effect.svelte.ts documents for onRegionChange.
 	$effect(() => {
 		if (activeTab === 'streams' && selectedTable && streamsEnabled) {
 			stopStreamPolling();
@@ -1080,8 +1093,7 @@ async function loadStreamEvents() {
 			streamEventsHtml = '';
 			streamInfo = null;
 			streamEventFilter = 'ALL';
-			loadStreamInfo();
-			loadStreamEvents();
+			untrack(() => { loadStreamInfo(); loadStreamEvents(); });
 			streamPollTimer = setInterval(() => { loadStreamEvents(); loadStreamInfo(); }, 3000);
 			return () => { stopStreamPolling(); };
 		}
@@ -1387,7 +1399,7 @@ function setPartiqlExample(query: string) {
 			<ul class="flex flex-wrap -mb-px text-sm font-medium text-center">
 				{#each [['overview', 'Overview'], ['query', 'Query'], ['scan', 'Scan'], ['items', 'Items'], ['indexes', 'Indexes'], ['streams', 'Stream Events'], ['partiql', 'PartiQL'], ['metrics', 'Metrics'], ['backups', 'Backups'], ['pitr', 'PITR'], ['replicas', 'Replicas'], ['tags', 'Tags']] as [id, label]}
 					<li class="me-2">
-						<button onclick={() => { activeTabParam.set(id); }}
+						<button id="{id}-tab" onclick={() => { activeTabParam.set(id); }}
 							class="inline-block p-4 border-b-2 rounded-t-lg {activeTab === id ? 'text-blue-600 border-blue-600 dark:text-blue-500 dark:border-blue-500' : 'border-transparent hover:text-slate-600 hover:border-slate-300 dark:hover:text-slate-300'}">
 							{label}
 						</button>
@@ -1503,7 +1515,7 @@ function setPartiqlExample(query: string) {
 						<div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400 mt-1">{selectedTableDesc?.LocalSecondaryIndexes?.length ?? 0}</div>
 						<div class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">local indexes</div>
 					</div>
-					<div class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
+					<div id="ttl-status-card" class="p-4 bg-white/80 dark:bg-slate-800/80 backdrop-blur-md border border-slate-200 dark:border-slate-700 shadow-sm rounded-xl">
 						<div class="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">TTL</div>
 						<div class="mt-1">
 							{#if ttlEnabled}
@@ -2164,19 +2176,21 @@ function setPartiqlExample(query: string) {
 				<form onsubmit={(e) => { e.preventDefault(); executePartiQL(); }}>
 					<div class="mb-3">
 						<label for="partiql-stmt" class="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-1">Statement</label>
-						<textarea id="partiql-stmt" bind:value={partiqlStatement} rows="4" class="w-full font-mono text-sm p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder='SELECT * FROM "table"'></textarea>
+						<textarea id="partiql-stmt" name="statement" bind:value={partiqlStatement} rows="4" class="w-full font-mono text-sm p-3 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder='SELECT * FROM "table"'></textarea>
 					</div>
 					<div class="flex gap-2">
-						<button type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
+						<button id="partiql-execute" type="submit" disabled={partiqlLoading} class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-300 text-sm font-medium disabled:opacity-50">{partiqlLoading ? 'Executing...' : 'Execute'}</button>
 						{#if partiqlResults.length > 0}
 							<button type="button" onclick={() => exportJson(partiqlResults, `${selectedTable ?? 'partiql'}-results.json`)} class="px-4 py-2 text-sm font-medium text-slate-900 bg-white rounded-lg border border-slate-200 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600 dark:hover:bg-slate-700">Download Results</button>
 						{/if}
 					</div>
 				</form>
-				{#if partiqlCount > 0}
-					<p class="text-sm text-slate-600 dark:text-slate-400">{partiqlCount} result{partiqlCount !== 1 ? 's' : ''}{partiqlDuration > 0 ? ` · ${partiqlDuration} ms` : ''}</p>
-				{/if}
-				{@render resultsTable(partiqlResults)}
+				<div id="partiql-output">
+					{#if partiqlCount > 0}
+						<p class="text-sm text-slate-600 dark:text-slate-400">{partiqlCount} result{partiqlCount !== 1 ? 's' : ''}{partiqlDuration > 0 ? ` · ${partiqlDuration} ms` : ''}</p>
+					{/if}
+					{@render resultsTable(partiqlResults)}
+				</div>
 			</div>
 		{:else if activeTab === 'metrics'}
 			<div class="p-4 rounded-lg bg-slate-50 dark:bg-slate-800 space-y-6">

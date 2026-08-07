@@ -102,6 +102,13 @@ func TestE2E_DynamoDB_CreateTable(t *testing.T) {
 	require.NoError(t, err)
 	waitForSPA(t, page)
 
+	// The dashboard now defaults to Region: All, which renders a flat,
+	// cross-region, read/open-only table list with no #table-{name} ids,
+	// search, pagination, or purge -- all single-region features. Pin to a
+	// concrete region so this create/list flow exercises the single-region
+	// view it was written against.
+	switchRegion(t, page, "us-east-1")
+
 	// Open create modal
 	err = page.Click("#create-table-btn")
 	require.NoError(t, err)
@@ -159,6 +166,10 @@ func TestE2E_DynamoDB_DeleteTable(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 	waitForSPA(t, page)
+
+	// Region: All's cross-region list has no #table-{name} ids -- see the
+	// comment in TestE2E_DynamoDB_CreateTable.
+	switchRegion(t, page, "us-east-1")
 
 	// Wait for table card and click it to open detail
 	tableCard := page.Locator("#table-Movies")
@@ -415,6 +426,10 @@ func TestE2E_DynamoDB_ItemCRUD(t *testing.T) {
 	require.NoError(t, err)
 	waitForSPA(t, page)
 
+	// Region: All's cross-region list has no #table-{name} ids -- see the
+	// comment in TestE2E_DynamoDB_CreateTable.
+	switchRegion(t, page, "us-east-1")
+
 	// Open the table detail
 	tableCard := page.Locator("#table-Items")
 	err = tableCard.First().WaitFor(playwright.LocatorWaitForOptions{
@@ -577,6 +592,10 @@ func TestE2E_DynamoDB_Search(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 	waitForSPA(t, page)
+
+	// Region: All's cross-region list has no search box filtering and no
+	// #table-{name} ids -- see the comment in TestE2E_DynamoDB_CreateTable.
+	switchRegion(t, page, "us-east-1")
 
 	// Wait for tables to load
 	err = page.Locator("text=Alpha").First().WaitFor(playwright.LocatorWaitForOptions{
@@ -776,6 +795,10 @@ func TestE2E_DynamoDB_Pagination(t *testing.T) {
 	require.NoError(t, err)
 	waitForSPA(t, page)
 
+	// Region: All's cross-region list has no pagination -- see the comment
+	// in TestE2E_DynamoDB_CreateTable.
+	switchRegion(t, page, "us-east-1")
+
 	// Wait for tables to load
 	err = page.Locator("text=page-test-01").First().WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -880,6 +903,11 @@ func TestE2E_DynamoDB_PurgeAll(t *testing.T) {
 	_, err = page.Goto(server.URL + "/dashboard/dynamodb")
 	require.NoError(t, err)
 	waitForSPA(t, page)
+
+	// purgeAll() only iterates the single-region table list -- under
+	// Region: All it silently does nothing. See the comment in
+	// TestE2E_DynamoDB_CreateTable.
+	switchRegion(t, page, "us-east-1")
 
 	// Wait for tables
 	err = page.Locator("text=purge-one").First().WaitFor(playwright.LocatorWaitForOptions{
