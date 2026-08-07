@@ -1,8 +1,8 @@
 ---
 service: swf
-sdk_module: aws-sdk-go-v2/service/swf@v1.33.14
-last_audit_commit: 2394427d
-last_audit_date: 2026-07-31
+sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
+last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
+last_audit_date: 2026-08-07
 overall: A            # genuine fixes found this pass (see Notes)
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -24,8 +24,8 @@ ops:
   DeleteActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   StartWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes"}
-  DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; see Notes"}
-  GetWorkflowExecutionHistory: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; ADDITIONALLY (gopherstack-jsi8, 2026-08-07): the wire's Execution.RunId (a real, required field per types.WorkflowExecution) was parsed off the request and then silently discarded -- the Go-level backend method took no runID parameter at all, so a client asking for a specific historical run always got whatever run currently occupied the domain+workflowId slot instead. Now threaded through end to end; see Notes"}
+  GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes"}
   ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution"}
   ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution"}
   RequestCancelWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -46,9 +46,9 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   decision_processing: {status: ok, note: "all 12 SWF decision types now perform real state mutation and carry decisionTaskCompletedEventId + full wire attrs -- see Notes. Dispatch table decomposed into decisionHandlers() (decision_tasks.go) + decision_orchestration.go, removing the historical cyclop/funlen nolint on processDecisionLocked."}
+  multi_run_history: {status: ok, note: "FIXED (gopherstack-jsi8, 2026-08-07): executions/history were keyed by domain+workflowId alone, so a second/later run of the same workflowId silently overwrote the first run's row and history -- confirmed against the real aws-sdk-go-v2/service/swf@v1.37.4 types.WorkflowExecution, where RunId is a required member alongside WorkflowId (not an optional disambiguator), and DescribeWorkflowExecutionInput/GetWorkflowExecutionHistoryInput's Execution field requires both. Re-keyed executions (store.Table) and history (map) to domain+workflowId+runId (workflowExecutionKeyFn/executionKey, store.go/store_setup.go); added an executionsByWorkflow store.Index grouping every run (open or closed) under domain+workflowId so the currently-open run (real AWS guarantees at most one) can still be found without a full-domain scan. New resolveExecutionLocked/openExecutionLocked helpers centralize 'find a run, optionally pinned to a runId' -- a non-empty runId is an exact lookup (works for ANY run, open or long-closed); an empty runId first tries the open run, then falls back to the most-recently-started run for that workflowId (a deliberate leniency beyond real AWS, which would error UnknownResource with no open run -- kept so callers that don't track runId, including this backend's own internal cross-execution decision handlers, keep working exactly as before for the still-common single-run-per-workflowId case). DescribeWorkflowExecution/GetWorkflowExecutionHistory both gained a runID parameter (the wire's Execution.RunId was already being parsed but silently discarded -- see their ops rows above); Terminate/RequestCancel/SignalWorkflowExecution's pre-existing runID parameters now actually disambiguate instead of being checked against a single shared row. Every appendHistoryEventLocked/enqueueDecisionTaskLocked call site across activity_tasks.go/decision_tasks.go/decision_orchestration.go/signals.go/workflow_executions.go now threads the specific run's runID through (~25 call sites) rather than resolving 'the' execution for a workflowId. propagateChildClosureLocked now does a direct domain+parentWorkflowId+parentRunId lookup instead of an ambiguous domain+workflowId one, so a parent that has since continued-as-new (a newer run under the same workflowId) no longer incorrectly receives a child-closure event meant for the run that actually started that child. Also fixed the closely-related 'LRU-eviction ghost queue rows' gopherstack-jsi8 finding: registerExecutionOrderLocked's eviction (at the pre-existing maxWorkflowExecutions=10_000 cap) previously deleted only the execution row and history, leaving any still-pending decisionQueues/activityQueues entry or activeDecisionTasks/activeActivityTasks record for that run behind as a ghost referencing data that no longer existed; new evictExecutionLocked purges all four. New tests: TestMultiRunHistory (multirun_test.go, 6 cases covering explicit-old-run/explicit-new-run/empty-run-id resolution, history isolation between runs, the already-open-run rejection, and the falls-back-to-most-recent behavior) and TestLRUEvictionPurgesPendingDecisionTasks (creates 10_000 executions, confirms the evicted run's pending decision task is gone from its task list and the evicted execution is truly not found -- verified this test fails without the evictExecutionLocked fix). One existing test (TestRespondDecisionTaskCompleted_ContinueAsNew) asserted the old run's WorkflowExecutionContinuedAsNew event appeared in the NEW run's history, which was only true because both runs shared one history blob under the old keying -- corrected to check each run's own history/DescribeWorkflowExecution independently, which is the actual point of this fix. Interface changes: Backend.DescribeWorkflowExecution and Backend.GetWorkflowExecutionHistory each gained a runID parameter; no external callers found via full-repo grep (cloudformation/dashboard/cli.go reference services/swf but not these methods directly)."}
 gaps:
   - "activityQueues/decisionQueues (FIFO pending-task lists) are intentionally NOT part of backendSnapshot (pre-existing, documented design choice in store.go/persistence.go -- order-sensitive plain maps). A restart loses in-flight pending tasks that haven't been polled yet, while their corresponding history events and active-task records DO survive. Not fixed this pass (would require reworking backendSnapshot's shape); flagged for awareness. (bd: TODO -- file follow-up)"
-  - "ContinueAsNewWorkflowExecution's new run necessarily overwrites the same domain+workflowId row/history the old run used (executions/history are keyed by domain+workflowId only, not by domain+workflowId+runId -- see store.go's InMemoryBackend doc). Real AWS keeps every run as an independently queryable record; here, after continuation, DescribeWorkflowExecution/GetWorkflowExecutionHistory for that workflowId always show the latest run only -- the completed old run isn't separately retrievable. Fixed to actually resume the decider (the real bug this pass targeted -- see Notes); the multi-run-history limitation is an architectural gap needing a broader redesign, out of scope here. (bd: TODO -- file follow-up)"
   - "Child-policy cascade is now implemented for TerminateWorkflowExecution (this pass, see Notes): TERMINATE recursively terminates open children (cascading each child's own stored ChildPolicy to grandchildren in turn), REQUEST_CANCEL records WorkflowExecutionCancelRequested (cause CHILD_POLICY_APPLIED) on each open child and gives it a fresh decision task, and ABANDON is correctly a no-op. This closes the TerminateWorkflowExecution half of gopherstack-jsi8's child-policy finding. Real AWS's *other* child-policy trigger -- an execution auto-closing via WorkflowExecutionTimedOut when ExecutionStartToCloseTimeout/TaskStartToCloseTimeout expires -- is unreachable here because this backend has no timeout-enforcement mechanism at all (statusTimedOut is defined in models.go but nothing ever sets it; no background timer, no check on poll/describe). That is a separate, materially larger gap (a whole missing feature, not a cascade bug) that predates this pass, was not previously documented, and is out of scope for this fix; flagging it here since it was surfaced while auditing this exact mechanism. (bd: TODO -- file follow-up for timeout enforcement)"
   - "Complete/Fail/Cancel workflow-closing decisions do NOT cascade child policy onto their own open children, and this is correct, not a gap: real AWS's child policy is only ever invoked when a workflow execution is terminated (explicitly, via TerminateWorkflowExecution) or times out -- never on a normal Complete/Fail/Cancel close, where child executions are simply independent and keep running. Parent-closure IS still propagated to already-open children as history events in all four cases (ChildWorkflowExecutionCompleted/Failed/Canceled/Terminated, see Notes), so deciders learn of parent closure either way."
   - "ScheduleLambdaFunction decision type (Lambda activity tasks) is not implemented -- consistent with the pre-existing openLambdaFunctions deferral below; SWF Lambda task support as a whole is out of scope for this service."
@@ -65,6 +65,54 @@ SimpleWorkflowService.<Op>`) -- confirmed against the real
 `Content-Type: application/x-amz-json-1.0`). This is easy to mis-key as
 awsjson1.1 (the more common AWS JSON protocol) since SWF's dispatch shape
 looks identical otherwise.
+
+### Real bugs fixed this pass (2026-08-07, gopherstack-jsi8)
+
+executions/history were keyed by `domain+":"+workflowID` alone (not
+`+runID`), so a second or later run of the same `workflowId` silently
+collided with -- overwrote -- an earlier, already-closed run's row and
+history. Confirmed against the real `aws-sdk-go-v2/service/swf@v1.37.4`
+(go.mod's pin; the `sdk_module` line above was stale at v1.33.14, corrected
+this pass): `types.WorkflowExecution.RunId` is a **required** member
+alongside `WorkflowId`, not an optional disambiguator, and both
+`DescribeWorkflowExecutionInput.Execution` and
+`GetWorkflowExecutionHistoryInput.Execution` require it. Real AWS keeps every
+run of a `workflowId` as an independently, permanently queryable record; this
+backend did not.
+
+Full detail (the re-keying itself, the new `resolveExecutionLocked`/
+`openExecutionLocked` helpers and their deliberate empty-`runID` leniency, the
+`propagateChildClosureLocked` fix, the closely-related LRU-eviction
+ghost-queue-row fix, and the test list) is in the `multi_run_history` family
+note above rather than duplicated here. Two points worth calling out
+separately:
+
+1. **This was a real, wire-reachable bug, not just an internal-storage
+   nicety.** `DescribeWorkflowExecution`/`GetWorkflowExecutionHistory`'s
+   handlers (`handler_workflow_executions.go`/`handler_history.go`) already
+   parsed `Execution.RunId` off the wire into `in.Execution.RunID` -- and then
+   never passed it to the backend call, which had no `runID` parameter to
+   receive it. A real client asking for a specific historical run by RunId
+   got whatever run currently occupied that `workflowId` slot instead,
+   silently wrong data rather than an error.
+
+2. **The empty-`runID` fallback is intentionally more lenient than real
+   AWS.** Real AWS requires `RunId` on Describe/GetHistory and would reject a
+   call with none; the ops here whose `RunId` is genuinely optional
+   (Terminate/RequestCancel/SignalWorkflowExecution) target only the
+   currently-*open* run and error `UnknownResource` otherwise. This backend's
+   `resolveExecutionLocked` accepts an empty `runID` everywhere, first trying
+   the open run and then falling back to the most-recently-started run if
+   none is open. This is a deliberate compatibility choice, not an oversight:
+   it preserves this backend's own pre-existing behavior (and every existing
+   test/internal caller) for the still-overwhelmingly-common
+   single-run-per-`workflowId` case, while a caller that actually needs a
+   *specific* run -- the entire point of this fix -- still gets it by passing
+   a real `runID`. The three mutating ops (Terminate/RequestCancel/Signal)
+   cannot be led astray by this leniency: each independently re-checks
+   `exec.Status == RUNNING` after resolution regardless of which run was
+   returned, so they can never act on a closed run just because none was
+   open.
 
 ### Real bugs fixed this pass (2026-07-31)
 
@@ -269,15 +317,19 @@ looks identical otherwise.
   the real Timestamp shape), so this is a reuse/style nit, not a wire bug --
   left alone this pass to stay within scope, but worth a `pkgs` reuse cleanup
   later.
-- `executions`/`history` are keyed by `domain+workflowId` only, NOT
-  `domain+workflowId+runId` (see store.go's `InMemoryBackend` doc comment).
-  This is why `ContinueAsNewWorkflowExecution` (this pass) can't retain the
-  completed old run as an independently queryable record, and why
-  `StartChildWorkflowExecution`'s child must have a workflowId that has no
-  *currently open* run anywhere in the domain, even across unrelated
-  lineages -- a real multi-run redesign is a bigger project than a parity
-  bug-fix pass; don't attempt a partial fix without redesigning both tables
-  together.
+- UPDATE (2026-08-07, gopherstack-jsi8): `executions`/`history` are now keyed
+  by `domain+workflowId+runId` (see store.go's `InMemoryBackend` doc comment
+  and the `multi_run_history` family note above) -- the paragraph this
+  replaces described the old, since-fixed `domain+workflowId`-only keying.
+  `StartChildWorkflowExecution`'s child still must have a workflowId with no
+  *currently open* run anywhere in the domain (that invariant is real AWS
+  behavior, `WorkflowExecutionAlreadyStartedFault`, not a storage-shape
+  limitation, so it did not change). If you find yourself re-deriving a
+  `domain+":"+workflowID` key anywhere in this package outside
+  `workflowGroupKey`/`executionsByWorkflow`, that is very likely a
+  reintroduction of this exact bug class -- every per-run lookup must go
+  through `executionKey`/`resolveExecutionLocked`, not a bare
+  `domain+":"+workflowID` string.
 - `WorkflowExecution.OpenTimerIDs`/`ParentWorkflowID`/`ParentRunID`/
   `ParentInitiatedEventID`/`ParentStartedEventID` (new fields this pass) are
   internal-only: they're never marshaled onto any AWS wire response directly

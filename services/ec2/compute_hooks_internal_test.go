@@ -68,7 +68,7 @@ func TestComputeHookLifecycle(t *testing.T) {
 			assertAfter: func(t *testing.T, b *InMemoryBackend, c *stubCompute) {
 				t.Helper()
 
-				kp, err := b.CreateKeyPair("demo")
+				kp, err := b.CreateKeyPair("demo", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, kp.PublicKey, "CreateKeyPair must derive an OpenSSH public key")
 

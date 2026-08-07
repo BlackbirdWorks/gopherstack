@@ -31,23 +31,36 @@ import (
 // history/activityQueues/decisionQueues are ORDER-SENSITIVE (event histories and FIFO
 // task queues, where store.Index's swap-with-last removal would silently reorder pending
 // entries), and tags's values (map[string]string) are not *T, which store.Table requires.
+//
+// executions/history are keyed by domain+":"+workflowID+":"+runID (see workflowExecutionKeyFn/
+// appendHistoryEventLocked), NOT domain+":"+workflowID alone: real AWS keeps every run of a
+// workflowId as an independently queryable record (DescribeWorkflowExecution/
+// GetWorkflowExecutionHistory's Execution parameter requires BOTH WorkflowId and RunId --
+// confirmed against aws-sdk-go-v2/service/swf's types.WorkflowExecution, where RunId is a
+// required member, not optional), so a second/later run under the same workflowId must not
+// collide with or overwrite an earlier one. executionsByWorkflow groups every run (open or
+// closed) under domain+":"+workflowID so resolveExecutionLocked/openExecutionLocked can find
+// "the currently open run" without a full-domain scan -- real AWS guarantees at most one OPEN
+// run per workflowId at a time (createExecutionLocked's "already open" guard), so that lookup
+// is always unambiguous.
 type InMemoryBackend struct {
-	registry            *store.Registry
-	domains             *store.Table[Domain]
-	workflows           *store.Table[WorkflowType] // key: domain+":"+name+":"+version
-	workflowsByDomain   *store.Index[WorkflowType]
-	activities          *store.Table[ActivityType] // key: domain+":"+name+":"+version
-	activitiesByDomain  *store.Index[ActivityType]
-	executions          *store.Table[WorkflowExecution] // key: domain+":"+workflowID
-	executionsByDomain  *store.Index[WorkflowExecution]
-	activeActivityTasks *store.Table[activeActivityTaskRecord] // key: taskToken
-	activeDecisionTasks *store.Table[activeDecisionTaskRecord] // key: taskToken
-	history             map[string][]HistoryEvent              // key: domain+":"+workflowID
-	activityQueues      map[string][]*ActivityTask             // key: domain+":"+taskList
-	decisionQueues      map[string][]*DecisionTask             // key: domain+":"+taskList
-	tags                map[string]map[string]string           // key: resourceARN
-	mu                  *lockmetrics.RWMutex
-	executionOrder      []string // FIFO order of execution keys for eviction
+	registry             *store.Registry
+	domains              *store.Table[Domain]
+	workflows            *store.Table[WorkflowType] // key: domain+":"+name+":"+version
+	workflowsByDomain    *store.Index[WorkflowType]
+	activities           *store.Table[ActivityType] // key: domain+":"+name+":"+version
+	activitiesByDomain   *store.Index[ActivityType]
+	executions           *store.Table[WorkflowExecution] // key: domain+":"+workflowID+":"+runID
+	executionsByDomain   *store.Index[WorkflowExecution]
+	executionsByWorkflow *store.Index[WorkflowExecution]        // key: domain+":"+workflowID
+	activeActivityTasks  *store.Table[activeActivityTaskRecord] // key: taskToken
+	activeDecisionTasks  *store.Table[activeDecisionTaskRecord] // key: taskToken
+	history              map[string][]HistoryEvent              // key: domain+":"+workflowID+":"+runID
+	activityQueues       map[string][]*ActivityTask             // key: domain+":"+taskList
+	decisionQueues       map[string][]*DecisionTask             // key: domain+":"+taskList
+	tags                 map[string]map[string]string           // key: resourceARN
+	mu                   *lockmetrics.RWMutex
+	executionOrder       []string // FIFO order of execution keys for eviction
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -80,14 +93,14 @@ func (b *InMemoryBackend) Reset() {
 	b.executionOrder = nil
 }
 
-// appendHistoryEventLocked appends a history event for a workflow execution.
-// attrs is the event-type-specific attributes map; pass nil if none.
-// Caller must hold the write lock.
+// appendHistoryEventLocked appends a history event for one specific run of a
+// workflow execution. attrs is the event-type-specific attributes map; pass
+// nil if none. Caller must hold the write lock.
 func (b *InMemoryBackend) appendHistoryEventLocked(
-	domain, workflowID, eventType string,
+	domain, workflowID, runID, eventType string,
 	attrs map[string]any,
 ) int64 {
-	key := domain + ":" + workflowID
+	key := executionKey(domain, workflowID, runID)
 	events := b.history[key]
 	eventID := int64(len(events)) + 1
 	ev := HistoryEvent{
@@ -101,6 +114,73 @@ func (b *InMemoryBackend) appendHistoryEventLocked(
 	b.history[key] = append(events, ev)
 
 	return eventID
+}
+
+// executionKey builds the primary key for one specific run of a workflow
+// execution: domain+":"+workflowID+":"+runID. This is the key shape
+// b.executions/b.history are stored under -- see the InMemoryBackend doc
+// comment for why it includes runID.
+func executionKey(domain, workflowID, runID string) string {
+	return domain + ":" + workflowID + ":" + runID
+}
+
+// workflowGroupKey builds the key executionsByWorkflow groups every run
+// (open or closed) of a workflow under: domain+":"+workflowID, with no runID.
+func workflowGroupKey(domain, workflowID string) string {
+	return domain + ":" + workflowID
+}
+
+// openExecutionLocked returns the single currently-OPEN run for
+// domain+workflowID, if any. Real AWS enforces at most one OPEN run per
+// workflowId at a time (see createExecutionLocked's "already open" guard),
+// so this is always unambiguous. Caller must hold at least the read lock.
+func (b *InMemoryBackend) openExecutionLocked(domain, workflowID string) (*WorkflowExecution, bool) {
+	for _, e := range b.executionsByWorkflow.Get(workflowGroupKey(domain, workflowID)) {
+		if e.Status == statusRunning {
+			return e, true
+		}
+	}
+
+	return nil, false
+}
+
+// resolveExecutionLocked finds a run by domain+workflowID, optionally pinned
+// to a specific runID.
+//
+// A non-empty runID is looked up directly and can address ANY run, open or
+// already closed -- this is what makes a completed run's history
+// independently queryable after ContinueAsNewWorkflowExecution, which real
+// AWS's WorkflowExecution.RunId (a required field on
+// DescribeWorkflowExecution/GetWorkflowExecutionHistory) requires.
+//
+// An empty runID first tries the currently open run -- real AWS's own
+// convention for the ops whose RunId parameter is genuinely optional
+// (TerminateWorkflowExecution/RequestCancelWorkflowExecution/
+// SignalWorkflowExecution: "if not specified, defaults to the currently
+// running execution"); those three ops separately re-check exec.Status ==
+// running regardless of how exec was resolved, so this fallback cannot let
+// them act on the wrong run. If no run is currently open, this falls back
+// further to the most recently started run for that workflowID (deliberately
+// lenient: real AWS would error UnknownResource here, but this backend keeps
+// its pre-multi-run behavior for the still-common case of a caller
+// Describe/GetHistory-ing a workflowId without tracking its RunId, now that
+// a closed run is no longer silently overwritten by whichever run happens to
+// share its workflowId). Caller must hold at least the read lock.
+func (b *InMemoryBackend) resolveExecutionLocked(domain, workflowID, runID string) (*WorkflowExecution, bool) {
+	if runID != "" {
+		return b.executions.Get(executionKey(domain, workflowID, runID))
+	}
+
+	if exec, ok := b.openExecutionLocked(domain, workflowID); ok {
+		return exec, true
+	}
+
+	runs := b.executionsByWorkflow.Get(workflowGroupKey(domain, workflowID))
+	if len(runs) == 0 {
+		return nil, false
+	}
+
+	return runs[len(runs)-1], true
 }
 
 // AccountID returns the account ID for this backend.
@@ -221,10 +301,10 @@ func (b *InMemoryBackend) AddActivityTypeInternal(domain, name, version, status 
 	b.activities.Put(&ActivityType{Domain: domain, Name: name, Version: version, Status: status})
 }
 
-// enqueueDecisionTaskLocked adds a decision task for the execution's task list.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID string) {
-	exec, ok := b.executions.Get(domain + ":" + workflowID)
+// enqueueDecisionTaskLocked adds a decision task for one specific run's task
+// list. Caller must hold the write lock.
+func (b *InMemoryBackend) enqueueDecisionTaskLocked(domain, workflowID, runID string) {
+	exec, ok := b.executions.Get(executionKey(domain, workflowID, runID))
 	if !ok || exec.TaskList == "" {
 		return
 	}

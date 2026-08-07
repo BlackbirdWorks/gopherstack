@@ -114,10 +114,10 @@ type Backend interface {
 	// ---- key pairs ----
 
 	// CreateKeyPair generates an RSA key pair and stores it.
-	CreateKeyPair(name string) (*KeyPair, error)
+	CreateKeyPair(name string, tags map[string]string) (*KeyPair, error)
 
 	// ImportKeyPair stores a pre-existing key pair by name without key material.
-	ImportKeyPair(name, publicKeyMaterial string) (*KeyPair, error)
+	ImportKeyPair(name, publicKeyMaterial string, tags map[string]string) (*KeyPair, error)
 
 	// DescribeKeyPairs returns key pairs, optionally filtered by names.
 	DescribeKeyPairs(names []string) []*KeyPair

@@ -162,3 +162,5 @@ func newKeyPairFingerprint() string {
 }
 
 func newApplicationStatusCheckID() string { return "asc-" + newHexUUID(ec2IDHexLen) }
+
+func newKeyPairID() string { return "key-" + newHexUUID(ec2IDHexLen) }

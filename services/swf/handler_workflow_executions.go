@@ -236,7 +236,7 @@ func (h *Handler) handleDescribeWorkflowExecution(
 	_ context.Context,
 	in *handleDescribeWorkflowExecutionInput,
 ) (*describeWorkflowExecutionOutput, error) {
-	exec, err := h.Backend.DescribeWorkflowExecution(in.Domain, in.Execution.WorkflowID)
+	exec, err := h.Backend.DescribeWorkflowExecution(in.Domain, in.Execution.WorkflowID, in.Execution.RunID)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (h *Handler) handleDescribeWorkflowExecution(
 	var counts openCountsOutput
 	if ok {
 		b.mu.RLock("openCounts")
-		c := b.openCountsLocked(in.Domain, in.Execution.WorkflowID)
+		c := b.openCountsLocked(in.Domain, in.Execution.WorkflowID, exec.RunID)
 		b.mu.RUnlock()
 		counts = openCountsOutput{
 			OpenActivityTasks:           c["openActivityTasks"],

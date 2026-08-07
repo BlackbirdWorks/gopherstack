@@ -926,7 +926,7 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	b := newTestBackend()
 
 	// Populate various resources
-	_, err := b.CreateKeyPair("persist-key")
+	_, err := b.CreateKeyPair("persist-key", nil)
 	require.NoError(t, err)
 	vol, err := b.CreateVolume("us-east-1a", "gp2", 20, "")
 	require.NoError(t, err)

@@ -217,11 +217,17 @@ func keyPairMatchesFilter(kp *KeyPair, filterName string, values []string, b Bac
 	switch filterName {
 	case "key-name":
 		return anyEqual(kp.Name, values)
+	case "key-pair-id":
+		return anyEqual(kp.KeyPairID, values)
 	case "fingerprint":
 		return anyEqual(kp.Fingerprint, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			return tagMatch("keypair-"+kp.Name, tagKey, values, b)
+			// Tags are stored under the key pair's Name (its only real,
+			// stable identifier in this backend — see resourceExistsCoreLocked);
+			// this previously looked up "keypair-"+Name, a key nothing ever
+			// wrote to, so the filter silently never matched.
+			return tagMatch(kp.Name, tagKey, values, b)
 		}
 	}
 

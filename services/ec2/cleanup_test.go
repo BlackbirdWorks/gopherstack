@@ -157,7 +157,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				kp, err := b.CreateKeyPair("test-key")
+				kp, err := b.CreateKeyPair("test-key", nil)
 				require.NoError(t, err)
 
 				return kp.Name

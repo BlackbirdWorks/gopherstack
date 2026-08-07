@@ -109,7 +109,7 @@ func TestHandlerCoreResourceOperations(t *testing.T) {
 		{
 			name: "DescribeKeyPairs",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.CreateKeyPair("list-key")
+				_, _ = h.Backend.CreateKeyPair("list-key", nil)
 
 				return "Action=DescribeKeyPairs&Version=2016-11-15"
 			},
@@ -119,7 +119,7 @@ func TestHandlerCoreResourceOperations(t *testing.T) {
 		{
 			name: "DeleteKeyPair_success",
 			setupFn: func(h *ec2.Handler) string {
-				_, _ = h.Backend.CreateKeyPair("del-key")
+				_, _ = h.Backend.CreateKeyPair("del-key", nil)
 
 				return "Action=DeleteKeyPair&Version=2016-11-15&KeyName=del-key"
 			},

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -24,13 +25,17 @@ const (
 	// stubFingerprintUUIDLen is the number of UUID hex characters used to build
 	// a stub fingerprint for ImportKeyPair (no actual public key is parsed).
 	stubFingerprintUUIDLen = 11
+	keyTypeRSA             = "rsa"
 )
 
 // KeyPair represents an EC2 key pair.
 type KeyPair struct {
-	Name        string `json:"name,omitempty"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Material    string `json:"material,omitempty"` // private key PEM, only on create
+	Name        string    `json:"name,omitempty"`
+	KeyPairID   string    `json:"keyPairID,omitempty"`
+	Fingerprint string    `json:"fingerprint,omitempty"`
+	Material    string    `json:"material,omitempty"` // private key PEM, only on create
+	KeyType     string    `json:"keyType,omitempty"`
+	CreateTime  time.Time `json:"createTime,omitzero"`
 	// PublicKey is the OpenSSH "ssh-rsa AAAA..." authorized_keys-format public
 	// key, populated by CreateKeyPair (derived from the generated private key)
 	// and by ImportKeyPair (decoded from PublicKeyMaterial). Used by the
@@ -55,8 +60,9 @@ func keyFingerprint(pubKey *rsa.PublicKey) (string, error) {
 	return strings.Join(parts, ":"), nil
 }
 
-// CreateKeyPair generates a new RSA key pair.
-func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
+// CreateKeyPair generates a new RSA key pair. Real AWS also supports
+// ED25519 (CreateKeyPairInput.KeyType); not modeled — see PARITY.md gaps.
+func (b *InMemoryBackend) CreateKeyPair(name string, tags map[string]string) (*KeyPair, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
 	}
@@ -91,20 +97,43 @@ func (b *InMemoryBackend) CreateKeyPair(name string) (*KeyPair, error) {
 
 	kp := &KeyPair{
 		Name:        name,
+		KeyPairID:   newKeyPairID(),
 		Fingerprint: fp,
 		Material:    string(privPEM),
+		KeyType:     keyTypeRSA, // the only type this backend ever generates
+		CreateTime:  time.Now().UTC(),
 		PublicKey:   authorized,
 	}
 	b.keyPairs.Put(kp)
+	b.setTagsLocked(kp.Name, tags)
 
 	return kp, nil
+}
+
+// importedKeyType infers a KeyPairInfo.KeyType value from OpenSSH-format
+// public key material. Real AWS validates and infers the type from the
+// material it's given; this mock does not validate publicKeyMaterial at all
+// (pre-existing, unrelated to this), so unparseable material (including the
+// empty string some callers pass) honestly falls back to "rsa" rather than
+// erroring — there is no way to derive a real type from no material.
+func importedKeyType(publicKeyMaterial string) string {
+	pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(publicKeyMaterial))
+	if err != nil {
+		return keyTypeRSA
+	}
+
+	if pub.Type() == ssh.KeyAlgoED25519 {
+		return "ed25519"
+	}
+
+	return keyTypeRSA
 }
 
 // ImportKeyPair stores a pre-existing key pair by name. publicKeyMaterial is
 // the OpenSSH-format ("ssh-rsa AAAA...") public key the caller passed in
 // PublicKeyMaterial; when non-empty it is persisted on the KeyPair so the
 // optional Compute provider can write it to authorized_keys on launch.
-func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPair, error) {
+func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string, tags map[string]string) (*KeyPair, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: KeyName is required", ErrInvalidParameter)
 	}
@@ -118,10 +147,14 @@ func (b *InMemoryBackend) ImportKeyPair(name, publicKeyMaterial string) (*KeyPai
 
 	kp := &KeyPair{
 		Name:        name,
+		KeyPairID:   newKeyPairID(),
 		Fingerprint: newKeyPairFingerprint(),
+		KeyType:     importedKeyType(publicKeyMaterial),
+		CreateTime:  time.Now().UTC(),
 		PublicKey:   strings.TrimSpace(publicKeyMaterial),
 	}
 	b.keyPairs.Put(kp)
+	b.setTagsLocked(kp.Name, tags)
 
 	return kp, nil
 }

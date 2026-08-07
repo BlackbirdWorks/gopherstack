@@ -93,7 +93,7 @@ func TestStartChildWorkflowExecutionDecision_Success(t *testing.T) {
 
 	// The child must have actually started: it's describable, RUNNING, and
 	// pollable for its own decision task.
-	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", child.Status)
 	assert.Equal(t, `{"x":1}`, child.Input)
@@ -104,7 +104,7 @@ func TestStartChildWorkflowExecutionDecision_Success(t *testing.T) {
 
 	// The parent's history must show ChildWorkflowExecutionStarted (not
 	// just an empty *Initiated event).
-	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 	var startedEvent *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "ChildWorkflowExecutionStarted" {
@@ -153,10 +153,10 @@ func TestStartChildWorkflowExecutionDecision_UnknownWorkflowType(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	_, err = b.DescribeWorkflowExecution("dom", "child-1")
+	_, err = b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.Error(t, err, "the child must never have been created")
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 	var failed *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "StartChildWorkflowExecutionFailed" {
@@ -196,7 +196,7 @@ func TestStartChildWorkflowExecutionDecision_AlreadyRunning(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 	var failed *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "StartChildWorkflowExecutionFailed" {
@@ -294,7 +294,7 @@ func TestChildWorkflowClosure_PropagatesToParent(t *testing.T) {
 
 			tt.closeChild(t, b, childToken)
 
-			events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+			events, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 			var found bool
 			for i := range events {
 				if events[i].EventType == tt.wantEventType {
@@ -307,7 +307,7 @@ func TestChildWorkflowClosure_PropagatesToParent(t *testing.T) {
 			assert.NotNil(t, task, "parent must get a fresh decision task when its child closes")
 
 			// openChildWorkflowExecutions must have dropped back to 0.
-			exec, err := b.DescribeWorkflowExecution("dom", "parent-1")
+			exec, err := b.DescribeWorkflowExecution("dom", "parent-1", "")
 			require.NoError(t, err)
 			assert.Equal(t, "RUNNING", exec.Status)
 		})
@@ -363,11 +363,11 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_Terminate(t *testing.T) 
 
 	require.NoError(t, b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "TERMINATE"))
 
-	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "TERMINATED", child.Status, "TERMINATE override must cascade to terminate the open child")
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", "", 0, "", false)
 	var found bool
 	for i := range events {
 		if events[i].EventType == "WorkflowExecutionTerminated" {
@@ -382,7 +382,7 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_Terminate(t *testing.T) 
 	// The parent's own event must record the *effective* (overridden) policy,
 	// not the stored default, so a client reading history sees what actually
 	// governed this call.
-	parentEvents, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", 0, "", false)
+	parentEvents, _ := b.GetWorkflowExecutionHistory("dom", "parent-1", "", 0, "", false)
 	var parentAttrs map[string]any
 	for i := range parentEvents {
 		if parentEvents[i].EventType == "WorkflowExecutionTerminated" {
@@ -405,12 +405,12 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_RequestCancel(t *testing
 	require.NoError(t,
 		b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "REQUEST_CANCEL"))
 
-	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", child.Status, "REQUEST_CANCEL must not itself close the child")
 	assert.True(t, child.CancelRequested)
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "child-1", "", 0, "", false)
 	var found bool
 	for i := range events {
 		if events[i].EventType == "WorkflowExecutionCancelRequested" {
@@ -438,7 +438,7 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_Absent(t *testing.T) {
 
 	require.NoError(t, b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", ""))
 
-	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", child.Status)
 	assert.False(t, child.CancelRequested)
@@ -455,7 +455,7 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_Invalid(t *testing.T) {
 	err := b.TerminateWorkflowExecution("dom", "parent-1", "", "reason", "details", "BOGUS_POLICY")
 	require.ErrorIs(t, err, swf.ErrValidation)
 
-	exec, describeErr := b.DescribeWorkflowExecution("dom", "parent-1")
+	exec, describeErr := b.DescribeWorkflowExecution("dom", "parent-1", "")
 	require.NoError(t, describeErr)
 	assert.Equal(t, "RUNNING", exec.Status, "a rejected override must not terminate the execution")
 }
@@ -488,7 +488,7 @@ func TestSignalExternalWorkflowExecutionDecision_Success(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "target-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "target-1", "", 0, "", false)
 	var signaled *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "WorkflowExecutionSignaled" {
@@ -504,7 +504,7 @@ func TestSignalExternalWorkflowExecutionDecision_Success(t *testing.T) {
 	targetTask := b.PollForDecisionTask("dom", "target-tasks", 0, "")
 	require.NotNil(t, targetTask, "the signal must enqueue the target a decision task")
 
-	senderEvents, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", 0, "", false)
+	senderEvents, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", "", 0, "", false)
 	var externalSignaled bool
 	for i := range senderEvents {
 		if senderEvents[i].EventType == "ExternalWorkflowExecutionSignaled" {
@@ -534,7 +534,7 @@ func TestSignalExternalWorkflowExecutionDecision_UnknownTarget(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", "", 0, "", false)
 	var failed *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "SignalExternalWorkflowExecutionFailed" {
@@ -571,11 +571,11 @@ func TestRequestCancelExternalWorkflowExecutionDecision_Success(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	target, err := b.DescribeWorkflowExecution("dom", "target-1")
+	target, err := b.DescribeWorkflowExecution("dom", "target-1", "")
 	require.NoError(t, err)
 	assert.True(t, target.CancelRequested, "target must have CancelRequested set")
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "target-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "target-1", "", 0, "", false)
 	var found bool
 	for i := range events {
 		if events[i].EventType == "WorkflowExecutionCancelRequested" {
@@ -607,7 +607,7 @@ func TestRequestCancelExternalWorkflowExecutionDecision_UnknownTarget(t *testing
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", "", 0, "", false)
 	var failed *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "RequestCancelExternalWorkflowExecutionFailed" {
@@ -642,7 +642,7 @@ func TestStartTimerDecision_AlreadyInUse(t *testing.T) {
 		},
 	}))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	var startedCount int
 	var failed *swf.HistoryEvent
 	for i := range events {
@@ -675,7 +675,7 @@ func TestCancelTimerDecision_UnknownID(t *testing.T) {
 		{DecisionType: "CancelTimer", CancelTimerAttrs: &swf.CancelTimerDecisionAttrs{TimerID: "never-started"}},
 	}))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	var failed *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "CancelTimerFailed" {
@@ -720,7 +720,7 @@ func TestStartChildWorkflowExecution_ViaHandler(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	child, err := b.DescribeWorkflowExecution("dom", "child-1")
+	child, err := b.DescribeWorkflowExecution("dom", "child-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", child.Status)
 	assert.JSONEq(t, `{"via":"wire"}`, child.Input)
