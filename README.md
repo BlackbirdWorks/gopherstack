@@ -592,7 +592,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 57 | 1 gap; 1 deferred |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 57 | 1 gap; 2 deferred |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 6 | 2 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
@@ -621,7 +621,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Organizations](services/organizations/README.md) | A | 63 | 4 gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 gaps |
-| [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 4 gaps; 2 deferred |
+| [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 6 gaps; 2 deferred |
 | [Systems Manager](services/ssm/README.md) | A | 74 | 3 gaps |
 
 ### Developer Tools

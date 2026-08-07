@@ -33,6 +33,8 @@ const (
 	authTypeBearer           = "Bearer"
 	authFlowRefreshToken     = "REFRESH_TOKEN"
 	authFlowRefreshTokenAuth = "REFRESH_TOKEN_AUTH"
+	authFlowUserSRP          = "USER_SRP_AUTH"
+	authFlowAdminUserSRP     = "ADMIN_USER_SRP_AUTH"
 )
 
 const (

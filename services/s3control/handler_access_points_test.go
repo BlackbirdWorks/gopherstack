@@ -603,6 +603,50 @@ func TestCreateAccessPoint(t *testing.T) {
 	}
 }
 
+// TestCreateAccessPoint_InlineScopeAndTags locks in that CreateAccessPoint's real
+// request body (CreateAccessPointInput per aws-sdk-go-v2/service/s3control@v1.73.4's
+// serializers.go) accepts Scope and Tags directly, not only via the separate
+// PutAccessPointScope/TagResource ops -- previously both fields were absent from
+// createAccessPointRequestXML and silently dropped on the wire.
+func TestCreateAccessPoint_InlineScopeAndTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestS3ControlHandler(t)
+	const accountID = "123456789012"
+	const apName = "scoped-ap"
+
+	body := `<CreateAccessPointRequest>
+<Bucket>my-bucket</Bucket>
+<Scope><Permissions><Permission>GetObject</Permission></Permissions><Prefixes><Prefix>logs/</Prefix></Prefixes></Scope>
+<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>
+</CreateAccessPointRequest>`
+
+	createRec := doS3ControlNewOpRequest(t, h, http.MethodPut, "/v20180820/accesspoint/"+apName, accountID, body)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	scopeRec := doS3ControlNewOpRequest(
+		t, h, http.MethodGet, "/v20180820/accesspoint/"+apName+"/scope", accountID, "",
+	)
+	require.Equal(t, http.StatusOK, scopeRec.Code)
+	assert.Contains(t, scopeRec.Body.String(), "GetObject")
+	assert.Contains(t, scopeRec.Body.String(), "logs/")
+
+	var createResp createAccessPointResponseXMLForTest
+
+	require.NoError(t, xml.Unmarshal(createRec.Body.Bytes(), &createResp))
+
+	tagsRec := doS3ControlNewOpRequest(
+		t, h, http.MethodGet, "/v20180820/tags/"+createResp.AccessPointArn, accountID, "",
+	)
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	assert.Contains(t, tagsRec.Body.String(), "<Key>env</Key>")
+	assert.Contains(t, tagsRec.Body.String(), "<Value>prod</Value>")
+}
+
+type createAccessPointResponseXMLForTest struct {
+	AccessPointArn string `xml:"AccessPointArn"`
+}
+
 func TestListAccessPoints_Pagination(t *testing.T) {
 	t.Parallel()
 

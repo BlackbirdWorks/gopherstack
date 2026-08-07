@@ -65,6 +65,8 @@ type userSnapshot struct {
 	Username             string            `json:"username,omitempty"`
 	UserPoolID           string            `json:"userPoolId,omitempty"`
 	PasswordHash         string            `json:"passwordHash,omitempty"`
+	SRPSalt              string            `json:"srpSalt,omitempty"`
+	SRPVerifier          string            `json:"srpVerifier,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
 	MFAOptions           []MFAOptionType   `json:"mfaOptions,omitempty"`
@@ -198,6 +200,8 @@ func buildUserSnapshot(u *User) *userSnapshot {
 		Username:             u.Username,
 		UserPoolID:           u.UserPoolID,
 		PasswordHash:         u.PasswordHash,
+		SRPSalt:              u.SRPSalt,
+		SRPVerifier:          u.SRPVerifier,
 		Status:               u.Status,
 		ConfirmCode:          u.ConfirmCode,
 		MFAOptions:           u.MFAOptions,
@@ -520,6 +524,8 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 			Username:             us.Username,
 			UserPoolID:           us.UserPoolID,
 			PasswordHash:         us.PasswordHash,
+			SRPSalt:              us.SRPSalt,
+			SRPVerifier:          us.SRPVerifier,
 			Status:               us.Status,
 			ConfirmCode:          us.ConfirmCode,
 			MFAOptions:           us.MFAOptions,

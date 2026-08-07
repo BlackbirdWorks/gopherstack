@@ -251,7 +251,12 @@ type Run struct {
 	// wire key -- confirmed against the SDK deserializer; there is no real
 	// StartRunInput field to set this, it's populated internally by
 	// DeleteRunsInBatch/ListRunsInBatch's caller association).
-	RunBatchID     string `json:"batchId,omitempty"`
+	RunBatchID string `json:"batchId,omitempty"`
+	// RunSettingID mirrors the batch caller's InlineSetting.RunSettingId (real
+	// StartRunBatch request field, see types.InlineSetting) so ListRunsInBatch can map
+	// each created run back to the caller-supplied per-run configuration it came from.
+	// Empty for runs started via plain StartRun (there is no such field on that op).
+	RunSettingID   string `json:"runSettingId,omitempty"`
 	NetworkingMode string `json:"networkingMode,omitempty"`
 	RunOutputURI   string `json:"runOutputUri,omitempty"`
 	UUID           string `json:"uuid,omitempty"`
@@ -439,16 +444,67 @@ type RunCache struct {
 	Status          string            `json:"status"`
 }
 
-// RunBatch represents an HealthOmics run batch.
+// RunBatch represents an HealthOmics run batch (real GetBatchOutput shape --
+// RunSummary/SubmissionSummary/TotalRuns are NOT stored here; they are computed live
+// from the batch's constituent Run records by summarizeRunBatchLocked, since this
+// backend creates/completes them synchronously and a stored, independently-updated
+// counter would drift from the real Run rows it's meant to summarize).
 type RunBatch struct {
-	CreationTime time.Time         `json:"creationTime"`
-	Tags         map[string]string `json:"tags"`
-	Arn          string            `json:"arn"`
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	WorkflowID   string            `json:"workflowId"`
-	RoleARN      string            `json:"roleArn"`
-	Status       string            `json:"status"`
+	CreationTime  time.Time         `json:"creationTime"`
+	SubmittedTime time.Time         `json:"submittedTime,omitzero"`
+	ProcessedTime time.Time         `json:"processedTime,omitzero"`
+	Tags          map[string]string `json:"tags"`
+	Arn           string            `json:"arn"`
+	ID            string            `json:"id"`
+	UUID          string            `json:"uuid"`
+	Name          string            `json:"name,omitempty"`
+	WorkflowID    string            `json:"workflowId"`
+	RoleARN       string            `json:"roleArn"`
+	RunGroupID    string            `json:"runGroupId,omitempty"`
+	OutputURI     string            `json:"outputUri,omitempty"`
+	Status        string            `json:"status"`
+	// TotalRuns is the number of constituent runs requested at submission time
+	// (len(InlineSettings)). SubmissionSuccessCount/SubmissionFailureCount and
+	// DeletedRunCount are one-time/monotonic outcomes of synchronous events
+	// (submission at StartRunBatch, deletion at DeleteRunsInBatch) and are stored
+	// directly rather than derived, since the Run rows they summarize either never
+	// existed (failed submissions) or are removed entirely (deleted runs) -- there is
+	// nothing left to recompute them from later. The remaining RunSummary counts
+	// (pending/running/completed/cancelled/failed) change as runs progress and are
+	// computed live from surviving Run rows by summarizeRunBatchLocked instead.
+	TotalRuns              int32
+	SubmissionSuccessCount int32
+	SubmissionFailureCount int32
+	DeletedRunCount        int32
+}
+
+// DefaultRunSetting is the shared configuration StartRunBatch applies to every run in
+// the batch (real types.DefaultRunSetting). Only the subset of fields this backend's
+// StartRun already models is accepted -- see the RunBatch family note in PARITY.md for
+// the rest (CacheBehavior/CacheId/ConfigurationName/EngineSettings/LogLevel/
+// NetworkingMode/OutputBucketOwnerId/Parameters/RetentionMode/ScratchStorageMode/
+// StorageCapacity/StorageType/WorkflowOwnerId), which are accepted on the wire but not
+// wired to real behavior.
+type DefaultRunSetting struct {
+	RunTags    map[string]string
+	RoleARN    string
+	WorkflowID string
+	Name       string
+	OutputURI  string
+	RunGroupID string
+	Priority   int32
+}
+
+// InlineRunSetting is one caller-supplied per-run override within a
+// StartRunBatch request's BatchRunSettings.InlineSettings list (real
+// types.InlineSetting). Overrides Name/OutputURI/Priority/RunTags from
+// DefaultRunSetting when set; RunSettingID is required and has no default.
+type InlineRunSetting struct {
+	RunTags      map[string]string
+	Priority     *int32
+	RunSettingID string
+	Name         string
+	OutputURI    string
 }
 
 // RunBatchFilter is filter criteria for listing run batches (ListBatch).

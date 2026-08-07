@@ -190,6 +190,8 @@ type createAccessPointRequestXML struct {
 	Bucket                         string                 `xml:"Bucket"`
 	BucketAccountID                string                 `xml:"BucketAccountId"`
 	VpcConfiguration               apVpcConfigurationXML  `xml:"VpcConfiguration"`
+	Scope                          createJobXMLCapture    `xml:"Scope"`
+	Tags                           []resourceTagXML       `xml:"Tags>Tag"`
 	PublicAccessBlockConfiguration apPublicAccessBlockXML `xml:"PublicAccessBlockConfiguration"`
 }
 
@@ -237,6 +239,25 @@ func (h *Handler) handleCreateAccessPoint(c *echo.Context) error {
 			RestrictPublicBuckets: body.PublicAccessBlockConfiguration.RestrictPublicBuckets,
 		}
 		_ = h.Backend.PutAccessPointPublicAccessBlock(accountID, name, pab)
+	}
+
+	// Store inline Scope when provided -- real CreateAccessPointInput accepts one
+	// directly, not only via the separate PutAccessPointScope op.
+	if body.Scope.Raw != "" {
+		if err := h.Backend.PutAccessPointScope(accountID, name, body.Scope.Raw); err != nil {
+			return handleBackendError(c, err)
+		}
+	}
+
+	// Store inline Tags when provided -- real CreateAccessPointInput accepts them
+	// directly, not only via the separate TagResource op.
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(ap.AccessPointArn, tags)
 	}
 
 	return writeXML(c, createAccessPointResponseXML{

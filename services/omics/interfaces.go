@@ -231,10 +231,13 @@ type StorageBackend interface {
 	UpdateRunCache(id, name, description string) error
 
 	// RunBatch
-	StartRunBatch(workflowID, roleARN, name string) (*RunBatch, error)
+	StartRunBatch(
+		batchName string, def DefaultRunSetting, inlineSettings []InlineRunSetting, tags map[string]string,
+	) (*RunBatch, error)
 	CancelRunBatch(id string) error
 	DeleteRunBatch(id string) error
 	GetRunBatch(id string) (*RunBatch, error)
+	GetRunBatchSummary(id string) (RunBatchSummary, error)
 	ListRunBatches(filter *RunBatchFilter, maxResults int, nextToken string) ([]*RunBatch, string, error)
 	DeleteRunsInBatch(batchID string) error
 	ListRunsInBatch(

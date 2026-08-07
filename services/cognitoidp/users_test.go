@@ -28,30 +28,40 @@ func TestUserSRPAuth_TwoStepFlow(t *testing.T) {
 	err = b.ConfirmSignUp(client.ClientID, "tom", user.ConfirmCode)
 	require.NoError(t, err)
 
+	srpClient := newSRPTestClient(t)
+
 	// Step 1: returns PASSWORD_VERIFIER challenge.
-	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "tom", "Pass1234!")
+	result, err := b.InitiateAuthSRP(client.ClientID, "USER_SRP_AUTH", "tom", srpClient.srpA())
 	require.NoError(t, err)
 	assert.Equal(t, "PASSWORD_VERIFIER", result.ChallengeName)
 	assert.NotEmpty(t, result.MFASession)
 
 	// Step 2: complete SRP, receive tokens.
-	tokens, err := b.RespondToSRPChallenge(client.ClientID, result.MFASession)
+	responses := srpClient.challengeResponses(t, pool.ID, "Pass1234!", result.ChallengeParameters)
+	authResult, err := b.RespondToSRPChallenge(client.ClientID, result.MFASession, responses)
 	require.NoError(t, err)
-	assert.NotEmpty(t, tokens.IDToken)
-	assert.NotEmpty(t, tokens.AccessToken)
+	require.NotNil(t, authResult.Tokens)
+	assert.NotEmpty(t, authResult.Tokens.IDToken)
+	assert.NotEmpty(t, authResult.Tokens.AccessToken)
 }
 
 func TestUserSRPAuth_WrongPassword_Rejected(t *testing.T) {
 	t.Parallel()
 
-	b, _, client := setupTestPoolAndClient(t)
+	b, pool, client := setupTestPoolAndClient(t)
 
 	user, err := b.SignUp(client.ClientID, "uma", "Pass1234!", nil)
 	require.NoError(t, err)
 	err = b.ConfirmSignUp(client.ClientID, "uma", user.ConfirmCode)
 	require.NoError(t, err)
 
-	_, err = b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "uma", "WrongPassword!")
+	srpClient := newSRPTestClient(t)
+
+	result, err := b.InitiateAuthSRP(client.ClientID, "USER_SRP_AUTH", "uma", srpClient.srpA())
+	require.NoError(t, err)
+
+	responses := srpClient.challengeResponses(t, pool.ID, "WrongPassword!", result.ChallengeParameters)
+	_, err = b.RespondToSRPChallenge(client.ClientID, result.MFASession, responses)
 	require.ErrorIs(t, err, cognitoidp.ErrNotAuthorized)
 }
 
@@ -65,12 +75,14 @@ func TestUserSRPAuth_SessionExpiry(t *testing.T) {
 	err = b.ConfirmSignUp(client.ClientID, "ursula", user.ConfirmCode)
 	require.NoError(t, err)
 
-	result, err := b.InitiateAuth(client.ClientID, "USER_SRP_AUTH", "ursula", "Pass1234!")
+	srpClient := newSRPTestClient(t)
+
+	result, err := b.InitiateAuthSRP(client.ClientID, "USER_SRP_AUTH", "ursula", srpClient.srpA())
 	require.NoError(t, err)
 
 	b.ExpireMFASessionForTest(result.MFASession)
 
-	_, err = b.RespondToSRPChallenge(client.ClientID, result.MFASession)
+	_, err = b.RespondToSRPChallenge(client.ClientID, result.MFASession, map[string]string{})
 	require.Error(t, err, "expired SRP session must be rejected")
 }
 

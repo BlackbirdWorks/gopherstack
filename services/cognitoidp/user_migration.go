@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // userMigrationFinalStatusReset is the FinalUserStatus value a UserMigration Lambda
@@ -60,7 +59,7 @@ func (b *InMemoryBackend) tryUserMigration(
 		return nil, "", nil
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(pool.ID, username, password)
 	if err != nil {
 		return nil, "", fmt.Errorf("hashing migrated password: %w", err)
 	}
@@ -70,7 +69,9 @@ func (b *InMemoryBackend) tryUserMigration(
 		Sub:          uuid.New().String(),
 		Username:     username,
 		UserPoolID:   pool.ID,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
+		SRPSalt:      saltHex,
+		SRPVerifier:  verifierHex,
 		Status:       UserStatusConfirmed,
 		Attributes:   resp.UserAttributes,
 		CreatedAt:    now,

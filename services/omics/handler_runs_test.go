@@ -215,19 +215,18 @@ func TestListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create a run batch.
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf123",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "my-batch",
-	})
+	// Create a run batch with one inline run setting -- StartRunBatch creates its
+	// constituent run synchronously.
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf123"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batchResp map[string]any
 	require.NoError(t, json.Unmarshal(batchRec.Body.Bytes(), &batchResp))
 	batchID := batchResp["id"].(string)
 
-	// Start a run associated with this batch.
+	// Start a second run explicitly associated with this batch via the
+	// gopherstack-internal runBatchId field.
 	runRec := doRequest(t, h, http.MethodPost, "/run", map[string]any{
 		"workflowId": "wf123",
 		"roleArn":    "arn:aws:iam::000000000000:role/role",
@@ -236,8 +235,9 @@ func TestListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 	})
 	require.Equal(t, http.StatusCreated, runRec.Code)
 
-	// List runs in the batch — should include our run. Real AWS ListRunsInBatch
-	// is a GET request.
+	// List runs in the batch — should include the inline-setting run StartRunBatch
+	// created plus the manually-associated one. Real AWS ListRunsInBatch is a GET
+	// request.
 	listRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID+"/run", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
@@ -245,7 +245,7 @@ func TestListRunsInBatchReturnsAssociatedRuns(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	runs, ok := listResp["runs"].([]any)
 	require.True(t, ok)
-	assert.Len(t, runs, 1)
+	assert.Len(t, runs, 2)
 }
 
 // TestListRunsInBatchEmptyForOtherBatch verifies that ListRunsInBatch does not
@@ -255,19 +255,13 @@ func TestListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create two batches.
-	batch1Rec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf1",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "batch-1",
-	})
+	// Create two batches, each with one inline run setting of its own.
+	batch1Rec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("batch-1", "wf1"))
 	require.Equal(t, http.StatusCreated, batch1Rec.Code)
 
-	batch2Rec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf2",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "batch-2",
-	})
+	batch2Rec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("batch-2", "wf2"))
 	require.Equal(t, http.StatusCreated, batch2Rec.Code)
 
 	var b1 map[string]any
@@ -286,8 +280,8 @@ func TestListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 		"runBatchId": batchID1,
 	})
 
-	// List runs in batch 2 — must be empty. Real AWS ListRunsInBatch is a GET
-	// request.
+	// List runs in batch 2 — must contain only its own inline-setting run, not the
+	// one manually associated with batch 1. Real AWS ListRunsInBatch is a GET request.
 	listRec := doRequest(t, h, http.MethodGet, "/runBatch/"+batchID2+"/run", nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 
@@ -295,7 +289,7 @@ func TestListRunsInBatchEmptyForOtherBatch(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
 	runs, ok := listResp["runs"].([]any)
 	require.True(t, ok)
-	assert.Empty(t, runs)
+	assert.Len(t, runs, 1)
 }
 
 // TestCancelRunGuardsTerminalState verifies that CancelRun rejects a request
@@ -368,11 +362,8 @@ func TestRun_BatchIDSerializedAsBatchIdKey(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf123",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf123"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
@@ -508,12 +499,10 @@ func TestListRunBatches_FiltersByNameAndStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf1", "roleArn": "arn:aws:iam::000000000000:role/role", "name": "batch-a",
-	})
-	doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf1", "roleArn": "arn:aws:iam::000000000000:role/role", "name": "batch-b",
-	})
+	doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("batch-a", "wf1"))
+	doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("batch-b", "wf1"))
 
 	rec := doRequest(t, h, http.MethodGet, "/runBatch?name=batch-a", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -543,9 +532,8 @@ func TestListRunsInBatch_FiltersByRunID(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf1", "roleArn": "arn:aws:iam::000000000000:role/role", "name": "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf1"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
@@ -594,9 +582,8 @@ func TestDeleteBatch_RequiresTerminalState(t *testing.T) {
 	backend := omics.NewInMemoryBackend("000000000000", "us-east-1")
 	h := omics.NewHandler(backend)
 
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf1", "roleArn": "arn:aws:iam::000000000000:role/role", "name": "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf1"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any

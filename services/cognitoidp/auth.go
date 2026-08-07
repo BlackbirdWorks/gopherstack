@@ -2,6 +2,8 @@ package cognitoidp
 
 import (
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"maps"
 	"math/big"
@@ -29,9 +31,9 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(client.UserPoolID, username, password)
 	if err != nil {
-		return nil, fmt.Errorf("hashing password: %w", err)
+		return nil, err
 	}
 
 	attrs := make(map[string]string, len(userAttributes))
@@ -41,7 +43,9 @@ func (b *InMemoryBackend) SignUp(clientID, username, password string, userAttrib
 		Sub:          uuid.New().String(),
 		Username:     username,
 		UserPoolID:   client.UserPoolID,
-		PasswordHash: string(hash),
+		PasswordHash: hash,
+		SRPSalt:      saltHex,
+		SRPVerifier:  verifierHex,
 		Status:       UserStatusUnconfirmed,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
@@ -321,12 +325,14 @@ func (b *InMemoryBackend) ConfirmForgotPassword(clientID, username, code, newPas
 		}
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(client.UserPoolID, username, newPassword)
 	if err != nil {
-		return fmt.Errorf("hashing password: %w", err)
+		return err
 	}
 
-	user.PasswordHash = string(hash)
+	user.PasswordHash = hash
+	user.SRPSalt = saltHex
+	user.SRPVerifier = verifierHex
 	user.ConfirmCode = ""
 	user.ConfirmCodeExpiresAt = time.Time{}
 	user.Status = UserStatusConfirmed
@@ -355,12 +361,14 @@ func (b *InMemoryBackend) ChangePassword(accessToken, previousPassword, proposed
 		}
 	}
 
-	hash, err4 := bcrypt.GenerateFromPassword([]byte(proposedPassword), bcryptCost)
+	hash, saltHex, verifierHex, err4 := hashAndSRP(u.UserPoolID, u.Username, proposedPassword)
 	if err4 != nil {
-		return fmt.Errorf("hashing password: %w", err4)
+		return err4
 	}
 
-	u.PasswordHash = string(hash)
+	u.PasswordHash = hash
+	u.SRPSalt = saltHex
+	u.SRPVerifier = verifierHex
 
 	return nil
 }
@@ -415,23 +423,20 @@ func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
 	return false
 }
 
-// authenticate validates a user's credentials and returns tokens or a challenge.
-// Caller must hold the write lock.
-func (b *InMemoryBackend) authenticate(
-	pool *UserPool,
-	clientID, authFlow string,
-	user *User,
-	password string,
-) (*AuthResult, error) {
+// precheckAuthLocked runs the flow/lambda/status checks common to every auth flow
+// (password-based or SRP) before any credential is actually verified. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) precheckAuthLocked(pool *UserPool, clientID, authFlow string, user *User) error {
 	switch authFlow {
-	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH", "USER_SRP_AUTH", "CUSTOM_AUTH":
+	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH",
+		"USER_SRP_AUTH", "ADMIN_USER_SRP_AUTH", "CUSTOM_AUTH":
 		// valid flows; ADMIN_NO_SRP_AUTH is a legacy alias for ADMIN_USER_PASSWORD_AUTH
 	default:
-		return nil, fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
+		return fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)
 	}
 
 	if !b.isAuthFlowAllowed(clientID, authFlow) {
-		return nil, fmt.Errorf(
+		return fmt.Errorf(
 			"%w: auth flow %q is not in client ExplicitAuthFlows",
 			ErrInvalidUserPoolConfig,
 			authFlow,
@@ -442,15 +447,58 @@ func (b *InMemoryBackend) authenticate(
 	// the Lambda only sees userAttributes/validationData (never the password), and can
 	// reject the attempt outright by returning an error.
 	if err := b.preAuthenticationCheck(pool, clientID, user); err != nil {
-		return nil, err
+		return err
 	}
 
 	if user.Status == UserStatusUnconfirmed {
-		return nil, fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
+		return fmt.Errorf("%w: user %q is not confirmed", ErrUserNotConfirmed, user.Username)
 	}
 
 	if !user.Enabled {
-		return nil, fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, user.Username)
+		return fmt.Errorf("%w: user %q account is disabled", ErrNotAuthorized, user.Username)
+	}
+
+	return nil
+}
+
+// postCredentialCheckLocked runs once a caller's credential (password or SRP password
+// claim) has been verified: it gates on FORCE_CHANGE_PASSWORD and pool MFA
+// configuration before finally issuing tokens. Caller must hold the write lock.
+func (b *InMemoryBackend) postCredentialCheckLocked(pool *UserPool, clientID string, user *User) (*AuthResult, error) {
+	if user.Status == UserStatusForceChangePassword {
+		return b.newMFASession(pool, clientID, user.Username, challengeNewPasswordRequired), nil
+	}
+
+	mfaConfig := pool.MfaConfiguration
+	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
+		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
+	}
+
+	return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+}
+
+// authenticate validates a user's password-based credentials (or delegates to
+// CUSTOM_AUTH) and returns tokens or a challenge. USER_SRP_AUTH/ADMIN_USER_SRP_AUTH are
+// handled separately by startSRPAuthLocked -- a real SRP client never sends a plaintext
+// password to InitiateAuth, so there is nothing for this function to check here. Caller
+// must hold the write lock.
+func (b *InMemoryBackend) authenticate(
+	pool *UserPool,
+	clientID, authFlow string,
+	user *User,
+	password string,
+) (*AuthResult, error) {
+	if err := b.precheckAuthLocked(pool, clientID, authFlow, user); err != nil {
+		return nil, err
+	}
+
+	// A real SRP client never sends a plaintext password: routing USER_SRP_AUTH/
+	// ADMIN_USER_SRP_AUTH here (instead of to startSRPAuthLocked) is always a caller
+	// bug, not a credential to check.
+	if authFlow == authFlowUserSRP || authFlow == authFlowAdminUserSRP {
+		return nil, fmt.Errorf(
+			"%w: %q must use InitiateAuthSRP/AdminInitiateAuthSRP", ErrInvalidUserPoolConfig, authFlow,
+		)
 	}
 
 	// CUSTOM_AUTH never validates a password server-side -- that decision is fully
@@ -464,23 +512,141 @@ func (b *InMemoryBackend) authenticate(
 		return nil, fmt.Errorf("%w: incorrect username or password", ErrNotAuthorized)
 	}
 
-	// USER_SRP_AUTH: credentials verified; return PASSWORD_VERIFIER so client completes handshake.
-	if authFlow == "USER_SRP_AUTH" {
-		return b.newMFASession(pool, clientID, user.Username, challengePasswordVerifier), nil
+	return b.postCredentialCheckLocked(pool, clientID, user)
+}
+
+// startSRPAuthLocked begins the USER_SRP_AUTH/ADMIN_USER_SRP_AUTH handshake: given the
+// client's public ephemeral value A, it picks a random server secret b, computes the
+// public B = (k*v + g^b) mod N from the user's stored SRP verifier, and returns a
+// PASSWORD_VERIFIER challenge carrying SALT/SRP_B/SECRET_BLOCK/USER_ID_FOR_SRP -- the
+// four parameters a real SRP client needs to derive the same session key and complete
+// the handshake via RespondToAuthChallenge. Caller must hold the write lock.
+func (b *InMemoryBackend) startSRPAuthLocked(
+	pool *UserPool, clientID, authFlow string, user *User, srpAHex string,
+) (*AuthResult, error) {
+	if err := b.precheckAuthLocked(pool, clientID, authFlow, user); err != nil {
+		return nil, err
 	}
 
-	// Issue NEW_PASSWORD_REQUIRED challenge when user must set a permanent password.
-	if user.Status == UserStatusForceChangePassword {
-		return b.newMFASession(pool, clientID, user.Username, challengeNewPasswordRequired), nil
+	if user.SRPSalt == "" || user.SRPVerifier == "" {
+		return nil, fmt.Errorf("%w: user %q has no SRP credentials", ErrNotAuthorized, user.Username)
 	}
 
-	// MFA enforcement: if the pool requires or offers MFA, issue an MFA challenge.
-	mfaConfig := pool.MfaConfiguration
-	if mfaConfig == "ON" || mfaConfig == "OPTIONAL" {
-		return b.newMFASession(pool, clientID, user.Username, mfaChallengeType(pool, user)), nil
+	aPub, ok := new(big.Int).SetString(srpAHex, hexBase)
+	if !ok || aPub.Sign() <= 0 {
+		return nil, fmt.Errorf("%w: invalid SRP_A", ErrInvalidParameter)
 	}
 
-	return b.issueTokensLocked(pool, clientID, user, triggerSourceTokenGenAuthentication)
+	if new(big.Int).Mod(aPub, srpN()).Sign() == 0 {
+		return nil, fmt.Errorf("%w: SRP_A mod N cannot be zero", ErrInvalidParameter)
+	}
+
+	verifier, ok := new(big.Int).SetString(user.SRPVerifier, hexBase)
+	if !ok {
+		return nil, fmt.Errorf("%w: corrupt SRP verifier for user %q", ErrNotAuthorized, user.Username)
+	}
+
+	bPriv, err := srpRandomExponent()
+	if err != nil {
+		return nil, err
+	}
+
+	bPub := srpServerB(verifier, bPriv)
+
+	secretBlock := make([]byte, srpSecretBlockLen)
+	if _, readErr := rand.Read(secretBlock); readErr != nil {
+		return nil, fmt.Errorf("generating SRP secret block: %w", readErr)
+	}
+
+	sessionToken := randomAlphanumeric(mfaSessionLen)
+	entry := &mfaSessionEntry{
+		PoolID:         pool.ID,
+		ClientID:       clientID,
+		Username:       user.Username,
+		ChallengeType:  challengePasswordVerifier,
+		ExpiresAt:      time.Now().Add(mfaSessionTTL),
+		SRPA:           hex.EncodeToString(srpPadHex(aPub)),
+		SRPb:           hex.EncodeToString(srpPadHex(bPriv)),
+		SRPB:           hex.EncodeToString(srpPadHex(bPub)),
+		SRPSecretBlock: base64.StdEncoding.EncodeToString(secretBlock),
+	}
+	b.mfaSessions[sessionToken] = entry
+
+	return &AuthResult{
+		MFASession:    sessionToken,
+		ChallengeName: challengePasswordVerifier,
+		ChallengeParameters: map[string]string{
+			"SALT":            user.SRPSalt,
+			"SRP_B":           entry.SRPB,
+			"SECRET_BLOCK":    entry.SRPSecretBlock,
+			"USERNAME":        user.Username,
+			"USER_ID_FOR_SRP": user.Username,
+		},
+	}, nil
+}
+
+// srpRandomExponent picks a random SRP private exponent b in [1, N).
+func srpRandomExponent() (*big.Int, error) {
+	n := srpN()
+
+	for {
+		b, err := rand.Int(rand.Reader, n)
+		if err != nil {
+			return nil, fmt.Errorf("generating SRP exponent: %w", err)
+		}
+
+		if b.Sign() != 0 {
+			return b, nil
+		}
+	}
+}
+
+// InitiateAuthSRP begins a USER_SRP_AUTH handshake.
+func (b *InMemoryBackend) InitiateAuthSRP(clientID, authFlow, username, srpA string) (*AuthResult, error) {
+	b.mu.Lock("InitiateAuthSRP")
+	defer b.mu.Unlock()
+
+	client, ok := b.clients.Get(clientID)
+	if !ok {
+		return nil, fmt.Errorf("%w: client %q not found", ErrClientNotFound, clientID)
+	}
+
+	pool, ok := b.pools.Get(client.UserPoolID)
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, client.UserPoolID)
+	}
+
+	user, ok := b.users.Get(userKey(client.UserPoolID, username))
+	if !ok {
+		return nil, unknownUserAuthError(client, username)
+	}
+
+	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA)
+}
+
+// AdminInitiateAuthSRP begins an ADMIN_USER_SRP_AUTH handshake.
+func (b *InMemoryBackend) AdminInitiateAuthSRP(
+	userPoolID, clientID, authFlow, username, srpA string,
+) (*AuthResult, error) {
+	b.mu.Lock("AdminInitiateAuthSRP")
+	defer b.mu.Unlock()
+
+	pool, ok := b.pools.Get(userPoolID)
+	if !ok {
+		return nil, fmt.Errorf("%w: pool %q not found", ErrUserPoolNotFound, userPoolID)
+	}
+
+	client, ok := b.clients.Get(clientID)
+	if !ok || client.UserPoolID != userPoolID {
+		return nil, fmt.Errorf("%w: client %q not found in pool %q", ErrClientNotFound, clientID, userPoolID)
+	}
+
+	user, ok := b.users.Get(userKey(userPoolID, username))
+	if !ok {
+		return nil, fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
+	}
+
+	return b.startSRPAuthLocked(pool, clientID, authFlow, user, srpA)
 }
 
 // ResendConfirmationCode generates a new confirmation code for an unconfirmed user.
@@ -613,9 +779,9 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		return nil, fmt.Errorf("%w: user %q already exists", ErrUsernameExists, username)
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(client.UserPoolID, username, password)
 	if err != nil {
-		return nil, fmt.Errorf("hashing password: %w", err)
+		return nil, err
 	}
 
 	attrs := make(map[string]string, len(userAttributes))
@@ -670,7 +836,9 @@ func (b *InMemoryBackend) SignUpWithValidation(
 		Sub:                  uuid.New().String(),
 		Username:             username,
 		UserPoolID:           client.UserPoolID,
-		PasswordHash:         string(hash),
+		PasswordHash:         hash,
+		SRPSalt:              saltHex,
+		SRPVerifier:          verifierHex,
 		Status:               status,
 		Attributes:           attrs,
 		CreatedAt:            time.Now(),

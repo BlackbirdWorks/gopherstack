@@ -35,11 +35,11 @@ func (h *Handler) handleCreateWorkflow(c *echo.Context) error {
 	// Real CreateWorkflowOutput: arn/id/status/tags plus the optional uuid
 	// field (gopherstack-fedo).
 	return c.JSON(http.StatusCreated, map[string]any{
-		"arn":    wf.Arn,
-		"id":     wf.ID,
-		"status": wf.Status,
-		"uuid":   wf.UUID,
-		keyTags:  wf.Tags,
+		keyArn:    wf.Arn,
+		"id":      wf.ID,
+		keyStatus: wf.Status,
+		keyUUID:   wf.UUID,
+		keyTags:   wf.Tags,
 	})
 }
 

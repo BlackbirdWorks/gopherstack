@@ -174,6 +174,9 @@ const (
 	keyImportJobs = "importJobs"
 	keyErrors     = "errors"
 	keyTags       = "tags"
+	keyArn        = "arn"
+	keyStatus     = "status"
+	keyUUID       = "uuid"
 )
 
 // Handler handles HealthOmics HTTP requests.

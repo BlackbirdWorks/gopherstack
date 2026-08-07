@@ -256,7 +256,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// RunBatch.
-	runBatch, err := original.StartRunBatch(workflow.ID, "role-arn", "run-batch-1")
+	runBatch, err := original.StartRunBatch(
+		"run-batch-1",
+		omics.DefaultRunSetting{WorkflowID: workflow.ID, RoleARN: "role-arn"},
+		[]omics.InlineRunSetting{{RunSettingID: "setting-1"}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Configuration.

@@ -52,12 +52,13 @@ var _ StorageBackend = (*InMemoryBackend)(nil)
 // Report state and the resource cache are nested by region so that same-named resources
 // created in different regions are fully isolated.
 type InMemoryBackend struct {
-	mu                *lockmetrics.RWMutex
+	tagPolicyProvider TagPolicyProvider
 	registry          *store.Registry
-	reportStates      *store.Table[reportCreationState] // region → report state
-	caches            map[string]*resourceCache         // region → resource cache
+	reportStates      *store.Table[reportCreationState]
+	caches            map[string]*resourceCache
 	nowFunc           func() string
 	clockFunc         func() time.Time
+	mu                *lockmetrics.RWMutex
 	accountID         string
 	defaultRegion     string
 	providers         []ResourceProvider
