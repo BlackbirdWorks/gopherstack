@@ -272,7 +272,7 @@ func TestCBOR(t *testing.T) {
 			body: cbor.Map{
 				"RuleName":       cbor.String("cbor-rule"),
 				"RuleState":      cbor.String("ENABLED"),
-				"RuleDefinition": cbor.String(`{"Schema":"CloudWatchLogRule"}`),
+				"RuleDefinition": cbor.String(validInsightRuleDefinition),
 			},
 			wantCode: http.StatusOK,
 		},

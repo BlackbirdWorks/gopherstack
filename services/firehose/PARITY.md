@@ -4,9 +4,29 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.42.11
-last_audit_commit: 2b2086c9
-last_audit_date: 2026-07-23
-overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs
+last_audit_commit: 198990e82
+last_audit_date: 2026-08-07
+overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
+                      # 2026-08-07 pass (bd gopherstack-ohdc): found and fixed a genuine silent-breakage
+                      # bug in Redshift delivery -- deliverToRedshift constructed a real
+                      # aws-sdk-go-v2/service/redshiftdata client via sdk_rddata.NewFromConfig with no
+                      # endpoint override and no credentials, meaning every Redshift delivery attempt
+                      # either hung on the default credential chain or failed against real AWS, not this
+                      # emulator's own redshiftdata service -- Redshift delivery had never actually worked
+                      # end to end despite ops/gaps previously describing it as "executes a synthesized
+                      # INSERT statement" (true only in the sense that the code tried to, not that it
+                      # succeeded). Replaced with the same in-process interface pattern S3Storer/
+                      # LambdaInvoker already use (RedshiftDataExecutor + SetRedshiftDataBackend), and
+                      # implemented real two-hop delivery: records are staged to the destination's
+                      # required S3Configuration bucket via the existing writeRecordsToBucket helper,
+                      # then a COPY command referencing the staged S3 object and the configured
+                      # CopyCommand (DataTableName/DataTableColumns/CopyOptions) plus RoleARN credentials
+                      # is issued via the new executor, with the existing exponential-backoff retry loop
+                      # preserved. Wiring SetRedshiftDataBackend to the local redshiftdata backend in
+                      # cli.go is out of this pass's scope (cli.go forbidden) -- same deferred-wiring
+                      # pattern already established for cloudwatch's metric-stream Firehose delivery gap;
+                      # unlike before, this is now a documented, honest no-op (logged once) rather than a
+                      # silent live-network call that looked like real delivery and wasn't.
 
 ops:
   CreateDeliveryStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "response is DeliveryStreamARN only, matches SDK. Added Iceberg/Snowflake/legacy-Elasticsearch destination-configuration parsing this pass; added the at-most-one-destination validation that was previously missing (see Notes)."}
@@ -28,13 +48,21 @@ families:
 
 gaps:
   - >
-    Redshift destination does not model AWS's actual two-hop delivery (Firehose stages
-    records to the S3Configuration bucket, then issues a COPY command referencing
-    CopyCommand against that staged data). This backend instead executes a synthesized
-    INSERT statement directly via the Redshift Data API. Wire shape for CreateDeliveryStream/
-    UpdateDestination/DescribeDeliveryStream is correct (S3Configuration and CopyCommand
-    round-trip accurately), but the actual data-movement mechanics diverge behaviorally.
-    Deferred — larger rework than a wire-shape fix, no bd id filed yet.
+    FIXED 2026-08-07 (bd gopherstack-ohdc): Redshift delivery now models AWS's actual
+    two-hop delivery for real -- records are staged to the destination's required
+    S3Configuration bucket via writeRecordsToBucket, then a COPY command referencing the
+    staged S3 object and CopyCommand (DataTableName/DataTableColumns/CopyOptions/RoleARN
+    credentials) is built and issued through a new RedshiftDataExecutor interface (mirroring
+    the existing S3Storer/LambdaInvoker in-process pattern), replacing the previous
+    implementation which constructed a live aws-sdk-go-v2/service/redshiftdata client
+    pointed at real AWS with no credentials -- a genuinely silent bug: every Redshift
+    delivery attempt in any environment before this fix would fail against real AWS
+    infrastructure rather than deliver anywhere, despite looking like working code (see
+    "overall" note above). Remaining gap: SetRedshiftDataBackend is not wired to the local
+    redshiftdata backend in cli.go (forbidden in this pass's scope), so the COPY step is a
+    documented, explicitly-logged no-op until a future pass wires it there -- staging to S3
+    is real and unconditional regardless of wiring. Same deferred-wiring shape as the
+    cloudwatch metric-stream-to-Firehose gap below.
   - >
     Iceberg and Snowflake destinations (new this pass) land processed records into their
     required S3Configuration staging bucket rather than driving a real Apache Iceberg/Glue
@@ -60,7 +88,7 @@ gaps:
     pass's explicit destination scope; newly identified, deferred.
 
 deferred:
-  - Redshift real S3-staging + COPY delivery mechanics (see gaps)
+  - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
   - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
   - Elasticsearch/OpenSearch VpcConfiguration and DocumentIdOptions fields (see gaps)
   - AmazonOpenSearchServerlessDestinationConfiguration destination family (see gaps)

@@ -132,8 +132,8 @@ func (h *Handler) handleCreateCollaborationChangeRequest(
 	body []byte,
 ) ([]byte, error) {
 	var req struct {
-		CollaborationIdentifier string           `json:"collaborationIdentifier"`
-		Changes                 []map[string]any `json:"changes"`
+		CollaborationIdentifier string   `json:"collaborationIdentifier"`
+		Changes                 []Change `json:"changes"`
 	}
 	_ = json.Unmarshal(body, &req)
 	r, err := h.Backend.CreateCollaborationChangeRequest(

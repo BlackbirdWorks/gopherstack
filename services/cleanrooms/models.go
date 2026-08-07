@@ -17,6 +17,11 @@ const (
 	// both PENDING and APPROVED transitions in changeRequestNextStatus.
 	changeRequestActionCancel = "CANCEL"
 
+	// ChangeSpecificationType enum values (types.ChangeSpecificationTypeMember/
+	// -Collaboration).
+	changeSpecTypeMember        = "MEMBER"
+	changeSpecTypeCollaboration = "COLLABORATION"
+
 	// IntermediateTableStatus values (types.IntermediateTableStatus).
 	// BASE_TABLE_REMOVED and RETENTION_PERIOD_EXPIRED are real enum values
 	// this backend never assigns (they require, respectively, tracking base
@@ -87,38 +92,22 @@ type MemberSummary struct {
 // wire presence was invented.
 type Collaboration struct {
 	Tags                    map[string]string `json:"-"`
-	CollaborationIdentifier string            `json:"-"`
-	ID                      string            `json:"id"`
+	MemberStatus            string            `json:"memberStatus"`
+	MembershipArn           string            `json:"membershipArn,omitempty"`
 	Arn                     string            `json:"arn"`
 	Name                    string            `json:"name"`
 	Description             string            `json:"description,omitempty"`
 	CreatorAccountID        string            `json:"creatorAccountId"`
+	ID                      string            `json:"id"`
 	CreatorDisplayName      string            `json:"creatorDisplayName"`
-	MemberStatus            string            `json:"memberStatus"`
 	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
-	// MembershipArn/MembershipID are the caller's own membership within this
-	// collaboration -- real AWS auto-creates a membership for the creator at
-	// CreateCollaboration time (see InMemoryBackend.CreateCollaboration).
-	MembershipArn   string   `json:"membershipArn,omitempty"`
-	MembershipID    string   `json:"membershipId,omitempty"`
-	MemberAbilities []string `json:"-"`
-	// Members is the real backing store for ListMembers/DeleteMember (see
-	// InMemoryBackend.ListMembers/DeleteMember) and has no separate
-	// persisted representation the way tagsByArn does for Tags, so unlike
-	// every other invented field cleaned up in this pass it keeps a real
-	// (non "-") json tag: store.Table's Snapshot/Restore round-trips
-	// through this exact tag, and a json:"-" here would silently lose every
-	// collaboration's member list across a restart. A real AWS SDK/
-	// Terraform client tolerates the extra "members" key on
-	// Create/Get/UpdateCollaboration responses (every deserializer in this
-	// service ends its field switch with a default case that discards
-	// unrecognized keys), so this is a deliberate, documented exception,
-	// not a silent wire violation -- moving Members to its own
-	// store.Table (like tagsByArn) to fully remove it from the wire is
-	// deferred, see PARITY.md.
-	Members    []*MemberSummary `json:"members,omitempty"`
-	CreateTime float64          `json:"createTime,omitempty"`
-	UpdateTime float64          `json:"updateTime,omitempty"`
+	CollaborationIdentifier string            `json:"-"`
+	MembershipID            string            `json:"membershipId,omitempty"`
+	MemberAbilities         []string          `json:"-"`
+	Members                 []*MemberSummary  `json:"members,omitempty"`
+	AutoApprovedChangeTypes []string          `json:"autoApprovedChangeTypes,omitempty"`
+	CreateTime              float64           `json:"createTime,omitempty"`
+	UpdateTime              float64           `json:"updateTime,omitempty"`
 }
 
 // CollaborationSummary is the wire shape returned by ListCollaborations.
@@ -496,18 +485,38 @@ type PrivacyBudgetTemplateSummary struct {
 	UpdateTime                      float64 `json:"updateTime,omitempty"`
 }
 
+// PrivacyBudget is the wire shape returned by ListPrivacyBudgets/
+// ListCollaborationPrivacyBudgets (real AWS name: PrivacyBudgetSummary).
+// Verified against awsRestjson1_deserializeDocumentPrivacyBudgetSummary: real
+// keys are budget, collaborationArn, collaborationId, createTime, id,
+// membershipArn, membershipId, privacyBudgetTemplateArn,
+// privacyBudgetTemplateId, type, updateTime.
+//
+// FIXED (bd gopherstack-kiqa): this struct previously mislabeled
+// PrivacyBudgetType's wire key as "privacyBudgetType" (the real key is
+// "type") and additionally emitted invented duplicate
+// collaborationIdentifier/membershipIdentifier/privacyBudgetTemplateIdentifier
+// keys alongside the correctly-named .../Id fields -- the exact systemic
+// invented-*Identifier bug class fixed everywhere else in this service
+// (see CollaborationChangeRequest/Collaboration/etc doc comments), missed
+// here. createTime/updateTime (both real, required) were entirely absent.
+// A real SDK client would have received a "type"-less, extra-keyed,
+// timestamp-less summary -- wire-incompatible on the required Type field.
 type PrivacyBudget struct {
 	Budget                          map[string]any `json:"budget,omitempty"`
 	ID                              string         `json:"id"`
 	PrivacyBudgetTemplateArn        string         `json:"privacyBudgetTemplateArn"`
-	PrivacyBudgetTemplateIdentifier string         `json:"privacyBudgetTemplateIdentifier"`
+	PrivacyBudgetTemplateIdentifier string         `json:"-"`
 	CollaborationArn                string         `json:"collaborationArn"`
-	CollaborationIdentifier         string         `json:"collaborationIdentifier"`
+	CollaborationIdentifier         string         `json:"-"`
 	MembershipArn                   string         `json:"membershipArn"`
-	MembershipIdentifier            string         `json:"membershipIdentifier"`
-	PrivacyBudgetType               string         `json:"privacyBudgetType"`
+	MembershipIdentifier            string         `json:"-"`
+	PrivacyBudgetType               string         `json:"type"`
 	MembershipID                    string         `json:"membershipId"`
 	CollaborationID                 string         `json:"collaborationId"`
+	PrivacyBudgetTemplateID         string         `json:"privacyBudgetTemplateId"`
+	CreateTime                      float64        `json:"createTime,omitempty"`
+	UpdateTime                      float64        `json:"updateTime,omitempty"`
 }
 
 // IDMappingTable is the wire shape for CreateIdMappingTable/GetIdMappingTable
@@ -635,32 +644,66 @@ type ConfiguredAudienceModelAssociationSummary struct {
 	UpdateTime                                   float64 `json:"updateTime,omitempty"`
 }
 
+// MemberChangeSpecification is the MEMBER-typed ChangeSpecification union member.
+// Verified against awsRestjson1_deserializeDocumentMemberChangeSpecification:
+// real keys are accountId, displayName, memberAbilities (mlMemberAbilities/
+// paymentConfiguration are real but not modeled, see PARITY.md).
+type MemberChangeSpecification struct {
+	AccountID       string   `json:"accountId"`
+	DisplayName     string   `json:"displayName,omitempty"`
+	MemberAbilities []string `json:"memberAbilities"`
+}
+
+// CollaborationChangeSpecification is the COLLABORATION-typed ChangeSpecification
+// union member. Verified against
+// awsRestjson1_deserializeDocumentCollaborationChangeSpecification: the only real
+// key is autoApprovedChangeTypes.
+type CollaborationChangeSpecification struct {
+	AutoApprovedChangeTypes []string `json:"autoApprovedChangeTypes,omitempty"`
+}
+
+// ChangeSpecification is the typed union for a Change's specification details
+// (types.ChangeSpecification: ChangeSpecificationMemberMember |
+// ChangeSpecificationMemberCollaboration, confirmed against
+// awsRestjson1_deserializeDocumentChangeSpecification's "member"/"collaboration"
+// keys). Exactly one of Member/Collaboration is set, matching SpecificationType.
+type ChangeSpecification struct {
+	Member        *MemberChangeSpecification        `json:"member,omitempty"`
+	Collaboration *CollaborationChangeSpecification `json:"collaboration,omitempty"`
+}
+
+// Change is a single entry in CollaborationChangeRequest.Changes / a
+// CreateCollaborationChangeRequestInput.Changes element. Verified against
+// awsRestjson1_deserializeDocumentChange: real keys are specification,
+// specificationType, types.
+type Change struct {
+	Specification     ChangeSpecification `json:"specification"`
+	SpecificationType string              `json:"specificationType"`
+	Types             []string            `json:"types"`
+}
+
 // CollaborationChangeRequest verified against
 // awsRestjson1_deserializeDocumentCollaborationChangeRequest: real keys are
 // approvals, changes, collaborationId, createTime, id, isAutoApproved,
 // status, updateTime. There is NO "changeRequestIdentifier",
 // "collaborationIdentifier", "collaborationArn", "type", or "details" key
-// in the real API -- CreateCollaborationChangeRequestInput takes a
-// `changes` array of {specification, specificationType} objects (not a
-// free-form "type"+"details" pair), which this backend stores as a
-// generic []map[string]any pass-through, matching the convention used for
-// other complex nested unions in this service (Policy, TableReference,
-// etc). ChangeRequestIdentifier/CollaborationArn/Type are kept as Go-only
-// bookkeeping (json:"-").
+// in the real API. Changes is a typed union (see Change/ChangeSpecification),
+// field-diffed against ChangeInput/Change/ChangeSpecification/
+// MemberChangeSpecification/CollaborationChangeSpecification.
+// ChangeRequestIdentifier/CollaborationArn are kept as Go-only bookkeeping
+// (json:"-").
 type CollaborationChangeRequest struct {
-	Details                 map[string]any   `json:"-"`
-	Approvals               map[string]any   `json:"approvals,omitempty"`
-	CollaborationArn        string           `json:"-"`
-	ChangeRequestIdentifier string           `json:"-"`
-	CollaborationIdentifier string           `json:"-"`
-	CollaborationID         string           `json:"collaborationId"`
-	Status                  string           `json:"status"`
-	Type                    string           `json:"-"`
-	ID                      string           `json:"id"`
-	Changes                 []map[string]any `json:"changes,omitempty"`
-	CreateTime              float64          `json:"createTime,omitempty"`
-	UpdateTime              float64          `json:"updateTime,omitempty"`
-	IsAutoApproved          bool             `json:"isAutoApproved"`
+	Approvals               map[string]any `json:"approvals,omitempty"`
+	CollaborationArn        string         `json:"-"`
+	ChangeRequestIdentifier string         `json:"-"`
+	CollaborationIdentifier string         `json:"-"`
+	CollaborationID         string         `json:"collaborationId"`
+	Status                  string         `json:"status"`
+	ID                      string         `json:"id"`
+	Changes                 []Change       `json:"changes,omitempty"`
+	CreateTime              float64        `json:"createTime,omitempty"`
+	UpdateTime              float64        `json:"updateTime,omitempty"`
+	IsAutoApproved          bool           `json:"isAutoApproved"`
 }
 
 // IntermediateTable is the wire shape for CreateIntermediateTable/

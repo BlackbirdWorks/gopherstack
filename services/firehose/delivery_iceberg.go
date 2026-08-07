@@ -18,6 +18,6 @@ func (b *InMemoryBackend) deliverToIceberg(
 		return
 	}
 
-	_ = b.writeRecordsToBucket(ctx, records, dest.S3Destination.BucketARN,
+	_, _ = b.writeRecordsToBucket(ctx, records, dest.S3Destination.BucketARN,
 		dest.S3Destination.Prefix, "", dest.S3Destination.CompressionFormat, streamName)
 }

@@ -1,6 +1,9 @@
 <script lang="ts">
 import { untrack } from 'svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getKMSClient } from '$lib/aws-client';
 import {
 	ListKeysCommand, DescribeKeyCommand, DisableKeyCommand, EnableKeyCommand,
@@ -18,6 +21,13 @@ import { toast } from 'svelte-sonner';
 import { Key, RefreshCw, Search, Lock, Unlock, Copy, Tag, Plus, BarChart3, BookOpen, Shield, RotateCcw, Trash2, CheckCircle, XCircle, Edit2, Database } from 'lucide-svelte';
 
 const kms = regionalClient(getKMSClient);
+
+// Every single-key action (crypto, sign, rotation, deletion, tags, policy,
+// grants) must run against the region THAT KEY lives in, not the shared
+// `kms()` write-region client -- in All mode a key selected from a fanned-
+// out list can live in a region other than whatever the picker currently
+// resolves to.
+type Regioned<T> = T & { region: string };
 
 type KMSKey = {
 	CreationDate?: Date | string;
@@ -39,13 +49,13 @@ type KMSKey = {
 type TagEntry = { TagKey: string; TagValue: string };
 type Grant = { GrantId: string; GranteePrincipal: string; Operations: GrantOperation[]; Name?: string };
 
-let keys = $state<KMSKey[]>([]);
-let aliases = $state<AliasListEntry[]>([]);
+let keys = $state<Regioned<KMSKey>[]>([]);
+let aliases = $state<Regioned<AliasListEntry>[]>([]);
 let loading = $state(true);
 let search = $state('');
 let stateFilter = $state('all');
 let usageFilter = $state('all');
-let selectedKey = $state<KMSKey | null>(null);
+let selectedKey = $state<Regioned<KMSKey> | null>(null);
 let activeTab = $state<'keys' | 'aliases' | 'grants' | 'metrics' | 'docs'>('keys');
 let aliasSearch = $state('');
 let showCreateModal = $state(false);
@@ -57,6 +67,7 @@ let newKeyMultiRegion = $state(false);
 
 let showCryptoModal = $state(false);
 let cryptoKeyId = $state('');
+let cryptoKeyRegion = $state('');
 let plaintext = $state('');
 let ciphertext = $state('');
 let cipherEncoding = $state<'base64' | 'hex'>('base64');
@@ -75,6 +86,7 @@ let reEncrypting = $state(false);
 
 let showSignModal = $state(false);
 let signKeyId = $state('');
+let signKeyRegion = $state('');
 let signMessage = $state('');
 let signAlgorithm = $state('RSASSA_PSS_SHA_256');
 let signMessageType = $state<'RAW' | 'DIGEST'>('RAW');
@@ -87,6 +99,7 @@ let verifying = $state(false);
 
 let showRotationModal = $state(false);
 let rotationKeyId = $state('');
+let rotationKeyRegion = $state('');
 let rotationEnabled = $state(false);
 let rotationPeriodDays = $state(365);
 let rotationStatus = $state<{ KeyRotationEnabled?: boolean; RotationPeriodInDays?: number; NextRotationDate?: number; OnDemandRotationStartDate?: number } | null>(null);
@@ -96,6 +109,7 @@ let rotatingOnDemand = $state(false);
 
 let showDeletionModal = $state(false);
 let deletionKeyId = $state('');
+let deletionKeyRegion = $state('');
 let deletionKeyState = $state('');
 let pendingWindowDays = $state(30);
 let schedulingDeletion = $state(false);
@@ -107,10 +121,12 @@ let creatingAlias = $state(false);
 let showAliasUpdateModal = $state(false);
 let editAliasName = $state('');
 let editAliasTargetKeyId = $state('');
+let editAliasRegion = $state('');
 let updatingAlias = $state(false);
 
 let showTagModal = $state(false);
 let tagKeyId = $state('');
+let tagKeyRegion = $state('');
 let keyTags = $state<TagEntry[]>([]);
 let newTagKey = $state('');
 let newTagValue = $state('');
@@ -118,6 +134,7 @@ let savingTags = $state(false);
 
 let showPolicyModal = $state(false);
 let policyKeyId = $state('');
+let policyKeyRegion = $state('');
 let policyContent = $state('');
 let savingPolicy = $state(false);
 const policyJsonError = $derived.by(() => {
@@ -141,6 +158,7 @@ function formatPolicyJson() {
 
 let showGrantModal = $state(false);
 let grantKeyId = $state('');
+let grantKeyRegion = $state('');
 let keyGrants = $state<Grant[]>([]);
 let newGrantPrincipal = $state('');
 let newGrantOps = $state('Decrypt,Encrypt');
@@ -154,6 +172,9 @@ const ALL_GRANT_OPERATIONS: GrantOperation[] = [
 	'GenerateDataKeyPairWithoutPlaintext', 'GenerateMac', 'VerifyMac', 'DeriveSharedSecret'
 ];
 let grantsTabKeyId = $state('');
+// Derived, not tracked separately: grantsTabKeyId is chosen from a <select>
+// populated by `keys`, so the region can always be looked up from there.
+let grantsTabKeyRegion = $derived(keys.find(k => k.KeyId === grantsTabKeyId)?.region ?? '');
 let grantsTabGrants = $state<Grant[]>([]);
 let grantsTabLoading = $state(false);
 let grantsTabPrincipal = $state('');
@@ -180,6 +201,13 @@ onRegionChange(() => {
 	selectedKey = null;
 	grantsTabKeyId = '';
 	grantsTabGrants = [];
+	cryptoKeyRegion = '';
+	signKeyRegion = '';
+	rotationKeyRegion = '';
+	deletionKeyRegion = '';
+	tagKeyRegion = '';
+	policyKeyRegion = '';
+	grantKeyRegion = '';
 	policyTabContent = '';
 	showCreateModal = false;
 	showCryptoModal = false;
@@ -199,19 +227,27 @@ onRegionChange(() => {
 async function loadKeys() {
 	try {
 		loading = true;
-		const listData = await kms().send(new ListKeysCommand({}));
-		const rawKeys = listData.Keys || [];
-		const details = await Promise.all(
-			rawKeys.slice(0, 50).map(async (k) => {
-				try {
-					const d = await kms().send(new DescribeKeyCommand({ KeyId: k.KeyId }));
-					return d.KeyMetadata;
-				} catch {
-					return { KeyId: k.KeyId, KeyArn: k.KeyArn, Description: '', KeyState: 'Unknown', KeyUsage: 'Unknown' };
-				}
-			})
+		const result = await multiRegionList(
+			async (region) => {
+				const client = getKMSClient(region);
+				const listData = await client.send(new ListKeysCommand({}));
+				const rawKeys = listData.Keys || [];
+				const details = await Promise.all(
+					rawKeys.slice(0, 50).map(async (k) => {
+						try {
+							const d = await client.send(new DescribeKeyCommand({ KeyId: k.KeyId }));
+							return d.KeyMetadata;
+						} catch {
+							return { KeyId: k.KeyId, KeyArn: k.KeyArn, Description: '', KeyState: 'Unknown', KeyUsage: 'Unknown' };
+						}
+					})
+				);
+				return details.filter(Boolean) as KMSKey[];
+			},
+			(details) => details
 		);
-		keys = details.filter(Boolean) as KMSKey[];
+		keys = result.items.map(({ region, item }) => ({ ...item, region }));
+		if (result.errors.length > 0) toast.error(`Failed to load keys from ${result.errors.length} region(s)`);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load keys');
 	} finally {
@@ -222,8 +258,12 @@ async function loadKeys() {
 async function loadAliases() {
 	try {
 		loading = true;
-		const data = await kms().send(new ListAliasesCommand({ Limit: 100 }));
-		aliases = data.Aliases || [];
+		const result = await multiRegionList(
+			(region) => getKMSClient(region).send(new ListAliasesCommand({ Limit: 100 })),
+			(r) => r.Aliases ?? []
+		);
+		aliases = result.items.map(({ region, item }) => ({ ...item, region }));
+		if (result.errors.length > 0) toast.error(`Failed to load aliases from ${result.errors.length} region(s)`);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load aliases');
 	} finally {
@@ -251,7 +291,7 @@ async function loadGrantsForTab() {
 	if (!grantsTabKeyId) return;
 	grantsTabLoading = true;
 	try {
-		const res = await kms().send(new ListGrantsCommand({ KeyId: grantsTabKeyId }));
+		const res = await getKMSClient(grantsTabKeyRegion).send(new ListGrantsCommand({ KeyId: grantsTabKeyId }));
 		grantsTabGrants = (res.Grants ?? []) as Grant[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load grants');
@@ -264,7 +304,7 @@ async function loadPolicyForTab() {
 	if (!grantsTabKeyId) return;
 	policyTabLoading = true;
 	try {
-		const res = await kms().send(new GetKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default' }));
+		const res = await getKMSClient(grantsTabKeyRegion).send(new GetKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default' }));
 		policyTabContent = res.Policy ? JSON.stringify(JSON.parse(res.Policy), null, 2) : '{}';
 	} catch (e) {
 		policyTabContent = '{}';
@@ -285,7 +325,7 @@ async function savePolicyForTab() {
 		return;
 	}
 	try {
-		await kms().send(new PutKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default', Policy: policyTabContent }));
+		await getKMSClient(grantsTabKeyRegion).send(new PutKeyPolicyCommand({ KeyId: grantsTabKeyId, PolicyName: 'default', Policy: policyTabContent }));
 		toast.success('Key policy saved');
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to save policy');
@@ -301,7 +341,7 @@ async function createGrantInTab() {
 	}
 	grantsTabCreating = true;
 	try {
-		await kms().send(new CreateGrantCommand({
+		await getKMSClient(grantsTabKeyRegion).send(new CreateGrantCommand({
 			KeyId: grantsTabKeyId,
 			GranteePrincipal: grantsTabPrincipal.trim(),
 			Operations: [...grantsTabSelectedOps],
@@ -322,7 +362,7 @@ async function createGrantInTab() {
 async function revokeGrantInTab(grantId: string) {
 	if (!grantsTabKeyId) return;
 	try {
-		await kms().send(new RevokeGrantCommand({ KeyId: grantsTabKeyId, GrantId: grantId }));
+		await getKMSClient(grantsTabKeyRegion).send(new RevokeGrantCommand({ KeyId: grantsTabKeyId, GrantId: grantId }));
 		toast.success('Grant revoked');
 		grantsTabGrants = grantsTabGrants.filter(g => g.GrantId !== grantId);
 	} catch (e) {
@@ -335,9 +375,9 @@ async function copyId(id: string) {
 	toast.success('Copied to clipboard');
 }
 
-async function disableKey(keyId: string) {
+async function disableKey(keyId: string, region: string) {
 	try {
-		await kms().send(new DisableKeyCommand({ KeyId: keyId }));
+		await getKMSClient(region).send(new DisableKeyCommand({ KeyId: keyId }));
 		toast.success(`Key ${keyId} disabled`);
 		await loadKeys();
 	} catch (e) {
@@ -345,9 +385,9 @@ async function disableKey(keyId: string) {
 	}
 }
 
-async function enableKey(keyId: string) {
+async function enableKey(keyId: string, region: string) {
 	try {
-		await kms().send(new EnableKeyCommand({ KeyId: keyId }));
+		await getKMSClient(region).send(new EnableKeyCommand({ KeyId: keyId }));
 		toast.success(`Key ${keyId} enabled`);
 		await loadKeys();
 	} catch (e) {
@@ -423,7 +463,7 @@ async function encrypt() {
 	if (!plaintext) return;
 	try {
 		encrypting = true;
-		const res = await kms().send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
+		const res = await getKMSClient(cryptoKeyRegion).send(new EncryptCommand({ KeyId: cryptoKeyId, Plaintext: new TextEncoder().encode(plaintext) }));
 		if (res.CiphertextBlob) {
 			ciphertext = bytesToCipher(res.CiphertextBlob);
 		}
@@ -439,7 +479,7 @@ async function decrypt() {
 	if (!ciphertext) return;
 	try {
 		decrypting = true;
-		const res = await kms().send(new DecryptCommand({ CiphertextBlob: cipherToBytes(ciphertext) }));
+		const res = await getKMSClient(cryptoKeyRegion).send(new DecryptCommand({ CiphertextBlob: cipherToBytes(ciphertext) }));
 		if (res.Plaintext) {
 			decryptedText = new TextDecoder().decode(res.Plaintext);
 		}
@@ -451,8 +491,9 @@ async function decrypt() {
 	}
 }
 
-function openCrypto(keyId: string) {
-	cryptoKeyId = keyId;
+function openCrypto(key: Regioned<KMSKey>) {
+	cryptoKeyId = key.KeyId ?? '';
+	cryptoKeyRegion = key.region;
 	plaintext = '';
 	ciphertext = '';
 	decryptedText = '';
@@ -469,7 +510,7 @@ async function reEncrypt() {
 	if (!ciphertext || !reEncryptDestKeyId) return;
 	try {
 		reEncrypting = true;
-		const res = await kms().send(new ReEncryptCommand({
+		const res = await getKMSClient(cryptoKeyRegion).send(new ReEncryptCommand({
 			CiphertextBlob: cipherToBytes(ciphertext),
 			DestinationKeyId: reEncryptDestKeyId
 		}));
@@ -486,15 +527,16 @@ async function reEncrypt() {
 	}
 }
 
-async function openSignModal(key: KMSKey) {
+async function openSignModal(key: Regioned<KMSKey>) {
 	signKeyId = key.KeyId ?? '';
+	signKeyRegion = key.region;
 	signMessage = '';
 	signature = '';
 	verifyMessage = '';
 	verifySig = '';
 	verifyResult = null;
 	try {
-		const pub = await kms().send(new GetPublicKeyCommand({ KeyId: signKeyId }));
+		const pub = await getKMSClient(signKeyRegion).send(new GetPublicKeyCommand({ KeyId: signKeyId }));
 		if (pub.SigningAlgorithms && pub.SigningAlgorithms.length > 0) {
 			signAlgorithm = pub.SigningAlgorithms[0];
 		}
@@ -506,7 +548,7 @@ async function signData() {
 	if (!signMessage) return;
 	try {
 		signing = true;
-		const res = await kms().send(new SignCommand({
+		const res = await getKMSClient(signKeyRegion).send(new SignCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(signMessage),
 			MessageType: signMessageType,
@@ -522,7 +564,7 @@ async function verifyData() {
 	if (!verifyMessage || !verifySig) return;
 	try {
 		verifying = true;
-		const res = await kms().send(new VerifyCommand({
+		const res = await getKMSClient(signKeyRegion).send(new VerifyCommand({
 			KeyId: signKeyId,
 			Message: new TextEncoder().encode(verifyMessage),
 			MessageType: signMessageType,
@@ -535,12 +577,13 @@ async function verifyData() {
 	} finally { verifying = false; }
 }
 
-async function openRotationModal(key: KMSKey) {
+async function openRotationModal(key: Regioned<KMSKey>) {
 	rotationKeyId = key.KeyId ?? '';
+	rotationKeyRegion = key.region;
 	rotationStatus = null;
 	rotationHistory = [];
 	try {
-		const res = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const res = await getKMSClient(rotationKeyRegion).send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationEnabled = res.KeyRotationEnabled ?? false;
 		rotationPeriodDays = res.RotationPeriodInDays ?? 365;
 		rotationStatus = {
@@ -555,7 +598,7 @@ async function openRotationModal(key: KMSKey) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load rotation status');
 	}
 	try {
-		const hist = await kms().send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		const hist = await getKMSClient(rotationKeyRegion).send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
 		rotationHistory = (hist.Rotations ?? []).map(r => ({
 			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
 			RotationType: (r as { RotationType?: string }).RotationType,
@@ -569,15 +612,15 @@ async function toggleRotation() {
 	try {
 		togglingRotation = true;
 		if (rotationEnabled) {
-			await kms().send(new DisableKeyRotationCommand({ KeyId: rotationKeyId }));
+			await getKMSClient(rotationKeyRegion).send(new DisableKeyRotationCommand({ KeyId: rotationKeyId }));
 			rotationEnabled = false;
 			toast.success('Rotation disabled');
 		} else {
-			await kms().send(new EnableKeyRotationCommand({ KeyId: rotationKeyId, RotationPeriodInDays: rotationPeriodDays }));
+			await getKMSClient(rotationKeyRegion).send(new EnableKeyRotationCommand({ KeyId: rotationKeyId, RotationPeriodInDays: rotationPeriodDays }));
 			rotationEnabled = true;
 			toast.success('Rotation enabled');
 		}
-		const s = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const s = await getKMSClient(rotationKeyRegion).send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
@@ -594,9 +637,9 @@ async function toggleRotation() {
 async function rotateOnDemand() {
 	try {
 		rotatingOnDemand = true;
-		await kms().send(new RotateKeyOnDemandCommand({ KeyId: rotationKeyId }));
+		await getKMSClient(rotationKeyRegion).send(new RotateKeyOnDemandCommand({ KeyId: rotationKeyId }));
 		toast.success('Key material rotated on demand');
-		const s = await kms().send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
+		const s = await getKMSClient(rotationKeyRegion).send(new GetKeyRotationStatusCommand({ KeyId: rotationKeyId }));
 		rotationStatus = {
 			KeyRotationEnabled: s.KeyRotationEnabled,
 			RotationPeriodInDays: s.RotationPeriodInDays,
@@ -605,7 +648,7 @@ async function rotateOnDemand() {
 				? ((s as { OnDemandRotationStartDate?: Date }).OnDemandRotationStartDate!.getTime() / 1000)
 				: undefined
 		};
-		const hist = await kms().send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
+		const hist = await getKMSClient(rotationKeyRegion).send(new ListKeyRotationsCommand({ KeyId: rotationKeyId }));
 		rotationHistory = (hist.Rotations ?? []).map(r => ({
 			RotationDate: r.RotationDate ? r.RotationDate.getTime() / 1000 : undefined,
 			RotationType: (r as { RotationType?: string }).RotationType,
@@ -616,8 +659,9 @@ async function rotateOnDemand() {
 	} finally { rotatingOnDemand = false; }
 }
 
-function openDeletionModal(key: KMSKey) {
+function openDeletionModal(key: Regioned<KMSKey>) {
 	deletionKeyId = key.KeyId ?? '';
+	deletionKeyRegion = key.region;
 	deletionKeyState = key.KeyState ?? '';
 	pendingWindowDays = 30;
 	showDeletionModal = true;
@@ -627,18 +671,18 @@ async function scheduleOrCancelDeletion() {
 	try {
 		schedulingDeletion = true;
 		if (deletionKeyState === 'PendingDeletion') {
-			const res = await kms().send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
+			const res = await getKMSClient(deletionKeyRegion).send(new CancelKeyDeletionCommand({ KeyId: deletionKeyId }));
 			// Update the key state from the response if available.
 			const newState = (res as { KeyState?: string }).KeyState;
 			if (newState) { deletionKeyState = newState; }
 			toast.success('Key deletion cancelled');
 		} else {
-			await kms().send(new ScheduleKeyDeletionCommand({ KeyId: deletionKeyId, PendingWindowInDays: pendingWindowDays }));
+			await getKMSClient(deletionKeyRegion).send(new ScheduleKeyDeletionCommand({ KeyId: deletionKeyId, PendingWindowInDays: pendingWindowDays }));
 			toast.success(`Key scheduled for deletion in ${pendingWindowDays} days`);
 		}
 		showDeletionModal = false;
 		await loadKeys();
-		if (selectedKey?.KeyId === deletionKeyId) selectedKey = null;
+		if (selectedKey && selectedKey.KeyId === deletionKeyId && selectedKey.region === deletionKeyRegion) selectedKey = null;
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Deletion operation failed');
 	} finally { schedulingDeletion = false; }
@@ -668,7 +712,8 @@ async function createAlias() {
 	if (!newAliasName || !newAliasKeyId) return;
 	try {
 		creatingAlias = true;
-		await kms().send(new CreateAliasCommand({ AliasName: newAliasName, TargetKeyId: newAliasKeyId }));
+		const region = keys.find(k => k.KeyId === newAliasKeyId)?.region;
+		await (region ? getKMSClient(region) : kms()).send(new CreateAliasCommand({ AliasName: newAliasName, TargetKeyId: newAliasKeyId }));
 		toast.success(`Alias created`);
 		showAliasCreateModal = false;
 		newAliasName = '';
@@ -679,9 +724,10 @@ async function createAlias() {
 	} finally { creatingAlias = false; }
 }
 
-function openUpdateAlias(alias: AliasListEntry) {
+function openUpdateAlias(alias: Regioned<AliasListEntry>) {
 	editAliasName = alias.AliasName ?? '';
 	editAliasTargetKeyId = alias.TargetKeyId ?? '';
+	editAliasRegion = alias.region;
 	showAliasUpdateModal = true;
 }
 
@@ -689,7 +735,7 @@ async function updateAlias() {
 	if (!editAliasName || !editAliasTargetKeyId) return;
 	try {
 		updatingAlias = true;
-		await kms().send(new UpdateAliasCommand({ AliasName: editAliasName, TargetKeyId: editAliasTargetKeyId }));
+		await getKMSClient(editAliasRegion).send(new UpdateAliasCommand({ AliasName: editAliasName, TargetKeyId: editAliasTargetKeyId }));
 		toast.success('Alias updated');
 		showAliasUpdateModal = false;
 		await loadAliases();
@@ -698,9 +744,9 @@ async function updateAlias() {
 	} finally { updatingAlias = false; }
 }
 
-async function deleteAlias(aliasName: string) {
+async function deleteAlias(aliasName: string, region: string) {
 	try {
-		await kms().send(new DeleteAliasCommand({ AliasName: aliasName }));
+		await getKMSClient(region).send(new DeleteAliasCommand({ AliasName: aliasName }));
 		toast.success('Alias deleted');
 		await loadAliases();
 	} catch (e) {
@@ -708,13 +754,14 @@ async function deleteAlias(aliasName: string) {
 	}
 }
 
-async function openTagModal(key: KMSKey) {
+async function openTagModal(key: Regioned<KMSKey>) {
 	tagKeyId = key.KeyId ?? '';
+	tagKeyRegion = key.region;
 	keyTags = [];
 	newTagKey = '';
 	newTagValue = '';
 	try {
-		const res = await kms().send(new ListResourceTagsCommand({ KeyId: tagKeyId }));
+		const res = await getKMSClient(tagKeyRegion).send(new ListResourceTagsCommand({ KeyId: tagKeyId }));
 		keyTags = (res.Tags ?? []).map(t => ({ TagKey: t.TagKey ?? '', TagValue: t.TagValue ?? '' }));
 	} catch { keyTags = []; }
 	showTagModal = true;
@@ -724,7 +771,7 @@ async function addTag() {
 	if (!newTagKey) return;
 	try {
 		savingTags = true;
-		await kms().send(new TagResourceCommand({ KeyId: tagKeyId, Tags: [{ TagKey: newTagKey, TagValue: newTagValue }] }));
+		await getKMSClient(tagKeyRegion).send(new TagResourceCommand({ KeyId: tagKeyId, Tags: [{ TagKey: newTagKey, TagValue: newTagValue }] }));
 		keyTags = [...keyTags, { TagKey: newTagKey, TagValue: newTagValue }];
 		newTagKey = '';
 		newTagValue = '';
@@ -736,7 +783,7 @@ async function addTag() {
 
 async function removeTag(tagKey: string) {
 	try {
-		await kms().send(new UntagResourceCommand({ KeyId: tagKeyId, TagKeys: [tagKey] }));
+		await getKMSClient(tagKeyRegion).send(new UntagResourceCommand({ KeyId: tagKeyId, TagKeys: [tagKey] }));
 		keyTags = keyTags.filter(t => t.TagKey !== tagKey);
 		toast.success('Tag removed');
 	} catch (e) {
@@ -744,11 +791,12 @@ async function removeTag(tagKey: string) {
 	}
 }
 
-async function openPolicyModal(key: KMSKey) {
+async function openPolicyModal(key: Regioned<KMSKey>) {
 	policyKeyId = key.KeyId ?? '';
+	policyKeyRegion = key.region;
 	policyContent = '';
 	try {
-		const res = await kms().send(new GetKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default' }));
+		const res = await getKMSClient(policyKeyRegion).send(new GetKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default' }));
 		policyContent = res.Policy ? JSON.stringify(JSON.parse(res.Policy), null, 2) : '{}';
 	} catch { policyContent = '{}'; }
 	showPolicyModal = true;
@@ -757,7 +805,7 @@ async function openPolicyModal(key: KMSKey) {
 async function savePolicy() {
 	try {
 		savingPolicy = true;
-		await kms().send(new PutKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default', Policy: policyContent }));
+		await getKMSClient(policyKeyRegion).send(new PutKeyPolicyCommand({ KeyId: policyKeyId, PolicyName: 'default', Policy: policyContent }));
 		toast.success('Key policy updated');
 		showPolicyModal = false;
 	} catch (e) {
@@ -765,13 +813,14 @@ async function savePolicy() {
 	} finally { savingPolicy = false; }
 }
 
-async function openGrantModal(key: KMSKey) {
+async function openGrantModal(key: Regioned<KMSKey>) {
 	grantKeyId = key.KeyId ?? '';
+	grantKeyRegion = key.region;
 	keyGrants = [];
 	newGrantPrincipal = '';
 	newGrantOps = 'Decrypt,Encrypt';
 	try {
-		const res = await kms().send(new ListGrantsCommand({ KeyId: grantKeyId }));
+		const res = await getKMSClient(grantKeyRegion).send(new ListGrantsCommand({ KeyId: grantKeyId }));
 		keyGrants = (res.Grants ?? []) as Grant[];
 	} catch { keyGrants = []; }
 	showGrantModal = true;
@@ -782,9 +831,9 @@ async function createGrant() {
 	try {
 		creatingGrant = true;
 		const ops = newGrantOps.split(',').map((s: string) => s.trim()).filter((s): s is GrantOperation => s.length > 0);
-		await kms().send(new CreateGrantCommand({ KeyId: grantKeyId, GranteePrincipal: newGrantPrincipal, Operations: ops }));
+		await getKMSClient(grantKeyRegion).send(new CreateGrantCommand({ KeyId: grantKeyId, GranteePrincipal: newGrantPrincipal, Operations: ops }));
 		toast.success('Grant created');
-		const res = await kms().send(new ListGrantsCommand({ KeyId: grantKeyId }));
+		const res = await getKMSClient(grantKeyRegion).send(new ListGrantsCommand({ KeyId: grantKeyId }));
 		keyGrants = (res.Grants ?? []) as Grant[];
 		newGrantPrincipal = '';
 	} catch (e) {
@@ -794,7 +843,7 @@ async function createGrant() {
 
 async function revokeGrant(grantId: string) {
 	try {
-		await kms().send(new RevokeGrantCommand({ KeyId: grantKeyId, GrantId: grantId }));
+		await getKMSClient(grantKeyRegion).send(new RevokeGrantCommand({ KeyId: grantKeyId, GrantId: grantId }));
 		toast.success('Grant revoked');
 		keyGrants = keyGrants.filter(g => g.GrantId !== grantId);
 	} catch (e) {
@@ -878,6 +927,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 			<button id="create-key-btn" onclick={() => showCreateModal = true} class="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" /> Create Key
 			</button>
+			<WriteRegionHint />
 		</div>
 	</div>
 
@@ -966,19 +1016,19 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 					{#each filtered as key}
 						<div
 							class="bg-white dark:bg-slate-800 rounded-xl border cursor-pointer transition-all
-								{selectedKey?.KeyId === key.KeyId
+								{selectedKey && selectedKey.KeyId === key.KeyId && selectedKey.region === key.region
 									? 'border-amber-400 dark:border-amber-500 ring-1 ring-amber-400/30'
 									: 'border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600'}
 								p-5"
-							onclick={() => selectedKey = selectedKey?.KeyId === key.KeyId ? null : key}
+							onclick={() => selectedKey = (selectedKey && selectedKey.KeyId === key.KeyId && selectedKey.region === key.region) ? null : key}
 							role="button"
 							tabindex="0"
-							onkeydown={(e) => e.key === 'Enter' && (selectedKey = selectedKey?.KeyId === key.KeyId ? null : key)}
+							onkeydown={(e) => e.key === 'Enter' && (selectedKey = (selectedKey && selectedKey.KeyId === key.KeyId && selectedKey.region === key.region) ? null : key)}
 						>
 							<div class="flex items-start justify-between mb-3">
 								<div class="min-w-0 flex-1">
-									<h3 class="font-semibold text-slate-900 dark:text-white truncate">
-										{key.Description || '(no description)'}
+									<h3 class="font-semibold text-slate-900 dark:text-white truncate flex items-center gap-2">
+										{key.Description || '(no description)'} <RegionChip region={key.region} />
 									</h3>
 									<p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-0.5 truncate">{key.KeyId}</p>
 								</div>
@@ -1005,12 +1055,12 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 							</div>
 							<div class="flex flex-wrap gap-2">
 								{#if key.KeyState === 'Enabled'}
-									<button onclick={(e) => { e.stopPropagation(); disableKey(key.KeyId ?? ''); }} class="px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs hover:bg-yellow-700 flex items-center gap-1"><Lock class="w-3 h-3" /> Disable</button>
+									<button onclick={(e) => { e.stopPropagation(); disableKey(key.KeyId ?? '', key.region); }} class="px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-xs hover:bg-yellow-700 flex items-center gap-1"><Lock class="w-3 h-3" /> Disable</button>
 								{:else if key.KeyState === 'Disabled'}
-									<button onclick={(e) => { e.stopPropagation(); enableKey(key.KeyId ?? ''); }} class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs hover:bg-green-700 flex items-center gap-1"><Unlock class="w-3 h-3" /> Enable</button>
+									<button onclick={(e) => { e.stopPropagation(); enableKey(key.KeyId ?? '', key.region); }} class="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs hover:bg-green-700 flex items-center gap-1"><Unlock class="w-3 h-3" /> Enable</button>
 								{/if}
 								{#if isSymmetric(key) && key.KeyState === 'Enabled'}
-									<button id="crypto-btn-{key.KeyId}" onclick={(e) => { e.stopPropagation(); openCrypto(key.KeyId ?? ''); }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"><Lock class="w-3 h-3" /> Crypto</button>
+									<button id="crypto-btn-{key.KeyId}" onclick={(e) => { e.stopPropagation(); openCrypto(key); }} class="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs hover:bg-indigo-700 flex items-center gap-1"><Lock class="w-3 h-3" /> Crypto</button>
 								{/if}
 								{#if isHMAC(key) && key.KeyState === 'Enabled'}
 									<button onclick={(e) => { e.stopPropagation(); openGrantModal(key); }} class="px-3 py-1.5 bg-teal-600 text-white rounded-lg text-xs hover:bg-teal-700 flex items-center gap-1"><Shield class="w-3 h-3" /> MAC Grants</button>
@@ -1144,6 +1194,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 						<thead class="bg-slate-50 dark:bg-slate-700">
 							<tr>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Alias Name</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">ARN</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target Key ID</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Type</th>
@@ -1155,6 +1206,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 								{@const isAws = (alias.AliasName || '').startsWith('alias/aws/')}
 								<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 									<td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white">{alias.AliasName}</td>
+									<td class="px-4 py-3"><RegionChip region={alias.region} /></td>
 									<td class="px-4 py-3 font-mono text-xs text-slate-400 dark:text-slate-500 max-w-xs truncate" title={alias.AliasArn ?? ''}>{alias.AliasArn ?? '—'}</td>
 									<td class="px-4 py-3 font-mono text-xs text-slate-500 dark:text-slate-400">{alias.TargetKeyId || '—'}</td>
 									<td class="px-4 py-3">
@@ -1172,7 +1224,7 @@ const SIGN_ALGS = ['RSASSA_PSS_SHA_256','RSASSA_PSS_SHA_384','RSASSA_PSS_SHA_512
 											{/if}
 											{#if !isAws}
 												<button onclick={() => openUpdateAlias(alias)} class="p-1 text-blue-400 hover:text-blue-600" title="Update"><Edit2 class="w-3.5 h-3.5" /></button>
-												<button onclick={() => deleteAlias(alias.AliasName ?? '')} class="p-1 text-red-400 hover:text-red-600" title="Delete"><Trash2 class="w-3.5 h-3.5" /></button>
+												<button onclick={() => deleteAlias(alias.AliasName ?? '', alias.region)} class="p-1 text-red-400 hover:text-red-600" title="Delete"><Trash2 class="w-3.5 h-3.5" /></button>
 											{/if}
 										</div>
 									</td>

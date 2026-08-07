@@ -16,6 +16,13 @@ type LambdaInvoker interface {
 	InvokeFunction(ctx context.Context, name string, invocationType string, payload []byte) ([]byte, int, error)
 }
 
+// RedshiftDataExecutor is the subset of Redshift Data API operations that Firehose needs to
+// issue the COPY command against staged S3 data. Modeled after S3Storer/LambdaInvoker: a
+// minimal in-process interface a sibling backend can satisfy, wired via SetRedshiftDataBackend.
+type RedshiftDataExecutor interface {
+	ExecuteStatement(ctx context.Context, sql, clusterIdentifier, database, dbUser string) error
+}
+
 // KinesisReader is the subset of Kinesis operations that Firehose needs to poll source streams.
 type KinesisReader interface {
 	// ListShards returns all open shard IDs for the named stream.

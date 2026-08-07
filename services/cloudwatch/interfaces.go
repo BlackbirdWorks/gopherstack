@@ -36,6 +36,12 @@ type AutoScalingPolicyExecutor interface {
 	ExecuteScalingPolicy(autoScalingGroupName, policyName string) error
 }
 
+// FirehosePutter is the subset of Firehose operations a metric stream needs to
+// deliver matched metric data to its configured delivery stream.
+type FirehosePutter interface {
+	PutRecordBatch(ctx context.Context, streamName string, records [][]byte) (int, error)
+}
+
 // StorageBackend is the interface for the CloudWatch in-memory store.
 type StorageBackend interface {
 	PutMetricData(namespace string, data []MetricDatum) error
