@@ -5,17 +5,17 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: waf
-sdk_module: aws-sdk-go-v2/service/waf@v1.30.24   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
-last_audit_commit: 53d400747
-last_audit_date: 2026-07-24
-overall: A            # this pass closed the WAFNonEmptyEntityException gap identified in the prior audit
+sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
+last_audit_commit: 8c56f4eb9
+last_audit_date: 2026-08-07
+overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   GetChangeToken: {wire: ok, errors: ok, state: ok, persist: ok}
   GetChangeTokenStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: unknown token returns INSYNC per real AWS behavior (pre-existing, verified not re-broken)}
-  GetSampledRequests: {wire: ok, errors: ok, state: partial, persist: n/a, note: "TimeWindow.StartTime/EndTime epoch-seconds shape verified ok (fixed in a prior pass); this pass added the previously-missing SampledHTTPRequest.Request (HTTPRequest/HTTPHeader) and .Timestamp fields for wire-shape completeness -- sample data itself remains a stub (always empty) since gopherstack does not proxy/inspect real HTTP traffic through WAF rules, same class of limitation as CloudWatch metric stubs elsewhere, so the new fields never actually serialize non-zero values yet"}
-  GetRateBasedRuleManagedKeys: {wire: ok, errors: ok, state: partial, persist: n/a, note: "always returns empty list -- same traffic-inspection limitation as GetSampledRequests, not fixable without real request proxying"}
+  GetSampledRequests: {wire: ok, errors: ok, state: ok, persist: n/a, note: "TimeWindow.StartTime/EndTime epoch-seconds shape verified ok; SampledHTTPRequest.Request/.Timestamp fields present for wire-shape completeness. This pass: WebAclId is now validated against real backend state -- unknown WebACL returns WAFNonexistentItemException instead of silently succeeding with an empty sample. RuleId is accepted without existence validation since real AWS defines it as one of three shapes (a Rule's RuleId, a RuleGroup's RuleGroupId, or the literal 'Default_Action'), and gopherstack has no verified AWS source pinning which combination is checked server-side, so validating it risks false rejections; unvalidated is the same behavior real AWS shows for the RuleGroupId/Default_Action cases. The sample list itself stays empty: see structural_gaps."}
+  GetRateBasedRuleManagedKeys: {wire: ok, errors: ok, state: ok, persist: n/a, note: "RuleId is validated against real RateBasedRule state (WAFNonexistentItemException for unknown rule, pre-existing). ManagedKeys list itself stays empty: see structural_gaps."}
 families:
   WebACL: {status: ok, note: "fixed CreateWebACL: added missing ChangeToken parameter (interface didn't even accept one) + validation on Create/Update/Delete. UpdateWebACL correctly applies INSERT/DELETE ActivatedRule updates and sorts by Priority. This pass: DeleteWebACL now returns WAFNonEmptyEntityException while Rules is non-empty."}
   Rule: {status: ok, note: "fixed Create/Update/Delete to validate ChangeToken; DeleteRule now returns WAFReferencedItemException if still activated in a WebACL or RuleGroup (previously deleted unconditionally, silently orphaning ActivatedRule references). This pass: DeleteRule now also returns WAFNonEmptyEntityException while Predicates is non-empty."}
@@ -33,8 +33,10 @@ families:
   Logging: {status: ok, note: "PutLoggingConfiguration/GetLoggingConfiguration/DeleteLoggingConfiguration/ListLoggingConfigurations -- no ChangeToken in real AWS, correctly not required"}
   PermissionPolicy: {status: ok, note: "no ChangeToken in real AWS, correctly not required"}
   Migration: {status: ok, note: "CreateWebACLMigrationStack returns a deterministic S3 URL shape; genuinely can't produce a real migration template without wafv2 state, documented as a stub-shape return, not a disguised no-op"}
-gaps:
-  - GetSampledRequests/GetRateBasedRuleManagedKeys return empty data (traffic-inspection stub) since gopherstack does not proxy real HTTP requests through WAF rule evaluation -- architectural limitation, not a quick fix.
+gaps: []
+structural_gaps:
+  - "GetSampledRequests always returns an empty SampledRequests list: real AWS randomly samples from actual HTTP requests evaluated against the WebACL's rules. Gopherstack has no request-proxying subsystem -- it never sees or evaluates real client traffic through WAF rules, so there is no request data to sample from, ever. Producing non-empty samples would mean fabricating fictitious HTTP requests, exactly the failure mode this parity campaign exists to remove. (WebAclId existence validation IS buildable from real state and was added this pass; the sample content is not.) (bd: gopherstack-smld)"
+  - "GetRateBasedRuleManagedKeys always returns an empty ManagedKeys list: real AWS derives it from live request-rate tracking against the rule's RateLimit over a trailing 5-minute window, which requires the same real-traffic evaluation GetSampledRequests lacks. Nothing in InMemoryBackend's state (RateBasedRule config, WebACL associations) encodes request rates, so there is no rate to threshold against. (RuleId existence validation IS buildable and already present.) (bd: gopherstack-smld)"
 deferred: []
 leaks: {status: clean, note: "no goroutines/timers/background workers in this service; InMemoryBackend is plain locked maps + store.Table, no leak surface. New non-empty checks only read already-locked in-memory slices/maps under the existing coarse b.mu -- no new lock paths, no new persisted state."}
 ---
@@ -174,3 +176,13 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   token), while `GetChangeTokenStatus` is a pure *read* that intentionally still returns
   `INSYNC` for a token it has never seen, matching the pre-existing, already-verified
   parity finding.
+
+- **gopherstack-smld follow-up**: `GetSampledRequests` now validates `WebAclId` against
+  `InMemoryBackend.webACLs` before returning, since that is real state the backend already
+  holds — an unknown WebACL now gets `WAFNonexistentItemException` instead of a silent
+  empty-sample 200. `GetRateBasedRuleManagedKeys` already validated `RuleId` the same way
+  (pre-existing, unchanged). The actual sampled-request/managed-key *content* stays
+  unimplemented and is now recorded in `structural_gaps` rather than `gaps`: gopherstack
+  has no subsystem that proxies or evaluates real HTTP traffic through WAF rules, so there
+  is no request/rate data for either op to report — inventing sample requests or blocked
+  IPs would be fabrication, not emulation.

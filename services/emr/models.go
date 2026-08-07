@@ -440,13 +440,39 @@ type PlacementGroupConfig struct {
 	PlacementStrategy string `json:"PlacementStrategy,omitempty"`
 }
 
+// CloudWatchLogConfiguration controls CloudWatch log publishing, part of
+// RunJobFlow's MonitoringConfiguration and echoed back on Cluster.
+type CloudWatchLogConfiguration struct {
+	LogTypes            map[string][]string `json:"LogTypes,omitempty"`
+	LogGroupName        string              `json:"LogGroupName,omitempty"`
+	LogStreamNamePrefix string              `json:"LogStreamNamePrefix,omitempty"`
+	EncryptionKeyArn    string              `json:"EncryptionKeyArn,omitempty"`
+	Enabled             bool                `json:"Enabled"`
+}
+
+// S3LoggingConfiguration controls per-log-type S3 upload policy, part of
+// RunJobFlow's MonitoringConfiguration and echoed back on Cluster.
+type S3LoggingConfiguration struct {
+	LogTypeUploadPolicy map[string]string `json:"LogTypeUploadPolicy,omitempty"`
+}
+
+// MonitoringConfiguration is RunJobFlowInput's MonitoringConfiguration,
+// threaded through unchanged and echoed back on Cluster -- gopherstack does
+// not itself publish any logs, so this is stored/returned configuration, not
+// simulated behavior.
+type MonitoringConfiguration struct {
+	CloudWatchLogConfiguration *CloudWatchLogConfiguration `json:"CloudWatchLogConfiguration,omitempty"`
+	S3LoggingConfiguration     *S3LoggingConfiguration     `json:"S3LoggingConfiguration,omitempty"`
+}
+
 // Cluster represents an EMR cluster.
 type Cluster struct {
-	TerminatedAt          time.Time              `json:"TerminatedAt,omitzero"`
-	Ec2InstanceAttributes *EC2InstanceAttributes `json:"Ec2InstanceAttributes"`
-	KerberosAttributes    *KerberosAttributes    `json:"KerberosAttributes,omitempty"`
-	autoTerminationPolicy *AutoTerminationPolicy
-	managedScalingPolicy  *ManagedScalingPolicy
+	TerminatedAt            time.Time                `json:"TerminatedAt,omitzero"`
+	Ec2InstanceAttributes   *EC2InstanceAttributes   `json:"Ec2InstanceAttributes"`
+	KerberosAttributes      *KerberosAttributes      `json:"KerberosAttributes,omitempty"`
+	MonitoringConfiguration *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
+	autoTerminationPolicy   *AutoTerminationPolicy
+	managedScalingPolicy    *ManagedScalingPolicy
 	// region is the store.Table composite-key qualifier (see regionKey in
 	// backend.go); it is unexported so it is never marshaled by a plain
 	// json.Marshal(Cluster) and is instead carried through persistence via
@@ -459,12 +485,16 @@ type Cluster struct {
 	ReleaseLabel           string        `json:"ReleaseLabel"`
 	OSReleaseLabel         string        `json:"OSReleaseLabel,omitempty"`
 	LogURI                 string        `json:"LogUri,omitempty"`
+	LogEncryptionKmsKeyID  string        `json:"LogEncryptionKmsKeyId,omitempty"`
 	ServiceRole            string        `json:"ServiceRole,omitempty"`
 	AutoScalingRole        string        `json:"AutoScalingRole,omitempty"`
 	Name                   string        `json:"Name"`
 	SecurityConfiguration  string        `json:"SecurityConfiguration,omitempty"`
 	CustomAmiID            string        `json:"CustomAmiId,omitempty"`
 	InstanceCollectionType string        `json:"InstanceCollectionType,omitempty"`
+	RepoUpgradeOnBoot      string        `json:"RepoUpgradeOnBoot,omitempty"`
+	RequestedAmiVersion    string        `json:"RequestedAmiVersion,omitempty"`
+	RunningAmiVersion      string        `json:"RunningAmiVersion,omitempty"`
 	instanceGroups         []InstanceGroup
 	bootstrapActions       []BootstrapActionConfig
 	Tags                   []Tag                  `json:"Tags"`
@@ -644,33 +674,35 @@ type RunJobFlowInstances struct {
 
 // RunJobFlowParams is the full input for creating a new cluster.
 type RunJobFlowParams struct {
-	SecurityConfiguration string `json:"SecurityConfiguration,omitempty"`
-	ReleaseLabel          string `json:"ReleaseLabel"`
-	OSReleaseLabel        string `json:"OSReleaseLabel,omitempty"`
-	LogURI                string `json:"LogUri,omitempty"`
-	ServiceRole           string `json:"ServiceRole,omitempty"`
-	// JobFlowRole is the real RunJobFlowInput field (also called the EC2
-	// instance profile); it becomes Cluster.Ec2InstanceAttributes.IamInstanceProfile.
-	JobFlowRole             string                  `json:"JobFlowRole,omitempty"`
-	AutoScalingRole         string                  `json:"AutoScalingRole,omitempty"`
-	Name                    string                  `json:"Name"`
-	ScaleDownBehavior       string                  `json:"ScaleDownBehavior,omitempty"`
-	CustomAmiID             string                  `json:"CustomAmiId,omitempty"`
-	Tags                    []Tag                   `json:"Tags,omitempty"`
-	Applications            []Application           `json:"Applications,omitempty"`
-	Configurations          []Configuration         `json:"Configurations,omitempty"`
-	Steps                   []StepSpec              `json:"Steps,omitempty"`
-	BootstrapActions        []BootstrapActionConfig `json:"BootstrapActions,omitempty"`
-	KerberosAttributes      *KerberosAttributes     `json:"KerberosAttributes,omitempty"`
-	PlacementGroupConfigs   []PlacementGroupConfig  `json:"PlacementGroupConfigs,omitempty"`
-	ManagedScalingPolicy    *ManagedScalingPolicy   `json:"ManagedScalingPolicy,omitempty"`
-	AutoTerminationPolicy   *AutoTerminationPolicy  `json:"AutoTerminationPolicy,omitempty"`
-	Instances               RunJobFlowInstances     `json:"Instances"`
-	StepConcurrencyLevel    int                     `json:"StepConcurrencyLevel,omitempty"`
-	EbsRootVolumeSize       int                     `json:"EbsRootVolumeSize,omitempty"`
-	EbsRootVolumeIops       int                     `json:"EbsRootVolumeIops,omitempty"`
-	EbsRootVolumeThroughput int                     `json:"EbsRootVolumeThroughput,omitempty"`
-	VisibleToAllUsers       bool                    `json:"VisibleToAllUsers"`
+	KerberosAttributes      *KerberosAttributes      `json:"KerberosAttributes,omitempty"`
+	MonitoringConfiguration *MonitoringConfiguration `json:"MonitoringConfiguration,omitempty"`
+	AutoTerminationPolicy   *AutoTerminationPolicy   `json:"AutoTerminationPolicy,omitempty"`
+	ManagedScalingPolicy    *ManagedScalingPolicy    `json:"ManagedScalingPolicy,omitempty"`
+	LogEncryptionKmsKeyID   string                   `json:"LogEncryptionKmsKeyId,omitempty"`
+	AmiVersion              string                   `json:"AmiVersion,omitempty"`
+	AutoScalingRole         string                   `json:"AutoScalingRole,omitempty"`
+	Name                    string                   `json:"Name"`
+	ScaleDownBehavior       string                   `json:"ScaleDownBehavior,omitempty"`
+	CustomAmiID             string                   `json:"CustomAmiId,omitempty"`
+	JobFlowRole             string                   `json:"JobFlowRole,omitempty"`
+	RepoUpgradeOnBoot       string                   `json:"RepoUpgradeOnBoot,omitempty"`
+	SecurityConfiguration   string                   `json:"SecurityConfiguration,omitempty"`
+	ReleaseLabel            string                   `json:"ReleaseLabel"`
+	OSReleaseLabel          string                   `json:"OSReleaseLabel,omitempty"`
+	ServiceRole             string                   `json:"ServiceRole,omitempty"`
+	LogURI                  string                   `json:"LogUri,omitempty"`
+	PlacementGroupConfigs   []PlacementGroupConfig   `json:"PlacementGroupConfigs,omitempty"`
+	BootstrapActions        []BootstrapActionConfig  `json:"BootstrapActions,omitempty"`
+	Steps                   []StepSpec               `json:"Steps,omitempty"`
+	Configurations          []Configuration          `json:"Configurations,omitempty"`
+	Applications            []Application            `json:"Applications,omitempty"`
+	Tags                    []Tag                    `json:"Tags,omitempty"`
+	Instances               RunJobFlowInstances      `json:"Instances"`
+	StepConcurrencyLevel    int                      `json:"StepConcurrencyLevel,omitempty"`
+	EbsRootVolumeSize       int                      `json:"EbsRootVolumeSize,omitempty"`
+	EbsRootVolumeIops       int                      `json:"EbsRootVolumeIops,omitempty"`
+	EbsRootVolumeThroughput int                      `json:"EbsRootVolumeThroughput,omitempty"`
+	VisibleToAllUsers       bool                     `json:"VisibleToAllUsers"`
 }
 
 // ListClustersParams holds filter and pagination params for ListClusters.
@@ -685,6 +717,7 @@ type ListClustersParams struct {
 type ListInstancesParams struct {
 	InstanceGroupID    string
 	InstanceFleetID    string
+	InstanceFleetType  string
 	Marker             string
 	InstanceGroupTypes []string
 	InstanceStates     []string

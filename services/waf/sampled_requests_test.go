@@ -37,6 +37,24 @@ func TestWAF_GetSampledRequests_EmptyStub(t *testing.T) {
 	assert.EqualValues(t, 0, resp["PopulationSize"])
 }
 
+func TestWAF_GetSampledRequests_NonexistentWebACL(t *testing.T) {
+	t.Parallel()
+
+	h := newWAFHandler(t)
+
+	rec := wafDo(t, h, "GetSampledRequests", map[string]any{
+		"WebAclId": "nonexistent",
+		"RuleId":   "some-rule",
+		"MaxItems": 100,
+		"TimeWindow": map[string]any{
+			"StartTime": 1_704_067_200,
+			"EndTime":   1_704_070_800,
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "WAFNonexistentItemException", errType(t, rec.Body.Bytes()))
+}
+
 // TestGetSampledRequests_ReturnsTimeWindow verifies that the
 // GetSampledRequests response echoes back the TimeWindow from the request.
 // Real AWS always includes TimeWindow in the response; the SDK's

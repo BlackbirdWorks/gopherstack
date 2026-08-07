@@ -89,6 +89,7 @@ import (
 	timestreamquerysdk "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
+	wafsdk "github.com/aws/aws-sdk-go-v2/service/waf"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
 	xraysdk "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/go-cmp/cmp"
@@ -1378,6 +1379,24 @@ func createWafv2Client(t *testing.T) *wafv2sdk.Client {
 	require.NoError(t, err, "unable to load SDK config")
 
 	return wafv2sdk.NewFromConfig(cfg, func(o *wafv2sdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// createWAFClient returns an AWS WAF (Classic) client.
+func createWAFClient(t *testing.T) *wafsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return wafsdk.NewFromConfig(cfg, func(o *wafsdk.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
 }

@@ -48,6 +48,26 @@ func validateQueriesConfig(featureTypes []string, qc *QueriesConfig) error {
 	return nil
 }
 
+// validateHumanLoopConfig checks the two required members of HumanLoopConfig
+// (FlowDefinitionArn, HumanLoopName). Whether the loop actually activates is
+// not evaluated here -- see AnalyzeDocument's PARITY.md structural_gaps entry
+// for why gopherstack cannot derive that decision.
+func validateHumanLoopConfig(cfg *HumanLoopConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	if cfg.FlowDefinitionArn == "" {
+		return fmt.Errorf("%w: HumanLoopConfig.FlowDefinitionArn is required", errInvalidRequest)
+	}
+
+	if cfg.HumanLoopName == "" {
+		return fmt.Errorf("%w: HumanLoopConfig.HumanLoopName is required", errInvalidRequest)
+	}
+
+	return nil
+}
+
 func validateAnalyzeDocumentFeatureTypes(featureTypes []string) error {
 	if len(featureTypes) == 0 {
 		return fmt.Errorf("%w: FeatureTypes must contain at least one value", errInvalidRequest)
@@ -366,7 +386,12 @@ type asyncInput struct {
 	NotificationChannel *NotificationChannel `json:"NotificationChannel"`
 	OutputConfig        *OutputConfig        `json:"OutputConfig"`
 	QueriesConfig       *QueriesConfig       `json:"QueriesConfig"`
-	DocumentLocation    struct {
+	// AdaptersConfig is only a real member on StartDocumentAnalysisInput
+	// among the four Start* ops sharing this struct (StartDocumentTextDetection/
+	// StartExpenseAnalysis/StartLendingAnalysis have no such field) --
+	// handleStartDocumentAnalysis is the only caller that validates it.
+	AdaptersConfig   *AdaptersConfig `json:"AdaptersConfig"`
+	DocumentLocation struct {
 		S3Object struct {
 			Bucket string `json:"Bucket"`
 			Name   string `json:"Name"`

@@ -28,6 +28,46 @@ func (b *InMemoryBackend) AnalyzeDocumentWithFeatures(
 	return analyzeDocumentBlocks(documentURI, featureTypes, queries)
 }
 
+// ValidateAdaptersConfig checks every adapter reference in cfg against real
+// Adapter/AdapterVersion backend state. AnalyzeDocument's real error surface
+// (aws-sdk-go-v2/service/textract deserializers.go's
+// deserializeOpErrorAnalyzeDocument switch) has no ResourceNotFoundException
+// case at all -- so an unknown adapter or version must surface as
+// InvalidParameterException (errInvalidRequest, op-aware-mapped in
+// handleError), never ErrAdapterNotFound/ErrAdapterVersionNotFound (which are
+// correct only for the adapter-management ops that do declare
+// ResourceNotFoundException).
+func (b *InMemoryBackend) ValidateAdaptersConfig(ctx context.Context, cfg *AdaptersConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	if len(cfg.Adapters) == 0 {
+		return fmt.Errorf("%w: AdaptersConfig.Adapters must contain at least one adapter", errInvalidRequest)
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ValidateAdaptersConfig")
+	defer b.mu.RUnlock()
+
+	for _, a := range cfg.Adapters {
+		if a.AdapterID == "" || a.Version == "" {
+			return fmt.Errorf("%w: Adapter.AdapterId and Adapter.Version are required", errInvalidRequest)
+		}
+
+		if !b.adapters.Has(regionKey(region, a.AdapterID)) {
+			return fmt.Errorf("%w: adapter %s does not exist", errInvalidRequest, a.AdapterID)
+		}
+
+		if !b.adapterVersions.Has(regionKey(region, adapterVersionKey(a.AdapterID, a.Version))) {
+			return fmt.Errorf("%w: adapter %s has no version %s", errInvalidRequest, a.AdapterID, a.Version)
+		}
+	}
+
+	return nil
+}
+
 // StartDocumentAnalysis creates an async document analysis job.
 func (b *InMemoryBackend) StartDocumentAnalysis(ctx context.Context, documentURI string) (*DocumentJob, error) {
 	return b.StartDocumentAnalysisWithOptions(ctx, documentURI, nil, nil, nil, "", "")

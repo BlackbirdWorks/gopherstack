@@ -121,6 +121,43 @@ type QueriesConfig struct {
 	Queries []QueryEntry `json:"Queries"`
 }
 
+// AdaptersConfig holds the adapters to apply during AnalyzeDocument. Real
+// AWS's AdaptersConfig.Adapters element type is itself named types.Adapter --
+// gopherstack names it AdapterUsage instead to avoid colliding with the
+// unrelated Adapter management-resource type (CreateAdapter/GetAdapter/...).
+type AdaptersConfig struct {
+	Adapters []AdapterUsage `json:"Adapters"`
+}
+
+// AdapterUsage references one adapter (and version) to apply, and which
+// pages of the document it applies to. See AdaptersConfig's doc comment for
+// why this isn't named Adapter.
+type AdapterUsage struct {
+	AdapterID string   `json:"AdapterId"`
+	Version   string   `json:"Version"`
+	Pages     []string `json:"Pages,omitempty"`
+}
+
+// HumanLoopConfig sets up the human-in-the-loop review workflow for
+// AnalyzeDocument.
+type HumanLoopConfig struct {
+	DataAttributes    *HumanLoopDataAttributes `json:"DataAttributes,omitempty"`
+	FlowDefinitionArn string                   `json:"FlowDefinitionArn"`
+	HumanLoopName     string                   `json:"HumanLoopName"`
+}
+
+// HumanLoopDataAttributes declares content classifiers for the input image.
+type HumanLoopDataAttributes struct {
+	ContentClassifiers []string `json:"ContentClassifiers,omitempty"`
+}
+
+// HumanLoopActivationOutput reports whether a human review loop activated.
+type HumanLoopActivationOutput struct {
+	HumanLoopActivationConditionsEvaluationResults string   `json:"HumanLoopActivationConditionsEvaluationResults,omitempty"` //nolint:lll // real SDK field name
+	HumanLoopArn                                   string   `json:"HumanLoopArn,omitempty"`
+	HumanLoopActivationReasons                     []string `json:"HumanLoopActivationReasons,omitempty"`
+}
+
 // QueryEntry is a single query with text, alias and page filters.
 type QueryEntry struct {
 	Text  string   `json:"Text"`
