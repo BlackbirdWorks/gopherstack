@@ -229,7 +229,10 @@ const res = await s3().send(new GetObjectCommand({ Bucket: bucket, Key: objectKe
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
 previewType = 'image';
-previewBlobUrl = URL.createObjectURL(new Blob([bytes], { type: contentType }));
+// The SDK's Uint8Array is always backed by a real ArrayBuffer, never a
+	// SharedArrayBuffer -- @types/node's global Uint8Array<ArrayBufferLike>
+	// default otherwise makes this look incompatible with DOM's BlobPart.
+	previewBlobUrl = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: contentType }));
 }
 
 async function prepareJsonPreview(size: number) {
@@ -300,7 +303,7 @@ VersionId: versionId
 }));
 const blob = await response.Body?.transformToByteArray();
 if (blob) {
-const url = URL.createObjectURL(new Blob([blob]));
+const url = URL.createObjectURL(new Blob([blob as Uint8Array<ArrayBuffer>]));
 const a = document.createElement('a');
 a.href = url;
 a.download = objectKey.split('/').pop() || 'download';

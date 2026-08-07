@@ -194,6 +194,7 @@
     "@tailwindcss/vite": "4.3.3",
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/svelte": "5.4.2",
+    "@types/node": "24.13.3",
     "@vitest/coverage-v8": "4.1.10",
     "jsdom": "30.0.1",
     "oxfmt": "0.62.0",

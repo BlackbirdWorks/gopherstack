@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import { getRoute53Client } from '$lib/aws-client';
 	import {
 		ListHostedZonesCommand,
@@ -397,6 +398,7 @@
 				<button onclick={() => { selectedZone = null; records = []; }} class="text-indigo-600 hover:underline">Hosted Zones</button>
 				<ChevronRight class="w-4 h-4 text-gray-400" />
 				<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedZone.Name}</span>
+				<RegionChip region={null} />
 				<span class={`ml-2 px-2 py-0.5 rounded text-xs font-medium ${selectedZone.Config?.PrivateZone ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
 					{selectedZone.Config?.PrivateZone ? 'Private' : 'Public'}
 				</span>
@@ -564,6 +566,7 @@
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 								<td class="px-4 py-3">
 									<button onclick={() => selectZone(zone)} class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium">{zone.Name}</button>
+									<RegionChip region={null} class="ml-1" />
 								</td>
 								<td class="px-4 py-3">
 									<span class={`px-2 py-0.5 rounded text-xs font-medium ${zone.Config?.PrivateZone ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>

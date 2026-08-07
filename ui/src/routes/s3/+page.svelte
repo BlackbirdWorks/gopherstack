@@ -516,7 +516,10 @@ try {
 const res = await s3().send(new GetObjectCommand({ Bucket: selectedBucket, Key: key }));
 const bytes = await res.Body?.transformToByteArray();
 if (!bytes) return;
-const url = URL.createObjectURL(new Blob([bytes]));
+// The SDK's Uint8Array is always backed by a real ArrayBuffer, never a
+// SharedArrayBuffer -- @types/node's global Uint8Array<ArrayBufferLike>
+// default otherwise makes this look incompatible with DOM's BlobPart.
+const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>]));
 const a = document.createElement('a');
 a.href = url;
 a.download = key.split('/').pop() ?? 'download';
@@ -569,7 +572,8 @@ try {
 	const bytes = await res.Body?.transformToByteArray();
 	if (bytes) {
 		if (type === 'image') {
-			const blob = new Blob([bytes], { type: res.ContentType ?? 'image/*' });
+			// See the downloadObject() comment above on Uint8Array<ArrayBuffer>.
+			const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: res.ContentType ?? 'image/*' });
 			previewObjectUrl = URL.createObjectURL(blob);
 		} else if (type === 'json') {
 			const text = new TextDecoder().decode(bytes);

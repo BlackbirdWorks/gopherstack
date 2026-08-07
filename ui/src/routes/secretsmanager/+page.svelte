@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getSecretsManagerClient } from '$lib/aws-client';
 import {
 	ListSecretsCommand,
@@ -36,7 +39,15 @@ type SecretItem = {
 	RotationRules?: { AutomaticallyAfterDays?: number; ScheduleExpression?: string };
 	ReplicationStatus?: Array<{ Region?: string; Status?: string; StatusMessage?: string }>;
 	DeletedDate?: Date | string | number;
+	region?: string;
 };
+
+// Row actions (view/delete/restore) must target the region the row was
+// fanned out from, not the picker's current region -- under All mode the
+// same secret name can legitimately exist in two regions.
+function detailClient() {
+	return getSecretsManagerClient(selectedSecret?.region);
+}
 
 type VersionEntry = {
 	VersionId?: string;
@@ -77,8 +88,12 @@ onRegionChange(() => { void loadSecrets(); });
 async function loadSecrets() {
 	try {
 		loading = true;
-		const data = await sm().send(new ListSecretsCommand({}));
-		secrets = (data.SecretList || []) as SecretItem[];
+		const result = await multiRegionList(
+			(region) => getSecretsManagerClient(region).send(new ListSecretsCommand({})),
+			(r) => r.SecretList ?? []
+		);
+		secrets = result.items.map(({ region, item }) => ({ ...item, region }) as SecretItem);
+		if (result.errors.length > 0) toast.error(`Failed to load secrets from ${result.errors.length} region(s)`);
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load secrets');
 	} finally {
@@ -95,7 +110,7 @@ async function viewSecret(secret: SecretItem) {
 	activeTab = 'detail';
 	// Load full metadata via DescribeSecret
 	try {
-		const desc = await sm().send(new DescribeSecretCommand({ SecretId: secret.Name! }));
+		const desc = await getSecretsManagerClient(secret.region).send(new DescribeSecretCommand({ SecretId: secret.Name! }));
 		selectedSecret = { ...selectedSecret, ...desc } as SecretItem;
 		// Load tags
 		const tagMap: Record<string, string> = {};
@@ -113,7 +128,7 @@ async function viewSecret(secret: SecretItem) {
 async function loadSecretValue(name: string) {
 	loadingValue = true;
 	try {
-		const data = await sm().send(new GetSecretValueCommand({ SecretId: name }));
+		const data = await detailClient().send(new GetSecretValueCommand({ SecretId: name }));
 		secretValue = data.SecretString ?? '<binary>';
 		showValue = true;
 	} catch (e) {
@@ -126,7 +141,7 @@ async function loadSecretValue(name: string) {
 async function loadVersions(name: string) {
 	loadingVersions = true;
 	try {
-		const data = await sm().send(new ListSecretVersionIdsCommand({ SecretId: name, IncludeDeprecated: true }));
+		const data = await detailClient().send(new ListSecretVersionIdsCommand({ SecretId: name, IncludeDeprecated: true }));
 		versions = (data.Versions || []) as VersionEntry[];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load versions');
@@ -202,7 +217,7 @@ async function saveSecretValue() {
 	const payload = editValueMode === 'kv' ? kvRowsToJson() : editValue;
 	savingSecret = true;
 	try {
-		await sm().send(new UpdateSecretCommand({
+		await detailClient().send(new UpdateSecretCommand({
 			SecretId: selectedSecret.Name,
 			SecretString: payload
 		}));
@@ -221,7 +236,7 @@ async function saveDescription() {
 	if (!selectedSecret?.Name) return;
 	savingSecret = true;
 	try {
-		await sm().send(new UpdateSecretCommand({
+		await detailClient().send(new UpdateSecretCommand({
 			SecretId: selectedSecret.Name,
 			Description: editDescription
 		}));
@@ -239,7 +254,7 @@ async function rotateNow() {
 	if (!selectedSecret?.Name) return;
 	if (!await confirmDestructive({ title: 'Rotate Secret', message: `Immediately rotate "${selectedSecret.Name}"? A new version will be created.` })) return;
 	try {
-		await sm().send(new RotateSecretCommand({ SecretId: selectedSecret.Name }));
+		await detailClient().send(new RotateSecretCommand({ SecretId: selectedSecret.Name }));
 		toast.success('Rotation triggered');
 		secretValue = null;
 		await viewSecret(selectedSecret);
@@ -251,7 +266,7 @@ async function rotateNow() {
 async function cancelRotation() {
 	if (!selectedSecret?.Name) return;
 	try {
-		await sm().send(new CancelRotateSecretCommand({ SecretId: selectedSecret.Name }));
+		await detailClient().send(new CancelRotateSecretCommand({ SecretId: selectedSecret.Name }));
 		toast.success('Rotation cancelled');
 		await viewSecret(selectedSecret);
 	} catch (e) {
@@ -265,7 +280,7 @@ async function addTag() {
 		return;
 	}
 	try {
-		await sm().send(new TagResourceCommand({
+		await detailClient().send(new TagResourceCommand({
 			SecretId: selectedSecret.Name,
 			Tags: [{ Key: tagKey.trim(), Value: tagValue.trim() }]
 		}));
@@ -281,7 +296,7 @@ async function addTag() {
 async function removeTag(key: string) {
 	if (!selectedSecret?.Name) return;
 	try {
-		await sm().send(new UntagResourceCommand({ SecretId: selectedSecret.Name, TagKeys: [key] }));
+		await detailClient().send(new UntagResourceCommand({ SecretId: selectedSecret.Name, TagKeys: [key] }));
 		const updated = { ...secretTags };
 		delete updated[key];
 		secretTags = updated;
@@ -291,10 +306,10 @@ async function removeTag(key: string) {
 	}
 }
 
-async function deleteSecret(name: string) {
+async function deleteSecret(name: string, region?: string) {
 	if (!await confirmDestructive({ title: 'Delete Secret', message: `Delete secret "${name}"? Applications using this secret will lose access immediately.` })) return;
 	try {
-		await sm().send(new DeleteSecretCommand({ SecretId: name }));
+		await getSecretsManagerClient(region).send(new DeleteSecretCommand({ SecretId: name }));
 		toast.success(`Secret "${name}" deleted`);
 		if (selectedSecret?.Name === name) {
 			activeTab = 'secrets';
@@ -332,10 +347,10 @@ async function createSecret() {
 	}
 }
 
-async function restoreSecret(name: string) {
+async function restoreSecret(name: string, region?: string) {
 	if (!await confirmDestructive({ title: 'Restore Secret', message: `Restore secret "${name}" from pending deletion?` })) return;
 	try {
-		await sm().send(new RestoreSecretCommand({ SecretId: name }));
+		await getSecretsManagerClient(region).send(new RestoreSecretCommand({ SecretId: name }));
 		toast.success(`Secret "${name}" restored`);
 		await loadSecrets();
 	} catch (e) {
@@ -423,6 +438,7 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 			<button onclick={seedDemoData} disabled={seedingDemo} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 disabled:opacity-50" title="Seed demo data">
 				<Beaker class="w-4 h-4" /> Demo
 			</button>
+			<WriteRegionHint />
 			<button onclick={() => showCreateModal = true} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />
 				Create Secret
@@ -488,7 +504,7 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 				<button onclick={() => showCreateModal = true} class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg">Create Secret</button>
 			</div>
 		{:else}
-			<p class="text-sm text-slate-500 dark:text-slate-400">{secrets.length} secret{secrets.length !== 1 ? 's' : ''} in this region</p>
+			<p class="text-sm text-slate-500 dark:text-slate-400">{secrets.length} secret{secrets.length !== 1 ? 's' : ''} found</p>
 			<div class="grid gap-3">
 				{#each (sortDesc ? [...filtered].reverse() : filtered) as secret}
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5 hover:border-indigo-300 dark:hover:border-indigo-700 transition-colors {secret.DeletedDate ? 'border-l-4 border-l-red-400' : ''}">
@@ -496,6 +512,7 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 							<div class="flex-1 min-w-0">
 								<div class="flex items-center gap-2">
 									<h3 class="font-semibold text-slate-900 dark:text-white">{secret.Name}</h3>
+									<RegionChip region={secret.region} />
 									{#if secret.KmsKeyId && secret.KmsKeyId !== 'alias/aws/secretsmanager'}
 										<span class="shrink-0 flex items-center gap-0.5 px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded text-xs" title="Custom KMS key: {secret.KmsKeyId}">
 											<KeyRound class="w-3 h-3" /> KMS
@@ -541,11 +558,11 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 								<Copy class="w-3 h-3" /> ARN
 							</button>
 							{#if secret.DeletedDate}
-								<button onclick={() => restoreSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
+								<button onclick={() => restoreSecret(secret.Name ?? '', secret.region)} class="px-3 py-1.5 bg-green-600 text-white rounded text-sm hover:bg-green-700 flex items-center gap-1">
 									<Undo2 class="w-3 h-3" /> Restore
 								</button>
 							{:else}
-								<button onclick={() => deleteSecret(secret.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
+								<button onclick={() => deleteSecret(secret.Name ?? '', secret.region)} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1">
 									<Trash2 class="w-3 h-3" /> Delete
 								</button>
 							{/if}
@@ -581,7 +598,10 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 			<div class="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-6 space-y-4">
 				<div class="flex items-start justify-between">
 					<div>
-						<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedSecret.Name}</h2>
+						<div class="flex items-center gap-2">
+							<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedSecret.Name}</h2>
+							<RegionChip region={selectedSecret.region} />
+						</div>
 						<div class="flex items-center gap-2 mt-1">
 							{#if selectedSecret.Description}
 								<p class="text-slate-500 dark:text-slate-400 text-sm">{selectedSecret.Description}</p>
@@ -736,7 +756,7 @@ let kmsCount = $derived(secrets.filter(s => s.KmsKeyId && s.KmsKeyId !== 'alias/
 						<X class="w-3 h-3" /> Cancel Rotation
 					</button>
 					{/if}
-					<button onclick={() => deleteSecret(selectedSecret?.Name ?? '')} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1 ml-auto">
+					<button onclick={() => deleteSecret(selectedSecret?.Name ?? '', selectedSecret?.region)} class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1 ml-auto">
 						<Trash2 class="w-3 h-3" /> Delete Secret
 					</button>
 				</div>

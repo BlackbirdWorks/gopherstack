@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { isAllRegions } from '$lib/region.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getEFSClient } from '$lib/aws-client';
 	import {
 		CreateFileSystemCommand,
@@ -19,10 +23,16 @@
 
 	const client = regionalClient(getEFSClient);
 
+	// Every file system row carries the region its DescribeFileSystems call
+	// was made against. Row and detail actions must use THIS region, not the
+	// page's shared `client()` -- in All mode the same creation token/name
+	// can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let fileSystems = $state<FileSystemDescription[]>([]);
+	let fileSystems = $state<Regioned<FileSystemDescription>[]>([]);
 	let mountTargets = $state<MountTargetDescription[]>([]);
-	let selectedFS = $state<FileSystemDescription | null>(null);
+	let selectedFS = $state<Regioned<FileSystemDescription> | null>(null);
 	let accessPoints = $state<AccessPointDescription[]>([]);
 	let loadingAccessPoints = $state(false);
 	let activeTab = $state<'filesystems' | 'mounttargets'>('filesystems');
@@ -62,16 +72,25 @@
 		Math.round(fileSystems.reduce((acc, f) => acc + (f.SizeInBytes?.Value ?? 0), 0) / 1073741824)
 	);
 
+	// Fans DescribeFileSystems out across every region with data in All mode
+	// (single-region mode collapses to exactly one call). Unlike the file
+	// system list, mountTargets is only ever scoped to whichever ONE file
+	// system is selected, so it doesn't need per-row region tagging.
 	async function loadData() {
 		loading = true;
 		try {
-			const fsResp = await client().send(new DescribeFileSystemsCommand({}));
-			fileSystems = fsResp.FileSystems ?? [];
-			if (fileSystems.length > 0) {
-				const mtResp = await client().send(
-					new DescribeMountTargetsCommand({ FileSystemId: fileSystems[0].FileSystemId })
-				);
-				mountTargets = mtResp.MountTargets ?? [];
+			const result = await multiRegionList(
+				(region) => getEFSClient(region).send(new DescribeFileSystemsCommand({})),
+				(r) => r.FileSystems ?? []
+			);
+			fileSystems = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load file systems from ${result.errors.length} region(s)`);
+			// Single-region mode preserves the original behavior of eagerly
+			// showing the first file system's mount targets in the stat card
+			// above, before any row is selected. Under All mode "the first
+			// file system" is not a meaningful concept, so this is skipped.
+			if (!isAllRegions() && fileSystems.length > 0) {
+				await loadMountTargets(fileSystems[0].FileSystemId ?? '', fileSystems[0].region);
 			} else {
 				mountTargets = [];
 			}
@@ -82,19 +101,19 @@
 		}
 	}
 
-	async function loadMountTargets(fsId: string) {
+	async function loadMountTargets(fsId: string, region: string) {
 		try {
-			const mtResp = await client().send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
+			const mtResp = await getEFSClient(region).send(new DescribeMountTargetsCommand({ FileSystemId: fsId }));
 			mountTargets = mtResp.MountTargets ?? [];
 		} catch (e) {
 			toast.error('Failed to load mount targets: ' + String(e));
 		}
 	}
 
-	async function loadAccessPoints(fsId: string) {
+	async function loadAccessPoints(fsId: string, region: string) {
 		loadingAccessPoints = true;
 		try {
-			const res = await client().send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
+			const res = await getEFSClient(region).send(new DescribeAccessPointsCommand({ FileSystemId: fsId }));
 			accessPoints = res.AccessPoints ?? [];
 		} catch (e) {
 			toast.error('Failed to load access points: ' + String(e));
@@ -132,7 +151,7 @@
 		}
 	}
 
-	async function deleteFileSystem(fs: FileSystemDescription) {
+	async function deleteFileSystem(fs: Regioned<FileSystemDescription>) {
 		const id = fs.FileSystemId ?? '';
 		const label = fs.Name ?? id;
 		if (
@@ -143,7 +162,7 @@
 		)
 			return;
 		try {
-			await client().send(new DeleteFileSystemCommand({ FileSystemId: id }));
+			await getEFSClient(fs.region).send(new DeleteFileSystemCommand({ FileSystemId: id }));
 			toast.success(`File system ${id} deleted`);
 			if (selectedFS?.FileSystemId === id) { selectedFS = null; accessPoints = []; }
 			await loadData();
@@ -160,7 +179,7 @@
 		}
 		creatingMT = true;
 		try {
-			await client().send(
+			await getEFSClient(selectedFS.region).send(
 				new CreateMountTargetCommand({
 					FileSystemId: selectedFS.FileSystemId,
 					SubnetId: newMTSubnetId.trim()
@@ -169,7 +188,7 @@
 			toast.success('Mount target created');
 			showCreateMTModal = false;
 			newMTSubnetId = '';
-			await loadMountTargets(selectedFS.FileSystemId);
+			await loadMountTargets(selectedFS.FileSystemId, selectedFS.region);
 		} catch (e) {
 			toast.error('Failed to create mount target: ' + String(e));
 		} finally {
@@ -178,6 +197,7 @@
 	}
 
 	async function deleteMountTarget(mt: MountTargetDescription) {
+		if (!selectedFS) return;
 		const id = mt.MountTargetId ?? '';
 		if (
 			!(await confirmDestructive({
@@ -187,9 +207,9 @@
 		)
 			return;
 		try {
-			await client().send(new DeleteMountTargetCommand({ MountTargetId: id }));
+			await getEFSClient(selectedFS.region).send(new DeleteMountTargetCommand({ MountTargetId: id }));
 			toast.success(`Mount target ${id} deleted`);
-			if (selectedFS?.FileSystemId) await loadMountTargets(selectedFS.FileSystemId);
+			if (selectedFS?.FileSystemId) await loadMountTargets(selectedFS.FileSystemId, selectedFS.region);
 		} catch (e) {
 			toast.error('Failed to delete mount target: ' + String(e));
 		}
@@ -208,6 +228,7 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
+			<WriteRegionHint />
 			<button
 				onclick={() => { showCreateModal = true; }}
 				class="flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 text-sm font-medium"
@@ -265,6 +286,7 @@
 			<button onclick={() => { selectedFS = null; accessPoints = []; }} class="text-teal-600 hover:underline">File Systems</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="font-medium text-gray-700 dark:text-gray-300">{selectedFS.FileSystemId}</span>
+			<RegionChip region={selectedFS.region} />
 		</div>
 		<!-- Info grid -->
 		<div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -426,6 +448,7 @@
 						<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 							<tr>
 								<th class="px-4 py-3 text-left">ID</th>
+								<th class="px-4 py-3 text-left">Region</th>
 								<th class="px-4 py-3 text-left">Name</th>
 								<th class="px-4 py-3 text-left">Token</th>
 								<th class="px-4 py-3 text-left">State</th>
@@ -439,10 +462,11 @@
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 									<td class="px-4 py-3">
 										<button
-											onclick={async () => { selectedFS = fs; accessPoints = []; await Promise.all([loadMountTargets(fs.FileSystemId ?? ''), loadAccessPoints(fs.FileSystemId ?? '')]); }}
+											onclick={async () => { selectedFS = fs; accessPoints = []; await Promise.all([loadMountTargets(fs.FileSystemId ?? '', fs.region), loadAccessPoints(fs.FileSystemId ?? '', fs.region)]); }}
 											class="text-teal-600 dark:text-teal-400 hover:underline font-medium"
 										>{fs.FileSystemId ?? '-'}</button>
 									</td>
+									<td class="px-4 py-3"><RegionChip region={fs.region} /></td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.Name ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-300">{fs.CreationToken ?? '-'}</td>
 									<td class="px-4 py-3">

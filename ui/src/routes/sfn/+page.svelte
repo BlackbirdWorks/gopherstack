@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getSFNClient } from '$lib/aws-client';
 	import {
 		ListStateMachinesCommand,
@@ -40,6 +43,12 @@
 
 	const sfn = regionalClient(getSFNClient);
 
+	// Every state machine/activity row carries the region its List call was
+	// made against. Row and detail actions must use THIS region, not the
+	// page's shared `sfn()` client -- in All mode the same name can
+	// legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	// Page-level tab
 	let pageTab = $state<'workflows' | 'activities' | 'metrics' | 'docs'>('workflows');
 
@@ -47,8 +56,8 @@
 	let loading = $state(false);
 	let searchQuery = $state('');
 	let typeFilter = $state<'ALL' | 'STANDARD' | 'EXPRESS'>('ALL');
-	let stateMachines = $state<StateMachineListItem[]>([]);
-	let selectedSM = $state<DescribeStateMachineCommandOutput | null>(null);
+	let stateMachines = $state<Regioned<StateMachineListItem>[]>([]);
+	let selectedSM = $state<Regioned<DescribeStateMachineCommandOutput> | null>(null);
 	let smTab = $state<'executions' | 'definition' | 'versions'>('executions');
 
 	// Executions
@@ -105,7 +114,7 @@
 	let loadingVersions = $state(false);
 
 	// Activities
-	let activities = $state<ActivityListItem[]>([]);
+	let activities = $state<Regioned<ActivityListItem>[]>([]);
 	let loadingActivities = $state(false);
 	let newActivityName = $state('');
 	let creatingActivity = $state(false);
@@ -182,22 +191,29 @@
 	}
 
 	// State Machine Actions
+	// Fans ListStateMachines out across every region with data in All mode
+	// (single-region mode collapses to exactly one call).
 	async function loadStateMachines() {
 		loading = true;
 		try {
-			const r = await sfn().send(new ListStateMachinesCommand({}));
-			stateMachines = r.stateMachines ?? [];
+			const result = await multiRegionList(
+				(region) => getSFNClient(region).send(new ListStateMachinesCommand({})),
+				(r) => r.stateMachines ?? []
+			);
+			stateMachines = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load state machines from ${result.errors.length} region(s)`);
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loading = false; }
 	}
-	async function selectSM(arn: string) {
+	async function selectSM(arn: string, region: string) {
 		loadingDetail = true; selectedExecution = null; historyEvents = []; versions = [];
 		try {
+			const client = getSFNClient(region);
 			const [d, x] = await Promise.all([
-				sfn().send(new DescribeStateMachineCommand({ stateMachineArn: arn })),
-				sfn().send(new ListExecutionsCommand({ stateMachineArn: arn, maxResults: 50 }))
+				client.send(new DescribeStateMachineCommand({ stateMachineArn: arn })),
+				client.send(new ListExecutionsCommand({ stateMachineArn: arn, maxResults: 50 }))
 			]);
-			selectedSM = d; executions = x.executions ?? [];
+			selectedSM = { ...d, region }; executions = x.executions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingDetail = false; }
 	}
@@ -205,22 +221,23 @@
 		if (!selectedSM?.stateMachineArn) return;
 		loadingExecutions = true;
 		try {
-			const r = await sfn().send(new ListExecutionsCommand({ stateMachineArn: selectedSM.stateMachineArn, maxResults: 50 }));
+			const r = await getSFNClient(selectedSM.region).send(new ListExecutionsCommand({ stateMachineArn: selectedSM.stateMachineArn, maxResults: 50 }));
 			executions = r.executions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingExecutions = false; }
 	}
 	async function selectExecution(arn: string) {
+		if (!selectedSM) return;
 		try {
-			selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
+			selectedExecution = await getSFNClient(selectedSM.region).send(new DescribeExecutionCommand({ executionArn: arn }));
 			historyEvents = [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 	}
 	async function loadHistory(token?: string) {
-		if (!selectedExecution?.executionArn) return;
+		if (!selectedExecution?.executionArn || !selectedSM) return;
 		loadingHistory = true;
 		try {
-			const r = await sfn().send(new GetExecutionHistoryCommand({
+			const r = await getSFNClient(selectedSM.region).send(new GetExecutionHistoryCommand({
 				executionArn: selectedExecution.executionArn,
 				maxResults: 50, nextToken: token
 			}));
@@ -231,33 +248,37 @@
 		finally { loadingHistory = false; }
 	}
 	async function stopExec(arn: string) {
-		if (!await confirmDestructive({ title: 'Stop Execution', message: 'Stop this execution?' })) return;
+		if (!selectedSM || !await confirmDestructive({ title: 'Stop Execution', message: 'Stop this execution?' })) return;
 		try {
-			await sfn().send(new StopExecutionCommand({ executionArn: arn, error: 'ManualStop', cause: 'User requested' }));
+			const client = getSFNClient(selectedSM.region);
+			await client.send(new StopExecutionCommand({ executionArn: arn, error: 'ManualStop', cause: 'User requested' }));
 			toast.success('Stop requested');
 			if (selectedExecution?.executionArn === arn) {
-				selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
+				selectedExecution = await client.send(new DescribeExecutionCommand({ executionArn: arn }));
 			}
 			await refreshExecs();
 		} catch (e: unknown) { toast.error((e as Error).message); }
 	}
 	async function redriveExec(arn: string) {
+		if (!selectedSM) return;
 		redriving = true;
 		try {
-			await sfn().send(new RedriveExecutionCommand({ executionArn: arn }));
+			const client = getSFNClient(selectedSM.region);
+			await client.send(new RedriveExecutionCommand({ executionArn: arn }));
 			toast.success('Redrive requested');
 			if (selectedExecution?.executionArn === arn) {
-				selectedExecution = await sfn().send(new DescribeExecutionCommand({ executionArn: arn }));
+				selectedExecution = await client.send(new DescribeExecutionCommand({ executionArn: arn }));
 			}
 			await refreshExecs();
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { redriving = false; }
 	}
 	async function validateDefinition() {
+		if (!selectedSM) return;
 		validating = true;
 		validationResult = null;
 		try {
-			const r = await sfn().send(new ValidateStateMachineDefinitionCommand({ definition: editDefinition }));
+			const r = await getSFNClient(selectedSM.region).send(new ValidateStateMachineDefinitionCommand({ definition: editDefinition }));
 			if (r.result === 'OK') {
 				validationResult = { ok: true, message: 'Definition is valid.' };
 			} else {
@@ -274,7 +295,7 @@
 		if (!selectedSM) return;
 		starting = true;
 		try {
-			const r = await sfn().send(new StartExecutionCommand({
+			const r = await getSFNClient(selectedSM.region).send(new StartExecutionCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				name: executionName || undefined,
 				input: executionInput
@@ -307,20 +328,20 @@
 		if (!selectedSM?.stateMachineArn) return;
 		updating = true;
 		try {
-			await sfn().send(new UpdateStateMachineCommand({
+			await getSFNClient(selectedSM.region).send(new UpdateStateMachineCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				definition: editDefinition, roleArn: editRoleArn
 			}));
 			toast.success('Updated');
 			showEditModal = false;
-			await selectSM(selectedSM.stateMachineArn);
+			await selectSM(selectedSM.stateMachineArn, selectedSM.region);
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { updating = false; }
 	}
-	async function deleteSM(arn?: string) {
-		if (!arn || !await confirmDestructive({ title: 'Delete State Machine', message: 'Delete this state machine?' })) return;
+	async function deleteSM(arn?: string, region?: string) {
+		if (!arn || !region || !await confirmDestructive({ title: 'Delete State Machine', message: 'Delete this state machine?' })) return;
 		try {
-			await sfn().send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
+			await getSFNClient(region).send(new DeleteStateMachineCommand({ stateMachineArn: arn }));
 			toast.success('Delete initiated');
 			if (selectedSM?.stateMachineArn === arn) selectedSM = null;
 			await loadStateMachines();
@@ -330,7 +351,7 @@
 		if (!selectedSM?.stateMachineArn) return;
 		loadingVersions = true;
 		try {
-			const r = await sfn().send(new ListStateMachineVersionsCommand({ stateMachineArn: selectedSM.stateMachineArn }));
+			const r = await getSFNClient(selectedSM.region).send(new ListStateMachineVersionsCommand({ stateMachineArn: selectedSM.stateMachineArn }));
 			versions = (r as { stateMachineVersions?: VersionSummary[] }).stateMachineVersions ?? [];
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingVersions = false; }
@@ -338,7 +359,7 @@
 	async function publishVersion() {
 		if (!selectedSM?.stateMachineArn) return;
 		try {
-			await sfn().send(new PublishStateMachineVersionCommand({
+			await getSFNClient(selectedSM.region).send(new PublishStateMachineVersionCommand({
 				stateMachineArn: selectedSM.stateMachineArn,
 				description: 'v' + (versions.length + 1) + ' - ' + new Date().toISOString().slice(0, 10)
 			}));
@@ -369,7 +390,12 @@
 	async function loadActivities() {
 		loadingActivities = true;
 		try {
-			activities = (await sfn().send(new ListActivitiesCommand({}))).activities ?? [];
+			const result = await multiRegionList(
+				(region) => getSFNClient(region).send(new ListActivitiesCommand({})),
+				(r) => r.activities ?? []
+			);
+			activities = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load activities from ${result.errors.length} region(s)`);
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { loadingActivities = false; }
 	}
@@ -383,10 +409,10 @@
 		} catch (e: unknown) { toast.error((e as Error).message); }
 		finally { creatingActivity = false; }
 	}
-	async function deleteActivity(arn: string) {
+	async function deleteActivity(arn: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Activity', message: 'Delete this activity?' })) return;
 		try {
-			await sfn().send(new DeleteActivityCommand({ activityArn: arn }));
+			await getSFNClient(region).send(new DeleteActivityCommand({ activityArn: arn }));
 			toast.success('Deleted'); await loadActivities();
 		} catch (e: unknown) { toast.error((e as Error).message); }
 	}
@@ -434,6 +460,7 @@
 			<button onclick={seedDemo} class="px-4 py-2 bg-purple-600/80 hover:bg-purple-600 text-white rounded-xl font-black uppercase text-[10px] tracking-widest active:scale-95 transition-all flex items-center gap-1.5">
 				<Zap class="w-3.5 h-3.5" /> Demo Data
 			</button>
+			<WriteRegionHint />
 			<button onclick={() => showCreateModal = true} class="px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl font-black uppercase text-[10px] tracking-widest shadow-lg active:scale-95 transition-all flex items-center gap-1.5">
 				<Plus class="w-4 h-4" /> New Workflow
 			</button>
@@ -472,13 +499,16 @@
 						{#each Array(3) as _}<div class="p-4 animate-pulse"><div class="h-8 bg-slate-200/50 dark:bg-slate-700/30 rounded-lg"></div></div>{/each}
 					{:else}
 						{#each filteredSMs as sm}
-							<div role="button" tabindex="0" onclick={() => sm.stateMachineArn && selectSM(sm.stateMachineArn)} onkeydown={(e) => e.key === 'Enter' && sm.stateMachineArn && selectSM(sm.stateMachineArn)}
+							<div role="button" tabindex="0" onclick={() => sm.stateMachineArn && selectSM(sm.stateMachineArn, sm.region)} onkeydown={(e) => e.key === 'Enter' && sm.stateMachineArn && selectSM(sm.stateMachineArn, sm.region)}
 								class="p-3 hover:bg-pink-500/5 cursor-pointer transition-all border-l-4 {selectedSM?.stateMachineArn === sm.stateMachineArn ? 'border-pink-500 bg-pink-500/10' : 'border-transparent'}">
 								<div class="flex items-center justify-between mb-0.5">
 									<div class="font-black text-slate-900 dark:text-white uppercase text-xs truncate max-w-[130px] italic">{sm.name}</div>
 									<span class="text-[8px] font-black px-1.5 py-0.5 rounded {sm.type === 'EXPRESS' ? 'bg-purple-500/20 text-purple-500' : 'bg-pink-500/10 text-pink-500'}">{sm.type}</span>
 								</div>
-								<div class="text-[8px] text-slate-400 font-mono truncate">{sm.stateMachineArn?.split(':').pop()}</div>
+								<div class="flex items-center justify-between">
+									<div class="text-[8px] text-slate-400 font-mono truncate">{sm.stateMachineArn?.split(':').pop()}</div>
+									<RegionChip region={sm.region} />
+								</div>
 							</div>
 						{/each}
 						{#if !filteredSMs.length}<div class="p-10 text-center text-slate-400 text-xs italic">{searchQuery ? 'No matches.' : 'No state machines found.'}</div>{/if}
@@ -494,7 +524,10 @@
 				<div class="p-5 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl">
 					<div class="flex justify-between items-start mb-4">
 						<div>
-							<h2 class="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic">{selectedSM.name}</h2>
+							<div class="flex items-center gap-2">
+								<h2 class="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic">{selectedSM.name}</h2>
+								<RegionChip region={selectedSM.region} />
+							</div>
 							<div class="flex flex-wrap gap-2 mt-1">
 								<span class="px-2 py-0.5 rounded bg-pink-500/10 text-pink-600 text-[10px] font-black uppercase">{selectedSM.status}</span>
 								<span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-black uppercase">{selectedSM.type}</span>
@@ -512,7 +545,7 @@
 								<Play class="w-3.5 h-3.5 fill-current" /> Execute
 							</button>
 							<button onclick={openEdit} class="p-2.5 bg-slate-100 dark:bg-slate-700 hover:text-pink-500 rounded-xl transition-all" title="Edit"><Settings class="w-4 h-4" /></button>
-							<button onclick={() => deleteSM(selectedSM?.stateMachineArn)} class="p-2.5 bg-slate-100 dark:bg-slate-700 hover:text-rose-500 rounded-xl transition-all" title="Delete"><Trash2 class="w-4 h-4" /></button>
+							<button onclick={() => deleteSM(selectedSM?.stateMachineArn, selectedSM?.region)} class="p-2.5 bg-slate-100 dark:bg-slate-700 hover:text-rose-500 rounded-xl transition-all" title="Delete"><Trash2 class="w-4 h-4" /></button>
 						</div>
 					</div>
 					<div class="flex gap-1">
@@ -722,8 +755,9 @@
 	<div class="space-y-4">
 		<div class="p-5 bg-white/40 dark:bg-slate-800/40 backdrop-blur-xl border border-white/20 dark:border-slate-700/50 rounded-2xl shadow-xl">
 			<h3 class="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 italic flex items-center gap-2"><Cpu class="w-4 h-4" /> Create Activity</h3>
-			<div class="flex gap-3">
+			<div class="flex gap-3 items-center">
 				<input type="text" bind:value={newActivityName} placeholder="my-worker-activity" class="flex-1 px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl outline-none focus:ring-2 focus:ring-pink-500 text-sm" />
+				<WriteRegionHint />
 				<button onclick={createActivity} disabled={creatingActivity || !newActivityName.trim()} class="px-4 py-2.5 bg-pink-600 hover:bg-pink-700 text-white rounded-xl font-black uppercase text-[10px] tracking-widest disabled:opacity-50">{creatingActivity ? 'Creating...' : 'Create'}</button>
 			</div>
 		</div>
@@ -741,13 +775,16 @@
 					{#each activities as act}
 						<div class="p-4 flex items-center justify-between">
 							<div>
-								<div class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight italic">{act.name}</div>
+								<div class="flex items-center gap-2">
+									<div class="text-sm font-black text-slate-900 dark:text-white uppercase tracking-tight italic">{act.name}</div>
+									<RegionChip region={act.region} />
+								</div>
 								<div class="text-[9px] text-slate-400 font-mono mt-0.5">{act.activityArn}</div>
 								<div class="text-[9px] text-slate-500 mt-0.5">Created: {act.creationDate?.toLocaleString()}</div>
 							</div>
 							<div class="flex gap-2">
 								<button onclick={() => cp(act.activityArn ?? '')} class="p-2 text-slate-400 hover:text-pink-500"><Copy class="w-4 h-4" /></button>
-								<button onclick={() => deleteActivity(act.activityArn!)} class="p-2 text-slate-400 hover:text-rose-500"><Trash2 class="w-4 h-4" /></button>
+								<button onclick={() => deleteActivity(act.activityArn!, act.region)} class="p-2 text-slate-400 hover:text-rose-500"><Trash2 class="w-4 h-4" /></button>
 							</div>
 						</div>
 					{/each}
