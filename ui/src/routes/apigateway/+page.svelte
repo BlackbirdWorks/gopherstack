@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getAPIGatewayClient } from '$lib/aws-client';
 	import {
 		GetRestApisCommand,
@@ -63,14 +66,38 @@
 
 	const apigw = regionalClient(getAPIGatewayClient);
 
+	// Every row carries the region its Get*Command call was made against.
+	// Row actions (delete/toggle/deploy) must use THIS region, not the page's
+	// shared `apigw()` client -- in All mode the same name can legitimately
+	// exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	// ─── Top-level tab ───────────────────────────────────────────────────────────
 	let topTab = $state<'apis' | 'apikeys' | 'usageplans' | 'domainnames' | 'metrics' | 'docs'>('apis');
 	let searchQuery = $state('');
 	let loading = $state(false);
 
+	async function loadRegioned<TResponse, TItem>(
+		label: string,
+		regionCall: (region: string) => Promise<TResponse>,
+		extractItems: (r: TResponse) => TItem[],
+		assign: (items: Regioned<TItem>[]) => void
+	) {
+		loading = true;
+		try {
+			const result = await multiRegionList(regionCall, extractItems);
+			assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+			if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
+		} catch (e) {
+			toast.error(`Failed to load ${label}: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	// ─── REST APIs ───────────────────────────────────────────────────────────────
-	let restApis = $state<RestApi[]>([]);
-	let selectedApi = $state<RestApi | null>(null);
+	let restApis = $state<Regioned<RestApi>[]>([]);
+	let selectedApi = $state<Regioned<RestApi> | null>(null);
 	let apiResources = $state<Resource[]>([]);
 	let apiStages = $state<Stage[]>([]);
 	let apiDeployments = $state<Deployment[]>([]);
@@ -98,7 +125,7 @@
 	);
 
 	// ─── API Keys ────────────────────────────────────────────────────────────────
-	let apiKeys = $state<ApiKey[]>([]);
+	let apiKeys = $state<Regioned<ApiKey>[]>([]);
 	let showCreateKeyModal = $state(false);
 	let newKeyName = $state('');
 	let newKeyDescription = $state('');
@@ -110,8 +137,8 @@
 	);
 
 	// ─── Usage Plans ─────────────────────────────────────────────────────────────
-	let usagePlans = $state<UsagePlan[]>([]);
-	let selectedPlan = $state<UsagePlan | null>(null);
+	let usagePlans = $state<Regioned<UsagePlan>[]>([]);
+	let selectedPlan = $state<Regioned<UsagePlan> | null>(null);
 	let planKeys = $state<UsagePlanKey[]>([]);
 	let loadingPlanKeys = $state(false);
 	let showCreatePlanModal = $state(false);
@@ -126,7 +153,7 @@
 	);
 
 	// ─── Domain Names ────────────────────────────────────────────────────────────
-	let domainNames = $state<DomainName[]>([]);
+	let domainNames = $state<Regioned<DomainName>[]>([]);
 	let showCreateDomainModal = $state(false);
 	let newDomainName = $state('');
 	let newDomainCertArn = $state('');
@@ -164,18 +191,13 @@
 
 	// ─── Data loaders ────────────────────────────────────────────────────────────
 	async function loadApis() {
-		loading = true;
-		try {
-			const res = await apigw().send(new GetRestApisCommand({ limit: 100 }));
-			restApis = res.items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load APIs: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('APIs',
+			(region) => getAPIGatewayClient(region).send(new GetRestApisCommand({ limit: 100 })),
+			(r) => r.items ?? [],
+			(items) => restApis = items);
 	}
 
-	async function loadApiDetail(api: RestApi) {
+	async function loadApiDetail(api: Regioned<RestApi>) {
 		selectedApi = api;
 		if (!api.id) return;
 		loadingApiDetail = true;
@@ -186,12 +208,13 @@
 		apiModels = [];
 		apiDetailTab = 'resources';
 		try {
+			const client = getAPIGatewayClient(api.region);
 			const [resourcesRes, stagesRes, deplsRes, authRes, modelsRes] = await Promise.all([
-				apigw().send(new GetResourcesCommand({ restApiId: api.id, limit: 100 })),
-				apigw().send(new GetStagesCommand({ restApiId: api.id })),
-				apigw().send(new GetDeploymentsCommand({ restApiId: api.id, limit: 100 })),
-				apigw().send(new GetAuthorizersCommand({ restApiId: api.id })),
-				apigw().send(new GetModelsCommand({ restApiId: api.id, limit: 100 })),
+				client.send(new GetResourcesCommand({ restApiId: api.id, limit: 100 })),
+				client.send(new GetStagesCommand({ restApiId: api.id })),
+				client.send(new GetDeploymentsCommand({ restApiId: api.id, limit: 100 })),
+				client.send(new GetAuthorizersCommand({ restApiId: api.id })),
+				client.send(new GetModelsCommand({ restApiId: api.id, limit: 100 })),
 			]);
 			apiResources = resourcesRes.items ?? [];
 			apiStages = stagesRes.item ?? [];
@@ -206,45 +229,30 @@
 	}
 
 	async function loadApiKeys() {
-		loading = true;
-		try {
-			const res = await apigw().send(new GetApiKeysCommand({ limit: 100, includeValues: true }));
-			apiKeys = res.items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load API keys: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('API keys',
+			(region) => getAPIGatewayClient(region).send(new GetApiKeysCommand({ limit: 100, includeValues: true })),
+			(r) => r.items ?? [],
+			(items) => apiKeys = items);
 	}
 
 	async function loadUsagePlans() {
-		loading = true;
-		try {
-			const res = await apigw().send(new GetUsagePlansCommand({ limit: 100 }));
-			usagePlans = res.items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load usage plans: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('usage plans',
+			(region) => getAPIGatewayClient(region).send(new GetUsagePlansCommand({ limit: 100 })),
+			(r) => r.items ?? [],
+			(items) => usagePlans = items);
 	}
 
 	async function loadDomainNames() {
-		loading = true;
-		try {
-			const res = await apigw().send(new GetDomainNamesCommand({ limit: 100 }));
-			domainNames = res.items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load domain names: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('domain names',
+			(region) => getAPIGatewayClient(region).send(new GetDomainNamesCommand({ limit: 100 })),
+			(r) => r.items ?? [],
+			(items) => domainNames = items);
 	}
 
-	async function loadPlanKeys(planId: string) {
+	async function loadPlanKeys(planId: string, region: string) {
 		loadingPlanKeys = true;
 		try {
-			const res = await apigw().send(new GetUsagePlanKeysCommand({ usagePlanId: planId, limit: 100 }));
+			const res = await getAPIGatewayClient(region).send(new GetUsagePlanKeysCommand({ usagePlanId: planId, limit: 100 }));
 			planKeys = res.items ?? [];
 		} catch (e) {
 			toast.error(`Failed to load plan keys: ${e}`);
@@ -277,10 +285,10 @@
 		}
 	}
 
-	async function deleteApi(api: RestApi) {
+	async function deleteApi(api: Regioned<RestApi>) {
 		if (!api.id || !(await confirmDestructive({ title: 'Delete API', message: `Delete API "${api.name}"?` }))) return;
 		try {
-			await apigw().send(new DeleteRestApiCommand({ restApiId: api.id }));
+			await getAPIGatewayClient(api.region).send(new DeleteRestApiCommand({ restApiId: api.id }));
 			toast.success(`API "${api.name}" deleted`);
 			if (selectedApi?.id === api.id) selectedApi = null;
 			await loadApis();
@@ -293,7 +301,7 @@
 		if (!selectedApi?.id || !deployStageName.trim()) return;
 		deploying = true;
 		try {
-			await apigw().send(new CreateDeploymentCommand({
+			await getAPIGatewayClient(selectedApi.region).send(new CreateDeploymentCommand({
 				restApiId: selectedApi.id,
 				stageName: deployStageName.trim(),
 				description: deployDescription.trim() || undefined,
@@ -332,10 +340,10 @@
 		}
 	}
 
-	async function deleteApiKey(key: ApiKey) {
+	async function deleteApiKey(key: Regioned<ApiKey>) {
 		if (!key.id || !(await confirmDestructive({ title: 'Delete API Key', message: `Delete key "${key.name}"?` }))) return;
 		try {
-			await apigw().send(new DeleteApiKeyCommand({ apiKey: key.id }));
+			await getAPIGatewayClient(key.region).send(new DeleteApiKeyCommand({ apiKey: key.id }));
 			toast.success(`API Key "${key.name}" deleted`);
 			await loadApiKeys();
 		} catch (e) {
@@ -343,10 +351,10 @@
 		}
 	}
 
-	async function toggleApiKeyEnabled(key: ApiKey) {
+	async function toggleApiKeyEnabled(key: Regioned<ApiKey>) {
 		if (!key.id) return;
 		try {
-			await apigw().send(new UpdateApiKeyCommand({
+			await getAPIGatewayClient(key.region).send(new UpdateApiKeyCommand({
 				apiKey: key.id,
 				patchOperations: [{ op: 'replace', path: '/enabled', value: key.enabled ? 'false' : 'true' }],
 			}));
@@ -383,10 +391,10 @@
 		}
 	}
 
-	async function deleteUsagePlan(plan: UsagePlan) {
+	async function deleteUsagePlan(plan: Regioned<UsagePlan>) {
 		if (!plan.id || !(await confirmDestructive({ title: 'Delete Usage Plan', message: `Delete usage plan "${plan.name}"?` }))) return;
 		try {
-			await apigw().send(new DeleteUsagePlanCommand({ usagePlanId: plan.id }));
+			await getAPIGatewayClient(plan.region).send(new DeleteUsagePlanCommand({ usagePlanId: plan.id }));
 			toast.success(`Usage Plan "${plan.name}" deleted`);
 			if (selectedPlan?.id === plan.id) { selectedPlan = null; planKeys = []; }
 			await loadUsagePlans();
@@ -395,15 +403,15 @@
 		}
 	}
 
-	async function selectPlan(plan: UsagePlan) {
+	async function selectPlan(plan: Regioned<UsagePlan>) {
 		selectedPlan = plan;
-		if (plan.id) await loadPlanKeys(plan.id);
+		if (plan.id) await loadPlanKeys(plan.id, plan.region);
 	}
 
 	async function addKeyToPlan() {
 		if (!selectedPlan?.id || !addKeyId.trim()) return;
 		try {
-			await apigw().send(new CreateUsagePlanKeyCommand({
+			await getAPIGatewayClient(selectedPlan.region).send(new CreateUsagePlanKeyCommand({
 				usagePlanId: selectedPlan.id,
 				keyId: addKeyId.trim(),
 				keyType: addKeyType,
@@ -411,7 +419,7 @@
 			toast.success('API key added to usage plan');
 			showAddKeyModal = false;
 			addKeyId = '';
-			await loadPlanKeys(selectedPlan.id);
+			await loadPlanKeys(selectedPlan.id, selectedPlan.region);
 		} catch (e) {
 			toast.error(`Failed to add key to plan: ${e}`);
 		}
@@ -438,10 +446,10 @@
 		}
 	}
 
-	async function deleteDomainName(domain: DomainName) {
+	async function deleteDomainName(domain: Regioned<DomainName>) {
 		if (!domain.domainName || !(await confirmDestructive({ title: 'Delete Domain', message: `Delete domain "${domain.domainName}"?` }))) return;
 		try {
-			await apigw().send(new DeleteDomainNameCommand({ domainName: domain.domainName }));
+			await getAPIGatewayClient(domain.region).send(new DeleteDomainNameCommand({ domainName: domain.domainName }));
 			toast.success(`Domain "${domain.domainName}" deleted`);
 			await loadDomainNames();
 		} catch (e) {
@@ -613,6 +621,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateApiModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -642,12 +651,12 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredApis as api}
+						{#each filteredApis as api (api.region + '::' + api.id)}
 							<tr
-								class="hover:bg-muted/30 cursor-pointer {selectedApi?.id === api.id ? 'bg-muted/50' : ''}"
+								class="hover:bg-muted/30 cursor-pointer {selectedApi && selectedApi.id === api.id && selectedApi.region === api.region ? 'bg-muted/50' : ''}"
 								onclick={() => loadApiDetail(api)}
 							>
-								<td class="px-4 py-3 font-medium">{api.name}</td>
+								<td class="px-4 py-3 font-medium"><div class="flex items-center gap-2"><span>{api.name}</span><RegionChip region={api.region} /></div></td>
 								<td class="px-4 py-3 text-muted-foreground text-xs truncate max-w-[200px]">{api.description ?? '—'}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">{api.endpointConfiguration?.types?.join(', ') ?? '—'}</td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">{api.createdDate ? new Date(api.createdDate).toLocaleDateString() : '—'}</td>
@@ -675,7 +684,7 @@
 			<div class="rounded-lg border p-4 space-y-4">
 				<div class="flex items-center justify-between">
 					<div>
-						<h3 class="font-semibold text-lg">{selectedApi.name}</h3>
+						<h3 class="font-semibold text-lg flex items-center gap-2"><span>{selectedApi.name}</span><RegionChip region={selectedApi.region} /></h3>
 						<p class="text-xs text-muted-foreground font-mono">{selectedApi.id}</p>
 						{#if selectedApi.description}
 							<p class="text-sm text-muted-foreground">{selectedApi.description}</p>
@@ -851,6 +860,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateKeyModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -881,9 +891,9 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredKeys as key}
+						{#each filteredKeys as key (key.region + '::' + key.id)}
 							<tr class="hover:bg-muted/30">
-								<td class="px-4 py-3 font-medium">{key.name}</td>
+								<td class="px-4 py-3 font-medium"><div class="flex items-center gap-2"><span>{key.name}</span><RegionChip region={key.region} /></div></td>
 								<td class="px-4 py-3 font-mono text-xs text-muted-foreground">{key.id}</td>
 								<td class="px-4 py-3">
 									{#if key.value}
@@ -948,6 +958,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreatePlanModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -976,12 +987,12 @@
 							</tr>
 						</thead>
 						<tbody class="divide-y">
-							{#each filteredPlans as plan}
+							{#each filteredPlans as plan (plan.region + '::' + plan.id)}
 								<tr
-									class="hover:bg-muted/30 cursor-pointer {selectedPlan?.id === plan.id ? 'bg-muted/50' : ''}"
+									class="hover:bg-muted/30 cursor-pointer {selectedPlan && selectedPlan.id === plan.id && selectedPlan.region === plan.region ? 'bg-muted/50' : ''}"
 									onclick={() => selectPlan(plan)}
 								>
-									<td class="px-4 py-3 font-medium">{plan.name}</td>
+									<td class="px-4 py-3 font-medium"><div class="flex items-center gap-2"><span>{plan.name}</span><RegionChip region={plan.region} /></div></td>
 									<td class="px-4 py-3 text-muted-foreground text-xs">{plan.description ?? '—'}</td>
 									<td class="px-4 py-3 text-right">
 										<button
@@ -1000,7 +1011,7 @@
 				{#if selectedPlan}
 					<div class="rounded-lg border p-4 space-y-3">
 						<div class="flex items-center justify-between">
-							<h4 class="font-medium">Keys for: {selectedPlan.name}</h4>
+							<h4 class="font-medium flex items-center gap-2">Keys for: {selectedPlan.name}<RegionChip region={selectedPlan.region} /></h4>
 							<button
 								onclick={() => (showAddKeyModal = true)}
 								class="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground"
@@ -1044,6 +1055,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateDomainModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1072,9 +1084,9 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredDomains as domain}
+						{#each filteredDomains as domain (domain.region + '::' + domain.domainName)}
 							<tr class="hover:bg-muted/30">
-								<td class="px-4 py-3 font-medium">{domain.domainName}</td>
+								<td class="px-4 py-3 font-medium"><div class="flex items-center gap-2"><span>{domain.domainName}</span><RegionChip region={domain.region} /></div></td>
 								<td class="px-4 py-3 text-muted-foreground text-xs">
 									{domain.endpointConfiguration?.types?.join(', ') ?? '—'}
 								</td>

@@ -561,7 +561,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 {#each filteredQueues as queue (queue.region + '::' + queue.jobQueueName)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 <td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={queue.jobQueueArn} onclick={() => { selectedQueue = queue; void loadQueueJobCounts(queue.jobQueueName ?? '', queue.region); }}>
-<div class="flex items-center gap-2">{queue.jobQueueName}<RegionChip region={queue.region} /></div>
+<div class="flex items-center gap-2"><span>{queue.jobQueueName}</span><RegionChip region={queue.region} /></div>
 </td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(queue.state)}`}>{queue.state}</span></td>
 <td class="px-4 py-3 text-xs text-gray-500">{queue.status}</td>
@@ -593,7 +593,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-purple-200 dark:border-purple-800 p-5 space-y-4">
 	<div class="flex items-start justify-between">
 		<div>
-			<h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">{selectedQueue.jobQueueName}<RegionChip region={selectedQueue.region} /></h3>
+			<h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2"><span>{selectedQueue.jobQueueName}</span><RegionChip region={selectedQueue.region} /></h3>
 			<p class="text-xs font-mono text-gray-400 mt-0.5 break-all">{selectedQueue.jobQueueArn}</p>
 		</div>
 		<button onclick={() => selectedQueue = null} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs">✕</button>
@@ -664,7 +664,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 {#each filteredSEs as se (se.region + '::' + se.serviceEnvironmentName)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 <td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={se.serviceEnvironmentArn}>
-<div class="flex items-center gap-2">{se.serviceEnvironmentName}<RegionChip region={se.region} /></div>
+<div class="flex items-center gap-2"><span>{se.serviceEnvironmentName}</span><RegionChip region={se.region} /></div>
 </td>
 <td class="px-4 py-3 text-xs text-gray-500">{se.serviceEnvironmentType}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(se.state)}`}>{se.state}</span></td>
@@ -700,14 +700,16 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-{#each filteredCEs as ce}
+{#each filteredCEs as ce (ce.region + '::' + ce.computeEnvironmentName)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={ce.computeEnvironmentArn} onclick={() => selectedCE = ce}>{ce.computeEnvironmentName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={ce.computeEnvironmentArn} onclick={() => selectedCE = ce}>
+<div class="flex items-center gap-2"><span>{ce.computeEnvironmentName}</span><RegionChip region={ce.region} /></div>
+</td>
 <td class="px-4 py-3 text-xs text-gray-500">{ce.type}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.state)}`}>{ce.state}</span></td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(ce.status)}`}>{ce.status}</span></td>
 <td class="px-4 py-3">
-<button onclick={() => deleteCE(ce.computeEnvironmentName ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Delete">
+<button onclick={() => deleteCE(ce.computeEnvironmentName ?? '', ce.region)} class="text-red-500 hover:text-red-700 p-1" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
@@ -724,7 +726,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-purple-200 dark:border-purple-800 p-5 space-y-4">
 	<div class="flex items-start justify-between">
 		<div>
-			<h3 class="text-base font-semibold text-gray-900 dark:text-white">{selectedCE.computeEnvironmentName}</h3>
+			<h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2"><span>{selectedCE.computeEnvironmentName}</span><RegionChip region={selectedCE.region} /></h3>
 			<p class="text-xs font-mono text-gray-400 mt-0.5 break-all">{selectedCE.computeEnvironmentArn}</p>
 		</div>
 		<button onclick={() => selectedCE = null} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs">✕</button>
@@ -802,9 +804,9 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-{#each filteredJobs as job}
+{#each filteredJobs as job (job.region + '::' + job.jobId)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer" onclick={() => loadJobDetail(job)}>
-<td class="px-4 py-3 font-medium">{job.jobName}</td>
+<td class="px-4 py-3 font-medium"><div class="flex items-center gap-2"><span>{job.jobName}</span><RegionChip region={job.region} /></div></td>
 <td class="px-4 py-3 font-mono text-xs text-gray-500">{job.jobId}</td>
 <td class="px-4 py-3">
 <span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(job.status)}`}>
@@ -814,11 +816,11 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 <td class="px-4 py-3 text-xs text-gray-500">{formatDate(job.createdAt)}</td>
 <td class="px-4 py-3" onclick={(e) => e.stopPropagation()}>
 {#if job.status === 'SUBMITTED' || job.status === 'PENDING' || job.status === 'RUNNABLE'}
-<button onclick={() => cancelJob(job.jobId ?? '')} class="text-yellow-500 hover:text-yellow-700 p-1" title="Cancel">
+<button onclick={() => cancelJob(job.jobId ?? '', job.region)} class="text-yellow-500 hover:text-yellow-700 p-1" title="Cancel">
 <XCircle class="w-4 h-4" />
 </button>
 {:else if job.status === 'STARTING' || job.status === 'RUNNING'}
-<button onclick={() => terminateJob(job.jobId ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Terminate">
+<button onclick={() => terminateJob(job.jobId ?? '', job.region)} class="text-red-500 hover:text-red-700 p-1" title="Terminate">
 <XCircle class="w-4 h-4" />
 </button>
 {/if}
@@ -853,9 +855,11 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-{#each filteredDefinitions as def}
+{#each filteredDefinitions as def (def.region + '::' + def.jobDefinitionName + '::' + def.revision)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={def.jobDefinitionArn}>{def.jobDefinitionName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={def.jobDefinitionArn}>
+<div class="flex items-center gap-2"><span>{def.jobDefinitionName}</span><RegionChip region={def.region} /></div>
+</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{def.revision}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{def.type}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(def.status)}`}>{def.status}</span></td>
@@ -1011,7 +1015,7 @@ class={`px-3 py-1 rounded-full text-xs font-medium ${jobStatusFilter === status 
 <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
 <div class="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-2xl p-6 space-y-4">
 <div class="flex items-center justify-between">
-<h2 class="text-lg font-semibold text-gray-900 dark:text-white">Job Details</h2>
+<h2 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2"><span>Job Details</span>{#if selectedJobRegion}<RegionChip region={selectedJobRegion} />{/if}</h2>
 <button onclick={() => { selectedJob = null; jobLogEvents = []; jobLogError = ''; }} aria-label="Close" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
 <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
 </button>

@@ -1,6 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import ApiGatewayV2Page from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const mockSend = vi.fn();
 
@@ -75,6 +87,7 @@ describe("ApiGatewayV2 Page", () => {
     mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders the page title and top tabs", () => {
@@ -570,5 +583,56 @@ describe("ApiGatewayV2 Page", () => {
     expect(screen.getByText("Supported API Gateway V2 Operations")).toBeInTheDocument();
     expect(screen.getByText("CreateApi")).toBeInTheDocument();
     expect(screen.getByText("ResetAuthorizersCache")).toBeInTheDocument();
+  });
+
+  describe("All regions mode", () => {
+    it("fans GetApis out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Items: [exampleApi] });
+      mockSend.mockResolvedValueOnce({
+        Items: [{ ...exampleApi, ApiId: "api-eu", Name: "eu-api" }],
+      });
+
+      render(ApiGatewayV2Page);
+
+      await waitFor(() => expect(screen.getByText("my-api")).toBeInTheDocument());
+      expect(screen.getByText("eu-api")).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one GetApis call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ Items: [exampleApi] });
+      render(ApiGatewayV2Page);
+      await waitFor(() => expect(screen.getByText("my-api")).toBeInTheDocument());
+      const calls = mockSend.mock.calls.filter(
+        ([cmd]) => cmd?.constructor?.name === "GetApisCommand",
+      );
+      expect(calls).toHaveLength(1);
+    });
+
+    it("renders the same API name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Items: [exampleApi] });
+      mockSend.mockResolvedValueOnce({ Items: [exampleApi] });
+
+      render(ApiGatewayV2Page);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("my-api");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest("[role='button']") as HTMLElement).getByTestId("region-chip")
+            .textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });
