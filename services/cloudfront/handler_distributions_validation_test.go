@@ -47,7 +47,7 @@ func TestCallerReferenceValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			var path string
 			if strings.Contains(tt.name, "oai") {
@@ -84,7 +84,7 @@ func TestCallerReferenceReuse(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			switch tt.name {
 			case "distribution_always_conflicts":
@@ -126,7 +126,7 @@ func TestCallerReferenceReuse(t *testing.T) {
 func TestDeleteDistributionCleansUp(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	d, err := b.CreateDistribution("ref-del-cleanup", "del-dist", false, nil)
 	require.NoError(t, err)
@@ -159,7 +159,7 @@ func TestDeleteDistributionCleansUp(t *testing.T) {
 func TestListDistributions_SortedOutput(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	// Create multiple distributions.
 	refs := []string{"s-ref-001", "s-ref-002", "s-ref-003"}
@@ -195,7 +195,7 @@ func TestListDistributions_SortedOutput(t *testing.T) {
 func TestAliasCountInListDistributions(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	h := cloudfront.NewHandler(b)
 
 	d, err := b.CreateDistribution("ref-alias-list", "alias-list-dist", true, nil)
@@ -216,7 +216,7 @@ func TestAliasCountInListDistributions(t *testing.T) {
 func TestCreateDistributionValidation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	body := []byte(
 		`<DistributionConfig><CallerReference></CallerReference>` +
 			`<Comment>no-ref</Comment><Enabled>true</Enabled></DistributionConfig>`,

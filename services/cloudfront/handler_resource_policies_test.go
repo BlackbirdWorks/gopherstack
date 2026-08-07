@@ -14,7 +14,7 @@ import (
 // been put for a resource ARN, and succeeds once one has been.
 func TestResourcePolicy_NotFound(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 	const arn = "arn:aws:cloudfront::123456789012:distribution/ENOPOLICY"
 

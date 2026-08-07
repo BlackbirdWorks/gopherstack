@@ -557,7 +557,7 @@ func TestDistributionCreatesAsDeployed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution(tc.callerRef, "test", true, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "Deployed", d.Status)
@@ -578,7 +578,7 @@ func TestDistributionHasLastModifiedTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-lmt", "test", true, nil)
 			require.NoError(t, err)
 			assert.NotEmpty(t, d.LastModifiedTime, tc.name)
@@ -599,7 +599,7 @@ func TestUpdateDistributionSetsInProgress(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-upd", "initial", true, nil)
 			require.NoError(t, err)
 
@@ -624,7 +624,7 @@ func TestCopyDistributionCreatesAsDeployed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			src, err := b.CreateDistribution("ref-src", "source", true, nil)
 			require.NoError(t, err)
 
@@ -649,7 +649,7 @@ func TestDistributionResponseHasLastModifiedTime(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 				minimalDistConfig("ref-lmt-h", "test", true))
 			require.Equal(t, http.StatusCreated, rec.Code, tc.name)
@@ -699,7 +699,7 @@ func TestListDistributionsPagination(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			for i := range tc.numDists {
 				rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 					minimalDistConfig(fmt.Sprintf("ref-pg-%d", i), "test", true))

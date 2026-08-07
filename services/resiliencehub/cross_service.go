@@ -4,24 +4,35 @@ import (
 	"context"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsarn "github.com/aws/aws-sdk-go-v2/aws/arn"
+	dynamodbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 
 	cloudformationbackend "github.com/blackbirdworks/gopherstack/services/cloudformation"
+	dynamodbbackend "github.com/blackbirdworks/gopherstack/services/dynamodb"
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 	eksbackend "github.com/blackbirdworks/gopherstack/services/eks"
+	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	resourcegroupsbackend "github.com/blackbirdworks/gopherstack/services/resourcegroups"
 )
 
 // siblingServices is the subset of *CLI's method set this backend needs to
-// reach the CloudFormation/Resource Groups/EKS backends, so
+// reach the CloudFormation/Resource Groups/EKS/EC2/RDS/DynamoDB backends, so
 // ResolveAppVersionResources can materialize CfnStack/ResourceGroup/EKS
-// resource mappings against real cross-service state instead of leaving them
-// unresolved. Matched structurally against *CLI (no import of the top-level
-// package, which would cycle) -- same pattern as
+// resource mappings, and ImportResourcesToDraftAppVersion can resolve
+// SourceArns/EksSources, against real cross-service state instead of leaving
+// them unresolved. Matched structurally against *CLI (no import of the
+// top-level package, which would cycle) -- same pattern as
 // services/grafana/cross_service.go and services/mgn/cross_service.go.
 type siblingServices interface {
 	GetCloudFormationHandler() service.Registerable
 	GetResourceGroupsHandler() service.Registerable
 	GetEKSHandler() service.Registerable
+	GetEC2Handler() service.Registerable
+	GetRDSHandler() service.Registerable
+	GetDynamoDBHandler() service.Registerable
 }
 
 // SetAppConfig records the service.AppContext.Config value Provider.Init
@@ -82,6 +93,51 @@ func (b *InMemoryBackend) eksBackend() (*eksbackend.InMemoryBackend, bool) {
 	}
 
 	h, ok := s.GetEKSHandler().(*eksbackend.Handler)
+	if !ok || h == nil {
+		return nil, false
+	}
+
+	return h.Backend, true
+}
+
+// ec2Backend returns the emulator's EC2 backend, if wired.
+func (b *InMemoryBackend) ec2Backend() (ec2backend.Backend, bool) {
+	s, ok := b.siblings()
+	if !ok {
+		return nil, false
+	}
+
+	h, ok := s.GetEC2Handler().(*ec2backend.Handler)
+	if !ok || h == nil {
+		return nil, false
+	}
+
+	return h.Backend, true
+}
+
+// rdsBackend returns the emulator's RDS backend, if wired.
+func (b *InMemoryBackend) rdsBackend() (rdsbackend.StorageBackend, bool) {
+	s, ok := b.siblings()
+	if !ok {
+		return nil, false
+	}
+
+	h, ok := s.GetRDSHandler().(*rdsbackend.Handler)
+	if !ok || h == nil {
+		return nil, false
+	}
+
+	return h.Backend, true
+}
+
+// dynamodbBackend returns the emulator's DynamoDB backend, if wired.
+func (b *InMemoryBackend) dynamodbBackend() (dynamodbbackend.StorageBackend, bool) {
+	s, ok := b.siblings()
+	if !ok {
+		return nil, false
+	}
+
+	h, ok := s.GetDynamoDBHandler().(*dynamodbbackend.DynamoDBHandler)
 	if !ok || h == nil {
 		return nil, false
 	}
@@ -189,4 +245,138 @@ func (b *InMemoryBackend) resolveEKSMappingLocked(v *AppVersion, m ResourceMappi
 		ResourceName:       cluster.Name,
 		SourceType:         ResourceSourceDiscovered,
 	})
+}
+
+// resolveSourceArnLocked resolves one ImportResourcesToDraftAppVersion
+// SourceArn against this emulator's real EC2/RDS/DynamoDB backends, by ARN
+// service segment -- a genuine cross-service lookup, not a fabricated
+// resource. checked reports whether a real lookup against a wired backend
+// was actually attempted (an unparseable ARN, an unrecognized service, or an
+// unwired sibling backend all leave checked false -- an honest gap, not a
+// not-found result); materialized reports whether that lookup found the
+// resource. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveSourceArnLocked(v *AppVersion, sourceArn string) (bool, bool) {
+	parsed, err := awsarn.Parse(sourceArn)
+	if err != nil {
+		return false, false
+	}
+
+	switch parsed.Service {
+	case "ec2":
+		return b.resolveEC2SourceArnLocked(v, parsed, sourceArn)
+	case "rds":
+		return b.resolveRDSSourceArnLocked(v, parsed, sourceArn)
+	case "dynamodb":
+		return b.resolveDynamoDBSourceArnLocked(v, parsed, sourceArn)
+	default:
+		return false, false
+	}
+}
+
+// resolveEC2SourceArnLocked resolves an "ec2:...:instance/{id}" SourceArn
+// against the real EC2 backend (services/ec2.DescribeInstances). Callers must
+// hold b.mu.
+func (b *InMemoryBackend) resolveEC2SourceArnLocked(
+	v *AppVersion, parsed awsarn.ARN, sourceArn string,
+) (bool, bool) {
+	id, ok := strings.CutPrefix(parsed.Resource, "instance/")
+	if !ok {
+		return false, false
+	}
+
+	ec2Bk, ok := b.ec2Backend()
+	if !ok {
+		return false, false
+	}
+
+	if len(ec2Bk.DescribeInstances([]string{id}, "")) == 0 {
+		return false, true
+	}
+
+	recordDiscoveredResourceLocked(v, sourceArn, "AWS::EC2::Instance")
+
+	return true, true
+}
+
+// resolveRDSSourceArnLocked resolves an "rds:...:db:{id}" SourceArn against
+// the real RDS backend (services/rds.DescribeDBInstances). Callers must hold
+// b.mu.
+func (b *InMemoryBackend) resolveRDSSourceArnLocked(
+	v *AppVersion, parsed awsarn.ARN, sourceArn string,
+) (bool, bool) {
+	id, ok := strings.CutPrefix(parsed.Resource, "db:")
+	if !ok {
+		return false, false
+	}
+
+	rdsBk, ok := b.rdsBackend()
+	if !ok {
+		return false, false
+	}
+
+	if _, err := rdsBk.DescribeDBInstances(id); err != nil {
+		return false, true
+	}
+
+	recordDiscoveredResourceLocked(v, sourceArn, "AWS::RDS::DBInstance")
+
+	return true, true
+}
+
+// resolveDynamoDBSourceArnLocked resolves a "dynamodb:...:table/{name}"
+// SourceArn against the real DynamoDB backend
+// (services/dynamodb.DescribeTable). Callers must hold b.mu.
+func (b *InMemoryBackend) resolveDynamoDBSourceArnLocked(
+	v *AppVersion, parsed awsarn.ARN, sourceArn string,
+) (bool, bool) {
+	name, ok := strings.CutPrefix(parsed.Resource, "table/")
+	if !ok {
+		return false, false
+	}
+
+	ddbBk, ok := b.dynamodbBackend()
+	if !ok {
+		return false, false
+	}
+
+	_, err := ddbBk.DescribeTable(context.Background(), &dynamodbsdk.DescribeTableInput{TableName: aws.String(name)})
+	if err != nil {
+		return false, true
+	}
+
+	recordDiscoveredResourceLocked(v, sourceArn, "AWS::DynamoDB::Table")
+
+	return true, true
+}
+
+// resolveEKSSourceArnLocked resolves an ImportResourcesToDraftAppVersion
+// EksSource's EksClusterArn ("eks:...:cluster/{name}") against the real EKS
+// backend (services/eks.DescribeCluster) -- the same real lookup
+// resolveEKSMappingLocked performs for a ResourceMapping, adapted to an
+// EksSource's ARN-shaped input instead of the "cluster/namespace"
+// EksSourceName string. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveEKSSourceArnLocked(v *AppVersion, clusterArn string) (bool, bool) {
+	parsed, err := awsarn.Parse(clusterArn)
+	if err != nil || parsed.Service != "eks" {
+		return false, false
+	}
+
+	clusterName, ok := strings.CutPrefix(parsed.Resource, "cluster/")
+	if !ok {
+		return false, false
+	}
+
+	eksBk, ok := b.eksBackend()
+	if !ok {
+		return false, false
+	}
+
+	cluster, err := eksBk.DescribeCluster(clusterName)
+	if err != nil {
+		return false, true
+	}
+
+	recordDiscoveredResourceLocked(v, cluster.ARN, eksClusterResourceType)
+
+	return true, true
 }

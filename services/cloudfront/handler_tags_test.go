@@ -198,7 +198,7 @@ func TestTagging(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			arn := tt.setup(t, h)
 			path := "/2020-05-31/tagging?Resource=" + arn
 
@@ -213,7 +213,7 @@ func TestTagging(t *testing.T) {
 func TestSortedTags(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create a distribution via handler.
 	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
@@ -254,7 +254,7 @@ func TestSortedTags(t *testing.T) {
 func TestUntagResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create distribution.
 	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",

@@ -19,7 +19,7 @@ import (
 func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	orig := newTestBackend()
+	orig := newTestBackend(t)
 
 	// distributions + the distSearchInverted token index (verified via
 	// ListDistributionsByCachePolicyID below).
@@ -128,7 +128,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	fresh := newTestBackend()
+	fresh := newTestBackend(t)
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	gotDist, err := fresh.GetDistribution(dist.ID)
@@ -240,11 +240,11 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 func TestStoreSetup_RestoreDiscardsIncompatibleVersion(t *testing.T) {
 	t.Parallel()
 
-	orig := newTestBackend()
+	orig := newTestBackend(t)
 	_, err := orig.CreateDistribution("caller-ref-old", "old", true, nil)
 	require.NoError(t, err)
 
-	fresh := newTestBackend()
+	fresh := newTestBackend(t)
 	// A malformed/incompatible version (0, i.e. absent) must be discarded rather
 	// than partially decoded.
 	require.NoError(t, fresh.Restore(t.Context(), []byte(`{"version":0,"tables":{}}`)))

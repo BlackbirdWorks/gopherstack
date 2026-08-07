@@ -758,7 +758,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
 				t.Helper()
 
-				cfBk := cloudfrontbackend.NewInMemoryBackend(accountID, region)
+				cfBk := cloudfrontbackend.NewInMemoryBackend(t.Context(), accountID, region)
 				dist, err := cfBk.CreateDistribution("wiring-test-ref", "wiring-test-dist", true, nil)
 				require.NoError(t, err)
 				require.NoError(t, cfBk.TagResource(dist.ARN, map[string]string{wantTagKey: wantTagValue}))
@@ -1194,7 +1194,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 			setup: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) (string, func() map[string]string) {
 				t.Helper()
 
-				cfBk := cloudfrontbackend.NewInMemoryBackend(accountID, region)
+				cfBk := cloudfrontbackend.NewInMemoryBackend(t.Context(), accountID, region)
 				dist, err := cfBk.CreateDistribution("roundtrip-ref", "roundtrip-dist", true, nil)
 				require.NoError(t, err)
 

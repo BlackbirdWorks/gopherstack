@@ -95,7 +95,7 @@ func TestFunctionAssociations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -161,7 +161,7 @@ func TestInMemoryBackend_FunctionAssociations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}
@@ -415,7 +415,7 @@ func TestDistributionCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -497,7 +497,7 @@ func TestAssociateAlias(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			distID := tt.setup(t, h)
 			path := "/2020-05-31/distribution/" + distID + "/associate-alias"
 			if tt.alias != "" {
@@ -515,7 +515,7 @@ func TestAssociateAlias(t *testing.T) {
 func TestAssociateAlias_Idempotent(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	d, err := h.Backend.CreateDistribution("ref-ai-001", "idempotent-dist", true,
 		minimalDistConfig("ref-ai-001", "idempotent-dist", true))
 	require.NoError(t, err)
@@ -589,7 +589,7 @@ func TestAssociateDistributionWebACL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			distID := tt.setup(t, h)
 			path := "/2020-05-31/distribution/" + distID + "/associate-web-acl"
 
@@ -689,7 +689,7 @@ func TestCopyDistribution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			distID := tt.setup(t, h)
 			path := "/2020-05-31/distribution/" + distID + "/copy"
 

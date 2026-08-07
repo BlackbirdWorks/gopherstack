@@ -118,7 +118,7 @@ func TestNewDispatchRefactoring(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := ""
 			if tt.setup != nil {
 				path = tt.setup(t, h)
@@ -135,7 +135,7 @@ func TestNewDispatchRefactoring(t *testing.T) {
 func TestUnknownOperation(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	// Use an unrecognized path
 	rec := doXML(t, h, http.MethodPatch, "/2020-05-31/distribution", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
@@ -164,7 +164,7 @@ func TestMalformedXMLHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, tt.path, []byte(`<<<not xml`))
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
 		})
@@ -219,7 +219,7 @@ func TestErrorMapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			// For the cache policy duplicate test, create it first.
 			if tt.wantCode == "CachePolicyAlreadyExists" {

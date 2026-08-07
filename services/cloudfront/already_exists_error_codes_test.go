@@ -99,7 +99,7 @@ func Test_AlreadyExists_ResourceSpecificErrorCodes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			rec1 := doXML(t, h, http.MethodPost, tc.path, tc.body)
 			require.Equal(t, http.StatusCreated, rec1.Code, "first create; body=%s", rec1.Body.String())

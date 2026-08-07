@@ -554,16 +554,15 @@ func (b *InMemoryBackend) ImportResourcesToDraftAppVersion(
 		})
 	}
 
-	b.scheduleImport(a.ID)
+	b.scheduleImport(a.ID, req.SourceArns, req.EksSources)
 
 	return a.clone(), AsyncStatusPending, nil
 }
 
-// scheduleImport transitions an App's import status Pending -> Success. No
-// resources are actually discovered from the recorded input sources in this
-// pass -- see PARITY.md's cross-service resolution scoping note in
-// resolveMappingsLocked's doc comment, which applies identically here.
-func (b *InMemoryBackend) scheduleImport(appID string) {
+// scheduleImport transitions an App's import status Pending ->
+// Success|Failed, resolving sourceArns/eksSources against real cross-service
+// backend state along the way -- see resolveImportSourcesLocked.
+func (b *InMemoryBackend) scheduleImport(appID string, sourceArns []string, eksSources []eksSourceWire) {
 	b.work.After("ImportResourcesToDraftAppVersion", asyncTransitionDelay, func() {
 		b.mu.Lock("ImportResourcesToDraftAppVersion-async")
 		defer b.mu.Unlock()
@@ -573,8 +572,68 @@ func (b *InMemoryBackend) scheduleImport(appID string) {
 			return
 		}
 
-		a.Import.Status = AsyncStatusSuccess
+		errDetails := b.resolveImportSourcesLocked(a.Draft, sourceArns, eksSources)
+
 		a.Import.StatusChangeTime = time.Now().UTC()
+
+		if len(errDetails) > 0 {
+			a.Import.Status = AsyncStatusFailed
+			a.Import.ErrorMessage = errDetails[0]
+			a.Import.ErrorDetails = errDetails
+
+			return
+		}
+
+		a.Import.Status = AsyncStatusSuccess
+	})
+}
+
+// resolveImportSourcesLocked resolves sourceArns (by ARN service segment)
+// and eksSources (by EksClusterArn) against this emulator's real EC2/RDS/
+// DynamoDB/EKS backends (see cross_service.go), materializing every resolved
+// source into v's Resources. Returns one AWS-accurate ResourceNotFoundException
+// -shaped message per source that a wired, recognized backend could not find
+// -- a source whose service this backend has no cross-service resolution for
+// is left honestly unresolved, not reported as an error, matching
+// resolveMappingsLocked's AppRegistryApp/Terraform treatment. Callers must
+// hold b.mu.
+func (b *InMemoryBackend) resolveImportSourcesLocked(
+	v *AppVersion, sourceArns []string, eksSources []eksSourceWire,
+) []string {
+	var errDetails []string
+
+	for _, sourceArn := range sourceArns {
+		if materialized, checked := b.resolveSourceArnLocked(v, sourceArn); checked && !materialized {
+			errDetails = append(errDetails, notFoundError(resourceAppResource, sourceArn).Error())
+		}
+	}
+
+	for _, e := range eksSources {
+		if e.EksClusterArn == "" {
+			continue
+		}
+
+		if materialized, checked := b.resolveEKSSourceArnLocked(v, e.EksClusterArn); checked && !materialized {
+			errDetails = append(errDetails, notFoundError(resourceAppResource, e.EksClusterArn).Error())
+		}
+	}
+
+	return errDetails
+}
+
+// recordDiscoveredResourceLocked appends sourceArn as a discovered
+// PhysicalResource to v, deduplicating against an already-recorded resource
+// with the same ARN identifier. Callers must hold b.mu.
+func recordDiscoveredResourceLocked(v *AppVersion, sourceArn, resourceType string) {
+	loc := findResourceLocator{physicalID: sourceArn}
+	if existing, _ := findResource(v, loc); existing != nil {
+		return
+	}
+
+	v.Resources = append(v.Resources, &PhysicalResource{
+		PhysicalResourceID: &PhysicalResourceID{Identifier: sourceArn, Type: PhysicalIDTypeArn},
+		ResourceType:       resourceType,
+		SourceType:         ResourceSourceDiscovered,
 	})
 }
 

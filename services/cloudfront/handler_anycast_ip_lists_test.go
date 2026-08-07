@@ -18,7 +18,7 @@ import (
 func TestAnycastIPList_NameUniqueness(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	first, err := b.CreateAnycastIPList("dup-name", 3)
 	require.NoError(t, err)
@@ -38,7 +38,7 @@ func TestAnycastIPList_NameUniqueness(t *testing.T) {
 func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	list, err := b.CreateAnycastIPList("ips-list", 4)
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 // a mismatched If-Match header on update/delete is rejected with 412.
 func TestAnycastIPList_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"anycast-ip-list",
@@ -97,7 +97,7 @@ func TestAnycastIPList_IfMatchEnforcement(t *testing.T) {
 // via the generic ListTagsForResource endpoint.
 func TestAnycastIPList_Tags(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"anycast-ip-list",
@@ -119,7 +119,7 @@ func TestAnycastIPList_Tags(t *testing.T) {
 func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	list, err := b.CreateAnycastIPList("persist-list", 3)
 	require.NoError(t, err)
 
@@ -127,7 +127,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -149,7 +149,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 // TestAnycastIPList_CRUD tests anycast IP list Get/List/Update/Delete.
 func TestAnycastIPList_CRUD(t *testing.T) {
 	t.Parallel()
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	h := cloudfront.NewHandler(b)
 	const prefix = "/2020-05-31/"
 
@@ -229,7 +229,7 @@ func TestCreateAnycastIPList(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/anycast-ip-list", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)
@@ -267,7 +267,7 @@ func TestAnycastIPList_IPCountValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/anycast-ip-list", []byte(tt.body))
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})

@@ -45,7 +45,7 @@ func TestFunctionStatusDevelopment(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, tt.method, tt.path, tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -105,7 +105,7 @@ func TestFunctionRuntimeValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/function", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -337,7 +337,7 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {

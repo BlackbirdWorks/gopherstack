@@ -103,9 +103,48 @@ func (b *InMemoryBackend) UpdateDistribution(
 	d.Status = statusInProgress
 	d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	b.reindexDistributionConfig(id, rawConfig)
+	b.scheduleDistributionDeployed(id)
 	cp := b.copyDistribution(d)
 
 	return cp, nil
+}
+
+// scheduleDistributionDeployed schedules distribution id's async InProgress
+// -> Deployed transition, the same pkgs/worker b.work.After idiom
+// services/mgn/exportimport.go and services/outposts's order lifecycle use.
+// A no-op if the distribution is no longer InProgress by the time the timer
+// fires (already re-updated, or deleted) -- mirrors
+// services/outposts/orders.go's advanceOrderStatusLocked doc comment.
+// Callers may hold b.mu (After only schedules; the callback takes its own
+// lock).
+func (b *InMemoryBackend) scheduleDistributionDeployed(id string) {
+	b.work.After("DistributionDeployed", distributionDeployDelay, func() {
+		b.mu.Lock("DistributionDeployed-async")
+		defer b.mu.Unlock()
+
+		d, ok := b.distributions.Get(id)
+		if !ok || d.Status != statusInProgress {
+			return
+		}
+
+		d.Status = statusDeployed
+		d.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
+	})
+}
+
+// rearmPendingDistributionDeploysLocked re-schedules the InProgress ->
+// Deployed transition for every distribution Restore just loaded still
+// InProgress. A live b.work.After timer never survives a Snapshot/Restore
+// round trip (Snapshot only persists Distribution.Status, not in-flight
+// timer state), so without this an InProgress distribution restored from a
+// snapshot would stay InProgress forever -- unlike a bare process restart,
+// where the same timer is still running. Must be called with the lock held.
+func (b *InMemoryBackend) rearmPendingDistributionDeploysLocked() {
+	for _, d := range b.distributions.All() {
+		if d.Status == statusInProgress {
+			b.scheduleDistributionDeployed(d.ID)
+		}
+	}
 }
 
 // DeleteDistribution deletes a distribution by ID and cleans up related state.

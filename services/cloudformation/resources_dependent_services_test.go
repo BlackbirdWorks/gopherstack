@@ -35,7 +35,7 @@ func newDependentServiceBackends(t *testing.T) *cloudformation.ServiceBackends {
 	b.EFS = efsbackend.NewHandler(efsbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.Batch = batchbackend.NewHandler(batchbackend.NewInMemoryBackend("000000000000", "us-east-1"))
 	b.CloudFront = cloudfrontbackend.NewHandler(
-		cloudfrontbackend.NewInMemoryBackend("000000000000", "us-east-1"),
+		cloudfrontbackend.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1"),
 	)
 	b.Autoscaling = autoscalingbackend.NewHandler(autoscalingbackend.NewInMemoryBackend())
 	b.APIGatewayV2 = apigatewayv2backend.NewHandler(apigatewayv2backend.NewInMemoryBackend())

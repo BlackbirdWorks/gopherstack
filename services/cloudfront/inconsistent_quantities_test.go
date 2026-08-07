@@ -126,7 +126,7 @@ func Test_InconsistentQuantities_EndToEnd(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			harness := &testHarness{}
 
 			d, err := h.Backend.CreateDistribution(

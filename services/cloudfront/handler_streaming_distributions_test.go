@@ -35,7 +35,7 @@ func TestStreamingDistributionCRUD_HTTP(t *testing.T) {
 
 	const prefix = "/2020-05-31/"
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create (enabled).
 	createBody := streamingDistConfigXML("sd-cr-1", "my streaming distribution", true)
@@ -117,7 +117,7 @@ func TestStreamingDistributionCRUD_NotFound(t *testing.T) {
 
 	const prefix = "/2020-05-31/"
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	getRec := doXML(t, h, http.MethodGet, prefix+"streaming-distribution/NOTEXIST", nil)
 	assert.Equal(t, http.StatusNotFound, getRec.Code, getRec.Body.String())
@@ -142,7 +142,7 @@ func TestCreateStreamingDistributionWithTags_HTTP(t *testing.T) {
 
 	const prefix = "/2020-05-31/"
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	body := `<StreamingDistributionConfigWithTags>` +
 		`<StreamingDistributionConfig>` +
@@ -329,7 +329,7 @@ func TestInMemoryBackend_StreamingDistribution(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}
@@ -340,7 +340,7 @@ func TestInMemoryBackend_StreamingDistribution(t *testing.T) {
 func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	sd, err := b.CreateStreamingDistribution(cloudfront.StreamingDistributionConfig{
 		CallerReference: "cr-snap",
@@ -354,7 +354,7 @@ func TestStreamingDistributionSnapshotRestore(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	restored, err := b2.GetStreamingDistribution(sd.ID)

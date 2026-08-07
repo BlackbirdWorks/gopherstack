@@ -19,7 +19,7 @@ import (
 func TestManagedPolicies_SeededAtConstruction(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	cp, err := b.GetCachePolicy("658327ea-f89d-4fab-a63d-7e88639e58f6")
 	require.NoError(t, err)
@@ -61,14 +61,14 @@ func TestManagedPolicies_SeededAtConstruction(t *testing.T) {
 func TestManagedPolicies_SurviveResetAndRestore(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	b.Reset()
 
 	_, err := b.GetCachePolicy("658327ea-f89d-4fab-a63d-7e88639e58f6")
 	require.NoError(t, err, "managed cache policy must survive Reset")
 
 	snap := b.Snapshot(t.Context())
-	b2 := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	_, err = b2.GetCachePolicy("658327ea-f89d-4fab-a63d-7e88639e58f6")

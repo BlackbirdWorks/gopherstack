@@ -247,6 +247,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	// captured them.
 	b.seedManagedPoliciesLocked()
 	b.rebuildDistributionSearchIndex()
+	b.rearmPendingDistributionDeploysLocked()
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

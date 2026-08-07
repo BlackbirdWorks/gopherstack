@@ -11,8 +11,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+	ddbsdk "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	ddbtypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	ekssdk "github.com/aws/aws-sdk-go-v2/service/eks"
 	ekstypes "github.com/aws/aws-sdk-go-v2/service/eks/types"
+	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
 	resiliencehubsdk "github.com/aws/aws-sdk-go-v2/service/resiliencehub"
 	rhtypes "github.com/aws/aws-sdk-go-v2/service/resiliencehub/types"
 	resourcegroupssdk "github.com/aws/aws-sdk-go-v2/service/resourcegroups"
@@ -968,6 +973,220 @@ func TestIntegration_ResilienceHub_ResourceMappingResolution(t *testing.T) {
 			require.NoError(t, err)
 
 			tt.assert(t, listOut.PhysicalResources)
+		})
+	}
+}
+
+// importStatusOutput/importResolutionCheck shorten the long SDK output type
+// name below the golines line-length limit.
+type importStatusOutput = resiliencehubsdk.DescribeDraftAppVersionResourcesImportStatusOutput
+
+type importResolutionCheck func(t *testing.T, statusOut *importStatusOutput, resources []rhtypes.PhysicalResource)
+
+// TestIntegration_ResilienceHub_ImportResourcesResolution proves
+// ImportResourcesToDraftAppVersion performs REAL cross-service resolution
+// against this emulator's EC2/RDS/DynamoDB/EKS backends (services/
+// resiliencehub/cross_service.go) for SourceArns/EksSources -- genuinely
+// discovered resources, not fabricated ones. An ARN for a service this
+// backend has no cross-service resolution for stays honestly unresolved
+// (Success, no resource), while an ARN for a recognized, wired service whose
+// resource does not exist fails the import with a real
+// ResourceNotFoundException-shaped message (bd: gopherstack-8hw8).
+func TestIntegration_ResilienceHub_ImportResourcesResolution(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+	client := createResilienceHubClient(t)
+	ec2Client := createEC2Client(t)
+	rdsClient := createRDSClient(t)
+	ddbClient := createDynamoDBClient(t)
+	eksClient := createEKSClient(t)
+
+	ec2Out, err := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId: aws.String("ami-12345678"), InstanceType: ec2types.InstanceTypeT2Micro,
+		MinCount: aws.Int32(1), MaxCount: aws.Int32(1),
+	})
+	require.NoError(t, err, "RunInstances should succeed")
+	instanceID := aws.ToString(ec2Out.Instances[0].InstanceId)
+	instanceArn := "arn:aws:ec2:us-east-1:000000000000:instance/" + instanceID
+
+	t.Cleanup(func() {
+		cctx, cancel := rhCleanupCtx()
+		defer cancel()
+		_, _ = ec2Client.TerminateInstances(cctx, &ec2sdk.TerminateInstancesInput{InstanceIds: []string{instanceID}})
+	})
+
+	dbID := "rh-rds-" + uuid.NewString()[:8]
+	rdsOut, err := rdsClient.CreateDBInstance(ctx, &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String(dbID), DBInstanceClass: aws.String("db.t3.micro"),
+		Engine: aws.String("postgres"), MasterUsername: aws.String("admin"),
+		MasterUserPassword: aws.String("password123"), AllocatedStorage: aws.Int32(20),
+	})
+	require.NoError(t, err, "CreateDBInstance should succeed")
+	require.NotNil(t, rdsOut.DBInstance)
+	// This emulator's DescribeDBInstances/CreateDBInstance XML response never
+	// serializes DBInstanceArn (a real, separate, out-of-scope RDS gap this
+	// resiliencehub test doesn't own) -- build the ARN the same way
+	// services/rds's own internal Get*Arn helpers do (arn.Build("rds",
+	// region, account, "db:"+id)) rather than depend on the empty wire field.
+	rdsArn := "arn:aws:rds:us-east-1:000000000000:db:" + dbID
+
+	t.Cleanup(func() {
+		cctx, cancel := rhCleanupCtx()
+		defer cancel()
+		_, _ = rdsClient.DeleteDBInstance(cctx, &rdssdk.DeleteDBInstanceInput{
+			DBInstanceIdentifier: aws.String(dbID), SkipFinalSnapshot: aws.Bool(true),
+		})
+	})
+
+	tableName := "rh-ddb-" + uuid.NewString()[:8]
+	ddbOut, err := ddbClient.CreateTable(ctx, &ddbsdk.CreateTableInput{
+		TableName: aws.String(tableName),
+		AttributeDefinitions: []ddbtypes.AttributeDefinition{
+			{AttributeName: aws.String("pk"), AttributeType: ddbtypes.ScalarAttributeTypeS},
+		},
+		KeySchema:   []ddbtypes.KeySchemaElement{{AttributeName: aws.String("pk"), KeyType: ddbtypes.KeyTypeHash}},
+		BillingMode: ddbtypes.BillingModePayPerRequest,
+	})
+	require.NoError(t, err, "CreateTable should succeed")
+	require.NotNil(t, ddbOut.TableDescription)
+	// This emulator's CreateTableOutput never serializes TableArn (a real,
+	// separate, out-of-scope DynamoDB gap this resiliencehub test doesn't
+	// own -- DescribeTable does set it) -- build the ARN the same way
+	// services/dynamodb's own CreateTable does internally (arn.Build(
+	// "dynamodb", region, account, "table/"+name)) rather than depend on
+	// the empty wire field.
+	tableArn := "arn:aws:dynamodb:us-east-1:000000000000:table/" + tableName
+
+	t.Cleanup(func() {
+		cctx, cancel := rhCleanupCtx()
+		defer cancel()
+		_, _ = ddbClient.DeleteTable(cctx, &ddbsdk.DeleteTableInput{TableName: aws.String(tableName)})
+	})
+
+	clusterName := "rh-eks-import-" + uuid.NewString()[:8]
+	_, err = eksClient.CreateCluster(ctx, &ekssdk.CreateClusterInput{
+		Name: aws.String(clusterName), Version: aws.String("1.27"),
+		RoleArn:            aws.String("arn:aws:iam::000000000000:role/eks-role"),
+		ResourcesVpcConfig: &ekstypes.VpcConfigRequest{SubnetIds: []string{"subnet-12345678"}},
+	})
+	require.NoError(t, err, "CreateCluster should succeed")
+	clusterArn := "arn:aws:eks:us-east-1:000000000000:cluster/" + clusterName
+
+	t.Cleanup(func() {
+		cctx, cancel := rhCleanupCtx()
+		defer cancel()
+		_, _ = eksClient.DeleteCluster(cctx, &ekssdk.DeleteClusterInput{Name: aws.String(clusterName)})
+	})
+
+	tests := []struct {
+		assert     importResolutionCheck
+		name       string
+		wantStatus rhtypes.ResourceImportStatusType
+		sourceArns []string
+		eksSources []rhtypes.EksSource
+	}{
+		{
+			name:       "ec2 instance resolves",
+			sourceArns: []string{instanceArn},
+			wantStatus: rhtypes.ResourceImportStatusTypeSuccess,
+			assert: func(t *testing.T, _ *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				require.Len(t, resources, 1, "the real EC2 instance should be discovered")
+				assert.Equal(t, "AWS::EC2::Instance", aws.ToString(resources[0].ResourceType))
+			},
+		},
+		{
+			name:       "rds db instance resolves",
+			sourceArns: []string{rdsArn},
+			wantStatus: rhtypes.ResourceImportStatusTypeSuccess,
+			assert: func(t *testing.T, _ *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				require.Len(t, resources, 1, "the real RDS DB instance should be discovered")
+				assert.Equal(t, "AWS::RDS::DBInstance", aws.ToString(resources[0].ResourceType))
+			},
+		},
+		{
+			name:       "dynamodb table resolves",
+			sourceArns: []string{tableArn},
+			wantStatus: rhtypes.ResourceImportStatusTypeSuccess,
+			assert: func(t *testing.T, _ *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				require.Len(t, resources, 1, "the real DynamoDB table should be discovered")
+				assert.Equal(t, "AWS::DynamoDB::Table", aws.ToString(resources[0].ResourceType))
+			},
+		},
+		{
+			name:       "eks cluster resolves",
+			eksSources: []rhtypes.EksSource{{EksClusterArn: aws.String(clusterArn), Namespaces: []string{"default"}}},
+			wantStatus: rhtypes.ResourceImportStatusTypeSuccess,
+			assert: func(t *testing.T, _ *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				require.Len(t, resources, 1, "the real EKS cluster should be discovered")
+				assert.Equal(t, "AWS::EKS::Cluster", aws.ToString(resources[0].ResourceType))
+			},
+		},
+		{
+			name:       "unrecognized service stays unresolved",
+			sourceArns: []string{"arn:aws:lambda:us-east-1:000000000000:function:no-such-function"},
+			wantStatus: rhtypes.ResourceImportStatusTypeSuccess,
+			assert: func(t *testing.T, _ *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				assert.Empty(
+					t, resources,
+					"no cross-service resolution exists for lambda ARNs -- must stay honestly unresolved",
+				)
+			},
+		},
+		{
+			name:       "nonexistent ec2 instance fails with resource not found",
+			sourceArns: []string{"arn:aws:ec2:us-east-1:000000000000:instance/i-doesnotexist"},
+			wantStatus: rhtypes.ResourceImportStatusTypeFailed,
+			assert: func(t *testing.T, statusOut *importStatusOutput, resources []rhtypes.PhysicalResource) {
+				t.Helper()
+				assert.Empty(t, resources)
+				assert.Contains(t, aws.ToString(statusOut.ErrorMessage), "i-doesnotexist")
+				require.NotEmpty(t, statusOut.ErrorDetails)
+				assert.Contains(t, aws.ToString(statusOut.ErrorDetails[0].ErrorMessage), "not found")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			appArn := createRHApp(ctx, t, client)
+
+			_, importErr := client.ImportResourcesToDraftAppVersion(
+				ctx,
+				&resiliencehubsdk.ImportResourcesToDraftAppVersionInput{
+					AppArn: aws.String(appArn), SourceArns: tt.sourceArns, EksSources: tt.eksSources,
+				},
+			)
+			require.NoError(t, importErr, "ImportResourcesToDraftAppVersion should succeed")
+
+			var statusOut *importStatusOutput
+
+			require.Eventually(t, func() bool {
+				out, statusErr := client.DescribeDraftAppVersionResourcesImportStatus(ctx,
+					&resiliencehubsdk.DescribeDraftAppVersionResourcesImportStatusInput{AppArn: aws.String(appArn)})
+				if statusErr != nil {
+					return false
+				}
+
+				statusOut = out
+
+				return out.Status == tt.wantStatus
+			}, 5*time.Second, 50*time.Millisecond, "import should reach status %s", tt.wantStatus)
+
+			listOut, listErr := client.ListAppVersionResources(ctx, &resiliencehubsdk.ListAppVersionResourcesInput{
+				AppArn: aws.String(appArn), AppVersion: aws.String("draft"),
+			})
+			require.NoError(t, listErr)
+
+			tt.assert(t, statusOut, listOut.PhysicalResources)
 		})
 	}
 }

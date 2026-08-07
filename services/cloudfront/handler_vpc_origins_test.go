@@ -154,7 +154,7 @@ func TestVpcOriginCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -238,7 +238,7 @@ func TestInMemoryBackend_VpcOrigin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}

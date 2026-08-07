@@ -18,7 +18,7 @@ import (
 func TestContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
 	weightTraffic := cloudfront.ContinuousDeploymentTrafficConfig{
 		Type: "SingleWeight",
@@ -70,7 +70,7 @@ func TestContinuousDeploymentPolicy_TrafficConfig(t *testing.T) {
 // test for the continuous deployment policy update/delete handlers.
 func TestContinuousDeploymentPolicy_IfMatchEnforcement(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"continuous-deployment-policy",
@@ -122,7 +122,7 @@ func TestContinuousDeploymentPolicyXMLIncludesStagingDNS(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			policy, err := b.CreateContinuousDeploymentPolicy(true, tc.stagingDNS)
 			require.NoError(t, err)
 
@@ -320,7 +320,7 @@ func TestContinuousDeploymentPolicyCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -431,7 +431,7 @@ func TestInMemoryBackend_ContinuousDeploymentPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}
@@ -496,7 +496,7 @@ func TestCreateContinuousDeploymentPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/continuous-deployment-policy", tt.body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 			tt.check(t, rec)

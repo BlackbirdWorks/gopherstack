@@ -87,13 +87,13 @@ func TestPersistenceRoundTrip_ExtendedFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			orig := newTestBackend()
+			orig := newTestBackend(t)
 			tc.setup(orig)
 
 			snap := orig.Snapshot(t.Context())
 			require.NotEmpty(t, snap)
 
-			fresh := newTestBackend()
+			fresh := newTestBackend(t)
 			require.NoError(t, fresh.Restore(t.Context(), snap))
 
 			tc.verify(t, fresh)
@@ -105,7 +105,7 @@ func TestPersistenceRoundTrip_ExtendedFields(t *testing.T) {
 func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	fle, err := b.CreateFieldLevelEncryption("persist-fle", "comment", nil)
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -162,7 +162,7 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	pk, err := b.CreatePublicKey("str-ref", "str-pk", "pk-comment", testRSA2048PublicKeyPEM)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -185,7 +185,7 @@ func TestPersistenceRoundTrip_StringFields(t *testing.T) {
 func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	d, err := b.CreateDistribution("ref1", "my dist", true, nil)
 	require.NoError(t, err)
 
@@ -199,7 +199,7 @@ func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -222,7 +222,7 @@ func TestCloudFront_PersistenceSnapshotRestore(t *testing.T) {
 func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 
 	// Create a distribution and associate an alias + web ACL.
 	d, err := b.CreateDistribution("ref-persist-1", "persist-dist", true, nil)
@@ -261,7 +261,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
@@ -275,7 +275,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	// Create resources with known CallerReferences.
 	d, err := b.CreateDistribution("persist-ref-001", "persist-dist", true, nil)
@@ -291,7 +291,7 @@ func TestPersistenceRoundTrip_IndexesRebuilt(t *testing.T) {
 	snap := h.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	b2 := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b2 := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	h2 := cloudfront.NewHandler(b2)
 	require.NoError(t, h2.Restore(t.Context(), snap))
 

@@ -13,7 +13,7 @@ import (
 // subscription has been created for a distribution, and that Get succeeds once one has.
 func TestMonitoringSubscription_NotFound(t *testing.T) {
 	t.Parallel()
-	h := newTestHandler()
+	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 	const distID = "ENOSUBSCRIPTION"
 	path := prefix + "distribution/" + distID + "/monitoring-subscription"

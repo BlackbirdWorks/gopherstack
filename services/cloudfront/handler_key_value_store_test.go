@@ -208,7 +208,7 @@ func TestKVSDataPlane(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 
 			kvsID := tt.setup(t, b)
@@ -341,7 +341,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			tt.run(t, b)
 		})
 	}
@@ -463,7 +463,7 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -535,7 +535,7 @@ func TestInMemoryBackend_KeyValueStore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}
