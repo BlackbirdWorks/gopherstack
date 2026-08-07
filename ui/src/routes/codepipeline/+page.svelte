@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCodePipelineClient } from '$lib/aws-client';
 	import {
 		ListPipelinesCommand,
@@ -35,11 +38,16 @@
 
 	const codepipeline = regionalClient(getCodePipelineClient);
 
+	// Every row carries the region its List/Get call was made against.
+	// Detail/action calls must build a client for THAT region -- in All mode
+	// the same resource name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	// State
 	let loading = $state(false);
 	let searchQuery = $state('');
-	let pipelines = $state<PipelineDeclaration[]>([]);
-	let selectedPipeline = $state<PipelineDeclaration | null>(null);
+	let pipelines = $state<Regioned<PipelineDeclaration>[]>([]);
+	let selectedPipeline = $state<Regioned<PipelineDeclaration> | null>(null);
 	let pipelineState = $state<GetPipelineStateCommandOutput | null>(null);
 	let loadingDetails = $state(false);
 
@@ -61,18 +69,23 @@
 	);
 
 	// Actions
+	async function listPipelinesInRegion(region: string): Promise<PipelineDeclaration[]> {
+		const client = getCodePipelineClient(region);
+		const listRes = await client.send(new ListPipelinesCommand({}));
+		const pNames = listRes.pipelines?.map(p => p.name).filter(Boolean) as string[];
+		if (pNames.length === 0) return [];
+		const details = await Promise.all(
+			pNames.map(name => client.send(new GetPipelineCommand({ name })))
+		);
+		return details.map(d => d.pipeline).filter(Boolean) as PipelineDeclaration[];
+	}
+
 	async function loadPipelines() {
 		loading = true;
 		try {
-			const listRes = await codepipeline().send(new ListPipelinesCommand({}));
-			const pNames = listRes.pipelines?.map(p => p.name).filter(Boolean) as string[];
-			
-			if (pNames.length > 0) {
-				const details = await Promise.all(
-					pNames.map(name => codepipeline().send(new GetPipelineCommand({ name })))
-				);
-				pipelines = details.map(d => d.pipeline).filter(Boolean) as PipelineDeclaration[];
-			}
+			const result = await multiRegionList(listPipelinesInRegion, (items) => items);
+			pipelines = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load pipelines from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load pipelines: ${(err as Error).message}`);
 		} finally {
@@ -80,7 +93,7 @@
 		}
 	}
 
-	async function selectPipeline(pipeline: PipelineDeclaration) {
+	async function selectPipeline(pipeline: Regioned<PipelineDeclaration>) {
 		selectedPipeline = pipeline;
 		pipelineState = null;
 		executions = [];
@@ -88,10 +101,11 @@
 		activeTab = 'stages';
 		loadingDetails = true;
 		try {
+			const client = getCodePipelineClient(pipeline.region);
 			const [stateRes, execRes, webhookRes] = await Promise.all([
-				codepipeline().send(new GetPipelineStateCommand({ name: pipeline.name })),
-				codepipeline().send(new ListPipelineExecutionsCommand({ pipelineName: pipeline.name })).catch(() => ({ pipelineExecutionSummaries: [] })),
-				codepipeline().send(new ListWebhooksCommand({})).catch(() => ({ webhooks: [] }))
+				client.send(new GetPipelineStateCommand({ name: pipeline.name })),
+				client.send(new ListPipelineExecutionsCommand({ pipelineName: pipeline.name })).catch(() => ({ pipelineExecutionSummaries: [] })),
+				client.send(new ListWebhooksCommand({})).catch(() => ({ webhooks: [] }))
 			]);
 			pipelineState = stateRes;
 			executions = execRes.pipelineExecutionSummaries ?? [];
@@ -130,7 +144,7 @@
 		actionExecutions = [];
 		loadingActions = true;
 		try {
-			const res = await codepipeline().send(
+			const res = await getCodePipelineClient(selectedPipeline.region).send(
 				new ListActionExecutionsCommand({
 					pipelineName: selectedPipeline.name,
 					filter: { pipelineExecutionId: execId }
@@ -152,7 +166,7 @@
 		if (!selectedPipeline?.name) return;
 		startingExecution = true;
 		try {
-			const res = await codepipeline().send(new StartPipelineExecutionCommand({ name: selectedPipeline.name }));
+			const res = await getCodePipelineClient(selectedPipeline.region).send(new StartPipelineExecutionCommand({ name: selectedPipeline.name }));
 			toast.success(`Execution started: ${res.pipelineExecutionId}`);
 			await selectPipeline(selectedPipeline);
 		} catch (err: unknown) {
@@ -165,7 +179,7 @@
 	async function approveAction(stageName: string, actionName: string, status: 'Approved' | 'Rejected') {
 		if (!selectedPipeline?.name) return;
 		try {
-			await codepipeline().send(new PutApprovalResultCommand({
+			await getCodePipelineClient(selectedPipeline.region).send(new PutApprovalResultCommand({
 				pipelineName: selectedPipeline.name,
 				stageName,
 				actionName,
@@ -208,12 +222,13 @@
 		}
 	}
 
-	async function deletePipeline(name: string | undefined) {
+	async function deletePipeline(pipeline: Regioned<PipelineDeclaration> | null) {
+		const name = pipeline?.name;
 		if (!name || !await confirmDestructive({ title: 'Delete Pipeline', message: `Delete pipeline "${name}"? This cannot be undone.` })) return;
 		try {
-			await codepipeline().send(new DeletePipelineCommand({ name }));
+			await getCodePipelineClient(pipeline.region).send(new DeletePipelineCommand({ name }));
 			toast.success(`Pipeline deleted`);
-			if (selectedPipeline?.name === name) selectedPipeline = null;
+			if (selectedPipeline && selectedPipeline.name === name && selectedPipeline.region === pipeline.region) selectedPipeline = null;
 			await loadPipelines();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -250,7 +265,8 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-3">
-			<button 
+			<WriteRegionHint />
+			<button
 				onclick={loadPipelines}
 				class="p-2.5 rounded-xl bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-all active:scale-95 shadow-sm"
 				title="Refresh data"
@@ -295,12 +311,15 @@
 								tabindex="0"
 								onclick={() => selectPipeline(pipeline)}
 								onkeydown={(e) => e.key === 'Enter' && selectPipeline(pipeline)}
-								class="p-4 flex items-center justify-between hover:bg-violet-500/5 dark:hover:bg-violet-500/10 cursor-pointer transition-all {selectedPipeline?.name === pipeline.name ? 'bg-violet-500/10 border-l-4 border-violet-500 shadow-inner' : 'border-l-4 border-transparent'}"
+								class="p-4 flex items-center justify-between hover:bg-violet-500/5 dark:hover:bg-violet-500/10 cursor-pointer transition-all {selectedPipeline && selectedPipeline.name === pipeline.name && selectedPipeline.region === pipeline.region ? 'bg-violet-500/10 border-l-4 border-violet-500 shadow-inner' : 'border-l-4 border-transparent'}"
 							>
 								<div class="flex items-center gap-3">
 									<Layers class="w-4 h-4 text-violet-600" />
 									<div>
-										<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-xs truncate max-w-[150px]">{pipeline.name}</div>
+										<div class="flex items-center gap-2">
+											<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-xs truncate max-w-[150px]">{pipeline.name}</div>
+											<RegionChip region={pipeline.region} />
+										</div>
 										<div class="text-[8px] text-slate-400 font-mono tracking-tighter truncate opacity-60 italic">{pipeline.stages?.length || 0} Stages Provisioned</div>
 									</div>
 								</div>
@@ -324,6 +343,7 @@
 						<div>
 							<h2 class="text-3xl font-black text-slate-900 dark:text-white mb-2 uppercase tracking-tighter italic leading-none">{selectedPipeline.name}</h2>
 							<div class="flex items-center gap-3 mt-4">
+								<RegionChip region={selectedPipeline.region} />
 								<div class="px-2 py-0.5 rounded-lg bg-violet-500/10 text-violet-600 text-[9px] font-black uppercase tracking-widest border border-violet-500/20">
 									V1_TOPOGRAPHY
 								</div>
@@ -332,8 +352,8 @@
 								</div>
 							</div>
 						</div>
-						<button 
-							onclick={() => deletePipeline(selectedPipeline?.name)}
+						<button
+							onclick={() => deletePipeline(selectedPipeline)}
 							class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
 							title="Discard Pipeline"
 						>

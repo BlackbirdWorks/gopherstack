@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getECRClient } from '$lib/aws-client';
 	import {
 		DescribeRepositoriesCommand,
@@ -34,10 +37,16 @@
 
 	const ecr = regionalClient(getECRClient);
 
+	// Every row carries the region its DescribeRepositories call was made
+	// against. Detail/action calls must use THIS region, not the page's
+	// shared `ecr()` -- in All mode the same repo name can legitimately
+	// exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let repositories = $state<Repository[]>([]);
+	let repositories = $state<Regioned<Repository>[]>([]);
 	let searchQuery = $state('');
-	let selectedRepo = $state<Repository | null>(null);
+	let selectedRepo = $state<Regioned<Repository> | null>(null);
 	let images = $state<ImageDetail[]>([]);
 	let loadingImages = $state(false);
 	let detailTab = $state<'images' | 'policy' | 'lifecycle'>('images');
@@ -94,8 +103,12 @@
 	async function loadRepositories() {
 		loading = true;
 		try {
-			const res = await ecr().send(new DescribeRepositoriesCommand({ maxResults: 100 }));
-			repositories = res.repositories ?? [];
+			const result = await multiRegionList(
+				(region) => getECRClient(region).send(new DescribeRepositoriesCommand({ maxResults: 100 })),
+				(r) => r.repositories ?? []
+			);
+			repositories = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load repositories from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load repositories: ${(err as Error).message}`);
 		} finally {
@@ -127,19 +140,19 @@
 		}
 	}
 
-	async function selectRepo(repo: Repository) {
+	async function selectRepo(repo: Regioned<Repository>) {
 		selectedRepo = repo;
 		images = [];
 		repoPolicy = null;
 		lifecyclePolicy = null;
 		detailTab = 'images';
-		await loadImages(repo.repositoryName ?? '');
+		await loadImages(repo.repositoryName ?? '', repo.region);
 	}
 
-	async function loadImages(repoName: string) {
+	async function loadImages(repoName: string, region: string) {
 		loadingImages = true;
 		try {
-			const res = await ecr().send(new DescribeImagesCommand({ repositoryName: repoName }));
+			const res = await getECRClient(region).send(new DescribeImagesCommand({ repositoryName: repoName }));
 			images = res.imageDetails ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load images: ${(err as Error).message}`);
@@ -148,18 +161,18 @@
 		}
 	}
 
-	async function loadPolicy(repoName: string) {
+	async function loadPolicy(repoName: string, region: string) {
 		try {
-			const res = await ecr().send(new GetRepositoryPolicyCommand({ repositoryName: repoName }));
+			const res = await getECRClient(region).send(new GetRepositoryPolicyCommand({ repositoryName: repoName }));
 			repoPolicy = res.policyText ?? null;
 		} catch {
 			repoPolicy = null;
 		}
 	}
 
-	async function loadLifecyclePolicy(repoName: string) {
+	async function loadLifecyclePolicy(repoName: string, region: string) {
 		try {
-			const res = await ecr().send(new GetLifecyclePolicyCommand({ repositoryName: repoName }));
+			const res = await getECRClient(region).send(new GetLifecyclePolicyCommand({ repositoryName: repoName }));
 			lifecyclePolicy = res.lifecyclePolicyText ?? null;
 		} catch {
 			lifecyclePolicy = null;
@@ -187,12 +200,13 @@
 		}
 	}
 
-	async function deleteRepository(name: string) {
+	async function deleteRepository(repo: Regioned<Repository>) {
+		const name = repo.repositoryName ?? '';
 		if (!await confirmDestructive({ title: 'Delete Repository', message: `Delete repository "${name}"? All container images will be permanently removed.` })) return;
 		try {
-			await ecr().send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
+			await getECRClient(repo.region).send(new DeleteRepositoryCommand({ repositoryName: name, force: true }));
 			toast.success(`Repository "${name}" deleted`);
-			if (selectedRepo?.repositoryName === name) selectedRepo = null;
+			if (selectedRepo && selectedRepo.repositoryName === name && selectedRepo.region === repo.region) selectedRepo = null;
 			await loadRepositories();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -205,12 +219,12 @@
 		const digest = img.imageDigest ?? '';
 		deletingImages = [...deletingImages, digest];
 		try {
-			await ecr().send(new BatchDeleteImageCommand({
+			await getECRClient(selectedRepo.region).send(new BatchDeleteImageCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageIds: [{ imageDigest: img.imageDigest }]
 			}));
 			toast.success('Image deleted');
-			await loadImages(selectedRepo.repositoryName ?? '');
+			await loadImages(selectedRepo.repositoryName ?? '', selectedRepo.region);
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		} finally {
@@ -223,12 +237,12 @@
 		const digest = img.imageDigest ?? '';
 		scanningImages = [...scanningImages, digest];
 		try {
-			await ecr().send(new StartImageScanCommand({
+			await getECRClient(selectedRepo.region).send(new StartImageScanCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageId: { imageDigest: img.imageDigest }
 			}));
 			toast.success('Image scan completed');
-			await loadImages(selectedRepo.repositoryName ?? '');
+			await loadImages(selectedRepo.repositoryName ?? '', selectedRepo.region);
 		} catch (err: unknown) {
 			toast.error(`Scan failed: ${(err as Error).message}`);
 		} finally {
@@ -242,7 +256,7 @@
 		scanFindings = [];
 		loadingScanFindings = true;
 		try {
-			const res = await ecr().send(new DescribeImageScanFindingsCommand({
+			const res = await getECRClient(selectedRepo.region).send(new DescribeImageScanFindingsCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageId: { imageDigest: img.imageDigest }
 			}));
@@ -274,7 +288,7 @@
 		if (!selectedRepo?.repositoryName) return;
 		const next = !selectedRepo.imageScanningConfiguration?.scanOnPush;
 		try {
-			await ecr().send(new PutImageScanningConfigurationCommand({
+			await getECRClient(selectedRepo.region).send(new PutImageScanningConfigurationCommand({
 				repositoryName: selectedRepo.repositoryName,
 				imageScanningConfiguration: { scanOnPush: next }
 			}));
@@ -297,10 +311,10 @@
 
 	$effect(() => {
 		if (detailTab === 'policy' && selectedRepo) {
-			void loadPolicy(selectedRepo.repositoryName ?? '');
+			void loadPolicy(selectedRepo.repositoryName ?? '', selectedRepo.region);
 		}
 		if (detailTab === 'lifecycle' && selectedRepo) {
-			void loadLifecyclePolicy(selectedRepo.repositoryName ?? '');
+			void loadLifecyclePolicy(selectedRepo.repositoryName ?? '', selectedRepo.region);
 		}
 	});
 
@@ -323,6 +337,7 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2">
+			<WriteRegionHint />
 			<button onclick={() => loadRepositories()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
@@ -455,13 +470,16 @@
 						<div class="flex items-center justify-between">
 							<div class="min-w-0 flex-1">
 								<p class="font-medium text-slate-900 dark:text-white truncate">{repo.repositoryName}</p>
-								<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{formatDate(repo.createdAt)}</p>
+								<div class="flex items-center gap-2 mt-0.5">
+									<RegionChip region={repo.region} />
+									<p class="text-xs text-slate-500 dark:text-slate-400">{formatDate(repo.createdAt)}</p>
+								</div>
 							</div>
 							<div class="flex items-center gap-1 ml-2 flex-shrink-0">
 								{#if repo.imageTagMutability === 'IMMUTABLE'}
 									<span class="px-1.5 py-0.5 text-xs rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">Immutable</span>
 								{/if}
-								<button id="delete-repo-{repo.repositoryName}" onclick={(e) => { e.stopPropagation(); deleteRepository(repo.repositoryName ?? ''); }} class="p-1 text-slate-400 hover:text-red-500">
+								<button id="delete-repo-{repo.repositoryName}" onclick={(e) => { e.stopPropagation(); deleteRepository(repo); }} class="p-1 text-slate-400 hover:text-red-500">
 									<Trash2 class="w-4 h-4" />
 								</button>
 							</div>
@@ -476,7 +494,7 @@
 			{#if selectedRepo}
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6">
 					<div class="mb-4">
-						<h2 class="text-xl font-bold text-slate-900 dark:text-white">{selectedRepo.repositoryName}</h2>
+						<h2 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">{selectedRepo.repositoryName} <RegionChip region={selectedRepo.region} /></h2>
 						<button onclick={() => copyUri(selectedRepo?.repositoryUri)} class="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400 hover:text-indigo-500 mt-1 font-mono">
 							<Copy class="w-3 h-3" />
 							{selectedRepo.repositoryUri}

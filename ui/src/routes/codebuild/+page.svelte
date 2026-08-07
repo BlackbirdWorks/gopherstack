@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCodeBuildClient } from '$lib/aws-client';
 	import {
 		ListProjectsCommand,
@@ -38,11 +41,16 @@
 
 	const codebuild = regionalClient(getCodeBuildClient);
 
+	// Every row carries the region its List/BatchGet call was made against.
+	// Detail/action calls must build a client for THAT region -- in All mode
+	// the same resource name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	// State
 	let loading = $state(false);
 	let searchQuery = $state('');
-	let projects = $state<Project[]>([]);
-	let selectedProject = $state<Project | null>(null);
+	let projects = $state<Regioned<Project>[]>([]);
+	let selectedProject = $state<Regioned<Project> | null>(null);
 	let builds = $state<Build[]>([]);
 	let loadingDetails = $state(false);
 
@@ -54,8 +62,8 @@
 	// Fleet + Report Group state
 	type MainView = 'projects' | 'fleets' | 'reportgroups';
 	let mainView = $state<MainView>('projects');
-	let fleets = $state<Fleet[]>([]);
-	let reportGroups = $state<ReportGroup[]>([]);
+	let fleets = $state<Regioned<Fleet>[]>([]);
+	let reportGroups = $state<Regioned<ReportGroup>[]>([]);
 	let loadingFleets = $state(false);
 	let loadingReportGroups = $state(false);
 
@@ -65,16 +73,21 @@
 	);
 
 	// Actions
+	async function listProjectsInRegion(region: string): Promise<Project[]> {
+		const client = getCodeBuildClient(region);
+		const listRes = await client.send(new ListProjectsCommand({}));
+		const names = listRes.projects ?? [];
+		if (names.length === 0) return [];
+		const batchRes = await client.send(new BatchGetProjectsCommand({ names }));
+		return batchRes.projects ?? [];
+	}
+
 	async function loadProjects() {
 		loading = true;
 		try {
-			const listRes = await codebuild().send(new ListProjectsCommand({}));
-			const names = listRes.projects ?? [];
-			
-			if (names.length > 0) {
-				const batchRes = await codebuild().send(new BatchGetProjectsCommand({ names }));
-				projects = batchRes.projects ?? [];
-			}
+			const result = await multiRegionList(listProjectsInRegion, (items) => items);
+			projects = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load projects from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load projects: ${(err as Error).message}`);
 		} finally {
@@ -82,16 +95,17 @@
 		}
 	}
 
-	async function selectProject(project: Project) {
+	async function selectProject(project: Regioned<Project>) {
 		selectedProject = project;
 		builds = [];
 		loadingDetails = true;
 		try {
-			const listRes = await codebuild().send(new ListBuildsForProjectCommand({ projectName: project.name }));
+			const client = getCodeBuildClient(project.region);
+			const listRes = await client.send(new ListBuildsForProjectCommand({ projectName: project.name }));
 			const ids = listRes.ids ?? [];
 
 			if (ids.length > 0) {
-				const batchRes = await codebuild().send(new BatchGetBuildsCommand({ ids }));
+				const batchRes = await client.send(new BatchGetBuildsCommand({ ids }));
 				builds = batchRes.builds ?? [];
 			}
 		} catch (err: unknown) {
@@ -133,7 +147,7 @@
 		if (!selectedProject?.name) return;
 		startingBuild = true;
 		try {
-			const res = await codebuild().send(new StartBuildCommand({ projectName: selectedProject.name }));
+			const res = await getCodeBuildClient(selectedProject.region).send(new StartBuildCommand({ projectName: selectedProject.name }));
 			toast.success(`Build started: ${res.build?.id?.split(':').pop() ?? 'OK'}`);
 			await selectProject(selectedProject);
 		} catch (err: unknown) {
@@ -144,22 +158,23 @@
 	}
 
 	async function stopBuild(id: string | undefined) {
-		if (!id) return;
+		if (!id || !selectedProject) return;
 		try {
-			await codebuild().send(new StopBuildCommand({ id }));
+			await getCodeBuildClient(selectedProject.region).send(new StopBuildCommand({ id }));
 			toast.success('Build stopped');
-			if (selectedProject) await selectProject(selectedProject);
+			await selectProject(selectedProject);
 		} catch (err: unknown) {
 			toast.error(`Failed to stop build: ${(err as Error).message}`);
 		}
 	}
 
-	async function deleteProject(name: string | undefined) {
+	async function deleteProject(project: Regioned<Project> | null) {
+		const name = project?.name;
 		if (!name || !await confirmDestructive({ title: 'Delete Build Project', message: `Delete project "${name}"? All build history and artifacts will be lost.` })) return;
 		try {
-			await codebuild().send(new DeleteProjectCommand({ name }));
+			await getCodeBuildClient(project.region).send(new DeleteProjectCommand({ name }));
 			toast.success(`Project deleted`);
-			if (selectedProject?.name === name) selectedProject = null;
+			if (selectedProject && selectedProject.name === name && selectedProject.region === project.region) selectedProject = null;
 			await loadProjects();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
@@ -180,17 +195,21 @@
 		return 'text-slate-400';
 	}
 
+	async function listFleetsInRegion(region: string): Promise<Fleet[]> {
+		const client = getCodeBuildClient(region);
+		const listRes = await client.send(new ListFleetsCommand({}));
+		const arns = listRes.fleets ?? [];
+		if (arns.length === 0) return [];
+		const batchRes = await client.send(new BatchGetFleetsCommand({ names: arns }));
+		return batchRes.fleets ?? [];
+	}
+
 	async function loadFleets() {
 		loadingFleets = true;
 		try {
-			const listRes = await codebuild().send(new ListFleetsCommand({}));
-			const arns = listRes.fleets ?? [];
-			if (arns.length > 0) {
-				const batchRes = await codebuild().send(new BatchGetFleetsCommand({ names: arns }));
-				fleets = batchRes.fleets ?? [];
-			} else {
-				fleets = [];
-			}
+			const result = await multiRegionList(listFleetsInRegion, (items) => items);
+			fleets = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load fleets from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load fleets: ${(err as Error).message}`);
 		} finally {
@@ -198,17 +217,21 @@
 		}
 	}
 
+	async function listReportGroupsInRegion(region: string): Promise<ReportGroup[]> {
+		const client = getCodeBuildClient(region);
+		const listRes = await client.send(new ListReportGroupsCommand({}));
+		const arns = listRes.reportGroups ?? [];
+		if (arns.length === 0) return [];
+		const batchRes = await client.send(new BatchGetReportGroupsCommand({ reportGroupArns: arns }));
+		return batchRes.reportGroups ?? [];
+	}
+
 	async function loadReportGroups() {
 		loadingReportGroups = true;
 		try {
-			const listRes = await codebuild().send(new ListReportGroupsCommand({}));
-			const arns = listRes.reportGroups ?? [];
-			if (arns.length > 0) {
-				const batchRes = await codebuild().send(new BatchGetReportGroupsCommand({ reportGroupArns: arns }));
-				reportGroups = batchRes.reportGroups ?? [];
-			} else {
-				reportGroups = [];
-			}
+			const result = await multiRegionList(listReportGroupsInRegion, (items) => items);
+			reportGroups = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load report groups from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load report groups: ${(err as Error).message}`);
 		} finally {
@@ -254,7 +277,8 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-3">
-			<button 
+			<WriteRegionHint />
+			<button
 				onclick={loadProjects}
 				class="p-2.5 rounded-xl bg-white/50 dark:bg-slate-700/50 hover:bg-white dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 transition-all active:scale-95 shadow-sm"
 				title="Refresh data"
@@ -306,6 +330,7 @@
 						<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 							<tr>
 								<th class="px-4 py-3 text-left">Fleet Name</th>
+								<th class="px-4 py-3 text-left">Region</th>
 								<th class="px-4 py-3 text-left">Compute Type</th>
 								<th class="px-4 py-3 text-left">Environment</th>
 								<th class="px-4 py-3 text-left">Capacity</th>
@@ -316,6 +341,7 @@
 							{#each fleets as fleet}
 								<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 									<td class="px-4 py-3 font-medium text-blue-600 dark:text-blue-400">{fleet.name}</td>
+									<td class="px-4 py-3"><RegionChip region={fleet.region} /></td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.computeType ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.environmentType ?? '-'}</td>
 									<td class="px-4 py-3 text-gray-600 dark:text-gray-400">{fleet.baseCapacity ?? '-'}</td>
@@ -353,7 +379,10 @@
 						<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
 							<div class="flex items-start justify-between">
 								<div>
-									<div class="font-medium text-sm text-gray-900 dark:text-white">{rg.name}</div>
+									<div class="flex items-center gap-2">
+										<div class="font-medium text-sm text-gray-900 dark:text-white">{rg.name}</div>
+										<RegionChip region={rg.region} />
+									</div>
 									<div class="text-xs text-gray-500 mt-1">Type: {rg.type ?? '-'}</div>
 									<div class="text-xs text-gray-500 font-mono break-all mt-1">{rg.arn}</div>
 								</div>
@@ -401,7 +430,10 @@
 								<div class="flex items-center gap-3">
 									<Box class="w-4 h-4 text-blue-600" />
 									<div>
-										<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-xs truncate max-w-[150px]">{project.name}</div>
+										<div class="flex items-center gap-2">
+											<div class="font-black text-slate-900 dark:text-white uppercase tracking-tighter italic text-xs truncate max-w-[150px]">{project.name}</div>
+											<RegionChip region={project.region} />
+										</div>
 										<div class="text-[8px] text-slate-400 font-mono tracking-tighter truncate opacity-60 italic">{project.environment?.computeType}</div>
 									</div>
 								</div>
@@ -428,6 +460,7 @@
 								<div>
 									<h2 class="text-3xl font-black text-slate-900 dark:text-white mb-2 uppercase tracking-tighter italic leading-none">{selectedProject.name}</h2>
 									<div class="flex items-center gap-3 mt-4">
+										<RegionChip region={selectedProject.region} />
 										<div class="px-2 py-0.5 rounded-lg bg-blue-500/10 text-blue-600 text-[9px] font-black uppercase tracking-widest border border-blue-500/20">
 											{selectedProject.environment?.type}
 										</div>
@@ -447,7 +480,7 @@
 										Start Build
 									</button>
 									<button
-										onclick={() => deleteProject(selectedProject?.name)}
+										onclick={() => deleteProject(selectedProject)}
 										class="p-2.5 bg-slate-900 dark:bg-black text-rose-500 hover:bg-rose-500/10 rounded-2xl transition-all border border-rose-500/20 shadow-xl"
 										title="Explode Project"
 									>

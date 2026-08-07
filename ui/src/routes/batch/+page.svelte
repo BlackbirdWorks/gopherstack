@@ -2,6 +2,9 @@
 import { confirmDestructive } from '$lib/confirm-dialog';
 import { untrack } from 'svelte';
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getBatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
 import { GetLogEventsCommand } from '@aws-sdk/client-cloudwatch-logs';
 import {
@@ -34,46 +37,41 @@ import { Box, Search, RefreshCw, Plus, Trash2, Play, XCircle, Layers, FileCode, 
 
 const batch = regionalClient(getBatchClient);
 
-// Lazily constructed CloudWatch Logs client for streaming container logs.
-// Created only when the user opens a job's logs so component init never
-// depends on the CloudWatch Logs SDK being available (e.g. under test
-// mocks). The regionalClient() wrapper itself is built lazily too — it
-// resolves its factory once on first call, so building it eagerly at
-// module scope would defeat the point.
-let cwlAccessor: (() => ReturnType<typeof getCloudWatchLogsClient>) | undefined;
-function cwlClient() {
-return (cwlAccessor ??= regionalClient(getCloudWatchLogsClient))();
-}
-
 type ActiveTab = 'queues' | 'compute-environments' | 'service-environments' | 'jobs' | 'definitions' | 'metrics' | 'docs';
+
+// Every row carries the region its Describe*/List*Command call was made
+// against. Row actions (delete/cancel/terminate/toggle) must use THIS
+// region, not the page's shared `batch()` client -- in All mode the same
+// name can legitimately exist in two different regions.
+type Regioned<T> = T & { region: string };
 
 let loading = $state(false);
 let activeTab = $state<ActiveTab>('queues');
 let searchQuery = $state('');
 
 // Compute Environments
-let computeEnvironments = $state<ComputeEnvironmentDetail[]>([]);
+let computeEnvironments = $state<Regioned<ComputeEnvironmentDetail>[]>([]);
 let loadingCEs = $state(false);
 
 // Service Environments
-let serviceEnvironments = $state<ServiceEnvironmentDetail[]>([]);
+let serviceEnvironments = $state<Regioned<ServiceEnvironmentDetail>[]>([]);
 let loadingSEs = $state(false);
 
-// Jobs: per-queue counts keyed by queue name
+// Jobs: per-queue counts keyed by "region::queueName"
 let jobCountByQueue = $state<Record<string, number>>({});
 
 // Job Queues
-let queues = $state<JobQueueDetail[]>([]);
-let selectedQueue = $state<JobQueueDetail | null>(null);
-let selectedCE = $state<ComputeEnvironmentDetail | null>(null);
+let queues = $state<Regioned<JobQueueDetail>[]>([]);
+let selectedQueue = $state<Regioned<JobQueueDetail> | null>(null);
+let selectedCE = $state<Regioned<ComputeEnvironmentDetail> | null>(null);
 let queueJobCounts = $state<Record<string, number>>({});
 
 // Job Definitions
-let definitions = $state<JobDefinition[]>([]);
+let definitions = $state<Regioned<JobDefinition>[]>([]);
 let loadingDefinitions = $state(false);
 
 // Jobs
-let jobs = $state<JobSummary[]>([]);
+let jobs = $state<Regioned<JobSummary>[]>([]);
 let loadingJobs = $state(false);
 let jobStatusFilter = $state<'SUBMITTED' | 'PENDING' | 'RUNNABLE' | 'STARTING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'>('RUNNING');
 
@@ -94,6 +92,7 @@ let newCEState = $state('ENABLED');
 
 // Job JSON viewer
 let selectedJob = $state<JobDetail | null>(null);
+let selectedJobRegion = $state('');
 let loadingJobDetail = $state(false);
 
 // Create Queue
@@ -139,57 +138,58 @@ const filteredJobs = $derived(
 jobs.filter((j) => !searchQuery || (j.jobName ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
 );
 
-async function loadComputeEnvironments() {
-loadingCEs = true;
+// Every load* function goes through loadRegioned: in single-region mode
+// that's exactly one Describe*/List*Command call (unchanged behavior), and
+// in All mode it fans out across every region with data, tagging each row.
+async function loadRegioned<TResponse, TItem>(
+label: string,
+regionCall: (region: string) => Promise<TResponse>,
+extractItems: (r: TResponse) => TItem[],
+assign: (items: Regioned<TItem>[]) => void,
+setLoading: (v: boolean) => void
+) {
+setLoading(true);
 try {
-const resp = await batch().send(new DescribeComputeEnvironmentsCommand({ maxResults: 50 }));
-computeEnvironments = resp.computeEnvironments ?? [];
+const result = await multiRegionList(regionCall, extractItems);
+assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
 } catch (e) {
-toast.error('Failed to load compute environments: ' + String(e));
+toast.error(`Failed to load ${label}: ` + String(e));
 } finally {
-loadingCEs = false;
+setLoading(false);
 }
+}
+
+async function loadComputeEnvironments() {
+await loadRegioned('compute environments',
+(region) => getBatchClient(region).send(new DescribeComputeEnvironmentsCommand({ maxResults: 50 })),
+(r) => r.computeEnvironments ?? [],
+(items) => computeEnvironments = items,
+(v) => loadingCEs = v);
 }
 
 async function loadQueues() {
-loading = true;
-try {
-const resp = await batch().send(new DescribeJobQueuesCommand({ maxResults: 50 }));
-queues = resp.jobQueues ?? [];
-} catch (e) {
-toast.error('Failed to load queues: ' + String(e));
-} finally {
-loading = false;
-}
+await loadRegioned('queues',
+(region) => getBatchClient(region).send(new DescribeJobQueuesCommand({ maxResults: 50 })),
+(r) => r.jobQueues ?? [],
+(items) => queues = items,
+(v) => loading = v);
 }
 
 async function loadDefinitions() {
-loadingDefinitions = true;
-try {
-const resp = await batch().send(new DescribeJobDefinitionsCommand({ maxResults: 50, status: 'ACTIVE' }));
-definitions = resp.jobDefinitions ?? [];
-} catch (e) {
-toast.error('Failed to load definitions: ' + String(e));
-} finally {
-loadingDefinitions = false;
-}
+await loadRegioned('definitions',
+(region) => getBatchClient(region).send(new DescribeJobDefinitionsCommand({ maxResults: 50, status: 'ACTIVE' })),
+(r) => r.jobDefinitions ?? [],
+(items) => definitions = items,
+(v) => loadingDefinitions = v);
 }
 
-async function loadJobs(queueArn?: string) {
-loadingJobs = true;
-try {
-const params: { jobQueue?: string; jobStatus: typeof jobStatusFilter; maxResults: number } = {
-jobStatus: jobStatusFilter,
-maxResults: 50
-};
-if (queueArn) params.jobQueue = queueArn;
-const resp = await batch().send(new ListJobsCommand(params));
-jobs = resp.jobSummaryList ?? [];
-} catch (e) {
-toast.error('Failed to load jobs: ' + String(e));
-} finally {
-loadingJobs = false;
-}
+async function loadJobs() {
+await loadRegioned('jobs',
+(region) => getBatchClient(region).send(new ListJobsCommand({ jobStatus: jobStatusFilter, maxResults: 50 })),
+(r) => r.jobSummaryList ?? [],
+(items) => jobs = items,
+(v) => loadingJobs = v);
 }
 
 async function loadMetrics() {
@@ -238,10 +238,10 @@ creatingQueue = false;
 }
 }
 
-async function deleteQueue(name: string) {
+async function deleteQueue(name: string, region: string) {
 if (!await confirmDestructive({ title: 'Delete Job Queue', message: `Delete job queue "${name}"? All pending jobs will be removed.` })) return;
 try {
-await batch().send(new DeleteJobQueueCommand({ jobQueue: name }));
+await getBatchClient(region).send(new DeleteJobQueueCommand({ jobQueue: name }));
 toast.success(`Queue "${name}" deleted`);
 await loadQueues();
 } catch (e) {
@@ -278,9 +278,9 @@ submittingJob = false;
 }
 }
 
-async function cancelJob(jobId: string) {
+async function cancelJob(jobId: string, region: string) {
 try {
-await batch().send(new CancelJobCommand({ jobId, reason: 'Cancelled by user' }));
+await getBatchClient(region).send(new CancelJobCommand({ jobId, reason: 'Cancelled by user' }));
 toast.success('Job cancelled');
 await loadJobs();
 } catch (e) {
@@ -288,10 +288,10 @@ toast.error('Failed to cancel job: ' + String(e));
 }
 }
 
-async function terminateJob(jobId: string) {
+async function terminateJob(jobId: string, region: string) {
 if (!await confirmDestructive({ title: 'Terminate Job', message: 'Terminate this job? This cannot be undone.', confirmLabel: 'Terminate' })) return;
 try {
-await batch().send(new TerminateJobCommand({ jobId, reason: 'Terminated by user' }));
+await getBatchClient(region).send(new TerminateJobCommand({ jobId, reason: 'Terminated by user' }));
 toast.success('Job terminated');
 await loadJobs();
 } catch (e) {
@@ -300,15 +300,11 @@ toast.error('Failed to terminate job: ' + String(e));
 }
 
 async function loadServiceEnvironments() {
-loadingSEs = true;
-try {
-const resp = await batch().send(new DescribeServiceEnvironmentsCommand({ maxResults: 50 }));
-serviceEnvironments = (resp as DescribeServiceEnvironmentsCommandOutput).serviceEnvironments ?? [];
-} catch (e) {
-toast.error('Failed to load service environments: ' + String(e));
-} finally {
-loadingSEs = false;
-}
+await loadRegioned('service environments',
+(region) => getBatchClient(region).send(new DescribeServiceEnvironmentsCommand({ maxResults: 50 })),
+(r) => (r as DescribeServiceEnvironmentsCommandOutput).serviceEnvironments ?? [],
+(items) => serviceEnvironments = items,
+(v) => loadingSEs = v);
 }
 
 async function createComputeEnvironment() {
@@ -333,11 +329,11 @@ creatingCE = false;
 }
 }
 
-async function deleteCE(name: string) {
+async function deleteCE(name: string, region: string) {
 if (!await confirmDestructive({ title: 'Delete Compute Environment', message: `Delete compute environment "${name}"?` })) return;
 try {
-await batch().send(new UpdateComputeEnvironmentCommand({ computeEnvironment: name, state: 'DISABLED' }));
-await batch().send(new DeleteComputeEnvironmentCommand({ computeEnvironment: name }));
+await getBatchClient(region).send(new UpdateComputeEnvironmentCommand({ computeEnvironment: name, state: 'DISABLED' }));
+await getBatchClient(region).send(new DeleteComputeEnvironmentCommand({ computeEnvironment: name }));
 toast.success(`Compute environment "${name}" deleted`);
 await loadComputeEnvironments();
 } catch (e) {
@@ -345,10 +341,10 @@ toast.error('Failed to delete compute environment: ' + String(e));
 }
 }
 
-async function toggleQueueState(queue: JobQueueDetail) {
+async function toggleQueueState(queue: Regioned<JobQueueDetail>) {
 const newState = queue.state === 'ENABLED' ? 'DISABLED' : 'ENABLED';
 try {
-await batch().send(new UpdateJobQueueCommand({ jobQueue: queue.jobQueueName!, state: newState as 'ENABLED' | 'DISABLED' }));
+await getBatchClient(queue.region).send(new UpdateJobQueueCommand({ jobQueue: queue.jobQueueName!, state: newState as 'ENABLED' | 'DISABLED' }));
 toast.success(`Queue "${queue.jobQueueName}" ${newState.toLowerCase()}`);
 await loadQueues();
 } catch (e) {
@@ -356,12 +352,13 @@ toast.error('Failed to update queue: ' + String(e));
 }
 }
 
-async function loadJobDetail(job: JobSummary) {
+async function loadJobDetail(job: Regioned<JobSummary>) {
 loadingJobDetail = true;
 jobLogEvents = [];
 jobLogError = '';
+selectedJobRegion = job.region;
 try {
-const resp = await batch().send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
+const resp = await getBatchClient(job.region).send(new DescribeJobsCommand({ jobs: [job.jobId!] }));
 selectedJob = (resp.jobs ?? [])[0] ?? null;
 } catch (e) {
 toast.error('Failed to load job details: ' + String(e));
@@ -385,7 +382,7 @@ return;
 loadingJobLogs = true;
 jobLogError = '';
 try {
-const resp = await cwlClient().send(
+const resp = await getCloudWatchLogsClient(selectedJobRegion).send(
 new GetLogEventsCommand({
 logGroupName: '/aws/batch/job',
 logStreamName: stream,
@@ -402,17 +399,20 @@ loadingJobLogs = false;
 }
 }
 
+// Keyed by "region::queueName" -- a bare queue name would collide across
+// regions under All mode.
 async function loadJobCounts() {
 const counts: Record<string, number> = {};
-for (const q of queues) {
-if (!q.jobQueueName) continue;
+await Promise.all(queues.map(async (q) => {
+if (!q.jobQueueName) return;
+const key = `${q.region}::${q.jobQueueName}`;
 try {
-const resp = await batch().send(new ListJobsCommand({ jobQueue: q.jobQueueName, maxResults: 100 }));
-counts[q.jobQueueName] = (resp.jobSummaryList ?? []).length;
+const resp = await getBatchClient(q.region).send(new ListJobsCommand({ jobQueue: q.jobQueueName, maxResults: 100 }));
+counts[key] = (resp.jobSummaryList ?? []).length;
 } catch {
-counts[q.jobQueueName] = 0;
+counts[key] = 0;
 }
-}
+}));
 jobCountByQueue = counts;
 }
 
@@ -421,12 +421,12 @@ if (!d) return '-';
 return new Date(d).toLocaleString();
 }
 
-async function loadQueueJobCounts(queueName: string) {
+async function loadQueueJobCounts(queueName: string, region: string) {
 const statuses = ['PENDING', 'RUNNABLE', 'STARTING', 'RUNNING', 'SUCCEEDED', 'FAILED'] as const;
 const counts: Record<string, number> = {};
 await Promise.all(statuses.map(async (status) => {
 	try {
-		const r = await batch().send(new ListJobsCommand({ jobQueue: queueName, jobStatus: status, maxResults: 100 }));
+		const r = await getBatchClient(region).send(new ListJobsCommand({ jobQueue: queueName, jobStatus: status, maxResults: 100 }));
 		counts[status] = (r.jobSummaryList ?? []).length;
 	} catch {
 		counts[status] = 0;
@@ -494,6 +494,9 @@ else if (activeTab === 'metrics') loadMetrics();
 }} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 <RefreshCw class="w-4 h-4" /> Refresh
 </button>
+{#if activeTab === 'queues' || activeTab === 'compute-environments' || activeTab === 'jobs'}
+<WriteRegionHint />
+{/if}
 {#if activeTab === 'queues'}
 <button onclick={() => (showCreateQueue = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700 text-sm font-medium">
 <Plus class="w-4 h-4" /> Create Queue
@@ -555,14 +558,16 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-{#each filteredQueues as queue}
+{#each filteredQueues as queue (queue.region + '::' + queue.jobQueueName)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={queue.jobQueueArn} onclick={() => { selectedQueue = queue; void loadQueueJobCounts(queue.jobQueueName ?? ''); }}>{queue.jobQueueName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400 cursor-pointer hover:underline" title={queue.jobQueueArn} onclick={() => { selectedQueue = queue; void loadQueueJobCounts(queue.jobQueueName ?? '', queue.region); }}>
+<div class="flex items-center gap-2">{queue.jobQueueName}<RegionChip region={queue.region} /></div>
+</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(queue.state)}`}>{queue.state}</span></td>
 <td class="px-4 py-3 text-xs text-gray-500">{queue.status}</td>
 <td class="px-4 py-3 text-gray-600 dark:text-gray-400">{queue.priority}</td>
 <td class="px-4 py-3 text-xs text-gray-500">{(queue.computeEnvironmentOrder ?? []).length} env(s)</td>
-<td class="px-4 py-3 text-xs text-gray-500">{jobCountByQueue[queue.jobQueueName ?? ''] ?? 0}</td>
+<td class="px-4 py-3 text-xs text-gray-500">{jobCountByQueue[`${queue.region}::${queue.jobQueueName ?? ''}`] ?? 0}</td>
 <td class="px-4 py-3 flex items-center gap-1">
 <button onclick={() => toggleQueueState(queue)} class={`p-1 ${queue.state === 'ENABLED' ? 'text-yellow-500 hover:text-yellow-700' : 'text-green-500 hover:text-green-700'}`} title={queue.state === 'ENABLED' ? 'Disable' : 'Enable'}>
 {#if queue.state === 'ENABLED'}
@@ -571,7 +576,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
 {/if}
 </button>
-<button onclick={() => deleteQueue(queue.jobQueueName ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Delete">
+<button onclick={() => deleteQueue(queue.jobQueueName ?? '', queue.region)} class="text-red-500 hover:text-red-700 p-1" title="Delete">
 <Trash2 class="w-4 h-4" />
 </button>
 </td>
@@ -588,7 +593,7 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 <div class="bg-white dark:bg-gray-900 rounded-xl border border-purple-200 dark:border-purple-800 p-5 space-y-4">
 	<div class="flex items-start justify-between">
 		<div>
-			<h3 class="text-base font-semibold text-gray-900 dark:text-white">{selectedQueue.jobQueueName}</h3>
+			<h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">{selectedQueue.jobQueueName}<RegionChip region={selectedQueue.region} /></h3>
 			<p class="text-xs font-mono text-gray-400 mt-0.5 break-all">{selectedQueue.jobQueueArn}</p>
 		</div>
 		<button onclick={() => selectedQueue = null} class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xs">✕</button>
@@ -656,9 +661,11 @@ class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab =
 </tr>
 </thead>
 <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-{#each filteredSEs as se}
+{#each filteredSEs as se (se.region + '::' + se.serviceEnvironmentName)}
 <tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={se.serviceEnvironmentArn}>{se.serviceEnvironmentName}</td>
+<td class="px-4 py-3 font-medium text-purple-600 dark:text-purple-400" title={se.serviceEnvironmentArn}>
+<div class="flex items-center gap-2">{se.serviceEnvironmentName}<RegionChip region={se.region} /></div>
+</td>
 <td class="px-4 py-3 text-xs text-gray-500">{se.serviceEnvironmentType}</td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(se.state)}`}>{se.state}</span></td>
 <td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${badgeClass(se.status)}`}>{se.status}</span></td>

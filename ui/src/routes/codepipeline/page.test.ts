@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CodePipelinePage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -15,10 +16,22 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("CodePipeline Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title and create button", () => {
@@ -182,5 +195,72 @@ describe("CodePipeline Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  // Both regions' ListPipelines calls fire before either's per-name
+  // GetPipeline calls (Promise.all starts every region's async function
+  // synchronously up to its first await), so an ordered mockResolvedValueOnce
+  // queue would be racy. Key ListPipelines off call count and GetPipeline
+  // off the requested name instead, which is order-independent.
+  function mockPipelinesPerRegion(namesByCallOrder: string[][]): void {
+    let listCalls = 0;
+    mockSend.mockImplementation(
+      (cmd: { constructor: { name: string }; input?: { name?: string } }) => {
+        if (cmd.constructor.name === "ListPipelinesCommand") {
+          const names = namesByCallOrder[listCalls] ?? [];
+          listCalls++;
+          return Promise.resolve({ pipelines: names.map((name) => ({ name })) });
+        }
+        if (cmd.constructor.name === "GetPipelineCommand") {
+          return Promise.resolve({ pipeline: { name: cmd.input?.name, stages: [] } });
+        }
+        return Promise.resolve({});
+      },
+    );
+  }
+
+  describe("All regions mode", () => {
+    it("fans ListPipelines out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockPipelinesPerRegion([["prod-delivery"], ["eu-pipeline"]]);
+
+      render(CodePipelinePage);
+
+      await waitFor(() => expect(screen.getByText("prod-delivery")).toBeInTheDocument());
+      expect(screen.getByText("eu-pipeline")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(4);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListPipelines call in single-region mode", async () => {
+      mockPipelinesPerRegion([["prod-delivery"]]);
+      render(CodePipelinePage);
+      await waitFor(() => expect(screen.getByText("prod-delivery")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(2);
+    });
+
+    it("renders the same pipeline name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockPipelinesPerRegion([["shared-pipeline"], ["shared-pipeline"]]);
+
+      render(CodePipelinePage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-pipeline");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest('[role="button"]') as HTMLElement).getByTestId("region-chip")
+            .textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

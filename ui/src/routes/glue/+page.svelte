@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { onRegionChange } from '$lib/region-effect.svelte';
 	import { confirmDestructive } from '$lib/confirm-dialog';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import { getGlueClient } from '$lib/aws-client';
 	import {
 		GetDatabasesCommand,
@@ -32,42 +34,45 @@
 	import { toast } from 'svelte-sonner';
 	import { Database as DBIcon, Search, RefreshCw, Play, Pause, XCircle, ChevronRight, Table as TableIcon, Settings, Globe, Trash2, Copy, Clock } from 'lucide-svelte';
 
-	const glue = regionalClient(getGlueClient);
+	// Every row carries the region its List/Get call was made against.
+	// Detail/action calls must build a client for THAT region -- in All mode
+	// the same resource name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
 
 	let activeTab = $state<'catalog' | 'jobs' | 'crawlers' | 'connections' | 'dataquality'>('catalog');
 	let searchQuery = $state('');
 	let loading = $state(false);
 
 	// Catalog
-	let databases = $state<Database[]>([]);
-	let selectedDatabase = $state<Database | null>(null);
+	let databases = $state<Regioned<Database>[]>([]);
+	let selectedDatabase = $state<Regioned<Database> | null>(null);
 	let tables = $state<Table[]>([]);
 	let loadingTables = $state(false);
 	let selectedTable = $state<Table | null>(null);
 	let expandedCrawler = $state<string | null>(null);
 
 	// Jobs
-	let jobs = $state<Job[]>([]);
+	let jobs = $state<Regioned<Job>[]>([]);
 	let loadingJobs = $state(false);
-	let selectedJob = $state<Job | null>(null);
+	let selectedJob = $state<Regioned<Job> | null>(null);
 	let jobRuns = $state<JobRun[]>([]);
 	let loadingRuns = $state(false);
 
 	// Crawlers
-	let crawlers = $state<Crawler[]>([]);
+	let crawlers = $state<Regioned<Crawler>[]>([]);
 	let loadingCrawlers = $state(false);
 
 	// Connections
-	let connections = $state<Connection[]>([]);
+	let connections = $state<Regioned<Connection>[]>([]);
 	let loadingConnections = $state(false);
 
 	// Crawler schedule editor
-	let scheduleCrawler = $state<Crawler | null>(null);
+	let scheduleCrawler = $state<Regioned<Crawler> | null>(null);
 	let scheduleExpression = $state('cron(0 0 * * ? *)');
 	let savingSchedule = $state(false);
 
 	// Data Quality
-	let dataQualityRulesets = $state<DataQualityRulesetListDetails[]>([]);
+	let dataQualityRulesets = $state<Regioned<DataQualityRulesetListDetails>[]>([]);
 	let loadingRulesets = $state(false);
 	let evalRunDatabase = $state('');
 	let evalRunTable = $state('');
@@ -110,8 +115,12 @@
 	async function loadDatabases() {
 		loading = true;
 		try {
-			const resp = await glue().send(new GetDatabasesCommand({ MaxResults: 50 }));
-			databases = resp.DatabaseList ?? [];
+			const result = await multiRegionList(
+				(region) => getGlueClient(region).send(new GetDatabasesCommand({ MaxResults: 50 })),
+				(r) => r.DatabaseList ?? []
+			);
+			databases = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load databases from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load databases: ' + String(e));
 		} finally {
@@ -119,12 +128,12 @@
 		}
 	}
 
-	async function selectDatabase(db: Database) {
+	async function selectDatabase(db: Regioned<Database>) {
 		selectedDatabase = db;
 		searchQuery = '';
 		loadingTables = true;
 		try {
-			const resp = await glue().send(new GetTablesCommand({ DatabaseName: db.Name ?? '', MaxResults: 100 }));
+			const resp = await getGlueClient(db.region).send(new GetTablesCommand({ DatabaseName: db.Name ?? '', MaxResults: 100 }));
 			tables = resp.TableList ?? [];
 		} catch (e) {
 			toast.error('Failed to load tables: ' + String(e));
@@ -136,8 +145,12 @@
 	async function loadJobs() {
 		loadingJobs = true;
 		try {
-			const resp = await glue().send(new GetJobsCommand({ MaxResults: 50 }));
-			jobs = resp.Jobs ?? [];
+			const result = await multiRegionList(
+				(region) => getGlueClient(region).send(new GetJobsCommand({ MaxResults: 50 })),
+				(r) => r.Jobs ?? []
+			);
+			jobs = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load jobs from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load jobs: ' + String(e));
 		} finally {
@@ -145,11 +158,11 @@
 		}
 	}
 
-	async function selectJob(job: Job) {
+	async function selectJob(job: Regioned<Job>) {
 		selectedJob = job;
 		loadingRuns = true;
 		try {
-			const resp = await glue().send(new GetJobRunsCommand({ JobName: job.Name ?? '', MaxResults: 20 }));
+			const resp = await getGlueClient(job.region).send(new GetJobRunsCommand({ JobName: job.Name ?? '', MaxResults: 20 }));
 			jobRuns = resp.JobRuns ?? [];
 		} catch (e) {
 			toast.error('Failed to load job runs: ' + String(e));
@@ -158,21 +171,21 @@
 		}
 	}
 
-	async function startJob(jobName: string) {
+	async function startJob(job: Regioned<Job>) {
 		try {
-			const resp = await glue().send(new StartJobRunCommand({ JobName: jobName }));
+			const resp = await getGlueClient(job.region).send(new StartJobRunCommand({ JobName: job.Name }));
 			toast.success(`Job run started: ${resp.JobRunId}`);
-			if (selectedJob?.Name === jobName) await selectJob(selectedJob);
+			if (selectedJob && selectedJob.Name === job.Name && selectedJob.region === job.region) await selectJob(selectedJob);
 		} catch (e) {
 			toast.error('Failed to start job: ' + String(e));
 		}
 	}
 
-	async function stopJobRun(jobName: string, runId: string) {
+	async function stopJobRun(job: Regioned<Job>, runId: string) {
 		try {
-			await glue().send(new BatchStopJobRunCommand({ JobName: jobName, JobRunIds: [runId] }));
+			await getGlueClient(job.region).send(new BatchStopJobRunCommand({ JobName: job.Name, JobRunIds: [runId] }));
 			toast.success('Job run stopping');
-			if (selectedJob?.Name === jobName) await selectJob(selectedJob);
+			if (selectedJob && selectedJob.Name === job.Name && selectedJob.region === job.region) await selectJob(selectedJob);
 		} catch (e) {
 			toast.error('Failed to stop job run: ' + String(e));
 		}
@@ -181,8 +194,12 @@
 	async function loadCrawlers() {
 		loadingCrawlers = true;
 		try {
-			const resp = await glue().send(new GetCrawlersCommand({ MaxResults: 50 }));
-			crawlers = resp.Crawlers ?? [];
+			const result = await multiRegionList(
+				(region) => getGlueClient(region).send(new GetCrawlersCommand({ MaxResults: 50 })),
+				(r) => r.Crawlers ?? []
+			);
+			crawlers = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load crawlers from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load crawlers: ' + String(e));
 		} finally {
@@ -190,27 +207,27 @@
 		}
 	}
 
-	async function startCrawler(name: string) {
+	async function startCrawler(crawler: Regioned<Crawler>) {
 		try {
-			await glue().send(new StartCrawlerCommand({ Name: name }));
-			toast.success(`Crawler "${name}" started`);
+			await getGlueClient(crawler.region).send(new StartCrawlerCommand({ Name: crawler.Name }));
+			toast.success(`Crawler "${crawler.Name}" started`);
 			await loadCrawlers();
 		} catch (e) {
 			toast.error('Failed to start crawler: ' + String(e));
 		}
 	}
 
-	async function stopCrawler(name: string) {
+	async function stopCrawler(crawler: Regioned<Crawler>) {
 		try {
-			await glue().send(new StopCrawlerCommand({ Name: name }));
-			toast.success(`Crawler "${name}" stopping`);
+			await getGlueClient(crawler.region).send(new StopCrawlerCommand({ Name: crawler.Name }));
+			toast.success(`Crawler "${crawler.Name}" stopping`);
 			await loadCrawlers();
 		} catch (e) {
 			toast.error('Failed to stop crawler: ' + String(e));
 		}
 	}
 
-	function openScheduleEditor(crawler: Crawler) {
+	function openScheduleEditor(crawler: Regioned<Crawler>) {
 		scheduleCrawler = crawler;
 		scheduleExpression = crawler.Schedule?.ScheduleExpression ?? 'cron(0 0 * * ? *)';
 	}
@@ -219,7 +236,7 @@
 		if (!scheduleCrawler?.Name || !scheduleExpression.trim()) return;
 		savingSchedule = true;
 		try {
-			await glue().send(new UpdateCrawlerScheduleCommand({
+			await getGlueClient(scheduleCrawler.region).send(new UpdateCrawlerScheduleCommand({
 				CrawlerName: scheduleCrawler.Name,
 				Schedule: scheduleExpression.trim()
 			}));
@@ -233,15 +250,15 @@
 		}
 	}
 
-	async function toggleCrawlerSchedule(crawler: Crawler) {
+	async function toggleCrawlerSchedule(crawler: Regioned<Crawler>) {
 		if (!crawler.Name) return;
 		const isScheduled = crawler.Schedule?.State === 'SCHEDULED';
 		try {
 			if (isScheduled) {
-				await glue().send(new StopCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				await getGlueClient(crawler.region).send(new StopCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
 				toast.success(`Schedule paused for "${crawler.Name}"`);
 			} else {
-				await glue().send(new StartCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
+				await getGlueClient(crawler.region).send(new StartCrawlerScheduleCommand({ CrawlerName: crawler.Name }));
 				toast.success(`Schedule resumed for "${crawler.Name}"`);
 			}
 			await loadCrawlers();
@@ -253,8 +270,12 @@
 	async function loadConnections() {
 		loadingConnections = true;
 		try {
-			const resp = await glue().send(new GetConnectionsCommand({ MaxResults: 50 }));
-			connections = resp.ConnectionList ?? [];
+			const result = await multiRegionList(
+				(region) => getGlueClient(region).send(new GetConnectionsCommand({ MaxResults: 50 })),
+				(r) => r.ConnectionList ?? []
+			);
+			connections = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load connections from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load connections: ' + String(e));
 		} finally {
@@ -265,8 +286,12 @@
 	async function loadDataQualityRulesets() {
 		loadingRulesets = true;
 		try {
-			const resp = await glue().send(new ListDataQualityRulesetsCommand({ MaxResults: 50 }));
-			dataQualityRulesets = resp.Rulesets ?? [];
+			const result = await multiRegionList(
+				(region) => getGlueClient(region).send(new ListDataQualityRulesetsCommand({ MaxResults: 50 })),
+				(r) => r.Rulesets ?? []
+			);
+			dataQualityRulesets = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load data quality rulesets from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load data quality rulesets: ' + String(e));
 		} finally {
@@ -274,14 +299,14 @@
 		}
 	}
 
-	async function startEvaluationRun(rulesetName: string | undefined) {
-		if (!rulesetName) return;
+	async function startEvaluationRun(ruleset: Regioned<DataQualityRulesetListDetails>) {
+		if (!ruleset.Name) return;
 		const db = evalRunDatabase.trim() || 'default';
 		const tbl = evalRunTable.trim() || 'default';
 		const role = evalRunRole.trim() || 'arn:aws:iam::000000000000:role/GlueRole';
 		try {
-			const resp = await glue().send(new StartDataQualityRulesetEvaluationRunCommand({
-				RulesetNames: [rulesetName],
+			const resp = await getGlueClient(ruleset.region).send(new StartDataQualityRulesetEvaluationRunCommand({
+				RulesetNames: [ruleset.Name],
 				Role: role,
 				DataSource: { GlueTable: { DatabaseName: db, TableName: tbl } }
 			}));
@@ -291,34 +316,34 @@
 		}
 	}
 
-	async function deleteJob(name: string) {
-		if (!await confirmDestructive({ title: 'Delete Job', message: `Delete job "${name}"? This cannot be undone.` })) return;
+	async function deleteJob(job: Regioned<Job>) {
+		if (!await confirmDestructive({ title: 'Delete Job', message: `Delete job "${job.Name}"? This cannot be undone.` })) return;
 		try {
-			await glue().send(new DeleteJobCommand({ JobName: name }));
-			toast.success(`Job "${name}" deleted`);
-			if (selectedJob?.Name === name) { selectedJob = null; jobRuns = []; }
+			await getGlueClient(job.region).send(new DeleteJobCommand({ JobName: job.Name }));
+			toast.success(`Job "${job.Name}" deleted`);
+			if (selectedJob && selectedJob.Name === job.Name && selectedJob.region === job.region) { selectedJob = null; jobRuns = []; }
 			await loadJobs();
 		} catch (e) {
 			toast.error('Failed to delete job: ' + String(e));
 		}
 	}
 
-	async function deleteCrawler(name: string) {
-		if (!await confirmDestructive({ title: 'Delete Crawler', message: `Delete crawler "${name}"? This cannot be undone.` })) return;
+	async function deleteCrawler(crawler: Regioned<Crawler>) {
+		if (!await confirmDestructive({ title: 'Delete Crawler', message: `Delete crawler "${crawler.Name}"? This cannot be undone.` })) return;
 		try {
-			await glue().send(new DeleteCrawlerCommand({ Name: name }));
-			toast.success(`Crawler "${name}" deleted`);
+			await getGlueClient(crawler.region).send(new DeleteCrawlerCommand({ Name: crawler.Name }));
+			toast.success(`Crawler "${crawler.Name}" deleted`);
 			await loadCrawlers();
 		} catch (e) {
 			toast.error('Failed to delete crawler: ' + String(e));
 		}
 	}
 
-	async function deleteConnection(name: string) {
-		if (!await confirmDestructive({ title: 'Delete Connection', message: `Delete connection "${name}"? This cannot be undone.` })) return;
+	async function deleteConnection(conn: Regioned<Connection>) {
+		if (!await confirmDestructive({ title: 'Delete Connection', message: `Delete connection "${conn.Name}"? This cannot be undone.` })) return;
 		try {
-			await glue().send(new DeleteConnectionCommand({ ConnectionName: name }));
-			toast.success(`Connection "${name}" deleted`);
+			await getGlueClient(conn.region).send(new DeleteConnectionCommand({ ConnectionName: conn.Name }));
+			toast.success(`Connection "${conn.Name}" deleted`);
 			await loadConnections();
 		} catch (e) {
 			toast.error('Failed to delete connection: ' + String(e));
@@ -415,6 +440,7 @@
 				{:else}
 					<span class="font-medium">{selectedDatabase.Name}</span>
 				{/if}
+				<RegionChip region={selectedDatabase.region} />
 			</div>
 
 			{#if selectedTable}
@@ -534,7 +560,10 @@
 							<div class="flex items-start gap-3">
 								<DBIcon class="w-5 h-5 text-sky-500 mt-0.5" />
 								<div class="min-w-0">
-									<div class="font-semibold text-sm text-gray-900 dark:text-white truncate">{db.Name}</div>
+									<div class="flex items-center gap-2">
+										<div class="font-semibold text-sm text-gray-900 dark:text-white truncate">{db.Name}</div>
+										<RegionChip region={db.region} />
+									</div>
 									<div class="text-xs text-gray-500 mt-1 truncate">{db.Description ?? 'No description'}</div>
 									<div class="text-xs text-gray-400 mt-2">{formatDate(db.CreateTime)}</div>
 								</div>
@@ -554,8 +583,9 @@
 					<button onclick={() => { selectedJob = null; jobRuns = []; }} class="text-sky-600 hover:underline">Jobs</button>
 					<ChevronRight class="w-4 h-4 text-gray-400" />
 					<span class="font-medium">{selectedJob.Name}</span>
+					<RegionChip region={selectedJob.region} />
 				</div>
-				<button onclick={() => startJob(selectedJob?.Name ?? '')} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm font-medium">
+				<button onclick={() => selectedJob && startJob(selectedJob)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700 text-sm font-medium">
 					<Play class="w-4 h-4" /> Run Job
 				</button>
 			</div>
@@ -609,7 +639,7 @@
 										<td class="px-4 py-3 text-xs text-red-500 truncate max-w-xs" title={run.ErrorMessage ?? ''}>{run.ErrorMessage ? run.ErrorMessage.slice(0, 40) + (run.ErrorMessage.length > 40 ? '...' : '') : '-'}</td>
 										<td class="px-4 py-3">
 											{#if run.JobRunState === 'RUNNING' || run.JobRunState === 'STARTING'}
-												<button onclick={() => stopJobRun(selectedJob?.Name ?? '', run.Id ?? '')} class="text-red-500 hover:text-red-700 p-1">
+												<button onclick={() => selectedJob && stopJobRun(selectedJob, run.Id ?? '')} class="text-red-500 hover:text-red-700 p-1">
 													<XCircle class="w-4 h-4" />
 												</button>
 											{/if}
@@ -634,6 +664,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Job Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Type</th>
 							<th class="px-4 py-3 text-left">Role</th>
 							<th class="px-4 py-3 text-left">Timeout</th>
@@ -649,6 +680,7 @@
 								<td class="px-4 py-3">
 									<button onclick={() => selectJob(job)} class="text-sky-600 dark:text-sky-400 hover:underline font-medium">{job.Name}</button>
 								</td>
+								<td class="px-4 py-3"><RegionChip region={job.region} /></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{job.Command?.Name ?? '-'}</td>
 								<td class="px-4 py-3 text-xs text-gray-500 truncate max-w-xs">{job.Role ?? '-'}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{job.Timeout ? `${job.Timeout}m` : '-'}</td>
@@ -656,10 +688,10 @@
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(job.CreatedOn)}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(job.LastModifiedOn)}</td>
 								<td class="px-4 py-3 flex gap-1">
-									<button onclick={() => startJob(job.Name ?? '')} class="text-sky-600 hover:text-sky-800 p-1" title="Run">
+									<button onclick={() => startJob(job)} class="text-sky-600 hover:text-sky-800 p-1" title="Run">
 										<Play class="w-4 h-4" />
 									</button>
-									<button onclick={() => deleteJob(job.Name ?? '')} class="text-red-400 hover:text-red-600 p-1" title="Delete">
+									<button onclick={() => deleteJob(job)} class="text-red-400 hover:text-red-600 p-1" title="Delete">
 										<Trash2 class="w-4 h-4" />
 									</button>
 								</td>
@@ -686,6 +718,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Crawler Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">State</th>
 							<th class="px-4 py-3 text-left">Database</th>
 							<th class="px-4 py-3 text-left">Schedule</th>
@@ -700,6 +733,7 @@
 								<td class="px-4 py-3 font-medium">
 									<button onclick={() => (expandedCrawler = expandedCrawler === crawler.Name ? null : crawler.Name ?? null)} class="text-sky-600 dark:text-sky-400 hover:underline text-left">{crawler.Name}</button>
 								</td>
+								<td class="px-4 py-3"><RegionChip region={crawler.region} /></td>
 								<td class="px-4 py-3"><span class={`px-2 py-0.5 rounded text-xs font-medium ${crawlerStatusClass(crawler.State)}`}>{crawler.State}</span></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{crawler.DatabaseName ?? '-'}</td>
 								<td class="px-4 py-3 text-xs">
@@ -714,9 +748,9 @@
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(crawler.LastUpdated)}</td>
 								<td class="px-4 py-3 flex gap-1">
 									{#if crawler.State === 'READY'}
-										<button onclick={() => startCrawler(crawler.Name ?? '')} class="text-sky-600 hover:text-sky-800 p-1" title="Start crawler"><Play class="w-4 h-4" /></button>
+										<button onclick={() => startCrawler(crawler)} class="text-sky-600 hover:text-sky-800 p-1" title="Start crawler"><Play class="w-4 h-4" /></button>
 									{:else if crawler.State === 'RUNNING'}
-										<button onclick={() => stopCrawler(crawler.Name ?? '')} class="text-red-500 hover:text-red-700 p-1" title="Stop crawler"><XCircle class="w-4 h-4" /></button>
+										<button onclick={() => stopCrawler(crawler)} class="text-red-500 hover:text-red-700 p-1" title="Stop crawler"><XCircle class="w-4 h-4" /></button>
 									{/if}
 									<button onclick={() => openScheduleEditor(crawler)} class="text-gray-500 hover:text-sky-600 p-1" title="Edit schedule"><Clock class="w-4 h-4" /></button>
 									{#if crawler.Schedule?.ScheduleExpression}
@@ -724,12 +758,12 @@
 											{#if crawler.Schedule?.State === 'SCHEDULED'}<Pause class="w-4 h-4" />{:else}<Play class="w-4 h-4" />{/if}
 										</button>
 									{/if}
-									<button onclick={() => deleteCrawler(crawler.Name ?? '')} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
+									<button onclick={() => deleteCrawler(crawler)} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
 								</td>
 							</tr>
 							{#if expandedCrawler === crawler.Name}
 								<tr class="bg-sky-50/50 dark:bg-sky-900/10">
-									<td colspan="7" class="px-6 py-4">
+									<td colspan="8" class="px-6 py-4">
 										<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
 											<div>
 												<p class="font-semibold text-gray-600 dark:text-gray-400 mb-1">IAM Role</p>
@@ -780,6 +814,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Connection Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Type</th>
 							<th class="px-4 py-3 text-left">Properties</th>
 							<th class="px-4 py-3 text-left">Created</th>
@@ -791,6 +826,7 @@
 						{#each connections as conn}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 								<td class="px-4 py-3 font-medium">{conn.Name}</td>
+								<td class="px-4 py-3"><RegionChip region={conn.region} /></td>
 								<td class="px-4 py-3 text-xs">
 									{#if conn.ConnectionType}
 										<span class="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 font-medium">{conn.ConnectionType}</span>
@@ -805,7 +841,7 @@
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(conn.LastUpdatedTime)}</td>
 								<td class="px-4 py-3 flex gap-1">
 									<button onclick={() => copyToClipboard(conn.Name ?? '', 'Name')} class="text-gray-400 hover:text-gray-600 p-1" title="Copy name"><Copy class="w-4 h-4" /></button>
-									<button onclick={() => deleteConnection(conn.Name ?? '')} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
+									<button onclick={() => deleteConnection(conn)} class="text-red-400 hover:text-red-600 p-1" title="Delete"><Trash2 class="w-4 h-4" /></button>
 								</td>
 							</tr>
 						{/each}
@@ -849,6 +885,7 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase">
 						<tr>
 							<th class="px-4 py-3 text-left">Ruleset Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Description</th>
 							<th class="px-4 py-3 text-left">Created On</th>
 							<th class="px-4 py-3 text-left">Actions</th>
@@ -858,12 +895,13 @@
 						{#each dataQualityRulesets as rs}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
 								<td class="px-4 py-3 font-medium">{rs.Name ?? '-'}</td>
+								<td class="px-4 py-3"><RegionChip region={rs.region} /></td>
 								<td class="px-4 py-3 text-xs text-gray-500">{rs.Description ?? '-'}</td>
 								<td class="px-4 py-3 text-xs text-gray-500">{formatDate(rs.CreatedOn)}</td>
 								<td class="px-4 py-3">
 									{#if rs.Name}
 										<button
-											onclick={() => startEvaluationRun(rs.Name)}
+											onclick={() => startEvaluationRun(rs)}
 											class="px-2 py-1 text-xs rounded bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900 dark:text-sky-300"
 										>Run Eval</button>
 									{/if}
