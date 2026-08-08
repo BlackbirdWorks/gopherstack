@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AttachSecurityProfile attaches a security profile to a target. Real AWS
@@ -284,7 +285,8 @@ func (b *InMemoryBackend) SecurityProfileARN(name string) string {
 // SecurityProfile (previously silently dropped -- see SecurityProfile's own
 // doc comment).
 type CreateSecurityProfileInput struct {
-	Tags                        map[string]string                     `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:4507, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                        []tags.KV                             `json:"tags,omitempty"`
 	AlertTargets                map[string]SecurityProfileAlertTarget `json:"alertTargets,omitempty"`
 	MetricsExportConfig         *SecurityProfileMetricsExportConfig   `json:"metricsExportConfig,omitempty"`
 	SecurityProfileName         string                                `json:"securityProfileName"`
@@ -312,7 +314,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		SecurityProfileName:         input.SecurityProfileName,
 		SecurityProfileARN:          b.securityProfileARN(input.SecurityProfileName),
 		SecurityProfileDescription:  input.SecurityProfileDescription,
-		Tags:                        input.Tags,
+		Tags:                        tags.MapFromKV(input.Tags),
 		Behaviors:                   input.Behaviors,
 		AlertTargets:                input.AlertTargets,
 		AdditionalMetricsToRetain:   input.AdditionalMetricsToRetain,

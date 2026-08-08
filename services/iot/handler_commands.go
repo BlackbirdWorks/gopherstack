@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveCommandOps(path, method string) string {
@@ -58,14 +60,16 @@ func resolveCommandSubPathOps(parts []string, method string) string {
 func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Payload     map[string]any    `json:"payload"`
-		DisplayName string            `json:"displayName"`
-		Description string            `json:"description"`
-		Namespace   string            `json:"namespace"`
+		Payload     map[string]any `json:"payload"`
+		DisplayName string         `json:"displayName"`
+		Description string         `json:"description"`
+		Namespace   string         `json:"namespace"`
+		Tags        []tags.KV      `json:"tags"`
 	}
 	_ = readBody(c, &req)
-	cmd, err := h.Backend.CreateCommand(id, req.DisplayName, req.Description, req.Namespace, req.Payload, req.Tags)
+	cmd, err := h.Backend.CreateCommand(
+		id, req.DisplayName, req.Description, req.Namespace, req.Payload, tags.MapFromKV(req.Tags),
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}

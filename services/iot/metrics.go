@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // FleetMetric represents an IoT fleet metric.
@@ -35,14 +36,15 @@ func (b *InMemoryBackend) fleetMetricARN(name string) string {
 
 // CreateFleetMetricInput holds input for CreateFleetMetric.
 type CreateFleetMetricInput struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	MetricName   string            `json:"metricName"`
-	QueryString  string            `json:"queryString,omitempty"`
-	IndexName    string            `json:"indexName,omitempty"`
-	QueryVersion string            `json:"queryVersion,omitempty"`
-	Description  string            `json:"description,omitempty"`
-	Unit         string            `json:"unit,omitempty"`
-	Period       int32             `json:"period,omitempty"`
+	MetricName   string `json:"metricName"`
+	QueryString  string `json:"queryString,omitempty"`
+	IndexName    string `json:"indexName,omitempty"`
+	QueryVersion string `json:"queryVersion,omitempty"`
+	Description  string `json:"description,omitempty"`
+	Unit         string `json:"unit,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:2724, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags   []tags.KV `json:"tags,omitempty"`
+	Period int32     `json:"period,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error) {
@@ -62,7 +64,7 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 		Description:  input.Description,
 		Unit:         input.Unit,
 		Period:       input.Period,
-		Tags:         input.Tags,
+		Tags:         tags.MapFromKV(input.Tags),
 		Version:      1,
 		CreationDate: now,
 		LastModified: now,
@@ -155,11 +157,12 @@ func (b *InMemoryBackend) customMetricARN(name string) string {
 
 // CreateCustomMetricInput holds input for CreateCustomMetric.
 type CreateCustomMetricInput struct {
-	Tags               map[string]string `json:"tags,omitempty"`
-	MetricName         string            `json:"metricName"`
-	MetricType         string            `json:"metricType"`
-	DisplayName        string            `json:"displayName,omitempty"`
-	ClientRequestToken string            `json:"clientRequestToken,omitempty"`
+	MetricName         string `json:"metricName"`
+	MetricType         string `json:"metricType"`
+	DisplayName        string `json:"displayName,omitempty"`
+	ClientRequestToken string `json:"clientRequestToken,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:2226, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags []tags.KV `json:"tags,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*CustomMetric, error) {
@@ -175,7 +178,7 @@ func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*C
 		MetricARN:        b.customMetricARN(input.MetricName),
 		MetricType:       input.MetricType,
 		DisplayName:      input.DisplayName,
-		Tags:             input.Tags,
+		Tags:             tags.MapFromKV(input.Tags),
 		Version:          1,
 		CreationDate:     now,
 		LastModifiedDate: now,
@@ -262,11 +265,12 @@ func (b *InMemoryBackend) dimensionARN(name string) string {
 
 // CreateDimensionInput holds input for CreateDimension.
 type CreateDimensionInput struct {
-	Tags               map[string]string `json:"tags,omitempty"`
-	Name               string            `json:"name"`
-	Type               string            `json:"type"`
-	ClientRequestToken string            `json:"clientRequestToken,omitempty"`
-	StringValues       []string          `json:"stringValues"`
+	// []types.Tag on the wire, not a map (serializers.go:2337, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags               []tags.KV `json:"tags,omitempty"`
+	Name               string    `json:"name"`
+	Type               string    `json:"type"`
+	ClientRequestToken string    `json:"clientRequestToken,omitempty"`
+	StringValues       []string  `json:"stringValues"`
 }
 
 func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimension, error) {
@@ -282,7 +286,7 @@ func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimensi
 		ARN:              b.dimensionARN(input.Name),
 		Type:             input.Type,
 		StringValues:     append([]string(nil), input.StringValues...),
-		Tags:             input.Tags,
+		Tags:             tags.MapFromKV(input.Tags),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}

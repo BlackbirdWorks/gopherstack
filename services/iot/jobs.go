@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AssociateTargetsWithJob associates new targets with a continuous job. Real
@@ -303,7 +304,8 @@ func (b *InMemoryBackend) ThingARN(thingName string) string {
 
 // CreateJobInput holds input for CreateJob.
 type CreateJobInput struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:2862, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                       []tags.KV                   `json:"tags,omitempty"`
 	DocumentParameters         map[string]string           `json:"documentParameters,omitempty"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
@@ -345,7 +347,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		PresignedURLConfig:         input.PresignedURLConfig,
 		SchedulingConfig:           cloneSchedulingConfig(input.SchedulingConfig),
 		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
-		Tags:                       input.Tags,
+		Tags:                       tags.MapFromKV(input.Tags),
 		DocumentParameters:         input.DocumentParameters,
 		Status:                     JobStatusInProgress,
 		CreatedAt:                  now,
@@ -790,7 +792,8 @@ func (b *InMemoryBackend) jobTemplateARN(id string) string {
 
 // CreateJobTemplateInput holds input for CreateJobTemplate.
 type CreateJobTemplateInput struct {
-	Tags                       map[string]string           `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:3051, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                       []tags.KV                   `json:"tags,omitempty"`
 	AbortConfig                *AbortConfig                `json:"abortConfig,omitempty"`
 	JobExecutionsRolloutConfig *JobExecutionsRolloutConfig `json:"jobExecutionsRolloutConfig,omitempty"`
 	TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig,omitempty"`
@@ -829,7 +832,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		PresignedURLConfig:         input.PresignedURLConfig,
 		DestinationPackageVersions: append([]string(nil), input.DestinationPackageVersions...),
 		MaintenanceWindows:         append([]MaintenanceWindow(nil), input.MaintenanceWindows...),
-		Tags:                       input.Tags,
+		Tags:                       tags.MapFromKV(input.Tags),
 		CreatedAt:                  float64(time.Now().Unix()),
 	}
 	b.jobTemplates.Put(jt)

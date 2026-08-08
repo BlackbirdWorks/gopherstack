@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/google/uuid"
 )
 
@@ -666,12 +667,13 @@ func (b *InMemoryBackend) scheduledAuditARN(name string) string {
 
 // CreateScheduledAuditInput holds input for CreateScheduledAudit.
 type CreateScheduledAuditInput struct {
-	Tags               map[string]string `json:"tags,omitempty"`
-	ScheduledAuditName string            `json:"scheduledAuditName"`
-	Frequency          string            `json:"frequency"`
-	DayOfMonth         string            `json:"dayOfMonth,omitempty"`
-	DayOfWeek          string            `json:"dayOfWeek,omitempty"`
-	TargetCheckNames   []string          `json:"targetCheckNames,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:4389, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags               []tags.KV `json:"tags,omitempty"`
+	ScheduledAuditName string    `json:"scheduledAuditName"`
+	Frequency          string    `json:"frequency"`
+	DayOfMonth         string    `json:"dayOfMonth,omitempty"`
+	DayOfWeek          string    `json:"dayOfWeek,omitempty"`
+	TargetCheckNames   []string  `json:"targetCheckNames,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateScheduledAudit(
@@ -694,7 +696,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 		DayOfMonth:         input.DayOfMonth,
 		DayOfWeek:          input.DayOfWeek,
 		TargetCheckNames:   append([]string(nil), input.TargetCheckNames...),
-		Tags:               input.Tags,
+		Tags:               tags.MapFromKV(input.Tags),
 	}
 	b.scheduledAudits.Put(sa)
 
@@ -788,10 +790,10 @@ func (b *InMemoryBackend) mitigationActionARN(name string) string {
 
 // CreateMitigationActionInput holds input for CreateMitigationAction.
 type CreateMitigationActionInput struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	ActionParams map[string]any    `json:"actionParams,omitempty"`
-	ActionName   string            `json:"actionName"`
-	RoleARN      string            `json:"roleArn,omitempty"`
+	ActionParams map[string]any `json:"actionParams,omitempty"`
+	ActionName   string         `json:"actionName"`
+	RoleARN      string         `json:"roleArn,omitempty"`
+	Tags         []tags.KV      `json:"tags,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateMitigationAction(
@@ -814,7 +816,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 		ActionID:         uuid.NewString(),
 		RoleARN:          input.RoleARN,
 		ActionParams:     input.ActionParams,
-		Tags:             input.Tags,
+		Tags:             tags.MapFromKV(input.Tags),
 		CreationDate:     now,
 		LastModifiedDate: now,
 	}
