@@ -111,6 +111,10 @@ func (b *InMemoryBackend) tagsForRef(region string, ref resourceRef) map[string]
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			src = s.Tags
 		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			src = mrc.Tags
+		}
 	}
 
 	return maps.Clone(src)
@@ -124,7 +128,7 @@ type TaggedEntry struct {
 }
 
 // TaggedResources returns every MemoryDB resource ARN (clusters, ACLs,
-// subnet groups, users, parameter groups, snapshots), across all regions,
+// subnet groups, users, parameter groups, snapshots, multi-region clusters), across all regions,
 // that currently has at least one tag applied via TagResource.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock()
@@ -181,6 +185,10 @@ func (b *InMemoryBackend) applyTags(region string, ref resourceRef, tags map[str
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			mergeTags(&s.Tags, tags)
 		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			mergeTags(&mrc.Tags, tags)
+		}
 	}
 }
 
@@ -222,6 +230,10 @@ func (b *InMemoryBackend) tagsMapForRef(region string, ref resourceRef) map[stri
 	case resourceKindSnapshot:
 		if s, ok := tableGet(b.snapshots[region], ref.Name); ok {
 			return s.Tags
+		}
+	case resourceKindMultiRegionCluster:
+		if mrc, ok := b.multiRegionClusters.Get(ref.Name); ok {
+			return mrc.Tags
 		}
 	}
 
