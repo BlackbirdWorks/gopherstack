@@ -124,8 +124,10 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 	return cloneWorkflow(stored), nil
 }
 
-// GetWorkflow retrieves a Glue workflow by name.
-func (b *InMemoryBackend) GetWorkflow(name string) (*Workflow, error) {
+// GetWorkflow retrieves a Glue workflow by name. LastRun is always populated
+// from real run history; Graph is populated only when includeGraph is set,
+// matching GetWorkflowInput.IncludeGraph (api_op_GetWorkflow.go).
+func (b *InMemoryBackend) GetWorkflow(name string, includeGraph bool) (*Workflow, error) {
 	b.mu.RLock("GetWorkflow")
 	defer b.mu.RUnlock()
 
@@ -134,7 +136,24 @@ func (b *InMemoryBackend) GetWorkflow(name string) (*Workflow, error) {
 		return nil, ErrNotFound
 	}
 
-	return cloneWorkflow(w), nil
+	return b.decorateWorkflowLocked(w, includeGraph), nil
+}
+
+// decorateWorkflowLocked clones w and attaches LastRun (always) and Graph
+// (when includeGraph is set). Caller must hold b.mu.
+func (b *InMemoryBackend) decorateWorkflowLocked(w *Workflow, includeGraph bool) *Workflow {
+	cp := cloneWorkflow(w)
+
+	if runs := b.workflowRuns[w.Name]; len(runs) > 0 {
+		last := *runs[len(runs)-1]
+		cp.LastRun = &last
+	}
+
+	if includeGraph {
+		cp.Graph = b.workflowGraphLocked(w.Name)
+	}
+
+	return cp
 }
 
 // GetWorkflows returns all Glue workflows sorted by name.
@@ -151,8 +170,9 @@ func (b *InMemoryBackend) GetWorkflows() []string {
 	return out
 }
 
-// BatchGetWorkflows retrieves multiple workflows by name.
-func (b *InMemoryBackend) BatchGetWorkflows(names []string) ([]*Workflow, []string) {
+// BatchGetWorkflows retrieves multiple workflows by name. See GetWorkflow for
+// the LastRun/Graph population rules.
+func (b *InMemoryBackend) BatchGetWorkflows(names []string, includeGraph bool) ([]*Workflow, []string) {
 	b.mu.RLock("BatchGetWorkflows")
 	defer b.mu.RUnlock()
 
@@ -167,7 +187,7 @@ func (b *InMemoryBackend) BatchGetWorkflows(names []string) ([]*Workflow, []stri
 			continue
 		}
 
-		found = append(found, cloneWorkflow(w))
+		found = append(found, b.decorateWorkflowLocked(w, includeGraph))
 	}
 
 	return found, missing

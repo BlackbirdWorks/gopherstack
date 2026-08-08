@@ -47,6 +47,20 @@ var ErrConcurrentRunsExceeded = awserr.New("ConcurrentRunsExceededException", aw
 // accurate default.
 var ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 
+// ErrResourceNumberLimitExceeded is returned when a create call would push a
+// resource kind past its documented account quota, mirroring AWS's
+// ResourceNumberLimitExceededException (confirmed in
+// aws-sdk-go-v2/service/glue/deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateDevEndpoint error switch; the quota
+// value itself is AWS's published default, docs.aws.amazon.com/general/latest/gr/glue.html
+// "Max development endpoint per account: 25").
+var ErrResourceNumberLimitExceeded = awserr.New("ResourceNumberLimitExceededException", awserr.ErrInvalidParameter)
+
+// maxDevEndpointsPerAccount is AWS's documented default quota (adjustable in
+// real AWS via Service Quotas, fixed here since this backend has no per-account
+// quota-adjustment concept).
+const maxDevEndpointsPerAccount = 25
+
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
 // Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
 

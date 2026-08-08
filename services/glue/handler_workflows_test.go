@@ -380,3 +380,124 @@ func TestGlue_Workflows(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
+
+// setupGraphWorkflow creates a workflow with one ON_DEMAND trigger whose
+// actions reference a real job and a real crawler, for TestWorkflow_Graph and
+// TestWorkflow_LastRun (gopherstack-dol3).
+func setupGraphWorkflow(t *testing.T, h *glue.Handler) {
+	t.Helper()
+
+	doGlueRequest(t, h, "CreateJob", map[string]any{
+		"Name": "wfj1", "Role": "role1", "Command": map[string]any{"Name": "glueetl"},
+	})
+	doGlueRequest(t, h, "CreateCrawler", map[string]any{
+		"Name": "wfc1", "Role": "role1",
+		"Targets": map[string]any{"S3Targets": []map[string]any{{"Path": "s3://bucket/data/"}}},
+	})
+	doGlueRequest(t, h, "CreateWorkflow", map[string]any{"Name": "graphwf"})
+
+	rec := doGlueRequest(t, h, "CreateTrigger", map[string]any{
+		"Name": "graphwf-trigger", "Type": "ON_DEMAND", "WorkflowName": "graphwf",
+		"Actions": []map[string]any{
+			{"JobName": "wfj1"},
+			{"CrawlerName": "wfc1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestWorkflow_Graph covers gopherstack-dol3's Graph gap: GetWorkflow's Graph
+// is derived from real trigger WorkflowName/Actions membership and gated by
+// IncludeGraph, matching GetWorkflowInput.IncludeGraph.
+func TestWorkflow_Graph(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		includeGraph bool
+	}{
+		{name: "omitted_without_includegraph", includeGraph: false},
+		{name: "populated_with_includegraph", includeGraph: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			setupGraphWorkflow(t, h)
+
+			body := map[string]any{"Name": "graphwf"}
+			if tt.includeGraph {
+				body["IncludeGraph"] = true
+			}
+
+			rec := doGlueRequest(t, h, "GetWorkflow", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			wf := out["Workflow"].(map[string]any)
+
+			if !tt.includeGraph {
+				assert.NotContains(t, wf, "Graph")
+
+				return
+			}
+
+			graph := wf["Graph"].(map[string]any)
+			nodes := graph["Nodes"].([]any)
+			assert.Len(t, nodes, 3)
+
+			edges := graph["Edges"].([]any)
+			assert.Len(t, edges, 2)
+
+			var triggerNode map[string]any
+			for _, n := range nodes {
+				node := n.(map[string]any)
+				if node["Type"] == "TRIGGER" {
+					triggerNode = node
+				}
+			}
+			require.NotNil(t, triggerNode)
+			assert.Equal(t, "graphwf-trigger", triggerNode["Name"])
+			triggerDetails := triggerNode["TriggerDetails"].(map[string]any)
+			trig := triggerDetails["Trigger"].(map[string]any)
+			assert.Equal(t, "graphwf-trigger", trig["Name"])
+		})
+	}
+}
+
+// TestWorkflow_LastRun covers gopherstack-dol3's LastRun gap: it must reflect
+// a real StartWorkflowRun and stay absent until one has happened, independent
+// of IncludeGraph.
+func TestWorkflow_LastRun(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupGraphWorkflow(t, h)
+
+	rec := doGlueRequest(t, h, "GetWorkflow", map[string]any{"Name": "graphwf"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.NotContains(t, out["Workflow"].(map[string]any), "LastRun")
+
+	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "graphwf"})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	var startOut map[string]any
+	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
+	runID := startOut["RunId"].(string)
+
+	rec = doGlueRequest(t, h, "GetWorkflow", map[string]any{"Name": "graphwf"})
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	wf := out["Workflow"].(map[string]any)
+	assert.NotContains(t, wf, "Graph")
+
+	lastRun := wf["LastRun"].(map[string]any)
+	assert.Equal(t, runID, lastRun["WorkflowRunId"])
+}

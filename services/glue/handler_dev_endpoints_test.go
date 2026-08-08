@@ -3,6 +3,7 @@ package glue_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -207,4 +208,35 @@ func TestUpdateDevEndpoint_PublicKeys(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t, []string{"key-b", "key-c"}, keys)
+}
+
+// TestDevEndpoint_ResourceNumberLimitExceeded covers gopherstack-dol3's
+// quota-exception gap: AWS's real, published default quota is "Max
+// development endpoint per account: 25" (docs.aws.amazon.com/general/latest/gr/glue.html),
+// and CreateDevEndpoint's real error catalog documents
+// ResourceNumberLimitExceededException (confirmed in
+// aws-sdk-go-v2/service/glue/deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateDevEndpoint switch).
+func TestDevEndpoint_ResourceNumberLimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for i := range 25 {
+		rec := doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{
+			"EndpointName": "dep-" + strconv.Itoa(i),
+			"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "endpoint %d should succeed under the limit", i)
+	}
+
+	rec := doGlueRequest(t, h, "CreateDevEndpoint", map[string]any{
+		"EndpointName": "dep-over-limit",
+		"RoleArn":      "arn:aws:iam::123456789012:role/dep-role",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "ResourceNumberLimitExceededException", out["__type"])
 }

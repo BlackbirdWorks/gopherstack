@@ -2,6 +2,7 @@ package glue
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -12,6 +13,7 @@ func cloneUDF(u *UserDefinedFunction) *UserDefinedFunction {
 	cp := *u
 	cp.ResourceURIs = make([]ResourceURI, len(u.ResourceURIs))
 	copy(cp.ResourceURIs, u.ResourceURIs)
+	cp.Tags = maps.Clone(u.Tags)
 
 	return &cp
 }
@@ -113,6 +115,7 @@ func (b *InMemoryBackend) UpdateUserDefinedFunction(
 	input.FunctionARN = existing.FunctionARN
 	input.CatalogID = existing.CatalogID
 	input.CreateTime = existing.CreateTime
+	input.Tags = existing.Tags
 	b.udfs.Put(&input)
 
 	return nil

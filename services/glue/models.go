@@ -703,16 +703,17 @@ type ResourceURI struct {
 
 // UserDefinedFunction represents a Glue UDF.
 type UserDefinedFunction struct {
-	DatabaseName string        `json:"DatabaseName"`
-	FunctionName string        `json:"FunctionName"`
-	ClassName    string        `json:"ClassName,omitempty"`
-	OwnerName    string        `json:"OwnerName,omitempty"`
-	OwnerType    string        `json:"OwnerType,omitempty"`
-	FunctionType string        `json:"FunctionType,omitempty"`
-	CatalogID    string        `json:"CatalogId,omitempty"`
-	FunctionARN  string        `json:"-"`
-	ResourceURIs []ResourceURI `json:"ResourceUris,omitempty"`
-	CreateTime   float64       `json:"CreateTime,omitempty"`
+	Tags         map[string]string `json:"-"`
+	DatabaseName string            `json:"DatabaseName"`
+	FunctionName string            `json:"FunctionName"`
+	ClassName    string            `json:"ClassName,omitempty"`
+	OwnerName    string            `json:"OwnerName,omitempty"`
+	OwnerType    string            `json:"OwnerType,omitempty"`
+	FunctionType string            `json:"FunctionType,omitempty"`
+	CatalogID    string            `json:"CatalogId,omitempty"`
+	FunctionARN  string            `json:"-"`
+	ResourceURIs []ResourceURI     `json:"ResourceUris,omitempty"`
+	CreateTime   float64           `json:"CreateTime,omitempty"`
 }
 
 // EncryptionConfiguration holds encryption settings for a SecurityConfiguration.
@@ -877,6 +878,7 @@ type MLTransform struct {
 	Parameters          MLTransformParameter `json:"Parameters,omitzero"`
 	TransformEncryption *TransformEncryption `json:"TransformEncryption,omitempty"`
 	Schema              []SchemaColumnEntry  `json:"Schema,omitempty"`
+	Tags                map[string]string    `json:"-"`
 	TransformID         string               `json:"TransformId"`
 	Name                string               `json:"Name"`
 	Description         string               `json:"Description,omitempty"`
@@ -1101,6 +1103,8 @@ type Trigger struct {
 // Workflow represents a Glue workflow.
 type Workflow struct {
 	Tags                 map[string]string `json:"-"`
+	Graph                *WorkflowGraph    `json:"Graph,omitempty"`
+	LastRun              *WorkflowRun      `json:"LastRun,omitempty"`
 	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
 	Name                 string            `json:"Name"`
 	Description          string            `json:"Description,omitempty"`
@@ -1108,6 +1112,39 @@ type Workflow struct {
 	CreatedOn            float64           `json:"CreatedOn,omitempty"`
 	LastModifiedOn       float64           `json:"LastModifiedOn,omitempty"`
 	MaxConcurrentRuns    int               `json:"MaxConcurrentRuns,omitempty"`
+}
+
+// WorkflowGraph is the DAG of triggers/jobs/crawlers belonging to a workflow,
+// mirroring aws-sdk-go-v2/service/glue/types.WorkflowGraph. Derived from real
+// Trigger.WorkflowName membership plus each trigger's Actions/Predicate --
+// see workflowGraphLocked in workflow_graph.go.
+type WorkflowGraph struct {
+	Nodes []WorkflowNode `json:"Nodes,omitempty"`
+	Edges []WorkflowEdge `json:"Edges,omitempty"`
+}
+
+// WorkflowNode is one Glue component (crawler/job/trigger) in a
+// WorkflowGraph, mirroring aws-sdk-go-v2/service/glue/types.Node.
+// TriggerDetails is populated with the real Trigger definition; JobDetails/
+// CrawlerDetails (per-node run history) are not modeled -- this backend does
+// not correlate job/crawler runs to the workflow run that triggered them.
+type WorkflowNode struct {
+	TriggerDetails *WorkflowTriggerNodeDetails `json:"TriggerDetails,omitempty"`
+	Name           string                      `json:"Name,omitempty"`
+	Type           string                      `json:"Type,omitempty"`
+	UniqueID       string                      `json:"UniqueId,omitempty"`
+}
+
+// WorkflowTriggerNodeDetails mirrors aws-sdk-go-v2/service/glue/types.TriggerNodeDetails.
+type WorkflowTriggerNodeDetails struct {
+	Trigger *Trigger `json:"Trigger,omitempty"`
+}
+
+// WorkflowEdge is a directed connection between two WorkflowGraph nodes,
+// mirroring aws-sdk-go-v2/service/glue/types.Edge.
+type WorkflowEdge struct {
+	SourceID      string `json:"SourceId,omitempty"`
+	DestinationID string `json:"DestinationId,omitempty"`
 }
 
 // WorkflowRun represents a single run of a Glue workflow.

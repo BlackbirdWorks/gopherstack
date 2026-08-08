@@ -180,7 +180,7 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	require.NoError(t, err)
 	assert.Equal(t, "trig1", trig.Name)
 
-	wf, err := b.GetWorkflow("wf1")
+	wf, err := b.GetWorkflow("wf1", false)
 	require.NoError(t, err)
 	assert.Equal(t, "wf1", wf.Name)
 	wfRuns, err := b.GetWorkflowRuns("wf1")

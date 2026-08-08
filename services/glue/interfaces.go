@@ -194,9 +194,9 @@ type StorageBackend interface {
 
 	// Workflow operations.
 	CreateWorkflow(w Workflow, tags map[string]string) (*Workflow, error)
-	GetWorkflow(name string) (*Workflow, error)
+	GetWorkflow(name string, includeGraph bool) (*Workflow, error)
 	GetWorkflows() []string
-	BatchGetWorkflows(names []string) ([]*Workflow, []string)
+	BatchGetWorkflows(names []string, includeGraph bool) ([]*Workflow, []string)
 	UpdateWorkflow(name string, update Workflow) error
 	DeleteWorkflow(name string) error
 	StartWorkflowRun(name string) (*WorkflowRun, error)

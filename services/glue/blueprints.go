@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // cloneBlueprint returns a deep copy of a Blueprint.
@@ -15,6 +17,11 @@ func cloneBlueprint(bp *Blueprint) *Blueprint {
 	cp.Tags = maps.Clone(bp.Tags)
 
 	return &cp
+}
+
+// blueprintARN returns the ARN for a Glue blueprint.
+func (b *InMemoryBackend) blueprintARN(name string) string {
+	return arn.Build("glue", b.region, b.accountID, "blueprint/"+name)
 }
 
 // BatchGetBlueprints retrieves multiple blueprints by name.
