@@ -65,7 +65,7 @@ func actionConnectorToMap(a *ActionConnector) map[string]any {
 		keyStatus:               a.Status,
 		keyCreatedTime:          a.CreatedTime.Unix(),
 		keyLastUpdatedTime:      a.LastUpdatedTime.Unix(),
-		keyAuthenticationConfig: a.AuthenticationConfig,
+		keyAuthenticationConfig: redactAuthenticationConfig(a.AuthenticationConfig, a.Arn),
 	}
 	if a.Description != "" {
 		m[keyDescription] = a.Description
