@@ -222,12 +222,12 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 		return nil, fmt.Errorf("%w: domain name %s not found", ErrDomainNameNotFound, input.DomainName)
 	}
 
-	if input.CertificateARN != "" {
-		d.CertificateARN = input.CertificateARN
+	if input.CertificateARN != nil {
+		d.CertificateARN = *input.CertificateARN
 	}
 
-	if input.RegionalCertificateARN != "" {
-		d.RegionalCertificateARN = input.RegionalCertificateARN
+	if input.RegionalCertificateARN != nil {
+		d.RegionalCertificateARN = *input.RegionalCertificateARN
 	}
 
 	if input.SecurityPolicy != "" {
@@ -236,6 +236,10 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 
 	if input.EndpointConfiguration != nil {
 		d.EndpointConfiguration = input.EndpointConfiguration
+	}
+
+	if input.MutualTLSAuthentication != nil {
+		d.MutualTLSAuthentication = input.MutualTLSAuthentication
 	}
 
 	return d, nil

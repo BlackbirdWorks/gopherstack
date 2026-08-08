@@ -47,8 +47,17 @@ func (t *unixEpochTime) UnmarshalJSON(b []byte) error {
 
 // EndpointConfiguration describes the endpoint types for a REST API.
 type EndpointConfiguration struct {
+	IPAddressType  string   `json:"ipAddressType,omitempty"`
 	VpcEndpointIDs []string `json:"vpcEndpointIds,omitempty"`
 	Types          []string `json:"types,omitempty"`
+}
+
+// MutualTLSAuthentication configures mutual TLS authentication for a custom
+// domain name (aws-sdk-go-v2/service/apigateway/types.MutualTlsAuthentication).
+type MutualTLSAuthentication struct {
+	TruststoreURI      string   `json:"truststoreUri,omitempty"`
+	TruststoreVersion  string   `json:"truststoreVersion,omitempty"`
+	TruststoreWarnings []string `json:"truststoreWarnings,omitempty"`
 }
 
 // RestAPI represents an API Gateway REST API.
@@ -440,18 +449,19 @@ type CreateDocumentationVersionInput struct {
 
 // DomainName represents a custom domain name for an API.
 type DomainName struct {
-	CreatedDate              *unixEpochTime         `json:"createdDate,omitempty"`
-	Tags                     *tags.Tags             `json:"tags,omitempty"`
-	EndpointConfiguration    *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	DomainNameValue          string                 `json:"domainName"`
-	CertificateARN           string                 `json:"certificateArn,omitempty"`
-	RegionalCertificateARN   string                 `json:"regionalCertificateArn,omitempty"`
-	DistributionDomainName   string                 `json:"distributionDomainName,omitempty"`
-	DistributionHostedZoneID string                 `json:"distributionHostedZoneId,omitempty"`
-	RegionalDomainName       string                 `json:"regionalDomainName,omitempty"`
-	RegionalHostedZoneID     string                 `json:"regionalHostedZoneId,omitempty"`
-	SecurityPolicy           string                 `json:"securityPolicy,omitempty"`
-	DomainNameStatus         string                 `json:"domainNameStatus,omitempty"`
+	CreatedDate              *unixEpochTime           `json:"createdDate,omitempty"`
+	Tags                     *tags.Tags               `json:"tags,omitempty"`
+	EndpointConfiguration    *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication  *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	DomainNameValue          string                   `json:"domainName"`
+	CertificateARN           string                   `json:"certificateArn,omitempty"`
+	RegionalCertificateARN   string                   `json:"regionalCertificateArn,omitempty"`
+	DistributionDomainName   string                   `json:"distributionDomainName,omitempty"`
+	DistributionHostedZoneID string                   `json:"distributionHostedZoneId,omitempty"`
+	RegionalDomainName       string                   `json:"regionalDomainName,omitempty"`
+	RegionalHostedZoneID     string                   `json:"regionalHostedZoneId,omitempty"`
+	SecurityPolicy           string                   `json:"securityPolicy,omitempty"`
+	DomainNameStatus         string                   `json:"domainNameStatus,omitempty"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
@@ -691,13 +701,19 @@ type APIStageAssociation struct {
 	Stage     string                       `json:"stage,omitempty"`
 }
 
-// UpdateDomainNameInput is the input for UpdateDomainName.
+// UpdateDomainNameInput is the input for UpdateDomainName. CertificateARN and
+// RegionalCertificateARN are *string (rather than plain string) because
+// UpdateDomainName's PATCH documents "remove" as supported for both
+// "/certificateArn" and "/regionalCertificateArn" (patch-operations.html) —
+// a plain string can't distinguish "explicitly cleared" from "not provided
+// in this PATCH at all".
 type UpdateDomainNameInput struct {
-	EndpointConfiguration  *EndpointConfiguration `json:"endpointConfiguration,omitempty"`
-	CertificateARN         string                 `json:"certificateArn,omitempty"`
-	RegionalCertificateARN string                 `json:"regionalCertificateArn,omitempty"`
-	SecurityPolicy         string                 `json:"securityPolicy,omitempty"`
-	DomainName             string                 `json:"domainName"`
+	EndpointConfiguration   *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	CertificateARN          *string                  `json:"certificateArn,omitempty"`
+	RegionalCertificateARN  *string                  `json:"regionalCertificateArn,omitempty"`
+	SecurityPolicy          string                   `json:"securityPolicy,omitempty"`
+	DomainName              string                   `json:"domainName"`
 }
 
 // UpdateBasePathMappingInput is the input for UpdateBasePathMapping.

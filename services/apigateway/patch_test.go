@@ -771,3 +771,250 @@ func Test_ApplyStructuredPatch_APIKeyStages(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got.StageKeys)
 }
+
+// Test_ApplyStructuredPatch_MultiOpSameRequest exercises the six resolvers
+// that, before this fix, each independently re-derived their starting
+// map/struct from CURRENT BACKEND STATE instead of checking whether an
+// earlier op in the SAME PATCH request's patchOperations array already
+// staged that field — so the last op's write silently discarded every
+// earlier op touching the same merged field within one request (see
+// stagedValue's doc comment). Each case sends two ops in a single request
+// and asserts both landed.
+func Test_ApplyStructuredPatch_MultiOpSameRequest(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		verify func(t *testing.T, h *apigateway.Handler, apiID, stageName string)
+		name   string
+		path   string
+		body   string
+	}{
+		{
+			name: "stage variables two adds",
+			body: `[{"op":"add","path":"/variables/b","value":"2"},` +
+				`{"op":"add","path":"/variables/c","value":"3"}]`,
+			verify: func(t *testing.T, h *apigateway.Handler, apiID, stageName string) {
+				t.Helper()
+				stage, err := h.Backend.GetStage(apiID, stageName)
+				require.NoError(t, err)
+				assert.Equal(t, map[string]string{"a": "1", "b": "2", "c": "3"}, stage.Variables)
+			},
+		},
+		{
+			name: "stage canary two sub-fields",
+			body: `[{"op":"replace","path":"/canarySettings/deploymentId","value":"canary-2"},` +
+				`{"op":"replace","path":"/canarySettings/percentTraffic","value":"25"}]`,
+			verify: func(t *testing.T, h *apigateway.Handler, apiID, stageName string) {
+				t.Helper()
+				stage, err := h.Backend.GetStage(apiID, stageName)
+				require.NoError(t, err)
+				require.NotNil(t, stage.CanarySettings)
+				assert.Equal(t, "canary-2", stage.CanarySettings.DeploymentID)
+				assert.InDelta(t, 25.0, stage.CanarySettings.PercentTraffic, 0.001)
+			},
+		},
+		{
+			name: "stage access log two sub-fields",
+			body: `[{"op":"replace","path":"/accessLogSettings/destinationArn","value":"arn:aws:logs:x"},` +
+				`{"op":"replace","path":"/accessLogSettings/format","value":"$context.requestId"}]`,
+			verify: func(t *testing.T, h *apigateway.Handler, apiID, stageName string) {
+				t.Helper()
+				stage, err := h.Backend.GetStage(apiID, stageName)
+				require.NoError(t, err)
+				require.NotNil(t, stage.AccessLogSettings)
+				assert.Equal(t, "arn:aws:logs:x", stage.AccessLogSettings.DestinationARN)
+				assert.Equal(t, "$context.requestId", stage.AccessLogSettings.Format)
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAPIGWHandler()
+			apiID, stageName := setupStage(t, h, map[string]string{"a": "1"}, &apigateway.CanarySettings{
+				DeploymentID:   "orig",
+				PercentTraffic: 5,
+			})
+
+			rec := restRequest(t, h, http.MethodPatch,
+				fmt.Sprintf("/restapis/%s/stages/%s", apiID, stageName), tt.body)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			tt.verify(t, h, apiID, stageName)
+		})
+	}
+}
+
+// Test_ApplyStructuredPatch_RestAPIBinaryMediaTypesMultiOp exercises two
+// binaryMediaTypes adds in a single request (see
+// Test_ApplyStructuredPatch_MultiOpSameRequest's doc comment for the bug
+// class this guards against).
+func Test_ApplyStructuredPatch_RestAPIBinaryMediaTypesMultiOp(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	api, err := h.Backend.CreateRestAPI(apigateway.CreateRestAPIInput{
+		Name:             "media-multiop-api",
+		BinaryMediaTypes: []string{"image/png"},
+	})
+	require.NoError(t, err)
+
+	body := `[{"op":"add","path":"/binaryMediaTypes/application~1octet-stream"},` +
+		`{"op":"add","path":"/binaryMediaTypes/application~1pdf"}]`
+	rec := restRequest(t, h, http.MethodPatch, fmt.Sprintf("/restapis/%s", api.ID), body)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetRestAPI(api.ID)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"image/png", "application/octet-stream", "application/pdf"}, got.BinaryMediaTypes)
+}
+
+// Test_ApplyStructuredPatch_AccountThrottleMultiOp exercises rateLimit and
+// burstLimit set in a SINGLE request (Test_ApplyStructuredPatch_Account only
+// ever sends one sub-field per request, so it never exercised this bug).
+func Test_ApplyStructuredPatch_AccountThrottleMultiOp(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+
+	rec := restRequest(t, h, http.MethodPatch, "/account",
+		`[{"op":"replace","path":"/throttle/rateLimit","value":"200.5"},`+
+			`{"op":"replace","path":"/throttle/burstLimit","value":"75"}]`)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	acct, err := h.Backend.GetAccount()
+	require.NoError(t, err)
+	require.NotNil(t, acct.ThrottleSettings)
+	assert.InDelta(t, 200.5, acct.ThrottleSettings.RateLimit, 0.001)
+	assert.Equal(t, 75, acct.ThrottleSettings.BurstLimit)
+}
+
+// Test_ApplyStructuredPatch_GatewayResponseMultiOp exercises two
+// responseParameters keys added in a single request (the existing
+// GatewayResponseMerge test only ever sends one key per request).
+func Test_ApplyStructuredPatch_GatewayResponseMultiOp(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	api, err := h.Backend.CreateRestAPI(apigateway.CreateRestAPIInput{Name: "gwresp-multiop-api"})
+	require.NoError(t, err)
+
+	putBody := `{"statusCode":"404","responseParameters":{"gatewayresponse.header.A":"'a-value'"}}`
+	rec := restRequest(t, h, http.MethodPut,
+		fmt.Sprintf("/restapis/%s/gatewayresponses/ACCESS_DENIED", api.ID), putBody)
+	require.Equal(t, http.StatusCreated, rec.Code, "put body: %s", rec.Body.String())
+
+	patchBody := `[{"op":"add","path":"/responseParameters/gatewayresponse.header.B","value":"'b-value'"},` +
+		`{"op":"add","path":"/responseParameters/gatewayresponse.header.C","value":"'c-value'"}]`
+	rec = restRequest(t, h, http.MethodPatch,
+		fmt.Sprintf("/restapis/%s/gatewayresponses/ACCESS_DENIED", api.ID), patchBody)
+	require.Equal(t, http.StatusOK, rec.Code, "patch body: %s", rec.Body.String())
+
+	gr, err := h.Backend.GetGatewayResponse(api.ID, "ACCESS_DENIED")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{
+		"gatewayresponse.header.A": "'a-value'",
+		"gatewayresponse.header.B": "'b-value'",
+		"gatewayresponse.header.C": "'c-value'",
+	}, gr.ResponseParameters, "both ops in the same request must land, not just the last")
+}
+
+// Test_ApplyStructuredPatch_DomainNameNestedPaths exercises UpdateDomainName
+// PATCH paths under "/endpointConfiguration/*" and "/mutualTlsAuthentication/*",
+// which applyResourcePatchOp previously had no dispatch case for at all
+// (opUpdateDomainName was absent from its switch), so every nested/multi-segment
+// DomainName PATCH silently no-opped via applyTopLevelPatchOp's
+// path-contains-"/" guard. Four ops across two different nested fields land
+// in a single request, also exercising the staged-merge pattern for brand new
+// resolver code.
+func Test_ApplyStructuredPatch_DomainNameNestedPaths(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	_, err := h.Backend.CreateDomainName(apigateway.CreateDomainNameInput{
+		DomainName:            "nested.example.com",
+		EndpointConfiguration: &apigateway.EndpointConfiguration{Types: []string{"REGIONAL"}},
+	})
+	require.NoError(t, err)
+
+	body := `[
+		{"op":"add","path":"/endpointConfiguration/types","value":"EDGE"},
+		{"op":"replace","path":"/endpointConfiguration/ipAddressType","value":"dualstack"},
+		{"op":"add","path":"/mutualTlsAuthentication/truststoreUri","value":"s3://bucket/truststore.pem"},
+		{"op":"replace","path":"/mutualTlsAuthentication/truststoreVersion","value":"v2"}
+	]`
+	rec := restRequest(t, h, http.MethodPatch, "/domainnames/nested.example.com", body)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetDomainName("nested.example.com")
+	require.NoError(t, err)
+	require.NotNil(t, got.EndpointConfiguration)
+	assert.ElementsMatch(t, []string{"REGIONAL", "EDGE"}, got.EndpointConfiguration.Types,
+		"add must merge with the existing type, not replace it")
+	assert.Equal(t, "dualstack", got.EndpointConfiguration.IPAddressType)
+	require.NotNil(t, got.MutualTLSAuthentication)
+	assert.Equal(t, "s3://bucket/truststore.pem", got.MutualTLSAuthentication.TruststoreURI)
+	assert.Equal(t, "v2", got.MutualTLSAuthentication.TruststoreVersion)
+
+	removeBody := `[{"op":"remove","path":"/endpointConfiguration/types","value":"REGIONAL"},` +
+		`{"op":"remove","path":"/mutualTlsAuthentication/truststoreUri"}]`
+	rec = restRequest(t, h, http.MethodPatch, "/domainnames/nested.example.com", removeBody)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	got, err = h.Backend.GetDomainName("nested.example.com")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"EDGE"}, got.EndpointConfiguration.Types)
+	assert.Empty(t, got.MutualTLSAuthentication.TruststoreURI)
+	assert.Equal(t, "v2", got.MutualTLSAuthentication.TruststoreVersion, "unrelated sub-field survives the remove")
+}
+
+// Test_ApplyStructuredPatch_DomainNameCertificateArnRemove is the third
+// concrete instance (alongside RestApi's "/description" and Authorizer's
+// "/identitySource") of a top-level scalar PATCH "remove" that AWS documents
+// as supported (patch-operations.html: UpdateDomainName "/certificateArn"
+// row). It contrasts an explicit remove against a same-shaped PATCH that
+// doesn't mention the field at all, proving the two are distinguishable.
+func Test_ApplyStructuredPatch_DomainNameCertificateArnRemove(t *testing.T) {
+	t.Parallel()
+
+	const origCertARN = "arn:aws:acm:us-east-1:123456789012:certificate/edge"
+
+	cases := []struct {
+		name        string
+		ops         string
+		wantCertARN string
+	}{
+		{
+			name:        "explicit remove clears certificateArn",
+			ops:         `[{"op":"remove","path":"/certificateArn"}]`,
+			wantCertARN: "",
+		},
+		{
+			name:        "field absent from the patch leaves certificateArn untouched",
+			ops:         `[{"op":"replace","path":"/securityPolicy","value":"TLS_1_2"}]`,
+			wantCertARN: origCertARN,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAPIGWHandler()
+			_, err := h.Backend.CreateDomainName(apigateway.CreateDomainNameInput{
+				DomainName:     "cert-remove.example.com",
+				CertificateARN: origCertARN,
+			})
+			require.NoError(t, err)
+
+			rec := restRequest(t, h, http.MethodPatch, "/domainnames/cert-remove.example.com", tt.ops)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			got, err := h.Backend.GetDomainName("cert-remove.example.com")
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantCertARN, got.CertificateARN)
+		})
+	}
+}

@@ -157,6 +157,7 @@ var patchFieldKind = map[string]string{
 var removableTopLevelScalar = map[string]map[string]bool{
 	opUpdateRestAPI:    {"description": true},
 	opUpdateAuthorizer: {"identitySource": true},
+	opUpdateDomainName: {"certificateArn": true, "regionalCertificateArn": true},
 }
 
 // coerceTopLevelPatchValue converts a top-level PATCH value (always a JSON
@@ -368,6 +369,8 @@ func (h *Handler) applyResourcePatchOp(
 		return h.applyGatewayResponsePatchOp(pathParams, op, segs, out)
 	case opUpdateAPIKey:
 		return h.applyAPIKeyPatchOp(pathParams, op, segs, out)
+	case opUpdateDomainName:
+		return h.applyDomainNamePatchOp(pathParams, op, segs, out)
 	default:
 		return false
 	}
@@ -413,7 +416,9 @@ func (h *Handler) applyStagePatchOp(
 
 // applyStageVariablePatch adds/replaces/removes a single stage variable
 // ("/variables/{name}"), merging with the stage's existing variables (a
-// wholesale replace would otherwise silently drop every other variable).
+// wholesale replace would otherwise silently drop every other variable), and
+// with whatever an earlier op in the SAME request already staged into
+// out["variables"] (see stagedValue's doc comment).
 func (h *Handler) applyStageVariablePatch(
 	pathParams map[string]string, op patchOp, rawName string, out map[string]json.RawMessage,
 ) bool {
@@ -421,17 +426,22 @@ func (h *Handler) applyStageVariablePatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
+	vars, ok := stagedValue[map[string]string](out, "variables")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
+
+		vars = stage.Variables
 	}
 
-	vars := cloneStringMap(stage.Variables)
+	vars = cloneStringMap(vars)
 	name := jsonPointerUnescape(rawName)
 
 	if op.Op == patchOpRemove {
 		delete(vars, name)
-	} else if v, ok := patchValueString(op.Value); ok {
+	} else if v, valOK := patchValueString(op.Value); valOK {
 		vars[name] = v
 	}
 
@@ -442,7 +452,8 @@ func (h *Handler) applyStageVariablePatch(
 
 // applyStageCanaryPatch replaces a single CanarySettings sub-field
 // ("/canarySettings/{deploymentId,percentTraffic,useStageCache}"), merging
-// with the stage's existing canary settings.
+// with the stage's existing canary settings and whatever an earlier op in the
+// SAME request already staged into out["canarySettings"].
 func (h *Handler) applyStageCanaryPatch(
 	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
 ) bool {
@@ -450,14 +461,16 @@ func (h *Handler) applyStageCanaryPatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[CanarySettings](out, "canarySettings")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
 
-	cur := CanarySettings{}
-	if stage.CanarySettings != nil {
-		cur = *stage.CanarySettings
+		if stage.CanarySettings != nil {
+			cur = *stage.CanarySettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
@@ -516,7 +529,8 @@ func applyStageCanaryProp(cur *CanarySettings, prop, val string, remove bool) bo
 
 // applyStageAccessLogPatch replaces a single AccessLogSettings sub-field
 // ("/accessLogSettings/{destinationArn,format}"), merging with the stage's
-// existing access log settings.
+// existing access log settings and whatever an earlier op in the SAME
+// request already staged into out["accessLogSettings"].
 func (h *Handler) applyStageAccessLogPatch(
 	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
 ) bool {
@@ -524,14 +538,16 @@ func (h *Handler) applyStageAccessLogPatch(
 		return false
 	}
 
-	stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[AccessLogSettings](out, "accessLogSettings")
+	if !ok {
+		stage, err := h.Backend.GetStage(pathParams[keyRestAPIID], pathParams[keyStageName])
+		if err != nil {
+			return true
+		}
 
-	cur := AccessLogSettings{}
-	if stage.AccessLogSettings != nil {
-		cur = *stage.AccessLogSettings
+		if stage.AccessLogSettings != nil {
+			cur = *stage.AccessLogSettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
@@ -675,7 +691,8 @@ func (h *Handler) applyStageMethodSettingPatch(
 // applyRestAPIPatchOp handles UpdateRestApi's binary-media-type membership
 // edits ("/binaryMediaTypes/{escaped-media-type}", add/remove), merging with
 // the API's existing binary media types (a wholesale replace would otherwise
-// silently drop every other configured type).
+// silently drop every other configured type) and whatever an earlier op in
+// the SAME request already staged into out["binaryMediaTypes"].
 func (h *Handler) applyRestAPIPatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
 ) bool {
@@ -687,13 +704,18 @@ func (h *Handler) applyRestAPIPatchOp(
 		return false
 	}
 
-	api, err := h.Backend.GetRestAPI(pathParams[keyRestAPIID])
-	if err != nil {
-		return true
+	types, ok := stagedValue[[]string](out, "binaryMediaTypes")
+	if !ok {
+		api, err := h.Backend.GetRestAPI(pathParams[keyRestAPIID])
+		if err != nil {
+			return true
+		}
+
+		types = api.BinaryMediaTypes
 	}
 
 	mediaType := jsonPointerUnescape(segs[1])
-	types := slices.Clone(api.BinaryMediaTypes)
+	types = slices.Clone(types)
 
 	if op.Op == patchOpAdd {
 		if !slices.Contains(types, mediaType) {
@@ -714,8 +736,10 @@ func (h *Handler) applyRestAPIPatchOp(
 
 // applyAccountPatchOp handles UpdateAccount's nested ThrottleSettings edits
 // ("/throttle/{rateLimit,burstLimit}"), merging with the account's existing
-// throttle settings. "/cloudwatchRoleArn" is a plain top-level string field
-// and is handled by the generic fallback (applyTopLevelPatchOp).
+// throttle settings and whatever an earlier op in the SAME request already
+// staged into out["throttleSettings"]. "/cloudwatchRoleArn" is a plain
+// top-level string field and is handled by the generic fallback
+// (applyTopLevelPatchOp).
 func (h *Handler) applyAccountPatchOp(op patchOp, segs []string, out map[string]json.RawMessage) bool {
 	if len(segs) != patchPathSegs2 || segs[0] != "throttle" {
 		return false
@@ -725,20 +749,35 @@ func (h *Handler) applyAccountPatchOp(op patchOp, segs []string, out map[string]
 		return false
 	}
 
-	acct, err := h.Backend.GetAccount()
-	if err != nil {
-		return true
-	}
+	cur, ok := stagedValue[ThrottleSettings](out, "throttleSettings")
+	if !ok {
+		acct, err := h.Backend.GetAccount()
+		if err != nil {
+			return true
+		}
 
-	cur := ThrottleSettings{}
-	if acct.ThrottleSettings != nil {
-		cur = *acct.ThrottleSettings
+		if acct.ThrottleSettings != nil {
+			cur = *acct.ThrottleSettings
+		}
 	}
 
 	val, _ := patchValueString(op.Value)
-	remove := op.Op == patchOpRemove
 
-	switch segs[1] {
+	if !applyAccountThrottleProp(&cur, segs[1], val, op.Op == patchOpRemove) {
+		return false
+	}
+
+	setJSONValue(out, "throttleSettings", &cur)
+
+	return true
+}
+
+// applyAccountThrottleProp merges one ThrottleSettings sub-field
+// ("rateLimit" or "burstLimit") into cur in place. Returns false when prop
+// isn't recognized, matching applyResourcePatchOp's "unhandled -> fall
+// through" contract.
+func applyAccountThrottleProp(cur *ThrottleSettings, prop, val string, remove bool) bool {
+	switch prop {
 	case "rateLimit":
 		if remove {
 			cur.RateLimit = 0
@@ -754,8 +793,6 @@ func (h *Handler) applyAccountPatchOp(op patchOp, segs []string, out map[string]
 	default:
 		return false
 	}
-
-	setJSONValue(out, "throttleSettings", &cur)
 
 	return true
 }
@@ -961,7 +998,8 @@ func (h *Handler) mergeUsagePlanThrottleEntry(
 // responseParameters/responseTemplates edits
 // ("/responseParameters/{key}", "/responseTemplates/{key}"), merging with the
 // gateway response's existing entries (falling back to AWS's implicit
-// default response when none has been customized yet).
+// default response when none has been customized yet) and whatever an
+// earlier op in the SAME request already staged into out[segs[0]].
 func (h *Handler) applyGatewayResponsePatchOp(
 	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
 ) bool {
@@ -973,23 +1011,26 @@ func (h *Handler) applyGatewayResponsePatchOp(
 		return false
 	}
 
-	gr, err := h.Backend.GetGatewayResponse(pathParams[keyRestAPIID], pathParams[keyResponseType])
-	if err != nil {
-		return true
+	m, ok := stagedValue[map[string]string](out, segs[0])
+	if !ok {
+		gr, err := h.Backend.GetGatewayResponse(pathParams[keyRestAPIID], pathParams[keyResponseType])
+		if err != nil {
+			return true
+		}
+
+		if segs[0] == "responseParameters" {
+			m = gr.ResponseParameters
+		} else {
+			m = gr.ResponseTemplates
+		}
 	}
 
 	key := jsonPointerUnescape(segs[1])
-
-	var m map[string]string
-	if segs[0] == "responseParameters" {
-		m = cloneStringMap(gr.ResponseParameters)
-	} else {
-		m = cloneStringMap(gr.ResponseTemplates)
-	}
+	m = cloneStringMap(m)
 
 	if op.Op == patchOpRemove {
 		delete(m, key)
-	} else if v, ok := patchValueString(op.Value); ok {
+	} else if v, valOK := patchValueString(op.Value); valOK {
 		m[key] = v
 	}
 
@@ -1046,6 +1087,124 @@ func (h *Handler) applyAPIKeyPatchOp(
 	}
 
 	setJSONValue(out, "stageKeys", stageKeys)
+
+	return true
+}
+
+// applyDomainNamePatchOp handles UpdateDomainName's nested PATCH paths
+// ("/endpointConfiguration/types", "/endpointConfiguration/ipAddressType",
+// "/mutualTlsAuthentication/{truststoreUri,truststoreVersion}" — see
+// patch-operations.html's UpdateDomainName table). Before this, applyResourcePatchOp
+// had no case for opUpdateDomainName at all, so every nested DomainName PATCH
+// path silently no-opped via applyTopLevelPatchOp's path-contains-"/" guard.
+func (h *Handler) applyDomainNamePatchOp(
+	pathParams map[string]string, op patchOp, segs []string, out map[string]json.RawMessage,
+) bool {
+	if len(segs) != patchPathSegs2 {
+		return false
+	}
+
+	switch segs[0] {
+	case "endpointConfiguration":
+		return h.applyDomainNameEndpointConfigPatch(pathParams, op, segs[1], out)
+	case "mutualTlsAuthentication":
+		return h.applyDomainNameMTLSPatch(pathParams, op, segs[1], out)
+	default:
+		return false
+	}
+}
+
+// applyDomainNameEndpointConfigPatch handles "/endpointConfiguration/types"
+// (add/remove one endpoint type) and "/endpointConfiguration/ipAddressType"
+// (replace), merging with the domain name's existing endpoint configuration
+// and whatever an earlier op in the SAME request already staged into
+// out["endpointConfiguration"].
+func (h *Handler) applyDomainNameEndpointConfigPatch(
+	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+) bool {
+	cur, ok := stagedValue[EndpointConfiguration](out, "endpointConfiguration")
+	if !ok {
+		dn, err := h.Backend.GetDomainName(pathParams[keyDomainName])
+		if err != nil {
+			return true
+		}
+
+		if dn.EndpointConfiguration != nil {
+			cur = *dn.EndpointConfiguration
+		}
+	}
+
+	val, _ := patchValueString(op.Value)
+
+	switch prop {
+	case "types":
+		if op.Op != patchOpAdd && op.Op != patchOpRemove {
+			return false
+		}
+
+		types := slices.Clone(cur.Types)
+		if op.Op == patchOpAdd {
+			if !slices.Contains(types, val) {
+				types = append(types, val)
+			}
+		} else {
+			types = slices.DeleteFunc(types, func(t string) bool { return t == val })
+		}
+
+		cur.Types = types
+	case "ipAddressType":
+		if op.Op != patchOpReplace {
+			return false
+		}
+
+		cur.IPAddressType = val
+	default:
+		return false
+	}
+
+	setJSONValue(out, "endpointConfiguration", &cur)
+
+	return true
+}
+
+// applyDomainNameMTLSPatch handles a single MutualTLSAuthentication sub-field
+// ("/mutualTlsAuthentication/{truststoreUri,truststoreVersion}"), merging
+// with the domain name's existing mTLS configuration and whatever an earlier
+// op in the SAME request already staged into out["mutualTlsAuthentication"].
+func (h *Handler) applyDomainNameMTLSPatch(
+	pathParams map[string]string, op patchOp, prop string, out map[string]json.RawMessage,
+) bool {
+	if op.Op != patchOpAdd && op.Op != patchOpReplace && op.Op != patchOpRemove {
+		return false
+	}
+
+	cur, ok := stagedValue[MutualTLSAuthentication](out, "mutualTlsAuthentication")
+	if !ok {
+		dn, err := h.Backend.GetDomainName(pathParams[keyDomainName])
+		if err != nil {
+			return true
+		}
+
+		if dn.MutualTLSAuthentication != nil {
+			cur = *dn.MutualTLSAuthentication
+		}
+	}
+
+	val, _ := patchValueString(op.Value)
+	if op.Op == patchOpRemove {
+		val = ""
+	}
+
+	switch prop {
+	case "truststoreUri":
+		cur.TruststoreURI = val
+	case "truststoreVersion":
+		cur.TruststoreVersion = val
+	default:
+		return false
+	}
+
+	setJSONValue(out, "mutualTlsAuthentication", &cur)
 
 	return true
 }
