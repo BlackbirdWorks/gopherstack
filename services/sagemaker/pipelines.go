@@ -54,10 +54,22 @@ func clonePipeline(p *Pipeline) *Pipeline {
 	return &cp
 }
 
+// SelectedStep names one step to run in a SelectiveExecutionConfig.
+type SelectedStep struct {
+	StepName string `json:"StepName"`
+}
+
+// SelectiveExecutionConfig restricts a pipeline execution to a subset of steps.
+type SelectiveExecutionConfig struct {
+	SourcePipelineExecutionArn string         `json:"SourcePipelineExecutionArn,omitempty"`
+	SelectedSteps              []SelectedStep `json:"SelectedSteps"`
+}
+
 // PipelineExecution represents a single execution of a SageMaker Pipeline.
 type PipelineExecution struct {
 	StartTime                    time.Time                 `json:"StartTime"`
 	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
 	PipelineArn                  string                    `json:"PipelineArn"`
 	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
 	PipelineExecutionStatus      string                    `json:"PipelineExecutionStatus"`
@@ -69,6 +81,7 @@ type PipelineExecution struct {
 	// DescribePipelineDefinitionForExecution.
 	PipelineDefinition string              `json:"PipelineDefinition,omitempty"`
 	PipelineParameters []PipelineParameter `json:"PipelineParameters,omitempty"`
+	PipelineVersionID  int64               `json:"PipelineVersionId,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
@@ -79,6 +92,12 @@ func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
 	if pe.ParallelismConfiguration != nil {
 		pc := *pe.ParallelismConfiguration
 		cp.ParallelismConfiguration = &pc
+	}
+
+	if pe.SelectiveExecutionConfig != nil {
+		sec := *pe.SelectiveExecutionConfig
+		sec.SelectedSteps = append([]SelectedStep(nil), pe.SelectiveExecutionConfig.SelectedSteps...)
+		cp.SelectiveExecutionConfig = &sec
 	}
 
 	return &cp
@@ -360,10 +379,12 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 // StartPipelineExecutionOptions holds full input for StartPipelineExecution.
 type StartPipelineExecutionOptions struct {
 	ParallelismConfiguration     *ParallelismConfiguration
+	SelectiveExecutionConfig     *SelectiveExecutionConfig
 	PipelineName                 string
 	PipelineExecutionDisplayName string
 	PipelineExecutionDescription string
 	PipelineParameters           []PipelineParameter
+	PipelineVersionID            int64
 }
 
 // StartPipelineExecutionFull creates an execution with full AWS input fields.
@@ -396,6 +417,8 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		PipelineParameters:           params,
 		PipelineDefinition:           p.PipelineDefinition,
 		ParallelismConfiguration:     opts.ParallelismConfiguration,
+		SelectiveExecutionConfig:     opts.SelectiveExecutionConfig,
+		PipelineVersionID:            opts.PipelineVersionID,
 		StartTime:                    time.Now(),
 	}
 	b.pipelineExecutionsStore(region).Put(pe)

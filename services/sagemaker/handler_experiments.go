@@ -15,6 +15,8 @@ import (
 func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		ExperimentName string      `json:"ExperimentName"`
+		DisplayName    string      `json:"DisplayName,omitempty"`
+		Description    string      `json:"Description,omitempty"`
 		Tags           []tagObject `json:"Tags"`
 	}
 
@@ -26,7 +28,9 @@ func (h *Handler) handleCreateExperiment(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: ExperimentName is required", errInvalidRequest)
 	}
 
-	e, err := h.Backend.CreateExperiment(ctx, req.ExperimentName, fromTagObjects(req.Tags))
+	e, err := h.Backend.CreateExperiment(
+		ctx, req.ExperimentName, req.DisplayName, req.Description, fromTagObjects(req.Tags),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -71,9 +75,11 @@ func (h *Handler) handleDescribeExperiment(ctx context.Context, body []byte) ([]
 }
 
 type experimentSummary struct {
-	ExperimentName string  `json:"ExperimentName"`
-	ExperimentArn  string  `json:"ExperimentArn"`
-	CreationTime   float64 `json:"CreationTime"`
+	ExperimentName   string  `json:"ExperimentName"`
+	ExperimentArn    string  `json:"ExperimentArn"`
+	DisplayName      string  `json:"DisplayName,omitempty"`
+	CreationTime     float64 `json:"CreationTime"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
 func (h *Handler) handleListExperiments(ctx context.Context, body []byte) ([]byte, error) {
@@ -90,9 +96,11 @@ func (h *Handler) handleListExperiments(ctx context.Context, body []byte) ([]byt
 
 	for _, e := range exps {
 		summaries = append(summaries, experimentSummary{
-			ExperimentName: e.ExperimentName,
-			ExperimentArn:  e.ExperimentArn,
-			CreationTime:   epochSeconds(e.CreationTime),
+			ExperimentName:   e.ExperimentName,
+			ExperimentArn:    e.ExperimentArn,
+			DisplayName:      e.DisplayName,
+			CreationTime:     epochSeconds(e.CreationTime),
+			LastModifiedTime: epochSeconds(e.LastModifiedTime),
 		})
 	}
 

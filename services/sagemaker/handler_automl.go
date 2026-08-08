@@ -17,6 +17,7 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective"`
 		AutoMLJobName      string                  `json:"AutoMLJobName"`
 		RoleArn            string                  `json:"RoleArn"`
+		InputDataConfig    []AutoMLChannel         `json:"InputDataConfig"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -32,9 +33,9 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		return nil, err
 	}
 
-	if req.OutputDataConfig != nil || req.AutoMLJobObjective != nil {
+	if req.OutputDataConfig != nil || req.AutoMLJobObjective != nil || req.InputDataConfig != nil {
 		if extErr := h.Backend.SetAutoMLJobExtras(
-			ctx, req.AutoMLJobName, req.OutputDataConfig, req.AutoMLJobObjective,
+			ctx, req.AutoMLJobName, req.OutputDataConfig, req.AutoMLJobObjective, req.InputDataConfig,
 		); extErr != nil {
 			return nil, extErr
 		}

@@ -169,3 +169,28 @@ func TestHandler_Tags_FeatureGroup(t *testing.T) {
 	require.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["Key"])
 }
+
+func TestHandler_CreateFeatureGroup_RoleArnAndDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateFeatureGroup", map[string]any{
+		"FeatureGroupName":            "fg-with-role",
+		"RecordIdentifierFeatureName": "id",
+		"EventTimeFeatureName":        "ts",
+		"RoleArn":                     "arn:aws:iam::000000000000:role/FeatureStoreRole",
+		"Description":                 "A feature group with a role",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeFeatureGroup", map[string]any{
+		"FeatureGroupName": "fg-with-role",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "arn:aws:iam::000000000000:role/FeatureStoreRole", descResp["RoleArn"])
+	assert.Equal(t, "A feature group with a role", descResp["Description"])
+}

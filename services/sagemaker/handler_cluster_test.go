@@ -189,6 +189,36 @@ func TestHandler_ClusterLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestHandler_CreateCluster_ClusterRoleAndVpcConfig(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "cluster-with-vpc",
+		"ClusterRole": "arn:aws:iam::000000000000:role/HyperPodClusterRole",
+		"VpcConfig": map[string]any{
+			"SecurityGroupIds": []any{"sg-123"},
+			"Subnets":          []any{"subnet-abc"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeCluster", map[string]any{"ClusterName": "cluster-with-vpc"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "arn:aws:iam::000000000000:role/HyperPodClusterRole", descResp["ClusterRole"])
+
+	vpcConfig, ok := descResp["VpcConfig"].(map[string]any)
+	require.True(t, ok, "DescribeCluster must return the accepted VpcConfig")
+	sgIDs, ok := vpcConfig["SecurityGroupIds"].([]any)
+	require.True(t, ok)
+	require.Len(t, sgIDs, 1)
+	assert.Equal(t, "sg-123", sgIDs[0])
+}
+
 func TestHandler_CreateCluster_Duplicate(t *testing.T) {
 	t.Parallel()
 

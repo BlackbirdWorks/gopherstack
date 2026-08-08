@@ -33,6 +33,32 @@ type AutoMLJobObjective struct {
 	MetricName string `json:"MetricName"`
 }
 
+// AutoMLS3DataSource locates AutoML channel input data in Amazon S3.
+// SDK ref: aws-sdk-go-v2/service/sagemaker/types.AutoMLS3DataSource.
+type AutoMLS3DataSource struct {
+	S3DataType string `json:"S3DataType"`
+	S3Uri      string `json:"S3Uri"`
+}
+
+// AutoMLDataSource is the data source for an AutoML channel.
+type AutoMLDataSource struct {
+	S3DataSource *AutoMLS3DataSource `json:"S3DataSource,omitempty"`
+}
+
+// AutoMLChannel is a named input source for CreateAutoMLJob/DescribeAutoMLJob.
+// SDK ref: aws-sdk-go-v2/service/sagemaker/types.AutoMLChannel — the field on
+// CreateAutoMLJobInput/DescribeAutoMLJobOutput is InputDataConfig
+// ([]types.AutoMLChannel), not "AutoMLJobInputDataConfig" (that name does not
+// exist in the SDK).
+type AutoMLChannel struct {
+	DataSource                *AutoMLDataSource `json:"DataSource,omitempty"`
+	ChannelType               string            `json:"ChannelType,omitempty"`
+	CompressionType           string            `json:"CompressionType,omitempty"`
+	ContentType               string            `json:"ContentType,omitempty"`
+	TargetAttributeName       string            `json:"TargetAttributeName,omitempty"`
+	SampleWeightAttributeName string            `json:"SampleWeightAttributeName,omitempty"`
+}
+
 // AutoMLJob represents a SageMaker AutoML job.
 type AutoMLJob struct {
 	CreationTime             time.Time               `json:"CreationTime"`
@@ -45,11 +71,16 @@ type AutoMLJob struct {
 	AutoMLJobStatus          string                  `json:"AutoMLJobStatus"`
 	AutoMLJobSecondaryStatus string                  `json:"AutoMLJobSecondaryStatus"`
 	RoleArn                  string                  `json:"RoleArn,omitempty"`
+	InputDataConfig          []AutoMLChannel         `json:"InputDataConfig"`
 }
 
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+
+	if j.InputDataConfig != nil {
+		cp.InputDataConfig = append([]AutoMLChannel{}, j.InputDataConfig...)
+	}
 
 	if j.OutputDataConfig != nil {
 		odc := *j.OutputDataConfig
@@ -130,6 +161,7 @@ func (b *InMemoryBackend) CreateAutoMLJob(
 		AutoMLJobStatus:          trainingJobStatusInProgress,
 		AutoMLJobSecondaryStatus: secondaryStatusStarting,
 		RoleArn:                  roleArn,
+		InputDataConfig:          []AutoMLChannel{},
 		Tags:                     mergeTags(nil, tags),
 		CreationTime:             now,
 		LastModifiedTime:         now,
@@ -201,6 +233,7 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	name string,
 	outputDataConfig *AutoMLOutputDataConfig,
 	objective *AutoMLJobObjective,
+	inputDataConfig []AutoMLChannel,
 ) error {
 	b.mu.Lock("SetAutoMLJobExtras")
 	defer b.mu.Unlock()
@@ -220,6 +253,10 @@ func (b *InMemoryBackend) SetAutoMLJobExtras(
 	if objective != nil {
 		obj := *objective
 		j.AutoMLJobObjective = &obj
+	}
+
+	if inputDataConfig != nil {
+		j.InputDataConfig = append([]AutoMLChannel(nil), inputDataConfig...)
 	}
 
 	return nil

@@ -181,6 +181,10 @@ func labelingJobResponseMap(j *LabelingJob) map[string]any {
 		resp["LabelingJobAlgorithmsConfig"] = j.LabelingJobAlgorithmsConfig
 	}
 
+	if len(j.Tags) > 0 {
+		resp["Tags"] = toTagObjects(j.Tags)
+	}
+
 	return resp
 }
 

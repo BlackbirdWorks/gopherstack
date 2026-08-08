@@ -273,10 +273,12 @@ func (h *Handler) handleStartPipelineExecutionFull(
 ) ([]byte, error) {
 	var req struct {
 		ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+		SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
 		PipelineName                 string                    `json:"PipelineName"`
 		PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 		PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
 		PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
+		PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -293,6 +295,8 @@ func (h *Handler) handleStartPipelineExecutionFull(
 		PipelineExecutionDescription: req.PipelineExecutionDescription,
 		PipelineParameters:           req.PipelineParameters,
 		ParallelismConfiguration:     req.ParallelismConfiguration,
+		SelectiveExecutionConfig:     req.SelectiveExecutionConfig,
+		PipelineVersionID:            req.PipelineVersionID,
 	})
 	if err != nil {
 		return nil, err
@@ -482,6 +486,15 @@ func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []by
 	}
 	if pe.FailureReason != "" {
 		resp["FailureReason"] = pe.FailureReason
+	}
+	if pe.ParallelismConfiguration != nil {
+		resp["ParallelismConfiguration"] = pe.ParallelismConfiguration
+	}
+	if pe.PipelineVersionID != 0 {
+		resp["PipelineVersionId"] = pe.PipelineVersionID
+	}
+	if pe.SelectiveExecutionConfig != nil {
+		resp["SelectiveExecutionConfig"] = pe.SelectiveExecutionConfig
 	}
 
 	return json.Marshal(resp)

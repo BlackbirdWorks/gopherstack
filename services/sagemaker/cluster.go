@@ -56,43 +56,52 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 	}
 }
 
+// CreateClusterOptions holds the parameters CreateCluster accepts.
+type CreateClusterOptions struct {
+	VpcConfig      *VpcConfig
+	Tags           map[string]string
+	ClusterName    string
+	NodeRecovery   string
+	ClusterRole    string
+	InstanceGroups []ClusterInstanceGroup
+}
+
 // CreateCluster creates a new SageMaker HyperPod cluster and auto-provisions
 // InstanceCount running nodes for each requested instance group.
 func (b *InMemoryBackend) CreateCluster(
 	ctx context.Context,
-	name string,
-	instanceGroups []ClusterInstanceGroup,
-	nodeRecovery string,
-	tags map[string]string,
+	opts CreateClusterOptions,
 ) (*Cluster, error) {
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
-	if name == "" {
+	if opts.ClusterName == "" {
 		return nil, fmt.Errorf("%w: ClusterName is required", ErrValidation)
 	}
 
 	region := getRegion(ctx, b.region)
 	store := b.clustersStore(region)
 
-	if _, ok := store.Get(name); ok {
-		return nil, fmt.Errorf("%w: cluster %q already exists", ErrClusterAlreadyExists, name)
+	if _, ok := store.Get(opts.ClusterName); ok {
+		return nil, fmt.Errorf("%w: cluster %q already exists", ErrClusterAlreadyExists, opts.ClusterName)
 	}
 
-	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+name)
+	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+opts.ClusterName)
 
 	c := &Cluster{
-		ClusterName:    name,
+		ClusterName:    opts.ClusterName,
 		ClusterArn:     clusterARN,
 		ClusterStatus:  clusterStatusInService,
-		NodeRecovery:   nodeRecovery,
-		InstanceGroups: append([]ClusterInstanceGroup(nil), instanceGroups...),
-		Tags:           mergeTags(nil, tags),
+		NodeRecovery:   opts.NodeRecovery,
+		ClusterRole:    opts.ClusterRole,
+		VpcConfig:      opts.VpcConfig,
+		InstanceGroups: append([]ClusterInstanceGroup(nil), opts.InstanceGroups...),
+		Tags:           mergeTags(nil, opts.Tags),
 		CreationTime:   time.Now(),
 		Nodes:          make(map[string]*ClusterNode),
 	}
 
-	for i, ig := range instanceGroups {
+	for i, ig := range opts.InstanceGroups {
 		count := ig.InstanceCount
 		if count <= 0 {
 			count = 1
@@ -107,7 +116,7 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	store.Put(c)
-	b.clusterARNIndexStore(region)[clusterARN] = name
+	b.clusterARNIndexStore(region)[clusterARN] = opts.ClusterName
 
 	return cloneCluster(c), nil
 }

@@ -106,6 +106,58 @@ func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	assert.Len(t, params, 2)
 }
 
+func TestHandler_StartPipelineExecution_ParallelismAndSelectiveExecution(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "sel-pipeline",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+	})
+
+	rec := doSageMakerRequest(t, h, "StartPipelineExecution", map[string]any{
+		"PipelineName": "sel-pipeline",
+		"ParallelismConfiguration": map[string]any{
+			"MaxParallelExecutionSteps": 3,
+		},
+		"SelectiveExecutionConfig": map[string]any{
+			"SourcePipelineExecutionArn": "arn:aws:sagemaker:us-east-1:000000000000:pipeline/sel-pipeline/execution/prior",
+			"SelectedSteps": []any{
+				map[string]any{"StepName": "TrainStep"},
+			},
+		},
+		"PipelineVersionId": 2,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startResp map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	execArn := startResp["PipelineExecutionArn"]
+	require.NotEmpty(t, execArn)
+
+	rec = doSageMakerRequest(t, h, "DescribePipelineExecution", map[string]any{
+		"PipelineExecutionArn": execArn,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	parallelism, ok := descResp["ParallelismConfiguration"].(map[string]any)
+	require.True(t, ok, "ParallelismConfiguration must be present in DescribePipelineExecution")
+	assert.InEpsilon(t, float64(3), parallelism["MaxParallelExecutionSteps"], 0)
+
+	sec, ok := descResp["SelectiveExecutionConfig"].(map[string]any)
+	require.True(t, ok, "SelectiveExecutionConfig must be present in DescribePipelineExecution")
+	assert.Equal(t,
+		"arn:aws:sagemaker:us-east-1:000000000000:pipeline/sel-pipeline/execution/prior",
+		sec["SourcePipelineExecutionArn"],
+	)
+
+	assert.InEpsilon(t, float64(2), descResp["PipelineVersionId"], 0)
+}
+
 // ---------------------------------------------------------------------------
 // DescribeEndpoint — ProductionVariants + FailureReason (gap #9)
 // ---------------------------------------------------------------------------

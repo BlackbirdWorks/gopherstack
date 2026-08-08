@@ -16,6 +16,7 @@ func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, e
 	var req struct {
 		TrialName      string      `json:"TrialName"`
 		ExperimentName string      `json:"ExperimentName"`
+		DisplayName    string      `json:"DisplayName,omitempty"`
 		Tags           []tagObject `json:"Tags"`
 	}
 
@@ -27,7 +28,7 @@ func (h *Handler) handleCreateTrial(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: TrialName is required", errInvalidRequest)
 	}
 
-	t, err := h.Backend.CreateTrial(ctx, req.TrialName, req.ExperimentName, fromTagObjects(req.Tags))
+	t, err := h.Backend.CreateTrial(ctx, req.TrialName, req.ExperimentName, req.DisplayName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
@@ -70,9 +71,11 @@ func (h *Handler) handleDescribeTrial(ctx context.Context, body []byte) ([]byte,
 }
 
 type trialSummary struct {
-	TrialName    string  `json:"TrialName"`
-	TrialArn     string  `json:"TrialArn"`
-	CreationTime float64 `json:"CreationTime"`
+	TrialName        string  `json:"TrialName"`
+	TrialArn         string  `json:"TrialArn"`
+	DisplayName      string  `json:"DisplayName,omitempty"`
+	CreationTime     float64 `json:"CreationTime"`
+	LastModifiedTime float64 `json:"LastModifiedTime"`
 }
 
 func (h *Handler) handleListTrials(ctx context.Context, body []byte) ([]byte, error) {
@@ -89,9 +92,11 @@ func (h *Handler) handleListTrials(ctx context.Context, body []byte) ([]byte, er
 
 	for _, t := range ts {
 		summaries = append(summaries, trialSummary{
-			TrialName:    t.TrialName,
-			TrialArn:     t.TrialArn,
-			CreationTime: epochSeconds(t.CreationTime),
+			TrialName:        t.TrialName,
+			TrialArn:         t.TrialArn,
+			DisplayName:      t.DisplayName,
+			CreationTime:     epochSeconds(t.CreationTime),
+			LastModifiedTime: epochSeconds(t.LastModifiedTime),
 		})
 	}
 

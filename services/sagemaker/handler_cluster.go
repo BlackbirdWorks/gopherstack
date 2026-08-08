@@ -173,8 +173,10 @@ func fromClusterInstanceGroups(groups []ClusterInstanceGroup) []clusterInstanceG
 
 // createClusterRequest is the request body for CreateCluster.
 type createClusterRequest struct {
+	VpcConfig      *VpcConfig                    `json:"VpcConfig,omitempty"`
 	ClusterName    string                        `json:"ClusterName"`
 	NodeRecovery   string                        `json:"NodeRecovery,omitempty"`
+	ClusterRole    string                        `json:"ClusterRole,omitempty"`
 	InstanceGroups []clusterInstanceGroupRequest `json:"InstanceGroups"`
 	Tags           []tagObject                   `json:"Tags"`
 }
@@ -189,13 +191,14 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.CreateCluster(
-		ctx,
-		req.ClusterName,
-		toClusterInstanceGroups(req.InstanceGroups),
-		req.NodeRecovery,
-		fromTagObjects(req.Tags),
-	)
+	c, err := h.Backend.CreateCluster(ctx, CreateClusterOptions{
+		ClusterName:    req.ClusterName,
+		InstanceGroups: toClusterInstanceGroups(req.InstanceGroups),
+		NodeRecovery:   req.NodeRecovery,
+		ClusterRole:    req.ClusterRole,
+		VpcConfig:      req.VpcConfig,
+		Tags:           fromTagObjects(req.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -217,6 +220,12 @@ func (h *Handler) describeClusterResponse(c *Cluster) []byte {
 
 	if c.NodeRecovery != "" {
 		resp["NodeRecovery"] = c.NodeRecovery
+	}
+	if c.ClusterRole != "" {
+		resp["ClusterRole"] = c.ClusterRole
+	}
+	if c.VpcConfig != nil {
+		resp["VpcConfig"] = c.VpcConfig
 	}
 
 	b, _ := json.Marshal(resp)

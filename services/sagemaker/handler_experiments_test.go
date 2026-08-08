@@ -130,3 +130,35 @@ func TestHandler_Tags_Experiment(t *testing.T) {
 	require.Len(t, tags, 1)
 	assert.Equal(t, "project", tags[0].(map[string]any)["Key"])
 }
+
+func TestHandler_CreateExperiment_DisplayNameAndDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateExperiment", map[string]any{
+		"ExperimentName": "exp-with-display",
+		"DisplayName":    "Friendly Name",
+		"Description":    "An experiment created with a display name",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeExperiment", map[string]any{
+		"ExperimentName": "exp-with-display",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	assert.Equal(t, "Friendly Name", descResp["DisplayName"])
+	assert.Equal(t, "An experiment created with a display name", descResp["Description"])
+
+	rec = doSageMakerRequest(t, h, "ListExperiments", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
+	summaries := listResp["ExperimentSummaries"].([]any)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, "Friendly Name", summaries[0].(map[string]any)["DisplayName"])
+}

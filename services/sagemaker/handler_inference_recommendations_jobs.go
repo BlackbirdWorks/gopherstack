@@ -17,6 +17,7 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		JobType        string            `json:"JobType,omitempty"`
 		JobDescription string            `json:"JobDescription,omitempty"`
 		RoleArn        string            `json:"RoleArn,omitempty"`
+		InputConfig    json.RawMessage   `json:"InputConfig,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -32,6 +33,7 @@ func (h *Handler) handleCreateInferenceRecommendationsJob(ctx context.Context, b
 		JobType:        req.JobType,
 		JobDescription: req.JobDescription,
 		RoleArn:        req.RoleArn,
+		InputConfig:    req.InputConfig,
 		Tags:           req.Tags,
 	})
 	if err != nil {
@@ -78,6 +80,10 @@ func (h *Handler) handleDescribeInferenceRecommendationsJob(ctx context.Context,
 
 	if j.RoleArn != "" {
 		resp[keyRoleArn] = j.RoleArn
+	}
+
+	if len(j.InputConfig) > 0 {
+		resp["InputConfig"] = j.InputConfig
 	}
 
 	return json.Marshal(resp)

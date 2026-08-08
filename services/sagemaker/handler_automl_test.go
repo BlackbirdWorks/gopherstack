@@ -25,6 +25,75 @@ func TestHandler_CreateAutoMLJob(t *testing.T) {
 	assert.Contains(t, resp["AutoMLJobArn"], "my-job")
 }
 
+func TestHandler_CreateAutoMLJob_InputDataConfigRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateAutoMLJob", map[string]any{
+		"AutoMLJobName": "automl-with-input",
+		"RoleArn":       "arn:aws:iam::000000000000:role/test",
+		"InputDataConfig": []any{
+			map[string]any{
+				"ChannelType":         "training",
+				"TargetAttributeName": "label",
+				"DataSource": map[string]any{
+					"S3DataSource": map[string]any{
+						"S3DataType": "S3Prefix",
+						"S3Uri":      "s3://bucket/train/",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doSageMakerRequest(t, h, "DescribeAutoMLJob", map[string]any{
+		"AutoMLJobName": "automl-with-input",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	channels, ok := descResp["InputDataConfig"].([]any)
+	require.True(t, ok, "DescribeAutoMLJob must always emit InputDataConfig (required field)")
+	require.Len(t, channels, 1)
+
+	channel, ok := channels[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "label", channel["TargetAttributeName"])
+
+	dataSource, ok := channel["DataSource"].(map[string]any)
+	require.True(t, ok)
+	s3Source, ok := dataSource["S3DataSource"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "s3://bucket/train/", s3Source["S3Uri"])
+}
+
+func TestHandler_CreateAutoMLJob_InputDataConfigDefaultsToEmptyList(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateAutoMLJob", map[string]any{
+		"AutoMLJobName": "automl-no-input",
+		"RoleArn":       "arn:test",
+	})
+
+	rec := doSageMakerRequest(t, h, "DescribeAutoMLJob", map[string]any{
+		"AutoMLJobName": "automl-no-input",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+
+	channels, ok := descResp["InputDataConfig"].([]any)
+	require.True(t, ok, "InputDataConfig must always be present, even as an empty list")
+	assert.Empty(t, channels)
+}
+
 func TestHandler_DescribeAutoMLJob(t *testing.T) {
 	t.Parallel()
 

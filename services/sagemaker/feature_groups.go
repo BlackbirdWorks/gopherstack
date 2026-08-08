@@ -32,6 +32,8 @@ type FeatureGroup struct {
 	RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName,omitempty"`
 	EventTimeFeatureName        string              `json:"EventTimeFeatureName,omitempty"`
 	FeatureGroupStatus          string              `json:"FeatureGroupStatus"`
+	Description                 string              `json:"Description,omitempty"`
+	RoleArn                     string              `json:"RoleArn,omitempty"`
 	FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions,omitempty"`
 }
 
@@ -44,39 +46,50 @@ func cloneFeatureGroup(fg *FeatureGroup) *FeatureGroup {
 	return &cp
 }
 
+// CreateFeatureGroupOptions holds the parameters CreateFeatureGroup accepts.
+type CreateFeatureGroupOptions struct {
+	Tags                        map[string]string
+	FeatureGroupName            string
+	RecordIdentifierFeatureName string
+	EventTimeFeatureName        string
+	Description                 string
+	RoleArn                     string
+	FeatureDefinitions          []FeatureDefinition
+}
+
 // CreateFeatureGroup creates a new feature group.
 func (b *InMemoryBackend) CreateFeatureGroup(
 	ctx context.Context,
-	name, recordID, eventTimeFeature string,
-	defs []FeatureDefinition,
-	tags map[string]string,
+	opts CreateFeatureGroupOptions,
 ) (*FeatureGroup, error) {
 	b.mu.Lock("CreateFeatureGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.featureGroupsStore(region).Get(name); ok {
+	if _, ok := b.featureGroupsStore(region).Get(opts.FeatureGroupName); ok {
 		return nil, fmt.Errorf(
 			"%w: feature group %s already exists",
 			ErrFeatureGroupAlreadyExists,
-			name,
+			opts.FeatureGroupName,
 		)
 	}
 
-	fgArn := arn.Build("sagemaker", region, b.accountID, "feature-group/"+name)
-	storedDefs := make([]FeatureDefinition, len(defs))
-	copy(storedDefs, defs)
+	fgArn := arn.Build("sagemaker", region, b.accountID, "feature-group/"+opts.FeatureGroupName)
+	storedDefs := make([]FeatureDefinition, len(opts.FeatureDefinitions))
+	copy(storedDefs, opts.FeatureDefinitions)
 
 	fg := &FeatureGroup{
-		FeatureGroupName:            name,
+		FeatureGroupName:            opts.FeatureGroupName,
 		FeatureGroupArn:             fgArn,
-		RecordIdentifierFeatureName: recordID,
-		EventTimeFeatureName:        eventTimeFeature,
+		RecordIdentifierFeatureName: opts.RecordIdentifierFeatureName,
+		EventTimeFeatureName:        opts.EventTimeFeatureName,
+		Description:                 opts.Description,
+		RoleArn:                     opts.RoleArn,
 		FeatureDefinitions:          storedDefs,
 		FeatureGroupStatus:          "Created",
 		CreationTime:                time.Now(),
-		Tags:                        mergeTags(nil, tags),
+		Tags:                        mergeTags(nil, opts.Tags),
 	}
 	b.featureGroupsStore(region).Put(fg)
 

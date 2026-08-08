@@ -328,6 +328,13 @@ func cloneCluster(c *Cluster) *Cluster {
 	copy(cp.InstanceGroups, c.InstanceGroups)
 	cp.Tags = maps.Clone(c.Tags)
 
+	if c.VpcConfig != nil {
+		vc := *c.VpcConfig
+		vc.SecurityGroupIDs = append([]string(nil), c.VpcConfig.SecurityGroupIDs...)
+		vc.Subnets = append([]string(nil), c.VpcConfig.Subnets...)
+		cp.VpcConfig = &vc
+	}
+
 	return &cp
 }
 
@@ -361,10 +368,12 @@ type Cluster struct {
 	CreationTime   time.Time               `json:"CreationTime"`
 	Nodes          map[string]*ClusterNode `json:"-"`
 	Tags           map[string]string       `json:"Tags,omitempty"`
+	VpcConfig      *VpcConfig              `json:"VpcConfig,omitempty"`
 	ClusterArn     string                  `json:"ClusterArn"`
 	ClusterName    string                  `json:"ClusterName"`
 	ClusterStatus  string                  `json:"ClusterStatus"`
 	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
+	ClusterRole    string                  `json:"ClusterRole,omitempty"`
 	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
 }
 
