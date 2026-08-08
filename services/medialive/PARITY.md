@@ -191,6 +191,28 @@ families:
           variants, all flat scalar structs (the largest, Eac3Settings, is
           20 scalar fields with no further nesting), so it was tractable in
           this pass unlike the three unions still excluded below.
+          OutputGroup.OutputGroupSettings and Output.OutputSettings
+          (gopherstack-hj9n, this pass) are now BOTH modeled in full,
+          together -- deferred from gopherstack-sthr specifically because
+          modeling one half of this correlated pair (a group's delivery
+          settings and its outputs' delivery settings describe the same
+          output technology) would misrepresent what a channel round-trips.
+          types.OutputGroupSettings' 11 variants (Archive/CmafIngest/
+          FrameCapture/Hls/MediaConnectRouter/MediaPackage/MsSmooth/
+          Multiplex/Rtmp/Srt/Udp) and types.OutputSettings' 11 matching
+          variants are modeled down through every nested container/CDN/
+          stream sub-union each variant references (M2tsSettings,
+          MultiplexM2tsSettings, HlsSettings, HlsCdnSettings,
+          KeyProviderSettings, ArchiveCdnSettings, FrameCaptureCdnSettings,
+          M3u8Settings, MediaPackageV2GroupSettings/
+          MediaPackageV2DestinationSettings) -- see
+          handler_channels_outputs.go and interfaces.go's per-type doc
+          comments for the full field/file:line inventory. Two
+          empty-marker variants (types.RawSettings under
+          ArchiveContainerSettings, types.MultiplexGroupSettings itself)
+          use the same *emptyMarker-pointer convention as
+          PassThroughSettings above, verified round-tripping under
+          omitempty by TestChannel_OutputSettings.
           NOT modeled, and never accepted as an opaque passthrough blob (a
           shape a client cannot read back through the real SDK is the bug
           class this fix exists to close, so these are cleanly absent
@@ -203,17 +225,7 @@ families:
           CaptionDestinationSettings, 12 variants -- most are 1-field or
           empty-marker structs, but BurnInDestinationSettings and
           DvbSubDestinationSettings are 19 fields each with font/color/
-          outline styling); OutputGroup.OutputGroupSettings (types.
-          OutputGroupSettings, 11 variants -- HlsGroupSettings 44 fields,
-          MsSmoothGroupSettings 20, CmafIngestGroupSettings 18, the rest
-          1-9); and Output.OutputSettings (types.OutputSettings, 11
-          variants, ALL small -- 2-6 fields each). Output.OutputSettings on
-          its own is actually as tractable as InputSettings/
-          AudioCodecSettings were and would be a good next pickup, but it
-          was left alongside OutputGroupSettings in this pass to keep the
-          "output technology" family together rather than leaving a
-          caller able to set per-output settings with no group-level
-          settings to match; see "gaps" below for the field-count detail.
+          outline styling).
       Also closed the "anywhereSettings.channelPlacementGroupId is accepted
       without existence validation" gap sweep 5 flagged: Create/UpdateChannel
       now validate it against real ChannelPlacementGroup state the same way
@@ -624,34 +636,33 @@ deferred: []
 # genuinely out of scope for this pass.
 gaps:
   - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
-    gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes). See Channel's note
-    above for the full list of what IS modeled: AvailConfiguration/ColorCorrectionSettings/
-    MotionGraphicsConfiguration/NielsenConfiguration (gopherstack-sthr pass 1 -- none turned out
-    to be a large per-format union, each is a small flat struct or a small tagged union), and
-    AudioDescription's CodecSettings/AudioNormalizationSettings/AudioWatermarkingSettings/
-    RemixSettings/AudioDashRoles/DvbDashAccessibility (gopherstack-sthr pass 2 -- the
-    AudioCodecSettings union verified as 7 variants of flat scalar structs, not the ~20 the bd
-    issue title estimated). Genuinely NOT modeled, and confirmed still impractical to hand-model
-    in a single pass after checking real field counts against the pinned SDK (not just variant
-    counts): VideoDescription.CodecSettings (types.VideoCodecSettings, 5 variants -- Av1Settings
-    25 fields, H264Settings 45, H265Settings 43, Mpeg2Settings 18, FrameCaptureSettings 4);
-    CaptionDescription.DestinationSettings (types.CaptionDestinationSettings, 12 variants --
-    9 are 1-field/empty-marker, but BurnInDestinationSettings/DvbSubDestinationSettings are 19
-    fields each); OutputGroup.OutputGroupSettings (types.OutputGroupSettings, 11 variants --
-    HlsGroupSettings 44 fields, MsSmoothGroupSettings 20, CmafIngestGroupSettings 18, the other
-    8 are 1-9 fields each); Output.OutputSettings (types.OutputSettings, 11 variants, all small,
-    2-6 fields each -- NOT itself large, but left alongside OutputGroupSettings so a caller can't
-    set per-output settings with no corresponding group-level settings modeled). None of these
-    are accepted as an opaque passthrough blob -- a caller setting any of them today gets a
-    201/200 response but the value is cleanly absent (never echoed back by Describe/List), not
-    silently corrupted or faked. (bd: gopherstack-jb9i closed the 12-of-17-member gap;
-    gopherstack-sthr closed AvailConfiguration/ColorCorrectionSettings/
-    MotionGraphicsConfiguration/NielsenConfiguration and, in a second sub-pass, AudioDescription's
-    codec/normalization/watermarking/remix/dash-role/accessibility fields; the four remaining
-    unions above -- VideoCodecSettings, CaptionDestinationSettings, OutputGroupSettings, and
-    OutputSettings -- would need their own follow-up issue if "true AWS parity" on them
-    specifically is ever prioritized. Output.OutputSettings alone is a good next pickup given its
-    field counts are comparable to what gopherstack-sthr already modeled twice this session.)
+    gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n).
+    See Channel's note above for the full list of what IS modeled: AvailConfiguration/
+    ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration (gopherstack-sthr
+    pass 1 -- none turned out to be a large per-format union, each is a small flat struct or a
+    small tagged union); AudioDescription's CodecSettings/AudioNormalizationSettings/
+    AudioWatermarkingSettings/RemixSettings/AudioDashRoles/DvbDashAccessibility (gopherstack-sthr
+    pass 2 -- the AudioCodecSettings union verified as 7 variants of flat scalar structs, not the
+    ~20 the bd issue title estimated); and OutputGroup.OutputGroupSettings +
+    Output.OutputSettings, modeled together (gopherstack-hj9n -- 11 variants each, down through
+    every nested container/CDN/stream sub-union: M2tsSettings, MultiplexM2tsSettings, HlsSettings,
+    HlsCdnSettings, KeyProviderSettings, ArchiveCdnSettings, FrameCaptureCdnSettings, M3u8Settings,
+    MediaPackageV2GroupSettings/MediaPackageV2DestinationSettings). Genuinely NOT modeled, and
+    confirmed still impractical to hand-model in a single pass after checking real field counts
+    against the pinned SDK (not just variant counts): VideoDescription.CodecSettings (types.
+    VideoCodecSettings, 5 variants -- Av1Settings 25 fields, H264Settings 45, H265Settings 43,
+    Mpeg2Settings 18, FrameCaptureSettings 4); CaptionDescription.DestinationSettings (types.
+    CaptionDestinationSettings, 12 variants -- 9 are 1-field/empty-marker, but
+    BurnInDestinationSettings/DvbSubDestinationSettings are 19 fields each). None of these are
+    accepted as an opaque passthrough blob -- a caller setting any of them today gets a 201/200
+    response but the value is cleanly absent (never echoed back by Describe/List), not silently
+    corrupted or faked. (bd: gopherstack-jb9i closed the 12-of-17-member gap; gopherstack-sthr
+    closed AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/
+    NielsenConfiguration and, in a second sub-pass, AudioDescription's
+    codec/normalization/watermarking/remix/dash-role/accessibility fields; gopherstack-hj9n closed
+    OutputGroupSettings/OutputSettings together per its explicit ordering instruction; the two
+    remaining unions above -- VideoCodecSettings and CaptionDestinationSettings -- would need
+    their own follow-up issue if "true AWS parity" on them specifically is ever prioritized.)
   - InputAttachment.InputSettings is now modeled in full (gopherstack-sthr, this pass) -- see
     Channel's note above. InputAttachmentName/InputId/LogicalInterfaceNames/
     AutomaticInputFailoverSettings (including all 3 failover-condition variants) were already

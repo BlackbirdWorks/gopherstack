@@ -931,15 +931,27 @@ func extractCaptionDescriptions(raw []any) []CaptionDescription {
 // -- OutputGroups / EncoderOutput --
 
 type encoderOutputOutput struct {
-	OutputName              string   `json:"outputName,omitempty"`
-	VideoDescriptionName    string   `json:"videoDescriptionName,omitempty"`
-	AudioDescriptionNames   []string `json:"audioDescriptionNames,omitempty"`
-	CaptionDescriptionNames []string `json:"captionDescriptionNames,omitempty"`
+	OutputSettings          *outputSettingsOutput `json:"outputSettings,omitempty"`
+	OutputName              string                `json:"outputName,omitempty"`
+	VideoDescriptionName    string                `json:"videoDescriptionName,omitempty"`
+	AudioDescriptionNames   []string              `json:"audioDescriptionNames,omitempty"`
+	CaptionDescriptionNames []string              `json:"captionDescriptionNames,omitempty"`
 }
 
 type outputGroupOutput struct {
-	Name    string                `json:"name,omitempty"`
-	Outputs []encoderOutputOutput `json:"outputs,omitempty"`
+	OutputGroupSettings *outputGroupSettingsOutput `json:"outputGroupSettings,omitempty"`
+	Name                string                     `json:"name,omitempty"`
+	Outputs             []encoderOutputOutput      `json:"outputs,omitempty"`
+}
+
+func toEncoderOutputOutput(o EncoderOutput) encoderOutputOutput {
+	return encoderOutputOutput{
+		OutputName:              o.OutputName,
+		VideoDescriptionName:    o.VideoDescriptionName,
+		AudioDescriptionNames:   o.AudioDescriptionNames,
+		CaptionDescriptionNames: o.CaptionDescriptionNames,
+		OutputSettings:          toOutputSettingsOutput(o.OutputSettings),
+	}
 }
 
 func toOutputGroupsOutput(groups []OutputGroup) []outputGroupOutput {
@@ -952,10 +964,14 @@ func toOutputGroupsOutput(groups []OutputGroup) []outputGroupOutput {
 	for _, g := range groups {
 		outputs := make([]encoderOutputOutput, 0, len(g.Outputs))
 		for _, o := range g.Outputs {
-			outputs = append(outputs, encoderOutputOutput(o))
+			outputs = append(outputs, toEncoderOutputOutput(o))
 		}
 
-		out = append(out, outputGroupOutput{Name: g.Name, Outputs: outputs})
+		out = append(out, outputGroupOutput{
+			Name:                g.Name,
+			Outputs:             outputs,
+			OutputGroupSettings: toOutputGroupSettingsOutput(g.OutputGroupSettings),
+		})
 	}
 
 	return out
@@ -975,6 +991,7 @@ func extractEncoderOutputs(raw []any) []EncoderOutput {
 			VideoDescriptionName:    stringFromAny(m["videoDescriptionName"]),
 			AudioDescriptionNames:   anySliceToStrings(mustSlice(m["audioDescriptionNames"])),
 			CaptionDescriptionNames: anySliceToStrings(mustSlice(m["captionDescriptionNames"])),
+			OutputSettings:          extractOutputSettings(m),
 		})
 	}
 
@@ -990,7 +1007,7 @@ func extractOutputGroups(raw []any) []OutputGroup {
 			continue
 		}
 
-		g := OutputGroup{Name: stringFromAny(m["name"])}
+		g := OutputGroup{Name: stringFromAny(m["name"]), OutputGroupSettings: extractOutputGroupSettings(m)}
 		if outputs, hasOutputs := m["outputs"].([]any); hasOutputs {
 			g.Outputs = extractEncoderOutputs(outputs)
 		}

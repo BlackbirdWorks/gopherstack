@@ -1266,32 +1266,689 @@ type CaptionDescription struct {
 	LanguageDescription  string
 }
 
+// OutputLocationRef references an OutputDestination by ID (types.
+// OutputLocationRef, types.go:6803). Wire key "destinationRefId".
+type OutputLocationRef struct {
+	DestinationRefID string
+}
+
+// OutputAdditionalDestination is an extra HTTP destination for a CMAF
+// Ingest/MediaPackage V2 output group (types.AdditionalDestinations,
+// types.go:104, and the identically-shaped types.
+// MediaPackageAdditionalDestinations, types.go:5491 -- reused for both).
+// Wire key "destination".
+type OutputAdditionalDestination struct {
+	Destination *OutputLocationRef
+}
+
+// CaptionLanguageMapping maps one embedded-captions channel to a language
+// (types.CaptionLanguageMapping, types.go:1197; shared by HlsGroupSettings
+// and MediaPackageV2GroupSettings). Wire keys "captionChannel"/
+// "languageCode"/"languageDescription".
+type CaptionLanguageMapping struct {
+	LanguageCode        string
+	LanguageDescription string
+	CaptionChannel      int32
+}
+
+// CmafIngestCaptionLanguageMapping maps one embedded-captions channel to a
+// language for CMAF Ingest output groups (types.
+// CmafIngestCaptionLanguageMapping, types.go:1778). Wire keys
+// "captionChannel"/"languageCode".
+type CmafIngestCaptionLanguageMapping struct {
+	LanguageCode   string
+	CaptionChannel int32
+}
+
+// DvbNitSettings configures the DVB Network Information Table (types.
+// DvbNitSettings, types.go:2168). Wire keys "networkId"/"networkName"/
+// "repInterval".
+type DvbNitSettings struct {
+	NetworkName string
+	NetworkID   int32
+	RepInterval int32
+}
+
+// DvbSdtSettings configures the DVB Service Description Table (types.
+// DvbSdtSettings, types.go:2189). Wire keys "outputSdt"/"repInterval"/
+// "serviceName"/"serviceProviderName".
+type DvbSdtSettings struct {
+	OutputSdt           string
+	ServiceName         string
+	ServiceProviderName string
+	RepInterval         int32
+}
+
+// DvbTdtSettings configures the DVB Time and Date Table (types.
+// DvbTdtSettings, types.go:2348). Wire key "repInterval".
+type DvbTdtSettings struct {
+	RepInterval int32
+}
+
+// M2tsSettings configures MPEG-2 Transport Stream container packaging,
+// shared by ArchiveContainerSettings/MediaConnectRouterContainerSettings/
+// UDPContainerSettings (types.M2tsSettings, types.go:5016).
+//
+//nolint:dupl // mirrors m2tsSettingsOutput field-for-field by design; the pointer fields' pointee types differ
+type M2tsSettings struct {
+	DvbNitSettings                  *DvbNitSettings
+	DvbSdtSettings                  *DvbSdtSettings
+	DvbTdtSettings                  *DvbTdtSettings
+	AbsentInputAudioBehavior        string
+	Arib                            string
+	AribCaptionsPid                 string
+	AribCaptionsPidControl          string
+	AudioBufferModel                string
+	AudioPids                       string
+	AudioStreamType                 string
+	BufferModel                     string
+	CcDescriptor                    string
+	DvbSubPids                      string
+	DvbTeletextPid                  string
+	Ebif                            string
+	EbpAudioInterval                string
+	EbpPlacement                    string
+	EcmPid                          string
+	EsRateInPes                     string
+	EtvPlatformPid                  string
+	EtvSignalPid                    string
+	Klv                             string
+	KlvDataPids                     string
+	NielsenID3Behavior              string
+	PcrControl                      string
+	PcrPid                          string
+	PmtPid                          string
+	RateMode                        string
+	Scte27Pids                      string
+	Scte35Control                   string
+	Scte35Pid                       string
+	SegmentationMarkers             string
+	SegmentationStyle               string
+	TimedMetadataBehavior           string
+	TimedMetadataPid                string
+	VideoPid                        string
+	FragmentTime                    float64
+	NullPacketBitrate               float64
+	Scte35PrerollPullupMilliseconds float64
+	SegmentationTime                float64
+	AudioFramesPerPes               int32
+	Bitrate                         int32
+	EbpLookaheadMs                  int32
+	PatInterval                     int32
+	PcrPeriod                       int32
+	PmtInterval                     int32
+	ProgramNum                      int32
+	TransportStreamID               int32
+}
+
+// ArchiveContainerSettings is the tagged union of Archive output container
+// formats (types.ArchiveContainerSettings, types.go:149). The Raw variant
+// (types.RawSettings, types.go:6950) has no fields on the wire, so a bool
+// records "this variant is set" -- same convention as PassThroughSettings.
+type ArchiveContainerSettings struct {
+	M2tsSettings *M2tsSettings
+	RawSettings  bool
+}
+
+// ArchiveS3Settings configures S3 delivery for Archive outputs (types.
+// ArchiveS3Settings, types.go:198). Wire key "cannedAcl".
+type ArchiveS3Settings struct {
+	CannedACL string
+}
+
+// ArchiveCdnSettings configures CDN interaction for an Archive output group
+// (types.ArchiveCdnSettings, types.go:140). Wire key "archiveS3Settings".
+type ArchiveCdnSettings struct {
+	ArchiveS3Settings *ArchiveS3Settings
+}
+
+// ArchiveOutputSettings configures one Archive output (types.
+// ArchiveOutputSettings, types.go:179). Wire keys "containerSettings"/
+// "extension"/"nameModifier".
+type ArchiveOutputSettings struct {
+	ContainerSettings *ArchiveContainerSettings
+	Extension         string
+	NameModifier      string
+}
+
+// FrameCaptureS3Settings configures S3 delivery for Frame Capture outputs
+// (types.FrameCaptureS3Settings, types.go:2934). Wire key "cannedAcl".
+type FrameCaptureS3Settings struct {
+	CannedACL string
+}
+
+// FrameCaptureCdnSettings configures CDN interaction for a Frame Capture
+// output group (types.FrameCaptureCdnSettings, types.go:2889). Wire key
+// "frameCaptureS3Settings".
+type FrameCaptureCdnSettings struct {
+	FrameCaptureS3Settings *FrameCaptureS3Settings
+}
+
+// FrameCaptureOutputSettings configures one Frame Capture output (types.
+// FrameCaptureOutputSettings, types.go:2924). Wire key "nameModifier".
+type FrameCaptureOutputSettings struct {
+	NameModifier string
+}
+
+// CmafIngestOutputSettings configures one CMAF Ingest output (types.
+// CmafIngestOutputSettings, types.go:1882). Wire key "nameModifier".
+type CmafIngestOutputSettings struct {
+	NameModifier string
+}
+
+// M3u8Settings configures the .m3u8 container for a Standard HLS output
+// (types.M3u8Settings, types.go:5261).
+type M3u8Settings struct {
+	AudioPids             string
+	EcmPid                string
+	KlvBehavior           string
+	KlvDataPids           string
+	NielsenID3Behavior    string
+	PcrControl            string
+	PcrPid                string
+	PmtPid                string
+	Scte35Behavior        string
+	Scte35Pid             string
+	TimedMetadataBehavior string
+	TimedMetadataPid      string
+	AudioFramesPerPes     int32
+	PatInterval           int32
+	PcrPeriod             int32
+	PmtInterval           int32
+	ProgramNum            int32
+	TransportStreamID     int32
+}
+
+// AudioOnlyHlsSettings configures an audio-only HLS output (types.
+// AudioOnlyHlsSettings, types.go:438). Wire keys "audioGroupId"/
+// "audioOnlyImage"/"audioTrackType"/"segmentType".
+type AudioOnlyHlsSettings struct {
+	AudioOnlyImage InputLocation
+	AudioGroupID   string
+	AudioTrackType string
+	SegmentType    string
+}
+
+// Fmp4HlsSettings configures a fragmented-MP4 HLS output (types.
+// Fmp4HlsSettings, types.go:2840). Wire keys "audioRenditionSets"/
+// "nielsenId3Behavior"/"timedMetadataBehavior".
+type Fmp4HlsSettings struct {
+	AudioRenditionSets    string
+	NielsenID3Behavior    string
+	TimedMetadataBehavior string
+}
+
+// StandardHlsSettings configures a standard (MPEG-TS) HLS output (types.
+// StandardHlsSettings, types.go:8109). Wire keys "audioRenditionSets"/
+// "m3u8Settings".
+type StandardHlsSettings struct {
+	M3u8Settings       *M3u8Settings
+	AudioRenditionSets string
+}
+
+// HlsSettings is the tagged union of per-output-type HLS settings (types.
+// HlsSettings, types.go:4007). FrameCaptureHlsSettings (types.
+// FrameCaptureHlsSettings, types.go:2919) has no fields on the wire, so a
+// bool records "this variant is set".
+type HlsSettings struct {
+	AudioOnlyHlsSettings    *AudioOnlyHlsSettings
+	Fmp4HlsSettings         *Fmp4HlsSettings
+	StandardHlsSettings     *StandardHlsSettings
+	FrameCaptureHlsSettings bool
+}
+
+// HlsOutputSettings configures one HLS output (types.HlsOutputSettings,
+// types.go:3975). Wire keys "h265PackagingType"/"hlsSettings"/
+// "nameModifier"/"segmentModifier".
+type HlsOutputSettings struct {
+	HlsSettings       *HlsSettings
+	H265PackagingType string
+	NameModifier      string
+	SegmentModifier   string
+}
+
+// MediaConnectRouterContainerSettings wraps M2tsSettings for MediaConnect
+// Router outputs (types.MediaConnectRouterContainerSettings, types.go:5414).
+// Wire key "m2tsSettings".
+type MediaConnectRouterContainerSettings struct {
+	M2tsSettings *M2tsSettings
+}
+
+// MediaConnectRouterOutputSettings configures one MediaConnect Router
+// output (types.MediaConnectRouterOutputSettings, types.go:5471). Wire keys
+// "containerSettings"/"destination". ConnectedRouterInputs is deliberately
+// excluded -- the SDK documents it as "deprecated and unused".
+type MediaConnectRouterOutputSettings struct {
+	ContainerSettings *MediaConnectRouterContainerSettings
+	Destination       *OutputLocationRef
+}
+
+// MediaPackageV2DestinationSettings configures MediaPackage V2 (CMAF
+// Ingest) delivery for a MediaPackage output (types.
+// MediaPackageV2DestinationSettings, types.go:5560). Wire keys
+// "audioGroupId"/"audioRenditionSets"/"hlsAutoSelect"/"hlsDefault".
+type MediaPackageV2DestinationSettings struct {
+	AudioGroupID       string
+	AudioRenditionSets string
+	HlsAutoSelect      string
+	HlsDefault         string
+}
+
+// MediaPackageOutputSettings configures one MediaPackage output (types.
+// MediaPackageOutputSettings, types.go:5551). Wire key
+// "mediaPackageV2DestinationSettings".
+type MediaPackageOutputSettings struct {
+	MediaPackageV2DestinationSettings *MediaPackageV2DestinationSettings
+}
+
+// MsSmoothOutputSettings configures one MS Smooth output (types.
+// MsSmoothOutputSettings, types.go:5970). Wire keys "h265PackagingType"/
+// "nameModifier".
+type MsSmoothOutputSettings struct {
+	H265PackagingType string
+	NameModifier      string
+}
+
+// MultiplexM2tsSettings configures MPEG-2 TS packaging for a Multiplex
+// output (types.MultiplexM2tsSettings, types.go:6145).
+type MultiplexM2tsSettings struct {
+	AbsentInputAudioBehavior        string
+	Arib                            string
+	AudioBufferModel                string
+	AudioStreamType                 string
+	CcDescriptor                    string
+	Ebif                            string
+	EsRateInPes                     string
+	Klv                             string
+	NielsenID3Behavior              string
+	PcrControl                      string
+	Scte35Control                   string
+	AudioFramesPerPes               int32
+	PcrPeriod                       int32
+	Scte35PrerollPullupMilliseconds float64
+}
+
+// MultiplexContainerSettings wraps MultiplexM2tsSettings for Multiplex
+// outputs (types.MultiplexContainerSettings, types.go:6131). Wire key
+// "multiplexM2tsSettings".
+type MultiplexContainerSettings struct {
+	MultiplexM2tsSettings *MultiplexM2tsSettings
+}
+
+// MultiplexOutputSettings configures one Multiplex output (types.
+// MultiplexOutputSettings, types.go:6229). Wire keys "containerSettings"/
+// "destination".
+type MultiplexOutputSettings struct {
+	Destination       *OutputLocationRef
+	ContainerSettings *MultiplexContainerSettings
+}
+
+// RtmpOutputSettings configures one RTMP output (types.RtmpOutputSettings,
+// types.go:7243). Wire keys "certificateMode"/"connectionRetryInterval"/
+// "destination"/"numRetries".
+type RtmpOutputSettings struct {
+	Destination             *OutputLocationRef
+	CertificateMode         string
+	ConnectionRetryInterval int32
+	NumRetries              int32
+}
+
+// UDPContainerSettings wraps M2tsSettings for SRT/UDP outputs (types.
+// UDPContainerSettings, types.go:8493). Wire key "m2tsSettings".
+type UDPContainerSettings struct {
+	M2tsSettings *M2tsSettings
+}
+
+// FecOutputSettings configures Forward Error Correction for a UDP output
+// (types.FecOutputSettings, types.go:2803). Wire keys "columnDepth"/
+// "includeFec"/"rowLength".
+type FecOutputSettings struct {
+	IncludeFec  string
+	ColumnDepth int32
+	RowLength   int32
+}
+
+// SrtOutputSettings configures one SRT output (types.SrtOutputSettings,
+// types.go:8046). Wire keys "bufferMsec"/"containerSettings"/"destination"/
+// "encryptionType"/"latency".
+type SrtOutputSettings struct {
+	ContainerSettings *UDPContainerSettings
+	Destination       *OutputLocationRef
+	EncryptionType    string
+	BufferMsec        int32
+	Latency           int32
+}
+
+// UDPOutputSettings configures one UDP output (types.UDPOutputSettings,
+// types.go:8523). Wire keys "bufferMsec"/"containerSettings"/"destination"/
+// "fecOutputSettings".
+type UDPOutputSettings struct {
+	ContainerSettings *UDPContainerSettings
+	Destination       *OutputLocationRef
+	FecOutputSettings *FecOutputSettings
+	BufferMsec        int32
+}
+
+// OutputSettings is the tagged union of per-output-technology settings
+// (types.OutputSettings, types.go:6827); at most one variant is set. All 11
+// variants are modeled in full, along with the container/CDN/HLS-stream
+// sub-unions they reference (M2tsSettings, HlsSettings, HlsCdnSettings,
+// KeyProviderSettings, ArchiveCdnSettings, FrameCaptureCdnSettings).
+type OutputSettings struct {
+	ArchiveOutputSettings            *ArchiveOutputSettings
+	CmafIngestOutputSettings         *CmafIngestOutputSettings
+	FrameCaptureOutputSettings       *FrameCaptureOutputSettings
+	HlsOutputSettings                *HlsOutputSettings
+	MediaConnectRouterOutputSettings *MediaConnectRouterOutputSettings
+	MediaPackageOutputSettings       *MediaPackageOutputSettings
+	MsSmoothOutputSettings           *MsSmoothOutputSettings
+	MultiplexOutputSettings          *MultiplexOutputSettings
+	RtmpOutputSettings               *RtmpOutputSettings
+	SrtOutputSettings                *SrtOutputSettings
+	UDPOutputSettings                *UDPOutputSettings
+}
+
+func (s *OutputSettings) hasOutputSettings() bool {
+	return s != nil && (s.ArchiveOutputSettings != nil || s.CmafIngestOutputSettings != nil ||
+		s.FrameCaptureOutputSettings != nil || s.HlsOutputSettings != nil ||
+		s.MediaConnectRouterOutputSettings != nil || s.MediaPackageOutputSettings != nil ||
+		s.MsSmoothOutputSettings != nil || s.MultiplexOutputSettings != nil ||
+		s.RtmpOutputSettings != nil || s.SrtOutputSettings != nil || s.UDPOutputSettings != nil)
+}
+
 // EncoderOutput names one encoder output and the AudioDescription/
 // CaptionDescription/VideoDescription names it draws from (types.Output --
 // named EncoderOutput here, not Output, to avoid colliding with this
 // package's unrelated Output* helper types). Wire keys
 // "audioDescriptionNames"/"captionDescriptionNames"/"outputName"/
-// "videoDescriptionName" -- verified against types.Output. OutputSettings
-// (the per-output-technology union: Archive/CmafIngest/FrameCapture/Hls/
-// MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/
-// UdpOutputSettings, each itself large) is deliberately NOT modeled; see
-// PARITY.md's gaps entry.
+// "outputSettings"/"videoDescriptionName" -- verified against types.Output,
+// types.go:6827.
 type EncoderOutput struct {
+	OutputSettings          *OutputSettings
 	OutputName              string
 	VideoDescriptionName    string
 	AudioDescriptionNames   []string
 	CaptionDescriptionNames []string
 }
 
+// ArchiveGroupSettings configures an Archive output group (types.
+// ArchiveGroupSettings, types.go:161). Wire keys "archiveCdnSettings"/
+// "destination"/"rolloverInterval".
+type ArchiveGroupSettings struct {
+	Destination        *OutputLocationRef
+	ArchiveCdnSettings *ArchiveCdnSettings
+	RolloverInterval   int32
+}
+
+// CmafIngestGroupSettings configures a CMAF Ingest output group (types.
+// CmafIngestGroupSettings, types.go:1795).
+type CmafIngestGroupSettings struct {
+	Destination              *OutputLocationRef
+	NielsenID3NameModifier   string
+	Scte35Type               string
+	ID3Behavior              string
+	ID3NameModifier          string
+	KlvBehavior              string
+	KlvNameModifier          string
+	TimedMetadataPassthrough string
+	NielsenID3Behavior       string
+	Scte35NameModifier       string
+	TimedMetadataID3Frame    string
+	SegmentLengthUnits       string
+	AdditionalDestinations   []OutputAdditionalDestination
+	CaptionLanguageMappings  []CmafIngestCaptionLanguageMapping
+	SegmentLength            int32
+	SendDelayMs              int32
+	TimedMetadataID3Period   int32
+}
+
+// FrameCaptureGroupSettings configures a Frame Capture output group (types.
+// FrameCaptureGroupSettings, types.go:2898). Wire keys "destination"/
+// "frameCaptureCdnSettings".
+type FrameCaptureGroupSettings struct {
+	Destination             *OutputLocationRef
+	FrameCaptureCdnSettings *FrameCaptureCdnSettings
+}
+
+// HlsAkamaiSettings configures Akamai CDN delivery for an HLS output group
+// (types.HlsAkamaiSettings, types.go:3568).
+type HlsAkamaiSettings struct {
+	HTTPTransferMode        string
+	Salt                    string
+	Token                   string
+	ConnectionRetryInterval int32
+	FilecacheDuration       int32
+	NumRetries              int32
+	RestartDelay            int32
+}
+
+// HlsBasicPutSettings configures basic-PUT CDN delivery for an HLS output
+// group (types.HlsBasicPutSettings, types.go:3600).
+type HlsBasicPutSettings struct {
+	ConnectionRetryInterval int32
+	FilecacheDuration       int32
+	NumRetries              int32
+	RestartDelay            int32
+}
+
+// HlsMediaStoreSettings configures MediaStore CDN delivery for an HLS
+// output group (types.HlsMediaStoreSettings, types.go:3949).
+type HlsMediaStoreSettings struct {
+	MediaStoreStorageClass  string
+	ConnectionRetryInterval int32
+	FilecacheDuration       int32
+	NumRetries              int32
+	RestartDelay            int32
+}
+
+// HlsS3Settings configures S3 CDN delivery for an HLS output group (types.
+// HlsS3Settings, types.go:3998). Wire key "cannedAcl".
+type HlsS3Settings struct {
+	CannedACL string
+}
+
+// HlsWebdavSettings configures WebDAV CDN delivery for an HLS output group
+// (types.HlsWebdavSettings, types.go:4038).
+type HlsWebdavSettings struct {
+	HTTPTransferMode        string
+	ConnectionRetryInterval int32
+	FilecacheDuration       int32
+	NumRetries              int32
+	RestartDelay            int32
+}
+
+// HlsCdnSettings is the tagged union of CDN delivery mechanisms for an HLS
+// output group (types.HlsCdnSettings, types.go:3622).
+type HlsCdnSettings struct {
+	HlsAkamaiSettings     *HlsAkamaiSettings
+	HlsBasicPutSettings   *HlsBasicPutSettings
+	HlsMediaStoreSettings *HlsMediaStoreSettings
+	HlsS3Settings         *HlsS3Settings
+	HlsWebdavSettings     *HlsWebdavSettings
+}
+
+// StaticKeySettings configures static-key HLS encryption (types.
+// StaticKeySettings, types.go:8285). Wire keys "keyProviderServer"/
+// "staticKeyValue".
+type StaticKeySettings struct {
+	KeyProviderServer InputLocation
+	StaticKeyValue    string
+}
+
+// KeyProviderSettings is the tagged union of HLS encryption key providers
+// (types.KeyProviderSettings, types.go:4995).
+type KeyProviderSettings struct {
+	StaticKeySettings *StaticKeySettings
+}
+
+// HlsGroupSettings configures an Apple HLS output group (types.
+// HlsGroupSettings, types.go:3643). The largest OutputGroupSettings
+// variant.
+type HlsGroupSettings struct {
+	Destination                *OutputLocationRef
+	HlsCdnSettings             *HlsCdnSettings
+	KeyProviderSettings        *KeyProviderSettings
+	IvInManifest               string
+	IFrameOnlyPlaylists        string
+	BaseURLContent             string
+	BaseURLContent1            string
+	BaseURLManifest            string
+	BaseURLManifest1           string
+	CaptionLanguageSetting     string
+	ClientCache                string
+	CodecSpecification         string
+	ConstantIv                 string
+	DirectoryStructure         string
+	DiscontinuityTags          string
+	EncryptionType             string
+	HlsID3SegmentTagging       string
+	KeyFormat                  string
+	IncompleteSegmentBehavior  string
+	InputLossAction            string
+	TSFileMode                 string
+	TimedMetadataID3Frame      string
+	IvSource                   string
+	ProgramDateTime            string
+	ManifestCompression        string
+	ManifestDurationFormat     string
+	Mode                       string
+	OutputSelection            string
+	KeyFormatVersions          string
+	ProgramDateTimeClock       string
+	RedundantManifest          string
+	SegmentationMode           string
+	StreamInfResolution        string
+	CaptionLanguageMappings    []CaptionLanguageMapping
+	AdMarkers                  []string
+	IndexNSegments             int32
+	KeepSegments               int32
+	MinSegmentLength           int32
+	ProgramDateTimePeriod      int32
+	SegmentLength              int32
+	SegmentsPerSubdirectory    int32
+	TimedMetadataID3Period     int32
+	TimestampDeltaMilliseconds int32
+}
+
+// MediaConnectRouterGroupSettings configures a MediaConnect Router output
+// group (types.MediaConnectRouterGroupSettings, types.go:5423). Wire key
+// "availabilityZones".
+type MediaConnectRouterGroupSettings struct {
+	AvailabilityZones []string
+}
+
+// MediaPackageV2GroupSettings configures MediaPackage V2 (CMAF Ingest)
+// output when the group destination specifies a channelGroup/channelName
+// (types.MediaPackageV2GroupSettings, types.go:5601).
+type MediaPackageV2GroupSettings struct {
+	ID3Behavior              string
+	KlvBehavior              string
+	NielsenID3Behavior       string
+	Scte35Type               string
+	SegmentLengthUnits       string
+	TimedMetadataID3Frame    string
+	TimedMetadataPassthrough string
+	AdditionalDestinations   []OutputAdditionalDestination
+	CaptionLanguageMappings  []CaptionLanguageMapping
+	SegmentLength            int32
+	TimedMetadataID3Period   int32
+}
+
+// MediaPackageGroupSettings configures a MediaPackage output group (types.
+// MediaPackageGroupSettings, types.go:5502). Wire keys "destination"/
+// "mediapackageV2GroupSettings".
+type MediaPackageGroupSettings struct {
+	Destination                 *OutputLocationRef
+	MediaPackageV2GroupSettings *MediaPackageV2GroupSettings
+}
+
+// MsSmoothGroupSettings configures an MS Smooth output group (types.
+// MsSmoothGroupSettings, types.go:5872).
+type MsSmoothGroupSettings struct {
+	Destination              *OutputLocationRef
+	AcquisitionPointID       string
+	AudioOnlyTimecodeControl string
+	CertificateMode          string
+	EventID                  string
+	EventIDMode              string
+	EventStopBehavior        string
+	InputLossAction          string
+	SegmentationMode         string
+	SparseTrackType          string
+	StreamManifestBehavior   string
+	TimestampOffset          string
+	TimestampOffsetMode      string
+	ConnectionRetryInterval  int32
+	FilecacheDuration        int32
+	FragmentLength           int32
+	NumRetries               int32
+	RestartDelay             int32
+	SendDelayMs              int32
+}
+
+// RtmpGroupSettings configures an RTMP output group (types.
+// RtmpGroupSettings, types.go:7192).
+type RtmpGroupSettings struct {
+	AuthenticationScheme  string
+	CacheFullBehavior     string
+	CaptionData           string
+	IncludeFillerNalUnits string
+	InputLossAction       string
+	AdMarkers             []string
+	CacheLength           int32
+	RestartDelay          int32
+}
+
+// SrtGroupSettings configures an SRT output group (types.SrtGroupSettings,
+// types.go:7933). Wire key "inputLossAction".
+type SrtGroupSettings struct {
+	InputLossAction string
+}
+
+// UDPGroupSettings configures a UDP output group (types.UDPGroupSettings,
+// types.go:8502). Wire keys "inputLossAction"/"timedMetadataId3Frame"/
+// "timedMetadataId3Period".
+type UDPGroupSettings struct {
+	InputLossAction        string
+	TimedMetadataID3Frame  string
+	TimedMetadataID3Period int32
+}
+
+// OutputGroupSettings is the tagged union of per-output-technology group
+// settings (types.OutputGroupSettings, types.go:6764); at most one variant
+// is set. All 11 variants are modeled in full. MultiplexGroupSettings
+// (types.MultiplexGroupSettings, types.go:6140) has no fields on the wire,
+// so a bool records "this variant is set" -- same convention used
+// throughout this file for empty-marker unions.
+type OutputGroupSettings struct {
+	ArchiveGroupSettings            *ArchiveGroupSettings
+	CmafIngestGroupSettings         *CmafIngestGroupSettings
+	FrameCaptureGroupSettings       *FrameCaptureGroupSettings
+	HlsGroupSettings                *HlsGroupSettings
+	MediaConnectRouterGroupSettings *MediaConnectRouterGroupSettings
+	MediaPackageGroupSettings       *MediaPackageGroupSettings
+	MsSmoothGroupSettings           *MsSmoothGroupSettings
+	RtmpGroupSettings               *RtmpGroupSettings
+	SrtGroupSettings                *SrtGroupSettings
+	UDPGroupSettings                *UDPGroupSettings
+	MultiplexGroupSettings          bool
+}
+
+func (s *OutputGroupSettings) hasOutputGroupSettings() bool {
+	return s != nil && (s.ArchiveGroupSettings != nil || s.CmafIngestGroupSettings != nil ||
+		s.FrameCaptureGroupSettings != nil || s.HlsGroupSettings != nil ||
+		s.MediaConnectRouterGroupSettings != nil || s.MediaPackageGroupSettings != nil ||
+		s.MsSmoothGroupSettings != nil || s.RtmpGroupSettings != nil ||
+		s.SrtGroupSettings != nil || s.UDPGroupSettings != nil || s.MultiplexGroupSettings)
+}
+
 // OutputGroup names one output group and its member Outputs. Wire keys
-// "name"/"outputs" -- verified against types.OutputGroup. OutputGroupSettings
-// (the ~13-variant per-technology union: Archive/CmafIngest/FrameCapture/Hls/
-// MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/
-// UdpGroupSettings, each itself dozens of fields) is deliberately NOT
-// modeled; see PARITY.md's gaps entry.
+// "name"/"outputGroupSettings"/"outputs" -- verified against types.
+// OutputGroup, types.go:6764.
 type OutputGroup struct {
-	Name    string
-	Outputs []EncoderOutput
+	OutputGroupSettings *OutputGroupSettings
+	Name                string
+	Outputs             []EncoderOutput
 }
 
 // EsamSettings configures ESAM ad-avail signaling to a POIS server. Wire
