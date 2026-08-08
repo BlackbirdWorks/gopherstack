@@ -66,7 +66,7 @@ type InMemoryBackend struct {
 	modelInvocationJobs         *store.Table[ModelInvocationJob]             // jobArn → job
 	promptRouters               *store.Table[PromptRouter]                   // routerArn → router
 	enforcedGuardrailConfigs    *store.Table[AccountEnforcedGuardrailConfig] // configID → config
-	arpAnnotations              map[string][]any                             // policyARN → annotations
+	arpAnnotations              map[string][]any                             // policyARN+":"+buildWorkflowID → annotations
 	useCaseFormData             []byte                                       // raw FormData for PutUseCaseForModelAccess
 	// parity-4 additions. resourcePolicies is shared by both the core
 	// bedrock and bedrock-agent flavors -- see resource_policy.go.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -416,16 +417,34 @@ func (b *InMemoryBackend) DeleteAutomatedReasoningPolicyTestCase(policyARN, test
 	return nil
 }
 
-// GetAutomatedReasoningPolicyAnnotations returns a placeholder annotations response.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(policyARN string) (map[string]any, error) {
+// mustGetARPBuildWorkflow errors unless buildWorkflowID exists and belongs to
+// policyARN. Caller must hold b.mu.
+func (b *InMemoryBackend) mustGetARPBuildWorkflow(policyARN, buildWorkflowID string) error {
+	wf, ok := b.arpBuildWorkflows.Get(buildWorkflowID)
+	if !ok || wf.PolicyArn != policyARN {
+		return fmt.Errorf("%w: build workflow %s not found", ErrNotFound, buildWorkflowID)
+	}
+
+	return nil
+}
+
+func arpAnnotationsKey(policyARN, buildWorkflowID string) string {
+	return policyARN + ":" + buildWorkflowID
+}
+
+// GetAutomatedReasoningPolicyAnnotations returns annotations for a build workflow
+// (bedrock@v1.66.4 serializers.go:3874 — build-workflow-scoped, not policy-scoped).
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(
+	policyARN, buildWorkflowID string,
+) (map[string]any, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyAnnotations")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
-		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return nil, err
 	}
 
-	anns := b.arpAnnotations[policyARN]
+	anns := b.arpAnnotations[arpAnnotationsKey(policyARN, buildWorkflowID)]
 	if anns == nil {
 		return map[string]any{"annotations": []any{}}, nil
 	}
@@ -433,33 +452,37 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyAnnotations(policyARN strin
 	return map[string]any{"annotations": anns}, nil
 }
 
-// UpdateAutomatedReasoningPolicyAnnotations stores annotations for a policy.
-func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(policyARN string) error {
+// UpdateAutomatedReasoningPolicyAnnotations stores annotations for a build workflow.
+func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyAnnotations(policyARN, buildWorkflowID string) error {
 	b.mu.Lock("UpdateAutomatedReasoningPolicyAnnotations")
 	defer b.mu.Unlock()
 
-	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
-		return fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return err
 	}
 
 	if b.arpAnnotations == nil {
 		b.arpAnnotations = make(map[string][]any)
 	}
 
-	if b.arpAnnotations[policyARN] == nil {
-		b.arpAnnotations[policyARN] = []any{}
+	key := arpAnnotationsKey(policyARN, buildWorkflowID)
+	if b.arpAnnotations[key] == nil {
+		b.arpAnnotations[key] = []any{}
 	}
 
 	return nil
 }
 
-// GetAutomatedReasoningPolicyNextScenario returns the next scenario for active-learning.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(policyARN string) (map[string]any, error) {
+// GetAutomatedReasoningPolicyNextScenario returns the next scenario for active-learning
+// (bedrock@v1.66.4 serializers.go:4122 — real segment is "scenarios", build-workflow-scoped).
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyNextScenario(
+	policyARN, buildWorkflowID string,
+) (map[string]any, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyNextScenario")
 	defer b.mu.RUnlock()
 
-	if _, ok := b.automatedReasoningPolicies.Get(policyARN); !ok {
-		return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, policyARN)
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return nil, err
 	}
 
 	return map[string]any{"scenario": nil, keyPolicyArn: policyARN}, nil
@@ -480,16 +503,38 @@ func (b *InMemoryBackend) GetAutomatedReasoningPolicyBuildWorkflowResultAssets(
 	return map[string]any{keyBuildWorkflowID: workflowID, "resultAssets": []any{}}, nil
 }
 
-// ExportAutomatedReasoningPolicyVersion exports a policy version definition.
-func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, version string) (map[string]any, error) {
+// splitVersionedARN splits a versioned ARN (policyARN + "/version/" + version,
+// the shape CreateAutomatedReasoningPolicyVersion builds) back into its parts.
+func splitVersionedARN(versionedARN string) (string, string, bool) {
+	idx := strings.LastIndex(versionedARN, "/version/")
+	if idx < 0 {
+		return "", "", false
+	}
+
+	return versionedARN[:idx], versionedARN[idx+len("/version/"):], true
+}
+
+// ExportAutomatedReasoningPolicyVersion exports a policy version definition. arnParam
+// may be a versioned ARN or the bare policy ARN (bedrock@v1.66.4 serializers.go:3603 —
+// no separate {version} path segment; the version, if any, is embedded in the ARN).
+func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(arnParam string) (map[string]any, error) {
 	b.mu.RLock("ExportAutomatedReasoningPolicyVersion")
 	defer b.mu.RUnlock()
 
-	key := policyARN + ":" + version
-	v, ok := b.arpVersions.Get(key)
-
+	base, version, ok := splitVersionedARN(arnParam)
 	if !ok {
-		return nil, fmt.Errorf("%w: version %s of policy %s not found", ErrNotFound, version, policyARN)
+		if _, exists := b.automatedReasoningPolicies.Get(arnParam); !exists {
+			return nil, fmt.Errorf("%w: automated reasoning policy %s not found", ErrNotFound, arnParam)
+		}
+		// Real AWS exports the working draft definition for a bare ARN; gopherstack
+		// does not track a separate draft policy definition, so only versioned
+		// exports (below) are supported.
+		return nil, fmt.Errorf("%w: policy %s has no exportable version", ErrNotFound, arnParam)
+	}
+
+	v, found := b.arpVersions.Get(base + ":" + version)
+	if !found {
+		return nil, fmt.Errorf("%w: version %s of policy %s not found", ErrNotFound, version, base)
 	}
 
 	return map[string]any{
@@ -500,46 +545,75 @@ func (b *InMemoryBackend) ExportAutomatedReasoningPolicyVersion(policyARN, versi
 	}, nil
 }
 
-// StartAutomatedReasoningPolicyTestWorkflow starts a test workflow for a test case.
+// StartAutomatedReasoningPolicyTestWorkflow starts a test workflow for a build workflow,
+// optionally scoped to testCaseIDs (bedrock@v1.66.4 serializers.go:8117 —
+// .../build-workflows/{id}/test-workflows, not per-test-case).
 func (b *InMemoryBackend) StartAutomatedReasoningPolicyTestWorkflow(
-	policyARN, testCaseID string,
+	policyARN, buildWorkflowID string,
+	testCaseIDs []string,
 ) (map[string]any, error) {
 	b.mu.Lock("StartAutomatedReasoningPolicyTestWorkflow")
 	defer b.mu.Unlock()
 
-	tc, ok := b.arpTestCases.Get(testCaseID)
-	if !ok || tc.PolicyArn != policyARN {
-		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return nil, err
 	}
 
-	return map[string]any{keyTestCaseID: testCaseID, keyPolicyArn: policyARN, keyStatus: statusRunning}, nil
+	for _, id := range testCaseIDs {
+		tc, ok := b.arpTestCases.Get(id)
+		if !ok || tc.PolicyArn != policyARN {
+			return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, id)
+		}
+	}
+
+	return map[string]any{keyPolicyArn: policyARN}, nil
 }
 
-// GetAutomatedReasoningPolicyTestResult returns the result for a test case execution.
-func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(policyARN, testCaseID string) (map[string]any, error) {
+// GetAutomatedReasoningPolicyTestResult returns the result for a test case execution
+// (bedrock@v1.66.4 serializers.go:4282 — build-workflow-scoped).
+func (b *InMemoryBackend) GetAutomatedReasoningPolicyTestResult(
+	policyARN, buildWorkflowID, testCaseID string,
+) (map[string]any, error) {
 	b.mu.RLock("GetAutomatedReasoningPolicyTestResult")
 	defer b.mu.RUnlock()
 
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return nil, err
+	}
+
 	tc, ok := b.arpTestCases.Get(testCaseID)
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
 
-	return map[string]any{keyTestCaseID: testCaseID, keyPolicyArn: policyARN, keyStatus: statusCompleted}, nil
+	return map[string]any{
+		keyTestCaseID:      testCaseID,
+		keyPolicyArn:       policyARN,
+		keyBuildWorkflowID: buildWorkflowID,
+		keyStatus:          statusCompleted,
+	}, nil
 }
 
-// ListAutomatedReasoningPolicyTestResults returns test results for a policy.
-func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN string) []map[string]any {
+// ListAutomatedReasoningPolicyTestResults returns test results for a build workflow
+// (bedrock@v1.66.4 serializers.go:5937 — build-workflow-scoped).
+func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(
+	policyARN, buildWorkflowID string,
+) ([]map[string]any, error) {
 	b.mu.RLock("ListAutomatedReasoningPolicyTestResults")
 	defer b.mu.RUnlock()
+
+	if err := b.mustGetARPBuildWorkflow(policyARN, buildWorkflowID); err != nil {
+		return nil, err
+	}
 
 	var results []map[string]any
 	for _, tc := range b.arpTestCases.All() {
 		if tc.PolicyArn == policyARN {
 			results = append(results, map[string]any{
-				keyTestCaseID: tc.TestCaseID,
-				keyPolicyArn:  policyARN,
-				keyStatus:     statusCompleted,
+				keyTestCaseID:      tc.TestCaseID,
+				keyPolicyArn:       policyARN,
+				keyBuildWorkflowID: buildWorkflowID,
+				keyStatus:          statusCompleted,
 			})
 		}
 	}
@@ -551,5 +625,5 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestResults(policyARN stri
 		return a < b
 	})
 
-	return results
+	return results, nil
 }

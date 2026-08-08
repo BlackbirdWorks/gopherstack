@@ -65,7 +65,7 @@ func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (b
 		return h.routeARPRoot(c, method, body)
 	}
 
-	if ok, err := h.routeARPBuildWorkflow(c, path, method); ok {
+	if ok, err := h.routeARPBuildWorkflow(c, path, method, body); ok {
 		return true, err
 	}
 
@@ -73,7 +73,7 @@ func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (b
 		return true, err
 	}
 
-	if ok, err := h.routeARPVersionAnnotation(c, path, method, body); ok {
+	if ok, err := h.routeARPVersionExport(c, path, method, body); ok {
 		return true, err
 	}
 
@@ -91,7 +91,43 @@ func (h *Handler) routeARPRoot(c *echo.Context, method string, body []byte) (boo
 	return false, nil
 }
 
-func (h *Handler) routeARPBuildWorkflow(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeARPBuildWorkflow(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if ok, err := h.routeARPBuildWorkflowSubResource(c, path, method, body); ok {
+		return true, err
+	}
+
+	return h.routeARPBuildWorkflowCore(c, path, method)
+}
+
+// routeARPBuildWorkflowSubResource handles the build-workflow-scoped sub-resources
+// (annotations, scenarios, test-results, test-workflows) that real AWS nests under
+// .../build-workflows/{buildWorkflowId}/... (bedrock@v1.66.4 serializers.go:3874,
+// :4122, :4282, :5937, :8117).
+func (h *Handler) routeARPBuildWorkflowSubResource(
+	c *echo.Context,
+	path, method string,
+	body []byte,
+) (bool, error) {
+	switch {
+	case isARPBuildWorkflowAnnotationsPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPAnnotations(c, path)
+	// UpdateAutomatedReasoningPolicyAnnotations uses PATCH in the real SDK, not PUT.
+	case isARPBuildWorkflowAnnotationsPath(path) && method == http.MethodPatch:
+		return true, h.handleUpdateARPAnnotations(c, path)
+	case isARPBuildWorkflowScenariosPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPNextScenario(c, path)
+	case isARPBuildWorkflowTestCaseResultPath(path) && method == http.MethodGet:
+		return true, h.handleGetARPTestResult(c, path)
+	case isARPBuildWorkflowTestResultsPath(path) && method == http.MethodGet:
+		return true, h.handleListARPTestResults(c, path)
+	case isARPBuildWorkflowTestWorkflowsPath(path) && method == http.MethodPost:
+		return true, h.handleStartARPTestWorkflow(c, path, body)
+	}
+
+	return false, nil
+}
+
+func (h *Handler) routeARPBuildWorkflowCore(c *echo.Context, path, method string) (bool, error) {
 	switch {
 	case isARPBuildWorkflowCancelPath(path) && method == http.MethodPost:
 		return true, h.handleCancelAutomatedReasoningPolicyBuildWorkflow(c, path)
@@ -129,14 +165,11 @@ func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string) (
 	return false, nil
 }
 
+// routeARPTestCaseItem handles the plain policy-scoped test-case CRUD paths
+// (.../test-cases/{testCaseId}, bedrock@v1.66.4 serializers.go:2595, :4202,
+// :8903) -- unaffected by the build-workflow rescoping above.
 func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
-	case isARPTestCasesResultsPath(path) && method == http.MethodGet:
-		return true, h.handleListARPTestResults(c, path)
-	case isARPTestCaseRunPath(path) && method == http.MethodPost:
-		return true, h.handleStartARPTestWorkflow(c, path)
-	case isARPTestCaseResultPath(path) && method == http.MethodGet:
-		return true, h.handleGetARPTestResult(c, path)
 	case isARPTestCaseSubPath(path) && method == http.MethodGet:
 		return true, h.handleGetARPTestCase(c, path)
 	// UpdateAutomatedReasoningPolicyTestCase uses PATCH in the real SDK, not PUT.
@@ -149,7 +182,7 @@ func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string, bod
 	return false, nil
 }
 
-func (h *Handler) routeARPVersionAnnotation(
+func (h *Handler) routeARPVersionExport(
 	c *echo.Context,
 	path, method string,
 	body []byte,
@@ -157,15 +190,10 @@ func (h *Handler) routeARPVersionAnnotation(
 	switch {
 	case isARPVersionsPath(path) && method == http.MethodPost:
 		return true, h.handleCreateAutomatedReasoningPolicyVersion(c, path, body)
-	case isARPVersionExportPath(path) && method == http.MethodPost:
+	// ExportAutomatedReasoningPolicyVersion uses GET in the real SDK, not POST
+	// (bedrock@v1.66.4 serializers.go:3603).
+	case isARPExportPath(path) && method == http.MethodGet:
 		return true, h.handleExportARPVersion(c, path)
-	case isARPAnnotationsPath(path) && method == http.MethodGet:
-		return true, h.handleGetARPAnnotations(c, path)
-	// UpdateAutomatedReasoningPolicyAnnotations uses PATCH in the real SDK, not PUT.
-	case isARPAnnotationsPath(path) && method == http.MethodPatch:
-		return true, h.handleUpdateARPAnnotations(c, path)
-	case isARPNextScenarioPath(path) && method == http.MethodGet:
-		return true, h.handleGetARPNextScenario(c, path)
 	}
 
 	return false, nil
@@ -358,18 +386,8 @@ func isARPBuildWorkflowResultAssetsPath(path string) bool {
 	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/result-assets")
 }
 
-// isARPTestCasesResultsPath matches /automated-reasoning-policies/{arn}/test-cases/results.
-func isARPTestCasesResultsPath(path string) bool {
-	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
-	if !ok {
-		return false
-	}
-
-	return strings.HasSuffix(rest, "/test-cases/results")
-}
-
 // isARPTestCaseSubPath matches /automated-reasoning-policies/{arn}/test-cases/{id}
-// but NOT /test-cases, /test-cases/results, /run, or /result sub-paths.
+// but NOT /test-cases or further nesting.
 func isARPTestCaseSubPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
@@ -381,59 +399,79 @@ func isARPTestCaseSubPath(path string) bool {
 		return false
 	}
 
-	segment := after
-	// Exclude known sub-paths: results (the collection), and further nesting.
-	return segment != "results" && !strings.Contains(segment, "/")
+	return !strings.Contains(after, "/")
 }
 
-// isARPTestCaseRunPath matches /automated-reasoning-policies/{arn}/test-cases/{id}/run.
-func isARPTestCaseRunPath(path string) bool {
+// isARPBuildWorkflowAnnotationsPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{id}/annotations.
+func isARPBuildWorkflowAnnotationsPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
 		return false
 	}
 
-	return strings.Contains(rest, "/test-cases/") && strings.HasSuffix(rest, "/run")
+	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/annotations")
 }
 
-// isARPTestCaseResultPath matches /automated-reasoning-policies/{arn}/test-cases/{id}/result.
-func isARPTestCaseResultPath(path string) bool {
+// isARPBuildWorkflowScenariosPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{id}/scenarios.
+func isARPBuildWorkflowScenariosPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
 		return false
 	}
 
-	return strings.Contains(rest, "/test-cases/") && strings.HasSuffix(rest, "/result")
+	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/scenarios")
 }
 
-// isARPVersionExportPath matches /automated-reasoning-policies/{arn}/versions/{v}/export.
-func isARPVersionExportPath(path string) bool {
+// isARPBuildWorkflowTestCaseResultPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{id}/test-cases/{testCaseId}/test-results.
+func isARPBuildWorkflowTestCaseResultPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
 		return false
 	}
 
-	return strings.Contains(rest, "/versions/") && strings.HasSuffix(rest, "/export")
+	return strings.Contains(rest, "/build-workflows/") &&
+		strings.Contains(rest, "/test-cases/") &&
+		strings.HasSuffix(rest, "/test-results")
 }
 
-// isARPAnnotationsPath matches /automated-reasoning-policies/{arn}/annotations.
-func isARPAnnotationsPath(path string) bool {
+// isARPBuildWorkflowTestResultsPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{id}/test-results (the list,
+// not the per-test-case isARPBuildWorkflowTestCaseResultPath above).
+func isARPBuildWorkflowTestResultsPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
 		return false
 	}
 
-	return strings.HasSuffix(rest, "/annotations")
+	return strings.Contains(rest, "/build-workflows/") &&
+		strings.HasSuffix(rest, "/test-results") &&
+		!strings.Contains(rest, "/test-cases/")
 }
 
-// isARPNextScenarioPath matches /automated-reasoning-policies/{arn}/next-scenario.
-func isARPNextScenarioPath(path string) bool {
+// isARPBuildWorkflowTestWorkflowsPath matches
+// /automated-reasoning-policies/{arn}/build-workflows/{id}/test-workflows.
+func isARPBuildWorkflowTestWorkflowsPath(path string) bool {
 	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 	if !ok {
 		return false
 	}
 
-	return strings.HasSuffix(rest, "/next-scenario")
+	return strings.Contains(rest, "/build-workflows/") && strings.HasSuffix(rest, "/test-workflows")
+}
+
+// isARPExportPath matches /automated-reasoning-policies/{policyArn}/export; policyArn
+// may itself embed a version segment (bedrock@v1.66.4 serializers.go:3603 -- there is
+// no separate {version} path segment).
+func isARPExportPath(path string) bool {
+	rest, ok := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+	if !ok {
+		return false
+	}
+
+	return strings.HasSuffix(rest, "/export")
 }
 
 // extractARPPolicyARN extracts the policyARN from a path that has a known suffix.
@@ -474,19 +512,29 @@ func extractARPTestCaseIDs(path string) (string, string) {
 	return policyARN, testCaseID
 }
 
-// extractARPVersionIDs extracts policyARN and version from a versions path.
-func extractARPVersionIDs(path string) (string, string) {
+// extractARPBuildWorkflowTestCaseIDs extracts policyARN, buildWorkflowID, and
+// testCaseID from a .../build-workflows/{id}/test-cases/{testCaseId}/test-results path.
+func extractARPBuildWorkflowTestCaseIDs(path string) (string, string, string) {
 	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
 
-	before, after, ok := strings.Cut(rest, "/versions/")
+	before, after, ok := strings.Cut(rest, "/build-workflows/")
 	if !ok {
-		return "", ""
+		return "", "", ""
 	}
 
-	policyARN := decodePath(before)
-	version, _, _ := strings.Cut(after, "/")
+	wfID, after2, ok := strings.Cut(after, "/test-cases/")
+	if !ok {
+		return "", "", ""
+	}
 
-	return policyARN, version
+	return decodePath(before), wfID, strings.TrimSuffix(after2, "/test-results")
+}
+
+// extractARPExportPolicyArn extracts the (possibly versioned) ARN from an export path.
+func extractARPExportPolicyArn(path string) string {
+	rest, _ := strings.CutPrefix(path, automatedReasoningPrefix+"/")
+
+	return decodePath(strings.TrimSuffix(rest, "/export"))
 }
 
 func (h *Handler) handleGetAutomatedReasoningPolicy(c *echo.Context, policyARN string) error {
@@ -698,21 +746,35 @@ func (h *Handler) handleDeleteARPTestCase(c *echo.Context, path string) error {
 	return c.NoContent(http.StatusNoContent)
 }
 
-func (h *Handler) handleStartARPTestWorkflow(c *echo.Context, path string) error {
-	policyARN, testCaseID := extractARPTestCaseIDs(path)
+type startARPTestWorkflowInput struct {
+	ClientRequestToken string   `json:"clientRequestToken,omitempty"`
+	TestCaseIDs        []string `json:"testCaseIds,omitempty"`
+}
 
-	result, err := h.Backend.StartAutomatedReasoningPolicyTestWorkflow(policyARN, testCaseID)
+// handleStartARPTestWorkflow starts a test workflow for a build workflow, optionally
+// scoped to a subset of test cases (bedrock@v1.66.4 serializers.go:8117 --
+// .../build-workflows/{id}/test-workflows takes testCaseIds in the body, not a
+// single test case in the path).
+func (h *Handler) handleStartARPTestWorkflow(c *echo.Context, path string, body []byte) error {
+	policyARN, workflowID := extractARPWorkflowIDs(path)
+
+	in, err := parseBody[startARPTestWorkflowInput](body)
 	if err != nil {
-		return h.writeError(c, err)
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	result, opErr := h.Backend.StartAutomatedReasoningPolicyTestWorkflow(policyARN, workflowID, in.TestCaseIDs)
+	if opErr != nil {
+		return h.writeError(c, opErr)
 	}
 
 	return c.JSON(http.StatusCreated, result)
 }
 
 func (h *Handler) handleGetARPTestResult(c *echo.Context, path string) error {
-	policyARN, testCaseID := extractARPTestCaseIDs(path)
+	policyARN, workflowID, testCaseID := extractARPBuildWorkflowTestCaseIDs(path)
 
-	result, err := h.Backend.GetAutomatedReasoningPolicyTestResult(policyARN, testCaseID)
+	result, err := h.Backend.GetAutomatedReasoningPolicyTestResult(policyARN, workflowID, testCaseID)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -721,8 +783,12 @@ func (h *Handler) handleGetARPTestResult(c *echo.Context, path string) error {
 }
 
 func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
-	policyARN := extractARPPolicyARN(path, "/test-cases/results")
-	results := h.Backend.ListAutomatedReasoningPolicyTestResults(policyARN)
+	policyARN, workflowID := extractARPWorkflowIDs(path)
+
+	results, err := h.Backend.ListAutomatedReasoningPolicyTestResults(policyARN, workflowID)
+	if err != nil {
+		return h.writeError(c, err)
+	}
 
 	if results == nil {
 		results = []map[string]any{}
@@ -732,9 +798,9 @@ func (h *Handler) handleListARPTestResults(c *echo.Context, path string) error {
 }
 
 func (h *Handler) handleExportARPVersion(c *echo.Context, path string) error {
-	policyARN, version := extractARPVersionIDs(path)
+	arnParam := extractARPExportPolicyArn(path)
 
-	result, err := h.Backend.ExportAutomatedReasoningPolicyVersion(policyARN, version)
+	result, err := h.Backend.ExportAutomatedReasoningPolicyVersion(arnParam)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -743,9 +809,9 @@ func (h *Handler) handleExportARPVersion(c *echo.Context, path string) error {
 }
 
 func (h *Handler) handleGetARPAnnotations(c *echo.Context, path string) error {
-	policyARN := extractARPPolicyARN(path, "/annotations")
+	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	result, err := h.Backend.GetAutomatedReasoningPolicyAnnotations(policyARN)
+	result, err := h.Backend.GetAutomatedReasoningPolicyAnnotations(policyARN, workflowID)
 	if err != nil {
 		return h.writeError(c, err)
 	}
@@ -754,9 +820,9 @@ func (h *Handler) handleGetARPAnnotations(c *echo.Context, path string) error {
 }
 
 func (h *Handler) handleUpdateARPAnnotations(c *echo.Context, path string) error {
-	policyARN := extractARPPolicyARN(path, "/annotations")
+	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	if err := h.Backend.UpdateAutomatedReasoningPolicyAnnotations(policyARN); err != nil {
+	if err := h.Backend.UpdateAutomatedReasoningPolicyAnnotations(policyARN, workflowID); err != nil {
 		return h.writeError(c, err)
 	}
 
@@ -764,9 +830,9 @@ func (h *Handler) handleUpdateARPAnnotations(c *echo.Context, path string) error
 }
 
 func (h *Handler) handleGetARPNextScenario(c *echo.Context, path string) error {
-	policyARN := extractARPPolicyARN(path, "/next-scenario")
+	policyARN, workflowID := extractARPWorkflowIDs(path)
 
-	result, err := h.Backend.GetAutomatedReasoningPolicyNextScenario(policyARN)
+	result, err := h.Backend.GetAutomatedReasoningPolicyNextScenario(policyARN, workflowID)
 	if err != nil {
 		return h.writeError(c, err)
 	}

@@ -198,7 +198,23 @@ gaps:
     against the pre-fix code (POST to the base path 404'd as a ValidationException,
     silently treated as an empty Ingest, never reaching List) before applying the fix.
     Restored overall: A-->A. (bd: file follow-up closed)"
-  - "AutomatedReasoningPolicy sub-resource path model: GetAutomatedReasoningPolicyAnnotations/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario, GetAutomatedReasoningPolicyTestResult/ListAutomatedReasoningPolicyTestResults, and ExportAutomatedReasoningPolicyVersion are all build-workflow-scoped in real AWS (e.g. real annotations path is /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/annotations) but gopherstack models them as policy-scoped only (no buildWorkflowId in the path/state at all — arpAnnotations is keyed solely by policyARN). isARPTestCaseRunPath (\"/test-cases/{id}/run\") and the policy-scoped \"/test-cases/{id}/result\"/\"/test-cases/results\" paths appear to be invented outright; real AWS has no per-test-case run endpoint (StartAutomatedReasoningPolicyTestWorkflow is build-workflow-scoped: POST .../build-workflows/{id}/test-workflows) and the real result paths are .../build-workflows/{id}/test-cases/{testCaseId}/test-results and .../build-workflows/{id}/test-results. ExportAutomatedReasoningPolicyVersion's real path takes ONLY {policyArn} (which may itself be a versioned ARN) at /automated-reasoning-policies/{policyArn}/export; gopherstack requires a separate /versions/{version}/export path shape that doesn't exist in the real API. This is a resource-model redesign (re-plumbing build-workflow-scoped storage for annotations/test-results), not a route fix — deliberately NOT attempted this pass; the 3 PUT->PATCH method-reachability bugs were fixed (see families.AutomatedReasoningPolicy) but the path-model issues remain. (bd: file follow-up)"
+  - "FIXED (gopherstack-7znk): AutomatedReasoningPolicy sub-resource path model —
+    Get/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario,
+    Get/ListAutomatedReasoningPolicyTestResult(s), and StartAutomatedReasoningPolicyTestWorkflow
+    are now build-workflow-scoped (.../build-workflows/{buildWorkflowId}/...), matching
+    bedrock@v1.66.4 serializers.go:3874/:4122/:4282/:5937/:8117; arpAnnotations is now
+    keyed by (policyARN, buildWorkflowID). ExportAutomatedReasoningPolicyVersion now
+    routes GET (not POST) at /automated-reasoning-policies/{policyArn}/export with no
+    separate {version} segment (serializers.go:3603) — a versioned export passes the
+    versioned ARN itself; an unversioned (draft) ARN 404s since gopherstack does not
+    track a separate draft policy definition to export. The two previously-invented
+    endpoints with no direct real-AWS path shape, isARPTestCaseRunPath
+    (\"/test-cases/{id}/run\") and \"/versions/{version}/export\", were corrected onto
+    their real counterparts (StartAutomatedReasoningPolicyTestWorkflow's real shape
+    takes an optional testCaseIds list in the body, not a single test case in the
+    path) rather than deleted, since both operations do exist in real AWS. All 6
+    re-verified individually against the pinned SDK per
+    .claude/memories/parity-principles.md #2 before changing routes. (bd: gopherstack-7znk closed)"
   - "UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)"
   - "ListCustomModels and ListModelCustomizationJobs: nextToken pagination only; real AWS supports nameContains/statusEquals-or-modelStatus/creationTime-range/sortBy/sortOrder filters on both (plus baseModelArnEquals/foundationModelArnEquals/isOwned on ListCustomModels specifically), all silently ignored. Same shape as AWS's minimum viable page-through, low risk, but worth aligning. (bd: file follow-up)"
   - "ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)"
