@@ -114,7 +114,11 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 	// Promote immediately when no Lambda invoker is wired (stub/direct-backend usage).
 	// When a Lambda ARN is set AND a Lambda invoker is configured, the handler or
 	// scheduler will call FinishRotation after invoking the four rotation steps.
-	if input.RotationLambdaARN == "" || b.lambdaInvoker == nil {
+	// Checked against secret.RotationLambdaARN (set above from input, or already
+	// stored from a prior EnableRotation/RotateSecret call), not input.RotationLambdaARN
+	// directly -- callers normally configure the ARN once and omit it on every
+	// subsequent RotateSecret call.
+	if secret.RotationLambdaARN == "" || b.lambdaInvoker == nil {
 		b.finishRotationLocked(region, secret, versionID)
 	}
 

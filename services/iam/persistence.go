@@ -45,14 +45,13 @@ type backendSnapshot struct {
 // Snapshot serialises the backend state to JSON.
 // It implements persistence.Persistable.
 func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
-	// Read comprehensive state before taking b.mu: comprehensiveBackend guards
-	// its own state with a separate mutex (c.mu), so reading it here — outside
-	// the b.mu critical section below — avoids establishing a new nested lock
-	// order between the two.
-	comp := b.comp().snapshot()
-
 	b.mu.RLock("Snapshot")
 	defer b.mu.RUnlock()
+
+	// comprehensiveBackend's fields are guarded by this same b.mu (see its doc
+	// comment in store.go), so reading it here gives Snapshot() one consistent
+	// point-in-time view across all backend state, not just the registry tables.
+	comp := b.comp().snapshot()
 
 	outboundFederationEnabled := b.outboundFederationEnabled
 
@@ -174,6 +173,15 @@ func (b *InMemoryBackend) restoreSnapshotLocked(ctx context.Context, snap *backe
 		b.outboundFederationEnabled = true
 	}
 
+	// comprehensiveBackend's fields are guarded by this same b.mu, so restoring
+	// them here keeps the whole backend's Restore atomic (see the matching note
+	// in Snapshot).
+	if snap.Comprehensive != nil {
+		b.comp().restore(*snap.Comprehensive)
+	} else {
+		b.comp().restore(comprehensiveSnapshot{})
+	}
+
 	return false, nil
 }
 
@@ -188,24 +196,9 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	normalizeSnapshot(&snap)
 
-	versionMismatch, restoreErr := b.restoreSnapshotLocked(ctx, &snap)
-	if restoreErr != nil {
-		return restoreErr
-	}
+	_, restoreErr := b.restoreSnapshotLocked(ctx, &snap)
 
-	if versionMismatch {
-		return nil
-	}
-
-	// Restore comprehensive state after releasing b.mu (see the matching note
-	// in Snapshot): comprehensiveBackend.restore takes c.mu independently.
-	if snap.Comprehensive != nil {
-		b.comp().restore(*snap.Comprehensive)
-	} else {
-		b.comp().restore(comprehensiveSnapshot{})
-	}
-
-	return nil
+	return restoreErr
 }
 
 // normalizeSnapshot ensures all map fields in snap are non-nil so callers

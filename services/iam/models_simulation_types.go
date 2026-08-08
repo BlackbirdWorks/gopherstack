@@ -142,6 +142,7 @@ type GetAccountAuthorizationDetailsResponse struct {
 
 // GetAccountAuthorizationDetailsResult contains all IAM entity details.
 type GetAccountAuthorizationDetailsResult struct {
+	Marker          string                   `xml:"Marker,omitempty"`
 	UserDetailList  []UserDetailXML          `xml:"UserDetailList>member"`
 	GroupDetailList []GroupDetailXML         `xml:"GroupDetailList>member"`
 	RoleDetailList  []RoleDetailXML          `xml:"RoleDetailList>member"`

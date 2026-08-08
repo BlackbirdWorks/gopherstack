@@ -2,8 +2,8 @@
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.45.21
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.0, aws-sdk-go-v2/service/schemas@v1.37.2]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
-last_audit_commit: PENDING (uncommitted at end of this sweep -- main thread fills in on commit)
-last_audit_date: 2026-07-23
+last_audit_commit: b72533e7a
+last_audit_date: 2026-08-07
 overall: A
 ops:
   CreateEventBus: {wire: ok, errors: ok, state: ok, persist: ok, note: "name length/prefix validation, 200-per-account custom-bus limit enforced across regions. FIXED this sweep: CreateEventBusOutput was missing Description (real AWS echoes it); LastModifiedTime now set at creation (was zero-valued, only set by UpdateEventBus)."}
@@ -71,7 +71,8 @@ families:
   event_pattern_matching: {status: ok, note: "Not re-read this sweep (pattern.go unchanged since the prior sweep's commit -- trusted per the re-audit protocol). Prior sweep's proof: read pattern.go (559 LOC) in full and cross-checked every documented AWS content-filter operator against matchSpecialMatcher/matchStringMatcher: exact-match arrays, prefix/suffix (incl. nested equals-ignore-case form), exists (incl. explicit JSON null counting as present), numeric (paired-operator ranges, all four comparators), anything-but (scalar/list/object forms incl. nested prefix/suffix/wildcard/equals-ignore-case/numeric), cidr, wildcard (iterative two-pointer glob, no recursion/ReDoS), equals-ignore-case, nested objects, $or (top-level and nested), and array-valued event fields (any-element-matches semantics). Covered by pattern_test.go (519 LOC) + pattern_validation_test.go (129 LOC)."}
   schema_registry_and_pipes: {status: ok, note: "CreateRegistry..GetCodeBindingSource and CreatePipe..UpdatePipe are separate control planes in real AWS (schemas/pipes SDK modules, not events). pkgs/sdkcheck's reverse-completeness check (gopherstack-vhw2) verified this sweep: all Pipe ops (CreatePipe/DeletePipe/DescribePipe/ListPipes/UpdatePipe) and all remaining Schema Registry ops (CreateRegistry..UpdateSchema, GetDiscoveredSchema, PutCodeBinding/DescribeCodeBinding/GetCodeBindingSource) are real pipes.Client/schemas.Client operations -- confirmed by name against both SDK modules at their pinned versions. sdk_completeness_test.go now checks each third of GetSupportedOperations() against the SDK client that actually owns it (eventbridge/pipes/schemas) instead of a single eventbridgesdk.Client, which is what let the two fabricated ops below hide as 'phantom' entries the reverse check couldn't previously distinguish from legitimate sibling-client ops. DescribeSchemaVersion and ListCodeBindings were NOT real (see ops above) and have been removed from GetSupportedOperations()."}
   archives_replays_connections_api_destinations_endpoints: {status: ok, note: "Previously 'deferred, spot-checked only'. Field-diffed this sweep against aws-sdk-go-v2/service/eventbridge's api_op_*.go Input/Output structs and types.go for Archive, Connection (+ ConnectionAuthResponseParameters/CreateConnectionAuthRequestParameters/UpdateConnectionAuthRequestParameters), ApiDestination, Endpoint (+ RoutingConfig/FailoverConfig/Primary/Secondary/EndpointEventBus), Replay, and ReplayDestination. Found and fixed real bugs: DescribeEndpoint/ListEndpoints and DescribeReplay/ListReplays response-side epoch-seconds bug, Replay missing Destination/Description, ReplayDestination missing FilterArns (an over-delivery correctness bug, not just a missing echo field), StartReplayInput request-side epoch-seconds bug. Connections and API destinations were already correct field-for-field (auth masking, all CRUD output shapes) except the KMS/private-API-connectivity extras noted per-op above and in items_still_open."}
-gaps: []
+gaps:
+  - "ECS delivery central wiring (bd gopherstack-ubum, service side FIXED this sweep, cli.go NOT touched -- out of services/eventbridge scope): delivery.go's ECSTaskRunner interface previously only passed (clusterARN, payload) to RunTask, so an ECS target delivery only ran the right task definition if the event Input/InputTransformer payload happened to carry a \"TaskDefinition\" key -- EcsParameters.TaskDefinitionArn/LaunchType/TaskCount/NetworkConfiguration set via PutTargets were validated and stored but never reached delivery. Fixed the service side with an optional-capability extension: new ECSTaskRunnerWithParams interface (RunTaskWithParams(ctx, clusterARN, *EcsParameters, payload)); deliverToECS type-asserts dt.ECS against it and prefers it when present, falling back to the base RunTask otherwise, so no existing ECSTaskRunner implementation breaks. Also found and fixed a real wire-shape gap while verifying against the pinned SDK: EcsParameters was missing the real TaskCount *int32 member (aws-sdk-go-v2/service/eventbridge/types@v1.48.4, wire key \"TaskCount\") entirely -- added. Central wiring still needed (cli.go, main-thread/future-session work): ebECSTaskRunnerAdapter in cli.go must grow a RunTaskWithParams method mapping EcsParameters onto ecsbackend.RunTaskInput (TaskDefinitionArn->TaskDefinition, LaunchType->LaunchType, TaskCount->Count, NetworkConfiguration->NetworkConfiguration, Group/PlatformVersion/PlacementConstraints/PlacementStrategy/CapacityProviderStrategy/Tags/EnableECSManagedTags/EnableExecuteCommand map 1:1 by name) for the fix to take effect end-to-end; until then, ECS delivery keeps using the legacy RunTask/payload-TaskDefinition-key path with unchanged behavior (no regression, just not yet wired to the new capability)."
 deferred:
   - "Schema registry (CreateRegistry..GetCodeBindingSource, 17 real ops -- see schema_registry_and_pipes) and Pipes (CreatePipe..UpdatePipe, 5 ops) -- these model separate AWS control planes (schemas/pipes SDK modules), not core EventBridge (events) ops; field-level wire/errors/state audit still not done this pass, only the SDK-completeness/naming check."
   - "PutPermission/RemovePermission/policy-statement JSON shape (EventBusPolicyStatement.Principal as `any` for both string and object-with-AWS-key forms) -- spot-checked only, not re-verified this sweep beyond the persistence fix."
@@ -79,6 +80,65 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 ---
 
 ## Notes
+
+### ECS delivery param threading (2026-08-07, bd gopherstack-ubum) -- service side fixed, cli.go wiring still needed
+
+`services/eventbridge/delivery.go`'s ECS target delivery (`deliverToECS`) called
+`ECSTaskRunner.RunTask(ctx, clusterARN, payload)` -- no path for the target's
+`EcsParameters` (`TaskDefinitionArn`, `LaunchType`, `TaskCount`,
+`NetworkConfiguration`, ...) to reach the ECS backend at all, even though
+`PutTargets` already validates and stores them (see "PutTargets silently
+dropped 8 of the SDK's target-type-specific parameter structs" below). In
+practice this meant an ECS delivery only ran the intended task definition if
+the delivered payload (post `Input`/`InputTransformer`) happened to contain a
+literal `"TaskDefinition"` JSON key -- the documented `EcsParameters` config
+was silently ignored.
+
+Fixed via an additive optional-capability interface (same pattern
+`services/sts`'s `AccountSettingsLookup` uses, and `services/iam`'s
+`GetOutboundWebIdentityFederationInfo` gate): `ECSTaskRunnerWithParams`
+extends `ECSTaskRunner` with
+`RunTaskWithParams(ctx, clusterARN string, params *EcsParameters, payload []byte) error`.
+`deliverToECS` type-asserts `dt.ECS` against it; if the concrete adapter
+implements it, its params-aware method is called with `target.EcsParameters`;
+otherwise the original `RunTask` still runs exactly as before. This keeps
+every existing `ECSTaskRunner` implementation (including `cli.go`'s
+`ebECSTaskRunnerAdapter` and every test double in
+`delivery_ecs_test.go`) compiling and working unchanged -- `go build ./...`
+stays green with zero other-service edits.
+
+While verifying `EcsParameters` field-by-field against the pinned
+`aws-sdk-go-v2/service/eventbridge/types@v1.48.4` (`types.go`), found it was
+also missing the real `TaskCount *int32` member (wire key `"TaskCount"`,
+confirmed in `serializers.go`/`deserializers.go`) -- added.
+
+**Central wiring NOT done here (`cli.go` is out of `services/eventbridge`
+scope):** `cli.go`'s `ebECSTaskRunnerAdapter` (the concrete type installed as
+`DeliveryTargets.ECS`) needs a new `RunTaskWithParams` method for the fix to
+take effect end-to-end. It should map `EcsParameters` onto
+`ecsbackend.RunTaskInput` by field name: `TaskDefinitionArn` ->
+`TaskDefinition`, `LaunchType` -> `LaunchType`, `TaskCount` -> `Count`,
+`NetworkConfiguration` -> `NetworkConfiguration` (distinct Go types in the two
+packages, but field-identical -- both are `{AwsvpcConfiguration: {Subnets,
+SecurityGroups, AssignPublicIP}}` -- so the adapter needs a small field-by-field
+struct conversion, not a direct assignment), plus `Group`, `PlatformVersion`,
+`PlacementConstraints`, `PlacementStrategy`, `CapacityProviderStrategy`,
+`Tags`, `EnableECSManagedTags`, `EnableExecuteCommand` (all present on both
+`eventbridge.EcsParameters` and `ecsbackend.RunTaskInput`/`Tag` with matching
+field names/shapes, same distinct-but-identical-shape caveat). `Cluster`
+continues to come from the existing
+`clusterARN` parameter, matching the current `RunTask` behavior. Until that
+method exists, ECS delivery keeps using the legacy
+`RunTask`/payload-`"TaskDefinition"`-key path -- no regression, just the new
+capability not yet reachable.
+
+Proven service-side by `TestDelivery_ECS_ParamsThreading` (a sink implementing
+`ECSTaskRunnerWithParams` receives the full `EcsParameters` set via
+`PutTargets`, including the newly-added `TaskCount` and nested
+`NetworkConfiguration`) and `TestDelivery_ECS_LegacySinkStillWorksWithoutParams`
+(a `RunTask`-only sink is still invoked, proving the optional-capability probe
+never regresses existing adapters). `go build ./...`, `go vet`, and
+`go test -race ./services/eventbridge/...` all clean.
 
 ### Reverse sdkcheck sweep (2026-07-31) -- 4 fabricated ops found and removed, multi-client check added
 

@@ -8,7 +8,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -97,7 +96,7 @@ type StorageBackend interface {
 	UpdateAssumeRolePolicy(roleName, policyDocument string) error
 
 	// Reporting and simulation
-	GetAccountAuthorizationDetails() AccountAuthorizationDetails
+	GetAccountAuthorizationDetails(marker string, maxItems int, filter []string) (AccountAuthorizationDetails, string)
 	SimulatePrincipalPolicy(
 		principalArn, callerArn, resourceOwner string,
 		resourcePolicyList, actionNames, resourceArns []string,
@@ -650,7 +649,7 @@ func (b *InMemoryBackend) Reset() {
 	b.sortedPolicyNames = nil
 	b.sortedGroupNames = nil
 	b.sortedIPNames = nil
-	b.ResetComprehensiveBackend()
+	b.resetComprehensiveLocked()
 }
 
 // Purge removes all resources older than the given cutoff time.
@@ -732,7 +731,11 @@ func pageFromSortedNames[T any](
 	return page.Page[T]{Data: data, Next: next}
 }
 
-// comprehensiveBackend stores SSH keys, MFA user links, access advisor jobs, and service-last-accessed data.
+// comprehensiveBackend stores SSH keys, MFA user links, access advisor jobs, and
+// service-last-accessed data. It has no lock of its own: all its fields are guarded
+// by the owning InMemoryBackend's coarse b.mu, same as every other backend map (see
+// the locking rule in .claude/memories/pkgs-catalog.md). Every method/field access
+// below must happen with b.mu held (read or write, as appropriate) by the caller.
 type comprehensiveBackend struct {
 	// SSH public keys: keyID → SSHPublicKey
 	sshPublicKeys map[string]SSHPublicKey
@@ -748,8 +751,6 @@ type comprehensiveBackend struct {
 
 	// Org access report jobs: jobID → creation time
 	orgReportJobs map[string]time.Time
-
-	mu sync.Mutex
 }
 
 func newComprehensiveBackend() *comprehensiveBackend {
@@ -775,13 +776,8 @@ type comprehensiveSnapshot struct {
 }
 
 // snapshot returns a deep copy of the comprehensive backend's state for
-// persistence. It locks only c.mu (never b.mu), so callers must invoke it
-// outside of any InMemoryBackend.mu critical section to avoid establishing a
-// new nested-lock order.
+// persistence. Caller must hold b.mu (read or write).
 func (c *comprehensiveBackend) snapshot() comprehensiveSnapshot {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	return comprehensiveSnapshot{
 		SSHPublicKeys:       maps.Clone(c.sshPublicKeys),
 		MFAUserLinks:        maps.Clone(c.mfaUserLinks),
@@ -791,13 +787,9 @@ func (c *comprehensiveBackend) snapshot() comprehensiveSnapshot {
 	}
 }
 
-// restore replaces the comprehensive backend's state from a snapshot. Like
-// snapshot, it locks only c.mu and must be called outside of any
-// InMemoryBackend.mu critical section.
+// restore replaces the comprehensive backend's state from a snapshot.
+// Caller must hold b.mu (write).
 func (c *comprehensiveBackend) restore(snap comprehensiveSnapshot) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.sshPublicKeys = snap.SSHPublicKeys
 	if c.sshPublicKeys == nil {
 		c.sshPublicKeys = make(map[string]SSHPublicKey)
@@ -826,21 +818,29 @@ func (c *comprehensiveBackend) restore(snap comprehensiveSnapshot) {
 
 // comp returns the comprehensiveBackend associated with this InMemoryBackend.
 // It is always non-nil because NewInMemoryBackendWithConfig initialises it in
-// the constructor, and it is never reassigned afterward (ResetComprehensiveBackend
-// clears its fields in place under c.mu rather than replacing the pointer). A
-// lazy nil-check-then-assign here would be a data race with no benefit, since
-// the field is already guaranteed non-nil for the object's entire lifetime.
+// the constructor, and it is never reassigned afterward (resetComprehensiveLocked
+// clears its fields in place rather than replacing the pointer). A lazy
+// nil-check-then-assign here would be a data race with no benefit, since the
+// field is already guaranteed non-nil for the object's entire lifetime.
+// Every field read/write on the returned value must happen with b.mu held.
 func (b *InMemoryBackend) comp() *comprehensiveBackend {
 	return b.comprehensive
 }
 
 // ResetComprehensiveBackend clears all comprehensive backend state.
-// Called from InMemoryBackend.Reset().
+// Exported for direct test use; Reset() calls resetComprehensiveLocked
+// instead since it already holds b.mu.
 func (b *InMemoryBackend) ResetComprehensiveBackend() {
-	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	b.mu.Lock("ResetComprehensiveBackend")
+	defer b.mu.Unlock()
 
+	b.resetComprehensiveLocked()
+}
+
+// resetComprehensiveLocked clears all comprehensive backend state.
+// Caller must hold b.mu (write).
+func (b *InMemoryBackend) resetComprehensiveLocked() {
+	c := b.comp()
 	c.sshPublicKeys = make(map[string]SSHPublicKey)
 	c.mfaUserLinks = make(map[string]string)
 	c.accessAdvisorJobs = make(map[string]*accessAdvisorJob)

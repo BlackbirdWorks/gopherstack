@@ -272,6 +272,70 @@ func TestRotateSecret_WithLambda(t *testing.T) {
 	}
 }
 
+// TestRotateSecret_OmittedARNUsesStoredLambda verifies that once a rotation
+// Lambda ARN is configured on a secret, a later RotateSecret call that omits
+// RotationLambdaARN (the normal case -- real callers configure it once, not
+// on every call) still invokes that Lambda rather than silently promoting
+// straight to AWSCURRENT.
+func TestRotateSecret_OmittedARNUsesStoredLambda(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+
+	backend := secretsmanager.NewInMemoryBackend()
+	h := secretsmanager.NewHandler(backend)
+
+	mock := &mockLambdaInvoker{}
+	h.SetLambdaInvoker(mock)
+
+	_, err := backend.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "omitted-arn-secret",
+		SecretString: "initial-value",
+	})
+	require.NoError(t, err)
+
+	const lambdaRotateARN = "arn:aws:lambda:us-east-1:000000000000:function:my-rotator"
+
+	firstBody := fmt.Sprintf(
+		`{"SecretId":"omitted-arn-secret","RotationLambdaARN":%q}`,
+		lambdaRotateARN,
+	)
+	firstReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(firstBody))
+	firstReq.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	firstRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(firstReq, firstRec)))
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	require.Len(t, mock.calls, 4)
+
+	mock.calls = nil
+
+	secondBody := `{"SecretId":"omitted-arn-secret"}`
+	secondReq := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(secondBody))
+	secondReq.Header.Set("X-Amz-Target", "secretsmanager.RotateSecret")
+	secondRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(secondReq, secondRec)))
+	assert.Equal(t, http.StatusOK, secondRec.Code)
+
+	require.Len(t, mock.calls, 4)
+
+	steps := []string{"createSecret", "setSecret", "testSecret", "finishSecret"}
+	for i, call := range mock.calls {
+		assert.Equal(t, "my-rotator", call.name)
+		assert.Equal(t, steps[i], func() string {
+			var event map[string]string
+			require.NoError(t, json.Unmarshal(call.payload, &event))
+
+			return event["Step"]
+		}())
+	}
+
+	desc, err := backend.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{
+		SecretID: "omitted-arn-secret",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, lambdaRotateARN, desc.RotationLambdaARN)
+}
+
 // TestRotateSecret_RotateImmediatelyFalseWithLambdaRunsTestSecretProbe verifies the
 // gopherstack-avt gap: when RotateSecret is called with RotateImmediately=false and a
 // rotation Lambda is configured, AWS runs ONLY the Lambda's testSecret step against a
