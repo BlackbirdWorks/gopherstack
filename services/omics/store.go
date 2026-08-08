@@ -3,6 +3,7 @@ package omics
 import (
 	"context"
 	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -44,6 +45,11 @@ const (
 
 	maxPageSize = 100
 	maxTags     = 200
+
+	// keyContentLength is the real FileInformation JSON key (omics@v1.49.5
+	// deserializers.go:22978) shared by ReferenceMetadata.Files and
+	// ReadSetMetadata.Files.
+	keyContentLength = "contentLength"
 
 	stubTaskCPUs   = 2
 	stubTaskMemory = 4096
@@ -275,6 +281,47 @@ func importJobMatchesFilter(status, storeName string, filter *ImportJobFilter, i
 
 	return (filter.Status == "" || status == filter.Status) &&
 		(filter.StoreName == "" || storeName == filter.StoreName)
+}
+
+// storeMatchesFilter reports whether an annotation/variant store or
+// annotation store version satisfies the shared StoreStatusFilter (status
+// only) and, if idSet is non-nil, that its id is a member of the explicit
+// "ids" list -- mirrors real ListAnnotationStores/ListVariantStores/
+// ListAnnotationStoreVersions body semantics.
+func storeMatchesFilter(status, id string, filter *StoreStatusFilter, idSet map[string]bool) bool {
+	if idSet != nil && !idSet[id] {
+		return false
+	}
+
+	if filter == nil {
+		return true
+	}
+
+	return filter.Status == "" || status == filter.Status
+}
+
+// shareMatchesFilter reports whether a share satisfies the ListShares body
+// "filter" (real AWS types.Filter: resourceArns/status/type are each an "any
+// of" list -- an empty list means the caller applied no constraint on that
+// field).
+func shareMatchesFilter(resourceARN, status, resourceType string, filter *ShareFilter) bool {
+	if filter == nil {
+		return true
+	}
+
+	if len(filter.ResourceArns) > 0 && !slices.Contains(filter.ResourceArns, resourceARN) {
+		return false
+	}
+
+	if len(filter.Status) > 0 && !slices.Contains(filter.Status, status) {
+		return false
+	}
+
+	if len(filter.Type) > 0 && !slices.Contains(filter.Type, resourceType) {
+		return false
+	}
+
+	return true
 }
 
 func paginateStrings(ids []string, nextToken string, maxResults int) ([]string, string) {

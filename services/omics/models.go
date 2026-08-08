@@ -25,6 +25,7 @@ type ReferenceStoreFilter struct {
 type ReferenceMetadata struct {
 	CreationTime     time.Time         `json:"creationTime"`
 	UpdateTime       time.Time         `json:"updateTime"`
+	Files            map[string]any    `json:"files,omitempty"`
 	Tags             map[string]string `json:"tags"`
 	Arn              string            `json:"arn"`
 	ID               string            `json:"id"`
@@ -331,6 +332,14 @@ type WorkflowVersion struct {
 	pollCount    int               // tracks CREATING→ACTIVE progression; not serialized
 }
 
+// StoreStatusFilter is filter criteria shared by ListAnnotationStores,
+// ListVariantStores, and ListAnnotationStoreVersions (status only; real AWS
+// ListAnnotationStoresFilter/ListVariantStoresFilter/
+// ListAnnotationStoreVersionsFilter, omics@v1.49.5 types/types.go:987,1018,997).
+type StoreStatusFilter struct {
+	Status string
+}
+
 // AnnotationStore represents an HealthOmics annotation store.
 type AnnotationStore struct {
 	CreationTime time.Time         `json:"creationTime"`
@@ -419,6 +428,15 @@ type VariantImportJob struct {
 	RoleARN         string              `json:"roleArn"`
 	Status          string              `json:"status"`
 	Items           []VariantImportItem `json:"items"`
+}
+
+// ShareFilter is filter criteria for ListShares (real AWS types.Filter,
+// omics@v1.49.5 types/types.go:678: resourceArns/status/type are each an
+// "any of" list).
+type ShareFilter struct {
+	ResourceArns []string
+	Status       []string
+	Type         []string
 }
 
 // Share represents an HealthOmics resource share.

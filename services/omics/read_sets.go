@@ -285,6 +285,14 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 	// Create read set entries for each source
 	for _, src := range sources {
 		rsID := newID()
+		// Files reflects the empty body this backend actually stores for imported
+		// read sets (real AWS reads the S3 source files, which this emulator has no
+		// way to do; real omics@v1.49.5 FileInformation has no required members).
+		files := map[string]any{"source1": map[string]any{keyContentLength: int64(0)}}
+		if src.SourceFiles.Source2 != "" {
+			files["source2"] = map[string]any{keyContentLength: int64(0)}
+		}
+
 		rs := &ReadSetMetadata{
 			ID:              rsID,
 			SequenceStoreID: sequenceStoreID,
@@ -302,6 +310,7 @@ func (b *InMemoryBackend) StartReadSetImportJob(
 			ReferenceARN: src.ReferenceARN,
 			Status:       statusActive,
 			CreationTime: time.Now().UTC(),
+			Files:        files,
 		}
 		b.readSets.Put(rs)
 	}
@@ -436,6 +445,46 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 	}
 
 	rsID := newID()
+
+	// Concatenate stored part bytes (SOURCE1 then SOURCE2, in part-number order) as the
+	// read set body, and derive Files.source1/source2 from the same real, uploaded
+	// part data (contentLength/totalParts are genuine here, unlike the import-job
+	// path, which never receives real S3 bytes).
+	partData := b.uploadPartData[sequenceStoreID][uploadID]
+	files := make(map[string]any, len(partData))
+	var combined []byte
+
+	sourceKeys := []struct{ srcKey, jsonKey string }{
+		{"SOURCE1", "source1"},
+		{"SOURCE2", "source2"},
+	}
+
+	for _, sk := range sourceKeys {
+		srcKey, jsonKey := sk.srcKey, sk.jsonKey
+		srcParts := partData[srcKey]
+		if len(srcParts) == 0 {
+			continue
+		}
+
+		partNums := make([]int, 0, len(srcParts))
+		for n := range srcParts {
+			partNums = append(partNums, n)
+		}
+
+		sort.Ints(partNums)
+
+		var contentLength int64
+		for _, n := range partNums {
+			combined = append(combined, srcParts[n]...)
+			contentLength += int64(len(srcParts[n]))
+		}
+
+		files[jsonKey] = map[string]any{
+			keyContentLength: contentLength,
+			"totalParts":     len(srcParts),
+		}
+	}
+
 	rs := &ReadSetMetadata{
 		ID:              rsID,
 		SequenceStoreID: sequenceStoreID,
@@ -454,23 +503,9 @@ func (b *InMemoryBackend) CompleteMultipartReadSetUpload(
 		Status:       statusActive,
 		CreationTime: time.Now().UTC(),
 		Tags:         maps.Clone(upload.Tags),
+		Files:        files,
 	}
 	b.readSets.Put(rs)
-
-	// Concatenate stored part bytes (SOURCE1 then SOURCE2, in part-number order) as the read set body.
-	partData := b.uploadPartData[sequenceStoreID][uploadID]
-	var combined []byte
-	for _, src := range []string{"SOURCE1", "SOURCE2"} {
-		srcParts := partData[src]
-		partNums := make([]int, 0, len(srcParts))
-		for n := range srcParts {
-			partNums = append(partNums, n)
-		}
-		sort.Ints(partNums)
-		for _, n := range partNums {
-			combined = append(combined, srcParts[n]...)
-		}
-	}
 	b.readSetBytes[sequenceStoreID][rsID] = combined
 
 	b.multipartUploads.Delete(parentKey(sequenceStoreID, uploadID))
