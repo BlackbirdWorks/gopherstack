@@ -19,7 +19,8 @@ var (
 
 // scheduleExpression represents a parsed schedule expression.
 type scheduleExpression interface {
-	// NextAfter returns the next fire time at or after t.
+	// NextAfter returns the next fire time at or after t, or the zero Time
+	// if the expression has no match at or after t.
 	NextAfter(t time.Time) time.Time
 }
 
@@ -149,7 +150,9 @@ func parseCron(expr string) (*cronExpression, error) {
 	}, nil
 }
 
-// NextAfter returns the next time at or after t that matches the cron expression.
+// NextAfter returns the next time at or after t that matches the cron expression,
+// or the zero Time if nothing matches within the scan window (callers must check
+// IsZero() rather than treat it as a real fire time).
 // Implementation is a simple minute-resolution forward scan (max 2 years ahead).
 func (c *cronExpression) NextAfter(t time.Time) time.Time {
 	// Start from the next minute.
@@ -165,8 +168,7 @@ func (c *cronExpression) NextAfter(t time.Time) time.Time {
 		candidate = candidate.Add(time.Minute)
 	}
 
-	// Fallback: return a far-future time.
-	return limit
+	return time.Time{}
 }
 
 // cronFieldKind identifies which of the six cron fields a token belongs to,
@@ -320,10 +322,12 @@ func matchCronField(kind cronFieldKind, field string, val, fieldMin, fieldMax in
 // matchCronToken checks whether a single cron token (range, step, or exact) matches val.
 func matchCronToken(kind cronFieldKind, token string, val, fieldMin, fieldMax int) bool {
 	switch {
+	case strings.Contains(token, "/"):
+		// Checked before "-": a step's start may itself be a range (e.g.
+		// "0-30/10"), which must not be misrouted to matchCronRange.
+		return matchCronStep(kind, token, val, fieldMin, fieldMax)
 	case strings.Contains(token, "-"):
 		return matchCronRange(kind, token, val)
-	case strings.Contains(token, "/"):
-		return matchCronStep(kind, token, val, fieldMin, fieldMax)
 	default:
 		n, ok := cronTokenValue(kind, token)
 
@@ -331,10 +335,16 @@ func matchCronToken(kind cronFieldKind, token string, val, fieldMin, fieldMax in
 	}
 }
 
+const cronRangeParts = 2
+
 // matchCronRange returns true if val falls within the range "lo-hi" (numeric
 // or three-letter names, e.g. "MON-FRI" or "JAN-DEC").
 func matchCronRange(kind cronFieldKind, token string, val int) bool {
-	parts := strings.SplitN(token, "-", rateExpressionFields)
+	parts := strings.SplitN(token, "-", cronRangeParts)
+	if len(parts) != cronRangeParts {
+		return false
+	}
+
 	lo, ok1 := cronTokenValue(kind, parts[0])
 	hi, ok2 := cronTokenValue(kind, parts[1])
 
@@ -351,30 +361,51 @@ func matchCronRange(kind cronFieldKind, token string, val int) bool {
 	return val >= lo && val <= hi
 }
 
-// matchCronStep returns true if val matches a step pattern like "*/step" or "start/step".
+// matchCronStep returns true if val matches a step pattern like "*/N", "5/N", or "0-30/N".
 func matchCronStep(kind cronFieldKind, token string, val, fieldMin, fieldMax int) bool {
-	parts := strings.SplitN(token, "/", rateExpressionFields)
-	step, err := strconv.Atoi(parts[1])
+	parts := strings.SplitN(token, "/", cronRangeParts)
+	if len(parts) != cronRangeParts {
+		return false
+	}
 
+	step, err := strconv.Atoi(parts[1])
 	if err != nil || step <= 0 {
 		return false
 	}
 
-	start := fieldMin
-	if parts[0] != "*" {
-		n, ok := cronTokenValue(kind, parts[0])
-		if !ok {
-			return false
-		}
-
-		start = n
+	start, end, ok := cronStepBounds(kind, parts[0], fieldMin, fieldMax)
+	if !ok {
+		return false
 	}
 
-	for v := start; v <= fieldMax; v += step {
+	for v := start; v <= end; v += step {
 		if v == val {
 			return true
 		}
 	}
 
 	return false
+}
+
+// cronStepBounds resolves the "start" portion of a step token ("*/N",
+// "5/N", or a range "0-30/N") into the [start, end] the step iterates over.
+func cronStepBounds(kind cronFieldKind, start string, fieldMin, fieldMax int) (int, int, bool) {
+	switch {
+	case start == "*":
+		return fieldMin, fieldMax, true
+	case strings.Contains(start, "-"):
+		parts := strings.SplitN(start, "-", cronRangeParts)
+		if len(parts) != cronRangeParts {
+			return 0, 0, false
+		}
+
+		lo, ok1 := cronTokenValue(kind, parts[0])
+		hi, ok2 := cronTokenValue(kind, parts[1])
+
+		return lo, hi, ok1 && ok2
+	default:
+		n, ok := cronTokenValue(kind, start)
+
+		return n, fieldMax, ok
+	}
 }
