@@ -14,7 +14,7 @@
 
 ### Known gaps
 
-- Map Distributed Map ResultWriter (S3 write-out) not implemented -- needs new S3Writer integration wired from cli.go (bd: gopherstack-8j8)
+- Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records omit ExecutionArn/Name/StartDate/StopDate since gopherstack Map iterations aren't backed by real child executions (bd: gopherstack-8j8, implemented this pass -- see asl_map_and_distributed_map notes)
 - Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)
 - StartExecution has no ClientRequestToken idempotency; EXPRESS's immediate-name-reuse semantics (vs STANDARD's reuse restriction) are not modeled (bd: gopherstack-1sf)
 - TaskScheduledEventDetails/TaskSucceededEventDetails still omit resourceType/region/parameters/timeoutInSeconds/heartbeatInSeconds/outputDetails.truncated; no TaskSubmitted/TaskStarted history events for .sync/.waitForTaskToken (bd: gopherstack-996)

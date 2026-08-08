@@ -4412,6 +4412,7 @@ func wireStepFunctionsServiceIntegrations(
 
 	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
 		sfnBk.SetS3Reader(sfnbackend.NewS3Integration(s3H.Backend))
+		sfnBk.SetS3ResultWriter(sfnbackend.NewS3ResultWriterIntegration(s3H.Backend))
 	}
 }
 

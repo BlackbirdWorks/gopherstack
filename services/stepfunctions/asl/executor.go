@@ -110,6 +110,11 @@ type S3Reader interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
+// S3Writer writes objects to S3 for a Distributed Map state's ResultWriter.
+type S3Writer interface {
+	PutObjectBytes(ctx context.Context, bucket, key string, data []byte) error
+}
+
 // SQSIntegration handles Step Functions SQS service integration.
 type SQSIntegration interface {
 	SFNSendMessage(
@@ -177,7 +182,10 @@ type HistoryRecorder interface {
 // Implement this to track Map state execution in a backend.
 type MapRunNotifier interface {
 	OnMapRunStart(executionARN, stateName string, maxConcurrency, itemCount int) string
-	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int)
+	// resultsWritten is the count of items whose result was actually written
+	// by a ResultWriter (0 when ResultWriter isn't configured), matching
+	// DescribeMapRun's ItemCounts.ResultsWritten semantics.
+	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total, resultsWritten int)
 }
 
 // ExecutionResult holds the final output and status of a state machine execution.
@@ -268,6 +276,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 // Executor runs an ASL state machine.
 type Executor struct {
 	s3             S3Reader
+	s3w            S3Writer
 	callback       TaskTokenCallbackInvoker
 	sqs            SQSIntegration
 	sns            SNSIntegration
@@ -342,6 +351,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		activity:       e.activity,
 		callback:       e.callback,
 		s3:             e.s3,
+		s3w:            e.s3w,
 		execSem:        e.execSem,
 		jsonPathCache:  e.jsonPathCache,
 		execMeta:       e.execMeta,
@@ -434,6 +444,9 @@ func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb 
 
 // SetS3Reader configures the S3 reader for Map state ItemReader.
 func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
+
+// SetS3ResultWriter configures the S3 writer for Distributed Map ResultWriter.
+func (e *Executor) SetS3ResultWriter(w S3Writer) { e.s3w = w }
 
 // SetActivityInvoker configures the activity invoker for activity Task states.
 func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
@@ -1634,6 +1647,11 @@ func (e *Executor) runMapItemsAndFinalize(
 
 	out, finalErr := e.finalizeMap(ctx, state, mapInput, results, errs)
 
+	resultsWritten := 0
+	if finalErr == nil && state.ResultWriter != nil {
+		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, mapRunARN, items, results, errs)
+	}
+
 	if e.mapRunNotifier != nil && mapRunARN != "" {
 		succeeded, failed := countMapResults(errs)
 		status := "SUCCEEDED"
@@ -1642,7 +1660,7 @@ func (e *Executor) runMapItemsAndFinalize(
 			status = "FAILED"
 		}
 
-		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items))
+		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items), resultsWritten)
 	}
 
 	return out, finalErr

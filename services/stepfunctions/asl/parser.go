@@ -45,12 +45,32 @@ type ReaderConfig struct {
 	MaxItems          int      `json:"MaxItems,omitempty"`
 }
 
+// ResultWriter configures exporting a Distributed Map state's per-item
+// results to S3 instead of returning them inline as the state's output
+// (AWS docs: input-output-resultwriter.html). Only the Resource+Parameters
+// (S3 export) combination is applied; WriterConfig is parsed but not
+// honored -- see Executor.exportMapResults.
+type ResultWriter struct {
+	Parameters   map[string]any      `json:"Parameters,omitempty"`
+	WriterConfig *ResultWriterConfig `json:"WriterConfig,omitempty"`
+	Resource     string              `json:"Resource,omitempty"`
+}
+
+// ResultWriterConfig is ResultWriter.WriterConfig: Transformation
+// ("NONE"|"COMPACT"|"FLATTEN") and OutputType ("JSON"|"JSONL"). Parsed for
+// forward compatibility but not currently applied.
+type ResultWriterConfig struct {
+	Transformation string `json:"Transformation,omitempty"`
+	OutputType     string `json:"OutputType,omitempty"`
+}
+
 // State represents a single state in the state machine.
 type State struct {
 	Iterator      *StateMachine   `json:"Iterator,omitempty"`
 	ItemProcessor *StateMachine   `json:"ItemProcessor,omitempty"`
 	ItemBatcher   *ItemBatcher    `json:"ItemBatcher,omitempty"`
 	ItemReader    *ItemReader     `json:"ItemReader,omitempty"`
+	ResultWriter  *ResultWriter   `json:"ResultWriter,omitempty"`
 	ItemSelector  json.RawMessage `json:"ItemSelector,omitempty"`
 	SecondsPath   string          `json:"SecondsPath,omitempty"`
 	TimestampPath string          `json:"TimestampPath,omitempty"`
