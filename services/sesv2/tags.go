@@ -6,13 +6,27 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
+	b.putResourceTagsLocked(arn, tags)
+
+	return nil
+}
+
+// putResourceTagsLocked merges tags into the shared resourceTags store so
+// ListTagsForResource sees them. Every Create* op that accepts inline tags
+// must call this at creation time -- storing tags only on the resource's own
+// domain struct (as CreateTenant/CreateEmailIdentity used to) left
+// ListTagsForResource and cross-service GetResources blind to creation-time
+// tags. Caller must hold b.mu.
+func (b *InMemoryBackend) putResourceTagsLocked(arn string, tags map[string]string) {
+	if len(tags) == 0 {
+		return
+	}
+
 	if b.resourceTags[arn] == nil {
 		b.resourceTags[arn] = make(map[string]string)
 	}
 
 	maps.Copy(b.resourceTags[arn], tags)
-
-	return nil
 }
 
 func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
