@@ -62,6 +62,16 @@ leaks: {status: clean, note: "No goroutines, timers, or background schedulers in
 
 ## Notes
 
+**Registration (2026-08-08, gopherstack-91e0)**: this package had no `Provider{}`
+entry in `cli.go`'s `getServiceProviders` chain from 2026-06-03 (an accidental
+drop during an unrelated FSx-service PR's rebase-conflict resolution, per git
+history) until this pass. Every audit above, including the grade below, was
+performed against code that could not actually receive a request. Now
+registered and wired into `wireResourceGroupsTagging`
+(`wireTaggingOpsWorks`); `cli_service_registration_test.go` (repo root) now
+fails the build if a `services/*/` directory ever again lacks a provider
+entry.
+
 **Protocol**: awsjson1.1 (`application/x-amz-json-1.1`), single POST endpoint,
 `X-Amz-Target: OpsWorks_20130218.<Op>` dispatch. Route matcher
 (`RouteMatcher`) checks the target-prefix only; `ExtractOperation` trims the

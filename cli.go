@@ -176,6 +176,7 @@ import (
 	networkmonitorbackend "github.com/blackbirdworks/gopherstack/services/networkmonitor"
 	omicsbackend "github.com/blackbirdworks/gopherstack/services/omics"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	opsworksbackend "github.com/blackbirdworks/gopherstack/services/opsworks"
 	organizationsbackend "github.com/blackbirdworks/gopherstack/services/organizations"
 	outpostsbackend "github.com/blackbirdworks/gopherstack/services/outposts"
 	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
@@ -3477,6 +3478,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&appstreambackend.Provider{},
 		&detectivebackend.Provider{},
 		&datasyncbackend.Provider{},
+		&opsworksbackend.Provider{},
 		&dlmbackend.Provider{},
 		&fsxbackend.Provider{},
 		&daxbackend.Provider{},
@@ -5671,8 +5673,8 @@ func registerTaggingService(
 // service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
 // UntagResources work cross-service.
 //
-// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 69 (dynamodb, sqs,
+// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0):
+// of the ~90 gopherstack services with native tagging support, this wires 70 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
@@ -5681,17 +5683,13 @@ func registerTaggingService(
 // servicediscovery, memorydb, accessanalyzer, dlm, ce, mediapackage, swf, fis,
 // codeconnections, mediastore, mwaa, pipes, macie2, managedblockchain, mediaconvert,
 // datasync, codedeploy, inspector2, ram, rekognition, translate, appstream,
-// mediatailor, vpclattice, codepipeline, kinesisanalyticsv2). The rest remain
+// mediatailor, vpclattice, codepipeline, kinesisanalyticsv2, opsworks). The rest remain
 // unwired -- see PARITY.md's gaps section for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
 // CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
-// bodies) need more than this dispatch shape supports today. opsworks has native
-// tagging support but is never registered as a running service in this file's
-// getServiceProviders chain at all (no Provider{} entry, unlike every other
-// candidate here), so it is out of scope for this tagging-wiring issue until that
-// separate gap is closed.
+// bodies) need more than this dispatch shape supports today.
 //
 // byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
 // rather than one parameter per service: the wired-service count keeps growing, and a
@@ -5836,7 +5834,8 @@ func wireResourceGroupsTaggingApps(
 
 // wireResourceGroupsTaggingExtra wires this sweep's services (gopherstack-3xne,
 // fourth pass): RAM, Rekognition, Translate, AppStream, MediaTailor,
-// VPCLattice, CodePipeline, KinesisAnalyticsV2. Split out (rather than folded
+// VPCLattice, CodePipeline, KinesisAnalyticsV2, plus OpsWorks (gopherstack-91e0,
+// once it was registered as a running service). Split out (rather than folded
 // into wireResourceGroupsTaggingApps) to keep every group under this repo's
 // funlen limit.
 func wireResourceGroupsTaggingExtra(
@@ -5851,6 +5850,7 @@ func wireResourceGroupsTaggingExtra(
 	wireTaggingVPCLattice(bk, byName["VPCLattice"])
 	wireTaggingCodePipeline(bk, byName["CodePipeline"])
 	wireTaggingKinesisAnalyticsV2(bk, byName["KinesisAnalyticsV2"])
+	wireTaggingOpsWorks(bk, byName["OpsWorks"])
 }
 
 func wireTaggingDDB(
@@ -7917,6 +7917,38 @@ func wireTaggingDLM(bk resourcegroupstaggingapibackend.StorageBackend, reg servi
 		},
 		dlmBk.TagResource,
 		dlmBk.UntagResource,
+	)
+}
+
+// wireTaggingOpsWorks wires the OpsWorks backend into the Resource Groups Tagging API.
+// OpsWorks only accepts stack or layer ARNs (see services/opsworks/tags.go's
+// resourceExists), so resourceTypeFromARN correctly derives "opsworks:stack" or
+// "opsworks:layer" from each tagged ARN's resource segment.
+func wireTaggingOpsWorks(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*opsworksbackend.Handler)
+	if !ok {
+		return
+	}
+
+	opsworksBk, ok := h.Backend.(*opsworksbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "opsworks",
+		func(arn string) string { return resourceTypeFromARN(arn, "opsworks") },
+		func() []taggedARNEntry {
+			items := opsworksBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		opsworksBk.TagResource,
+		opsworksBk.UntagResource,
 	)
 }
 
