@@ -23,15 +23,9 @@ const backupSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the Backup backend.
 //
-// Tables holds one JSON-encoded array per registered table name, produced by
-// [store.Registry.SnapshotAll] on b.registry -- vaults, plans, jobs,
-// selections, frameworks, legalHolds, reportPlans, restoreAccessVaults,
-// restoreTestingPlans, and restoreTestingSelections (see store_setup.go).
-// The VOLATILE tables (recoveryPoints, copyJobs, vaultAccessPolicies,
-// vaultLockConfigs, vaultNotifications, restoreJobs, reportJobs, scanJobs,
-// tieringConfigs, protectedResources) were never part of a snapshot before
-// this refactor and are deliberately not registered on b.registry, so they
-// remain unpersisted here too -- see store_setup.go's file doc comment.
+// Tables holds one JSON-encoded array per table registered on b.registry
+// (every store.Table field on InMemoryBackend -- see store_setup.go),
+// produced by [store.Registry.SnapshotAll].
 type backendSnapshot struct {
 	Tables       map[string]json.RawMessage `json:"tables"`
 	MpaApprovals map[string]string          `json:"mpaApprovals,omitempty"`

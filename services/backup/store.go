@@ -63,23 +63,8 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
-	// PERSISTED tables: vaults, plans, jobs, selections, frameworks,
-	// legalHolds, reportPlans, restoreAccessVaults, restoreTestingPlans,
-	// restoreTestingSelections (and their indexes) -- see store_setup.go.
+	// Resets every table (and index) registered in store_setup.go.
 	b.registry.ResetAll()
-
-	// VOLATILE tables are not registered on b.registry, so they are reset
-	// individually here -- see store_setup.go.
-	b.recoveryPoints.Reset()
-	b.copyJobs.Reset()
-	b.vaultAccessPolicies.Reset()
-	b.vaultLockConfigs.Reset()
-	b.vaultNotifications.Reset()
-	b.restoreJobs.Reset()
-	b.reportJobs.Reset()
-	b.scanJobs.Reset()
-	b.tieringConfigs.Reset()
-	b.protectedResources.Reset()
 
 	b.mpaApprovals = make(map[string]string)
 	b.vaultARNIndex = make(map[string]string)
