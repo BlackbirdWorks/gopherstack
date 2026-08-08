@@ -6,10 +6,27 @@ import (
 	"time"
 )
 
-// SetConfiguration stores or updates configuration content for a profile.
+// SetConfiguration stores or updates configuration content for a profile,
+// with no deployment attribution -- used by the dashboard's manual seeding
+// path. See PublishConfiguration for deployment-originated updates.
 // Returns ErrContentTooLarge if content exceeds maxContentBytes.
 // Returns ErrContentTypeMismatch if contentType indicates JSON but content is not valid JSON.
 func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentType string) error {
+	return b.setConfiguration(app, env, profile, content, contentType, "")
+}
+
+// PublishConfiguration stores configuration content produced by a real
+// AppConfig deployment, stamping deploymentID onto the new version. It
+// structurally satisfies appconfig.DeployedConfigurationPublisher -- the
+// appconfig -> appconfigdata bridge (bd gopherstack-uiyi) wires
+// *InMemoryBackend in directly, no adapter needed.
+func (b *InMemoryBackend) PublishConfiguration(
+	applicationID, environmentID, profileID, content, contentType, deploymentID string,
+) error {
+	return b.setConfiguration(applicationID, environmentID, profileID, content, contentType, deploymentID)
+}
+
+func (b *InMemoryBackend) setConfiguration(app, env, profile, content, contentType, deploymentID string) error {
 	if len(content) > maxContentBytes {
 		return ErrContentTooLarge
 	}
@@ -65,6 +82,7 @@ func (b *InMemoryBackend) SetConfiguration(app, env, profile, content, contentTy
 		ContentType:                    contentType,
 		ContentHash:                    hash,
 		VersionLabel:                   versionLabel,
+		DeploymentID:                   deploymentID,
 		VersionNumber:                  nextVersion,
 		UpdatedAt:                      now,
 		History:                        history,

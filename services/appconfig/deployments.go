@@ -228,6 +228,8 @@ func (b *InMemoryBackend) finalizeDeploymentLocked(d *Deployment, at time.Time) 
 
 	b.deployedConfigs[appEnvProfileKey(d.ApplicationID, d.EnvironmentID, d.ConfigurationProfileID)] =
 		d.ConfigurationVersion
+
+	b.publishDeployedConfigurationLocked(d)
 }
 
 // effectiveGrowthFactor clamps a strategy's configured GrowthFactor into
@@ -513,4 +515,5 @@ func (b *InMemoryBackend) revertDeployedConfigLocked(reverted *Deployment) {
 	}
 
 	b.deployedConfigs[key] = previous.ConfigurationVersion
+	b.publishDeployedConfigurationLocked(previous)
 }

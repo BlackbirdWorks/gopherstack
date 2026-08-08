@@ -3159,6 +3159,36 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
+
+	// Wire AppConfig → AppConfigData so a completed deployment's
+	// configuration becomes observable through GetLatestConfiguration polling.
+	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
+}
+
+// wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
+// DeployedConfigurationPublisher: once a deployment reaches COMPLETE (or a
+// StopDeployment AllowRevert restores a prior version), its configuration is
+// pushed into AppConfigData so a real StartConfigurationSession +
+// GetLatestConfiguration poll observes it. appconfigdatabackend.InMemoryBackend
+// satisfies appconfigbackend.DeployedConfigurationPublisher directly (same
+// no-adapter pairing as cloudwatch's FirehosePutter/firehose.InMemoryBackend).
+func wireAppConfigDeployments(appconfigReg, appconfigdataReg service.Registerable) {
+	acH, ok := appconfigReg.(*appconfigbackend.Handler)
+	if !ok {
+		return
+	}
+
+	acBk, ok := acH.Backend.(*appconfigbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	acdH, ok := appconfigdataReg.(*appconfigdatabackend.Handler)
+	if !ok || acdH.Backend == nil {
+		return
+	}
+
+	acBk.SetDeployedConfigurationPublisher(acdH.Backend)
 }
 
 // wireAppSyncAndStreamsIntegrations wires AppSync's Lambda and DynamoDB

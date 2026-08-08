@@ -1,8 +1,12 @@
 package appconfig
 
 import (
+	"context"
 	"fmt"
+	"strconv"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ValidateConfiguration validates a configuration version against its validators.
@@ -64,6 +68,42 @@ func (b *InMemoryBackend) CurrentDeployedConfiguration(
 	v := b.deployedConfigVersionLocked(appID, envID, profileID)
 
 	return v.Content, v.ContentType, v.VersionLabel, nil
+}
+
+// publishDeployedConfigurationLocked pushes d's newly COMPLETEd
+// configuration to the wired DeployedConfigurationPublisher, if any -- the
+// appconfig -> appconfigdata bridge (bd gopherstack-uiyi). No-op when the
+// profile isn't AppConfig-hosted (nothing this backend can retrieve, same
+// restriction as CurrentDeployedConfiguration). Best-effort: publish
+// failures are logged, not propagated, since the deployment itself already
+// succeeded. Must be called under lock.
+func (b *InMemoryBackend) publishDeployedConfigurationLocked(d *Deployment) {
+	if b.configPublisher == nil {
+		return
+	}
+
+	profile, ok := b.configProfiles.Get(d.ConfigurationProfileID)
+	if !ok || profile.LocationURI != contentTypeHostedLocation {
+		return
+	}
+
+	hcv, ok := b.resolveHostedConfigVersion(d.ApplicationID, d.ConfigurationProfileID, d.ConfigurationVersion)
+	if !ok {
+		return
+	}
+
+	deploymentID := strconv.FormatInt(int64(d.DeploymentNumber), 10)
+
+	err := b.configPublisher.PublishConfiguration(
+		d.ApplicationID, d.EnvironmentID, d.ConfigurationProfileID,
+		string(hcv.Content), hcv.ContentType, deploymentID,
+	)
+	if err != nil {
+		logger.Load(context.Background()).Error(
+			"appconfig: AppConfigData publish failed",
+			"error", err, "applicationId", d.ApplicationID,
+			"environmentId", d.EnvironmentID, "deploymentNumber", d.DeploymentNumber)
+	}
 }
 
 // resolveConfigurationTriple resolves an application/environment/

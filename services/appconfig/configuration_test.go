@@ -71,7 +71,7 @@ func TestBackend_GetConfiguration_ReturnsDeployedVersion(t *testing.T) {
 }
 
 // TestBackend_CurrentDeployedConfiguration_MatchesDeployedVersion verifies
-// the public CurrentDeployedConfiguration accessor (exposed for a future
+// the public CurrentDeployedConfiguration accessor (also used by the
 // appconfig -> appconfigdata bridge, see bd gopherstack-uiyi) returns the
 // same content GetConfiguration does, resolved by name.
 func TestBackend_CurrentDeployedConfiguration_MatchesDeployedVersion(t *testing.T) {
