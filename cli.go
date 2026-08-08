@@ -3282,6 +3282,11 @@ func registerCloudFormationAndDashboard(
 	// exist yet when that runs.
 	wireLightsailCloudFormation(byName["Lightsail"], cfnSvc)
 
+	// Wire CloudFormation -> Organizations so SERVICE_MANAGED StackSets can
+	// expand DeploymentTargets.OrganizationalUnitIds against the real OU
+	// hierarchy instead of rejecting OU-based targets outright.
+	wireCloudFormationOrganizations(cfnSvc, byName["Organizations"])
+
 	if cli, ok := appCtx.Config.(*CLI); ok {
 		cli.cloudFormationHandler = cfnSvc
 	}
@@ -8136,6 +8141,34 @@ func wireLightsailCloudFormation(lightsailReg, cfnReg service.Registerable) {
 	}
 
 	lightsailH.Backend.SetCloudFormationBackend(&cfnLightsailStackAdapter{backend: cfnH.Backend})
+}
+
+// wireCloudFormationOrganizations wires the Organizations backend as
+// CloudFormation's OrganizationsDirectory, so SERVICE_MANAGED StackSet
+// operations can resolve DeploymentTargets.OrganizationalUnitIds against the
+// real OU tree (services/cloudformation/organizations_directory.go).
+func wireCloudFormationOrganizations(cfnReg, orgReg service.Registerable) {
+	cfnH, ok := cfnReg.(*cfnbackend.Handler)
+	if !ok || cfnH.Backend == nil {
+		return
+	}
+
+	cfnBk, ok := cfnH.Backend.(*cfnbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	orgBk, ok := orgH.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	cfnBk.SetOrganizationsDirectory(orgBk)
 }
 
 // extractServiceName finds the service name for a given Echo context by checking

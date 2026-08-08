@@ -10,10 +10,60 @@ import (
 	"github.com/google/uuid"
 )
 
+// instanceTarget is a resolved (account, source-OU) pair. ouID is empty for
+// targets given as explicit Accounts rather than via DeploymentTargets.
+// OrganizationalUnitIds.
+type instanceTarget struct {
+	account string
+	ouID    string
+}
+
+// resolveInstanceTargets merges explicit accounts with OU-expanded accounts.
+// ouIDs requires the StackSet's PermissionModel to be SERVICE_MANAGED,
+// matching real AWS, which rejects OU-based deployment targets on
+// self-managed StackSets. Must be called with b.mu held.
+func (b *InMemoryBackend) resolveInstanceTargets(
+	ss *StackSet, accounts, ouIDs []string,
+) ([]instanceTarget, error) {
+	targets := make([]instanceTarget, 0, len(accounts)+len(ouIDs))
+	for _, a := range accounts {
+		targets = append(targets, instanceTarget{account: a})
+	}
+	if len(ouIDs) == 0 {
+		return targets, nil
+	}
+	if ss.PermissionModel != stackSetPermissionServiceManaged {
+		return nil, ErrServiceManagedRequired
+	}
+	if !b.orgAccessEnabled {
+		return nil, ErrOrganizationsAccessNotActive
+	}
+	if b.orgDirectory == nil {
+		return nil, ErrOrganizationsNotWired
+	}
+
+	seen := make(map[string]bool)
+	for _, ou := range ouIDs {
+		accts, err := b.orgDirectory.ResolveAccountIDsUnderParent(ou)
+		if err != nil {
+			return nil, fmt.Errorf("resolve accounts for organizational unit %s: %w", ou, err)
+		}
+		for _, a := range accts {
+			if seen[a] {
+				continue
+			}
+			seen[a] = true
+			targets = append(targets, instanceTarget{account: a, ouID: ou})
+		}
+	}
+
+	return targets, nil
+}
+
 func (b *InMemoryBackend) CreateStackInstances(
 	ctx context.Context,
 	stackSetName string,
-	accounts, regions []string,
+	accounts, ouIDs, regions []string,
 ) (string, error) {
 	b.mu.Lock("CreateStackInstances")
 	defer b.mu.Unlock()
@@ -21,18 +71,27 @@ func (b *InMemoryBackend) CreateStackInstances(
 	if !ok {
 		return "", ErrStackSetNotFound
 	}
+
+	targets, err := b.resolveInstanceTargets(ss, accounts, ouIDs)
+	if err != nil {
+		return "", err
+	}
+
 	opID := b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
-	for _, acct := range accounts {
+	touchedAccounts := make([]string, 0, len(targets))
+	for _, t := range targets {
+		touchedAccounts = append(touchedAccounts, t.account)
 		for _, region := range regions {
 			// Deduplicate: skip if instance already exists.
-			if b.stackInstanceExists(stackSetName, acct, region) {
+			if b.stackInstanceExists(stackSetName, t.account, region) {
 				continue
 			}
-			inst := b.provisionStackInstance(ctx, ss, acct, region, opID)
+			inst := b.provisionStackInstance(ctx, ss, t.account, region, opID)
+			inst.OrganizationalUnitID = t.ouID
 			b.stackInstances[stackSetName] = append(b.stackInstances[stackSetName], inst)
 		}
 	}
-	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
+	b.recordOpResults(stackSetName, opID, touchedAccounts, regions, "SUCCEEDED")
 
 	return opID, nil
 }
@@ -91,16 +150,12 @@ func (b *InMemoryBackend) provisionStackInstance(
 	}
 }
 
-func (b *InMemoryBackend) DeleteStackInstances(
-	ctx context.Context,
-	stackSetName string,
-	accounts, regions []string,
-) (string, error) {
-	b.mu.Lock("DeleteStackInstances")
-	defer b.mu.Unlock()
-	if !b.stackSets.Has(stackSetName) {
-		return "", ErrStackSetNotFound
-	}
+// deleteMatchingStackInstances filters stackSetName's instances down to
+// those NOT matching any (account, region) pair, tearing down each removed
+// instance's provisioned child stack. Must be called with b.mu held.
+func (b *InMemoryBackend) deleteMatchingStackInstances(
+	ctx context.Context, stackSetName string, accounts, regions []string,
+) {
 	instances := b.stackInstances[stackSetName]
 	filtered := make([]StackInstance, 0, len(instances))
 	for _, inst := range instances {
@@ -117,12 +172,34 @@ func (b *InMemoryBackend) DeleteStackInstances(
 
 			continue
 		}
-		// Tear down the provisioned child stack, if any.
-		if childName, ok := b.stackIDIndex[inst.StackID]; ok {
+		if childName, teardownOK := b.stackIDIndex[inst.StackID]; teardownOK {
 			_ = b.deleteStackLocked(ctx, childName)
 		}
 	}
 	b.stackInstances[stackSetName] = filtered
+}
+
+func (b *InMemoryBackend) DeleteStackInstances(
+	ctx context.Context,
+	stackSetName string,
+	accounts, ouIDs, regions []string,
+) (string, error) {
+	b.mu.Lock("DeleteStackInstances")
+	defer b.mu.Unlock()
+	ss, ok := b.stackSets.Get(stackSetName)
+	if !ok {
+		return "", ErrStackSetNotFound
+	}
+	if len(ouIDs) > 0 {
+		targets, err := b.resolveInstanceTargets(ss, nil, ouIDs)
+		if err != nil {
+			return "", err
+		}
+		for _, t := range targets {
+			accounts = append(accounts, t.account)
+		}
+	}
+	b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions)
 	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
 	b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 
@@ -131,12 +208,22 @@ func (b *InMemoryBackend) DeleteStackInstances(
 
 func (b *InMemoryBackend) UpdateStackInstances(
 	stackSetName string,
-	accounts, regions []string,
+	accounts, ouIDs, regions []string,
 ) (string, error) {
 	b.mu.Lock("UpdateStackInstances")
 	defer b.mu.Unlock()
-	if !b.stackSets.Has(stackSetName) {
+	ss, ok := b.stackSets.Get(stackSetName)
+	if !ok {
 		return "", ErrStackSetNotFound
+	}
+	if len(ouIDs) > 0 {
+		targets, err := b.resolveInstanceTargets(ss, nil, ouIDs)
+		if err != nil {
+			return "", err
+		}
+		for _, t := range targets {
+			accounts = append(accounts, t.account)
+		}
 	}
 	opID := b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
 	if len(accounts) > 0 && len(regions) > 0 {

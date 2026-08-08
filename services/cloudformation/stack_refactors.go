@@ -8,16 +8,18 @@ import (
 
 func (b *InMemoryBackend) CreateStackRefactor(
 	description string,
-	stackDefinitions []string,
+	resourceMappings []ResourceMapping,
+	enableStackCreation bool,
 ) (string, error) {
 	b.mu.Lock("CreateStackRefactor")
 	defer b.mu.Unlock()
 	refactorID := uuid.New().String()
 	b.stackRefactors.Put(&StackRefactor{
-		RefactorID:       refactorID,
-		Description:      description,
-		Status:           "CREATE_COMPLETE",
-		StackDefinitions: stackDefinitions,
+		RefactorID:          refactorID,
+		Description:         description,
+		Status:              "CREATE_COMPLETE",
+		ResourceMappings:    resourceMappings,
+		EnableStackCreation: enableStackCreation,
 	})
 
 	return refactorID, nil
@@ -37,13 +39,74 @@ func (b *InMemoryBackend) DescribeStackRefactor(stackRefactorID string) (string,
 	return r.Status, nil
 }
 
+type stackRefactorMove struct {
+	srcStack *Stack
+	dstStack *Stack
+	res      *StackResource
+	mapping  ResourceMapping
+}
+
+// resolveStackRefactorMoves validates every mapping before any mutation, so a
+// refactor either moves every resource or none of them.
+func (b *InMemoryBackend) resolveStackRefactorMoves(mappings []ResourceMapping) ([]stackRefactorMove, error) {
+	moves := make([]stackRefactorMove, 0, len(mappings))
+	for _, m := range mappings {
+		srcStack, ok := b.resolveStack(m.Source.StackName)
+		if !ok {
+			return nil, fmt.Errorf("%w: source stack %s", ErrStackNotFound, m.Source.StackName)
+		}
+		dstStack, ok := b.resolveStack(m.Destination.StackName)
+		if !ok {
+			return nil, fmt.Errorf("%w: destination stack %s", ErrStackNotFound, m.Destination.StackName)
+		}
+		res, ok := b.resources[srcStack.StackID][m.Source.LogicalResourceID]
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: %s in stack %s", ErrResourceNotFound, m.Source.LogicalResourceID, m.Source.StackName,
+			)
+		}
+		moves = append(moves, stackRefactorMove{srcStack: srcStack, dstStack: dstStack, res: res, mapping: m})
+	}
+
+	return moves, nil
+}
+
+// ExecuteStackRefactor moves each mapped resource out of its source stack's
+// resource table and into its destination stack's — observable afterward
+// through DescribeStackResources on both stacks.
 func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 	b.mu.Lock("ExecuteStackRefactor")
 	defer b.mu.Unlock()
+
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
-		return nil
+		return fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
 	}
+
+	moves, err := b.resolveStackRefactorMoves(r.ResourceMappings)
+	if err != nil {
+		return err
+	}
+
+	for _, mv := range moves {
+		delete(b.resources[mv.srcStack.StackID], mv.mapping.Source.LogicalResourceID)
+
+		moved := *mv.res
+		moved.LogicalID = mv.mapping.Destination.LogicalResourceID
+		moved.StackID = mv.dstStack.StackID
+		moved.StackName = mv.dstStack.StackName
+
+		if b.resources[mv.dstStack.StackID] == nil {
+			b.resources[mv.dstStack.StackID] = make(map[string]*StackResource)
+		}
+		b.resources[mv.dstStack.StackID][moved.LogicalID] = &moved
+
+		b.addEvent(
+			mv.dstStack.StackID, mv.dstStack.StackName, moved.LogicalID, moved.PhysicalID, moved.Type,
+			"UPDATE_COMPLETE", "Resource refactored from stack "+mv.srcStack.StackName,
+		)
+	}
+
 	r.Status = "EXECUTE_COMPLETE"
 
 	return nil
@@ -73,11 +136,22 @@ func (b *InMemoryBackend) ListStackRefactorActions(
 	if !ok {
 		return []StackRefactorAction{}, nil
 	}
-	actions := make([]StackRefactorAction, 0, len(r.StackDefinitions))
-	for _, def := range r.StackDefinitions {
+	actions := make([]StackRefactorAction, 0, len(r.ResourceMappings))
+	for _, m := range r.ResourceMappings {
+		var resType, physicalID string
+		if srcStack, found := b.resolveStack(m.Source.StackName); found {
+			if res, resFound := b.resources[srcStack.StackID][m.Source.LogicalResourceID]; resFound {
+				resType = res.Type
+				physicalID = res.PhysicalID
+			}
+		}
 		actions = append(actions, StackRefactorAction{
-			Action:      "MOVE",
-			Description: def,
+			Action:             "MOVE",
+			Description:        r.Description,
+			StackName:          m.Destination.StackName,
+			LogicalResourceID:  m.Destination.LogicalResourceID,
+			PhysicalResourceID: physicalID,
+			ResourceType:       resType,
 		})
 	}
 

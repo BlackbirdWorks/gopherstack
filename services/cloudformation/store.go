@@ -68,14 +68,14 @@ type StorageBackend interface {
 	CreateStackInstances(
 		ctx context.Context,
 		stackSetName string,
-		accounts, regions []string,
+		accounts, ouIDs, regions []string,
 	) (string, error)
 	DeleteStackInstances(
 		ctx context.Context,
 		stackSetName string,
-		accounts, regions []string,
+		accounts, ouIDs, regions []string,
 	) (string, error)
-	UpdateStackInstances(stackSetName string, accounts, regions []string) (string, error)
+	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
 	ListStackInstances(stackSetName, nextToken string) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
@@ -114,8 +114,8 @@ type StorageBackend interface {
 	SetTypeDefaultVersion(arn, version string) error
 	SetTypeConfiguration(typeName, configuration string) error
 	BatchDescribeTypeConfigurations(
-		typeConfigIdentifiers []string,
-	) ([]TypeConfigurationDetail, error)
+		identifiers []TypeConfigurationIdentifier,
+	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
 	ListTypes(nextToken string) ([]TypeSummary, error)
 	ListTypeVersions(typeName, nextToken string) ([]string, error)
 	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
@@ -125,7 +125,11 @@ type StorageBackend interface {
 	RegisterPublisher(connectionArn string) (string, error)
 	DescribePublisher(publisherID string) (string, error)
 	// Stack refactor
-	CreateStackRefactor(description string, stackDefinitions []string) (string, error)
+	CreateStackRefactor(
+		description string,
+		resourceMappings []ResourceMapping,
+		enableStackCreation bool,
+	) (string, error)
 	DescribeStackRefactor(stackRefactorID string) (string, error)
 	ExecuteStackRefactor(stackRefactorID string) error
 	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
@@ -182,6 +186,7 @@ type InMemoryBackend struct {
 	driftByStackID      map[string][]string                             // stackID → detectionIDs (reverse index)
 	creator             *ResourceCreator
 	resolver            DynamicRefResolver
+	orgDirectory        OrganizationsDirectory
 	mu                  *lockmetrics.RWMutex
 	accountID           string
 	region              string

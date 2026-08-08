@@ -279,6 +279,40 @@ func (b *InMemoryBackend) ListChildren(parentID, childType string) ([]ChildSumma
 	return out, nil
 }
 
+// ResolveAccountIDsUnderParent returns every account ID under parentID (an OU
+// or root ID), recursing into child OUs. Used by CloudFormation to expand
+// SERVICE_MANAGED StackSet deployment targets against the real OU tree.
+func (b *InMemoryBackend) ResolveAccountIDsUnderParent(parentID string) ([]string, error) {
+	b.mu.RLock("ResolveAccountIDsUnderParent")
+	defer b.mu.RUnlock()
+
+	if b.org == nil {
+		return nil, ErrOrgNotFound
+	}
+
+	if !b.parentExists(parentID) {
+		return nil, ErrInvalidInput
+	}
+
+	var ids []string
+	b.collectAccountIDsLocked(parentID, &ids)
+	slices.Sort(ids)
+
+	return ids, nil
+}
+
+// collectAccountIDsLocked must be called with b.mu held (read or write).
+func (b *InMemoryBackend) collectAccountIDsLocked(parentID string, out *[]string) {
+	for acctID, pid := range b.accountParent {
+		if pid == parentID {
+			*out = append(*out, acctID)
+		}
+	}
+	for _, ouID := range b.ousByParent[parentID] {
+		b.collectAccountIDsLocked(ouID, out)
+	}
+}
+
 // AddOUInternal seeds an OU directly for testing.
 // Requires an organization to have been created first.
 func (b *InMemoryBackend) AddOUInternal(ou *OrganizationalUnit) {

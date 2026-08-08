@@ -312,11 +312,39 @@ func (h *Handler) handleSetTypeConfiguration(form url.Values, c *echo.Context) e
 	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
 }
 
+// parseTypeConfigurationIdentifiers parses the TypeConfigurationIdentifiers
+// list of structs — NOT scalars (verified against serializers.go:7114, each
+// member has Type/TypeArn/TypeConfigurationAlias/TypeConfigurationArn/TypeName).
+func parseTypeConfigurationIdentifiers(form url.Values) []TypeConfigurationIdentifier {
+	var result []TypeConfigurationIdentifier
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("TypeConfigurationIdentifiers.member.%d.", i)
+		typeName := form.Get(p + "TypeName")
+		typeArn := form.Get(p + "TypeArn")
+		alias := form.Get(p + "TypeConfigurationAlias")
+		cfgArn := form.Get(p + "TypeConfigurationArn")
+		typ := form.Get(p + "Type")
+		if typeName == "" && typeArn == "" && alias == "" && cfgArn == "" && typ == "" {
+			return result
+		}
+		result = append(result, TypeConfigurationIdentifier{
+			Type:                   typ,
+			TypeArn:                typeArn,
+			TypeConfigurationAlias: alias,
+			TypeConfigurationArn:   cfgArn,
+			TypeName:               typeName,
+		})
+	}
+}
+
 func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo.Context) error {
-	ids := parseMemberList(form, "TypeConfigurationIdentifiers.member.")
-	details, _ := h.Backend.BatchDescribeTypeConfigurations(ids)
+	identifiers := parseTypeConfigurationIdentifiers(form)
+	details, errs, unprocessed := h.Backend.BatchDescribeTypeConfigurations(identifiers)
 	type result struct {
-		TypeConfigurations []TypeConfigurationDetail `xml:"TypeConfigurations>member"`
+		Errors             []BatchDescribeTypeConfigurationsError `xml:"Errors>member,omitempty"`
+		TypeConfigurations []TypeConfigurationDetail              `xml:"TypeConfigurations>member,omitempty"`
+
+		UnprocessedTypeConfigurations []TypeConfigurationIdentifier `xml:"UnprocessedTypeConfigurations>member,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"BatchDescribeTypeConfigurationsResponse"`
@@ -328,8 +356,12 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 	return writeXML(
 		c,
 		response{
-			Xmlns:     cfnNS,
-			Result:    result{TypeConfigurations: details},
+			Xmlns: cfnNS,
+			Result: result{
+				Errors:                        errs,
+				TypeConfigurations:            details,
+				UnprocessedTypeConfigurations: unprocessed,
+			},
 			RequestID: uuid.New().String(),
 		},
 	)

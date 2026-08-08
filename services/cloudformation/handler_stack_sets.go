@@ -1,6 +1,7 @@
 package cloudformation
 
 import (
+	"context"
 	"encoding/xml"
 	"errors"
 	"net/url"
@@ -131,6 +132,16 @@ func parseStackSetOptions(form url.Values) StackSetOptions {
 	}
 
 	return opts
+}
+
+// stackInstancesErrorCode maps CreateStackInstances/DeleteStackInstances/
+// UpdateStackInstances backend errors to their XML error code.
+func stackInstancesErrorCode(err error) string {
+	if errors.Is(err, ErrStackSetNotFound) {
+		return "StackSetNotFoundException"
+	}
+
+	return "ValidationError"
 }
 
 func (h *Handler) handleCreateStackSet(form url.Values, c *echo.Context) error {
@@ -358,57 +369,57 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 	)
 }
 
-func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) error {
+// stackInstancesOp is CreateStackInstances or DeleteStackInstances -- same
+// request shape (accounts/OU targets/regions in, an operation ID out).
+type stackInstancesOp func(
+	ctx context.Context, stackSetName string, accounts, ouIDs, regions []string,
+) (string, error)
+
+// handleStackInstancesOp parses the shared CreateStackInstances/
+// DeleteStackInstances request shape, invokes op, and writes the shared
+// {OperationId} response envelope under responseElem/resultElem.
+func (h *Handler) handleStackInstancesOp(
+	form url.Values, c *echo.Context, responseElem, resultElem string, op stackInstancesOp,
+) error {
 	name := form.Get("StackSetName")
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
 	accounts := parseMemberList(form, "Accounts.")
+	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.CreateStackInstances(c.Request().Context(), name, accounts, regions)
+	opID, err := op(c.Request().Context(), name, accounts, ouIDs, regions)
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
 	type result struct {
+		XMLName     xml.Name
 		OperationID string `xml:"OperationId"`
 	}
 	type response struct {
-		XMLName   xml.Name `xml:"CreateStackInstancesResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"CreateStackInstancesResult"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
+		XMLName   xml.Name
+		Xmlns     string `xml:"xmlns,attr"`
+		Result    result
+		RequestID string `xml:"ResponseMetadata>RequestId"`
 	}
 
-	return writeXML(
-		c,
-		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	return writeXML(c, response{
+		XMLName:   xml.Name{Local: responseElem},
+		Xmlns:     cfnNS,
+		Result:    result{XMLName: xml.Name{Local: resultElem}, OperationID: opID},
+		RequestID: uuid.New().String(),
+	})
+}
+
+func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) error {
+	return h.handleStackInstancesOp(
+		form, c, "CreateStackInstancesResponse", "CreateStackInstancesResult", h.Backend.CreateStackInstances,
 	)
 }
 
 func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) error {
-	name := form.Get("StackSetName")
-	if name == "" {
-		return h.xmlError(c, "ValidationError", "StackSetName is required")
-	}
-	accounts := parseMemberList(form, "Accounts.")
-	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.DeleteStackInstances(c.Request().Context(), name, accounts, regions)
-	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
-	}
-	type result struct {
-		OperationID string `xml:"OperationId"`
-	}
-	type response struct {
-		XMLName   xml.Name `xml:"DeleteStackInstancesResponse"`
-		Xmlns     string   `xml:"xmlns,attr"`
-		Result    result   `xml:"DeleteStackInstancesResult"`
-		RequestID string   `xml:"ResponseMetadata>RequestId"`
-	}
-
-	return writeXML(
-		c,
-		response{Xmlns: cfnNS, Result: result{OperationID: opID}, RequestID: uuid.New().String()},
+	return h.handleStackInstancesOp(
+		form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", h.Backend.DeleteStackInstances,
 	)
 }
 
@@ -418,10 +429,11 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
 	accounts := parseMemberList(form, "Accounts.")
+	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
 	regions := parseMemberList(form, "Regions.")
-	opID, err := h.Backend.UpdateStackInstances(name, accounts, regions)
+	opID, err := h.Backend.UpdateStackInstances(name, accounts, ouIDs, regions)
 	if err != nil {
-		return h.xmlError(c, "StackSetNotFoundException", err.Error())
+		return h.xmlError(c, stackInstancesErrorCode(err), err.Error())
 	}
 	type result struct {
 		OperationID string `xml:"OperationId"`
@@ -446,20 +458,22 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName string `xml:"StackSetName,omitempty"`
-		Account      string `xml:"Account,omitempty"`
-		Region       string `xml:"Region,omitempty"`
-		Status       string `xml:"Status,omitempty"`
+		StackSetName         string `xml:"StackSetName,omitempty"`
+		Account              string `xml:"Account,omitempty"`
+		Region               string `xml:"Region,omitempty"`
+		Status               string `xml:"Status,omitempty"`
+		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
 	for _, i := range p.Data {
 		members = append(
 			members,
 			instXML{
-				StackSetName: i.StackSetName,
-				Account:      i.Account,
-				Region:       i.Region,
-				Status:       i.Status,
+				StackSetName:         i.StackSetName,
+				Account:              i.Account,
+				Region:               i.Region,
+				Status:               i.Status,
+				OrganizationalUnitID: i.OrganizationalUnitID,
 			},
 		)
 	}
@@ -493,10 +507,11 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetName string `xml:"StackSetName,omitempty"`
-		Account      string `xml:"Account,omitempty"`
-		Region       string `xml:"Region,omitempty"`
-		Status       string `xml:"Status,omitempty"`
+		StackSetName         string `xml:"StackSetName,omitempty"`
+		Account              string `xml:"Account,omitempty"`
+		Region               string `xml:"Region,omitempty"`
+		Status               string `xml:"Status,omitempty"`
+		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
 		StackInstance instXML `xml:"StackInstance"`
@@ -512,10 +527,11 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		Xmlns: cfnNS,
 		Result: result{
 			StackInstance: instXML{
-				StackSetName: inst.StackSetName,
-				Account:      inst.Account,
-				Region:       inst.Region,
-				Status:       inst.Status,
+				StackSetName:         inst.StackSetName,
+				Account:              inst.Account,
+				Region:               inst.Region,
+				Status:               inst.Status,
+				OrganizationalUnitID: inst.OrganizationalUnitID,
 			},
 		},
 		RequestID: uuid.New().String(),

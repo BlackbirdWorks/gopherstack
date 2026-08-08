@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -11,18 +12,19 @@ import (
 )
 
 const (
-	statusComplete               = "COMPLETE"
-	statusEnabled                = "ENABLED"
-	resourceScanCompletePercent  = 100
-	typeKindResource             = "RESOURCE"
-	typeVisibilityPublic         = "PUBLIC"
-	typeVisibilityPrivate        = "PRIVATE"
-	typeStatusDeprecated         = "DEPRECATED"
-	provisioningTypeFullyMutable = "FULLY_MUTABLE"
-	driftStatusDrifted           = "DRIFTED"
-	driftStatusModified          = "MODIFIED"
-	driftStatusDeleted           = "DELETED"
-	driftStatusNotChecked        = "NOT_CHECKED"
+	statusComplete                   = "COMPLETE"
+	statusEnabled                    = "ENABLED"
+	resourceScanCompletePercent      = 100
+	typeKindResource                 = "RESOURCE"
+	typeVisibilityPublic             = "PUBLIC"
+	typeVisibilityPrivate            = "PRIVATE"
+	typeStatusDeprecated             = "DEPRECATED"
+	provisioningTypeFullyMutable     = "FULLY_MUTABLE"
+	driftStatusDrifted               = "DRIFTED"
+	driftStatusModified              = "MODIFIED"
+	driftStatusDeleted               = "DELETED"
+	driftStatusNotChecked            = "NOT_CHECKED"
+	stackSetPermissionServiceManaged = "SERVICE_MANAGED"
 )
 
 // StackSetOptions holds the optional fields accepted by CreateStackSet and
@@ -410,26 +412,29 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 	if !b.stackSets.Has(stackSetName) {
 		return nil, ErrStackSetNotFound
 	}
-	// SERVICE_MANAGED stack sets target OUs; for SELF_MANAGED emulation we have no OU hierarchy,
-	// so synthesise one target per unique account using the account ID as the OU ID.
-	seen := make(map[string]bool)
+
+	byOU := make(map[string]int) // OU ID -> index in targets
 	targets := make([]AutoDeploymentTarget, 0)
 	for _, inst := range b.stackInstances[stackSetName] {
-		if !seen[inst.Account] {
-			seen[inst.Account] = true
-			targets = append(targets, AutoDeploymentTarget{
-				OrganizationalUnitID: inst.Account,
-				Regions:              []string{inst.Region},
-			})
-		} else {
-			for i, t := range targets {
-				if t.OrganizationalUnitID == inst.Account {
-					targets[i].Regions = append(targets[i].Regions, inst.Region)
-
-					break
-				}
-			}
+		// SERVICE_MANAGED instances carry the OU they were deployed through
+		// (see resolveInstanceTargets); self-managed instances have none, so
+		// fall back to one synthetic target per account.
+		ouID := inst.OrganizationalUnitID
+		if ouID == "" {
+			ouID = inst.Account
 		}
+		if idx, ok := byOU[ouID]; ok {
+			if !slices.Contains(targets[idx].Regions, inst.Region) {
+				targets[idx].Regions = append(targets[idx].Regions, inst.Region)
+			}
+
+			continue
+		}
+		byOU[ouID] = len(targets)
+		targets = append(targets, AutoDeploymentTarget{
+			OrganizationalUnitID: ouID,
+			Regions:              []string{inst.Region},
+		})
 	}
 
 	return targets, nil
