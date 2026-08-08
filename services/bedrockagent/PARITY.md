@@ -31,6 +31,16 @@ overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): th
                       # (already present under the prior A grade). See the corrected
                       # IngestKnowledgeBaseDocuments/ListKnowledgeBaseDocuments rows and
                       # gaps entry for detail.
+                      # 2026-08-08 (gopherstack-rvyd follow-up): closed the
+                      # version-snapshot immutability gap left by the
+                      # 2026-08-07 sweep (see gaps entry + Notes:
+                      # version-snapshot-propagation) — Update/Delete/
+                      # Disassociate on action groups/collaborators/KB-assocs
+                      # now reject non-DRAFT agentVersion same as
+                      # Create/Associate. IngestionJobStatistics' other-5-
+                      # counters and opaque-blob deep-shape validation
+                      # re-assessed and confirmed still correctly deferred
+                      # (see deferred entries) — no fabrication introduced.
                       # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -74,8 +84,13 @@ ops:
     used to always 404 — no numbered version ever had action-group rows.
     Fixed by snapshotting DRAFT's action groups into every new numbered
     version at creation time — see Notes: version-snapshot-propagation."}
-  UpdateAgentActionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAgentActionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAgentActionGroup: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) was missing the same
+    DRAFT-only {agentVersion} constraint Create already had — see Notes:
+    version-snapshot-propagation."}
+  DeleteAgentActionGroup: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
+    UpdateAgentActionGroup."}
   ListAgentActionGroups: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was unreachable: POST (real wire method) was misrouted to Create — fixed"}
   CreateAgentAlias: {wire: fixed, errors: ok, state: fixed, persist: ok,
@@ -105,8 +120,12 @@ ops:
   GetAgentCollaborator: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "(this sweep, gopherstack-rvyd) same numbered-version snapshot fix
     as GetAgentActionGroup — see Notes: version-snapshot-propagation."}
-  UpdateAgentCollaborator: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisassociateAgentCollaborator: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
+    UpdateAgentActionGroup — see Notes: version-snapshot-propagation."}
+  DisassociateAgentCollaborator: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
+    UpdateAgentActionGroup."}
   ListAgentCollaborators: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
     404'd — fixed"}
@@ -126,8 +145,12 @@ ops:
   GetAgentKnowledgeBase: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "(this sweep, gopherstack-rvyd) same numbered-version snapshot fix
     as GetAgentActionGroup — see Notes: version-snapshot-propagation."}
-  UpdateAgentKnowledgeBase: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisassociateAgentKnowledgeBase: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAgentKnowledgeBase: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
+    UpdateAgentActionGroup — see Notes: version-snapshot-propagation."}
+  DisassociateAgentKnowledgeBase: {wire: ok, errors: fixed, state: ok, persist: ok,
+    note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
+    UpdateAgentActionGroup."}
   ListAgentKnowledgeBases: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was totally unreachable: POST (real wire method) had no case at all and
     404'd — fixed"}
@@ -335,7 +358,21 @@ gaps:
     each numbered agent version at the moment CreateAgentAlias auto-creates
     it ... gopherstack's newAgentVersionLocked only snapshots the Agent's
     own top-level fields, not these three sub-resource families.' See Notes:
-    version-snapshot-propagation for the fix."
+    version-snapshot-propagation for the fix.
+    FOLLOW-UP FIXED (gopherstack-rvyd, 2026-08-08): the 2026-08-07 fix made
+    numbered versions carry real snapshot rows, but UpdateAgentActionGroup/
+    DeleteAgentActionGroup/UpdateAgentCollaborator/
+    DisassociateAgentCollaborator/UpdateAgentKnowledgeBase/
+    DisassociateAgentKnowledgeBase never got the DRAFT-only {agentVersion}
+    check their Create/Associate counterparts already had (confirmed absent
+    by reading each method directly, then confirmed via the live AWS API
+    reference that all six document `Pattern: DRAFT`, fixed length 5, same
+    as Create/Associate) — so a client could call e.g.
+    UpdateAgentActionGroup(agentVersion=\"1\") and mutate or delete a
+    numbered version's 'immutable' snapshot row directly, which real AWS
+    rejects with ValidationException. Fixed by adding the same
+    agentVersion != defaultAgentVersion check used by Create/Associate to
+    all six methods. See Notes: version-snapshot-propagation."
 deferred:
   - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration,
     vectorIngestionConfiguration, knowledgeBaseConfiguration,
@@ -344,7 +381,25 @@ deferred:
     passed through as opaque map[string]any/JSON blobs rather than typed +
     validated against the SDK's nested shape unions. This is consistent with how
     this service already treats them; deep-shape validation of these blobs was
-    out of scope this sweep (unchanged)."
+    out of scope this sweep (unchanged).
+    RE-ASSESSED (gopherstack-rvyd follow-up, 2026-08-08): confirmed genuinely
+    out of scope, not just deferred by default. Read the real SDK shapes for
+    the three most plausible bounded candidates —
+    types.ActionGroupExecutor, types.APISchema, types.FunctionSchema
+    (types/types.go) — and all three are Smithy tagged unions (Go
+    interface + one struct per member, e.g. ActionGroupExecutor is
+    ActionGroupExecutorMemberLambda XOR ActionGroupExecutorMemberCustomControl)
+    requiring XOR-presence validation, per-member wire-key discovery from
+    serializers.go, and (for FunctionSchema) validating a nested []Function
+    list with its own required/optional sub-fields. There are ten such blob
+    families across this service, not one; validating a single one (even the
+    simplest, ActionGroupExecutor) while leaving the other nine opaque would
+    produce an inconsistent, arbitrarily-partial validation surface with no
+    corresponding bug report or wire-shape failure driving the choice — unlike
+    every other fix in this file, which closed a concrete, demonstrated gap.
+    No functional gap is caused by the current opaque pass-through (requests
+    round-trip correctly; this is a permissive-emulator design choice already
+    used consistently across the service). Left unchanged."
   - "IngestionJobStatistics' NumberOfDocumentsDeleted/NumberOfDocumentsFailed/
     NumberOfModifiedDocumentsIndexed/NumberOfMetadataDocumentsScanned/
     NumberOfMetadataDocumentsModified stay zero always (fixed this sweep:
@@ -360,7 +415,27 @@ deferred:
     IngestKnowledgeBaseDocuments custom-content API are counted.
     Re-confirmed accurate and unchanged this sweep (gopherstack-rvyd,
     2026-08-07) — still no prior-job snapshot mechanism to diff against, so
-    still correctly zero rather than fabricated."
+    still correctly zero rather than fabricated.
+    RE-VERIFIED (gopherstack-rvyd follow-up, 2026-08-08), reading
+    IngestKnowledgeBaseDocuments/KBDocumentDetail directly rather than
+    trusting the prior note: it is not merely that no prior-job snapshot is
+    tracked -- the raw material for these counters is not retained at all.
+    KBDocumentDetail (models.go) stores only
+    DocumentID/KnowledgeBaseID/DataSourceID/Status; IngestKnowledgeBaseDocuments
+    receives each KBDocument's Content and Metadata (models.go: KBDocument has
+    both) and discards both on every call, so there is no stored content/hash
+    to diff for NumberOfModifiedDocumentsIndexed and no stored metadata at all
+    for NumberOfMetadataDocumentsScanned/NumberOfMetadataDocumentsModified --
+    these two would be fabricated even with a diffing mechanism, since there is
+    nothing to scan. NumberOfDocumentsDeleted/NumberOfDocumentsFailed are the
+    only two of the five that a bounded, non-fabricated fix could theoretically
+    reach (by snapshotting the live document-ID set into each IngestionJob and
+    diffing on the next run), but doing so for 2 of 5 fields while the other 3
+    stay permanently unreachable was judged not worth the asymmetry it would
+    introduce into a single response object one sweep after the counters were
+    added; the honest zero for all five remains the correct behavior until (if
+    ever) content/metadata retention is added as a real feature. Left
+    unchanged."
 leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
   timers, or janitors — every operation is synchronous request-scoped state
   mutation guarded by b.mu (lockmetrics-style single coarse sync.RWMutex,
@@ -407,6 +482,33 @@ definition. Locked in with `agent_version_snapshot_test.go`
 (`TestNewAgentVersion_SnapshotsSubResources`,
 `TestDeleteAgentVersion_CascadesSubResources`), both confirmed failing
 against the pre-fix code before the fix landed.
+
+**Follow-up: snapshot immutability was not enforced (gopherstack-rvyd
+follow-up, 2026-08-08).** The above fix made `Get`/`List` against a numbered
+version return real content, but did not check whether the *mutation* ops on
+the same three families (`UpdateAgentActionGroup`, `DeleteAgentActionGroup`,
+`UpdateAgentCollaborator`, `DisassociateAgentCollaborator`,
+`UpdateAgentKnowledgeBase`, `DisassociateAgentKnowledgeBase`) reject non-DRAFT
+versions the way `CreateAgentActionGroup`/`AssociateAgentCollaborator`/
+`AssociateAgentKnowledgeBase` already did. They didn't: reading each of the
+six methods directly showed none had an `agentVersion != defaultAgentVersion`
+guard, so a client could call
+`UpdateAgentActionGroup(agentID, "1", actionGroupID, cfg)` and silently
+mutate a numbered version's snapshot row, or delete it outright — defeating
+the entire point of "immutable" version snapshots the moment they became
+reachable objects rather than perpetually-empty ones. Confirmed against the
+live AWS API reference for all six operations: every one documents
+`agentVersion` as `Pattern: DRAFT`, `Length Constraints: Fixed length of 5` —
+identical to their Create/Associate counterparts. Fixed by adding the same
+guard used by Create/Associate to all six methods, returning
+`ValidationException`/400 for any non-DRAFT value before the method touches
+its lock or map. Locked in with
+`agent_version_immutability_test.go`'s
+`TestMutateSubResourceRejectsNonDraftVersion` (table-driven, one subtest per
+op), confirmed failing against the pre-fix code — each subtest got 404
+`ResourceNotFoundException` instead of 400 `ValidationException`, since with
+no DRAFT-only guard the methods fell through to a normal not-found lookup
+against a numbered version that (in the test fixture) had no such row.
 
 **Route-matcher class bug (the main finding this sweep).** bedrockagent is
 restjson1. For every *nested* collection resource under an agent or knowledge

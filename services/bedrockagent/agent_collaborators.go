@@ -69,9 +69,19 @@ func (b *InMemoryBackend) GetAgentCollaborator(
 }
 
 // UpdateAgentCollaborator updates a collaborator.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Associate.
 func (b *InMemoryBackend) UpdateAgentCollaborator(
 	_ context.Context, agentID, agentVersion, collaboratorID string, cfg CollaboratorConfig,
 ) (*AgentCollaborator, error) {
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -102,9 +112,19 @@ func (b *InMemoryBackend) UpdateAgentCollaborator(
 }
 
 // DisassociateAgentCollaborator removes a collaborator.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Associate.
 func (b *InMemoryBackend) DisassociateAgentCollaborator(
 	_ context.Context, agentID, agentVersion, collaboratorID string,
 ) error {
+	if agentVersion != defaultAgentVersion {
+		return fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
