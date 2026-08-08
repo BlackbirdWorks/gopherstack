@@ -31,6 +31,9 @@ const cognitoidpSnapshotVersion = 1
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
 type userPoolSnapshot struct {
+	LambdaConfig           map[string]any    `json:"lambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
 	CreatedAt              string            `json:"createdAt,omitempty"`
 	ID                     string            `json:"id,omitempty"`
@@ -40,6 +43,7 @@ type userPoolSnapshot struct {
 	KeyID                  string            `json:"keyId,omitempty"`
 	PrivKeyPEM             string            `json:"privKeyPem,omitempty"`
 	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	DeletionProtection     string            `json:"deletionProtection,omitempty"`
 	CustomAttributes       []SchemaAttribute `json:"customAttributes,omitempty"`
 	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
 }
@@ -49,17 +53,11 @@ type userPoolSnapshot struct {
 func poolSnapshotKeyFn(v *userPoolSnapshot) string { return v.ID }
 
 // userSnapshot is a copy of User safe for JSON serialization.
-//
-// NOTE: this DTO does not carry TOTPSecret, TOTPVerified, PreferredMfaSetting,
-// UserMFASettingList, or LastAuthTime -- that gap predates the Phase 3.3
-// store conversion (see services/cognitoidp/PARITY.md / bd history) and is
-// preserved as-is here rather than silently fixed, per the mechanical-swap
-// scope of this conversion. PasswordHash and every other field below were
-// already persisted and remain persisted unchanged.
 type userSnapshot struct {
 	CreatedAt            string            `json:"createdAt,omitempty"`
 	UpdatedAt            string            `json:"updatedAt,omitempty"`
 	ConfirmCodeExpiresAt string            `json:"confirmCodeExpiresAt,omitempty"`
+	LastAuthTime         string            `json:"lastAuthTime,omitempty"`
 	Attributes           map[string]string `json:"attributes,omitempty"`
 	Sub                  string            `json:"sub,omitempty"`
 	Username             string            `json:"username,omitempty"`
@@ -69,9 +67,13 @@ type userSnapshot struct {
 	SRPVerifier          string            `json:"srpVerifier,omitempty"`
 	Status               string            `json:"status,omitempty"`
 	ConfirmCode          string            `json:"confirmCode,omitempty"`
+	PreferredMfaSetting  string            `json:"preferredMfaSetting,omitempty"`
+	TOTPSecret           string            `json:"totpSecret,omitempty"`
+	UserMFASettingList   []string          `json:"userMFASettingList,omitempty"`
 	MFAOptions           []MFAOptionType   `json:"mfaOptions,omitempty"`
 	LinkedProviders      []ProviderLink    `json:"linkedProviders,omitempty"`
 	Enabled              bool              `json:"enabled,omitempty"`
+	TOTPVerified         bool              `json:"totpVerified,omitempty"`
 }
 
 // userSnapshotKeyFn is the [store.Table] key function for the ephemeral user
@@ -179,8 +181,12 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 		PrivKeyPEM:             pem,
 		CustomAttributes:       p.CustomAttributes,
 		MfaConfiguration:       p.MfaConfiguration,
+		DeletionProtection:     p.DeletionProtection,
 		PasswordPolicy:         ppSnap,
 		AutoVerifiedAttributes: avAttrs,
+		LambdaConfig:           p.LambdaConfig,
+		EmailConfiguration:     p.EmailConfiguration,
+		AccountRecoverySetting: p.AccountRecoverySetting,
 	}
 }
 
@@ -191,10 +197,19 @@ func buildUserSnapshot(u *User) *userSnapshot {
 		codeExpiry = u.ConfirmCodeExpiresAt.Format("2006-01-02T15:04:05Z")
 	}
 
+	var lastAuth string
+	if !u.LastAuthTime.IsZero() {
+		// .UTC() matters here: Format's "Z" is a literal, not a zone conversion, so a
+		// local-time value would round-trip through Parse (which defaults to UTC) offset
+		// by the local zone.
+		lastAuth = u.LastAuthTime.UTC().Format("2006-01-02T15:04:05Z")
+	}
+
 	return &userSnapshot{
 		CreatedAt:            u.CreatedAt.Format("2006-01-02T15:04:05Z"),
 		UpdatedAt:            u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 		ConfirmCodeExpiresAt: codeExpiry,
+		LastAuthTime:         lastAuth,
 		Attributes:           u.Attributes,
 		Sub:                  u.Sub,
 		Username:             u.Username,
@@ -204,6 +219,10 @@ func buildUserSnapshot(u *User) *userSnapshot {
 		SRPVerifier:          u.SRPVerifier,
 		Status:               u.Status,
 		ConfirmCode:          u.ConfirmCode,
+		PreferredMfaSetting:  u.PreferredMfaSetting,
+		TOTPSecret:           u.TOTPSecret,
+		TOTPVerified:         u.TOTPVerified,
+		UserMFASettingList:   u.UserMFASettingList,
 		MFAOptions:           u.MFAOptions,
 		LinkedProviders:      u.LinkedProviders,
 		Enabled:              u.Enabled,
@@ -488,8 +507,12 @@ func restorePoolsFromSnapshot(poolSnapshots []*userPoolSnapshot) ([]*UserPool, e
 			CreatedAt:              createdAt,
 			CustomAttributes:       ps.CustomAttributes,
 			MfaConfiguration:       ps.MfaConfiguration,
+			DeletionProtection:     ps.DeletionProtection,
 			PasswordPolicy:         ps.PasswordPolicy,
 			AutoVerifiedAttributes: ps.AutoVerifiedAttributes,
+			LambdaConfig:           ps.LambdaConfig,
+			EmailConfiguration:     ps.EmailConfiguration,
+			AccountRecoverySetting: ps.AccountRecoverySetting,
 		}
 
 		if rsaKey != nil {
@@ -510,6 +533,7 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 		createdAt, _ := time.Parse("2006-01-02T15:04:05Z", us.CreatedAt)
 		updatedAt, _ := time.Parse("2006-01-02T15:04:05Z", us.UpdatedAt)
 		codeExpiry, _ := time.Parse("2006-01-02T15:04:05Z", us.ConfirmCodeExpiresAt)
+		lastAuth, _ := time.Parse("2006-01-02T15:04:05Z", us.LastAuthTime)
 
 		if updatedAt.IsZero() {
 			updatedAt = createdAt
@@ -519,6 +543,7 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 			CreatedAt:            createdAt,
 			UpdatedAt:            updatedAt,
 			ConfirmCodeExpiresAt: codeExpiry,
+			LastAuthTime:         lastAuth,
 			Attributes:           us.Attributes,
 			Sub:                  us.Sub,
 			Username:             us.Username,
@@ -528,6 +553,10 @@ func restoreUsersFromSnapshot(userSnapshots []*userSnapshot) []*User {
 			SRPVerifier:          us.SRPVerifier,
 			Status:               us.Status,
 			ConfirmCode:          us.ConfirmCode,
+			PreferredMfaSetting:  us.PreferredMfaSetting,
+			TOTPSecret:           us.TOTPSecret,
+			TOTPVerified:         us.TOTPVerified,
+			UserMFASettingList:   us.UserMFASettingList,
 			MFAOptions:           us.MFAOptions,
 			LinkedProviders:      us.LinkedProviders,
 			Enabled:              us.Enabled,

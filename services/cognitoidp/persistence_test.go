@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -415,4 +416,83 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	var getUserResp map[string]any
 	require.NoError(t, json.Unmarshal(getUserRec.Body.Bytes(), &getUserResp))
 	assert.False(t, getUserResp["Enabled"].(bool))
+}
+
+// TestPersistence_MFAFieldsSurviveSnapshot is a regression guard for
+// gopherstack-mab: userSnapshot never carried TOTPSecret, TOTPVerified,
+// PreferredMfaSetting, UserMFASettingList or LastAuthTime, so software-token
+// MFA silently broke on every snapshot/restore.
+func TestPersistence_MFAFieldsSurviveSnapshot(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *cognitoidp.InMemoryBackend, poolID, clientID string) *cognitoidp.User
+		name  string
+	}{
+		{
+			name: "totp_enrolled_and_verified",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend, poolID, clientID string) *cognitoidp.User {
+				t.Helper()
+
+				const username = "totp-user"
+
+				tokens := signUpConfirmAndLogin(t, b, clientID, username)
+
+				secret, err := b.AssociateSoftwareToken(tokens.AccessToken)
+				require.NoError(t, err)
+
+				code, err := cognitoidp.GenerateTOTPCode(secret, time.Now())
+				require.NoError(t, err)
+				require.NoError(t, b.VerifySoftwareToken(tokens.AccessToken, code))
+				require.NoError(t, b.AdminSetUserMFASetting(poolID, username, false, true, "SOFTWARE_TOKEN_MFA"))
+
+				user, err := b.AdminGetUser(poolID, username)
+				require.NoError(t, err)
+
+				return user
+			},
+		},
+		{
+			name: "sms_preference_without_totp",
+			setup: func(t *testing.T, b *cognitoidp.InMemoryBackend, poolID, clientID string) *cognitoidp.User {
+				t.Helper()
+
+				const username = "sms-user"
+
+				signUpConfirmAndLogin(t, b, clientID, username)
+				require.NoError(t, b.AdminSetUserMFASetting(poolID, username, true, false, "SMS_MFA"))
+
+				user, err := b.AdminGetUser(poolID, username)
+				require.NoError(t, err)
+
+				return user
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, pool, client := setupTestPoolAndClient(t)
+
+			want := tc.setup(t, b, pool.ID, client.ClientID)
+			require.False(t, want.LastAuthTime.IsZero(), "login must set LastAuthTime")
+
+			data := b.Snapshot(t.Context())
+			require.NotEmpty(t, data)
+
+			restored := newTestBackend()
+			require.NoError(t, restored.Restore(t.Context(), data))
+
+			got, err := restored.AdminGetUser(pool.ID, want.Username)
+			require.NoError(t, err)
+
+			assert.Equal(t, want.TOTPSecret, got.TOTPSecret, "TOTPSecret")
+			assert.Equal(t, want.TOTPVerified, got.TOTPVerified, "TOTPVerified")
+			assert.Equal(t, want.PreferredMfaSetting, got.PreferredMfaSetting, "PreferredMfaSetting")
+			assert.Equal(t, want.UserMFASettingList, got.UserMFASettingList, "UserMFASettingList")
+			assert.WithinDuration(t, want.LastAuthTime, got.LastAuthTime, time.Second, "LastAuthTime")
+		})
+	}
 }
