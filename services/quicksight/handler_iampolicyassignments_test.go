@@ -77,6 +77,8 @@ func TestQuickSight_IAMPolicyAssignmentCRUD(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "assign-a", assignment["AssignmentName"])
 	assert.Equal(t, "arn:aws:iam::000000000000:policy/p1", assignment["PolicyArn"])
+	// types.IAMPolicyAssignment (unlike Create/UpdateIAMPolicyAssignmentOutput) carries AwsAccountId.
+	assert.Equal(t, testAccountID, assignment["AwsAccountId"])
 
 	// Describe missing -> 404.
 	missingRec := doRequest(t, h, http.MethodGet, nsPath("/iam-policy-assignments/notexist"), nil)
@@ -214,11 +216,19 @@ func TestQuickSight_ListIAMPolicyAssignmentsForUser(t *testing.T) {
 	rec := doRequest(t, h, http.MethodGet, nsPath("/users/alice/iam-policy-assignments"), nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	body := parseBody(t, rec)
-	items, ok := body["IAMPolicyAssignments"].([]any)
+	// Real ListIAMPolicyAssignmentsForUserOutput carries ActiveAssignments
+	// ([]types.ActiveIAMPolicyAssignment: AssignmentName/PolicyArn only), not
+	// IAMPolicyAssignments -- see aws-sdk-go-v2/service/quicksight's
+	// deserializers.go ActiveAssignments case vs. ListIAMPolicyAssignments'
+	// separate IAMPolicyAssignments case.
+	items, ok := body["ActiveAssignments"].([]any)
 	require.True(t, ok)
 	require.Len(t, items, 1)
 	m := items[0].(map[string]any)
 	assert.Equal(t, "for-alice", m["AssignmentName"])
+	assert.NotContains(t, m, "AssignmentStatus")
+	assert.NotContains(t, m, "Identities")
+	assert.NotContains(t, body, "IAMPolicyAssignments")
 }
 
 // ---- IAM Policy Assignment tests ---- //nolint:godot // existing issue.

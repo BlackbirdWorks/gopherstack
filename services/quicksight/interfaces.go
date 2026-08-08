@@ -1,5 +1,7 @@
 package quicksight
 
+import "time"
+
 type StorageBackend interface {
 	// Namespaces
 	CreateNamespace(accountID, namespace, capacityRegion string) (*Namespace, error)
@@ -192,14 +194,14 @@ type StorageBackend interface {
 
 	// Templates
 	CreateTemplate(
-		accountID, templateID, name, sourceEntityArn string,
+		accountID, templateID, name, sourceEntityArn, versionDescription string,
 		definition map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Template, error)
 	DescribeTemplate(accountID, templateID string, versionNumber int64) (*Template, error)
 	UpdateTemplate(
-		accountID, templateID, name, sourceEntityArn string,
+		accountID, templateID, name, sourceEntityArn, versionDescription string,
 		definition map[string]any,
 	) (*Template, error)
 	DeleteTemplate(accountID, templateID string, versionNumber int64) error
@@ -228,14 +230,14 @@ type StorageBackend interface {
 
 	// Themes
 	CreateTheme(
-		accountID, themeID, name, baseThemeID string,
+		accountID, themeID, name, baseThemeID, versionDescription string,
 		configuration map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Theme, error)
 	DescribeTheme(accountID, themeID string, versionNumber int64) (*Theme, error)
 	UpdateTheme(
-		accountID, themeID, name, baseThemeID string,
+		accountID, themeID, name, baseThemeID, versionDescription string,
 		configuration map[string]any,
 	) (*Theme, error)
 	DeleteTheme(accountID, themeID string, versionNumber int64) error
@@ -482,6 +484,7 @@ type StorageBackend interface {
 	CreateOAuthClientApplication(
 		accountID, clientID, name string,
 		fields map[string]any,
+		tags map[string]string,
 	) (*OAuthClientApplication, error)
 	DescribeOAuthClientApplication(accountID, clientID string) (*OAuthClientApplication, error)
 	UpdateOAuthClientApplication(
@@ -502,9 +505,9 @@ type StorageBackend interface {
 
 	// Asset bundle export jobs
 	StartAssetBundleExportJob(
-		accountID, jobID, exportFormat string,
+		accountID, jobID, exportFormat, includeFolderMembers string,
 		resourceArns []string,
-		includeAllDependencies bool,
+		includeAllDependencies, includeFolderMemberships, includePermissions, includeTags bool,
 	) (*AssetBundleExportJob, error)
 	DescribeAssetBundleExportJob(accountID, jobID string) (*AssetBundleExportJob, error)
 	ListAssetBundleExportJobs(
@@ -536,12 +539,14 @@ type StorageBackend interface {
 
 	// DataSet refresh schedules
 	CreateRefreshSchedule(
-		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		accountID, datasetID, scheduleID, refreshType string,
+		startAfterDateTime time.Time,
 		scheduleFrequency map[string]any,
 	) (*RefreshSchedule, error)
 	DescribeRefreshSchedule(accountID, datasetID, scheduleID string) (*RefreshSchedule, error)
 	UpdateRefreshSchedule(
-		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		accountID, datasetID, scheduleID, refreshType string,
+		startAfterDateTime time.Time,
 		scheduleFrequency map[string]any,
 	) (*RefreshSchedule, error)
 	DeleteRefreshSchedule(accountID, datasetID, scheduleID string) error

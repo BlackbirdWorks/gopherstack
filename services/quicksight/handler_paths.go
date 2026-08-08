@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -944,6 +945,22 @@ func intField(body map[string]any, key string) int32 {
 	}
 
 	return 0
+}
+
+// epochField parses a JSON number field as AWS's unixTimestamp wire format
+// (seconds since the epoch, real SDK reference: smithytime.ParseEpochSeconds
+// in aws-sdk-go-v2/service/quicksight/deserializers.go). Zero value means
+// absent.
+func epochField(body map[string]any, key string) time.Time {
+	v, ok := body[key].(float64)
+	if !ok {
+		return time.Time{}
+	}
+
+	sec := int64(v)
+	nsec := int64((v - float64(sec)) * float64(time.Second))
+
+	return time.Unix(sec, nsec).UTC()
 }
 
 // strSliceField extracts a []string from a JSON array field, used for

@@ -35,6 +35,7 @@ func (a *storedOAuthApp) toOAuthClientApplication() *OAuthClientApplication {
 func (b *InMemoryBackend) CreateOAuthClientApplication(
 	accountID, clientID, name string,
 	fields map[string]any,
+	tags map[string]string,
 ) (*OAuthClientApplication, error) {
 	if clientID == "" || name == "" {
 		return nil, ErrValidation
@@ -59,6 +60,10 @@ func (b *InMemoryBackend) CreateOAuthClientApplication(
 		Extra:           fields,
 	}
 	b.oauthClientApps.Put(app)
+
+	if len(tags) > 0 {
+		b.tags[app.Arn] = maps.Clone(tags)
+	}
 
 	return app.toOAuthClientApplication(), nil
 }

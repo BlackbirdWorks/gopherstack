@@ -70,6 +70,7 @@ func TestQuickSight_ListAndUpdateSelfUpgrades(t *testing.T) {
 		OriginalRole:     "READER",
 		RequestedRole:    "AUTHOR",
 		RequestStatus:    "PENDING",
+		UserName:         "alice",
 	})
 
 	rec = doRequest(t, h, http.MethodGet, nsPath("/self-upgrade-requests"), nil)
@@ -82,6 +83,9 @@ func TestQuickSight_ListAndUpdateSelfUpgrades(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "req1", detail["UpgradeRequestId"])
 	assert.Equal(t, "PENDING", detail["RequestStatus"])
+	// SelfUpgradeRequestDetail.UserName (aws-sdk-go-v2/service/quicksight@v1.123.1/
+	// types/types.go:18620) identifies who requested the upgrade.
+	assert.Equal(t, "alice", detail["UserName"])
 
 	// Approve it.
 	rec = doRequest(t, h, http.MethodPost, nsPath("/update-self-upgrade-request"), map[string]any{

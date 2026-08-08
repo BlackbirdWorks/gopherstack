@@ -9,16 +9,20 @@ import (
 // JSON response/body keys used only by asset-bundle and dashboard-snapshot job
 // operations.
 const (
-	keyAssetBundleExportJobID = "AssetBundleExportJobId"
-	keyAssetBundleImportJobID = "AssetBundleImportJobId"
-	keyResourceArns           = "ResourceArns"
-	keyExportFormat           = "ExportFormat"
-	keyIncludeAllDeps         = "IncludeAllDependencies"
-	keyJobStatus              = "JobStatus"
-	keyDownloadURL            = "DownloadUrl"
-	keyFailureAction          = "FailureAction"
-	keyAssetBundleExportJobs  = "AssetBundleExportJobSummaryList"
-	keyAssetBundleImportJobs  = "AssetBundleImportJobSummaryList"
+	keyAssetBundleExportJobID   = "AssetBundleExportJobId"
+	keyAssetBundleImportJobID   = "AssetBundleImportJobId"
+	keyResourceArns             = "ResourceArns"
+	keyExportFormat             = "ExportFormat"
+	keyIncludeAllDeps           = "IncludeAllDependencies"
+	keyIncludeFolderMembers     = "IncludeFolderMembers"
+	keyIncludeFolderMemberships = "IncludeFolderMemberships"
+	keyIncludePermissions       = "IncludePermissions"
+	keyIncludeTags              = "IncludeTags"
+	keyJobStatus                = "JobStatus"
+	keyDownloadURL              = "DownloadUrl"
+	keyFailureAction            = "FailureAction"
+	keyAssetBundleExportJobs    = "AssetBundleExportJobSummaryList"
+	keyAssetBundleImportJobs    = "AssetBundleImportJobSummaryList"
 
 	keySnapshotJobID  = "SnapshotJobId"
 	keySnapshotConfig = "SnapshotConfiguration"
@@ -81,16 +85,22 @@ func (h *Handler) dispatchDashboardSnapshot(c *echo.Context, op string) error {
 
 func exportJobToMap(job *AssetBundleExportJob) map[string]any {
 	m := map[string]any{
-		keyAssetBundleExportJobID: job.JobID,
-		keyArn:                    job.Arn,
-		keyJobStatus:              job.Status,
-		keyExportFormat:           job.ExportFormat,
-		keyResourceArns:           job.ResourceArns,
-		keyIncludeAllDeps:         job.IncludeAllDependencies,
-		keyCreatedTime:            job.CreatedTime.Unix(),
+		keyAssetBundleExportJobID:   job.JobID,
+		keyArn:                      job.Arn,
+		keyJobStatus:                job.Status,
+		keyExportFormat:             job.ExportFormat,
+		keyResourceArns:             job.ResourceArns,
+		keyIncludeAllDeps:           job.IncludeAllDependencies,
+		keyIncludeFolderMemberships: job.IncludeFolderMemberships,
+		keyIncludePermissions:       job.IncludePermissions,
+		keyIncludeTags:              job.IncludeTags,
+		keyCreatedTime:              job.CreatedTime.Unix(),
 	}
 	if job.DownloadURL != "" {
 		m[keyDownloadURL] = job.DownloadURL
+	}
+	if job.IncludeFolderMembers != "" {
+		m[keyIncludeFolderMembers] = job.IncludeFolderMembers
 	}
 
 	return m
@@ -106,13 +116,17 @@ func (h *Handler) handleStartAssetBundleExportJob(c *echo.Context) error {
 	}
 
 	includeAllDeps, _ := body[keyIncludeAllDeps].(bool)
+	includeFolderMemberships, _ := body[keyIncludeFolderMemberships].(bool)
+	includePermissions, _ := body[keyIncludePermissions].(bool)
+	includeTags, _ := body[keyIncludeTags].(bool)
 
 	job, err := h.Backend.StartAssetBundleExportJob(
 		accountID,
 		strField(body, keyAssetBundleExportJobID),
 		strField(body, keyExportFormat),
+		strField(body, keyIncludeFolderMembers),
 		stringsFromBody(body, keyResourceArns),
-		includeAllDeps,
+		includeAllDeps, includeFolderMemberships, includePermissions, includeTags,
 	)
 	if err != nil {
 		return httpErr(c, err)

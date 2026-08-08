@@ -87,6 +87,7 @@ func (h *Handler) handleCreateTheme(c *echo.Context) error {
 		themeID,
 		strField(body, keyName),
 		strField(body, keyBaseThemeID),
+		strField(body, keyVersionDescription),
 		mapField(body, keyConfiguration),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
@@ -141,6 +142,7 @@ func (h *Handler) handleUpdateTheme(c *echo.Context) error {
 		themeID,
 		strField(body, keyName),
 		strField(body, keyBaseThemeID),
+		strField(body, keyVersionDescription),
 		mapField(body, keyConfiguration),
 	)
 	if err != nil {

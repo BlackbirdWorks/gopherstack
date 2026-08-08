@@ -3,8 +3,11 @@ package quicksight
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // JSON response/body keys used only by dataset refresh schedule/properties
@@ -57,7 +60,7 @@ func (h *Handler) dispatchRefreshSchedule(c *echo.Context, op string) error {
 	)
 }
 
-func dataSetScheduleFieldsFromBody(body map[string]any) (string, string, string, map[string]any) {
+func dataSetScheduleFieldsFromBody(body map[string]any) (string, string, time.Time, map[string]any) {
 	sched, _ := body[keyScheduleField].(map[string]any)
 	if sched == nil {
 		sched = body
@@ -65,7 +68,7 @@ func dataSetScheduleFieldsFromBody(body map[string]any) (string, string, string,
 
 	return strField(sched, keyScheduleIDField),
 		strField(sched, keyRefreshType),
-		strField(sched, keyStartAfterDateTime),
+		epochField(sched, keyStartAfterDateTime),
 		mapField(sched, "ScheduleFrequency")
 }
 
@@ -75,8 +78,8 @@ func dataSetRefreshScheduleToMap(s *RefreshSchedule) map[string]any {
 		keyArn:             s.Arn,
 		keyRefreshType:     s.RefreshType,
 	}
-	if s.StartAfterDateTime != "" {
-		m[keyStartAfterDateTime] = s.StartAfterDateTime
+	if !s.StartAfterDateTime.IsZero() {
+		m[keyStartAfterDateTime] = awstime.Epoch(s.StartAfterDateTime)
 	}
 	if s.ScheduleFrequency != nil {
 		m["ScheduleFrequency"] = s.ScheduleFrequency
@@ -126,6 +129,7 @@ func (h *Handler) handleDescribeDataSetRefreshSchedule(c *echo.Context) error {
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{
+		keyArn:             s.Arn,
 		keyRefreshSchedule: dataSetRefreshScheduleToMap(s),
 		keyRequestID:       reqIDPlaceholder,
 		keyStatus:          http.StatusOK,
