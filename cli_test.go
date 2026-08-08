@@ -25,6 +25,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -34,6 +35,7 @@ import (
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
+	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
@@ -52,25 +54,31 @@ import (
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	kinesisanalyticsv2backend "github.com/blackbirdworks/gopherstack/services/kinesisanalyticsv2"
 	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
 	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
 	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
+	mediatailorbackend "github.com/blackbirdworks/gopherstack/services/mediatailor"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
+	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
+	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
+	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
+	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -1608,6 +1616,148 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				return f.Arn
 			},
 			wantResourceType: "inspector2:filter",
+		},
+		{
+			name: "ram_resource_share",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				rBk := rambackend.NewInMemoryBackend(accountID, region)
+				rs, err := rBk.CreateResourceShare("wiring-test-share", false, nil, nil, nil)
+				require.NoError(t, err)
+				require.NoError(t, rBk.TagResource(rs.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingRAM(bk, rambackend.NewHandler(rBk))
+
+				return rs.ARN
+			},
+			wantResourceType: "ram:resource-share",
+		},
+		{
+			name: "rekognition_collection",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				rBk := rekognitionbackend.NewInMemoryBackend(accountID, region)
+				c, err := rBk.CreateCollection("wiring-test-collection", nil)
+				require.NoError(t, err)
+				require.NoError(t, rBk.TagResource(c.CollectionARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingRekognition(bk, rekognitionbackend.NewHandler(rBk))
+
+				return c.CollectionARN
+			},
+			wantResourceType: "rekognition:collection",
+		},
+		{
+			name: "translate_terminology",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				tBk := translatebackend.NewInMemoryBackend(accountID, region)
+				term, err := tBk.ImportTerminology(
+					"wiring-test-term", "",
+					&translatebackend.TerminologyData{Format: "CSV", File: []byte("en,fr\nhello,bonjour\n")},
+					nil, nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, tBk.TagResource(term.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingTranslate(bk, translatebackend.NewHandler(tBk))
+
+				return term.ARN
+			},
+			wantResourceType: "translate:terminology",
+		},
+		{
+			name: "appstream_stack",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				aBk := appstreambackend.NewInMemoryBackend(accountID, region)
+				s, err := aBk.CreateStack("wiring-test-stack", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, aBk.TagResource(s.Arn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingAppStream(bk, appstreambackend.NewHandler(aBk))
+
+				return s.Arn
+			},
+			wantResourceType: "appstream:stack",
+		},
+		{
+			name: "mediatailor_channel",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				mBk := mediatailorbackend.NewInMemoryBackend(accountID, region)
+				ch, err := mBk.CreateChannel("wiring-test-channel", "", "", nil, nil, nil, nil, nil)
+				require.NoError(t, err)
+				require.NoError(t, mBk.TagResource(ch.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingMediaTailor(bk, mediatailorbackend.NewHandler(mBk))
+
+				return ch.ARN
+			},
+			wantResourceType: "mediatailor:channel",
+		},
+		{
+			name: "vpclattice_service_network",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				vBk := vpclatticebackend.NewInMemoryBackend(accountID, region)
+				sn, err := vBk.CreateServiceNetwork(context.Background(), "wiring-test-network", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, vBk.TagResource(sn.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingVPCLattice(bk, vpclatticebackend.NewHandler(vBk))
+
+				return sn.ARN
+			},
+			wantResourceType: "vpc-lattice:servicenetwork",
+		},
+		{
+			name: "codepipeline_pipeline",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				cpBk := codepipelinebackend.NewInMemoryBackend(accountID, region)
+				p, err := cpBk.CreatePipeline(
+					context.Background(),
+					codepipelinebackend.PipelineDeclaration{Name: "wiring-test-pipeline"},
+					nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, cpBk.TagResource(
+					context.Background(), p.Metadata.PipelineArn,
+					[]codepipelinebackend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingCodePipeline(bk, codepipelinebackend.NewHandler(cpBk))
+
+				return p.Metadata.PipelineArn
+			},
+			wantResourceType: "codepipeline:pipeline",
+		},
+		{
+			name: "kinesisanalyticsv2_application",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				kaBk := kinesisanalyticsv2backend.NewInMemoryBackend(accountID, region)
+				app, err := kaBk.CreateApplication(context.Background(), "wiring-test-app", "", "", "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, kaBk.TagResource(
+					context.Background(), app.ApplicationARN,
+					[]kinesisanalyticsv2backend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingKinesisAnalyticsV2(bk, kinesisanalyticsv2backend.NewHandler(kaBk))
+
+				return app.ApplicationARN
+			},
+			wantResourceType: "kinesisanalytics:application",
 		},
 	}
 

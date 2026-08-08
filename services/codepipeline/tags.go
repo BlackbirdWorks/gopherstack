@@ -3,6 +3,7 @@ package codepipeline
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
@@ -116,6 +117,45 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	}
 
 	return nil
+}
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every pipeline and webhook ARN that currently has
+// at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	pipelines := b.pipelines.All()
+	webhooks := b.webhooks.All()
+	out := make([]TaggedEntry, 0, len(pipelines)+len(webhooks))
+
+	for _, p := range pipelines {
+		if len(p.Tags) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(p.Tags))
+		maps.Copy(cp, p.Tags)
+		out = append(out, TaggedEntry{ARN: p.Metadata.PipelineArn, Tags: cp})
+	}
+
+	for _, wh := range webhooks {
+		if len(wh.Tags) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(wh.Tags))
+		maps.Copy(cp, wh.Tags)
+		out = append(out, TaggedEntry{ARN: wh.ARN, Tags: cp})
+	}
+
+	return out
 }
 
 // tagsToSortedSlice converts a tag map to a deterministically-sorted slice of Tag.

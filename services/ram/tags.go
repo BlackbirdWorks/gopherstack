@@ -61,3 +61,32 @@ func mergeTags(existing, incoming map[string]string) map[string]string {
 
 	return result
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every resource share ARN that currently has at
+// least one tag. Real RAM's TagResource only tags resource shares (not
+// permissions or invitations), matching this backend's TagResource gate.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	shares := b.resourceShares.All()
+	out := make([]TaggedEntry, 0, len(shares))
+
+	for _, rs := range shares {
+		if rs.Status == statusDeleted || len(rs.Tags) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(rs.Tags))
+		maps.Copy(cp, rs.Tags)
+		out = append(out, TaggedEntry{ARN: rs.ARN, Tags: cp})
+	}
+
+	return out
+}
