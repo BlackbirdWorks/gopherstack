@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveThingTypeOps(path, method string) string {
@@ -67,6 +68,8 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 			ThingTypeDescription string   `json:"thingTypeDescription"`
 			SearchableAttributes []string `json:"searchableAttributes"`
 		} `json:"thingTypeProperties"`
+		// []types.Tag on the wire, not a map (serializers.go:4974, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -87,6 +90,7 @@ func (h *Handler) handleCreateThingType(c *echo.Context) error {
 		ThingTypeName:        thingTypeName,
 		Description:          desc,
 		SearchableAttributes: searchable,
+		Tags:                 tags.MapFromKV(body.Tags),
 	})
 	if err != nil {
 		return h.handleError(c, err)

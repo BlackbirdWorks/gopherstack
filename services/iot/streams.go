@@ -71,6 +71,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, er
 		LastUpdated:   now,
 	}
 	b.streams.Put(s)
+	b.putResourceTagsLocked(s.StreamARN, s.Tags)
 
 	return cloneStream(s), nil
 }

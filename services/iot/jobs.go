@@ -354,6 +354,7 @@ func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
 		LastUpdatedAt:              now,
 	}
 	b.jobs.Put(j)
+	b.putResourceTagsLocked(j.JobARN, j.Tags)
 
 	// Real AWS IoT creates a QUEUED JobExecution row for every thing the job
 	// targets (directly, or as a member of a targeted thing group) at
@@ -836,6 +837,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 		CreatedAt:                  float64(time.Now().Unix()),
 	}
 	b.jobTemplates.Put(jt)
+	b.putResourceTagsLocked(jt.JobTemplateARN, jt.Tags)
 
 	return cloneJobTemplate(jt), nil
 }

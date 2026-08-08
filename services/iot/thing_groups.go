@@ -66,6 +66,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 
 	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
+	b.putResourceTagsLocked(tg.ThingGroupARN, input.Tags)
 
 	return tg, nil
 }
@@ -265,6 +266,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 	}
 	b.thingGroups.Put(tg)
 	b.thingGroupMembers[input.ThingGroupName] = []string{}
+	b.putResourceTagsLocked(tg.ThingGroupARN, input.Tags)
 
 	return tg, nil
 }

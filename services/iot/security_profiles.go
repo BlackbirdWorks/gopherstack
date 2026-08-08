@@ -325,6 +325,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		LastModifiedDate:            now,
 	}
 	b.securityProfiles.Put(sp)
+	b.putResourceTagsLocked(sp.SecurityProfileARN, sp.Tags)
 
 	return cloneSecurityProfile(sp), nil
 }

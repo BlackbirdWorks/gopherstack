@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolvePolicyVersionOps(path, method string) string {
@@ -139,6 +140,8 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 
 	var body struct {
 		PolicyDocument string `json:"policyDocument"`
+		// []types.Tag on the wire, not a map (serializers.go:3804, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -149,6 +152,7 @@ func (h *Handler) handleCreatePolicy(c *echo.Context) error {
 	out, err := h.Backend.CreatePolicy(&CreatePolicyInput{
 		PolicyName:     policyName,
 		PolicyDocument: body.PolicyDocument,
+		Tags:           tags.MapFromKV(body.Tags),
 	})
 	if err != nil {
 		return h.handleError(c, err)

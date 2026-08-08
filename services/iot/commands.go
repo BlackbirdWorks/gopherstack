@@ -66,6 +66,7 @@ func (b *InMemoryBackend) CreateCommand(
 	maps.Copy(cmd.Tags, tags)
 	maps.Copy(cmd.Payload, payload)
 	b.commands.Put(cmd)
+	b.putResourceTagsLocked(cmd.CommandARN, cmd.Tags)
 
 	return cloneIoTCommand(cmd), nil
 }

@@ -64,6 +64,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 		ra.CredentialDurationSeconds = 3600
 	}
 	b.roleAliases.Put(ra)
+	b.putResourceTagsLocked(ra.RoleAliasARN, ra.Tags)
 
 	return cloneRoleAlias(ra), nil
 }
@@ -186,6 +187,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		dc.ServiceType = "DATA"
 	}
 	b.domainConfigs.Put(dc)
+	b.putResourceTagsLocked(dc.DomainConfigurationARN, dc.Tags)
 
 	return cloneDomainConfig(dc), nil
 }
@@ -317,6 +319,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 		LastModifiedDate:    now,
 	}
 	b.provTemplates.Put(pt)
+	b.putResourceTagsLocked(pt.TemplateARN, pt.Tags)
 	// Create initial version.
 	b.provTemplateVersions[input.TemplateName] = []*ProvisioningTemplateVersion{
 		{VersionID: 1, TemplateBody: input.TemplateBody, CreationDate: now, IsDefaultVersion: true},

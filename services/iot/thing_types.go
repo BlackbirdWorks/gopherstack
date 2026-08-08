@@ -33,6 +33,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 	}
 
 	b.thingTypes.Put(tt)
+	b.putResourceTagsLocked(tt.ThingTypeARN, input.Tags)
 
 	return tt, nil
 }

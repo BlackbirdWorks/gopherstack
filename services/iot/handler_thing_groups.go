@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveThingGroupOps(path, method string) string {
@@ -110,6 +111,8 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 			ThingGroupDescription string            `json:"thingGroupDescription"`
 		} `json:"thingGroupProperties"`
 		ParentGroupName string `json:"parentGroupName"`
+		// []types.Tag on the wire, not a map (serializers.go:4871, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -131,6 +134,7 @@ func (h *Handler) handleCreateThingGroup(c *echo.Context) error {
 		ParentGroupName: body.ParentGroupName,
 		Description:     desc,
 		Attributes:      attrs,
+		Tags:            tags.MapFromKV(body.Tags),
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -294,12 +298,15 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 	var req struct {
 		QueryString string `json:"queryString"`
 		Description string `json:"description"`
+		// []types.Tag on the wire, not a map (serializers.go:2625, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 	_ = readBody(c, &req)
 	tg, err := h.Backend.CreateDynamicThingGroup(&CreateThingGroupInput{
 		ThingGroupName: name,
 		Description:    req.Description,
 		QueryString:    req.QueryString,
+		Tags:           tags.MapFromKV(req.Tags),
 	})
 	if err != nil {
 		return respondErr(c, err)

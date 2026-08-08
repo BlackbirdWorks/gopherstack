@@ -194,6 +194,48 @@ func TestCreateOpsAcceptListShapedTags(t *testing.T) {
 				"tags":        []map[string]string{envTag()},
 			},
 		},
+		{
+			name:   "policy",
+			method: http.MethodPost,
+			path:   "/policies/wire-policy",
+			body:   map[string]any{"tags": []map[string]string{envTag()}, "policyDocument": "{}"},
+		},
+		{
+			name:   "thing group",
+			method: http.MethodPost,
+			path:   "/thing-groups/wire-thinggroup",
+			body:   map[string]any{"tags": []map[string]string{envTag()}},
+		},
+		{
+			name:   "dynamic thing group",
+			method: http.MethodPost,
+			path:   "/dynamic-thing-groups/wire-dynthinggroup",
+			body:   map[string]any{"tags": []map[string]string{envTag()}, "queryString": "thingTypeName:foo"},
+		},
+		{
+			name:   "thing type",
+			method: http.MethodPost,
+			path:   "/thing-types/wire-thingtype",
+			body:   map[string]any{"tags": []map[string]string{envTag()}},
+		},
+		{
+			name:   "certificate provider",
+			method: http.MethodPost,
+			path:   "/certificate-providers/wire-certprovider",
+			body: map[string]any{
+				"tags":              []map[string]string{envTag()},
+				"lambdaFunctionArn": "arn:aws:lambda:us-east-1:000000000000:function:wire-certprovider",
+			},
+		},
+		{
+			name:   "register ca certificate",
+			method: http.MethodPost,
+			path:   "/cacertificate/register",
+			body: map[string]any{
+				"tags":          []map[string]string{envTag()},
+				"caCertificate": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -305,4 +347,143 @@ func TestTagResourceListTagsRoundTrip(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+// TestCreateThenListTagsForResourceRoundTrip drives each Create* op's raw
+// wire body with tags, then calls ListTagsForResource for the ARN the create
+// response returns. Before the fix, creation-time tags landed only in the
+// resource's own domain struct, never in the shared resourceTags store
+// ListTagsForResource reads (gopherstack-nam3).
+func TestCreateThenListTagsForResourceRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		method   string
+		path     string
+		body     string
+		arnField string
+	}{
+		{
+			name:     "policy",
+			method:   http.MethodPost,
+			path:     "/policies/rt-policy",
+			body:     `{"policyDocument":"{}","tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "policyArn",
+		},
+		{
+			name:     "thing group",
+			method:   http.MethodPost,
+			path:     "/thing-groups/rt-thinggroup",
+			body:     `{"tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "thingGroupArn",
+		},
+		{
+			name:     "dynamic thing group",
+			method:   http.MethodPost,
+			path:     "/dynamic-thing-groups/rt-dynthinggroup",
+			body:     `{"queryString":"thingTypeName:foo","tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "thingGroupArn",
+		},
+		{
+			name:     "thing type",
+			method:   http.MethodPost,
+			path:     "/thing-types/rt-thingtype",
+			body:     `{"tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "thingTypeArn",
+		},
+		{
+			name:   "certificate provider",
+			method: http.MethodPost,
+			path:   "/certificate-providers/rt-certprovider",
+			body: `{"lambdaFunctionArn":"arn:aws:lambda:us-east-1:000000000000:function:rt-certprovider",` +
+				`"tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "certificateProviderArn",
+		},
+		{
+			name:     "register ca certificate",
+			method:   http.MethodPost,
+			path:     "/cacertificate/register",
+			body:     `{"caCertificate":"fake-pem","tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "certificateArn",
+		},
+		{
+			name:     "security profile (pre-existing op)",
+			method:   http.MethodPost,
+			path:     "/security-profiles/rt-sp",
+			body:     `{"tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "securityProfileArn",
+		},
+		{
+			name:   "role alias (pre-existing op)",
+			method: http.MethodPost,
+			path:   "/role-aliases/rt-alias",
+			body: `{"roleArn":"arn:aws:iam::000000000000:role/rt-alias",` +
+				`"tags":[{"Key":"env","Value":"prod"}]}`,
+			arnField: "roleAliasArn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+
+			createRec := doIoTRequestRaw(t, h, tt.method, tt.path, tt.body)
+			require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
+
+			var created map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+			resourceARN, ok := created[tt.arnField].(string)
+			require.Truef(t, ok && resourceARN != "", "response missing %q: %s", tt.arnField, createRec.Body.String())
+
+			listRec := doIoTRequest(t, h, http.MethodGet, "/tags?resourceArn="+url.QueryEscape(resourceARN), nil)
+			require.Equal(t, http.StatusOK, listRec.Code, "body: %s", listRec.Body.String())
+
+			got := decodeTagList(t, listRec.Body.Bytes())
+			assert.Equal(t, map[string]string{"env": "prod"}, got)
+		})
+	}
+}
+
+// TestTagUntagResourceAfterCreationTags proves TagResource/UntagResource
+// operate correctly on a resource that was already tagged at creation time --
+// the second half of gopherstack-nam3's item 3 (not just that
+// ListTagsForResource can see creation-time tags, but that the generic tag
+// ops layer on top of them without clobbering or ignoring them).
+func TestTagUntagResourceAfterCreationTags(t *testing.T) {
+	t.Parallel()
+
+	h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+
+	createRec := doIoTRequestRaw(t, h, http.MethodPost, "/thing-groups/tu-thinggroup",
+		`{"tags":[{"Key":"env","Value":"prod"}]}`)
+	require.Equal(t, http.StatusOK, createRec.Code, "body: %s", createRec.Body.String())
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	resourceARN, _ := created["thingGroupArn"].(string)
+	require.NotEmpty(t, resourceARN)
+
+	tagRec := doIoTRequestRaw(t, h, http.MethodPost, "/tags",
+		`{"resourceArn":"`+resourceARN+`","tags":[{"Key":"team","Value":"iot"}]}`)
+	require.Equal(t, http.StatusOK, tagRec.Code, "body: %s", tagRec.Body.String())
+
+	listAfterTag := doIoTRequest(t, h, http.MethodGet, "/tags?resourceArn="+url.QueryEscape(resourceARN), nil)
+	require.Equal(t, http.StatusOK, listAfterTag.Code)
+	assert.Equal(t,
+		map[string]string{"env": "prod", "team": "iot"},
+		decodeTagList(t, listAfterTag.Body.Bytes()),
+	)
+
+	untagRec := doIoTRequest(t, h, http.MethodDelete,
+		"/tags?resourceArn="+url.QueryEscape(resourceARN)+"&tagKeys=env", nil)
+	require.Equal(t, http.StatusOK, untagRec.Code)
+
+	listAfterUntag := doIoTRequest(t, h, http.MethodGet, "/tags?resourceArn="+url.QueryEscape(resourceARN), nil)
+	require.Equal(t, http.StatusOK, listAfterUntag.Code)
+	assert.Equal(t,
+		map[string]string{"team": "iot"},
+		decodeTagList(t, listAfterUntag.Body.Bytes()),
+	)
 }

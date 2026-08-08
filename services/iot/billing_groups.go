@@ -108,6 +108,7 @@ func (b *InMemoryBackend) CreateBillingGroup(
 		Version: 1,
 	}
 	b.billingGroups.Put(bg)
+	b.putResourceTagsLocked(bg.BillingGroupARN, bg.Tags)
 
 	return cloneBillingGroup(bg), nil
 }

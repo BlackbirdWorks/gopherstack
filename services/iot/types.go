@@ -112,6 +112,7 @@ type TopicRulePayload struct {
 
 // CreatePolicyInput is the input for CreatePolicy.
 type CreatePolicyInput struct {
+	Tags           map[string]string
 	PolicyName     string
 	PolicyDocument string
 }
@@ -354,6 +355,7 @@ type CertificateProvider struct {
 
 // CreateThingTypeInput is the input for CreateThingType.
 type CreateThingTypeInput struct {
+	Tags                 map[string]string
 	ThingTypeName        string
 	Description          string
 	SearchableAttributes []string
@@ -368,6 +370,7 @@ type DeprecateThingTypeInput struct {
 // CreateThingGroupInput is the input for CreateThingGroup.
 type CreateThingGroupInput struct {
 	Attributes      map[string]string
+	Tags            map[string]string
 	ThingGroupName  string
 	ParentGroupName string
 	Description     string
@@ -456,6 +459,7 @@ type ListAttachedPoliciesInput struct {
 
 // CreateCertificateProviderInput is the input for CreateCertificateProvider.
 type CreateCertificateProviderInput struct {
+	Tags                        map[string]string
 	CertificateProviderName     string
 	LambdaFunctionARN           string
 	AccountDefaultForOperations []string

@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveCertificateOps(path, method string) string {
@@ -315,6 +316,8 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 	var body struct {
 		LambdaFunctionARN           string   `json:"lambdaFunctionArn"`
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
+		// []types.Tag on the wire, not a map (serializers.go:1992, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
@@ -326,6 +329,7 @@ func (h *Handler) handleCreateCertificateProvider(c *echo.Context) error {
 		CertificateProviderName:     name,
 		LambdaFunctionARN:           body.LambdaFunctionARN,
 		AccountDefaultForOperations: body.AccountDefaultForOperations,
+		Tags:                        tags.MapFromKV(body.Tags),
 	})
 	if err != nil {
 		return h.handleError(c, err)
@@ -426,12 +430,13 @@ func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 		CACertificate           string `json:"caCertificate"`
 		VerificationCertificate string `json:"verificationCertificate,omitempty"`
 		Status                  string `json:"registrationConfig,omitempty"`
-		Tags                    []any  `json:"tags,omitempty"`
+		// []types.Tag on the wire, not a map (serializers.go:18065, aws-sdk-go-v2/service/iot@v1.77.4).
+		Tags []tags.KV `json:"tags,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	ca, err := h.Backend.RegisterCACertificate(req.CACertificate, "ACTIVE")
+	ca, err := h.Backend.RegisterCACertificate(req.CACertificate, "ACTIVE", tags.MapFromKV(req.Tags))
 	if err != nil {
 		return respondErr(c, err)
 	}

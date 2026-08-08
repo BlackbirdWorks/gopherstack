@@ -174,7 +174,7 @@ type StorageBackend interface {
 	SecurityProfileARN(name string) string
 
 	// Batch 2: CACertificate operations.
-	RegisterCACertificate(pem, status string) (*CACertificate, error)
+	RegisterCACertificate(pem, status string, tags map[string]string) (*CACertificate, error)
 	DescribeCACertificate(id string) (*CACertificate, error)
 	ListCACertificates() []*CACertificate
 	UpdateCACertificate(id, status string) error

@@ -70,6 +70,7 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 		LastModified: now,
 	}
 	b.fleetMetrics.Put(fm)
+	b.putResourceTagsLocked(fm.MetricARN, fm.Tags)
 
 	return cloneFleetMetric(fm), nil
 }
@@ -184,6 +185,7 @@ func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*C
 		LastModifiedDate: now,
 	}
 	b.customMetrics.Put(cm)
+	b.putResourceTagsLocked(cm.MetricARN, cm.Tags)
 
 	return cloneCustomMetric(cm), nil
 }
@@ -291,6 +293,7 @@ func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimensi
 		LastModifiedDate: now,
 	}
 	b.dimensions.Put(d)
+	b.putResourceTagsLocked(d.ARN, d.Tags)
 
 	return cloneDimension(d), nil
 }

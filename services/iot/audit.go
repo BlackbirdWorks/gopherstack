@@ -699,6 +699,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 		Tags:               tags.MapFromKV(input.Tags),
 	}
 	b.scheduledAudits.Put(sa)
+	b.putResourceTagsLocked(sa.ScheduledAuditARN, sa.Tags)
 
 	return cloneScheduledAudit(sa), nil
 }
@@ -821,6 +822,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 		LastModifiedDate: now,
 	}
 	b.mitigationActions.Put(ma)
+	b.putResourceTagsLocked(ma.ActionARN, ma.Tags)
 
 	return cloneMitigationAction(ma), nil
 }

@@ -104,6 +104,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 		a.Status = "ACTIVE"
 	}
 	b.authorizers.Put(a)
+	b.putResourceTagsLocked(a.AuthorizerARN, a.Tags)
 
 	return cloneAuthorizer(a), nil
 }
