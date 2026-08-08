@@ -84,6 +84,41 @@ func (b *InMemoryBackend) tryUserMigration(
 	return user, resp.FinalUserStatus, nil
 }
 
+// tryUserMigrationForgotPassword invokes the UserMigration Lambda trigger (if
+// configured) for a ForgotPassword call naming a username that does not exist in the
+// pool, and -- if the Lambda supplies userAttributes -- creates a new user with those
+// attributes. Unlike tryUserMigration, no password/SRP credentials are set: Cognito
+// never sends a password into a forgot-password migration, so the user has none until
+// ConfirmForgotPassword completes the flow the caller is already in the middle of.
+// Returns (nil, nil) -- not an error -- when migration is unavailable or declined, so
+// ForgotPassword falls back to its normal unknown-user handling. Caller must hold b.mu.
+func (b *InMemoryBackend) tryUserMigrationForgotPassword(pool *UserPool, clientID, username string) (*User, error) {
+	resp, err := b.invokeUserMigrationTriggerForgotPassword(pool, clientID, username)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp == nil {
+		return nil, nil //nolint:nilnil // sentinel "declined" pair, documented above
+	}
+
+	now := time.Now()
+	user := &User{
+		Sub:        uuid.New().String(),
+		Username:   username,
+		UserPoolID: pool.ID,
+		Status:     UserStatusForceChangePassword,
+		Attributes: resp.UserAttributes,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		Enabled:    true,
+	}
+
+	b.users.Put(user)
+
+	return user, nil
+}
+
 // applyPostMigrationFinalStatus, called after authenticate() has already used a
 // freshly-migrated user's CONFIRMED status to complete (or challenge) this one
 // sign-in attempt, applies FinalUserStatus=RESET_REQUIRED by flipping the user to

@@ -6,8 +6,12 @@ import (
 	"time"
 )
 
-// CreateUserImportJob creates a new import job for a user pool.
-func (b *InMemoryBackend) CreateUserImportJob(userPoolID, jobName string) (*UserImportJob, error) {
+// CreateUserImportJob creates a new import job for a user pool. cloudWatchLogsRoleArn
+// is a required AWS request field (the IAM role Cognito logs import results to);
+// passwordHashingAlgorithm is optional.
+func (b *InMemoryBackend) CreateUserImportJob(
+	userPoolID, jobName, cloudWatchLogsRoleArn, passwordHashingAlgorithm string,
+) (*UserImportJob, error) {
 	b.mu.Lock("CreateUserImportJob")
 	defer b.mu.Unlock()
 
@@ -17,11 +21,17 @@ func (b *InMemoryBackend) CreateUserImportJob(userPoolID, jobName string) (*User
 
 	jobID := "import-" + randomAlphanumeric(userImportJobIDLen)
 	job := &UserImportJob{
-		JobID:      jobID,
-		JobName:    jobName,
-		UserPoolID: userPoolID,
-		Status:     "Created",
-		CreatedAt:  time.Now(),
+		JobID:                    jobID,
+		JobName:                  jobName,
+		UserPoolID:               userPoolID,
+		Status:                   "Created",
+		CreatedAt:                time.Now(),
+		CloudWatchLogsRoleArn:    cloudWatchLogsRoleArn,
+		PasswordHashingAlgorithm: passwordHashingAlgorithm,
+		// AWS's real PreSignedUrl targets an S3 bucket gopherstack has no upload
+		// pipeline behind; synthesized the same way domains.go fabricates
+		// CloudFrontDistribution/S3Bucket for informational-only response fields.
+		PreSignedURL: "https://cognito-idp-import." + b.region + ".amazonaws.com/" + jobID + "?X-Amz-Signature=mock",
 	}
 	b.userImportJobs.Put(job)
 
@@ -93,6 +103,7 @@ func (b *InMemoryBackend) StartUserImportJob(userPoolID, jobID string) (*UserImp
 	}
 
 	job.Status = "InProgress"
+	job.StartedAt = time.Now()
 	cp := *job
 
 	return &cp, nil
@@ -119,6 +130,9 @@ func (b *InMemoryBackend) StopUserImportJob(userPoolID, jobID string) (*UserImpo
 	}
 
 	job.Status = "Stopped"
+	// This backend has no real CSV-processing pipeline, so a stop is the only
+	// completion path a job ever reaches; CompletionDate marks that transition.
+	job.CompletedAt = time.Now()
 	cp := *job
 
 	return &cp, nil

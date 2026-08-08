@@ -73,10 +73,12 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				_, err = b.CreateTerms(pool.ID, "accept these terms")
 				require.NoError(t, err)
 
-				_, err = b.CreateUserImportJob(pool.ID, "import-1")
+				_, err = b.CreateUserImportJob(
+					pool.ID, "import-1", "arn:aws:iam::000000000000:role/CognitoImportRole", "",
+				)
 				require.NoError(t, err)
 
-				_, err = b.CreateManagedLoginBranding(pool.ID, client.ClientID)
+				_, err = b.CreateManagedLoginBranding(pool.ID, client.ClientID, nil, nil, false)
 				require.NoError(t, err)
 
 				_, err = b.SetUICustomization(pool.ID, client.ClientID, "body{color:red}")

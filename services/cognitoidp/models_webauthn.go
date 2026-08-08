@@ -9,6 +9,7 @@ type WebAuthnCredential struct {
 	FriendlyName            string    `json:"friendlyName,omitempty"`
 	RelyingPartyID          string    `json:"relyingPartyID,omitempty"`
 	AuthenticatorAttachment string    `json:"authenticatorAttachment,omitempty"`
+	AuthenticatorTransports []string  `json:"authenticatorTransports,omitempty"`
 }
 
 type completeWebAuthnRegistrationInput struct {
@@ -32,11 +33,12 @@ type listWebAuthnCredentialsInput struct {
 }
 
 type webAuthnCredentialDescriptionType struct {
-	CredentialID            string  `json:"CredentialId,omitempty"`
-	FriendlyName            string  `json:"FriendlyName,omitempty"`
-	RelyingPartyID          string  `json:"RelyingPartyId,omitempty"`
-	AuthenticatorAttachment string  `json:"AuthenticatorAttachment,omitempty"`
-	CreatedAt               float64 `json:"CreatedAt,omitempty"`
+	CredentialID            string   `json:"CredentialId,omitempty"`
+	FriendlyCredentialName  string   `json:"FriendlyCredentialName,omitempty"`
+	RelyingPartyID          string   `json:"RelyingPartyId,omitempty"`
+	AuthenticatorAttachment string   `json:"AuthenticatorAttachment,omitempty"`
+	AuthenticatorTransports []string `json:"AuthenticatorTransports"`
+	CreatedAt               float64  `json:"CreatedAt,omitempty"`
 }
 
 type listWebAuthnCredentialsOutput struct {

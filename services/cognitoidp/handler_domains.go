@@ -15,7 +15,12 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 		certArn = in.CustomDomainConfig.CertificateArn
 	}
 
-	d, err := h.Backend.CreateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn)
+	var mlv int32
+	if in.ManagedLoginVersion != nil {
+		mlv = *in.ManagedLoginVersion
+	}
+
+	d, err := h.Backend.CreateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +32,10 @@ func (h *Handler) handleCreateUserPoolDomainFull(
 		cfDomain = d.CloudFrontDistribution
 	}
 
-	return &createUserPoolDomainFullOutput{CloudFrontDomain: cfDomain}, nil
+	return &createUserPoolDomainFullOutput{
+		CloudFrontDomain:    cfDomain,
+		ManagedLoginVersion: &d.ManagedLoginVersion,
+	}, nil
 }
 
 func (h *Handler) handleUpdateUserPoolDomainFull(
@@ -39,12 +47,20 @@ func (h *Handler) handleUpdateUserPoolDomainFull(
 		certArn = in.CustomDomainConfig.CertificateArn
 	}
 
-	cfDomain, err := h.Backend.UpdateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn)
+	var mlv int32
+	if in.ManagedLoginVersion != nil {
+		mlv = *in.ManagedLoginVersion
+	}
+
+	d, err := h.Backend.UpdateUserPoolDomainFull(in.UserPoolID, in.Domain, certArn, mlv)
 	if err != nil {
 		return nil, err
 	}
 
-	return &updateUserPoolDomainFullOutput{CloudFrontDomain: cfDomain}, nil
+	return &updateUserPoolDomainFullOutput{
+		CloudFrontDomain:    d.CloudFrontDistribution,
+		ManagedLoginVersion: &d.ManagedLoginVersion,
+	}, nil
 }
 
 func (h *Handler) handleCreateUserPoolDomain(
@@ -81,10 +97,13 @@ func (h *Handler) handleDescribeUserPoolDomain(
 	}
 
 	desc := &userPoolDomainDescription{
+		AWSAccountID:           d.AWSAccountID,
 		Domain:                 d.Domain,
 		UserPoolID:             d.UserPoolID,
 		Status:                 d.Status,
 		CloudFrontDistribution: d.CloudFrontDistribution,
+		S3Bucket:               d.S3Bucket,
+		ManagedLoginVersion:    &d.ManagedLoginVersion,
 	}
 
 	// AWS only echoes CustomDomainConfig back for a custom domain (one with an ACM

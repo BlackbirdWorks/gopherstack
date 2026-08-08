@@ -2,6 +2,7 @@ package cognitoidp_test
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"testing"
 
@@ -232,6 +233,99 @@ func TestUserPoolDomain_Update_WithCertArn(t *testing.T) {
 	assert.Contains(t, out.CloudFrontDomain, "cloudfront.net")
 }
 
+type domainDescriptionWire struct {
+	DomainDescription *struct {
+		ManagedLoginVersion    *int32 `json:"ManagedLoginVersion,omitempty"`
+		Domain                 string `json:"Domain,omitempty"`
+		AWSAccountID           string `json:"AWSAccountId,omitempty"`
+		S3Bucket               string `json:"S3Bucket,omitempty"`
+		CloudFrontDistribution string `json:"CloudFrontDistribution,omitempty"`
+	} `json:"DomainDescription"`
+}
+
+func TestUserPoolDomain_Describe_AWSAccountIdManagedLoginVersionS3Bucket(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		requestBody map[string]any
+		name        string
+		wantMLV     int32
+	}{
+		{
+			name:        "unset_defaults_to_hosted_ui_classic",
+			requestBody: map[string]any{},
+			wantMLV:     1,
+		},
+		{
+			name:        "explicit_managed_login",
+			requestBody: map[string]any{"ManagedLoginVersion": 2},
+			wantMLV:     2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			poolID, _ := setupHandlerPoolAndClient(t, h, "domain-mlv-"+tt.name+"-pool")
+			domain := "domain-mlv-" + tt.name
+
+			body := map[string]any{"UserPoolId": poolID, "Domain": domain}
+			maps.Copy(body, tt.requestBody)
+
+			createRec := doCognitoRequest(t, h, "CreateUserPoolDomain", body)
+			require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+			var createOut struct {
+				ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
+			}
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			require.NotNil(t, createOut.ManagedLoginVersion, "CreateUserPoolDomain must echo ManagedLoginVersion")
+			assert.Equal(t, tt.wantMLV, *createOut.ManagedLoginVersion)
+
+			descRec := doCognitoRequest(t, h, "DescribeUserPoolDomain", map[string]any{"Domain": domain})
+			require.Equal(t, http.StatusOK, descRec.Code, descRec.Body.String())
+
+			var out domainDescriptionWire
+			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+			require.NotNil(t, out.DomainDescription)
+
+			assert.NotEmpty(t, out.DomainDescription.AWSAccountID)
+			assert.NotEmpty(t, out.DomainDescription.S3Bucket)
+			require.NotNil(t, out.DomainDescription.ManagedLoginVersion)
+			assert.Equal(t, tt.wantMLV, *out.DomainDescription.ManagedLoginVersion)
+		})
+	}
+}
+
+func TestUserPoolDomain_UpdateManagedLoginVersion_OmittedRetainsPrior(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, _ := setupHandlerPoolAndClient(t, h, "domain-mlv-update-pool")
+
+	createRec := doCognitoRequest(t, h, "CreateUserPoolDomain", map[string]any{
+		"UserPoolId":          poolID,
+		"Domain":              "domain-mlv-update",
+		"ManagedLoginVersion": 2,
+	})
+	require.Equal(t, http.StatusOK, createRec.Code, createRec.Body.String())
+
+	updateRec := doCognitoRequest(t, h, "UpdateUserPoolDomain", map[string]any{
+		"UserPoolId": poolID,
+		"Domain":     "domain-mlv-update",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code, updateRec.Body.String())
+
+	var updateOut struct {
+		ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
+	}
+	require.NoError(t, json.Unmarshal(updateRec.Body.Bytes(), &updateOut))
+	require.NotNil(t, updateOut.ManagedLoginVersion, "UpdateUserPoolDomain must echo ManagedLoginVersion")
+	assert.EqualValues(t, 2, *updateOut.ManagedLoginVersion, "omitting the field on update must not reset it")
+}
+
 func TestUserPoolDomain_Backend_Direct(t *testing.T) {
 	t.Parallel()
 
@@ -240,23 +334,27 @@ func TestUserPoolDomain_Backend_Direct(t *testing.T) {
 	require.NoError(t, err)
 
 	// Managed domain (no cert).
-	d, err := b.CreateUserPoolDomainFull(pool.ID, "my-managed-domain", "")
+	d, err := b.CreateUserPoolDomainFull(pool.ID, "my-managed-domain", "", 0)
 	require.NoError(t, err)
 	assert.Contains(t, d.CloudFrontDistribution, "amazoncognito.com")
 	assert.Empty(t, d.CertificateArn)
+	assert.EqualValues(t, 1, d.ManagedLoginVersion)
+	assert.NotEmpty(t, d.S3Bucket)
 
 	// Custom domain with cert.
 	certArn := "arn:aws:acm:us-east-1:123:certificate/xyz"
-	d2, err := b.CreateUserPoolDomainFull(pool.ID, "auth.example.com", certArn)
+	d2, err := b.CreateUserPoolDomainFull(pool.ID, "auth.example.com", certArn, 2)
 	require.NoError(t, err)
 	assert.Contains(t, d2.CloudFrontDistribution, "cloudfront.net")
 	assert.Equal(t, certArn, d2.CertificateArn)
+	assert.EqualValues(t, 2, d2.ManagedLoginVersion)
 
 	// Update cert.
 	newCert := "arn:aws:acm:us-east-1:123:certificate/new"
-	cfDomain, err := b.UpdateUserPoolDomainFull(pool.ID, "auth.example.com", newCert)
+	updated, err := b.UpdateUserPoolDomainFull(pool.ID, "auth.example.com", newCert, 0)
 	require.NoError(t, err)
-	assert.Contains(t, cfDomain, "cloudfront.net")
+	assert.Contains(t, updated.CloudFrontDistribution, "cloudfront.net")
+	assert.EqualValues(t, 2, updated.ManagedLoginVersion, "omitted ManagedLoginVersion on update leaves it unchanged")
 
 	// Delete.
 	require.NoError(t, b.DeleteUserPoolDomain(pool.ID, "auth.example.com"))

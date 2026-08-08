@@ -14,11 +14,14 @@ type UICustomization struct {
 
 // ManagedLoginBranding stores managed login branding for a pool client.
 type ManagedLoginBranding struct {
-	CreatedAt              time.Time `json:"createdAt"`
-	LastModifiedAt         time.Time `json:"lastModifiedAt"`
-	ManagedLoginBrandingID string    `json:"managedLoginBrandingID,omitempty"`
-	UserPoolID             string    `json:"userPoolID,omitempty"`
-	ClientID               string    `json:"clientID,omitempty"`
+	CreatedAt                time.Time        `json:"createdAt"`
+	LastModifiedAt           time.Time        `json:"lastModifiedAt"`
+	ManagedLoginBrandingID   string           `json:"managedLoginBrandingID,omitempty"`
+	UserPoolID               string           `json:"userPoolID,omitempty"`
+	ClientID                 string           `json:"clientID,omitempty"`
+	Settings                 map[string]any   `json:"settings,omitempty"`
+	Assets                   []map[string]any `json:"assets,omitempty"`
+	UseCognitoProvidedValues bool             `json:"useCognitoProvidedValues,omitempty"`
 }
 
 type setUICustomizationFullInput struct {
@@ -51,13 +54,21 @@ type getUICustomizationFullOutput struct {
 }
 
 type createManagedLoginBrandingInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
-	ClientID   string `json:"ClientId,omitempty"`
+	UserPoolID               string           `json:"UserPoolId,omitempty"`
+	ClientID                 string           `json:"ClientId,omitempty"`
+	Settings                 map[string]any   `json:"Settings,omitempty"`
+	Assets                   []map[string]any `json:"Assets,omitempty"`
+	UseCognitoProvidedValues bool             `json:"UseCognitoProvidedValues,omitempty"`
 }
 
 type managedLoginBrandingType struct {
-	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
-	UserPoolID             string `json:"UserPoolId,omitempty"`
+	ManagedLoginBrandingID   string           `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID               string           `json:"UserPoolId,omitempty"`
+	Settings                 map[string]any   `json:"Settings,omitempty"`
+	Assets                   []map[string]any `json:"Assets,omitempty"`
+	UseCognitoProvidedValues bool             `json:"UseCognitoProvidedValues,omitempty"`
+	CreationDate             float64          `json:"CreationDate,omitempty"`
+	LastModifiedDate         float64          `json:"LastModifiedDate,omitempty"`
 }
 
 type createManagedLoginBrandingOutput struct {
@@ -90,8 +101,11 @@ type describeManagedLoginBrandingByClientOutput struct {
 }
 
 type updateManagedLoginBrandingInput struct {
-	ManagedLoginBrandingID string `json:"ManagedLoginBrandingId,omitempty"`
-	UserPoolID             string `json:"UserPoolId,omitempty"`
+	ManagedLoginBrandingID   string           `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID               string           `json:"UserPoolId,omitempty"`
+	Settings                 map[string]any   `json:"Settings,omitempty"`
+	Assets                   []map[string]any `json:"Assets,omitempty"`
+	UseCognitoProvidedValues bool             `json:"UseCognitoProvidedValues,omitempty"`
 }
 
 type updateManagedLoginBrandingOutput struct {

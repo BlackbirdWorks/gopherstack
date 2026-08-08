@@ -62,6 +62,7 @@ const (
 	triggerSourceCreateAuthChallenge      = "CreateAuthChallenge_Authentication"
 	triggerSourceVerifyAuthChallenge      = "VerifyAuthChallengeResponse_Authentication"
 	triggerSourceUserMigrationAuth        = "UserMigration_Authentication"
+	triggerSourceUserMigrationForgotPwd   = "UserMigration_ForgotPassword"
 )
 
 // LambdaConfig key names, matching the JSON field names of AWS's LambdaConfigType
@@ -546,6 +547,29 @@ type userMigrationResult struct {
 	FinalUserStatus string
 }
 
+var defaultUserMigrationResponse = map[string]any{ //nolint:gochecknoglobals // static default-response envelope
+	"userAttributes":         map[string]any{},
+	"finalUserStatus":        "",
+	"messageAction":          "",
+	"desiredDeliveryMediums": []any{},
+	"forceAliasCreation":     false,
+}
+
+// parseUserMigrationResponse extracts a userMigrationResult from a UserMigration
+// Lambda response, or nil if the Lambda declined to migrate this user (no
+// userAttributes) -- AWS treats a declined migration exactly like the trigger never
+// having run, surfacing the caller's original "unknown user" handling.
+func parseUserMigrationResponse(resp map[string]any) *userMigrationResult {
+	attrs := anyMapToStringMap(resp["userAttributes"])
+	if len(attrs) == 0 {
+		return nil
+	}
+
+	finalStatus, _ := resp["finalUserStatus"].(string)
+
+	return &userMigrationResult{UserAttributes: attrs, FinalUserStatus: finalStatus}
+}
+
 // invokeUserMigrationTrigger invokes the UserMigration Lambda trigger (if configured)
 // with the plaintext password from the current sign-in attempt, letting the Lambda
 // validate it against an external identity store and, on success, supply the
@@ -567,27 +591,41 @@ func (b *InMemoryBackend) invokeUserMigrationTrigger(
 			eventKeyValidationData: map[string]any{},
 			eventKeyClientMetadata: map[string]any{},
 		},
-		map[string]any{
-			"userAttributes":         map[string]any{},
-			"finalUserStatus":        "",
-			"messageAction":          "",
-			"desiredDeliveryMediums": []any{},
-			"forceAliasCreation":     false,
-		},
+		defaultUserMigrationResponse,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	attrs := anyMapToStringMap(resp["userAttributes"])
-	if len(attrs) == 0 {
-		// No attributes means the Lambda declined to migrate this user (e.g. the
-		// external system rejected the password) -- AWS treats this exactly like the
-		// trigger never having run, surfacing the original UserNotFoundException.
-		return nil, nil //nolint:nilnil // sentinel "declined" pair, documented above
+	return parseUserMigrationResponse(resp), nil
+}
+
+// invokeUserMigrationTriggerForgotPassword invokes the UserMigration Lambda trigger
+// (if configured) for a ForgotPassword call naming a username that does not exist in
+// the pool. Unlike sign-in migration, request.password is omitted entirely rather than
+// sent empty: "Amazon Cognito doesn't send this value in a request that's initiated by
+// a forgot-password flow" (Cognito developer guide, "Migrate user Lambda trigger
+// parameters"). Returns (nil, nil) -- not an error -- both when no UserMigration
+// trigger is configured and when the Lambda declines, so ForgotPassword falls back to
+// its normal "unknown user" handling either way. Caller must hold b.mu.
+func (b *InMemoryBackend) invokeUserMigrationTriggerForgotPassword(
+	pool *UserPool, clientID, username string,
+) (*userMigrationResult, error) {
+	if lambdaConfigARN(pool.LambdaConfig, triggerKeyUserMigration) == "" {
+		return nil, nil //nolint:nilnil // sentinel "not configured" pair, documented above
 	}
 
-	finalStatus, _ := resp["finalUserStatus"].(string)
+	resp, err := b.invokeLambdaTrigger(pool, triggerKeyUserMigration, triggerSourceUserMigrationForgotPwd,
+		clientID, username,
+		map[string]any{
+			eventKeyValidationData: map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		defaultUserMigrationResponse,
+	)
+	if err != nil {
+		return nil, err
+	}
 
-	return &userMigrationResult{UserAttributes: attrs, FinalUserStatus: finalStatus}, nil
+	return parseUserMigrationResponse(resp), nil
 }

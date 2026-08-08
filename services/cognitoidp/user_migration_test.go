@@ -3,7 +3,9 @@ package cognitoidp_test
 // user_migration_test.go exercises the UserMigration Lambda trigger added in
 // user_migration.go: an unknown username on USER_PASSWORD_AUTH/ADMIN_USER_PASSWORD_AUTH
 // invokes UserMigration (if configured), and a response with userAttributes creates and
-// authenticates a brand-new user in one round trip.
+// authenticates a brand-new user in one round trip. It also covers the
+// UserMigration_ForgotPassword trigger source ForgotPassword invokes for an unknown
+// username.
 
 import (
 	"testing"
@@ -163,6 +165,95 @@ func Test_UserMigration_FinalUserStatusResetRequired(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, challenge.Tokens)
 	assert.Equal(t, "NEW_PASSWORD_REQUIRED", challenge.ChallengeName)
+}
+
+func Test_UserMigration_ForgotPassword_LambdaAccepts_CreatesUserAndSendsCode(t *testing.T) {
+	t.Parallel()
+
+	inv := &fakeInvoker{
+		respond: func(_ string, event map[string]any) (map[string]any, error) {
+			req, _ := event["request"].(map[string]any)
+			_, hasPassword := req["password"]
+			assert.False(t, hasPassword, "Cognito never sends a password into a forgot-password migration event")
+
+			return map[string]any{
+				"userAttributes": map[string]any{"email": "legacy@x.com", "email_verified": "true"},
+			}, nil
+		},
+	}
+	b, pool, client := newUserMigrationTestPool(t, inv)
+
+	code, err := b.ForgotPassword(client.ClientID, "legacy-fp-user")
+	require.NoError(t, err)
+	require.NotEmpty(t, code)
+
+	require.Equal(t, 1, inv.callCount())
+	assert.Equal(t, "UserMigration_ForgotPassword", inv.lastCall().event["triggerSource"])
+
+	user, err := b.AdminGetUser(pool.ID, "legacy-fp-user")
+	require.NoError(t, err)
+	assert.Equal(t, "legacy@x.com", user.Attributes["email"])
+
+	require.NoError(t, b.ConfirmForgotPassword(client.ClientID, "legacy-fp-user", code, "NewPass1234!"))
+
+	user, err = b.AdminGetUser(pool.ID, "legacy-fp-user")
+	require.NoError(t, err)
+	assert.Equal(t,
+		cognitoidp.UserStatusConfirmed, user.Status,
+		"ConfirmForgotPassword must complete the migrated account",
+	)
+}
+
+func Test_UserMigration_ForgotPassword_LambdaDeclines_FallsBackToUserNotFound(t *testing.T) {
+	t.Parallel()
+
+	inv := &fakeInvoker{
+		respond: func(_ string, _ map[string]any) (map[string]any, error) {
+			return map[string]any{}, nil
+		},
+	}
+	b, _, client := newUserMigrationTestPool(t, inv)
+
+	_, err := b.ForgotPassword(client.ClientID, "rejected-fp-user")
+	require.ErrorIs(t, err, cognitoidp.ErrUserNotFound)
+	require.Equal(t, 1, inv.callCount(), "the Lambda must still have been given the chance to migrate")
+}
+
+func Test_UserMigration_ForgotPassword_NotConfigured_FallsBackToUserNotFound(t *testing.T) {
+	t.Parallel()
+
+	b, _, client := setupTestPoolAndClient(t) // no SetLambdaTriggerInvoker call at all
+
+	_, err := b.ForgotPassword(client.ClientID, "no-such-fp-user")
+	require.ErrorIs(t, err, cognitoidp.ErrUserNotFound)
+}
+
+func Test_UserMigration_ForgotPassword_PreventUserExistenceErrors_StillMasksWhenLambdaDeclines(t *testing.T) {
+	t.Parallel()
+
+	inv := &fakeInvoker{
+		respond: func(_ string, _ map[string]any) (map[string]any, error) {
+			return map[string]any{}, nil
+		},
+	}
+	b := newTestBackend()
+	b.SetLambdaTriggerInvoker(inv)
+
+	pool, err := b.CreateUserPoolWithOpts("peu-fp-migration-pool", cognitoidp.UserPoolOptions{
+		LambdaConfig: map[string]any{
+			"UserMigration": "arn:aws:lambda:us-east-1:000000000000:function:UserMigration",
+		},
+	})
+	require.NoError(t, err)
+
+	client, err := b.CreateUserPoolClientWithOpts(pool.ID, "peu-fp-migration-client", cognitoidp.UserPoolClientOptions{
+		PreventUserExistenceErrors: "ENABLED",
+	})
+	require.NoError(t, err)
+
+	code, err := b.ForgotPassword(client.ClientID, "no-such-fp-user")
+	require.NoError(t, err, "masking must still apply after a declined migration")
+	require.NotEmpty(t, code)
 }
 
 func Test_UserMigration_AdminInitiateAuth(t *testing.T) {

@@ -3,26 +3,37 @@ package cognitoidp
 import (
 	"context"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+func toUserImportJobType(job *UserImportJob) *userImportJobType {
+	return &userImportJobType{
+		JobID:                    job.JobID,
+		JobName:                  job.JobName,
+		UserPoolID:               job.UserPoolID,
+		Status:                   job.Status,
+		CloudWatchLogsRoleArn:    job.CloudWatchLogsRoleArn,
+		PasswordHashingAlgorithm: job.PasswordHashingAlgorithm,
+		PreSignedURL:             job.PreSignedURL,
+		CreationDate:             awstime.Epoch(job.CreatedAt),
+		StartDate:                awstime.Epoch(job.StartedAt),
+		CompletionDate:           awstime.Epoch(job.CompletedAt),
+	}
+}
 
 func (h *Handler) handleCreateUserImportJob(
 	_ context.Context,
 	in *createUserImportJobInput,
 ) (*createUserImportJobOutput, error) {
-	job, err := h.Backend.CreateUserImportJob(in.UserPoolID, in.JobName)
+	job, err := h.Backend.CreateUserImportJob(
+		in.UserPoolID, in.JobName, in.CloudWatchLogsRoleArn, in.PasswordHashingAlgorithm,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &createUserImportJobOutput{
-		UserImportJob: &userImportJobType{
-			JobID:      job.JobID,
-			JobName:    job.JobName,
-			UserPoolID: job.UserPoolID,
-			Status:     job.Status,
-		},
-	}, nil
+	return &createUserImportJobOutput{UserImportJob: toUserImportJobType(job)}, nil
 }
 
 func (h *Handler) handleDescribeUserImportJob(
@@ -34,14 +45,7 @@ func (h *Handler) handleDescribeUserImportJob(
 		return nil, err
 	}
 
-	return &describeUserImportJobOutput{
-		UserImportJob: &userImportJobType{
-			JobID:      job.JobID,
-			JobName:    job.JobName,
-			UserPoolID: job.UserPoolID,
-			Status:     job.Status,
-		},
-	}, nil
+	return &describeUserImportJobOutput{UserImportJob: toUserImportJobType(job)}, nil
 }
 
 func (h *Handler) handleListUserImportJobs(
@@ -55,12 +59,7 @@ func (h *Handler) handleListUserImportJobs(
 
 	out := make([]userImportJobType, 0, len(jobs))
 	for _, job := range jobs {
-		out = append(out, userImportJobType{
-			JobID:      job.JobID,
-			JobName:    job.JobName,
-			UserPoolID: job.UserPoolID,
-			Status:     job.Status,
-		})
+		out = append(out, *toUserImportJobType(job))
 	}
 
 	return &listUserImportJobsOutput{UserImportJobs: out}, nil
@@ -75,14 +74,7 @@ func (h *Handler) handleStartUserImportJob(
 		return nil, err
 	}
 
-	return &startUserImportJobOutput{
-		UserImportJob: &userImportJobType{
-			JobID:      job.JobID,
-			JobName:    job.JobName,
-			UserPoolID: job.UserPoolID,
-			Status:     job.Status,
-		},
-	}, nil
+	return &startUserImportJobOutput{UserImportJob: toUserImportJobType(job)}, nil
 }
 
 func (h *Handler) handleStopUserImportJob(
@@ -94,14 +86,7 @@ func (h *Handler) handleStopUserImportJob(
 		return nil, err
 	}
 
-	return &stopUserImportJobOutput{
-		UserImportJob: &userImportJobType{
-			JobID:      job.JobID,
-			JobName:    job.JobName,
-			UserPoolID: job.UserPoolID,
-			Status:     job.Status,
-		},
-	}, nil
+	return &stopUserImportJobOutput{UserImportJob: toUserImportJobType(job)}, nil
 }
 
 func (h *Handler) handleGetCSVHeader(_ context.Context, in *getCSVHeaderInput) (*getCSVHeaderOutput, error) {

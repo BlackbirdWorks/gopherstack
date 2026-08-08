@@ -216,3 +216,68 @@ func TestManagedLoginBranding_CRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+type managedLoginBrandingWire struct {
+	ManagedLoginBrandingID   string           `json:"ManagedLoginBrandingId,omitempty"`
+	UserPoolID               string           `json:"UserPoolId,omitempty"`
+	Settings                 map[string]any   `json:"Settings,omitempty"`
+	Assets                   []map[string]any `json:"Assets,omitempty"`
+	UseCognitoProvidedValues bool             `json:"UseCognitoProvidedValues,omitempty"`
+	CreationDate             float64          `json:"CreationDate,omitempty"`
+	LastModifiedDate         float64          `json:"LastModifiedDate,omitempty"`
+}
+
+func TestManagedLoginBranding_SettingsAndAssets_AcceptedAndEchoed(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	poolID, clientID := setupHandlerPoolAndClient(t, h, "mlb-settings-pool")
+
+	settings := map[string]any{"componentClasses": map[string]any{"primaryButton": map[string]any{"lightMode": "blue"}}}
+	assets := []any{map[string]any{
+		"Category":  "PAGE_BACKGROUND",
+		"ColorMode": "LIGHT",
+		"Extension": "PNG",
+		"Bytes":     "aGVsbG8=",
+	}}
+
+	rec := doCognitoRequest(t, h, "CreateManagedLoginBranding", map[string]any{
+		"UserPoolId": poolID,
+		"ClientId":   clientID,
+		"Settings":   settings,
+		"Assets":     assets,
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var createResp struct {
+		ManagedLoginBranding managedLoginBrandingWire `json:"ManagedLoginBranding"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	componentClasses, ok := createResp.ManagedLoginBranding.Settings["componentClasses"].(map[string]any)
+	require.True(t, ok)
+	primaryButton, ok := componentClasses["primaryButton"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "blue", primaryButton["lightMode"],
+		"Settings is a required accepted field and must be echoed back verbatim",
+	)
+	require.Len(t, createResp.ManagedLoginBranding.Assets, 1)
+	assert.Equal(t, "PAGE_BACKGROUND", createResp.ManagedLoginBranding.Assets[0]["Category"])
+	assert.NotZero(t, createResp.ManagedLoginBranding.CreationDate)
+
+	brandingID := createResp.ManagedLoginBranding.ManagedLoginBrandingID
+
+	// Update with UseCognitoProvidedValues only: Settings/Assets omitted must be retained.
+	updRec := doCognitoRequest(t, h, "UpdateManagedLoginBranding", map[string]any{
+		"UserPoolId":               poolID,
+		"ManagedLoginBrandingId":   brandingID,
+		"UseCognitoProvidedValues": true,
+	})
+	require.Equal(t, http.StatusOK, updRec.Code, updRec.Body.String())
+
+	var updResp struct {
+		ManagedLoginBranding managedLoginBrandingWire `json:"ManagedLoginBranding"`
+	}
+	require.NoError(t, json.Unmarshal(updRec.Body.Bytes(), &updResp))
+	assert.True(t, updResp.ManagedLoginBranding.UseCognitoProvidedValues)
+	assert.NotEmpty(t, updResp.ManagedLoginBranding.Settings, "omitting Settings on update must not clear it")
+}
