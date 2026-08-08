@@ -33,7 +33,9 @@ import (
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
+	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	dlmbackend "github.com/blackbirdworks/gopherstack/services/dlm"
@@ -48,7 +50,11 @@ import (
 	fisbackend "github.com/blackbirdworks/gopherstack/services/fis"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
 	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
+	inspector2backend "github.com/blackbirdworks/gopherstack/services/inspector2"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	macie2backend "github.com/blackbirdworks/gopherstack/services/macie2"
+	managedblockchainbackend "github.com/blackbirdworks/gopherstack/services/managedblockchain"
+	mediaconvertbackend "github.com/blackbirdworks/gopherstack/services/mediaconvert"
 	mediapackagebackend "github.com/blackbirdworks/gopherstack/services/mediapackage"
 	mediastorebackend "github.com/blackbirdworks/gopherstack/services/mediastore"
 	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
@@ -1503,6 +1509,105 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				return p.ARN
 			},
 			wantResourceType: "pipes:pipe",
+		},
+		{
+			name: "macie2_allow_list",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				mBk := macie2backend.NewInMemoryBackend(accountID, region)
+				al, err := mBk.CreateAllowList(
+					"wiring-test-list", "", macie2backend.AllowListCriteria{}, nil,
+				)
+				require.NoError(t, err)
+				require.NoError(t, mBk.TagResource(al.Arn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingMacie2(bk, macie2backend.NewHandler(mBk))
+
+				return al.Arn
+			},
+			wantResourceType: "macie2:allow-list",
+		},
+		{
+			name: "managedblockchain_accessor",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				mbBk := managedblockchainbackend.NewInMemoryBackend()
+				accessor, err := mbBk.CreateAccessor(region, accountID, "", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, mbBk.TagResource(accessor.Arn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingManagedBlockchain(bk, managedblockchainbackend.NewHandler(mbBk))
+
+				return accessor.Arn
+			},
+			wantResourceType: "managedblockchain:accessors",
+		},
+		{
+			name: "mediaconvert_queue",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				mcBk := mediaconvertbackend.NewInMemoryBackend(accountID, region)
+				q, err := mcBk.CreateQueue("wiring-test-queue", "", "", "", nil)
+				require.NoError(t, err)
+				mcBk.TagResource(q.Arn, map[string]string{wantTagKey: wantTagValue})
+
+				wireTaggingMediaConvert(bk, mediaconvertbackend.NewHandler(mcBk))
+
+				return q.Arn
+			},
+			wantResourceType: "mediaconvert:queues",
+		},
+		{
+			name: "datasync_agent",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				dsBk := datasyncbackend.NewInMemoryBackend(accountID, region)
+				a, err := dsBk.CreateAgent("wiring-test-agent", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, dsBk.TagResource(a.AgentArn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingDataSync(bk, datasyncbackend.NewHandler(dsBk))
+
+				return a.AgentArn
+			},
+			wantResourceType: "datasync:agent",
+		},
+		{
+			name: "codedeploy_application",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				cdBk := codedeploybackend.NewInMemoryBackend(accountID, region)
+				app, err := cdBk.CreateApplication("wiring-test-app", "", nil)
+				require.NoError(t, err)
+				resourceARN := cdBk.ApplicationARN(app.ApplicationName)
+				require.NoError(t, cdBk.TagResource(resourceARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingCodeDeploy(bk, codedeploybackend.NewHandler(cdBk))
+
+				return resourceARN
+			},
+			wantResourceType: "codedeploy:application",
+		},
+		{
+			name: "inspector2_filter",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				iBk := inspector2backend.NewInMemoryBackend(accountID, region)
+				f, err := iBk.CreateFilter("wiring-test-filter", "NONE", "", "", nil, nil)
+				require.NoError(t, err)
+				require.NoError(t, iBk.TagResource(f.Arn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingInspector2(bk, inspector2backend.NewHandler(iBk))
+
+				return f.Arn
+			},
+			wantResourceType: "inspector2:filter",
 		},
 	}
 
