@@ -146,6 +146,35 @@ func TestHandler_UpdateSamplingRule(t *testing.T) {
 	}
 }
 
+func TestHandler_UpdateSamplingRule_Attributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreateSamplingRule(
+		xray.SamplingRule{RuleName: "attr-rule", FixedRate: 0.05, Priority: 1},
+	)
+	require.NoError(t, err)
+
+	rec := doXrayRequest(t, h, "/UpdateSamplingRule", map[string]any{
+		"SamplingRuleUpdate": map[string]any{
+			"RuleName":   "attr-rule",
+			"Attributes": map[string]string{"env": "prod"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		SamplingRuleRecord struct {
+			SamplingRule struct {
+				Attributes map[string]string `json:"Attributes"`
+			} `json:"SamplingRule"`
+		} `json:"SamplingRuleRecord"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, map[string]string{"env": "prod"}, resp.SamplingRuleRecord.SamplingRule.Attributes)
+}
+
 func TestHandler_DeleteSamplingRule(t *testing.T) {
 	t.Parallel()
 

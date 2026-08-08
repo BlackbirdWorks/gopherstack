@@ -311,6 +311,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 			"Description":      policy.Description,
 			"ExecutionRoleArn": policy.ExecutionRoleARN,
 			"State":            policy.State,
+			"StatusMessage":    policy.StatusMessage,
 			"DateCreated":      policy.DateCreated,
 			"DateModified":     policy.DateModified,
 			"Tags":             policy.Tags,

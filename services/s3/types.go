@@ -50,6 +50,11 @@ type StoredBucket struct {
 	Tags                         []types.Tag                  `json:"tags,omitempty"`
 	DeletePending                bool                         `json:"deletePending,omitempty"`
 	IsDirectoryBucket            bool                         `json:"isDirectoryBucket,omitempty"`
+	// ObjectLockEnabled records whether CreateBucket was called with
+	// x-amz-bucket-object-lock-enabled: true. Real S3 requires this at bucket
+	// creation before PutObjectLockConfiguration will accept a configuration
+	// (gopherstack-pzth) -- it cannot be turned on for an existing bucket.
+	ObjectLockEnabled bool `json:"objectLockEnabled,omitempty"`
 }
 
 // StoredObject represents an S3 object with its version history.

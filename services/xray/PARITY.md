@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.36.20   # version audited against
-last_audit_commit: 980dbe22                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-07-23
+last_audit_commit: b72533e7a                       # HEAD when this manifest was last rewritten
+last_audit_date: 2026-08-07
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -26,7 +26,7 @@ ops:
   DeleteGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added missing SamplingRateBoost field (config passthrough only, see gaps) and missing RuleLimitExceededException cap enforcement (2000 rules/account, AWS default quota)"}
   GetSamplingRules: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): SamplingRateBoost now included in samplingRuleView"}
-  UpdateSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added RuleARN-based lookup (previously RuleName-only; real SamplingRuleUpdate allows specifying either); added SamplingRateBoost update support"}
+  UpdateSamplingRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added RuleARN-based lookup (previously RuleName-only; real SamplingRuleUpdate allows specifying either); added SamplingRateBoost update support. FIXED 2026-08-07 (gopherstack-6iwu): the real SamplingRuleUpdate type (types.go, confirmed against aws-sdk-go-v2/service/xray) has an Attributes map[string]string field that samplingRuleUpdateInput had no field for at all, so a real client's UpdateSamplingRule Attributes value was silently dropped by json.Unmarshal even though Attributes round-tripped correctly on CreateSamplingRule -- added Attributes to samplingRuleUpdateInput/SamplingRuleUpdate, threaded it into UpdateSamplingRuleWithPointers (maps.Clone on provided, nil leaves unchanged, matching every other optional-pointer field's semantics), and reverted the xray dashboard's read-only-Attributes workaround now that the backend accepts it. Verified with TestHandler_UpdateSamplingRule_Attributes."}
   DeleteSamplingRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): added RuleARN-based lookup, and fixed the Default-rule-undeletable check to run against the resolved rule's name (previously checked the raw ruleName parameter, which combined with an ARN-lookup path would have let a caller delete Default by ARN)"}
   GetSamplingStatisticSummaries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass): REST path was /GetSamplingStatisticSummaries, real SDK sends /SamplingStatisticSummaries"}
   GetSamplingTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (prior pass): REST path was /GetSamplingTargets, real SDK sends /SamplingTargets; SamplingTargetDocument.SamplingBoost always absent (no boost-trigger simulation, see gaps)"}

@@ -57,6 +57,7 @@ type SamplingRuleUpdate struct {
 	Priority          *int32
 	ReservoirSize     *int32
 	SamplingRateBoost *SamplingRateBoost
+	Attributes        map[string]string
 }
 
 // Segment is a parsed X-Ray segment document.

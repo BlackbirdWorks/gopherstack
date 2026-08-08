@@ -235,6 +235,10 @@ func (b *InMemoryBackend) UpdateSamplingRuleWithPointers(
 		r.Priority = *updates.Priority
 	}
 
+	if updates.Attributes != nil {
+		r.Attributes = maps.Clone(updates.Attributes)
+	}
+
 	r.ModifiedAt = time.Now()
 	b.lastRuleModification = r.ModifiedAt
 

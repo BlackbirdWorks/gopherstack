@@ -2123,6 +2123,9 @@ func buildEchoServer(
 	}
 
 	e.HTTPErrorHandler = buildHTTPErrorHandler()
+	e.GET("/favicon.ico", func(c *echo.Context) error {
+		return c.Redirect(http.StatusFound, "/dashboard/static/favicon.png")
+	})
 	e.GET("/_gopherstack/health", buildHealthHandler(services))
 	e.POST("/_gopherstack/reset", buildResetHandler(services))
 	e.POST("/_gopherstack/snapshot", buildSnapshotHandler(persistManager))
@@ -2139,25 +2142,38 @@ func buildEchoServer(
 
 // buildHTTPErrorHandler returns an Echo error handler that logs 5xx errors via
 // slog and writes the standard JSON error response.
+//
+// Status comes from echo.StatusCode(err), not a type-assert to *echo.HTTPError:
+// echo v5's own ErrNotFound/ErrMethodNotAllowed/etc are a different unexported
+// *httpError type that only satisfies the HTTPStatusCoder interface, so the old
+// assert missed them and reported every unmatched route (e.g. GET /favicon.ico)
+// as a 500 instead of its real 404.
 func buildHTTPErrorHandler() func(*echo.Context, error) {
 	return func(c *echo.Context, err error) {
-		var httpErr *echo.HTTPError
-		if !errors.As(err, &httpErr) {
-			httpErr = echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		code := echo.StatusCode(err)
+		if code == 0 {
+			code = http.StatusInternalServerError
 		}
 
-		if httpErr.Code >= http.StatusInternalServerError {
+		message := err.Error()
+
+		var httpErr *echo.HTTPError
+		if errors.As(err, &httpErr) {
+			message = httpErr.Message
+		}
+
+		if code >= http.StatusInternalServerError {
 			logger.Load(c.Request().Context()).ErrorContext(
 				c.Request().Context(), "HTTP error",
-				"status", httpErr.Code,
-				"error", httpErr.Message,
+				"status", code,
+				"error", message,
 				"path", c.Request().URL.Path,
 				"method", c.Request().Method,
 			)
 		}
 
 		if resp, _ := echo.UnwrapResponse(c.Response()); resp == nil || !resp.Committed {
-			_ = c.JSON(httpErr.Code, map[string]any{keyMessageField: httpErr.Message})
+			_ = c.JSON(code, map[string]any{keyMessageField: message})
 		}
 	}
 }

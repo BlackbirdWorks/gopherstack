@@ -49,6 +49,7 @@ type Policy struct {
 	PolicyArn        string
 	PolicyID         string
 	State            string
+	StatusMessage    string
 }
 
 // PolicySummary holds summary lifecycle policy info.

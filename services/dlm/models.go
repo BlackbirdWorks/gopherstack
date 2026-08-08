@@ -25,6 +25,11 @@ type storedPolicy struct {
 	PolicyArn        string            `json:"policyArn"`
 	PolicyID         string            `json:"policyId"`
 	State            string            `json:"state"`
+	// StatusMessage is real AWS's description of why a policy is in ERROR
+	// state. This backend's state machine never produces ERROR (only
+	// ENABLED/DISABLED, see stateEnabled/stateDisabled), so this always
+	// stays empty -- present for wire completeness (gopherstack-x009).
+	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
 func (p *storedPolicy) toPolicy() *Policy {
@@ -39,6 +44,7 @@ func (p *storedPolicy) toPolicy() *Policy {
 		PolicyArn:        p.PolicyArn,
 		PolicyID:         p.PolicyID,
 		State:            p.State,
+		StatusMessage:    p.StatusMessage,
 		Tags:             tags,
 		PolicyDetails:    p.PolicyDetails,
 	}

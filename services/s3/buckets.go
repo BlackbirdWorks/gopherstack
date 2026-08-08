@@ -57,6 +57,7 @@ func (b *InMemoryBackend) CreateBucket(
 		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
 		// correctly partition general-purpose vs. directory buckets.
 		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
+		ObjectLockEnabled: aws.ToBool(input.ObjectLockEnabledForBucket),
 	})
 
 	return &s3.CreateBucketOutput{
