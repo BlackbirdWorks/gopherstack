@@ -16,7 +16,7 @@ func TestConfigSetVdmOptions(t *testing.T) {
 
 	h, backend := newSESv2TestHandler(t)
 
-	_, err := backend.CreateConfigurationSet("vdm-cs")
+	_, err := backend.CreateConfigurationSet("vdm-cs", nil)
 	require.NoError(t, err)
 
 	rec := doReq(t, h, http.MethodPut, "/v2/email/configuration-sets/vdm-cs/vdm-options",

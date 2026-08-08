@@ -69,7 +69,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err := original.CreateEmailIdentity("verified@example.com", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
-	_, err = original.CreateConfigurationSet("cs1")
+	_, err = original.CreateConfigurationSet("cs1", nil)
 	require.NoError(t, err)
 	require.NoError(t, original.PutConfigurationSetSendingOptions("cs1", false))
 
@@ -78,7 +78,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = original.CreateContactList("list1", "desc1")
+	_, err = original.CreateContactList("list1", "desc1", nil)
 	require.NoError(t, err)
 
 	_, err = original.CreateContact("list1", "contact@example.com", []sesv2.TopicPreference{
@@ -91,7 +91,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = original.CreateDedicatedIPPool("pool1", "STANDARD")
+	_, err = original.CreateDedicatedIPPool("pool1", "STANDARD", nil)
 	require.NoError(t, err)
 	require.NoError(t, original.PutDedicatedIPWarmupAttributes("10.0.0.1", 42))
 	require.NoError(t, original.PutDedicatedIPInPool("10.0.0.1", "pool1"))
@@ -101,7 +101,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	dtReport, err := original.CreateDeliverabilityTestReport("report1", "from@example.com")
 	require.NoError(t, err)
 
-	_, err = original.CreateEmailTemplate("tmpl1", &sesv2.EmailTemplateContent{Subject: "Hi"})
+	_, err = original.CreateEmailTemplate("tmpl1", &sesv2.EmailTemplateContent{Subject: "Hi"}, nil)
 	require.NoError(t, err)
 
 	original.AddExportJobInternal("job1", "CREATED")
@@ -232,7 +232,7 @@ func TestInMemoryBackend_DeleteConfigurationSet_CascadesEventDestinations(t *tes
 
 	b := sesv2.NewInMemoryBackend()
 
-	_, err := b.CreateConfigurationSet("cs1")
+	_, err := b.CreateConfigurationSet("cs1", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateConfigurationSetEventDestination("cs1", "d1", true, nil)
@@ -242,7 +242,7 @@ func TestInMemoryBackend_DeleteConfigurationSet_CascadesEventDestinations(t *tes
 
 	require.NoError(t, b.DeleteConfigurationSet("cs1"))
 
-	_, err = b.CreateConfigurationSet("cs1")
+	_, err = b.CreateConfigurationSet("cs1", nil)
 	require.NoError(t, err)
 
 	dests, err := b.GetConfigurationSetEventDestinations("cs1")
@@ -257,7 +257,7 @@ func TestInMemoryBackend_DeleteContactList_CascadesContacts(t *testing.T) {
 
 	b := sesv2.NewInMemoryBackend()
 
-	_, err := b.CreateContactList("list1", "")
+	_, err := b.CreateContactList("list1", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateContact("list1", "a@example.com", nil)
@@ -267,7 +267,7 @@ func TestInMemoryBackend_DeleteContactList_CascadesContacts(t *testing.T) {
 
 	require.NoError(t, b.DeleteContactList("list1"))
 
-	_, err = b.CreateContactList("list1", "")
+	_, err = b.CreateContactList("list1", "", nil)
 	require.NoError(t, err)
 
 	page, err := b.ListContacts("list1", "", 0)

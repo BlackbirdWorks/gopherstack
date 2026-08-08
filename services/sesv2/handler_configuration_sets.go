@@ -8,7 +8,8 @@ import (
 )
 
 type createConfigurationSetInput struct {
-	ConfigurationSetName string `json:"ConfigurationSetName"`
+	ConfigurationSetName string     `json:"ConfigurationSetName"`
+	Tags                 []tagEntry `json:"Tags"`
 }
 
 type trackingOptionsOutput struct {
@@ -71,7 +72,7 @@ func (h *Handler) handleCreateConfigurationSet(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidParameter, err.Error())
 	}
 
-	if _, err := h.Backend.CreateConfigurationSet(in.ConfigurationSetName); err != nil {
+	if _, err := h.Backend.CreateConfigurationSet(in.ConfigurationSetName, tagsFromEntries(in.Tags)); err != nil {
 		return nil, err
 	}
 

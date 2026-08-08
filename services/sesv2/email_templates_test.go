@@ -28,7 +28,7 @@ func TestCreateEmailTemplate(t *testing.T) {
 		{
 			name: "duplicate",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateEmailTemplate("my-template", nil)
+				_, _ = b.CreateEmailTemplate("my-template", nil, nil)
 			},
 			templateName: "my-template",
 			wantErr:      true,
@@ -49,7 +49,7 @@ func TestCreateEmailTemplate(t *testing.T) {
 			tt.setup(backend)
 
 			content := &sesv2.EmailTemplateContent{Subject: "Hello", Text: "Hello world"}
-			_, err := backend.CreateEmailTemplate(tt.templateName, content)
+			_, err := backend.CreateEmailTemplate(tt.templateName, content, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -85,7 +85,7 @@ func TestCreateEmailTemplateHTTPDuplicate(t *testing.T) {
 	t.Parallel()
 
 	h, backend := newSESv2TestHandler(t)
-	_, err := backend.CreateEmailTemplate("my-template", nil)
+	_, err := backend.CreateEmailTemplate("my-template", nil, nil)
 	require.NoError(t, err)
 
 	body := map[string]any{"TemplateName": "my-template", "TemplateContent": map[string]any{}}

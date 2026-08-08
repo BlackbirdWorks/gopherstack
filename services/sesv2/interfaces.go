@@ -28,7 +28,7 @@ type StorageBackend interface {
 	PutEmailIdentityMailFromAttributes(identity, mailFromDomain, behaviorOnMxFailure string) error
 
 	// Configuration set ops
-	CreateConfigurationSet(name string) (*ConfigurationSet, error)
+	CreateConfigurationSet(name string, tags map[string]string) (*ConfigurationSet, error)
 	GetConfigurationSet(name string) (*ConfigurationSet, error)
 	ListConfigurationSets(nextToken string, pageSize int) page.Page[*ConfigurationSet]
 	DeleteConfigurationSet(name string) error
@@ -66,7 +66,7 @@ type StorageBackend interface {
 	ListEmails() []Email
 
 	// Contact list ops
-	CreateContactList(name, description string) (*ContactList, error)
+	CreateContactList(name, description string, tags map[string]string) (*ContactList, error)
 	GetContactList(name string) (*ContactList, error)
 	DeleteContactList(name string) error
 	UpdateContactList(name, description string) error
@@ -95,7 +95,7 @@ type StorageBackend interface {
 	) page.Page[*CustomVerificationEmailTemplate]
 
 	// Dedicated IP pool ops
-	CreateDedicatedIPPool(poolName, scalingMode string) (*DedicatedIPPool, error)
+	CreateDedicatedIPPool(poolName, scalingMode string, tags map[string]string) (*DedicatedIPPool, error)
 	GetDedicatedIPPool(poolName string) (*DedicatedIPPool, error)
 	DeleteDedicatedIPPool(poolName string) error
 	ListDedicatedIPPools(nextToken string, pageSize int) page.Page[string]
@@ -125,7 +125,11 @@ type StorageBackend interface {
 	) ([]map[string]any, string, error)
 
 	// Email template ops
-	CreateEmailTemplate(templateName string, content *EmailTemplateContent) (*EmailTemplate, error)
+	CreateEmailTemplate(
+		templateName string,
+		content *EmailTemplateContent,
+		tags map[string]string,
+	) (*EmailTemplate, error)
 	GetEmailTemplate(name string) (*EmailTemplate, error)
 	DeleteEmailTemplate(name string) error
 	UpdateEmailTemplate(name string, content *EmailTemplateContent) error

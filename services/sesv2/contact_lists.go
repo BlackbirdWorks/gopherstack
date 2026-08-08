@@ -2,10 +2,12 @@ package sesv2
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -18,8 +20,20 @@ type ContactList struct {
 	Description   string            `json:"description"`
 }
 
+// contactListARN builds the ARN for a contact list:
+// arn:{partition}:ses:{region}:{account}:contact-list/{name}. Confirmed
+// against terraform-provider-aws's resourceContactListRead
+// (internal/service/sesv2/contact_list.go), which must construct this exact
+// ARN to tag/import real contact lists.
+func (b *InMemoryBackend) contactListARN(name string) string {
+	return arn.Build("ses", b.region, b.accountID, "contact-list/"+name)
+}
+
 // CreateContactList creates a new contact list.
-func (b *InMemoryBackend) CreateContactList(name, description string) (*ContactList, error) {
+func (b *InMemoryBackend) CreateContactList(
+	name, description string,
+	tags map[string]string,
+) (*ContactList, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: ContactListName is required", ErrInvalidInput)
 	}
@@ -39,6 +53,12 @@ func (b *InMemoryBackend) CreateContactList(name, description string) (*ContactL
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
+
+	if len(tags) > 0 {
+		maps.Copy(cl.Tags, tags)
+		b.putResourceTagsLocked(b.contactListARN(name), tags)
+	}
+
 	b.contactLists.Put(cl)
 
 	cp := *cl

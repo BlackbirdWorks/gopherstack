@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -18,9 +19,21 @@ type DedicatedIPPool struct {
 	ScalingMode string `json:"scalingMode"`
 }
 
+// dedicatedIPPoolARN builds the ARN for a dedicated IP pool:
+// arn:{partition}:ses:{region}:{account}:dedicated-ip-pool/{name}. Confirmed
+// against terraform-provider-aws's dedicatedIPPoolARN
+// (internal/service/sesv2/dedicated_ip_pool.go), which must construct this
+// exact ARN to tag/import real dedicated IP pools. types.DedicatedIpPool has
+// no Tags field, so unlike configuration sets/contact lists, tags never echo
+// back through GetDedicatedIpPool -- only through ListTagsForResource.
+func (b *InMemoryBackend) dedicatedIPPoolARN(name string) string {
+	return arn.Build("ses", b.region, b.accountID, "dedicated-ip-pool/"+name)
+}
+
 // CreateDedicatedIPPool creates a dedicated IP pool.
 func (b *InMemoryBackend) CreateDedicatedIPPool(
 	poolName, scalingMode string,
+	tags map[string]string,
 ) (*DedicatedIPPool, error) {
 	if strings.TrimSpace(poolName) == "" {
 		return nil, fmt.Errorf("%w: PoolName is required", ErrInvalidInput)
@@ -53,6 +66,10 @@ func (b *InMemoryBackend) CreateDedicatedIPPool(
 		ScalingMode: scalingMode,
 	}
 	b.dedicatedIPPools.Put(pool)
+
+	if len(tags) > 0 {
+		b.putResourceTagsLocked(b.dedicatedIPPoolARN(poolName), tags)
+	}
 
 	cp := *pool
 

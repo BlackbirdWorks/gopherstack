@@ -10,6 +10,7 @@ import (
 type createEmailTemplateInput struct {
 	TemplateName    string               `json:"TemplateName"`
 	TemplateContent EmailTemplateContent `json:"TemplateContent"`
+	Tags            []tagEntry           `json:"Tags"`
 }
 
 func (h *Handler) handleCreateEmailTemplate(c *echo.Context) (any, error) {
@@ -19,7 +20,8 @@ func (h *Handler) handleCreateEmailTemplate(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if _, err := h.Backend.CreateEmailTemplate(in.TemplateName, &in.TemplateContent); err != nil {
+	tags := tagsFromEntries(in.Tags)
+	if _, err := h.Backend.CreateEmailTemplate(in.TemplateName, &in.TemplateContent, tags); err != nil {
 		return nil, err
 	}
 
