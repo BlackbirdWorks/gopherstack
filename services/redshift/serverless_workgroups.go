@@ -14,11 +14,7 @@ import (
 // ---------------------------------------------------------------------------
 
 // CreateWorkgroup creates a new Redshift Serverless workgroup.
-func (b *InMemoryBackend) CreateWorkgroup(
-	workgroupName, namespaceName string,
-	baseCapacity int,
-	subnetIDs, securityGroupIDs []string,
-) (*Workgroup, error) {
+func (b *InMemoryBackend) CreateWorkgroup(workgroupName, namespaceName string, p WorkgroupParams) (*Workgroup, error) {
 	b.mu.Lock("CreateWorkgroup")
 	defer b.mu.Unlock()
 
@@ -37,8 +33,14 @@ func (b *InMemoryBackend) CreateWorkgroup(
 	id := randomHex(slIDHexBytes)
 	wgArn := arn.Build("redshift-serverless", b.region, b.accountID, "workgroup/"+id)
 
+	baseCapacity := p.BaseCapacity
 	if baseCapacity <= 0 {
 		baseCapacity = slDefaultBaseCapacity
+	}
+
+	port := p.Port
+	if port <= 0 {
+		port = slServerlessPort
 	}
 
 	endpointAddr := fmt.Sprintf(
@@ -46,26 +48,29 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		workgroupName, randomHex(slEndpointHexBytes), b.region,
 	)
 
-	subnetsCopy := make([]string, len(subnetIDs))
-	copy(subnetsCopy, subnetIDs)
-
-	sgCopy := make([]string, len(securityGroupIDs))
-	copy(sgCopy, securityGroupIDs)
-
 	wg := &Workgroup{
-		CreationDate:  time.Now(),
-		WorkgroupArn:  wgArn,
-		WorkgroupID:   id,
-		WorkgroupName: workgroupName,
-		NamespaceName: namespaceName,
-		Status:        slStatusAvailable,
-		BaseCapacity:  baseCapacity,
+		CreationDate:                         time.Now(),
+		WorkgroupArn:                         wgArn,
+		WorkgroupID:                          id,
+		WorkgroupName:                        workgroupName,
+		NamespaceName:                        namespaceName,
+		Status:                               slStatusAvailable,
+		BaseCapacity:                         baseCapacity,
+		MaxCapacity:                          p.MaxCapacity,
+		Port:                                 port,
+		IPAddressType:                        p.IPAddressType,
+		TrackName:                            p.TrackName,
+		ConfigParameters:                     cloneConfigParameters(p.ConfigParameters),
+		PricePerformanceTarget:               p.PricePerformanceTarget,
+		EnhancedVpcRouting:                   p.EnhancedVpcRouting,
+		ExtraComputeForAutomaticOptimization: p.ExtraComputeForAutomaticOptimization,
+		PubliclyAccessible:                   p.PubliclyAccessible,
 		Endpoint: WorkgroupEndpoint{
 			Address: endpointAddr,
-			Port:    slServerlessPort,
+			Port:    port,
 		},
-		SubnetIDs:        subnetsCopy,
-		SecurityGroupIDs: sgCopy,
+		SubnetIDs:        cloneStrings(p.SubnetIDs),
+		SecurityGroupIDs: cloneStrings(p.SecurityGroupIDs),
 	}
 	b.slWorkgroups.Put(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
@@ -131,11 +136,7 @@ func (b *InMemoryBackend) ListWorkgroups(maxResults int, nextToken string) ([]*W
 }
 
 // UpdateWorkgroup updates a Redshift Serverless workgroup.
-func (b *InMemoryBackend) UpdateWorkgroup(
-	workgroupName string,
-	baseCapacity int,
-	subnetIDs, securityGroupIDs []string,
-) (*Workgroup, error) {
+func (b *InMemoryBackend) UpdateWorkgroup(workgroupName string, p WorkgroupParams) (*Workgroup, error) {
 	b.mu.Lock("UpdateWorkgroup")
 	defer b.mu.Unlock()
 
@@ -144,21 +145,46 @@ func (b *InMemoryBackend) UpdateWorkgroup(
 		return nil, fmt.Errorf("%w: workgroup %q not found", ErrWorkgroupNotFound, workgroupName)
 	}
 
-	if baseCapacity > 0 {
-		wg.BaseCapacity = baseCapacity
+	if p.BaseCapacity > 0 {
+		wg.BaseCapacity = p.BaseCapacity
 	}
 
-	if subnetIDs != nil {
-		cp := make([]string, len(subnetIDs))
-		copy(cp, subnetIDs)
-		wg.SubnetIDs = cp
+	if p.MaxCapacity > 0 {
+		wg.MaxCapacity = p.MaxCapacity
 	}
 
-	if securityGroupIDs != nil {
-		cp := make([]string, len(securityGroupIDs))
-		copy(cp, securityGroupIDs)
-		wg.SecurityGroupIDs = cp
+	if p.Port > 0 {
+		wg.Port = p.Port
+		wg.Endpoint.Port = p.Port
 	}
+
+	if p.IPAddressType != "" {
+		wg.IPAddressType = p.IPAddressType
+	}
+
+	if p.TrackName != "" {
+		wg.TrackName = p.TrackName
+	}
+
+	if p.ConfigParameters != nil {
+		wg.ConfigParameters = cloneConfigParameters(p.ConfigParameters)
+	}
+
+	if p.PricePerformanceTarget != nil {
+		wg.PricePerformanceTarget = p.PricePerformanceTarget
+	}
+
+	if p.SubnetIDs != nil {
+		wg.SubnetIDs = cloneStrings(p.SubnetIDs)
+	}
+
+	if p.SecurityGroupIDs != nil {
+		wg.SecurityGroupIDs = cloneStrings(p.SecurityGroupIDs)
+	}
+
+	wg.EnhancedVpcRouting = p.EnhancedVpcRouting
+	wg.ExtraComputeForAutomaticOptimization = p.ExtraComputeForAutomaticOptimization
+	wg.PubliclyAccessible = p.PubliclyAccessible
 
 	return cloneWorkgroup(wg), nil
 }
@@ -182,12 +208,30 @@ func (b *InMemoryBackend) DeleteWorkgroup(workgroupName string) (*Workgroup, err
 
 func cloneWorkgroup(wg *Workgroup) *Workgroup {
 	cp := *wg
-	cp.SubnetIDs = make([]string, len(wg.SubnetIDs))
-	copy(cp.SubnetIDs, wg.SubnetIDs)
-	cp.SecurityGroupIDs = make([]string, len(wg.SecurityGroupIDs))
-	copy(cp.SecurityGroupIDs, wg.SecurityGroupIDs)
+	cp.SubnetIDs = cloneStrings(wg.SubnetIDs)
+	cp.SecurityGroupIDs = cloneStrings(wg.SecurityGroupIDs)
+	cp.ConfigParameters = cloneConfigParameters(wg.ConfigParameters)
+
+	if wg.PricePerformanceTarget != nil {
+		pt := *wg.PricePerformanceTarget
+		cp.PricePerformanceTarget = &pt
+	}
 
 	return &cp
+}
+
+func cloneStrings(in []string) []string {
+	cp := make([]string, len(in))
+	copy(cp, in)
+
+	return cp
+}
+
+func cloneConfigParameters(in []ConfigParameter) []ConfigParameter {
+	cp := make([]ConfigParameter, len(in))
+	copy(cp, in)
+
+	return cp
 }
 
 // ---------------------------------------------------------------------------
@@ -195,16 +239,18 @@ func cloneWorkgroup(wg *Workgroup) *Workgroup {
 // ---------------------------------------------------------------------------
 
 // GetCredentials returns temporary credentials for a serverless workgroup.
-// Returns (dbUser, dbPassword, expiry, error).
+// durationSeconds is clamped to the real API's [900, 3600] range; 0 uses the
+// backend default (slCredExpiryMinutes).
 func (b *InMemoryBackend) GetCredentials(
 	workgroupName, dbName string,
-) (string, string, string, error) {
+	durationSeconds int,
+) (string, string, time.Time, time.Time, error) {
 	b.mu.RLock("GetCredentials")
 	defer b.mu.RUnlock()
 
 	wg, ok := b.slWorkgroups.Get(workgroupName)
 	if !ok {
-		return "", "", "", fmt.Errorf(
+		return "", "", time.Time{}, time.Time{}, fmt.Errorf(
 			"%w: workgroup %q not found",
 			ErrWorkgroupNotFound,
 			workgroupName,
@@ -221,11 +267,16 @@ func (b *InMemoryBackend) GetCredentials(
 		}
 	}
 
-	expiry := time.Now().Add(slCredExpiryMinutes * time.Minute).Format(time.RFC3339)
-	dbUser := "IAMR:" + resolvedDB + ":" + strings.ToUpper(randomHex(slCredTokenHexBytes))
+	ttl := time.Duration(slCredExpiryMinutes) * time.Minute
+	if durationSeconds > 0 {
+		clamped := max(min(durationSeconds, slCredMaxDuration), slCredMinDuration)
+		ttl = time.Duration(clamped) * time.Second
+	}
 
-	return dbUser,
-		randomHex(slCredSecretHexBytes),
-		expiry,
-		nil
+	now := time.Now()
+	expiration := now.Add(ttl)
+	nextRefreshTime := now.Add(ttl / 2) //nolint:mnd // refresh at the ttl midpoint, not a magic threshold
+	user := "IAMR:" + resolvedDB + ":" + strings.ToUpper(randomHex(slCredTokenHexBytes))
+
+	return user, randomHex(slCredSecretHexBytes), expiration, nextRefreshTime, nil
 }

@@ -13,44 +13,51 @@ import (
 // ---------------------------------------------------------------------------
 
 // CreateNamespace creates a new Redshift Serverless namespace.
-func (b *InMemoryBackend) CreateNamespace(
-	namespaceName, adminUsername, dbName, kmsKeyID string,
-	iamRoles, logExports []string,
-) (*Namespace, error) {
+func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, error) {
 	b.mu.Lock("CreateNamespace")
 	defer b.mu.Unlock()
 
-	if _, ok := b.slNamespaces.Get(namespaceName); ok {
+	if _, ok := b.slNamespaces.Get(p.NamespaceName); ok {
 		return nil, fmt.Errorf(
 			"%w: namespace %q already exists",
 			ErrNamespaceAlreadyExists,
-			namespaceName,
+			p.NamespaceName,
 		)
 	}
 
 	id := randomHex(slIDHexBytes)
 	nsArn := arn.Build("redshift-serverless", b.region, b.accountID, "namespace/"+id)
 
-	rolesCopy := make([]string, len(iamRoles))
-	copy(rolesCopy, iamRoles)
+	rolesCopy := make([]string, len(p.IamRoles))
+	copy(rolesCopy, p.IamRoles)
 
-	exportsCopy := make([]string, len(logExports))
-	copy(exportsCopy, logExports)
+	exportsCopy := make([]string, len(p.LogExports))
+	copy(exportsCopy, p.LogExports)
 
 	ns := &Namespace{
-		CreationDate:  time.Now(),
-		NamespaceArn:  nsArn,
-		NamespaceID:   id,
-		NamespaceName: namespaceName,
-		AdminUsername: adminUsername,
-		DBName:        dbName,
-		KmsKeyID:      kmsKeyID,
-		Status:        slStatusAvailable,
-		IamRoles:      rolesCopy,
-		LogExports:    exportsCopy,
+		CreationDate:      time.Now(),
+		NamespaceArn:      nsArn,
+		NamespaceID:       id,
+		NamespaceName:     p.NamespaceName,
+		AdminUsername:     p.AdminUsername,
+		DBName:            p.DBName,
+		DefaultIamRoleArn: p.DefaultIamRoleArn,
+		KmsKeyID:          p.KmsKeyID,
+		Status:            slStatusAvailable,
+		IamRoles:          rolesCopy,
+		LogExports:        exportsCopy,
 	}
+
+	if p.ManageAdminPassword {
+		ns.AdminPasswordSecretKmsKeyID = p.AdminPasswordSecretKmsKeyID
+		ns.AdminPasswordSecretArn = arn.Build(
+			"secretsmanager", b.region, b.accountID,
+			"secret:redshift!"+p.NamespaceName+"-"+randomHex(slSecretHexBytes),
+		)
+	}
+
 	b.slNamespaces.Put(ns)
-	b.slNamespaceIdx.insert(namespaceName)
+	b.slNamespaceIdx.insert(p.NamespaceName)
 
 	return cloneNamespace(ns), nil
 }
@@ -113,10 +120,7 @@ func (b *InMemoryBackend) ListNamespaces(maxResults int, nextToken string) ([]*N
 }
 
 // UpdateNamespace updates a Redshift Serverless namespace.
-func (b *InMemoryBackend) UpdateNamespace(
-	namespaceName, adminUsername, dbName, kmsKeyID string,
-	iamRoles, logExports []string,
-) (*Namespace, error) {
+func (b *InMemoryBackend) UpdateNamespace(namespaceName string, p UpdateNamespaceParams) (*Namespace, error) {
 	b.mu.Lock("UpdateNamespace")
 	defer b.mu.Unlock()
 
@@ -125,41 +129,106 @@ func (b *InMemoryBackend) UpdateNamespace(
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
 
-	if adminUsername != "" {
-		ns.AdminUsername = adminUsername
+	if p.AdminUsername != "" {
+		ns.AdminUsername = p.AdminUsername
 	}
 
-	if dbName != "" {
-		ns.DBName = dbName
+	if p.DBName != "" {
+		ns.DBName = p.DBName
 	}
 
-	if kmsKeyID != "" {
-		ns.KmsKeyID = kmsKeyID
+	if p.KmsKeyID != "" {
+		ns.KmsKeyID = p.KmsKeyID
 	}
 
-	if iamRoles != nil {
-		cp := make([]string, len(iamRoles))
-		copy(cp, iamRoles)
+	if p.DefaultIamRoleArn != "" {
+		ns.DefaultIamRoleArn = p.DefaultIamRoleArn
+	}
+
+	if p.IamRoles != nil {
+		cp := make([]string, len(p.IamRoles))
+		copy(cp, p.IamRoles)
 		ns.IamRoles = cp
 	}
 
-	if logExports != nil {
-		cp := make([]string, len(logExports))
-		copy(cp, logExports)
+	if p.LogExports != nil {
+		cp := make([]string, len(p.LogExports))
+		copy(cp, p.LogExports)
 		ns.LogExports = cp
+	}
+
+	if p.ManageAdminPassword != nil {
+		b.applyManageAdminPassword(ns, namespaceName, p, *p.ManageAdminPassword)
 	}
 
 	return cloneNamespace(ns), nil
 }
 
-// DeleteNamespace deletes a Redshift Serverless namespace.
-func (b *InMemoryBackend) DeleteNamespace(namespaceName string) (*Namespace, error) {
+// applyManageAdminPassword updates a namespace's Secrets-Manager-backed admin
+// password fields for UpdateNamespace's ManageAdminPassword flag, split out of
+// UpdateNamespace to keep that function's nesting flat.
+func (b *InMemoryBackend) applyManageAdminPassword(
+	ns *Namespace,
+	namespaceName string,
+	p UpdateNamespaceParams,
+	manage bool,
+) {
+	if !manage {
+		ns.AdminPasswordSecretArn = ""
+		ns.AdminPasswordSecretKmsKeyID = ""
+
+		return
+	}
+
+	if p.AdminPasswordSecretKmsKeyID != "" {
+		ns.AdminPasswordSecretKmsKeyID = p.AdminPasswordSecretKmsKeyID
+	}
+
+	if ns.AdminPasswordSecretArn == "" {
+		ns.AdminPasswordSecretArn = arn.Build(
+			"secretsmanager", b.region, b.accountID,
+			"secret:redshift!"+namespaceName+"-"+randomHex(slSecretHexBytes),
+		)
+	}
+}
+
+// DeleteNamespace deletes a Redshift Serverless namespace. If finalSnapshotName
+// is non-empty, a final snapshot is created first (real DeleteNamespaceInput
+// carries FinalSnapshotName/FinalSnapshotRetentionPeriod for exactly this).
+func (b *InMemoryBackend) DeleteNamespace(
+	namespaceName, finalSnapshotName string,
+	finalSnapshotRetentionPeriod int,
+) (*Namespace, error) {
 	b.mu.Lock("DeleteNamespace")
 	defer b.mu.Unlock()
 
 	ns, ok := b.slNamespaces.Get(namespaceName)
 	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
+	}
+
+	if finalSnapshotName != "" {
+		if _, exists := b.slSnapshots.Get(finalSnapshotName); exists {
+			return nil, fmt.Errorf(
+				"%w: snapshot %q already exists",
+				ErrServerlessConflict,
+				finalSnapshotName,
+			)
+		}
+
+		snapArn := arn.Build("redshift-serverless", b.region, b.accountID, "snapshot/"+finalSnapshotName)
+		snap := &ServerlessSnapshot{
+			SnapshotCreateTime:      time.Now(),
+			SnapshotArn:             snapArn,
+			SnapshotName:            finalSnapshotName,
+			NamespaceName:           namespaceName,
+			NamespaceArn:            ns.NamespaceArn,
+			Status:                  slStatusAvailable,
+			AdminUsername:           ns.AdminUsername,
+			SnapshotRetentionPeriod: finalSnapshotRetentionPeriod,
+		}
+		b.slSnapshots.Put(snap)
+		b.slSnapshotIdx.insert(finalSnapshotName)
 	}
 
 	cp := cloneNamespace(ns)

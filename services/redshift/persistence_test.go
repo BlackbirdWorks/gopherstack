@@ -1,6 +1,7 @@
 package redshift_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -249,13 +250,17 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateNamespace("rt-namespace", "admin", "rtdb", "", nil, nil)
+	_, err = b.CreateNamespace(redshift.CreateNamespaceParams{
+		NamespaceName: "rt-namespace",
+		AdminUsername: "admin",
+		DBName:        "rtdb",
+	})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkgroup("rt-workgroup", "rt-namespace", 32, nil, nil)
+	_, err = b.CreateWorkgroup("rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32})
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace")
+	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0)
 	require.NoError(t, err)
 
 	_, err = b.CreateServerlessUsageLimit(
@@ -264,10 +269,17 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessScheduledAction(
-		"rt-slscheduledaction", "rt-namespace", "at(2030-01-01T00:00:00)", "",
-		time.Now(), time.Now().Add(time.Hour),
-	)
+	_, err = b.CreateServerlessScheduledAction(redshift.CreateScheduledActionParams{
+		ScheduledActionName: "rt-slscheduledaction",
+		NamespaceName:       "rt-namespace",
+		RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
+		Schedule:            json.RawMessage(`{"at":1893456000}`),
+		TargetAction: json.RawMessage(
+			`{"createSnapshot":{"namespaceName":"rt-namespace","snapshotName":"rt-slsnapshot2"}}`,
+		),
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(time.Hour),
+	})
 	require.NoError(t, err)
 
 	// The three raw (unconverted) maps.

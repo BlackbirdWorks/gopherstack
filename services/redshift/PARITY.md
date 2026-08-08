@@ -56,7 +56,7 @@ families:
   TableRestoreStatus/RestoreTableFromClusterSnapshot: {status: ok, note: "FIXED THIS PASS: SnapshotIdentifier was parsed from the request and then explicitly discarded (bound to `_`), never stored -- now stored and serialized. RequestTime was computed but never serialized on ANY response (RestoreTableFromClusterSnapshotResult only echoed TableRestoreRequestId+Status) -- now serialized as RFC3339 on both RestoreTableFromClusterSnapshot and DescribeTableRestoreStatus. Also fixed the response's TargetTableName wire tag to the real 'NewTableName' (TableRestoreStatus has no TargetTableName field in the real SDK). SourceSchemaName/TargetSchemaName/ProgressInMegaBytes/TotalDataInMegaBytes/EnableCaseSensitiveIdentifier intentionally left unmodeled -- see items_still_open."}
   Partner: {status: ok, note: "FIXED THIS PASS (severe, systemic): AddPartner/DeletePartner/DescribePartners/UpdatePartnerStatus all read/wrote a fabricated 'PartnerIntegrationId' parameter/wire-field name -- no such name exists anywhere in the real SDK (AddPartnerInput/Output, DeletePartnerInput/Output, UpdatePartnerStatusInput/Output, and PartnerIntegrationInfo all use 'PartnerName', confirmed against every relevant api_op_*.go and the DescribePartners deserializer). Every real client's PartnerName value was silently dropped on every request, and every response field a real client tried to read came back empty. Fixed across all 4 ops plus the internal error message text. Regression test locks in the exact wire element name."}
   Descriptive/static ops: {status: ok, note: "DescribeAccountAttributes, DescribeClusterVersions, DescribeClusterTracks, DescribeOrderableClusterOptions, DescribeStorage, DescribeNodeConfigurationOptions, DescribeClusterDbRevisions, ListRecommendations, ModifyAquaConfiguration, ModifyClusterDbRevision, ModifyLakehouseConfiguration, GetIdentityCenterAuthToken, RegisterNamespace/DeregisterNamespace spot-checked: real state mutation/derivation confirmed (e.g. ListRecommendations derives from live cluster state, not canned), no-stub scan (grep for notImplemented/TODO/stub) clean. NOT exhaustively field-diffed element-by-element this pass -- see items_still_open."}
-  Redshift Serverless: {status: deferred, note: "ServerlessHandler in handler_serverless.go (Namespace/Workgroup/Snapshot/UsageLimit/ScheduledAction/Credentials, 25 ops) is a separate JSON-protocol API surface (different AWS service ID: redshift-serverless), not touched this pass -- see items_still_open. SIZED 2026-08-08 (bd gopherstack-emho): confirmed LARGE, assessed but explicitly not started. aws-sdk-go-v2/service/redshiftserverless is not even a pinned go.mod dependency in this repo (only redshift and redshiftdata are) -- every existing op in this surface was built without ever field-diffing against the real SDK, so a real pass needs (1) adding the module dependency, (2) a from-scratch field-level audit of all 25 existing ops against JSON (not query-XML) wire shapes, and (3) whole missing resource families this backend has zero code for today (EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint, SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups, restore-from-snapshot/recovery-point ops). This is a different protocol needing its own verification methodology, not a same-shaped extension of this pass's query-XML field additions -- deliberately not begun; flagged for a dedicated follow-up."}
+  Redshift Serverless: {status: partial, note: "AUDITED AND PARTLY FIXED 2026-08-08 (bd gopherstack-hsfm). aws-sdk-go-v2/service/redshiftserverless was still not a go.mod dependency; fetched via `go get ...@v1.38.5` to populate GOMODCACHE for field-diffing serializers.go/deserializers.go/types directly (not from memory/docs), then `go mod tidy` dropped it again afterward since the fix (like the rest of this repo) hand-rolls JSON wire structs rather than importing SDK types at runtime -- no persistent new dependency. SEVERE FINDING: this whole 25-op surface used REST-style path/verb routing (/redshift-serverless/namespaces, GET/POST/PATCH/DELETE) that NO real client ever sends -- confirmed every awsAwsjson11_serializeOp* in serializers.go POSTs to \"/\" with an X-Amz-Target header and puts all fields (including resource identifiers) in the JSON body. RouteMatcher required the REST path prefix, so a real SDK client's request never matched at all: all 25 ops were unroutable, the same unreachable-service bug class found in opsworks (gopherstack-vjj2) but total instead of partial. FIXED: RouteMatcher/ExtractOperation rewritten to X-Amz-Target dispatch (PriorityHeaderExact, matching redshiftdata.Handler's existing pattern in this package); every handler decodes resource identifiers from the body instead of the URL. Also fixed while rewriting (all confirmed against deserializers.go before fixing): ServerlessScheduledAction's status field used wire key \"status\" but the real ScheduledActionResponse field is \"state\" (types.State, ACTIVE/DISABLED) -- ScheduledActionResponse has no \"status\" field at all; StartTime/EndTime and GetCredentialsOutput's Expiration/NextRefreshTime were RFC3339 strings but the real wire format is epoch-seconds JSON numbers (awstime.Epoch, same bug class as the QuickSight/IoT precedent in parity-principles.md); Schedule/TargetAction were flat strings but the real shapes are tagged-union JSON objects ({\"cron\":...}/{\"at\":...} and {\"createSnapshot\":{...}}) -- now passed through as json.RawMessage (accurate shape, no fabricated execution semantics); CreateScheduledActionInput.RoleArn (a REQUIRED real field) was completely absent from the request struct, so every real client's roleArn was silently dropped and unrecoverable -- now required and stored; Enabled/ScheduledActionDescription were also dropped, now threaded through; ScheduledActionUUID and the fabricated scheduledActionArn field (not a real ScheduledActionResponse member) were fixed to match the real shape. Also fixed accepted-then-dropped (a) fields: Namespace.DefaultIamRoleArn, ManageAdminPassword/AdminPasswordSecretKmsKeyId (with a fabricated-but-consistent secretsmanager ARN, same convention as this backend's other resource ARNs); DeleteNamespace's FinalSnapshotName/FinalSnapshotRetentionPeriod now actually create a final snapshot; CreateSnapshot's retentionPeriod; Workgroup's ConfigParameters/MaxCapacity/Port/IpAddressType/TrackName/PricePerformanceTarget/EnhancedVpcRouting/ExtraComputeForAutomaticOptimization/PubliclyAccessible; GetCredentials' DurationSeconds and the previously entirely-absent NextRefreshTime response field; List*'s MaxResults, which was hardcoded to 0 and silently ignored on every List call regardless of protocol. Error envelope switched from ad hoc 404/409 status codes to the real awsJson1.1 convention (HTTP 400 for every client-fault exception, confirmed by the absence of any per-exception status override in types/errors.go). Deliberately left unfixed, each independently verified absent from all reachable output: Tags on Create* (defers to the excluded Tagging family below), AdminUserPassword (real API never echoes it either), Namespace.RedshiftIdcApplicationArn (accepted by the real API but not a field on types.Namespace -- no observable output surface exists for it among these 25 ops), ScheduledActionResponse.NextInvocations (this service's cron format is unwrapped, unlike classic Redshift's cron(...)/at(...) strings that schedule.go already evaluates -- adapting that evaluator is a reasonable follow-up, not done this pass), Snapshot's backup-progress/size/cross-account-restore-access fields (this backend creates snapshots instantaneously, so progress fields have no real driving state; restore-access fields are populated via the excluded ResourcePolicy family), GetCredentials' CustomDomainName lookup (depends on the excluded CustomDomainAssociation family). Full field-by-field audit table with file:line citations recorded in bd gopherstack-hsfm's close reason. Whole missing resource families (EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint, SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups, restore-from-snapshot) still have zero code -- see items_still_open."}
 gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftIdcApplication>
                    # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
@@ -64,6 +64,32 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 ---
 
 ## Notes
+
+### 2026-08-08 pass: Redshift Serverless audit + wire-shape fixes (bd gopherstack-hsfm)
+
+See the `Redshift Serverless` family row above for the full account. Short
+version: the entire 25-op surface used invented REST routing that no real
+`aws-sdk-go-v2` client could ever reach (real protocol is awsJson1.1: POST "/"
+with an `X-Amz-Target` header, all fields in the body) -- fixed by switching to
+the same `X-Amz-Target` dispatch pattern `redshiftdata.Handler` already uses.
+Also fixed while rewriting: `ScheduledActionResponse`'s wire key is `state`,
+not `status` (which doesn't exist on that type); `StartTime`/`EndTime` and
+`GetCredentialsOutput.Expiration`/`NextRefreshTime` are epoch-seconds numbers,
+not RFC3339 strings; `Schedule`/`TargetAction` are tagged-union JSON objects,
+not flat strings; `CreateScheduledActionInput.RoleArn` (a required real field)
+was entirely unmodeled. Several accepted-then-dropped fields threaded through
+(`Namespace.DefaultIamRoleArn`, `DeleteNamespace`'s final-snapshot params,
+`Workgroup`'s advanced-config fields, `List*`'s `MaxResults` which was
+hardcoded to 0 on every call). SDK obtained via `go get
+github.com/aws/aws-sdk-go-v2/service/redshiftserverless@v1.38.5` to field-diff
+serializers.go/deserializers.go directly; `go mod tidy` dropped it again
+afterward since nothing in the fix imports the SDK package at runtime (this
+repo hand-rolls wire structs everywhere), so no persistent new go.mod
+dependency was added. Whole resource families this backend has zero code for
+(EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint,
+SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups,
+restore-from-snapshot) remain unbuilt -- each needs its own follow-up issue,
+not a shared one, given the size this family already proved to be.
 
 ### 2026-08-08 pass: remaining-fields sweep (bd gopherstack-emho)
 
@@ -88,12 +114,9 @@ VpcEndpoint` (no per-ENI AZ/IP/subnet data in this backend to derive it from).
 
 Assessed the Redshift Serverless surface (`handler_serverless.go` + `serverless*.go`,
 25 ops, JSON protocol) per this issue's instruction to size before starting: LARGE,
-not started. `aws-sdk-go-v2/service/redshiftserverless` is not even a pinned go.mod
-dependency here, so none of the existing 25 ops have ever been field-diffed against
-the real SDK, and whole resource families (EndpointAccess, CustomDomainAssociation,
-ResourcePolicy, RecoveryPoint, SnapshotCopyConfiguration, TableRestoreStatus,
-Tagging, ListManagedWorkgroups) have zero code today. Flagged for a dedicated
-follow-up issue rather than begun partially.
+not started this pass. Picked up and audited in the 2026-08-08 gopherstack-hsfm
+pass above -- see that section and the `Redshift Serverless` family row for what
+was found and fixed.
 
 Protocol: query/XML (`Version=2012-12-01`), same envelope convention as EC2 -- see
 `redshiftXMLNS`/`marshalXML` in handler.go. Timestamps are wire-formatted as RFC3339
@@ -316,6 +339,17 @@ nested response subtrees) disproportionate to the traffic these fields see:
 - Descriptive/static ops family: spot-checked (no-stub, real derivation
   confirmed) but not exhaustively field-diffed element-by-element this pass.
 - Redshift Serverless (`handler_serverless.go`): separate JSON-protocol API
-  surface (`redshift-serverless` service ID), entirely out of scope for this
-  query-XML-focused pass — needs its own audit pass against
-  `aws-sdk-go-v2/service/redshiftserverless`.
+  surface (`redshift-serverless` service ID). AUDITED 2026-08-08 (bd
+  gopherstack-hsfm, see the family row and Notes section above) -- routing and
+  several field-level wire bugs fixed. Still open within the 25 audited ops:
+  `Namespace.Tags`/`AdminUserPassword`/`RedshiftIdcApplicationArn`,
+  `Workgroup.Tags`, `Snapshot.Tags`/backup-progress-and-size fields/
+  cross-account restore-access lists, `ScheduledActionResponse.NextInvocations`
+  (needs schedule.go's cron evaluator adapted to serverless's unwrapped cron
+  string format), `GetCredentials.CustomDomainName` lookup -- each independently
+  verified as either legitimately un-derivable by this backend or deferred to
+  an excluded resource family (see the family row for per-field reasoning).
+  Whole resource families with zero code, needing their own follow-up issues:
+  EndpointAccess, CustomDomainAssociation, ResourcePolicy, RecoveryPoint,
+  SnapshotCopyConfiguration, TableRestoreStatus, Tagging, ListManagedWorkgroups,
+  restore-from-snapshot/recovery-point ops.
