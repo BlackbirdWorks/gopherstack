@@ -23,11 +23,16 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
+	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
+	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
 	docdbbackend "github.com/blackbirdworks/gopherstack/services/docdb"
 	ecrbackend "github.com/blackbirdworks/gopherstack/services/ecr"
 	ecsbackend "github.com/blackbirdworks/gopherstack/services/ecs"
@@ -37,7 +42,9 @@ import (
 	emrbackend "github.com/blackbirdworks/gopherstack/services/emr"
 	firehosebackend "github.com/blackbirdworks/gopherstack/services/firehose"
 	gluebackend "github.com/blackbirdworks/gopherstack/services/glue"
+	guarddutybackend "github.com/blackbirdworks/gopherstack/services/guardduty"
 	kinesisbackend "github.com/blackbirdworks/gopherstack/services/kinesis"
+	memorydbbackend "github.com/blackbirdworks/gopherstack/services/memorydb"
 	mqbackend "github.com/blackbirdworks/gopherstack/services/mq"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
@@ -45,7 +52,9 @@ import (
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
+	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
 )
 
@@ -1094,6 +1103,188 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 			// EMR ARNs use the "elasticmapreduce" ARN service, not "emr" -- see
 			// wireTaggingEMR's doc comment.
 			wantResourceType: "elasticmapreduce:cluster",
+		},
+		{
+			name: "dax_cluster",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				daxBk := daxbackend.NewInMemoryBackend(accountID, region)
+				cluster, err := daxBk.CreateCluster(daxbackend.CreateClusterInput{
+					ClusterName:       "wiring-test-cluster",
+					NodeType:          "dax.r4.large",
+					IamRoleArn:        "arn:aws:iam::" + accountID + ":role/dax-role",
+					ReplicationFactor: 1,
+				})
+				require.NoError(t, err)
+				_, err = daxBk.TagResource(cluster.ClusterArn, map[string]string{wantTagKey: wantTagValue})
+				require.NoError(t, err)
+
+				wireTaggingDAX(bk, daxbackend.NewHandler(daxBk))
+
+				return cluster.ClusterArn
+			},
+			// DAX's ARN resource segment is "cache/{name}", not "cluster/{name}" --
+			// see wireTaggingDAX's doc comment.
+			wantResourceType: "dax:cache",
+		},
+		{
+			name: "detective_graph",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				detBk := detectivebackend.NewInMemoryBackend(accountID, region)
+				graph, err := detBk.CreateGraph(nil)
+				require.NoError(t, err)
+				require.NoError(t, detBk.TagResource(graph.Arn, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingDetective(bk, detectivebackend.NewHandler(detBk))
+
+				return graph.Arn
+			},
+			wantResourceType: "detective:graph",
+		},
+		{
+			name: "guardduty_detector",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				gdBk := guarddutybackend.NewInMemoryBackend(accountID, region)
+				detector, err := gdBk.CreateDetector(true, "", nil, nil)
+				require.NoError(t, err)
+
+				resourceARN := "arn:aws:guardduty:" + region + ":" + accountID + ":detector/" + detector.DetectorID
+				require.NoError(t, gdBk.TagResource(resourceARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingGuardDuty(bk, guarddutybackend.NewHandler(gdBk))
+
+				return resourceARN
+			},
+			wantResourceType: "guardduty:detector",
+		},
+		{
+			name: "transfer_server",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				xferBk := transferbackend.NewInMemoryBackend(context.Background(), accountID, region)
+				srv, err := xferBk.CreateServer(nil, nil)
+				require.NoError(t, err)
+
+				resourceARN := "arn:aws:transfer:" + region + ":" + accountID + ":server/" + srv.ServerID
+				require.NoError(t, xferBk.TagResource(resourceARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingTransfer(bk, transferbackend.NewHandler(xferBk))
+
+				return resourceARN
+			},
+			wantResourceType: "transfer:server",
+		},
+		{
+			name: "cognitoidp_userpool",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				idpBk := cognitoidpbackend.NewInMemoryBackend(accountID, region, "")
+				pool, err := idpBk.CreateUserPool("wiring-test-pool")
+				require.NoError(t, err)
+				idpBk.TagResource(pool.ARN, map[string]string{wantTagKey: wantTagValue})
+
+				wireTaggingCognitoIDP(bk, cognitoidpbackend.NewHandler(idpBk, region))
+
+				return pool.ARN
+			},
+			wantResourceType: "cognito-idp:userpool",
+		},
+		{
+			name: "appconfig_application",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				acBk := appconfigbackend.NewInMemoryBackend(accountID, region)
+				app, err := acBk.CreateApplication("wiring-test-app", "", nil)
+				require.NoError(t, err)
+
+				resourceARN := "arn:aws:appconfig:" + region + ":" + accountID + ":application/" + app.ID
+				require.NoError(t, acBk.TagResource(resourceARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingAppConfig(bk, appconfigbackend.NewHandler(acBk))
+
+				return resourceARN
+			},
+			wantResourceType: "appconfig:application",
+		},
+		{
+			name: "codecommit_repository",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				ccBk := codecommitbackend.NewInMemoryBackend(accountID, region)
+				repo, err := ccBk.CreateRepository("wiring-test-repo", "", nil)
+				require.NoError(t, err)
+				require.NoError(t, ccBk.TagResource(repo.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingCodeCommit(bk, codecommitbackend.NewHandler(ccBk))
+
+				return repo.ARN
+			},
+			wantResourceType: "codecommit:repository",
+		},
+		{
+			name: "servicediscovery_namespace",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				sdBk := servicediscoverybackend.NewInMemoryBackend(accountID, region)
+				opID, err := sdBk.CreateHTTPNamespace("wiring-test-ns", "", nil)
+				require.NoError(t, err)
+
+				op, err := sdBk.GetOperation(opID)
+				require.NoError(t, err)
+				ns, err := sdBk.GetNamespace(op.Targets["NAMESPACE"])
+				require.NoError(t, err)
+				require.NoError(t, sdBk.TagResource(ns.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingServiceDiscovery(bk, servicediscoverybackend.NewHandler(sdBk))
+
+				return ns.ARN
+			},
+			wantResourceType: "servicediscovery:namespace",
+		},
+		{
+			name: "memorydb_cluster",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				mdbBk := memorydbbackend.NewInMemoryBackend(accountID, region)
+				mdbH := memorydbbackend.NewHandler(mdbBk)
+
+				// CreateCluster's request body is a package-private type, unlike
+				// every other backend method this file calls directly, so this
+				// drives it through the same JSON-over-HTTP path a real client
+				// uses instead.
+				req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(
+					[]byte(`{"ClusterName":"wiring-test-cluster","NodeType":"db.t4g.small"}`),
+				))
+				req.Header.Set("X-Amz-Target", "AmazonMemoryDB.CreateCluster")
+				rec := httptest.NewRecorder()
+				c := echo.New().NewContext(req, rec)
+				require.NoError(t, mdbH.Handler()(c))
+				require.Equalf(t, http.StatusOK, rec.Code, "CreateCluster failed: %s", rec.Body.String())
+
+				resourceARN := "arn:aws:memorydb:" + region + ":" + accountID + ":cluster/wiring-test-cluster"
+				tagErr := mdbBk.TagResource(
+					context.Background(),
+					resourceARN,
+					map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, tagErr)
+
+				wireTaggingMemoryDB(bk, mdbH)
+
+				return resourceARN
+			},
+			wantResourceType: "memorydb:cluster",
 		},
 	}
 

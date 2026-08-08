@@ -51,6 +51,43 @@ func (b *InMemoryBackend) TagResource(arn string, tags map[string]string) error 
 	return fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, arn)
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's
+// wireTaggingServiceDiscovery).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Cloud Map namespace and service ARN that
+// currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	namespaces := b.namespaces.All()
+	services := b.services.All()
+	out := make([]TaggedEntry, 0, len(namespaces)+len(services))
+
+	for _, ns := range namespaces {
+		if len(ns.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: ns.ARN, Tags: copyTags(ns.Tags)})
+	}
+
+	for _, svc := range services {
+		if len(svc.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: svc.ARN, Tags: copyTags(svc.Tags)})
+	}
+
+	return out
+}
+
 // UntagResource removes tags from a resource (namespace or service).
 func (b *InMemoryBackend) UntagResource(arn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")

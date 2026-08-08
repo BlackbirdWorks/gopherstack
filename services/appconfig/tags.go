@@ -46,3 +46,31 @@ func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) er
 
 	return nil
 }
+
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingAppConfig).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every AppConfig resource ARN (applications,
+// environments, configuration profiles, deployment strategies, extensions,
+// extension associations, experiment definitions) that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arn, t := range b.tags {
+		if len(t) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	return out
+}

@@ -116,6 +116,36 @@ func (b *InMemoryBackend) tagsForRef(region string, ref resourceRef) map[string]
 	return maps.Clone(src)
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingMemoryDB).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every MemoryDB resource ARN (clusters, ACLs,
+// subnet groups, users, parameter groups, snapshots), across all regions,
+// that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.arnToResource))
+
+	for region, arns := range b.arnToResource {
+		for resourceArn, ref := range arns {
+			t := b.tagsForRef(region, ref)
+			if len(t) == 0 {
+				continue
+			}
+
+			out = append(out, TaggedEntry{ARN: resourceArn, Tags: t})
+		}
+	}
+
+	return out
+}
+
 // mergeTags ensures dst is initialized then copies all src entries into it.
 func mergeTags(dst *map[string]string, src map[string]string) {
 	if *dst == nil {

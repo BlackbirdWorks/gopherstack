@@ -5672,13 +5672,14 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n): of the
-// ~90 gopherstack services with native tagging support, this wires 36 (dynamodb, sqs,
+// ~90 gopherstack services with native tagging support, this wires 45 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
-// outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail). The
-// rest remain unwired -- see PARITY.md's gaps section for the honest
-// remaining list and why a few
+// outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail, dax,
+// detective, guardduty, transfer, cognitoidp, appconfig, codecommit,
+// servicediscovery, memorydb). The rest remain unwired -- see PARITY.md's gaps
+// section for the honest remaining list and why a few
 // (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
 // namespaces rather than "s3control" itself, and codebuild, whose real API has no
 // TagResource/CreateTags-style mutation call at all -- tags are set only via
@@ -5747,6 +5748,16 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireTaggingMGN(bk, byName["MGN"])
 	wireTaggingNetworkManager(bk, byName["NetworkManager"])
 	wireTaggingLightsail(bk, byName["Lightsail"])
+
+	wireTaggingDAX(bk, byName["DAX"])
+	wireTaggingDetective(bk, byName["Detective"])
+	wireTaggingGuardDuty(bk, byName["GuardDuty"])
+	wireTaggingTransfer(bk, byName["Transfer"])
+	wireTaggingCognitoIDP(bk, byName["CognitoIDP"])
+	wireTaggingAppConfig(bk, byName["AppConfig"])
+	wireTaggingCodeCommit(bk, byName["CodeCommit"])
+	wireTaggingServiceDiscovery(bk, byName["ServiceDiscovery"])
+	wireTaggingMemoryDB(bk, byName["MemoryDB"])
 }
 
 func wireTaggingDDB(
@@ -5946,6 +5957,33 @@ func wafv2ResourceType(resourceARN string) string {
 // (scope, kind) wafv2ResourceType needs from a WAFv2 ARN's resource
 // portion before the name/id segments it discards.
 const wafv2ResourceSegmentCount = 2
+
+// nestedResourceARNSegmentCount is the "/"-delimited segment count of a
+// "parent/id/kind/id" nested ARN (see nestedResourceType).
+const nestedResourceARNSegmentCount = 4
+
+// nestedResourceType is resourceTypeFromARN for services whose flat ARN-keyed tag
+// store mixes a top-level resource kind with a second kind nested one level beneath
+// it ("parent/id/kind/id", e.g. GuardDuty's "detector/id/filter/id" or AppConfig's
+// "application/id/environment/id"): a plain resourceTypeFromARN would take only the
+// first segment and silently collide every nested kind under the parent's type,
+// the same class of bug wafv2ResourceType exists to avoid. Returns the third segment
+// for a 4-segment resource ("kind" in "parent/id/kind/id"), otherwise falls back to
+// resourceTypeFromARN's first-segment rule (also correct for a bare, non-nested
+// resource name with no "/" at all, e.g. CodePipeline's pipeline ARNs).
+func nestedResourceType(resourceARN, service string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return service
+	}
+
+	segs := strings.Split(parts[arnResourceFieldCount-1], "/")
+	if len(segs) == nestedResourceARNSegmentCount {
+		return service + ":" + segs[2]
+	}
+
+	return resourceTypeFromARN(resourceARN, service)
+}
 
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
@@ -7406,6 +7444,325 @@ func wireTaggingSageMaker(bk resourcegroupstaggingapibackend.StorageBackend, smR
 		},
 		smBk.AddTags,
 		smBk.DeleteTags,
+	)
+}
+
+// wireTaggingDAX wires the DAX backend into the Resource Groups Tagging API. DAX only
+// assigns ARNs to clusters -- ParameterGroup and SubnetGroup have no Arn field in the
+// real SDK types (see InMemoryBackend.arnExists) -- a single resource kind whose ARN
+// segment is "cache/{name}" (not "cluster/{name}"), so resourceTypeFromARN derives
+// "dax:cache". TagResource/UntagResource return the resulting tag set alongside an
+// error, unlike the bare-error shape wireTaggingARNResources expects, so their results
+// are adapted away here.
+func wireTaggingDAX(bk resourcegroupstaggingapibackend.StorageBackend, daxReg service.Registerable) {
+	daxH, ok := daxReg.(*daxbackend.Handler)
+	if !ok {
+		return
+	}
+
+	daxBk, ok := daxH.Backend.(*daxbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "dax",
+		func(arn string) string { return resourceTypeFromARN(arn, "dax") },
+		func() []taggedARNEntry {
+			items := daxBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, tags map[string]string) error {
+			_, err := daxBk.TagResource(arn, tags)
+
+			return err
+		},
+		func(arn string, keys []string) error {
+			_, err := daxBk.UntagResource(arn, keys)
+
+			return err
+		},
+	)
+}
+
+// wireTaggingDetective wires the Detective backend into the Resource Groups Tagging
+// API. Detective only tags behavior graphs, whose ARN resource segment is
+// "graph:{id}" (colon-delimited, not "graph/{id}") -- resourceTypeFromARN handles
+// both separators, deriving "detective:graph".
+func wireTaggingDetective(bk resourcegroupstaggingapibackend.StorageBackend, detReg service.Registerable) {
+	detH, ok := detReg.(*detectivebackend.Handler)
+	if !ok {
+		return
+	}
+
+	detBk, ok := detH.Backend.(*detectivebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "detective",
+		func(arn string) string { return resourceTypeFromARN(arn, "detective") },
+		func() []taggedARNEntry {
+			items := detBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		detBk.TagResource,
+		detBk.UntagResource,
+	)
+}
+
+// wireTaggingGuardDuty wires the GuardDuty backend into the Resource Groups Tagging
+// API. GuardDuty tags detectors and malware protection plans directly ("detector/{id}",
+// "malware-protection-plan/{id}") but also filters, IP sets, threat intel/entity sets,
+// trusted entity sets, and publishing destinations nested one level under their owning
+// detector ("detector/{id}/{kind}/{id}", see InMemoryBackend.syncResourceTagsFromARN)
+// -- a plain resourceTypeFromARN would take only the first segment and collide every
+// nested kind under "guardduty:detector", so nestedResourceType is used instead.
+func wireTaggingGuardDuty(bk resourcegroupstaggingapibackend.StorageBackend, gdReg service.Registerable) {
+	gdH, ok := gdReg.(*guarddutybackend.Handler)
+	if !ok {
+		return
+	}
+
+	gdBk, ok := gdH.Backend.(*guarddutybackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "guardduty",
+		func(arn string) string { return nestedResourceType(arn, "guardduty") },
+		func() []taggedARNEntry {
+			items := gdBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		gdBk.TagResource,
+		gdBk.UntagResource,
+	)
+}
+
+// wireTaggingTransfer wires the Transfer Family backend into the Resource Groups
+// Tagging API. Most Transfer resource kinds (server, user, connector, certificate,
+// profile, webapp, workflow, host-key) put their own kind as the ARN's first segment,
+// but agreements nest under their owning server ("server/{id}/agreement/{id}") --
+// nestedResourceType handles both shapes, deriving "transfer:agreement" for the
+// nested case instead of colliding it under "transfer:server".
+func wireTaggingTransfer(bk resourcegroupstaggingapibackend.StorageBackend, xferReg service.Registerable) {
+	xferH, ok := xferReg.(*transferbackend.Handler)
+	if !ok {
+		return
+	}
+
+	xferBk, ok := xferH.Backend.(*transferbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "transfer",
+		func(arn string) string { return nestedResourceType(arn, "transfer") },
+		func() []taggedARNEntry {
+			items := xferBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		xferBk.TagResource,
+		xferBk.UntagResource,
+	)
+}
+
+// wireTaggingCognitoIDP wires the Cognito Identity Provider backend into the Resource
+// Groups Tagging API. Only user pools are tagged, ARN segment "userpool/{id}", so
+// resourceTypeFromARN derives "cognito-idp:userpool" (the real ARN service namespace
+// is "cognito-idp", not "cognitoidp"). TagResource/UntagResource have no error return,
+// unlike the error-returning shape wireTaggingARNResources expects, so they are
+// adapted away here.
+func wireTaggingCognitoIDP(bk resourcegroupstaggingapibackend.StorageBackend, idpReg service.Registerable) {
+	idpH, ok := idpReg.(*cognitoidpbackend.Handler)
+	if !ok {
+		return
+	}
+
+	idpBk := idpH.Backend
+	if idpBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "cognito-idp",
+		func(arn string) string { return resourceTypeFromARN(arn, "cognito-idp") },
+		func() []taggedARNEntry {
+			items := idpBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, tags map[string]string) error {
+			idpBk.TagResource(arn, tags)
+
+			return nil
+		},
+		func(arn string, keys []string) error {
+			idpBk.UntagResource(arn, keys)
+
+			return nil
+		},
+	)
+}
+
+// wireTaggingAppConfig wires the AppConfig backend into the Resource Groups Tagging
+// API. Applications, deployment strategies, extensions, and extension associations put
+// their own kind as the ARN's first segment, but environments, configuration profiles,
+// and experiment definitions nest under their owning application
+// ("application/{id}/{kind}/{id}") -- nestedResourceType handles both shapes.
+func wireTaggingAppConfig(bk resourcegroupstaggingapibackend.StorageBackend, acReg service.Registerable) {
+	acH, ok := acReg.(*appconfigbackend.Handler)
+	if !ok {
+		return
+	}
+
+	acBk, ok := acH.Backend.(*appconfigbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "appconfig",
+		func(arn string) string { return nestedResourceType(arn, "appconfig") },
+		func() []taggedARNEntry {
+			items := acBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		acBk.TagResource,
+		acBk.UntagResource,
+	)
+}
+
+// wireTaggingCodeCommit wires the CodeCommit backend into the Resource Groups Tagging
+// API. Only repositories are tagged, and their ARNs carry no type segment at all
+// (arn:aws:codecommit:{region}:{account}:{repo-name}, matching real AWS's
+// documented ARN format), so this uses a constant resource type -- the same shape
+// SQS/SNS use for their own bare-name ARNs -- rather than resourceTypeFromARN, which
+// would fall back to just "codecommit" with no ":repository" suffix.
+func wireTaggingCodeCommit(bk resourcegroupstaggingapibackend.StorageBackend, ccReg service.Registerable) {
+	ccH, ok := ccReg.(*codecommitbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ccBk := ccH.Backend
+	if ccBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "codecommit",
+		constantResourceType("codecommit:repository"),
+		func() []taggedARNEntry {
+			items := ccBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		ccBk.TagResource,
+		ccBk.UntagResource,
+	)
+}
+
+// wireTaggingServiceDiscovery wires the Cloud Map (servicediscovery) backend into the
+// Resource Groups Tagging API. Namespaces and services each keep their own kind as
+// the ARN's first segment ("namespace/{id}", "service/{id}"), so resourceTypeFromARN
+// derives the per-resource type.
+func wireTaggingServiceDiscovery(bk resourcegroupstaggingapibackend.StorageBackend, sdReg service.Registerable) {
+	sdH, ok := sdReg.(*servicediscoverybackend.Handler)
+	if !ok {
+		return
+	}
+
+	sdBk, ok := sdH.Backend.(*servicediscoverybackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "servicediscovery",
+		func(arn string) string { return resourceTypeFromARN(arn, "servicediscovery") },
+		func() []taggedARNEntry {
+			items := sdBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		sdBk.TagResource,
+		sdBk.UntagResource,
+	)
+}
+
+// wireTaggingMemoryDB wires the MemoryDB backend into the Resource Groups Tagging API.
+// Clusters, ACLs, subnet groups, users, parameter groups, and snapshots each keep
+// their own kind as the ARN's first segment ("cluster/{name}", "acl/{name}", ...)
+// across per-region stores, so resourceTypeFromARN derives the per-resource type.
+// TagResource/UntagResource take a context, so this uses wireTaggingCtxARNResources
+// rather than the ctx-dropping wireTaggingARNResources helper.
+func wireTaggingMemoryDB(bk resourcegroupstaggingapibackend.StorageBackend, mdbReg service.Registerable) {
+	mdbH, ok := mdbReg.(*memorydbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	mdbBk, ok := mdbH.Backend.(*memorydbbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "memorydb",
+		func(arn string) string { return resourceTypeFromARN(arn, "memorydb") },
+		func() []taggedARNEntry {
+			items := mdbBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		mdbBk.TagResource,
+		mdbBk.UntagResource,
 	)
 }
 
