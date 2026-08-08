@@ -837,14 +837,875 @@ func extractAudioDescriptions(raw []any) []AudioDescription {
 }
 
 // -- VideoDescriptions --
+//
+// VideoCodecSettings (types.go:8582) is the last EncoderSettings union
+// (gopherstack-1szb). Its 5 variants (Av1/H264/H265/Mpeg2/FrameCapture) share
+// TimecodeBurninSettings; Av1/H264/H265 each carry their own
+// ColorSpaceSettings sub-union (not shared -- their variant sets differ);
+// H264/H265's FilterSettings sub-union IS identical between the two and
+// shares one wire struct, same convention as burnInAndDvbSubOutput.
+
+type timecodeBurninSettingsOutput struct {
+	FontSize string `json:"fontSize,omitempty"`
+	Position string `json:"position,omitempty"`
+	Prefix   string `json:"prefix,omitempty"`
+}
+
+func toTimecodeBurninSettingsOutput(s *TimecodeBurninSettings) *timecodeBurninSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := timecodeBurninSettingsOutput(*s)
+
+	return &out
+}
+
+func extractTimecodeBurninSettings(m map[string]any) *TimecodeBurninSettings {
+	raw, ok := m["timecodeBurninSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &TimecodeBurninSettings{
+		FontSize: stringFromAny(raw["fontSize"]),
+		Position: stringFromAny(raw["position"]),
+		Prefix:   stringFromAny(raw["prefix"]),
+	}
+}
+
+// Hdr10Settings/hdr10SettingsOutput/toHdr10SettingsOutput/
+// extractHdr10Settings are shared with VideoSelectorColorSpaceSettings
+// (handler_channels_input_settings.go) -- types.Hdr10Settings is the same
+// SDK shape in both places.
+
+type av1ColorSpaceSettingsOutput struct {
+	Hdr10Settings                 *hdr10SettingsOutput `json:"hdr10Settings,omitempty"`
+	ColorSpacePassthroughSettings *emptyMarker         `json:"colorSpacePassthroughSettings,omitempty"`
+	Hlg2020Settings               *emptyMarker         `json:"hlg2020Settings,omitempty"`
+	Rec601Settings                *emptyMarker         `json:"rec601Settings,omitempty"`
+	Rec709Settings                *emptyMarker         `json:"rec709Settings,omitempty"`
+}
+
+func toAv1ColorSpaceSettingsOutput(s *Av1ColorSpaceSettings) *av1ColorSpaceSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := &av1ColorSpaceSettingsOutput{Hdr10Settings: toHdr10SettingsOutput(s.Hdr10Settings)}
+
+	if s.ColorSpacePassthroughSettings {
+		out.ColorSpacePassthroughSettings = &emptyMarker{}
+	}
+
+	if s.Hlg2020Settings {
+		out.Hlg2020Settings = &emptyMarker{}
+	}
+
+	if s.Rec601Settings {
+		out.Rec601Settings = &emptyMarker{}
+	}
+
+	if s.Rec709Settings {
+		out.Rec709Settings = &emptyMarker{}
+	}
+
+	return out
+}
+
+func extractAv1ColorSpaceSettings(m map[string]any) *Av1ColorSpaceSettings {
+	raw, ok := m["colorSpaceSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := &Av1ColorSpaceSettings{Hdr10Settings: extractHdr10Settings(raw)}
+	_, out.ColorSpacePassthroughSettings = raw["colorSpacePassthroughSettings"]
+	_, out.Hlg2020Settings = raw["hlg2020Settings"]
+	_, out.Rec601Settings = raw["rec601Settings"]
+	_, out.Rec709Settings = raw["rec709Settings"]
+
+	return out
+}
+
+type h264ColorSpaceSettingsOutput struct {
+	ColorSpacePassthroughSettings *emptyMarker `json:"colorSpacePassthroughSettings,omitempty"`
+	Rec601Settings                *emptyMarker `json:"rec601Settings,omitempty"`
+	Rec709Settings                *emptyMarker `json:"rec709Settings,omitempty"`
+}
+
+func toH264ColorSpaceSettingsOutput(s *H264ColorSpaceSettings) *h264ColorSpaceSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := &h264ColorSpaceSettingsOutput{}
+
+	if s.ColorSpacePassthroughSettings {
+		out.ColorSpacePassthroughSettings = &emptyMarker{}
+	}
+
+	if s.Rec601Settings {
+		out.Rec601Settings = &emptyMarker{}
+	}
+
+	if s.Rec709Settings {
+		out.Rec709Settings = &emptyMarker{}
+	}
+
+	return out
+}
+
+func extractH264ColorSpaceSettings(m map[string]any) *H264ColorSpaceSettings {
+	raw, ok := m["colorSpaceSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := &H264ColorSpaceSettings{}
+	_, out.ColorSpacePassthroughSettings = raw["colorSpacePassthroughSettings"]
+	_, out.Rec601Settings = raw["rec601Settings"]
+	_, out.Rec709Settings = raw["rec709Settings"]
+
+	return out
+}
+
+type h265ColorSpaceSettingsOutput struct {
+	Hdr10Settings                 *hdr10SettingsOutput `json:"hdr10Settings,omitempty"`
+	ColorSpacePassthroughSettings *emptyMarker         `json:"colorSpacePassthroughSettings,omitempty"`
+	DolbyVision81Settings         *emptyMarker         `json:"dolbyVision81Settings,omitempty"`
+	Hlg2020Settings               *emptyMarker         `json:"hlg2020Settings,omitempty"`
+	Rec601Settings                *emptyMarker         `json:"rec601Settings,omitempty"`
+	Rec709Settings                *emptyMarker         `json:"rec709Settings,omitempty"`
+}
+
+func toH265ColorSpaceSettingsOutput(s *H265ColorSpaceSettings) *h265ColorSpaceSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := &h265ColorSpaceSettingsOutput{Hdr10Settings: toHdr10SettingsOutput(s.Hdr10Settings)}
+
+	if s.ColorSpacePassthroughSettings {
+		out.ColorSpacePassthroughSettings = &emptyMarker{}
+	}
+
+	if s.DolbyVision81Settings {
+		out.DolbyVision81Settings = &emptyMarker{}
+	}
+
+	if s.Hlg2020Settings {
+		out.Hlg2020Settings = &emptyMarker{}
+	}
+
+	if s.Rec601Settings {
+		out.Rec601Settings = &emptyMarker{}
+	}
+
+	if s.Rec709Settings {
+		out.Rec709Settings = &emptyMarker{}
+	}
+
+	return out
+}
+
+func extractH265ColorSpaceSettings(m map[string]any) *H265ColorSpaceSettings {
+	raw, ok := m["colorSpaceSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := &H265ColorSpaceSettings{Hdr10Settings: extractHdr10Settings(raw)}
+	_, out.ColorSpacePassthroughSettings = raw["colorSpacePassthroughSettings"]
+	_, out.DolbyVision81Settings = raw["dolbyVision81Settings"]
+	_, out.Hlg2020Settings = raw["hlg2020Settings"]
+	_, out.Rec601Settings = raw["rec601Settings"]
+	_, out.Rec709Settings = raw["rec709Settings"]
+
+	return out
+}
+
+type bandwidthReductionOutput struct {
+	PostFilterSharpening string `json:"postFilterSharpening,omitempty"`
+	Strength             string `json:"strength,omitempty"`
+}
+
+func toBandwidthReductionFilterSettingsOutput(
+	s *BandwidthReductionFilterSettings,
+) *bandwidthReductionOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := bandwidthReductionOutput(*s)
+
+	return &out
+}
+
+func extractBandwidthReductionFilterSettings(raw map[string]any) *BandwidthReductionFilterSettings {
+	b, ok := raw["bandwidthReductionFilterSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &BandwidthReductionFilterSettings{
+		PostFilterSharpening: stringFromAny(b["postFilterSharpening"]),
+		Strength:             stringFromAny(b["strength"]),
+	}
+}
+
+type temporalFilterSettingsOutput struct {
+	PostFilterSharpening string `json:"postFilterSharpening,omitempty"`
+	Strength             string `json:"strength,omitempty"`
+}
+
+func toTemporalFilterSettingsOutput(s *TemporalFilterSettings) *temporalFilterSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := temporalFilterSettingsOutput(*s)
+
+	return &out
+}
+
+func extractTemporalFilterSettings(raw map[string]any) *TemporalFilterSettings {
+	t, ok := raw["temporalFilterSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &TemporalFilterSettings{
+		PostFilterSharpening: stringFromAny(t["postFilterSharpening"]),
+		Strength:             stringFromAny(t["strength"]),
+	}
+}
+
+// videoFilterSettingsOutput is the shared wire shape of H264FilterSettings
+// and H265FilterSettings (types.go:3020, :3306) -- identical field set.
+type videoFilterSettingsOutput struct {
+	BandwidthReductionFilterSettings *bandwidthReductionOutput     `json:"bandwidthReductionFilterSettings,omitempty"`
+	TemporalFilterSettings           *temporalFilterSettingsOutput `json:"temporalFilterSettings,omitempty"`
+}
+
+func videoFilterFieldsToOutput(s H264FilterSettings) *videoFilterSettingsOutput {
+	return &videoFilterSettingsOutput{
+		BandwidthReductionFilterSettings: toBandwidthReductionFilterSettingsOutput(s.BandwidthReductionFilterSettings),
+		TemporalFilterSettings:           toTemporalFilterSettingsOutput(s.TemporalFilterSettings),
+	}
+}
+
+func toH264FilterSettingsOutput(s *H264FilterSettings) *videoFilterSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return videoFilterFieldsToOutput(*s)
+}
+
+func toH265FilterSettingsOutput(s *H265FilterSettings) *videoFilterSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return videoFilterFieldsToOutput(H264FilterSettings(*s))
+}
+
+func extractVideoFilterFields(raw map[string]any) H264FilterSettings {
+	return H264FilterSettings{
+		BandwidthReductionFilterSettings: extractBandwidthReductionFilterSettings(raw),
+		TemporalFilterSettings:           extractTemporalFilterSettings(raw),
+	}
+}
+
+func extractH264FilterSettings(m map[string]any) *H264FilterSettings {
+	raw, ok := m["filterSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := extractVideoFilterFields(raw)
+
+	return &out
+}
+
+func extractH265FilterSettings(m map[string]any) *H265FilterSettings {
+	raw, ok := m["filterSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := H265FilterSettings(extractVideoFilterFields(raw))
+
+	return &out
+}
+
+type mpeg2FilterSettingsOutput struct {
+	TemporalFilterSettings *temporalFilterSettingsOutput `json:"temporalFilterSettings,omitempty"`
+}
+
+func toMpeg2FilterSettingsOutput(s *Mpeg2FilterSettings) *mpeg2FilterSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &mpeg2FilterSettingsOutput{TemporalFilterSettings: toTemporalFilterSettingsOutput(s.TemporalFilterSettings)}
+}
+
+func extractMpeg2FilterSettings(m map[string]any) *Mpeg2FilterSettings {
+	raw, ok := m["filterSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Mpeg2FilterSettings{TemporalFilterSettings: extractTemporalFilterSettings(raw)}
+}
+
+type av1SettingsOutput struct {
+	ColorSpaceSettings     *av1ColorSpaceSettingsOutput  `json:"colorSpaceSettings,omitempty"`
+	TimecodeBurninSettings *timecodeBurninSettingsOutput `json:"timecodeBurninSettings,omitempty"`
+	AfdSignaling           string                        `json:"afdSignaling,omitempty"`
+	BitDepth               string                        `json:"bitDepth,omitempty"`
+	FixedAfd               string                        `json:"fixedAfd,omitempty"`
+	GopSizeUnits           string                        `json:"gopSizeUnits,omitempty"`
+	Level                  string                        `json:"level,omitempty"`
+	LookAheadRateControl   string                        `json:"lookAheadRateControl,omitempty"`
+	RateControlMode        string                        `json:"rateControlMode,omitempty"`
+	SceneChangeDetect      string                        `json:"sceneChangeDetect,omitempty"`
+	SpatialAq              string                        `json:"spatialAq,omitempty"`
+	TemporalAq             string                        `json:"temporalAq,omitempty"`
+	TimecodeInsertion      string                        `json:"timecodeInsertion,omitempty"`
+	GopSize                float64                       `json:"gopSize,omitempty"`
+	Bitrate                int32                         `json:"bitrate,omitempty"`
+	BufSize                int32                         `json:"bufSize,omitempty"`
+	FramerateDenominator   int32                         `json:"framerateDenominator,omitempty"`
+	FramerateNumerator     int32                         `json:"framerateNumerator,omitempty"`
+	MaxBitrate             int32                         `json:"maxBitrate,omitempty"`
+	MinBitrate             int32                         `json:"minBitrate,omitempty"`
+	MinIInterval           int32                         `json:"minIInterval,omitempty"`
+	ParDenominator         int32                         `json:"parDenominator,omitempty"`
+	ParNumerator           int32                         `json:"parNumerator,omitempty"`
+	QvbrQualityLevel       int32                         `json:"qvbrQualityLevel,omitempty"`
+}
+
+func toAv1SettingsOutput(s *Av1Settings) *av1SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &av1SettingsOutput{
+		ColorSpaceSettings:     toAv1ColorSpaceSettingsOutput(s.ColorSpaceSettings),
+		TimecodeBurninSettings: toTimecodeBurninSettingsOutput(s.TimecodeBurninSettings),
+		AfdSignaling:           s.AfdSignaling,
+		BitDepth:               s.BitDepth,
+		FixedAfd:               s.FixedAfd,
+		GopSizeUnits:           s.GopSizeUnits,
+		Level:                  s.Level,
+		LookAheadRateControl:   s.LookAheadRateControl,
+		RateControlMode:        s.RateControlMode,
+		SceneChangeDetect:      s.SceneChangeDetect,
+		SpatialAq:              s.SpatialAq,
+		TemporalAq:             s.TemporalAq,
+		TimecodeInsertion:      s.TimecodeInsertion,
+		GopSize:                s.GopSize,
+		Bitrate:                s.Bitrate,
+		BufSize:                s.BufSize,
+		FramerateDenominator:   s.FramerateDenominator,
+		FramerateNumerator:     s.FramerateNumerator,
+		MaxBitrate:             s.MaxBitrate,
+		MinBitrate:             s.MinBitrate,
+		MinIInterval:           s.MinIInterval,
+		ParDenominator:         s.ParDenominator,
+		ParNumerator:           s.ParNumerator,
+		QvbrQualityLevel:       s.QvbrQualityLevel,
+	}
+}
+
+func extractAv1Settings(m map[string]any) *Av1Settings {
+	raw, ok := m["av1Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Av1Settings{
+		ColorSpaceSettings:     extractAv1ColorSpaceSettings(raw),
+		TimecodeBurninSettings: extractTimecodeBurninSettings(raw),
+		AfdSignaling:           stringFromAny(raw["afdSignaling"]),
+		BitDepth:               stringFromAny(raw["bitDepth"]),
+		FixedAfd:               stringFromAny(raw["fixedAfd"]),
+		GopSizeUnits:           stringFromAny(raw["gopSizeUnits"]),
+		Level:                  stringFromAny(raw["level"]),
+		LookAheadRateControl:   stringFromAny(raw["lookAheadRateControl"]),
+		RateControlMode:        stringFromAny(raw["rateControlMode"]),
+		SceneChangeDetect:      stringFromAny(raw["sceneChangeDetect"]),
+		SpatialAq:              stringFromAny(raw["spatialAq"]),
+		TemporalAq:             stringFromAny(raw["temporalAq"]),
+		TimecodeInsertion:      stringFromAny(raw["timecodeInsertion"]),
+		GopSize:                float64FromAny(raw["gopSize"]),
+		Bitrate:                int32FromAny(raw["bitrate"]),
+		BufSize:                int32FromAny(raw["bufSize"]),
+		FramerateDenominator:   int32FromAny(raw["framerateDenominator"]),
+		FramerateNumerator:     int32FromAny(raw["framerateNumerator"]),
+		MaxBitrate:             int32FromAny(raw["maxBitrate"]),
+		MinBitrate:             int32FromAny(raw["minBitrate"]),
+		MinIInterval:           int32FromAny(raw["minIInterval"]),
+		ParDenominator:         int32FromAny(raw["parDenominator"]),
+		ParNumerator:           int32FromAny(raw["parNumerator"]),
+		QvbrQualityLevel:       int32FromAny(raw["qvbrQualityLevel"]),
+	}
+}
+
+type h264SettingsOutput struct {
+	ColorSpaceSettings     *h264ColorSpaceSettingsOutput `json:"colorSpaceSettings,omitempty"`
+	FilterSettings         *videoFilterSettingsOutput    `json:"filterSettings,omitempty"`
+	TimecodeBurninSettings *timecodeBurninSettingsOutput `json:"timecodeBurninSettings,omitempty"`
+	AdaptiveQuantization   string                        `json:"adaptiveQuantization,omitempty"`
+	AfdSignaling           string                        `json:"afdSignaling,omitempty"`
+	ColorMetadata          string                        `json:"colorMetadata,omitempty"`
+	EntropyEncoding        string                        `json:"entropyEncoding,omitempty"`
+	FixedAfd               string                        `json:"fixedAfd,omitempty"`
+	FlickerAq              string                        `json:"flickerAq,omitempty"`
+	ForceFieldPictures     string                        `json:"forceFieldPictures,omitempty"`
+	FramerateControl       string                        `json:"framerateControl,omitempty"`
+	GopBReference          string                        `json:"gopBReference,omitempty"`
+	GopSizeUnits           string                        `json:"gopSizeUnits,omitempty"`
+	Level                  string                        `json:"level,omitempty"`
+	LookAheadRateControl   string                        `json:"lookAheadRateControl,omitempty"`
+	ParControl             string                        `json:"parControl,omitempty"`
+	Profile                string                        `json:"profile,omitempty"`
+	QualityLevel           string                        `json:"qualityLevel,omitempty"`
+	RateControlMode        string                        `json:"rateControlMode,omitempty"`
+	ScanType               string                        `json:"scanType,omitempty"`
+	SceneChangeDetect      string                        `json:"sceneChangeDetect,omitempty"`
+	SpatialAq              string                        `json:"spatialAq,omitempty"`
+	SubgopLength           string                        `json:"subgopLength,omitempty"`
+	Syntax                 string                        `json:"syntax,omitempty"`
+	TemporalAq             string                        `json:"temporalAq,omitempty"`
+	TimecodeInsertion      string                        `json:"timecodeInsertion,omitempty"`
+	GopSize                float64                       `json:"gopSize,omitempty"`
+	Bitrate                int32                         `json:"bitrate,omitempty"`
+	BufFillPct             int32                         `json:"bufFillPct,omitempty"`
+	BufSize                int32                         `json:"bufSize,omitempty"`
+	FramerateDenominator   int32                         `json:"framerateDenominator,omitempty"`
+	FramerateNumerator     int32                         `json:"framerateNumerator,omitempty"`
+	GopClosedCadence       int32                         `json:"gopClosedCadence,omitempty"`
+	GopNumBFrames          int32                         `json:"gopNumBFrames,omitempty"`
+	MaxBitrate             int32                         `json:"maxBitrate,omitempty"`
+	MinBitrate             int32                         `json:"minBitrate,omitempty"`
+	MinIInterval           int32                         `json:"minIInterval,omitempty"`
+	MinQp                  int32                         `json:"minQp,omitempty"`
+	NumRefFrames           int32                         `json:"numRefFrames,omitempty"`
+	ParDenominator         int32                         `json:"parDenominator,omitempty"`
+	ParNumerator           int32                         `json:"parNumerator,omitempty"`
+	QvbrQualityLevel       int32                         `json:"qvbrQualityLevel,omitempty"`
+	Slices                 int32                         `json:"slices,omitempty"`
+	Softness               int32                         `json:"softness,omitempty"`
+}
+
+func toH264SettingsOutput(s *H264Settings) *h264SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &h264SettingsOutput{
+		ColorSpaceSettings:     toH264ColorSpaceSettingsOutput(s.ColorSpaceSettings),
+		FilterSettings:         toH264FilterSettingsOutput(s.FilterSettings),
+		TimecodeBurninSettings: toTimecodeBurninSettingsOutput(s.TimecodeBurninSettings),
+		AdaptiveQuantization:   s.AdaptiveQuantization,
+		AfdSignaling:           s.AfdSignaling,
+		ColorMetadata:          s.ColorMetadata,
+		EntropyEncoding:        s.EntropyEncoding,
+		FixedAfd:               s.FixedAfd,
+		FlickerAq:              s.FlickerAq,
+		ForceFieldPictures:     s.ForceFieldPictures,
+		FramerateControl:       s.FramerateControl,
+		GopBReference:          s.GopBReference,
+		GopSizeUnits:           s.GopSizeUnits,
+		Level:                  s.Level,
+		LookAheadRateControl:   s.LookAheadRateControl,
+		ParControl:             s.ParControl,
+		Profile:                s.Profile,
+		QualityLevel:           s.QualityLevel,
+		RateControlMode:        s.RateControlMode,
+		ScanType:               s.ScanType,
+		SceneChangeDetect:      s.SceneChangeDetect,
+		SpatialAq:              s.SpatialAq,
+		SubgopLength:           s.SubgopLength,
+		Syntax:                 s.Syntax,
+		TemporalAq:             s.TemporalAq,
+		TimecodeInsertion:      s.TimecodeInsertion,
+		GopSize:                s.GopSize,
+		Bitrate:                s.Bitrate,
+		BufFillPct:             s.BufFillPct,
+		BufSize:                s.BufSize,
+		FramerateDenominator:   s.FramerateDenominator,
+		FramerateNumerator:     s.FramerateNumerator,
+		GopClosedCadence:       s.GopClosedCadence,
+		GopNumBFrames:          s.GopNumBFrames,
+		MaxBitrate:             s.MaxBitrate,
+		MinBitrate:             s.MinBitrate,
+		MinIInterval:           s.MinIInterval,
+		MinQp:                  s.MinQp,
+		NumRefFrames:           s.NumRefFrames,
+		ParDenominator:         s.ParDenominator,
+		ParNumerator:           s.ParNumerator,
+		QvbrQualityLevel:       s.QvbrQualityLevel,
+		Slices:                 s.Slices,
+		Softness:               s.Softness,
+	}
+}
+
+func extractH264Settings(m map[string]any) *H264Settings {
+	raw, ok := m["h264Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &H264Settings{
+		ColorSpaceSettings:     extractH264ColorSpaceSettings(raw),
+		FilterSettings:         extractH264FilterSettings(raw),
+		TimecodeBurninSettings: extractTimecodeBurninSettings(raw),
+		AdaptiveQuantization:   stringFromAny(raw["adaptiveQuantization"]),
+		AfdSignaling:           stringFromAny(raw["afdSignaling"]),
+		ColorMetadata:          stringFromAny(raw["colorMetadata"]),
+		EntropyEncoding:        stringFromAny(raw["entropyEncoding"]),
+		FixedAfd:               stringFromAny(raw["fixedAfd"]),
+		FlickerAq:              stringFromAny(raw["flickerAq"]),
+		ForceFieldPictures:     stringFromAny(raw["forceFieldPictures"]),
+		FramerateControl:       stringFromAny(raw["framerateControl"]),
+		GopBReference:          stringFromAny(raw["gopBReference"]),
+		GopSizeUnits:           stringFromAny(raw["gopSizeUnits"]),
+		Level:                  stringFromAny(raw["level"]),
+		LookAheadRateControl:   stringFromAny(raw["lookAheadRateControl"]),
+		ParControl:             stringFromAny(raw["parControl"]),
+		Profile:                stringFromAny(raw["profile"]),
+		QualityLevel:           stringFromAny(raw["qualityLevel"]),
+		RateControlMode:        stringFromAny(raw["rateControlMode"]),
+		ScanType:               stringFromAny(raw["scanType"]),
+		SceneChangeDetect:      stringFromAny(raw["sceneChangeDetect"]),
+		SpatialAq:              stringFromAny(raw["spatialAq"]),
+		SubgopLength:           stringFromAny(raw["subgopLength"]),
+		Syntax:                 stringFromAny(raw["syntax"]),
+		TemporalAq:             stringFromAny(raw["temporalAq"]),
+		TimecodeInsertion:      stringFromAny(raw["timecodeInsertion"]),
+		GopSize:                float64FromAny(raw["gopSize"]),
+		Bitrate:                int32FromAny(raw["bitrate"]),
+		BufFillPct:             int32FromAny(raw["bufFillPct"]),
+		BufSize:                int32FromAny(raw["bufSize"]),
+		FramerateDenominator:   int32FromAny(raw["framerateDenominator"]),
+		FramerateNumerator:     int32FromAny(raw["framerateNumerator"]),
+		GopClosedCadence:       int32FromAny(raw["gopClosedCadence"]),
+		GopNumBFrames:          int32FromAny(raw["gopNumBFrames"]),
+		MaxBitrate:             int32FromAny(raw["maxBitrate"]),
+		MinBitrate:             int32FromAny(raw["minBitrate"]),
+		MinIInterval:           int32FromAny(raw["minIInterval"]),
+		MinQp:                  int32FromAny(raw["minQp"]),
+		NumRefFrames:           int32FromAny(raw["numRefFrames"]),
+		ParDenominator:         int32FromAny(raw["parDenominator"]),
+		ParNumerator:           int32FromAny(raw["parNumerator"]),
+		QvbrQualityLevel:       int32FromAny(raw["qvbrQualityLevel"]),
+		Slices:                 int32FromAny(raw["slices"]),
+		Softness:               int32FromAny(raw["softness"]),
+	}
+}
+
+type h265SettingsOutput struct {
+	ColorSpaceSettings          *h265ColorSpaceSettingsOutput `json:"colorSpaceSettings,omitempty"`
+	FilterSettings              *videoFilterSettingsOutput    `json:"filterSettings,omitempty"`
+	TimecodeBurninSettings      *timecodeBurninSettingsOutput `json:"timecodeBurninSettings,omitempty"`
+	AdaptiveQuantization        string                        `json:"adaptiveQuantization,omitempty"`
+	AfdSignaling                string                        `json:"afdSignaling,omitempty"`
+	AlternativeTransferFunction string                        `json:"alternativeTransferFunction,omitempty"`
+	ColorMetadata               string                        `json:"colorMetadata,omitempty"`
+	Deblocking                  string                        `json:"deblocking,omitempty"`
+	FixedAfd                    string                        `json:"fixedAfd,omitempty"`
+	FlickerAq                   string                        `json:"flickerAq,omitempty"`
+	GopBReference               string                        `json:"gopBReference,omitempty"`
+	GopSizeUnits                string                        `json:"gopSizeUnits,omitempty"`
+	Level                       string                        `json:"level,omitempty"`
+	LookAheadRateControl        string                        `json:"lookAheadRateControl,omitempty"`
+	MvOverPictureBoundaries     string                        `json:"mvOverPictureBoundaries,omitempty"`
+	MvTemporalPredictor         string                        `json:"mvTemporalPredictor,omitempty"`
+	Profile                     string                        `json:"profile,omitempty"`
+	RateControlMode             string                        `json:"rateControlMode,omitempty"`
+	ScanType                    string                        `json:"scanType,omitempty"`
+	SceneChangeDetect           string                        `json:"sceneChangeDetect,omitempty"`
+	SubgopLength                string                        `json:"subgopLength,omitempty"`
+	Tier                        string                        `json:"tier,omitempty"`
+	TilePadding                 string                        `json:"tilePadding,omitempty"`
+	TimecodeInsertion           string                        `json:"timecodeInsertion,omitempty"`
+	TreeblockSize               string                        `json:"treeblockSize,omitempty"`
+	GopSize                     float64                       `json:"gopSize,omitempty"`
+	Bitrate                     int32                         `json:"bitrate,omitempty"`
+	BufSize                     int32                         `json:"bufSize,omitempty"`
+	FramerateDenominator        int32                         `json:"framerateDenominator,omitempty"`
+	FramerateNumerator          int32                         `json:"framerateNumerator,omitempty"`
+	GopClosedCadence            int32                         `json:"gopClosedCadence,omitempty"`
+	GopNumBFrames               int32                         `json:"gopNumBFrames,omitempty"`
+	MaxBitrate                  int32                         `json:"maxBitrate,omitempty"`
+	MinBitrate                  int32                         `json:"minBitrate,omitempty"`
+	MinIInterval                int32                         `json:"minIInterval,omitempty"`
+	MinQp                       int32                         `json:"minQp,omitempty"`
+	ParDenominator              int32                         `json:"parDenominator,omitempty"`
+	ParNumerator                int32                         `json:"parNumerator,omitempty"`
+	QvbrQualityLevel            int32                         `json:"qvbrQualityLevel,omitempty"`
+	Slices                      int32                         `json:"slices,omitempty"`
+	TileHeight                  int32                         `json:"tileHeight,omitempty"`
+	TileWidth                   int32                         `json:"tileWidth,omitempty"`
+}
+
+func toH265SettingsOutput(s *H265Settings) *h265SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &h265SettingsOutput{
+		ColorSpaceSettings:          toH265ColorSpaceSettingsOutput(s.ColorSpaceSettings),
+		FilterSettings:              toH265FilterSettingsOutput(s.FilterSettings),
+		TimecodeBurninSettings:      toTimecodeBurninSettingsOutput(s.TimecodeBurninSettings),
+		AdaptiveQuantization:        s.AdaptiveQuantization,
+		AfdSignaling:                s.AfdSignaling,
+		AlternativeTransferFunction: s.AlternativeTransferFunction,
+		ColorMetadata:               s.ColorMetadata,
+		Deblocking:                  s.Deblocking,
+		FixedAfd:                    s.FixedAfd,
+		FlickerAq:                   s.FlickerAq,
+		GopBReference:               s.GopBReference,
+		GopSizeUnits:                s.GopSizeUnits,
+		Level:                       s.Level,
+		LookAheadRateControl:        s.LookAheadRateControl,
+		MvOverPictureBoundaries:     s.MvOverPictureBoundaries,
+		MvTemporalPredictor:         s.MvTemporalPredictor,
+		Profile:                     s.Profile,
+		RateControlMode:             s.RateControlMode,
+		ScanType:                    s.ScanType,
+		SceneChangeDetect:           s.SceneChangeDetect,
+		SubgopLength:                s.SubgopLength,
+		Tier:                        s.Tier,
+		TilePadding:                 s.TilePadding,
+		TimecodeInsertion:           s.TimecodeInsertion,
+		TreeblockSize:               s.TreeblockSize,
+		GopSize:                     s.GopSize,
+		Bitrate:                     s.Bitrate,
+		BufSize:                     s.BufSize,
+		FramerateDenominator:        s.FramerateDenominator,
+		FramerateNumerator:          s.FramerateNumerator,
+		GopClosedCadence:            s.GopClosedCadence,
+		GopNumBFrames:               s.GopNumBFrames,
+		MaxBitrate:                  s.MaxBitrate,
+		MinBitrate:                  s.MinBitrate,
+		MinIInterval:                s.MinIInterval,
+		MinQp:                       s.MinQp,
+		ParDenominator:              s.ParDenominator,
+		ParNumerator:                s.ParNumerator,
+		QvbrQualityLevel:            s.QvbrQualityLevel,
+		Slices:                      s.Slices,
+		TileHeight:                  s.TileHeight,
+		TileWidth:                   s.TileWidth,
+	}
+}
+
+func extractH265Settings(m map[string]any) *H265Settings {
+	raw, ok := m["h265Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &H265Settings{
+		ColorSpaceSettings:          extractH265ColorSpaceSettings(raw),
+		FilterSettings:              extractH265FilterSettings(raw),
+		TimecodeBurninSettings:      extractTimecodeBurninSettings(raw),
+		AdaptiveQuantization:        stringFromAny(raw["adaptiveQuantization"]),
+		AfdSignaling:                stringFromAny(raw["afdSignaling"]),
+		AlternativeTransferFunction: stringFromAny(raw["alternativeTransferFunction"]),
+		ColorMetadata:               stringFromAny(raw["colorMetadata"]),
+		Deblocking:                  stringFromAny(raw["deblocking"]),
+		FixedAfd:                    stringFromAny(raw["fixedAfd"]),
+		FlickerAq:                   stringFromAny(raw["flickerAq"]),
+		GopBReference:               stringFromAny(raw["gopBReference"]),
+		GopSizeUnits:                stringFromAny(raw["gopSizeUnits"]),
+		Level:                       stringFromAny(raw["level"]),
+		LookAheadRateControl:        stringFromAny(raw["lookAheadRateControl"]),
+		MvOverPictureBoundaries:     stringFromAny(raw["mvOverPictureBoundaries"]),
+		MvTemporalPredictor:         stringFromAny(raw["mvTemporalPredictor"]),
+		Profile:                     stringFromAny(raw["profile"]),
+		RateControlMode:             stringFromAny(raw["rateControlMode"]),
+		ScanType:                    stringFromAny(raw["scanType"]),
+		SceneChangeDetect:           stringFromAny(raw["sceneChangeDetect"]),
+		SubgopLength:                stringFromAny(raw["subgopLength"]),
+		Tier:                        stringFromAny(raw["tier"]),
+		TilePadding:                 stringFromAny(raw["tilePadding"]),
+		TimecodeInsertion:           stringFromAny(raw["timecodeInsertion"]),
+		TreeblockSize:               stringFromAny(raw["treeblockSize"]),
+		GopSize:                     float64FromAny(raw["gopSize"]),
+		Bitrate:                     int32FromAny(raw["bitrate"]),
+		BufSize:                     int32FromAny(raw["bufSize"]),
+		FramerateDenominator:        int32FromAny(raw["framerateDenominator"]),
+		FramerateNumerator:          int32FromAny(raw["framerateNumerator"]),
+		GopClosedCadence:            int32FromAny(raw["gopClosedCadence"]),
+		GopNumBFrames:               int32FromAny(raw["gopNumBFrames"]),
+		MaxBitrate:                  int32FromAny(raw["maxBitrate"]),
+		MinBitrate:                  int32FromAny(raw["minBitrate"]),
+		MinIInterval:                int32FromAny(raw["minIInterval"]),
+		MinQp:                       int32FromAny(raw["minQp"]),
+		ParDenominator:              int32FromAny(raw["parDenominator"]),
+		ParNumerator:                int32FromAny(raw["parNumerator"]),
+		QvbrQualityLevel:            int32FromAny(raw["qvbrQualityLevel"]),
+		Slices:                      int32FromAny(raw["slices"]),
+		TileHeight:                  int32FromAny(raw["tileHeight"]),
+		TileWidth:                   int32FromAny(raw["tileWidth"]),
+	}
+}
+
+type mpeg2SettingsOutput struct {
+	FilterSettings         *mpeg2FilterSettingsOutput    `json:"filterSettings,omitempty"`
+	TimecodeBurninSettings *timecodeBurninSettingsOutput `json:"timecodeBurninSettings,omitempty"`
+	AdaptiveQuantization   string                        `json:"adaptiveQuantization,omitempty"`
+	AfdSignaling           string                        `json:"afdSignaling,omitempty"`
+	ColorMetadata          string                        `json:"colorMetadata,omitempty"`
+	ColorSpace             string                        `json:"colorSpace,omitempty"`
+	DisplayAspectRatio     string                        `json:"displayAspectRatio,omitempty"`
+	FixedAfd               string                        `json:"fixedAfd,omitempty"`
+	GopSizeUnits           string                        `json:"gopSizeUnits,omitempty"`
+	ScanType               string                        `json:"scanType,omitempty"`
+	SubgopLength           string                        `json:"subgopLength,omitempty"`
+	TimecodeInsertion      string                        `json:"timecodeInsertion,omitempty"`
+	GopSize                float64                       `json:"gopSize,omitempty"`
+	FramerateDenominator   int32                         `json:"framerateDenominator,omitempty"`
+	FramerateNumerator     int32                         `json:"framerateNumerator,omitempty"`
+	GopClosedCadence       int32                         `json:"gopClosedCadence,omitempty"`
+	GopNumBFrames          int32                         `json:"gopNumBFrames,omitempty"`
+}
+
+func toMpeg2SettingsOutput(s *Mpeg2Settings) *mpeg2SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &mpeg2SettingsOutput{
+		FilterSettings:         toMpeg2FilterSettingsOutput(s.FilterSettings),
+		TimecodeBurninSettings: toTimecodeBurninSettingsOutput(s.TimecodeBurninSettings),
+		AdaptiveQuantization:   s.AdaptiveQuantization,
+		AfdSignaling:           s.AfdSignaling,
+		ColorMetadata:          s.ColorMetadata,
+		ColorSpace:             s.ColorSpace,
+		DisplayAspectRatio:     s.DisplayAspectRatio,
+		FixedAfd:               s.FixedAfd,
+		GopSizeUnits:           s.GopSizeUnits,
+		ScanType:               s.ScanType,
+		SubgopLength:           s.SubgopLength,
+		TimecodeInsertion:      s.TimecodeInsertion,
+		GopSize:                s.GopSize,
+		FramerateDenominator:   s.FramerateDenominator,
+		FramerateNumerator:     s.FramerateNumerator,
+		GopClosedCadence:       s.GopClosedCadence,
+		GopNumBFrames:          s.GopNumBFrames,
+	}
+}
+
+func extractMpeg2Settings(m map[string]any) *Mpeg2Settings {
+	raw, ok := m["mpeg2Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Mpeg2Settings{
+		FilterSettings:         extractMpeg2FilterSettings(raw),
+		TimecodeBurninSettings: extractTimecodeBurninSettings(raw),
+		AdaptiveQuantization:   stringFromAny(raw["adaptiveQuantization"]),
+		AfdSignaling:           stringFromAny(raw["afdSignaling"]),
+		ColorMetadata:          stringFromAny(raw["colorMetadata"]),
+		ColorSpace:             stringFromAny(raw["colorSpace"]),
+		DisplayAspectRatio:     stringFromAny(raw["displayAspectRatio"]),
+		FixedAfd:               stringFromAny(raw["fixedAfd"]),
+		GopSizeUnits:           stringFromAny(raw["gopSizeUnits"]),
+		ScanType:               stringFromAny(raw["scanType"]),
+		SubgopLength:           stringFromAny(raw["subgopLength"]),
+		TimecodeInsertion:      stringFromAny(raw["timecodeInsertion"]),
+		GopSize:                float64FromAny(raw["gopSize"]),
+		FramerateDenominator:   int32FromAny(raw["framerateDenominator"]),
+		FramerateNumerator:     int32FromAny(raw["framerateNumerator"]),
+		GopClosedCadence:       int32FromAny(raw["gopClosedCadence"]),
+		GopNumBFrames:          int32FromAny(raw["gopNumBFrames"]),
+	}
+}
+
+type frameCaptureSettingsOutput struct {
+	TimecodeBurninSettings *timecodeBurninSettingsOutput `json:"timecodeBurninSettings,omitempty"`
+	CaptureIntervalUnits   string                        `json:"captureIntervalUnits,omitempty"`
+	CaptureInterval        int32                         `json:"captureInterval,omitempty"`
+}
+
+func toFrameCaptureSettingsOutput(s *FrameCaptureSettings) *frameCaptureSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &frameCaptureSettingsOutput{
+		TimecodeBurninSettings: toTimecodeBurninSettingsOutput(s.TimecodeBurninSettings),
+		CaptureIntervalUnits:   s.CaptureIntervalUnits,
+		CaptureInterval:        s.CaptureInterval,
+	}
+}
+
+func extractFrameCaptureSettings(m map[string]any) *FrameCaptureSettings {
+	raw, ok := m["frameCaptureSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &FrameCaptureSettings{
+		TimecodeBurninSettings: extractTimecodeBurninSettings(raw),
+		CaptureIntervalUnits:   stringFromAny(raw["captureIntervalUnits"]),
+		CaptureInterval:        int32FromAny(raw["captureInterval"]),
+	}
+}
+
+type videoCodecSettingsOutput struct {
+	Av1Settings          *av1SettingsOutput          `json:"av1Settings,omitempty"`
+	FrameCaptureSettings *frameCaptureSettingsOutput `json:"frameCaptureSettings,omitempty"`
+	H264Settings         *h264SettingsOutput         `json:"h264Settings,omitempty"`
+	H265Settings         *h265SettingsOutput         `json:"h265Settings,omitempty"`
+	Mpeg2Settings        *mpeg2SettingsOutput        `json:"mpeg2Settings,omitempty"`
+}
+
+func toVideoCodecSettingsOutput(s *VideoCodecSettings) *videoCodecSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &videoCodecSettingsOutput{
+		Av1Settings:          toAv1SettingsOutput(s.Av1Settings),
+		FrameCaptureSettings: toFrameCaptureSettingsOutput(s.FrameCaptureSettings),
+		H264Settings:         toH264SettingsOutput(s.H264Settings),
+		H265Settings:         toH265SettingsOutput(s.H265Settings),
+		Mpeg2Settings:        toMpeg2SettingsOutput(s.Mpeg2Settings),
+	}
+}
+
+func extractVideoCodecSettings(m map[string]any) *VideoCodecSettings {
+	raw, ok := m["codecSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &VideoCodecSettings{
+		Av1Settings:          extractAv1Settings(raw),
+		FrameCaptureSettings: extractFrameCaptureSettings(raw),
+		H264Settings:         extractH264Settings(raw),
+		H265Settings:         extractH265Settings(raw),
+		Mpeg2Settings:        extractMpeg2Settings(raw),
+	}
+}
 
 type videoDescriptionOutput struct {
-	Name            string `json:"name"`
-	RespondToAfd    string `json:"respondToAfd,omitempty"`
-	ScalingBehavior string `json:"scalingBehavior,omitempty"`
-	Height          int32  `json:"height,omitempty"`
-	Width           int32  `json:"width,omitempty"`
-	Sharpness       int32  `json:"sharpness,omitempty"`
+	CodecSettings   *videoCodecSettingsOutput `json:"codecSettings,omitempty"`
+	Name            string                    `json:"name"`
+	RespondToAfd    string                    `json:"respondToAfd,omitempty"`
+	ScalingBehavior string                    `json:"scalingBehavior,omitempty"`
+	Height          int32                     `json:"height,omitempty"`
+	Width           int32                     `json:"width,omitempty"`
+	Sharpness       int32                     `json:"sharpness,omitempty"`
 }
 
 func toVideoDescriptionsOutput(descs []VideoDescription) []videoDescriptionOutput {
@@ -854,7 +1715,15 @@ func toVideoDescriptionsOutput(descs []VideoDescription) []videoDescriptionOutpu
 
 	out := make([]videoDescriptionOutput, 0, len(descs))
 	for _, d := range descs {
-		out = append(out, videoDescriptionOutput(d))
+		out = append(out, videoDescriptionOutput{
+			CodecSettings:   toVideoCodecSettingsOutput(d.CodecSettings),
+			Name:            d.Name,
+			RespondToAfd:    d.RespondToAfd,
+			ScalingBehavior: d.ScalingBehavior,
+			Height:          d.Height,
+			Width:           d.Width,
+			Sharpness:       d.Sharpness,
+		})
 	}
 
 	return out
@@ -870,6 +1739,7 @@ func extractVideoDescriptions(raw []any) []VideoDescription {
 		}
 
 		out = append(out, VideoDescription{
+			CodecSettings:   extractVideoCodecSettings(m),
 			Name:            stringFromAny(m["name"]),
 			RespondToAfd:    stringFromAny(m["respondToAfd"]),
 			ScalingBehavior: stringFromAny(m["scalingBehavior"]),

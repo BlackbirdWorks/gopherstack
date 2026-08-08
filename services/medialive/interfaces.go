@@ -1237,12 +1237,263 @@ type AudioDescription struct {
 	AudioDashRoles             []string
 }
 
-// VideoDescription names one video encode. Wire keys "name"/"height"/
-// "respondToAfd"/"scalingBehavior"/"sharpness"/"width" -- verified against
-// types.VideoDescription. CodecSettings (the H264/H265/AV1/MPEG2/etc union)
-// and VideoPreprocessors are deliberately NOT modeled; see PARITY.md's gaps
-// entry.
+// TimecodeBurninSettings configures timecode burn-in
+// (types.TimecodeBurninSettings, types.go:8411). Wire keys "fontSize"/
+// "position"/"prefix". Shared by all five VideoCodecSettings variants.
+type TimecodeBurninSettings struct {
+	FontSize string
+	Position string
+	Prefix   string
+}
+
+// Av1ColorSpaceSettings is the tagged union of AV1 color space conversions
+// (types.Av1ColorSpaceSettings, types.go:656); at most one variant is set.
+// ColorSpacePassthroughSettings/Hlg2020Settings/Rec601Settings/
+// Rec709Settings have no fields on the wire -- bools record "this variant is
+// set", same convention as AudioCodecSettings.PassThroughSettings.
+type Av1ColorSpaceSettings struct {
+	Hdr10Settings                 *Hdr10Settings
+	ColorSpacePassthroughSettings bool
+	Hlg2020Settings               bool
+	Rec601Settings                bool
+	Rec709Settings                bool
+}
+
+// H264ColorSpaceSettings is the tagged union of H264 color space conversions
+// (types.H264ColorSpaceSettings, types.go:3005); at most one variant is set.
+type H264ColorSpaceSettings struct {
+	ColorSpacePassthroughSettings bool
+	Rec601Settings                bool
+	Rec709Settings                bool
+}
+
+// H265ColorSpaceSettings is the tagged union of H265 color space conversions
+// (types.H265ColorSpaceSettings, types.go:3282); at most one variant is set.
+type H265ColorSpaceSettings struct {
+	Hdr10Settings                 *Hdr10Settings
+	ColorSpacePassthroughSettings bool
+	DolbyVision81Settings         bool
+	Hlg2020Settings               bool
+	Rec601Settings                bool
+	Rec709Settings                bool
+}
+
+// BandwidthReductionFilterSettings configures the bandwidth reduction video
+// pre-filter (types.BandwidthReductionFilterSettings, types.go:871). Wire
+// keys "postFilterSharpening"/"strength".
+type BandwidthReductionFilterSettings struct {
+	PostFilterSharpening string
+	Strength             string
+}
+
+// TemporalFilterSettings configures the temporal video pre-filter
+// (types.TemporalFilterSettings, types.go:8350). Wire keys
+// "postFilterSharpening"/"strength".
+type TemporalFilterSettings struct {
+	PostFilterSharpening string
+	Strength             string
+}
+
+// H264FilterSettings is the tagged union of H264 pre-encode video filters
+// (types.H264FilterSettings, types.go:3020); at most one variant is set.
+// H265FilterSettings (types.go:3306) has the identical field set, so both
+// convert through one shared wire struct -- see toVideoFilterSettingsOutput.
+type H264FilterSettings struct {
+	BandwidthReductionFilterSettings *BandwidthReductionFilterSettings
+	TemporalFilterSettings           *TemporalFilterSettings
+}
+
+// H265FilterSettings mirrors H264FilterSettings -- see its doc comment.
+type H265FilterSettings struct {
+	BandwidthReductionFilterSettings *BandwidthReductionFilterSettings
+	TemporalFilterSettings           *TemporalFilterSettings
+}
+
+// Mpeg2FilterSettings wraps MPEG2's single pre-encode video filter
+// (types.Mpeg2FilterSettings, types.go:5761). Wire key
+// "temporalFilterSettings".
+type Mpeg2FilterSettings struct {
+	TemporalFilterSettings *TemporalFilterSettings
+}
+
+// Av1Settings configures the AV1 video codec (types.Av1Settings,
+// types.go:677); 24 fields, verified field-by-field against the
+// serializer. FramerateDenominator/FramerateNumerator are AWS-required but
+// modeled the same as every other field, matching this file's convention.
+type Av1Settings struct {
+	ColorSpaceSettings     *Av1ColorSpaceSettings
+	TimecodeBurninSettings *TimecodeBurninSettings
+	AfdSignaling           string
+	BitDepth               string
+	FixedAfd               string
+	GopSizeUnits           string
+	Level                  string
+	LookAheadRateControl   string
+	RateControlMode        string
+	SceneChangeDetect      string
+	SpatialAq              string
+	TemporalAq             string
+	TimecodeInsertion      string
+	GopSize                float64
+	Bitrate                int32
+	BufSize                int32
+	FramerateDenominator   int32
+	FramerateNumerator     int32
+	MaxBitrate             int32
+	MinBitrate             int32
+	MinIInterval           int32
+	ParDenominator         int32
+	ParNumerator           int32
+	QvbrQualityLevel       int32
+}
+
+// H264Settings configures the H264 video codec (types.H264Settings,
+// types.go:3032); 44 fields, verified field-by-field against the
+// serializer -- the largest single variant in the union.
+type H264Settings struct {
+	ColorSpaceSettings     *H264ColorSpaceSettings
+	FilterSettings         *H264FilterSettings
+	TimecodeBurninSettings *TimecodeBurninSettings
+	AdaptiveQuantization   string
+	AfdSignaling           string
+	ColorMetadata          string
+	EntropyEncoding        string
+	FixedAfd               string
+	FlickerAq              string
+	ForceFieldPictures     string
+	FramerateControl       string
+	GopBReference          string
+	GopSizeUnits           string
+	Level                  string
+	LookAheadRateControl   string
+	ParControl             string
+	Profile                string
+	QualityLevel           string
+	RateControlMode        string
+	ScanType               string
+	SceneChangeDetect      string
+	SpatialAq              string
+	SubgopLength           string
+	Syntax                 string
+	TemporalAq             string
+	TimecodeInsertion      string
+	GopSize                float64
+	Bitrate                int32
+	BufFillPct             int32
+	BufSize                int32
+	FramerateDenominator   int32
+	FramerateNumerator     int32
+	GopClosedCadence       int32
+	GopNumBFrames          int32
+	MaxBitrate             int32
+	MinBitrate             int32
+	MinIInterval           int32
+	MinQp                  int32
+	NumRefFrames           int32
+	ParDenominator         int32
+	ParNumerator           int32
+	QvbrQualityLevel       int32
+	Slices                 int32
+	Softness               int32
+}
+
+// H265Settings configures the H265 video codec (types.H265Settings,
+// types.go:3318); 42 fields, verified field-by-field against the
+// serializer.
+type H265Settings struct {
+	ColorSpaceSettings          *H265ColorSpaceSettings
+	FilterSettings              *H265FilterSettings
+	TimecodeBurninSettings      *TimecodeBurninSettings
+	AdaptiveQuantization        string
+	AfdSignaling                string
+	AlternativeTransferFunction string
+	ColorMetadata               string
+	Deblocking                  string
+	FixedAfd                    string
+	FlickerAq                   string
+	GopBReference               string
+	GopSizeUnits                string
+	Level                       string
+	LookAheadRateControl        string
+	MvOverPictureBoundaries     string
+	MvTemporalPredictor         string
+	Profile                     string
+	RateControlMode             string
+	ScanType                    string
+	SceneChangeDetect           string
+	SubgopLength                string
+	Tier                        string
+	TilePadding                 string
+	TimecodeInsertion           string
+	TreeblockSize               string
+	GopSize                     float64
+	Bitrate                     int32
+	BufSize                     int32
+	FramerateDenominator        int32
+	FramerateNumerator          int32
+	GopClosedCadence            int32
+	GopNumBFrames               int32
+	MaxBitrate                  int32
+	MinBitrate                  int32
+	MinIInterval                int32
+	MinQp                       int32
+	ParDenominator              int32
+	ParNumerator                int32
+	QvbrQualityLevel            int32
+	Slices                      int32
+	TileHeight                  int32
+	TileWidth                   int32
+}
+
+// Mpeg2Settings configures the MPEG2 video codec (types.Mpeg2Settings,
+// types.go:5770); 17 fields, verified field-by-field against the
+// serializer. Unlike the other four variants, MPEG2 has no ColorSpaceSettings
+// sub-union -- ColorSpace is a plain enum here.
+type Mpeg2Settings struct {
+	FilterSettings         *Mpeg2FilterSettings
+	TimecodeBurninSettings *TimecodeBurninSettings
+	AdaptiveQuantization   string
+	AfdSignaling           string
+	ColorMetadata          string
+	ColorSpace             string
+	DisplayAspectRatio     string
+	FixedAfd               string
+	GopSizeUnits           string
+	ScanType               string
+	SubgopLength           string
+	TimecodeInsertion      string
+	GopSize                float64
+	FramerateDenominator   int32
+	FramerateNumerator     int32
+	GopClosedCadence       int32
+	GopNumBFrames          int32
+}
+
+// FrameCaptureSettings configures the frame-capture pseudo-codec
+// (types.FrameCaptureSettings, types.go:2943); 3 fields, verified against
+// the serializer.
+type FrameCaptureSettings struct {
+	TimecodeBurninSettings *TimecodeBurninSettings
+	CaptureIntervalUnits   string
+	CaptureInterval        int32
+}
+
+// VideoCodecSettings is the tagged union of video codecs
+// (types.VideoCodecSettings, types.go:8582); at most one variant is set.
+type VideoCodecSettings struct {
+	Av1Settings          *Av1Settings
+	FrameCaptureSettings *FrameCaptureSettings
+	H264Settings         *H264Settings
+	H265Settings         *H265Settings
+	Mpeg2Settings        *Mpeg2Settings
+}
+
+// VideoDescription names one video encode. Wire keys "name"/"codecSettings"/
+// "height"/"respondToAfd"/"scalingBehavior"/"sharpness"/"width" -- verified
+// against types.VideoDescription. VideoPreprocessors is deliberately NOT
+// modeled; see PARITY.md's gaps entry.
 type VideoDescription struct {
+	CodecSettings   *VideoCodecSettings
 	Name            string
 	RespondToAfd    string
 	ScalingBehavior string

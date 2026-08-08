@@ -213,16 +213,8 @@ families:
           use the same *emptyMarker-pointer convention as
           PassThroughSettings above, verified round-tripping under
           omitempty by TestChannel_OutputSettings.
-          NOT modeled, and never accepted as an opaque passthrough blob (a
-          shape a client cannot read back through the real SDK is the bug
-          class this fix exists to close, so it is cleanly absent rather
-          than faked): VideoDescription.CodecSettings (types.
-          VideoCodecSettings, 5 variants -- Av1Settings 25 fields,
-          H264Settings 45, H265Settings 43, Mpeg2Settings 18,
-          FrameCaptureSettings 4 -- genuinely large, several fields
-          themselves reference further nested settings structs).
-          CaptionDescription.DestinationSettings (gopherstack-1szb, this
-          pass) is now modeled in full: types.CaptionDestinationSettings
+          CaptionDescription.DestinationSettings (gopherstack-1szb, first
+          sub-pass) is now modeled in full: types.CaptionDestinationSettings
           (types.go:1151) is actually 13 variants, not the 12 the bd issue
           counted -- 8 are empty-marker structs (Arib/Embedded/
           EmbeddedPlusScte20/RtmpCaptionInfo/Scte20PlusEmbedded/Scte27/
@@ -235,6 +227,35 @@ families:
           modeled alongside it. Proof: handler_channels_captions_test.go's
           TestChannel_CaptionDestinationSettings drives a real
           aws-sdk-go-v2 client through every variant family.
+          VideoDescription.CodecSettings (types.VideoCodecSettings,
+          types.go:8582, gopherstack-1szb final sub-pass) is the last
+          EncoderSettings union and is now modeled in full: 5 variants,
+          measured field-by-field against the serializer rather than the bd
+          issue's estimate -- Av1Settings 24 fields (not 25), H264Settings
+          44 (not 45), H265Settings 42 (not 43), Mpeg2Settings 17 (not 18),
+          FrameCaptureSettings 3 (not 4). All five share TimecodeBurninSettings
+          (types.go:8411, 3 fields). Av1/H264/H265 each carry their own
+          ColorSpaceSettings sub-union (5/3/6 variants -- NOT shared as one
+          Go type since the variant sets genuinely differ: H264 lacks
+          Hdr10/Hlg2020/DolbyVision81, Av1 lacks DolbyVision81); Hdr10Settings
+          is reused from the pre-existing VideoSelectorColorSpaceSettings
+          modeling (types.Hdr10Settings is the identical SDK shape in both
+          places). H264's and H265's FilterSettings sub-union IS identical
+          between the two (BandwidthReductionFilterSettings +
+          TemporalFilterSettings) and shares one wire struct/extractor pair,
+          same convention as burnInAndDvbSubOutput. Mpeg2 has no
+          ColorSpaceSettings union (ColorSpace is a plain enum there); its
+          FilterSettings wraps only TemporalFilterSettings. Nothing was
+          silently dropping this data before -- CodecSettings was cleanly
+          absent (no struct field existed to hold it), verified by a
+          pre-fix run of the new test against a git-worktree checkout of the
+          prior commit (every subtest failed on a nil CodecSettings, not a
+          wrong-shape assertion). Proof:
+          handler_channels_video_codec_test.go's TestChannel_VideoCodecSettings
+          drives a real aws-sdk-go-v2 client through all 5 variants,
+          including a shared-Hdr10Settings/BandwidthReductionFilterSettings
+          case (H265) and empty-marker color-space variants (Av1's
+          Hlg2020Settings, H264's Rec709Settings).
       Also closed the "anywhereSettings.channelPlacementGroupId is accepted
       without existence validation" gap sweep 5 flagged: Create/UpdateChannel
       now validate it against real ChannelPlacementGroup state the same way
@@ -657,23 +678,22 @@ gaps:
     11 variants each, down through every nested container/CDN/stream sub-union: M2tsSettings,
     MultiplexM2tsSettings, HlsSettings, HlsCdnSettings, KeyProviderSettings, ArchiveCdnSettings,
     FrameCaptureCdnSettings, M3u8Settings, MediaPackageV2GroupSettings/
-    MediaPackageV2DestinationSettings); and CaptionDescription.DestinationSettings +
-    CaptionDashRoles (gopherstack-1szb -- types.CaptionDestinationSettings is 13 variants, not the
+    MediaPackageV2DestinationSettings); CaptionDescription.DestinationSettings + CaptionDashRoles
+    (gopherstack-1szb, first sub-pass -- types.CaptionDestinationSettings is 13 variants, not the
     12 the bd issue counted: 8 empty-marker structs, Ttml/Webvtt single-field, EbuTtD 6 fields,
-    BurnIn/DvbSub 18 fields each, not 19 as originally estimated). Genuinely NOT modeled, and
-    confirmed still impractical to hand-model in a single pass after checking real field counts
-    against the pinned SDK (not just variant counts): VideoDescription.CodecSettings (types.
-    VideoCodecSettings, 5 variants -- Av1Settings 25 fields, H264Settings 45, H265Settings 43,
-    Mpeg2Settings 18, FrameCaptureSettings 4). Never accepted as an opaque passthrough blob -- a
-    caller setting it today gets a 201/200 response but the value is cleanly absent (never echoed
-    back by Describe/List), not silently corrupted or faked. (bd: gopherstack-jb9i closed the
-    12-of-17-member gap; gopherstack-sthr closed AvailConfiguration/ColorCorrectionSettings/
-    MotionGraphicsConfiguration/NielsenConfiguration and, in a second sub-pass, AudioDescription's
-    codec/normalization/watermarking/remix/dash-role/accessibility fields; gopherstack-hj9n closed
-    OutputGroupSettings/OutputSettings together per its explicit ordering instruction;
-    gopherstack-1szb closed CaptionDestinationSettings, leaving VideoCodecSettings alone rather
-    than half-modeling it in the same pass -- it would need its own follow-up issue if "true AWS
-    parity" on it specifically is ever prioritized.)
+    BurnIn/DvbSub 18 fields each, not 19 as originally estimated); and
+    VideoDescription.CodecSettings (gopherstack-1szb, final sub-pass -- types.VideoCodecSettings,
+    5 variants, measured at Av1Settings 24 fields, H264Settings 44, H265Settings 42,
+    Mpeg2Settings 17, FrameCaptureSettings 3, all sharing TimecodeBurninSettings; H264/H265's
+    FilterSettings sub-union is identical between the two and shares one wire struct). This
+    closes the last EncoderSettings union -- no gap remains in this family at the union level.
+    (bd: gopherstack-jb9i closed the 12-of-17-member gap; gopherstack-sthr closed
+    AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
+    and, in a second sub-pass, AudioDescription's codec/normalization/watermarking/remix/
+    dash-role/accessibility fields; gopherstack-hj9n closed OutputGroupSettings/OutputSettings
+    together per its explicit ordering instruction; gopherstack-1szb closed
+    CaptionDestinationSettings and, in a follow-up sub-pass once measured and confirmed
+    tractable, VideoCodecSettings -- the union this whole gap entry originally tracked.)
   - InputAttachment.InputSettings is now modeled in full (gopherstack-sthr, this pass) -- see
     Channel's note above. InputAttachmentName/InputId/LogicalInterfaceNames/
     AutomaticInputFailoverSettings (including all 3 failover-condition variants) were already
