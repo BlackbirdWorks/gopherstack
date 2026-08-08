@@ -13,16 +13,16 @@ type storedChannel struct {
 	Tags                  map[string]string            `json:"tags"`
 	Maintenance           ChannelMaintenance           `json:"maintenance"`
 	InputSpecification    InputSpecification           `json:"inputSpecification"`
-	ChannelEngineVersion  ChannelEngineVersion         `json:"channelEngineVersion"`
 	AnywhereSettings      ChannelAnywhereSettings      `json:"anywhereSettings"`
-	LogLevel              string                       `json:"logLevel"`
+	ChannelEngineVersion  ChannelEngineVersion         `json:"channelEngineVersion"`
 	CdiInputSpecification CdiInputSpecification        `json:"cdiInputSpecification"`
-	ChannelClass          string                       `json:"channelClass"`
+	Name                  string                       `json:"name"`
+	LogLevel              string                       `json:"logLevel"`
 	RoleARN               string                       `json:"roleArn"`
 	State                 string                       `json:"state"`
-	ID                    string                       `json:"id"`
+	ChannelClass          string                       `json:"channelClass"`
 	ARN                   string                       `json:"arn"`
-	Name                  string                       `json:"name"`
+	ID                    string                       `json:"id"`
 	LinkedChannelSettings ChannelLinkedChannelSettings `json:"linkedChannelSettings"`
 	Vpc                   ChannelVpcSettings           `json:"vpc"`
 	InferenceSettings     ChannelInferenceSettings     `json:"inferenceSettings"`

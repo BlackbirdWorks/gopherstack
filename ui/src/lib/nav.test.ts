@@ -252,6 +252,30 @@ describe("nav catalog matches the routes directory (drift guard)", () => {
     ).toEqual([]);
   });
 
+  it("every sidebarCategories route id is in implementedDashboardRouteIds", () => {
+    // The opposite direction from the "reachable from sidebarCategories"
+    // check below: a sidebarCategories entry whose id is missing from
+    // implementedDashboardRouteIds renders a nav link that +layout.svelte's
+    // `implementedDashboardRouteIds.has(route.id)` gate then filters out of
+    // the sidebar entirely (gopherstack-ks2s.5). Every sidebarCategories
+    // entry is presumed to have a real, working backend by the time it's
+    // added to the catalog, so this direction has no exemption list.
+    const missing: string[] = [];
+    for (const category of sidebarCategories) {
+      for (const route of category.routes) {
+        if (!implementedDashboardRouteIds.has(route.id)) {
+          missing.push(route.id);
+        }
+      }
+    }
+
+    expect(
+      missing,
+      `sidebarCategories route ids missing from implementedDashboardRouteIds (the sidebar link ` +
+        `exists but is filtered out): ${missing.join(", ") || "(none)"}`,
+    ).toEqual([]);
+  });
+
   it("every service route directory is reachable from sidebarCategories, unless explicitly exempt", () => {
     const navRouteIds = new Set(
       sidebarCategories.flatMap((category) => category.routes.map((r) => r.id)),

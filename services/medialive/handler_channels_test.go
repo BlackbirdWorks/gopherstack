@@ -703,6 +703,179 @@ func TestChannel_ExtendedFieldsSDKRoundTrip(t *testing.T) {
 			},
 		},
 		{
+			name: "encoderSettings.availConfiguration round-trips the esam variant and scte35SegmentationScope",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.AvailConfiguration = &types.AvailConfiguration{
+					Scte35SegmentationScope: types.Scte35SegmentationScopeScte35EnabledOutputGroups,
+					AvailSettings: &types.AvailSettings{
+						Esam: &types.Esam{
+							AcquisitionPointId: aws.String("acq-1"),
+							PoisEndpoint:       aws.String("https://pois.example.com"),
+							AdAvailOffset:      aws.Int32(500),
+							ZoneIdentity:       aws.String("zone-1"),
+						},
+					},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-esam"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.EncoderSettings.AvailConfiguration)
+				avail := desc.EncoderSettings.AvailConfiguration
+				assert.Equal(t, types.Scte35SegmentationScopeScte35EnabledOutputGroups, avail.Scte35SegmentationScope)
+				require.NotNil(t, avail.AvailSettings)
+				require.NotNil(t, avail.AvailSettings.Esam)
+				assert.Equal(t, "acq-1", aws.ToString(avail.AvailSettings.Esam.AcquisitionPointId))
+				assert.Equal(t, "https://pois.example.com", aws.ToString(avail.AvailSettings.Esam.PoisEndpoint))
+				assert.Equal(t, int32(500), aws.ToInt32(avail.AvailSettings.Esam.AdAvailOffset))
+				assert.Equal(t, "zone-1", aws.ToString(avail.AvailSettings.Esam.ZoneIdentity))
+			},
+		},
+		{
+			name: "encoderSettings.availConfiguration round-trips the scte35SpliceInsert and " +
+				"scte35TimeSignalApos variants",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				esSplice := minimalValidEncoderSettings()
+				esSplice.AvailConfiguration = &types.AvailConfiguration{
+					AvailSettings: &types.AvailSettings{
+						Scte35SpliceInsert: &types.Scte35SpliceInsert{
+							AdAvailOffset:          aws.Int32(-100),
+							NoRegionalBlackoutFlag: types.Scte35SpliceInsertNoRegionalBlackoutBehaviorIgnore,
+							WebDeliveryAllowedFlag: types.Scte35SpliceInsertWebDeliveryAllowedBehaviorFollow,
+						},
+					},
+				}
+
+				spliceOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-splice"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: esSplice,
+				})
+				require.NoError(t, err)
+
+				spliceDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: spliceOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, spliceDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35SpliceInsert)
+				splice := spliceDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35SpliceInsert
+				assert.Equal(t, int32(-100), aws.ToInt32(splice.AdAvailOffset))
+				assert.Equal(t, types.Scte35SpliceInsertNoRegionalBlackoutBehaviorIgnore, splice.NoRegionalBlackoutFlag)
+				assert.Equal(t, types.Scte35SpliceInsertWebDeliveryAllowedBehaviorFollow, splice.WebDeliveryAllowedFlag)
+
+				esApos := minimalValidEncoderSettings()
+				esApos.AvailConfiguration = &types.AvailConfiguration{
+					AvailSettings: &types.AvailSettings{
+						Scte35TimeSignalApos: &types.Scte35TimeSignalApos{
+							AdAvailOffset:          aws.Int32(200),
+							NoRegionalBlackoutFlag: types.Scte35AposNoRegionalBlackoutBehaviorFollow,
+						},
+					},
+				}
+
+				aposOut, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-avail-apos"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: esApos,
+				})
+				require.NoError(t, err)
+
+				aposDesc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: aposOut.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, aposDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35TimeSignalApos)
+				apos := aposDesc.EncoderSettings.AvailConfiguration.AvailSettings.Scte35TimeSignalApos
+				assert.Equal(t, int32(200), aws.ToInt32(apos.AdAvailOffset))
+				assert.Equal(t, types.Scte35AposNoRegionalBlackoutBehaviorFollow, apos.NoRegionalBlackoutFlag)
+			},
+		},
+		{
+			name: "encoderSettings.colorCorrectionSettings round-trips globalColorCorrections",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.ColorCorrectionSettings = &types.ColorCorrectionSettings{
+					GlobalColorCorrections: []types.ColorCorrection{
+						{
+							InputColorSpace: types.ColorSpaceRec709, OutputColorSpace: types.ColorSpaceHdr10,
+							Uri: aws.String("s3://my-bucket/lut1.cube"),
+						},
+					},
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-color-correction"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, desc.EncoderSettings.ColorCorrectionSettings)
+				require.Len(t, desc.EncoderSettings.ColorCorrectionSettings.GlobalColorCorrections, 1)
+				cc := desc.EncoderSettings.ColorCorrectionSettings.GlobalColorCorrections[0]
+				assert.Equal(t, types.ColorSpaceRec709, cc.InputColorSpace)
+				assert.Equal(t, types.ColorSpaceHdr10, cc.OutputColorSpace)
+				assert.Equal(t, "s3://my-bucket/lut1.cube", aws.ToString(cc.Uri))
+			},
+		},
+		{
+			name: "encoderSettings.motionGraphicsConfiguration and nielsenConfiguration round-trip",
+			run: func(t *testing.T, client *medialivesdk.Client) {
+				t.Helper()
+
+				es := minimalValidEncoderSettings()
+				es.MotionGraphicsConfiguration = &types.MotionGraphicsConfiguration{
+					MotionGraphicsInsertion: types.MotionGraphicsInsertionEnabled,
+					MotionGraphicsSettings: &types.MotionGraphicsSettings{
+						HtmlMotionGraphicsSettings: &types.HtmlMotionGraphicsSettings{},
+					},
+				}
+				es.NielsenConfiguration = &types.NielsenConfiguration{
+					DistributorId:          aws.String("dist-1"),
+					NielsenPcmToId3Tagging: types.NielsenPcmToId3TaggingStateEnabled,
+				}
+
+				out, err := client.CreateChannel(t.Context(), &medialivesdk.CreateChannelInput{
+					Name: aws.String("rt-motion-nielsen"), ChannelClass: types.ChannelClassStandard,
+					EncoderSettings: es,
+				})
+				require.NoError(t, err)
+
+				desc, err := client.DescribeChannel(t.Context(), &medialivesdk.DescribeChannelInput{
+					ChannelId: out.Channel.Id,
+				})
+				require.NoError(t, err)
+
+				require.NotNil(t, desc.EncoderSettings.MotionGraphicsConfiguration)
+				mg := desc.EncoderSettings.MotionGraphicsConfiguration
+				assert.Equal(t, types.MotionGraphicsInsertionEnabled, mg.MotionGraphicsInsertion)
+				require.NotNil(t, mg.MotionGraphicsSettings)
+				assert.NotNil(t, mg.MotionGraphicsSettings.HtmlMotionGraphicsSettings)
+
+				require.NotNil(t, desc.EncoderSettings.NielsenConfiguration)
+				assert.Equal(t, "dist-1", aws.ToString(desc.EncoderSettings.NielsenConfiguration.DistributorId))
+				assert.Equal(
+					t, types.NielsenPcmToId3TaggingStateEnabled,
+					desc.EncoderSettings.NielsenConfiguration.NielsenPcmToId3Tagging,
+				)
+			},
+		},
+		{
 			name: "linkedChannelSettings: primary's followingChannelArns is derived from another " +
 				"channel's follower settings, not stored on the primary itself",
 			run: func(t *testing.T, client *medialivesdk.Client) {

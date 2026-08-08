@@ -853,31 +853,146 @@ type OutputGroup struct {
 	Outputs []EncoderOutput
 }
 
+// EsamSettings configures ESAM ad-avail signaling to a POIS server. Wire
+// keys "acquisitionPointId"/"adAvailOffset"/"passwordParam"/"poisEndpoint"/
+// "username"/"zoneIdentity" -- verified against types.Esam.
+type EsamSettings struct {
+	AcquisitionPointID string
+	PoisEndpoint       string
+	PasswordParam      string
+	Username           string
+	ZoneIdentity       string
+	AdAvailOffset      int32
+}
+
+// Scte35SpliceInsertSettings is the "typical" SCTE-35 avail-insertion mode:
+// all segmentation signals create breaks (types.Scte35SpliceInsert). Wire
+// keys "adAvailOffset"/"noRegionalBlackoutFlag"/"webDeliveryAllowedFlag".
+type Scte35SpliceInsertSettings struct {
+	NoRegionalBlackoutFlag string
+	WebDeliveryAllowedFlag string
+	AdAvailOffset          int32
+}
+
+// Scte35TimeSignalAposSettings is the "atypical" SCTE-35 avail-insertion
+// mode: only Time Signal Placement Opportunity/Break messages create breaks
+// (types.Scte35TimeSignalApos). Same field shape as
+// Scte35SpliceInsertSettings but a distinct wire object.
+type Scte35TimeSignalAposSettings struct {
+	NoRegionalBlackoutFlag string
+	WebDeliveryAllowedFlag string
+	AdAvailOffset          int32
+}
+
+// ChannelAvailSettings is the tagged union of ad-avail signaling methods
+// (types.AvailSettings); at most one variant is set.
+type ChannelAvailSettings struct {
+	Esam                 *EsamSettings
+	Scte35SpliceInsert   *Scte35SpliceInsertSettings
+	Scte35TimeSignalApos *Scte35TimeSignalAposSettings
+}
+
+// ChannelAvailConfiguration configures how EncoderSettings creates SCTE-35
+// ad-avail cues (types.AvailConfiguration). Wire keys "availSettings"/
+// "scte35SegmentationScope".
+type ChannelAvailConfiguration struct {
+	AvailSettings           ChannelAvailSettings
+	Scte35SegmentationScope string
+}
+
+func (a ChannelAvailConfiguration) hasAvailConfiguration() bool {
+	return a.Scte35SegmentationScope != "" || a.AvailSettings.Esam != nil ||
+		a.AvailSettings.Scte35SpliceInsert != nil || a.AvailSettings.Scte35TimeSignalApos != nil
+}
+
+// ChannelColorCorrection is one 3D-LUT color-space conversion entry (types.
+// ColorCorrection). Wire keys "inputColorSpace"/"outputColorSpace"/"uri".
+type ChannelColorCorrection struct {
+	InputColorSpace  string
+	OutputColorSpace string
+	URI              string
+}
+
+// ChannelColorCorrectionSettings configures 3D-LUT-based color conversion
+// (types.ColorCorrectionSettings). Wire key "globalColorCorrections".
+type ChannelColorCorrectionSettings struct {
+	GlobalColorCorrections []ChannelColorCorrection
+}
+
+func (s ChannelColorCorrectionSettings) hasColorCorrectionSettings() bool {
+	return len(s.GlobalColorCorrections) > 0
+}
+
+// ChannelMotionGraphicsSettings is the tagged union of motion-graphics
+// sources (types.MotionGraphicsSettings). The real SDK currently defines
+// exactly one variant, HtmlMotionGraphicsSettings -- itself an empty marker
+// struct on the wire (types.HtmlMotionGraphicsSettings has no fields) -- so
+// a bool records "this variant is set" instead of an empty pointer-to-empty
+// struct.
+type ChannelMotionGraphicsSettings struct {
+	HTMLMotionGraphicsSettings bool
+}
+
+// ChannelMotionGraphicsConfiguration configures motion-graphics overlay
+// insertion (types.MotionGraphicsConfiguration). Wire keys
+// "motionGraphicsInsertion"/"motionGraphicsSettings".
+type ChannelMotionGraphicsConfiguration struct {
+	MotionGraphicsInsertion string
+	MotionGraphicsSettings  ChannelMotionGraphicsSettings
+}
+
+func (m ChannelMotionGraphicsConfiguration) hasMotionGraphicsConfiguration() bool {
+	return m.MotionGraphicsInsertion != "" || m.MotionGraphicsSettings.HTMLMotionGraphicsSettings
+}
+
+// ChannelNielsenConfiguration configures Nielsen watermark-to-ID3 tagging
+// (types.NielsenConfiguration). Wire keys "distributorId"/
+// "nielsenPcmToId3Tagging".
+type ChannelNielsenConfiguration struct {
+	DistributorID          string
+	NielsenPcmToID3Tagging string
+}
+
+func (n ChannelNielsenConfiguration) hasNielsenConfiguration() bool {
+	return n.DistributorID != "" || n.NielsenPcmToID3Tagging != ""
+}
+
 // EncoderSettings is EncoderSettings' modeled subset -- see the per-type doc
 // comments above and PARITY.md's gaps entry for exactly what's excluded (the
 // per-codec AudioCodecSettings/VideoCodecSettings unions, the
-// per-output-technology OutputGroupSettings/OutputSettings unions, the
-// per-caption-format CaptionDestinationSettings union, AvailConfiguration,
-// ColorCorrectionSettings, MotionGraphicsConfiguration,
-// NielsenConfiguration) and why. AudioDescriptions/VideoDescriptions/
-// OutputGroups/TimecodeConfig are required on a real CreateChannelInput's
-// EncoderSettings; gopherstack accepts a partial value (matching every other
+// per-output-technology OutputGroupSettings/OutputSettings unions, and the
+// per-caption-format CaptionDestinationSettings union). AvailConfiguration/
+// ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
+// (gopherstack-sthr) ARE modeled in full below -- unlike the codec/
+// output-technology unions, none of these four is itself a large per-format
+// union (AvailConfiguration's AvailSettings is only a 3-way union of small
+// flat structs, comparable to the failover-condition/output-locking unions
+// already modeled above). AudioDescriptions/VideoDescriptions/OutputGroups/
+// TimecodeConfig are required on a real CreateChannelInput's EncoderSettings;
+// gopherstack accepts a partial value (matching every other
 // optional-nested-object family in this service) since it does not perform
 // AWS's own request validation.
 type EncoderSettings struct {
-	BlackoutSlate          BlackoutSlate
-	AvailBlanking          AvailBlanking
-	FeatureActivations     FeatureActivations
-	ThumbnailConfiguration ThumbnailConfiguration
-	AudioDescriptions      []AudioDescription
-	VideoDescriptions      []VideoDescription
-	CaptionDescriptions    []CaptionDescription
-	OutputGroups           []OutputGroup
-	TimecodeConfig         TimecodeConfig
-	GlobalConfiguration    GlobalConfiguration
+	BlackoutSlate               BlackoutSlate
+	AvailBlanking               AvailBlanking
+	AvailConfiguration          ChannelAvailConfiguration
+	FeatureActivations          FeatureActivations
+	NielsenConfiguration        ChannelNielsenConfiguration
+	MotionGraphicsConfiguration ChannelMotionGraphicsConfiguration
+	ThumbnailConfiguration      ThumbnailConfiguration
+	CaptionDescriptions         []CaptionDescription
+	TimecodeConfig              TimecodeConfig
+	OutputGroups                []OutputGroup
+	ColorCorrectionSettings     ChannelColorCorrectionSettings
+	VideoDescriptions           []VideoDescription
+	AudioDescriptions           []AudioDescription
+	GlobalConfiguration         GlobalConfiguration
 }
 
-func (s EncoderSettings) hasEncoderSettings() bool {
+// hasLegacyEncoderFields covers the EncoderSettings sub-fields modeled
+// before gopherstack-sthr (see hasEncoderSettings, split out to stay under
+// this repo's cyclomatic-complexity budget).
+func (s EncoderSettings) hasLegacyEncoderFields() bool {
 	return len(s.AudioDescriptions) > 0 || len(s.VideoDescriptions) > 0 ||
 		len(s.CaptionDescriptions) > 0 || len(s.OutputGroups) > 0 ||
 		s.TimecodeConfig.Source != "" || s.AvailBlanking.State != "" ||
@@ -888,6 +1003,20 @@ func (s EncoderSettings) hasEncoderSettings() bool {
 		s.GlobalConfiguration.InputEndAction != "" || s.GlobalConfiguration.InitialAudioGain != 0 ||
 		s.GlobalConfiguration.OutputLockingMode != "" || s.GlobalConfiguration.OutputTimingSource != "" ||
 		s.GlobalConfiguration.SupportLowFramerateInputs != ""
+}
+
+// hasSthrEncoderFields covers the four EncoderSettings sub-fields added by
+// gopherstack-sthr (AvailConfiguration/ColorCorrectionSettings/
+// MotionGraphicsConfiguration/NielsenConfiguration).
+func (s EncoderSettings) hasSthrEncoderFields() bool {
+	return s.AvailConfiguration.hasAvailConfiguration() ||
+		s.ColorCorrectionSettings.hasColorCorrectionSettings() ||
+		s.MotionGraphicsConfiguration.hasMotionGraphicsConfiguration() ||
+		s.NielsenConfiguration.hasNielsenConfiguration()
+}
+
+func (s EncoderSettings) hasEncoderSettings() bool {
+	return s.hasLegacyEncoderFields() || s.hasSthrEncoderFields()
 }
 
 // ChannelCreateExtras bundles the 11 CreateChannelInput members added by
@@ -951,16 +1080,16 @@ type Channel struct {
 	Tags                  map[string]string
 	Maintenance           ChannelMaintenance
 	InputSpecification    InputSpecification
-	ChannelEngineVersion  ChannelEngineVersion
 	AnywhereSettings      ChannelAnywhereSettings
-	LogLevel              string
+	ChannelEngineVersion  ChannelEngineVersion
 	CdiInputSpecification CdiInputSpecification
-	ChannelClass          string
+	Name                  string
+	LogLevel              string
 	RoleARN               string
 	State                 string
-	ID                    string
+	ChannelClass          string
 	ARN                   string
-	Name                  string
+	ID                    string
 	LinkedChannelSettings ChannelLinkedChannelSettings
 	Vpc                   ChannelVpcSettings
 	InferenceSettings     ChannelInferenceSettings

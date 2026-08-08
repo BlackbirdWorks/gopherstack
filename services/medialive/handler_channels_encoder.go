@@ -2,13 +2,18 @@ package medialive
 
 // --- EncoderSettings wire (de)serialization ---
 //
-// Every shape here mirrors a real aws-sdk-go-v2/service/medialive@v1.97.2
-// types.* struct field-for-field for the subset gopherstack models -- see
-// the domain type doc comments in interfaces.go (AvailBlanking,
-// BlackoutSlate, FeatureActivations, GlobalConfiguration,
-// ThumbnailConfiguration, AudioDescription, VideoDescription,
-// CaptionDescription, OutputGroup, EncoderOutput, EncoderSettings) for
-// exactly what is and is not modeled, and why.
+// Every shape here mirrors a real aws-sdk-go-v2/service/medialive types.*
+// struct field-for-field for the subset gopherstack models -- see the domain
+// type doc comments in interfaces.go (AvailBlanking, BlackoutSlate,
+// FeatureActivations, GlobalConfiguration, ThumbnailConfiguration,
+// AudioDescription, VideoDescription, CaptionDescription, OutputGroup,
+// EncoderOutput, EncoderSettings) for exactly what is and is not modeled,
+// and why. The pre-gopherstack-sthr shapes below were verified against
+// v1.97.2 and not re-verified this pass; the AvailConfiguration/
+// ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
+// section (gopherstack-sthr) was verified against v1.101.4, this repo's
+// currently pinned version (go.mod) -- go.mod had already drifted ahead of
+// PARITY.md's audited version before this pass; see PARITY.md's Notes.
 
 // -- InputLocation --
 
@@ -569,19 +574,288 @@ func extractOutputGroups(raw []any) []OutputGroup {
 	return out
 }
 
+// -- AvailConfiguration (gopherstack-sthr) --
+
+type esamOutput struct {
+	AcquisitionPointID string `json:"acquisitionPointId,omitempty"`
+	PoisEndpoint       string `json:"poisEndpoint,omitempty"`
+	PasswordParam      string `json:"passwordParam,omitempty"`
+	Username           string `json:"username,omitempty"`
+	ZoneIdentity       string `json:"zoneIdentity,omitempty"`
+	AdAvailOffset      int32  `json:"adAvailOffset,omitempty"`
+}
+
+type scte35SpliceInsertOutput struct {
+	NoRegionalBlackoutFlag string `json:"noRegionalBlackoutFlag,omitempty"`
+	WebDeliveryAllowedFlag string `json:"webDeliveryAllowedFlag,omitempty"`
+	AdAvailOffset          int32  `json:"adAvailOffset,omitempty"`
+}
+
+type scte35TimeSignalAposOutput struct {
+	NoRegionalBlackoutFlag string `json:"noRegionalBlackoutFlag,omitempty"`
+	WebDeliveryAllowedFlag string `json:"webDeliveryAllowedFlag,omitempty"`
+	AdAvailOffset          int32  `json:"adAvailOffset,omitempty"`
+}
+
+type availSettingsOutput struct {
+	Esam                 *esamOutput                 `json:"esam,omitempty"`
+	Scte35SpliceInsert   *scte35SpliceInsertOutput   `json:"scte35SpliceInsert,omitempty"`
+	Scte35TimeSignalApos *scte35TimeSignalAposOutput `json:"scte35TimeSignalApos,omitempty"`
+}
+
+type availConfigurationOutput struct {
+	AvailSettings           *availSettingsOutput `json:"availSettings,omitempty"`
+	Scte35SegmentationScope string               `json:"scte35SegmentationScope,omitempty"`
+}
+
+func toAvailSettingsOutput(s ChannelAvailSettings) *availSettingsOutput {
+	out := &availSettingsOutput{}
+
+	if e := s.Esam; e != nil {
+		out.Esam = &esamOutput{
+			AcquisitionPointID: e.AcquisitionPointID,
+			PoisEndpoint:       e.PoisEndpoint,
+			PasswordParam:      e.PasswordParam,
+			Username:           e.Username,
+			ZoneIdentity:       e.ZoneIdentity,
+			AdAvailOffset:      e.AdAvailOffset,
+		}
+	}
+
+	if sp := s.Scte35SpliceInsert; sp != nil {
+		out.Scte35SpliceInsert = &scte35SpliceInsertOutput{
+			NoRegionalBlackoutFlag: sp.NoRegionalBlackoutFlag,
+			WebDeliveryAllowedFlag: sp.WebDeliveryAllowedFlag,
+			AdAvailOffset:          sp.AdAvailOffset,
+		}
+	}
+
+	if t := s.Scte35TimeSignalApos; t != nil {
+		out.Scte35TimeSignalApos = &scte35TimeSignalAposOutput{
+			NoRegionalBlackoutFlag: t.NoRegionalBlackoutFlag,
+			WebDeliveryAllowedFlag: t.WebDeliveryAllowedFlag,
+			AdAvailOffset:          t.AdAvailOffset,
+		}
+	}
+
+	if out.Esam == nil && out.Scte35SpliceInsert == nil && out.Scte35TimeSignalApos == nil {
+		return nil
+	}
+
+	return out
+}
+
+func toAvailConfigurationOutput(a ChannelAvailConfiguration) *availConfigurationOutput {
+	if !a.hasAvailConfiguration() {
+		return nil
+	}
+
+	return &availConfigurationOutput{
+		AvailSettings:           toAvailSettingsOutput(a.AvailSettings),
+		Scte35SegmentationScope: a.Scte35SegmentationScope,
+	}
+}
+
+func extractAvailSettings(raw map[string]any) ChannelAvailSettings {
+	m, ok := raw["availSettings"].(map[string]any)
+	if !ok {
+		return ChannelAvailSettings{}
+	}
+
+	var out ChannelAvailSettings
+
+	if e, hasEsam := m["esam"].(map[string]any); hasEsam {
+		out.Esam = &EsamSettings{
+			AcquisitionPointID: stringFromAny(e["acquisitionPointId"]),
+			PoisEndpoint:       stringFromAny(e["poisEndpoint"]),
+			PasswordParam:      stringFromAny(e["passwordParam"]),
+			Username:           stringFromAny(e["username"]),
+			ZoneIdentity:       stringFromAny(e["zoneIdentity"]),
+			AdAvailOffset:      int32FromAny(e["adAvailOffset"]),
+		}
+	}
+
+	if sp, hasSplice := m["scte35SpliceInsert"].(map[string]any); hasSplice {
+		out.Scte35SpliceInsert = &Scte35SpliceInsertSettings{
+			NoRegionalBlackoutFlag: stringFromAny(sp["noRegionalBlackoutFlag"]),
+			WebDeliveryAllowedFlag: stringFromAny(sp["webDeliveryAllowedFlag"]),
+			AdAvailOffset:          int32FromAny(sp["adAvailOffset"]),
+		}
+	}
+
+	if t, hasApos := m["scte35TimeSignalApos"].(map[string]any); hasApos {
+		out.Scte35TimeSignalApos = &Scte35TimeSignalAposSettings{
+			NoRegionalBlackoutFlag: stringFromAny(t["noRegionalBlackoutFlag"]),
+			WebDeliveryAllowedFlag: stringFromAny(t["webDeliveryAllowedFlag"]),
+			AdAvailOffset:          int32FromAny(t["adAvailOffset"]),
+		}
+	}
+
+	return out
+}
+
+func extractAvailConfiguration(raw map[string]any) ChannelAvailConfiguration {
+	m, ok := raw["availConfiguration"].(map[string]any)
+	if !ok {
+		return ChannelAvailConfiguration{}
+	}
+
+	return ChannelAvailConfiguration{
+		AvailSettings:           extractAvailSettings(m),
+		Scte35SegmentationScope: stringFromAny(m["scte35SegmentationScope"]),
+	}
+}
+
+// -- ColorCorrectionSettings (gopherstack-sthr) --
+
+type colorCorrectionOutput struct {
+	InputColorSpace  string `json:"inputColorSpace,omitempty"`
+	OutputColorSpace string `json:"outputColorSpace,omitempty"`
+	URI              string `json:"uri,omitempty"`
+}
+
+type colorCorrectionSettingsOutput struct {
+	GlobalColorCorrections []colorCorrectionOutput `json:"globalColorCorrections,omitempty"`
+}
+
+func toColorCorrectionSettingsOutput(s ChannelColorCorrectionSettings) *colorCorrectionSettingsOutput {
+	if !s.hasColorCorrectionSettings() {
+		return nil
+	}
+
+	out := make([]colorCorrectionOutput, 0, len(s.GlobalColorCorrections))
+	for _, c := range s.GlobalColorCorrections {
+		out = append(out, colorCorrectionOutput(c))
+	}
+
+	return &colorCorrectionSettingsOutput{GlobalColorCorrections: out}
+}
+
+func extractColorCorrectionSettings(raw map[string]any) ChannelColorCorrectionSettings {
+	m, ok := raw["colorCorrectionSettings"].(map[string]any)
+	if !ok {
+		return ChannelColorCorrectionSettings{}
+	}
+
+	items, ok := m["globalColorCorrections"].([]any)
+	if !ok {
+		return ChannelColorCorrectionSettings{}
+	}
+
+	out := make([]ChannelColorCorrection, 0, len(items))
+
+	for _, item := range items {
+		cm, isMap := item.(map[string]any)
+		if !isMap {
+			continue
+		}
+
+		out = append(out, ChannelColorCorrection{
+			InputColorSpace:  stringFromAny(cm["inputColorSpace"]),
+			OutputColorSpace: stringFromAny(cm["outputColorSpace"]),
+			URI:              stringFromAny(cm["uri"]),
+		})
+	}
+
+	return ChannelColorCorrectionSettings{GlobalColorCorrections: out}
+}
+
+// -- MotionGraphicsConfiguration (gopherstack-sthr) --
+
+// htmlMotionGraphicsSettingsOutput mirrors types.HtmlMotionGraphicsSettings,
+// which has no fields on the real wire -- an empty JSON object marks the
+// variant as set.
+type htmlMotionGraphicsSettingsOutput struct{}
+
+type motionGraphicsSettingsOutput struct {
+	HTMLMotionGraphicsSettings *htmlMotionGraphicsSettingsOutput `json:"htmlMotionGraphicsSettings,omitempty"`
+}
+
+type motionGraphicsConfigurationOutput struct {
+	MotionGraphicsSettings  *motionGraphicsSettingsOutput `json:"motionGraphicsSettings,omitempty"`
+	MotionGraphicsInsertion string                        `json:"motionGraphicsInsertion,omitempty"`
+}
+
+func toMotionGraphicsConfigurationOutput(m ChannelMotionGraphicsConfiguration) *motionGraphicsConfigurationOutput {
+	if !m.hasMotionGraphicsConfiguration() {
+		return nil
+	}
+
+	out := &motionGraphicsConfigurationOutput{MotionGraphicsInsertion: m.MotionGraphicsInsertion}
+	if m.MotionGraphicsSettings.HTMLMotionGraphicsSettings {
+		out.MotionGraphicsSettings = &motionGraphicsSettingsOutput{
+			HTMLMotionGraphicsSettings: &htmlMotionGraphicsSettingsOutput{},
+		}
+	}
+
+	return out
+}
+
+func extractMotionGraphicsConfiguration(raw map[string]any) ChannelMotionGraphicsConfiguration {
+	m, ok := raw["motionGraphicsConfiguration"].(map[string]any)
+	if !ok {
+		return ChannelMotionGraphicsConfiguration{}
+	}
+
+	out := ChannelMotionGraphicsConfiguration{
+		MotionGraphicsInsertion: stringFromAny(m["motionGraphicsInsertion"]),
+	}
+
+	if s, hasSettings := m["motionGraphicsSettings"].(map[string]any); hasSettings {
+		_, hasHTML := s["htmlMotionGraphicsSettings"]
+		out.MotionGraphicsSettings.HTMLMotionGraphicsSettings = hasHTML
+	}
+
+	return out
+}
+
+// -- NielsenConfiguration (gopherstack-sthr) --
+
+type nielsenConfigurationOutput struct {
+	DistributorID          string `json:"distributorId,omitempty"`
+	NielsenPcmToID3Tagging string `json:"nielsenPcmToId3Tagging,omitempty"`
+}
+
+func toNielsenConfigurationOutput(n ChannelNielsenConfiguration) *nielsenConfigurationOutput {
+	if !n.hasNielsenConfiguration() {
+		return nil
+	}
+
+	return &nielsenConfigurationOutput{
+		DistributorID:          n.DistributorID,
+		NielsenPcmToID3Tagging: n.NielsenPcmToID3Tagging,
+	}
+}
+
+func extractNielsenConfiguration(raw map[string]any) ChannelNielsenConfiguration {
+	m, ok := raw["nielsenConfiguration"].(map[string]any)
+	if !ok {
+		return ChannelNielsenConfiguration{}
+	}
+
+	return ChannelNielsenConfiguration{
+		DistributorID:          stringFromAny(m["distributorId"]),
+		NielsenPcmToID3Tagging: stringFromAny(m["nielsenPcmToId3Tagging"]),
+	}
+}
+
 // -- EncoderSettings (top level) --
 
 type encoderSettingsOutput struct {
-	AvailBlanking          *availBlankingOutput          `json:"availBlanking,omitempty"`
-	BlackoutSlate          *blackoutSlateOutput          `json:"blackoutSlate,omitempty"`
-	FeatureActivations     *featureActivationsOutput     `json:"featureActivations,omitempty"`
-	GlobalConfiguration    *globalConfigurationOutput    `json:"globalConfiguration,omitempty"`
-	ThumbnailConfiguration *thumbnailConfigurationOutput `json:"thumbnailConfiguration,omitempty"`
-	TimecodeConfig         *timecodeConfigOutput         `json:"timecodeConfig,omitempty"`
-	AudioDescriptions      []audioDescriptionOutput      `json:"audioDescriptions,omitempty"`
-	VideoDescriptions      []videoDescriptionOutput      `json:"videoDescriptions,omitempty"`
-	CaptionDescriptions    []captionDescriptionOutput    `json:"captionDescriptions,omitempty"`
-	OutputGroups           []outputGroupOutput           `json:"outputGroups,omitempty"`
+	AvailBlanking               *availBlankingOutput               `json:"availBlanking,omitempty"`
+	AvailConfiguration          *availConfigurationOutput          `json:"availConfiguration,omitempty"`
+	BlackoutSlate               *blackoutSlateOutput               `json:"blackoutSlate,omitempty"`
+	ColorCorrectionSettings     *colorCorrectionSettingsOutput     `json:"colorCorrectionSettings,omitempty"`
+	FeatureActivations          *featureActivationsOutput          `json:"featureActivations,omitempty"`
+	GlobalConfiguration         *globalConfigurationOutput         `json:"globalConfiguration,omitempty"`
+	MotionGraphicsConfiguration *motionGraphicsConfigurationOutput `json:"motionGraphicsConfiguration,omitempty"`
+	NielsenConfiguration        *nielsenConfigurationOutput        `json:"nielsenConfiguration,omitempty"`
+	ThumbnailConfiguration      *thumbnailConfigurationOutput      `json:"thumbnailConfiguration,omitempty"`
+	TimecodeConfig              *timecodeConfigOutput              `json:"timecodeConfig,omitempty"`
+	AudioDescriptions           []audioDescriptionOutput           `json:"audioDescriptions,omitempty"`
+	VideoDescriptions           []videoDescriptionOutput           `json:"videoDescriptions,omitempty"`
+	CaptionDescriptions         []captionDescriptionOutput         `json:"captionDescriptions,omitempty"`
+	OutputGroups                []outputGroupOutput                `json:"outputGroups,omitempty"`
 }
 
 func toEncoderSettingsOutput(s EncoderSettings) *encoderSettingsOutput {
@@ -590,16 +864,20 @@ func toEncoderSettingsOutput(s EncoderSettings) *encoderSettingsOutput {
 	}
 
 	return &encoderSettingsOutput{
-		AudioDescriptions:      toAudioDescriptionsOutput(s.AudioDescriptions),
-		VideoDescriptions:      toVideoDescriptionsOutput(s.VideoDescriptions),
-		CaptionDescriptions:    toCaptionDescriptionsOutput(s.CaptionDescriptions),
-		OutputGroups:           toOutputGroupsOutput(s.OutputGroups),
-		TimecodeConfig:         toTimecodeConfigOutput(s.TimecodeConfig),
-		AvailBlanking:          toAvailBlankingOutput(s.AvailBlanking),
-		BlackoutSlate:          toBlackoutSlateOutput(s.BlackoutSlate),
-		FeatureActivations:     toFeatureActivationsOutput(s.FeatureActivations),
-		GlobalConfiguration:    toGlobalConfigurationOutput(s.GlobalConfiguration),
-		ThumbnailConfiguration: toThumbnailConfigurationOutput(s.ThumbnailConfiguration),
+		AudioDescriptions:           toAudioDescriptionsOutput(s.AudioDescriptions),
+		VideoDescriptions:           toVideoDescriptionsOutput(s.VideoDescriptions),
+		CaptionDescriptions:         toCaptionDescriptionsOutput(s.CaptionDescriptions),
+		OutputGroups:                toOutputGroupsOutput(s.OutputGroups),
+		TimecodeConfig:              toTimecodeConfigOutput(s.TimecodeConfig),
+		AvailBlanking:               toAvailBlankingOutput(s.AvailBlanking),
+		BlackoutSlate:               toBlackoutSlateOutput(s.BlackoutSlate),
+		FeatureActivations:          toFeatureActivationsOutput(s.FeatureActivations),
+		GlobalConfiguration:         toGlobalConfigurationOutput(s.GlobalConfiguration),
+		ThumbnailConfiguration:      toThumbnailConfigurationOutput(s.ThumbnailConfiguration),
+		AvailConfiguration:          toAvailConfigurationOutput(s.AvailConfiguration),
+		ColorCorrectionSettings:     toColorCorrectionSettingsOutput(s.ColorCorrectionSettings),
+		MotionGraphicsConfiguration: toMotionGraphicsConfigurationOutput(s.MotionGraphicsConfiguration),
+		NielsenConfiguration:        toNielsenConfigurationOutput(s.NielsenConfiguration),
 	}
 }
 
@@ -610,12 +888,16 @@ func extractEncoderSettings(body map[string]any) (EncoderSettings, bool) {
 	}
 
 	settings := EncoderSettings{
-		TimecodeConfig:         extractTimecodeConfig(raw),
-		AvailBlanking:          extractAvailBlanking(raw),
-		BlackoutSlate:          extractBlackoutSlate(raw),
-		FeatureActivations:     extractFeatureActivations(raw),
-		GlobalConfiguration:    extractGlobalConfiguration(raw),
-		ThumbnailConfiguration: extractThumbnailConfiguration(raw),
+		TimecodeConfig:              extractTimecodeConfig(raw),
+		AvailBlanking:               extractAvailBlanking(raw),
+		BlackoutSlate:               extractBlackoutSlate(raw),
+		FeatureActivations:          extractFeatureActivations(raw),
+		GlobalConfiguration:         extractGlobalConfiguration(raw),
+		ThumbnailConfiguration:      extractThumbnailConfiguration(raw),
+		AvailConfiguration:          extractAvailConfiguration(raw),
+		ColorCorrectionSettings:     extractColorCorrectionSettings(raw),
+		MotionGraphicsConfiguration: extractMotionGraphicsConfiguration(raw),
+		NielsenConfiguration:        extractNielsenConfiguration(raw),
 	}
 
 	if v, hasAudio := raw["audioDescriptions"].([]any); hasAudio {

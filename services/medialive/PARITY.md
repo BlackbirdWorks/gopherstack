@@ -146,20 +146,31 @@ families:
           CaptionDescriptions/OutputGroups (OutputGroup.Name + each
           Output's OutputName/VideoDescriptionName/AudioDescriptionNames/
           CaptionDescriptionNames -- purely referential fields, not settings
-          blobs). NOT modeled, and never accepted as an opaque passthrough
-          blob (a shape a client cannot read back through the real SDK is
-          the bug class this fix exists to close, so these are cleanly
-          absent rather than faked): AudioDescription.CodecSettings/
-          AudioNormalizationSettings/AudioWatermarkingSettings/
-          RemixSettings; VideoDescription.CodecSettings; CaptionDescription.
-          DestinationSettings; OutputGroup.OutputGroupSettings; Output.
-          OutputSettings; EncoderSettings.AvailConfiguration/
-          ColorCorrectionSettings/MotionGraphicsConfiguration/
-          NielsenConfiguration. Each is a per-technology/per-codec union
-          with roughly a dozen-plus variants, several of them themselves
-          hundreds of lines in the SDK's own type definitions -- genuinely
-          impractical to hand-model in a single pass; see "gaps" below for
-          the precise field list.
+          blobs). ALSO fully modeled (gopherstack-sthr, this pass):
+          AvailConfiguration (AvailSettings' 3-variant union -- Esam/
+          Scte35SpliceInsert/Scte35TimeSignalApos -- plus
+          Scte35SegmentationScope), ColorCorrectionSettings
+          (GlobalColorCorrections' InputColorSpace/OutputColorSpace/Uri),
+          MotionGraphicsConfiguration (MotionGraphicsInsertion plus the
+          MotionGraphicsSettings union, which the real SDK currently defines
+          exactly one variant of -- HtmlMotionGraphicsSettings, itself an
+          empty marker object), and NielsenConfiguration (DistributorId/
+          NielsenPcmToId3Tagging). None of these four is itself a large
+          per-format union like the ones still excluded below -- verified
+          against aws-sdk-go-v2/service/medialive@v1.101.4 (this repo's
+          currently pinned go.mod version; see Notes for the v1.97.2 drift
+          this pass found but did not otherwise correct). NOT modeled, and
+          never accepted as an opaque passthrough blob (a shape a client
+          cannot read back through the real SDK is the bug class this fix
+          exists to close, so these are cleanly absent rather than faked):
+          AudioDescription.CodecSettings/AudioNormalizationSettings/
+          AudioWatermarkingSettings/RemixSettings; VideoDescription.
+          CodecSettings; CaptionDescription.DestinationSettings;
+          OutputGroup.OutputGroupSettings; Output.OutputSettings. Each is a
+          per-technology/per-codec union with roughly a dozen-plus variants,
+          several of them themselves hundreds of lines in the SDK's own type
+          definitions -- genuinely impractical to hand-model in a single
+          pass; see "gaps" below for the precise field list.
       Also closed the "anywhereSettings.channelPlacementGroupId is accepted
       without existence validation" gap sweep 5 flagged: Create/UpdateChannel
       now validate it against real ChannelPlacementGroup state the same way
@@ -570,9 +581,14 @@ deferred: []
 # genuinely out of scope for this pass.
 gaps:
   - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
-    gopherstack-jb9i) -- see Channel's note above for the full list of what IS modeled. NOT
-    modeled, and confirmed genuinely impractical to hand-model in a single pass (each is a
-    per-technology/per-codec tagged union with a dozen-plus variants, several individually
+    gopherstack-jb9i; extended by gopherstack-sthr) -- see Channel's note above for the full
+    list of what IS modeled, including the gopherstack-sthr addition of AvailConfiguration/
+    ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration (none of these
+    four turned out to be a large per-format union once read from the SDK source -- each is a
+    small flat struct or, for AvailConfiguration's AvailSettings, a 3-variant union of small
+    flat structs, comparable to the failover-condition/output-locking unions already modeled).
+    Genuinely NOT modeled, and confirmed still impractical to hand-model in a single pass (each
+    is a per-technology/per-codec tagged union with a dozen-plus variants, several individually
     hundreds of lines in the SDK's own type definitions): AudioDescription.CodecSettings/
     AudioNormalizationSettings/AudioWatermarkingSettings/RemixSettings (the ~20-variant
     AudioCodecSettings union and friends); VideoDescription.CodecSettings (the H264/H265/
@@ -580,13 +596,14 @@ gaps:
     (the ~15-variant CaptionDestinationSettings union); OutputGroup.OutputGroupSettings and
     Output.OutputSettings (the ~13-variant OutputGroupSettings/OutputSettings unions -- Archive/
     CmafIngest/FrameCapture/Hls/MediaConnectRouter/MediaPackage/MsSmooth/Multiplex/Rtmp/Srt/Udp,
-    each itself dozens of fields); EncoderSettings.AvailConfiguration/ColorCorrectionSettings/
-    MotionGraphicsConfiguration/NielsenConfiguration. None of these are accepted as an opaque
-    passthrough blob -- a caller setting any of them today gets a 201/200 response but the
-    value is cleanly absent (never echoed back by Describe/List), not silently corrupted or
-    faked. (bd: gopherstack-jb9i closed the 12-of-17-member gap; this residual sub-field depth
-    would need its own follow-up issue if "true AWS parity" on the codec/output-technology
-    unions specifically is ever prioritized.)
+    each itself dozens of fields). None of these are accepted as an opaque passthrough blob --
+    a caller setting any of them today gets a 201/200 response but the value is cleanly absent
+    (never echoed back by Describe/List), not silently corrupted or faked. (bd: gopherstack-jb9i
+    closed the 12-of-17-member gap; gopherstack-sthr closed the AvailConfiguration/
+    ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration sub-field gap; the
+    four per-codec/per-output-technology unions above would need their own follow-up issue if
+    "true AWS parity" on them specifically is ever prioritized -- each is large enough that it
+    was not attempted this pass, not because it is structurally impossible.)
   - InputAttachment.InputSettings (per-attachment audio/caption/video selector configuration --
     AudioSelectors' per-codec AudioSelectorSettings union, CaptionSelectors' per-format
     CaptionSelectorSettings union, VideoSelector's color-space union, NetworkInputSettings) is
@@ -694,3 +711,16 @@ value when the second return is `true` -- an explicit `{}` in the request
 body IS treated as "change it to empty", only a fully-omitted key preserves
 the existing value. This mirrors each field's real Update*Input doc comment
 ("include this parameter only if you want to change it").
+
+**SDK version drift (found by gopherstack-sthr, not otherwise corrected this
+pass)**: `sdk_module` above and every `v1.97.2` citation elsewhere in this
+service's doc comments reflect the version audited as of sweep 6; go.mod now
+pins `v1.101.4` (4 minor versions ahead). gopherstack-sthr's
+AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/
+NielsenConfiguration addition (handler_channels_encoder.go) was verified
+against the pinned v1.101.4, spot-checked against v1.97.2's `EncoderSettings`
+member list showing no field removals in that range -- but the rest of this
+service's wire-shape citations were not re-verified against v1.101.4 this
+pass. A future full audit sweep should re-diff against the currently pinned
+version and update `sdk_module`/`last_audit_commit`/`last_audit_date`
+accordingly rather than assuming v1.97.2 still matches.
