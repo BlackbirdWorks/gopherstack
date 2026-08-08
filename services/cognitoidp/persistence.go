@@ -172,7 +172,7 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 	}
 
 	return &userPoolSnapshot{
-		CreatedAt:              p.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:              p.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		ID:                     p.ID,
 		Name:                   p.Name,
 		ARN:                    p.ARN,
@@ -194,7 +194,7 @@ func buildPoolSnapshot(ctx context.Context, p *UserPool) *userPoolSnapshot {
 func buildUserSnapshot(u *User) *userSnapshot {
 	var codeExpiry string
 	if !u.ConfirmCodeExpiresAt.IsZero() {
-		codeExpiry = u.ConfirmCodeExpiresAt.Format("2006-01-02T15:04:05Z")
+		codeExpiry = u.ConfirmCodeExpiresAt.UTC().Format("2006-01-02T15:04:05Z")
 	}
 
 	var lastAuth string
@@ -206,8 +206,8 @@ func buildUserSnapshot(u *User) *userSnapshot {
 	}
 
 	return &userSnapshot{
-		CreatedAt:            u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:            u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:            u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:            u.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		ConfirmCodeExpiresAt: codeExpiry,
 		LastAuthTime:         lastAuth,
 		Attributes:           u.Attributes,

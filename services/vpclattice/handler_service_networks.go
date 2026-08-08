@@ -91,8 +91,8 @@ func serviceNetworkToJSON(s *ServiceNetwork) map[string]any {
 		"authType":                   s.AuthType,
 		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
 		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
-		keyCreatedAt:                 s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:             s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:             s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -103,6 +103,6 @@ func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {
 		keyName:                      s.Name,
 		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
 		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
-		keyCreatedAt:                 s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:                 s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

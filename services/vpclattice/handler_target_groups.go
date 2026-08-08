@@ -97,8 +97,8 @@ func targetGroupToJSON(tg *TargetGroup) map[string]any {
 		keyType:          tg.Type,
 		keyStatus:        tg.Status,
 		"serviceArns":    tg.ServiceARNs,
-		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     tg.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: tg.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if tg.Config != nil {
@@ -119,8 +119,8 @@ func targetGroupSummaryToJSON(tg *TargetGroupSummary) map[string]any {
 		keyProtocol:      tg.Protocol,
 		keyVpcIdentifier: tg.VpcID,
 		"serviceArns":    tg.ServiceARNs,
-		keyCreatedAt:     tg.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: tg.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     tg.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: tg.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if tg.IPAddressType != "" {

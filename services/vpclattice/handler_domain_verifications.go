@@ -59,7 +59,7 @@ func (h *Handler) handleListDomainVerifications(c *echo.Context) error {
 			"id":          dv.ID,
 			keyDomainName: dv.DomainName,
 			keyStatus:     dv.Status,
-			keyCreatedAt:  dv.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+			keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -77,11 +77,11 @@ func domainVerificationToJSON(dv *DomainVerification) map[string]any {
 		"id":          dv.ID,
 		keyDomainName: dv.DomainName,
 		keyStatus:     dv.Status,
-		keyCreatedAt:  dv.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if dv.LastVerifiedTime != nil {
-		m["lastVerifiedTime"] = dv.LastVerifiedTime.Format("2006-01-02T15:04:05.000Z")
+		m["lastVerifiedTime"] = dv.LastVerifiedTime.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 
 	return m

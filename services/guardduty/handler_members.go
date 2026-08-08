@@ -397,7 +397,7 @@ func memberToMap(m *Member) map[string]any {
 		// GetDetectorOutput's, unlike ThreatEntitySet's epoch numbers) -- see
 		// aws-sdk-go-v2/service/guardduty deserializers.go's
 		// awsRestjson1_deserializeDocumentMember.
-		keyUpdatedAt: m.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyUpdatedAt: m.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 

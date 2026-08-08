@@ -513,7 +513,7 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string) instanceItem
 		StateTransitionReason: inst.StateTransitionReason,
 		VPCID:                 inst.VPCID,
 		SubnetID:              inst.SubnetID,
-		LaunchTime:            inst.LaunchTime.Format("2006-01-02T15:04:05.000Z"),
+		LaunchTime:            inst.LaunchTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		OutpostArn:            inst.OutpostArn,
 		PrivateIPAddress:      inst.PrivateIP,
 		PublicIPAddress:       inst.PublicIPAddress,

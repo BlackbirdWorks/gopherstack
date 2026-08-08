@@ -63,6 +63,6 @@ func (h *Handler) handleGetClusterCredentialsWithIAM(vals url.Values) (any, erro
 		Xmlns:      redshiftXMLNS,
 		DBUser:     creds.DBUser,
 		DBPassword: creds.DBPassword,
-		Expiration: creds.Expiration.Format("2006-01-02T15:04:05Z"),
+		Expiration: creds.Expiration.UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }

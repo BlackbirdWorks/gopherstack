@@ -197,8 +197,8 @@ func (h *Handler) handleGetTable(ctx context.Context, r *http.Request, _ []byte)
 		keyVersionToken:     table.VersionToken,
 		keyMetadataLocation: table.MetadataLocation,
 		"warehouseLocation": table.WarehouseLocation,
-		keyCreatedAt:        table.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
-		"modifiedAt":        table.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyCreatedAt:        table.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
+		"modifiedAt":        table.ModifiedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyCreatedBy:        table.OwnerAccountID,
 		"modifiedBy":        table.OwnerAccountID,
 		keyOwnerAccountID:   table.OwnerAccountID,
@@ -253,8 +253,8 @@ func (h *Handler) handleListTables(ctx context.Context, r *http.Request, _ []byt
 			keyTableARN:       t.ARN,
 			keyTableBucketARN: t.TableBucketARN,
 			keyType:           bucketTypeCustomer,
-			keyCreatedAt:      t.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
-			"modifiedAt":      t.ModifiedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyCreatedAt:      t.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
+			"modifiedAt":      t.ModifiedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		})
 	}
 

@@ -134,7 +134,7 @@ func (h *Handler) handleListChangeSets(form url.Values, c *echo.Context) error {
 			StackID:       s.StackID,
 			StackName:     s.StackName,
 			Status:        s.Status,
-			CreationTime:  s.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime:  s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 			Description:   s.Description,
 		})
 	}
@@ -251,7 +251,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 			StatusReason:    cs.StatusReason,
 			ExecutionStatus: cs.ExecutionStatus,
 			ChangeSetType:   cs.ChangeSetType,
-			CreationTime:    cs.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime:    cs.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 			Description:     cs.Description,
 			Capabilities:    cs.Capabilities,
 			Changes:         changes,

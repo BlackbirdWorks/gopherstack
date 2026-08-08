@@ -62,8 +62,8 @@ func (h *Handler) handleGetResourceGateway(c *echo.Context, id string) error {
 		keySecurityGroupIDs:            gw.SecurityGroupIDs,
 		keySubnetIDs:                   gw.SubnetIDs,
 		keyStatus:                      gw.Status,
-		keyCreatedAt:                   gw.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:               gw.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:                   gw.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:               gw.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	})
 }
 
@@ -124,8 +124,8 @@ func (h *Handler) handleListResourceGateways(c *echo.Context) error {
 			keySecurityGroupIDs:            g.SecurityGroupIDs,
 			keySubnetIDs:                   g.SubnetIDs,
 			keyStatus:                      g.Status,
-			keyCreatedAt:                   g.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-			keyLastUpdatedAt:               g.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+			keyCreatedAt:                   g.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			keyLastUpdatedAt:               g.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 

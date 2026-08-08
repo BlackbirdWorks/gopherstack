@@ -78,7 +78,7 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
 			Progress:          mod.Progress,
-			StartTime:         mod.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		},
 	}, nil
 }
@@ -116,7 +116,7 @@ func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID stri
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
 			Progress:          mod.Progress,
-			StartTime:         mod.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -290,11 +290,11 @@ func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID strin
 		ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
 		InstanceID:              task.InstanceID,
 		TaskState:               task.TaskState,
-		StartTime:               task.StartTime.Format("2006-01-02T15:04:05.000Z"),
+		StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		SnapshotID:              task.SnapshotID,
 	}
 	if !task.CompleteTime.IsZero() {
-		item.CompleteTime = task.CompleteTime.Format("2006-01-02T15:04:05.000Z")
+		item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 
 	return &createReplaceRootVolumeTaskResponse{RequestID: reqID, ReplaceRootVolumeTask: item}, nil
@@ -310,11 +310,11 @@ func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID st
 			ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
 			InstanceID:              task.InstanceID,
 			TaskState:               task.TaskState,
-			StartTime:               task.StartTime.Format("2006-01-02T15:04:05.000Z"),
+			StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			SnapshotID:              task.SnapshotID,
 		}
 		if !task.CompleteTime.IsZero() {
-			item.CompleteTime = task.CompleteTime.Format("2006-01-02T15:04:05.000Z")
+			item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
 		}
 		resp.ReplaceRootVolumeTaskSet.Items = append(resp.ReplaceRootVolumeTaskSet.Items, item)
 	}
@@ -519,7 +519,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 		AZ:         vol.AZ,
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
-		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
 		SnapshotID: vol.SnapshotID,
@@ -533,7 +533,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 			InstanceID: vol.Attachment.InstanceID,
 			Device:     vol.Attachment.Device,
 			State:      vol.Attachment.State,
-			AttachTime: vol.Attachment.AttachTime.Format("2006-01-02T15:04:05.000Z"),
+			AttachTime: vol.Attachment.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		}
 	}
 
@@ -713,7 +713,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		AZ:         vol.AZ,
 		VolumeType: vol.VolumeType,
 		State:      vol.State,
-		CreateTime: vol.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		Encrypted:  vol.Encrypted,
 		KmsKeyID:   vol.KmsKeyID,
 		SnapshotID: vol.SnapshotID,
@@ -779,7 +779,7 @@ func (h *Handler) handleAttachVolume(vals url.Values, reqID string) (any, error)
 		InstanceID: att.InstanceID,
 		Device:     att.Device,
 		State:      att.State,
-		AttachTime: att.AttachTime.Format("2006-01-02T15:04:05.000Z"),
+		AttachTime: att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}, nil
 }
 

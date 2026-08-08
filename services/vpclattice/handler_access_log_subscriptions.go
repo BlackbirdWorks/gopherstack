@@ -92,8 +92,8 @@ func alsToJSON(a *AccessLogSubscription) map[string]any {
 		"resourceArn":     a.ResourceARN,
 		"resourceId":      a.ResourceID,
 		keyDestinationARN: a.DestinationARN,
-		keyCreatedAt:      a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:  a.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:  a.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
@@ -104,6 +104,6 @@ func alsSummaryToJSON(a *AccessLogSubscriptionSummary) map[string]any {
 		"resourceArn":     a.ResourceARN,
 		"resourceId":      a.ResourceID,
 		keyDestinationARN: a.DestinationARN,
-		keyCreatedAt:      a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

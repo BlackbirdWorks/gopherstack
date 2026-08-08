@@ -21,7 +21,7 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 		items = append(items, launchTemplateItem{
 			ID:                   lt.ID,
 			Name:                 lt.Name,
-			CreateTime:           lt.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+			CreateTime:           lt.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			CreatedBy:            lt.CreatedBy,
 			DefaultVersionNumber: lt.DefaultVersionNumber,
 			LatestVersionNumber:  lt.LatestVersionNumber,

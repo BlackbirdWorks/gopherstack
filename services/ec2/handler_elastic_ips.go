@@ -98,7 +98,7 @@ func toAddressTransferDetailItem(t *AddressTransfer) addressTransferDetailItem {
 		PublicIP:            t.PublicIP,
 		TransferAccountID:   t.TransferAccountID,
 		TransferOfferStatus: t.TransferOfferStatus,
-		TransferOfferExpiry: t.TransferOfferExpiry.Format("2006-01-02T15:04:05.000Z"),
+		TransferOfferExpiry: t.TransferOfferExpiry.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 

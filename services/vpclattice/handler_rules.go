@@ -141,8 +141,8 @@ func ruleToJSON(r *Rule) map[string]any {
 		keyName:          r.Name,
 		keyPriority:      r.Priority,
 		keyIsDefault:     r.IsDefault,
-		keyCreatedAt:     r.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: r.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: r.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if r.Action != nil {
@@ -163,8 +163,8 @@ func ruleSummaryToJSON(r *RuleSummary) map[string]any {
 		keyName:          r.Name,
 		keyPriority:      r.Priority,
 		keyIsDefault:     r.IsDefault,
-		keyCreatedAt:     r.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: r.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     r.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: r.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 

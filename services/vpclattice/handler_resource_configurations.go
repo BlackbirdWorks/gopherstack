@@ -101,8 +101,8 @@ func (h *Handler) handleListResourceConfigurations(c *echo.Context) error {
 			keyType:             rc.Type,
 			keyStatus:           rc.Status,
 			"resourceGatewayId": rc.ResourceGatewayID,
-			keyCreatedAt:        rc.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-			keyLastUpdatedAt:    rc.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+			keyCreatedAt:        rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			keyLastUpdatedAt:    rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 
@@ -126,8 +126,8 @@ func resourceConfigurationToJSON(rc *ResourceConfiguration) map[string]any {
 		keyProtocol:  rc.Protocol,
 		"portRanges": rc.PortRanges,
 		"allowAssociationToShareableServiceNetwork": rc.AllowShareableAssoc,
-		keyCreatedAt:     rc.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: rc.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     rc.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: rc.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if rc.ResourceGatewayID != "" {

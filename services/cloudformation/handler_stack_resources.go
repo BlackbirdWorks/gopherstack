@@ -76,7 +76,7 @@ func (h *Handler) handleDescribeStackResource(form url.Values, c *echo.Context) 
 				PhysicalResourceID: res.PhysicalID,
 				ResourceType:       res.Type,
 				ResourceStatus:     res.Status,
-				LastUpdated:        res.Timestamp.Format("2006-01-02T15:04:05Z"),
+				LastUpdated:        res.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 			},
 		},
 		RequestID: uuid.New().String(),
@@ -110,7 +110,7 @@ func (h *Handler) handleListStackResources(form url.Values, c *echo.Context) err
 			PhysicalResourceID: s.PhysicalResourceID,
 			ResourceType:       s.ResourceType,
 			ResourceStatus:     s.ResourceStatus,
-			LastUpdated:        s.Timestamp.Format("2006-01-02T15:04:05Z"),
+			LastUpdated:        s.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 
@@ -161,7 +161,7 @@ func (h *Handler) handleDescribeStackResources(form url.Values, c *echo.Context)
 			PhysicalResourceID: r.PhysicalID,
 			ResourceType:       r.Type,
 			ResourceStatus:     r.Status,
-			Timestamp:          r.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Timestamp:          r.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 

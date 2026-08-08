@@ -205,7 +205,7 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 			SourceIdentifier: ev.SourceIdentifier,
 			SourceType:       ev.SourceType,
 			Message:          ev.Message,
-			Date:             ev.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Date:             ev.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		}
 	})
 	if err != nil {

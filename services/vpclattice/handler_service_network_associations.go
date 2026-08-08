@@ -198,7 +198,7 @@ func snsaToJSON(s *ServiceNetworkServiceAssociation) map[string]any {
 		keyServiceNetworkName: s.ServiceNetworkName,
 		keyStatus:             s.Status,
 		keyCreatedBy:          s.CreatedBy,
-		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:          s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if s.CustomDomainName != "" {
@@ -223,7 +223,7 @@ func snsaSummaryToJSON(s *ServiceNetworkServiceAssociationSummary) map[string]an
 		keyServiceNetworkID:   s.ServiceNetworkID,
 		keyServiceNetworkName: s.ServiceNetworkName,
 		keyStatus:             s.Status,
-		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:          s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if s.CustomDomainName != "" {
@@ -264,8 +264,8 @@ func snvaToJSON(s *ServiceNetworkVpcAssociation) map[string]any {
 		keyStatus:             s.Status,
 		keyCreatedBy:          s.CreatedBy,
 		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
-		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt:      s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:          s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:      s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if dns := dnsOptionsToJSON(s.DNSOptions); dns != nil {
@@ -285,7 +285,7 @@ func snvaSummaryToJSON(s *ServiceNetworkVpcAssociationSummary) map[string]any {
 		keyServiceNetworkName: s.ServiceNetworkName,
 		keyStatus:             s.Status,
 		keyPrivateDNSEnabled:  s.PrivateDNSEnabled,
-		keyCreatedAt:          s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:          s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if dns := dnsOptionsToJSON(s.DNSOptions); dns != nil {

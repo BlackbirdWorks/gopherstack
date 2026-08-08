@@ -86,7 +86,7 @@ func (h *Handler) handleListGraphs(c *echo.Context) error {
 	for _, g := range graphs {
 		graphList = append(graphList, map[string]any{
 			"Arn":          g.Arn,
-			keyCreatedTime: g.CreatedTime.Format("2006-01-02T15:04:05.000Z"),
+			keyCreatedTime: g.CreatedTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 

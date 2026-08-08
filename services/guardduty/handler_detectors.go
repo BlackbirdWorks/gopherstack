@@ -74,8 +74,8 @@ func (h *Handler) handleGetDetector(detectorID string) (any, int, error) {
 		keyStatus:                    d.Status,
 		"serviceRole":                d.ServiceRole,
 		"findingPublishingFrequency": d.FindingPublishingFrequency,
-		keyCreatedAt:                 d.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyUpdatedAt:                 d.UpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:                 d.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyUpdatedAt:                 d.UpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		keyTags:                      tagsOrEmpty(d.Tags),
 		"features":                   d.Features, //nolint:goconst // existing issue.
 	}, http.StatusOK, nil
