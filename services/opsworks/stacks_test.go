@@ -390,24 +390,28 @@ func TestGetHostnameSuggestion(t *testing.T) {
 		name  string
 	}{
 		{
-			name: "returns non-empty hostname",
+			// Real GetHostnameSuggestionInput has only a LayerId member --
+			// no StackId -- so a real SDK client never sends StackId.
+			name: "returns non-empty hostname keyed by layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
 				rec := doTarget(t, h, "GetHostnameSuggestion", map[string]any{
-					"StackId": stackID,
+					"LayerId": layerID,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
 				assert.NotEmpty(t, resp["Hostname"])
+				assert.Equal(t, layerID, resp["LayerId"])
 			},
 		},
 		{
-			name: "returns 404 for nonexistent stack",
+			name: "returns 404 for nonexistent layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "GetHostnameSuggestion", map[string]any{
-					"StackId": "nonexistent",
+					"LayerId": "nonexistent",
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},

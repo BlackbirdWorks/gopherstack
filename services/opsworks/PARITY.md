@@ -3,9 +3,15 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cach
                                                        # a go.mod dependency of this repo (see
                                                        # note below) — audited by reading the
                                                        # module source directly, not via import.
-last_audit_commit: dd00997f
-last_audit_date: 2026-07-23
-overall: A            # 3 previously-known gaps closed + 3 newly-found wire-shape bugs fixed
+last_audit_commit: 16830ad82
+last_audit_date: 2026-08-08
+overall: B            # re-audited live (gopherstack-vjj2) after the 2026-06-03..2026-08-08
+                       # unreachability window closed; 2 more real bugs found+fixed via live
+                       # HTTP requests, but there is still no SDK-driven test/integration/
+                       # suite for this service, so it does not clear this repo's A bar
+                       # (gopherstack-parity-audit skill: "A = full integration-suite proof +
+                       # every buildable gap closed"). The prior "A" predates this rubric
+                       # clarification and was also never exercised by a live request.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -47,13 +53,15 @@ families:
   ElasticIp: {status: ok, note: "Register/Deregister/Associate/Disassociate/Describe/Update all real"}
   Volume: {status: ok, note: "Register/Deregister/Assign/Unassign/Describe/Update all real. DescribeVolumes now also filters by StackId (real DescribeVolumesInput supports it; this backend previously silently dropped the parameter). Wire no longer emits invented 'StackId' field (real types.Volume has none). AssignVolume now verifies the instance belongs to the same stack the volume was registered with."}
   RdsDbInstance: {status: ok, note: "Register/Deregister/Describe/Update all real. See gaps: DbPassword/Engine/MissingOnRds optional response fields not modeled."}
-  EcsCluster: {status: ok, note: "Register/Deregister/Describe all real"}
+  EcsCluster: {status: ok, note: "Register/Deregister/Describe all real. FIXED 2026-08-08: DescribeEcsClusters wire emitted an invented 'Status' field -- real types.EcsCluster (SDK v1.31.0) has no such member, only EcsClusterArn/EcsClusterName/StackId/RegisteredAt. Removed from the wire; internal storedEcsCluster.Status kept for bookkeeping only."}
   Permission: {status: ok, note: "SetPermission/DescribePermissions real, composite-keyed by stackID+iamUserArn"}
   AutoScaling: {status: ok, note: "SetTimeBasedAutoScaling/DescribeTimeBasedAutoScaling/SetLoadBasedAutoScaling/DescribeLoadBasedAutoScaling all real"}
-  Misc: {status: ok, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeAgentVersions(static list)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior"}
+  Misc: {status: ok, note: "GrantAccess/DescribeServiceErrors(always empty, correct)/DescribeRaidArrays(always empty, correct)/DescribeAgentVersions(static list)/DescribeOperatingSystems(static list) all match AWS's actual mostly-static/deprecated-service behavior. GetHostnameSuggestion FIXED 2026-08-08 (see gaps-closed note below) -- was entirely unaudited by the previous pass despite being in GetSupportedOperations."}
 gaps:                     # divergences from the real API, not fixed this pass
   - "RdsDbInstance responses omit DbPassword, Engine, and MissingOnRds -- all three are real (optional) members of types.RdsDbInstance. DbPassword in particular is unusual: unlike most AWS APIs, the real OpsWorks DescribeRdsDbInstances response actually echoes the password back. Not added this pass -- modeling Engine would require accepting/inferring a DB engine at RegisterRdsDbInstance time (not currently an input), and MissingOnRds requires simulated drift detection this backend has no mechanism for; DbPassword alone would be a small, low-risk addition but was deprioritized against this pass's wire-shape-bug and required-field-validation work."
   - "RegisterInstance/RegisterVolume/RegisterRdsDbInstance/RegisterEcsCluster/SetPermission/CreateUserProfile/AssignVolume do not validate their real-API 'This member is required' string parameters (e.g. RegisterVolume's StackId) for emptiness before using them -- an empty StackId currently falls through to a ResourceNotFoundException (via the not-found lookup) rather than the ValidationException a real client-side-bypassing caller would get. Only CreateStack/CreateLayer/CreateApp/CreateInstance were hardened with required-member validation this pass (these were the ops the previous audit's gap list and this pass's wire-shape sweep specifically flagged); a full required-field sweep across every remaining Register*/Set*/Create* op is deferred to a future pass."
+  - "No test/integration/*_parity_test.go suite exists for opsworks (the deprecated SDK isn't a go.mod dependency, so a client-driven integration test needs either vendoring it or hand-rolling raw HTTP requests in the integration-test harness style). This is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though this pass's live-HTTP verification covered all 73 ops. Building that suite is a real, nontrivial follow-on task, not done this pass."
+  - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
 deferred:                 # consciously not audited/implemented this pass (scope)
   - "Full parameter surface of CreateStack/CreateLayer/CreateApp/CreateInstance (ConfigurationManager, ChefConfiguration, VpcId, Attributes, BlockDeviceMappings, etc.) — only the fields this backend's Handler already decodes were audited for wire-shape correctness; AWS's much larger optional parameter surface was not modeled."
   - "AWS's documented AssignInstance business rule (\"You cannot use this action with instances that were created with OpsWorks\" -- i.e. AssignInstance is meant only for RegisterInstance'd on-premises/registered instances, not CreateInstance'd ones) is not enforced. This backend's storedInstance already carries a Registered bool that could gate this, but wiring that check in was judged out of scope for this pass since it wasn't part of the originally-flagged gap list and risks behavior changes beyond the wire-shape/validation fixes made here. AssignInstance DOES now enforce same-stack + layer-existence (see ops.AssignInstance above), which was the explicitly-flagged deferred item."
@@ -199,3 +207,98 @@ close and three newly-found wire-shape bugs:
 
 None of these required a `go.mod`/`go.sum` change, a new goroutine/timer, or
 touching `cli.go`. All changes stayed within `services/opsworks/`.
+
+## Live re-audit (2026-08-08, gopherstack-vjj2)
+
+The 2026-07-23 pass above (and its `A` grade) was performed while opsworks had
+no `Provider{}` entry in `cli.go` — see the Registration note — so nothing in
+it had ever been exercised by an actual HTTP request. This pass drove real
+requests through a locally built+running server (`bin/gopherstack serve
+--persist`, via `.claude/skills/run-gopherstack/driver.sh`) with raw `curl`
+setting `X-Amz-Target: OpsWorks_20130218.<Op>` and
+`Content-Type: application/x-amz-json-1.1`, since the AWS CLI's bundled
+botocore has no `opsworks` service model at all (deprecated service, dropped
+from newer botocore data) and can't be used here.
+
+**All 73 ops in `GetSupportedOperations()` were called live and dispatched
+correctly** — `buildOps()`'s map and the supported-ops list stayed in sync
+(as `sdk_completeness_test.go` already asserted), and no op was found present
+in one but missing from the other; there is no "unreachable via dispatch"
+finding here; every failure found was a request/response-shape bug in an
+otherwise-reachable op, not a routing gap.
+
+Error mapping was checked at the wire, not just "an error occurred": a
+missing-required-field `CreateStack` and a bad `Type` enum on `CreateLayer`
+both came back `400 ValidationException`; `DescribeStacks`/`GetHostnameSuggestion`
+on a nonexistent ID came back `404 ResourceNotFoundException`; an unrecognized
+`X-Amz-Target` action came back `400 ValidationException` (not 501) with a
+descriptive message — all correct per the real SDK's
+`awsAwsjson11_deserializeOpError*` functions (confirmed by reading
+`deserializers.go` from the fetched-into-scratch-module SDK source, not
+assumed).
+
+Persistence was checked through the real snapshot path, not `Snapshot()`
+called directly: started the server with `--persist`, created a stack +
+layer + a stack tag, stopped the server (triggers `cli.go`'s
+`defer persistManager.SaveAll(ctx)` on SIGTERM), confirmed
+`$GOPHERSTACK_DATA_DIR/OpsWorks` was written, restarted, and confirmed
+`DescribeStacks`/`DescribeLayers`/`ListTags` returned the same stack, layer,
+and tag — a real restart round-trip, not a unit-test `Restore(Snapshot())`
+call.
+
+Two real bugs were found this way and fixed (both proven with a failing test
+against the pre-fix code in a `git worktree`, per this task's verification
+requirement, before being fixed):
+
+1. **`GetHostnameSuggestion` decoded the wrong field and would fail for
+   every real client.** The real `GetHostnameSuggestionInput` (confirmed in
+   `api_op_GetHostnameSuggestion.go`) has exactly one member, `LayerId`
+   (required) — there is no `StackId` on this request at all. This backend's
+   handler decoded a `StackId` from the body and its backend method
+   `GetHostnameSuggestion(stackID, _ string)` looked up by that `stackID`
+   while silently discarding the `layerID` argument entirely. A real SDK
+   client only ever sends `LayerId`, so `stackID` would always be empty and
+   the call would always fail with `ResourceNotFoundException` — this op was
+   functionally broken for every real caller, and the previous pass's
+   `PARITY.md` doesn't mention it at all (missed entirely, despite being in
+   `GetSupportedOperations()`). Fixed: `StorageBackend.GetHostnameSuggestion`
+   now takes only `layerID`, looks it up against `b.layers`, and the handler
+   no longer decodes a `StackId`. The response now also echoes back
+   `LayerId`, matching the real `GetHostnameSuggestionOutput`'s
+   `Hostname`/`LayerId` pair (previously only `Hostname` was returned).
+   `stacks_test.go`'s `TestGetHostnameSuggestion` sent only `StackId` and so
+   was accidentally testing the bug's contract rather than the real one; it
+   now creates a layer and sends `LayerId`, and a copy of the fixed test run
+   against the pre-fix code (via `git worktree`) reproduced the live 404.
+
+2. **`DescribeEcsClusters` emitted an invented `Status` field.** The real
+   `types.EcsCluster` (confirmed in `types/types.go`) has exactly
+   `EcsClusterArn`/`EcsClusterName`/`StackId`/`RegisteredAt` — no `Status`
+   member. `ecsClustersToJSON` was serializing this backend's internal
+   `storedEcsCluster.Status` (always `"registered"`) onto the wire anyway.
+   Removed from the JSON output; the internal field is kept for bookkeeping
+   only, matching how `App.Arn`/`Volume.StackId` were handled in the prior
+   pass. `ecs_clusters_test.go` gained an `assert.NotContains(t, c, "Status")`
+   assertion, confirmed failing against the pre-fix code in a worktree before
+   the fix.
+
+Every other response struct returned by a live call in this pass (`Stack`,
+`Layer`, `Instance`, `App`, `Deployment`, `Command`, `Volume`, `ElasticIp`,
+`ElasticLoadBalancer`, `RdsDbInstance`, `Permission`, `UserProfile`,
+`StackSummary`/`InstancesCount`, `TimeBasedAutoScalingConfiguration`,
+`LoadBasedAutoScalingConfiguration`, `TemporaryCredential`, `AgentVersion`,
+`OperatingSystem`, `DescribeStackProvisioningParametersOutput`) was
+field-diffed against the same fetched SDK source and found to emit only a
+subset of the real fields — no further invented fields found.
+
+**Why the grade is `B`, not `A`:** every op now proven reachable, correctly
+routed, correctly error-mapped at the HTTP boundary, and round-tripping
+through real persistence — the specific things this task was scoped to
+check. But there is still no `test/integration/*_parity_test.go` suite for
+opsworks (blocked on the SDK not being a `go.mod` dependency — see the SDK
+availability note above), and the `gopherstack-parity-audit` skill's own
+rubric requires that suite for `A`. The prior `A` was ungrounded on two
+counts: it predates ever handling a live request, and (independent of that)
+it was never actually backed by the integration-suite proof the rubric
+requires. `B` reflects genuine, now-verified accuracy without overclaiming
+the untouched integration-test gap.

@@ -15,7 +15,7 @@ type StorageBackend interface {
 	DeleteStack(stackID string) error
 	StartStack(stackID string) error
 	StopStack(stackID string) error
-	GetHostnameSuggestion(stackID, layerID string) (string, error)
+	GetHostnameSuggestion(layerID string) (string, error)
 	DescribeStackSummary(stackID string) (*StackSummary, error)
 	DescribeStackProvisioningParameters(stackID string) (map[string]string, error)
 

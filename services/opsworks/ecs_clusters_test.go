@@ -42,6 +42,8 @@ func TestEcsClusters(t *testing.T) {
 				c := clusters[0].(map[string]any)
 				assert.Equal(t, testClusterArn, c["EcsClusterArn"])
 				assert.Equal(t, "my-cluster", c["EcsClusterName"])
+				// real types.EcsCluster has no Status member (SDK v1.31.0 types.go)
+				assert.NotContains(t, c, "Status")
 			},
 		},
 		{

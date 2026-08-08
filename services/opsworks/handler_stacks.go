@@ -143,7 +143,6 @@ func (h *Handler) handleStopStack(_ context.Context, body []byte) (any, error) {
 // handleGetHostnameSuggestion handles GetHostnameSuggestion requests.
 func (h *Handler) handleGetHostnameSuggestion(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		StackID string `json:"StackId"`
 		LayerID string `json:"LayerId"`
 	}
 
@@ -151,12 +150,12 @@ func (h *Handler) handleGetHostnameSuggestion(_ context.Context, body []byte) (a
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	hostname, err := h.Backend.GetHostnameSuggestion(req.StackID, req.LayerID)
+	hostname, err := h.Backend.GetHostnameSuggestion(req.LayerID)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"Hostname": hostname}, nil
+	return map[string]any{"Hostname": hostname, keyLayerID: req.LayerID}, nil
 }
 
 // handleDescribeStackSummary handles DescribeStackSummary requests.

@@ -228,13 +228,15 @@ func (b *InMemoryBackend) StopStack(stackID string) error {
 	return nil
 }
 
-// GetHostnameSuggestion returns a suggested hostname for a new instance.
-func (b *InMemoryBackend) GetHostnameSuggestion(stackID, _ string) (string, error) {
+// GetHostnameSuggestion returns a suggested hostname for a new instance on
+// the given layer. The real GetHostnameSuggestionInput has no StackId member
+// -- only LayerId -- so this must key off the layer, not a stack.
+func (b *InMemoryBackend) GetHostnameSuggestion(layerID string) (string, error) {
 	b.mu.RLock("GetHostnameSuggestion")
 	defer b.mu.RUnlock()
 
-	if !b.stacks.Has(stackID) {
-		return "", ErrStackNotFound
+	if !b.layers.Has(layerID) {
+		return "", ErrLayerNotFound
 	}
 
 	suffix := uuid.NewString()[:8]
