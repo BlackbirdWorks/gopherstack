@@ -2,6 +2,19 @@ service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
 last_audit_commit: 5f91d37c7                            # HEAD when this manifest was written
 last_audit_date: 2026-08-08
+                       # parity-6: fixed the actual gopherstack-e39w gap. parity-5's own note
+                       # ("AutoMLJobInputDataConfig ... does not exist anywhere in
+                       # aws-sdk-go-v2/service/sagemaker") was wrong — it IS real, it's the
+                       # required field on CreateAutoMLJobV2Input (types.go / api_op_CreateAutoMLJobV2.go:91,
+                       # []types.AutoMLJobChannel), not CreateAutoMLJobInput (V1). CreateAutoMLJobV2/
+                       # DescribeAutoMLJobV2 were routed to the V1 handlers (handler_catalog.go),
+                       # so V2's required AutoMLJobInputDataConfig/AutoMLProblemTypeConfig were
+                       # silently dropped on every V2 request. Both ops now have dedicated
+                       # handlers/wire shapes (handler_automl_v2.go/automl_v2.go); V1's own
+                       # handleDescribeAutoMLJob was also changed to build an explicit response
+                       # map instead of json.Marshal-ing the shared AutoMLJob struct directly,
+                       # since the struct now carries V2-only fields too and would otherwise leak
+                       # them into V1 responses for a job created via V2. See Notes: parity-6.
 overall: A            # parity-4: implemented the 22 ops the v1.236.0 -> v1.261.0 SDK bump added
                        # (AIBenchmarkJob, AIRecommendationJob, AIWorkloadConfig, generic Job/
                        # JobSchemaVersion, StartClusterHealthCheck families — see Notes). No
@@ -96,11 +109,11 @@ families:
   notebook_instance: {status: ok, note: "Wire-audited this pass: DescribeNotebookInstanceFull field-by-field against SDK — all optional fields correctly gated, epoch-seconds timestamps correct. No bugs found."}
   hyperparameter_tuning_job: {status: ok, note: "FIXED this pass — see Notes (wire-shape bug: flat Strategy instead of nested HyperParameterTuningJobConfig, missing required ObjectiveStatusCounters/TrainingJobStatusCounters/ResourceLimits)."}
   domain_app_userprofile_space: {status: partial, note: "Space's Describe/List timestamp encoding FIXED this pass (see systemic timestamp bug in Notes). Domain/App/UserProfile not otherwise wire-audited this pass."}
-  pipeline_pipeline_execution: {status: partial, note: "parity-5, wire-audited op-by-op against api_op_{Create,Update,Delete,Describe,List}Pipeline*.go. FIXED this pass — DescribePipelineExecution silently dropped ParallelismConfiguration even though it was already stored on the backend struct (class-a bug); StartPipelineExecution/DescribePipelineExecution now also accept+echo PipelineVersionId and SelectiveExecutionConfig (previously accepted-and-dropped, both real optional CreateInput/DescribeOutput fields). Remaining gaps (not fixed, see gaps:): CreatePipeline/UpdatePipeline's PipelineDefinitionS3Location is accepted-and-dropped (would need real cross-service S3 GetObject to resolve honestly); DescribePipeline doesn't accept the optional PipelineVersionId input param (always describes the current version) and omits LastRunTime/PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy; ListPipelines summary is missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime."}
+  pipeline_pipeline_execution: {status: partial, note: "parity-5, wire-audited op-by-op against api_op_{Create,Update,Delete,Describe,List}Pipeline*.go. FIXED this pass — DescribePipelineExecution silently dropped ParallelismConfiguration even though it was already stored on the backend struct (class-a bug); StartPipelineExecution/DescribePipelineExecution now also accept+echo PipelineVersionId and SelectiveExecutionConfig (previously accepted-and-dropped, both real optional CreateInput/DescribeOutput fields). FIXED this pass (parity-6) — DescribePipeline now accepts the optional PipelineVersionId input (previously ignored, always describing the current version regardless; an unknown version now correctly errors instead of silently returning the current one) and returns LastRunTime (derived as the max StartTime across the pipeline's PipelineExecutions, or omitted if it has never run — a real, not fabricated, value). Remaining gaps (not fixed, see gaps:): CreatePipeline/UpdatePipeline's PipelineDefinitionS3Location is accepted-and-dropped (would need real cross-service S3 GetObject to resolve honestly); DescribePipeline still omits PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy; ListPipelines summary is missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime."}
   experiment_trial_trial_component: {status: partial, note: "parity-5, wire-audited against api_op_{Create,Describe,List}{Experiment,Trial,TrialComponent}.go. FIXED this pass — CreateExperiment/CreateTrial silently dropped DisplayName (and Experiment's Description), both real optional Create fields, so a client-supplied display name never round-tripped through Describe/List until a later Update call; ListExperiments/ListTrials summaries also gained DisplayName/LastModifiedTime (real ExperimentSummary/TrialSummary fields). CreateTrialComponent was the worst finding in this family: it silently dropped StartTime/EndTime/Status/Parameters/InputArtifacts/OutputArtifacts/DisplayName entirely — every field a client actually uses a TrialComponent for — now accepted and stored. Also fixed a genuine wire-shape bug (not accept-and-drop, but same severity class): TrialComponent.Status was serialized as a bare JSON string, but the real DescribeTrialComponentOutput.Status/TrialComponentSummary.Status is a {PrimaryStatus,Message} object (types.TrialComponentStatus) — a real AWS SDK client's JSON deserializer would fail outright on the old shape. The pre-existing TestHandler_UpdateTrialComponent test literally asserted the buggy bare-string shape; updated it to the correct object shape as part of this fix. Not fixed (see gaps:): CreatedBy/LastModifiedBy/Source (UserContext — no identity model to derive from, class d)."}
-  feature_store: {status: partial, note: "parity-5, wire-audited CreateFeatureGroup/DescribeFeatureGroup/UpdateFeatureGroup against api_op_{Create,Describe,Update}FeatureGroup.go. FIXED this pass — RoleArn and Description are both real CreateFeatureGroupInput fields (RoleArn is what OfflineStoreConfig replication would use) that were accepted-and-dropped entirely; now stored and returned. NOT fixed (see gaps:): OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig are still completely unmodeled — these are the actual substance of Feature Store (online-store toggle, S3 offline location, Glue/Iceberg table format) and are a materially larger typed-struct effort than this pass's budget; FeatureRecord PutRecord/GetRecord/DeleteRecord/BatchGetRecord (feature_store.go) belong to the separate sagemaker-featurestore-runtime SDK, not the sagemaker control-plane SDK audited here, and were out of scope."}
+  feature_store: {status: partial, note: "parity-5, wire-audited CreateFeatureGroup/DescribeFeatureGroup/UpdateFeatureGroup against api_op_{Create,Describe,Update}FeatureGroup.go. FIXED this pass — RoleArn and Description are both real CreateFeatureGroupInput fields (RoleArn is what OfflineStoreConfig replication would use) that were accepted-and-dropped entirely; now stored and returned. FIXED this pass (parity-6) — OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig (CreateFeatureGroupInput/DescribeFeatureGroupOutput) are now fully modeled and round-trip: OnlineStoreConfig (EnableOnlineStore/StorageType/SecurityConfig.KmsKeyId/TtlDuration), OfflineStoreConfig (S3StorageConfig/DataCatalogConfig/TableFormat/DisableGlueTableCreation), ThroughputConfig (ThroughputMode/ProvisionedRead+WriteCapacityUnits — one Go type serves both CreateFeatureGroupInput.ThroughputConfig and DescribeFeatureGroupOutput.ThroughputConfigDescription since their fields are identical). NOT fixed (see gaps:): UpdateFeatureGroup's OnlineStoreConfigUpdate/ThroughputConfigUpdate (a distinct, separate update path from Create's fields, out of this pass's scope); LastUpdateStatus/OfflineStoreStatus/FailureReason/OnlineStoreTotalSizeBytes (DescribeFeatureGroupOutput fields describing async store-creation progress, not modeled); FeatureRecord PutRecord/GetRecord/DeleteRecord/BatchGetRecord (feature_store.go) belong to the separate sagemaker-featurestore-runtime SDK, not the sagemaker control-plane SDK audited here, and were out of scope."}
   model_package_model_package_group: {status: partial, note: "FIXED this pass — ModelPackage was missing the required ModelPackageStatusDetails field entirely (see Notes); ModelPackage/ModelPackageGroup Describe+List timestamp encoding also fixed. Other model-package fields (InferenceSpecification, SourceAlgorithmSpecification validation, etc.) not otherwise wire-audited this pass."}
-  automl_job: {status: partial, note: "FIXED this pass (parity-4) — AutoMLJob was missing the required LastModifiedTime/AutoMLJobSecondaryStatus fields entirely, plus the timestamp encoding bug (see Notes). FIXED this pass (parity-5) — the required DescribeAutoMLJobOutput/CreateAutoMLJobInput field InputDataConfig ([]types.AutoMLChannel) is now modeled (AutoMLChannel/AutoMLDataSource/AutoMLS3DataSource types added), accepted at Create, and always emitted (as [] when absent, matching the required-field contract) — this was previously not modeled at all. NOTE for future auditors: the real SDK field is InputDataConfig, not 'AutoMLJobInputDataConfig' (a name that does not exist anywhere in aws-sdk-go-v2/service/sagemaker) — this file's own gaps: entry had the name wrong prior to this pass; verified directly against api_op_CreateAutoMLJob.go/api_op_DescribeAutoMLJob.go before implementing, per this campaign's rule to verify against the SDK rather than trust an issue title."}
+  automl_job: {status: partial, note: "FIXED this pass (parity-4) — AutoMLJob was missing the required LastModifiedTime/AutoMLJobSecondaryStatus fields entirely, plus the timestamp encoding bug (see Notes). FIXED this pass (parity-5) — the required DescribeAutoMLJobOutput/CreateAutoMLJobInput field InputDataConfig ([]types.AutoMLChannel) is now modeled (AutoMLChannel/AutoMLDataSource/AutoMLS3DataSource types added), accepted at Create, and always emitted (as [] when absent, matching the required-field contract). CORRECTED+FIXED this pass (parity-6) — parity-5's note that 'AutoMLJobInputDataConfig does not exist in the SDK' was itself wrong: it is the required field on CreateAutoMLJobV2Input ([]types.AutoMLJobChannel, CreateAutoMLJobV2Input:91), a real, distinct-from-V1 field. CreateAutoMLJobV2/DescribeAutoMLJobV2 were routed to the V1 handlers and so silently dropped it (plus the required AutoMLProblemTypeConfig union) on every V2 request — the actual bug gopherstack-e39w asked for. Both ops now have their own handlers (handler_automl_v2.go) with the correct V2 wire shape: AutoMLJobInputDataConfig ([]AutoMLJobChannel, a narrower type than V1's AutoMLChannel — no TargetAttributeName/SampleWeightAttributeName), AutoMLProblemTypeConfig (5-member tagged union, carried opaque per gaps: below), AutoMLProblemTypeConfigName (derived from which union member is present), AutoMLComputeConfig/DataSplitConfig/SecurityConfig/ModelDeployConfig (all small flat types, fully modeled). handleDescribeAutoMLJob (V1) was also changed from json.Marshal(struct) to an explicit response map, since the shared AutoMLJob struct now carries V2-only fields that would otherwise leak into a V1 Describe of a V2-created job."}
   lineage_action_artifact_context_association: {status: ok, note: "parity-5, wire-audited CreateAction/CreateArtifact/CreateContext + Describe/Update/Delete/List against api_op_{Create,Describe,Update}{Action,Artifact,Context}.go. No accept-and-drop bugs found — Source/Properties/Description/Status/Tags all round-trip correctly. QueryLineage/DescribeLineageGroup/ListLineageGroups/GetLineageGroupPolicy also verified (the single auto-provisioned lineage group with no policy is an honest, correctly-typed 404, not a stub). Not fixed: MetadataProperties (CreateAction/CreateArtifact optional field) is accepted by no request struct field at all — a real but low-severity gap (see gaps:), left for follow-up since this family was otherwise clean."}
   edge_deployment_device_fleet: {status: partial, note: "FIXED this pass — DeviceFleet/Device family: OutputConfig (required in Create+Update) was silently optional and UpdateDeviceFleet silently dropped it; DeviceFleet/Device Describe+List timestamp encoding also fixed (see Notes). EdgeDeploymentPlan/EdgePackagingJob not otherwise wire-audited this pass."}
   labeling_job: {status: partial, note: "parity-5, wire-audited CreateLabelingJob/DescribeLabelingJob against api_op_CreateLabelingJob.go/api_op_DescribeLabelingJob.go — this family was already the most fully-typed in the service (real InputConfig/OutputConfig/HumanTaskConfig/StoppingConditions/LabelingJobAlgorithmsConfig structs, real Initializing->InProgress->Completed FSM). FIXED this pass — Tags (a real, optional DescribeLabelingJobOutput field) were accepted and stored on Create but never serialized back out by DescribeLabelingJob; also fixed the LabelingJob.Tags struct field's json:\"-\" tag (was silently dropping Tags across a persistence snapshot/restore round-trip too, a second manifestation of the same bug). No other gaps found."}
@@ -117,12 +130,14 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "parity-4: AIRecommendationJob.Recommendations ([]types.AIRecommendation) is a real, always-empty slice — this backend never fabricates optimization recommendations, deployment configs, or performance-metric numbers a client could mistake for a measured result. A client polling DescribeAIRecommendationJob for actual recommendations will never see any, even after the job reaches Completed. Deliberate per this campaign's 'no fabricated metrics' rule, but is a real functional gap for any test asserting recommendation content. (no bd issue filed yet)"
   - "parity-4: DescribeJobSchemaVersion/ListJobSchemaVersions serve a single synthetic JobConfigSchemaVersion (\"1.0\") with a generic, not-per-category JSON-schema document for every JobCategory — AWS does not publish real per-category schema content anywhere in the SDK module, so there is no ground truth to model against. CreateJob does validate JobConfigSchemaVersion against this same registry (real ResourceNotFound if unknown), so the three ops are at least internally consistent, just not a reproduction of AWS's actual (unpublished) schema catalog. (no bd issue filed yet)"
   - "parity-5: CreatePipeline/UpdatePipeline still accept-and-drop PipelineDefinitionS3Location (real CreatePipelineInput/UpdatePipelineInput field — an alternative to inline PipelineDefinition where SageMaker fetches the definition from S3). Honestly implementing this needs a real cross-service S3 GetObject call, which this pass judged out of a bounded-fix budget; fabricating a PipelineDefinition would violate the no-fabrication rule. A client using only PipelineDefinitionS3Location today gets a pipeline created with an empty PipelineDefinition and no error. (no bd issue filed yet — file as a class-a follow-up)"
-  - "parity-5: DescribePipeline doesn't accept the optional PipelineVersionId input param (a client asking for a specific historical pipeline version silently gets the current version instead, not an error) and never returns LastRunTime/PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy. ListPipelines' PipelineSummary is also missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime (real optional PipelineSummary fields) and has a PipelineStatus field that does not exist on the real type at all (harmless for JSON-protocol clients, which ignore unknown fields, but not a reproduction of AWS's shape). (no bd issue filed yet)"
+  - "parity-5: DescribePipeline never returns PipelineVersionDescription/PipelineVersionDisplayName/CreatedBy/LastModifiedBy (PipelineVersionId input + LastRunTime output FIXED parity-6, see Notes). ListPipelines' PipelineSummary is also missing PipelineDescription/PipelineDisplayName/RoleArn/LastExecutionTime (real optional PipelineSummary fields) and has a PipelineStatus field that does not exist on the real type at all (harmless for JSON-protocol clients, which ignore unknown fields, but not a reproduction of AWS's shape). (no bd issue filed yet)"
   - "parity-5: TrialComponent/Experiment/Trial's CreatedBy/LastModifiedBy/Source/ExperimentSource/TrialSource (types.UserContext / *Source ARN+type pairs) are not modeled at all — there is no IAM-identity or resource-provenance model in this backend to honestly derive them from (class d, not fabricated). (no bd issue filed yet)"
-  - "parity-5: feature_store's OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig (CreateFeatureGroupInput/DescribeFeatureGroupOutput) remain completely unmodeled — RoleArn/Description were fixed this pass, but the online/offline store configuration (the actual substance of Feature Store: online-store on/off + KMS key, S3 offline location + Glue/Iceberg table format, on-demand vs provisioned throughput) is a materially larger typed-struct effort, judged out of this pass's bounded-fix budget. A client configuring either store gets no error but the configuration silently does not round-trip. (no bd issue filed yet — highest-value remaining feature_store gap for a follow-up pass)"
+  - "parity-6: feature_store's UpdateFeatureGroup does not accept OnlineStoreConfigUpdate/ThroughputConfigUpdate (CreateFeatureGroupInput's OnlineStoreConfig/OfflineStoreConfig/ThroughputConfig FIXED parity-6, see Notes — this is the separate Update-path pair of fields, out of that fix's scope) — nor LastUpdateStatus/OfflineStoreStatus/FailureReason/OnlineStoreTotalSizeBytes (DescribeFeatureGroupOutput fields describing async store-creation progress this backend has no notion of, since store creation is synchronous here). (no bd issue filed yet)"
   - "parity-5: cluster's Orchestrator/AutoScaling/NodeProvisioningMode/TieredStorageConfig/RestrictedInstanceGroups/RestrictedInstanceGroupsConfig (CreateClusterInput/DescribeClusterOutput) remain accept-and-drop — ClusterRole/VpcConfig were fixed this pass; these six remaining fields are each a nontrivial nested union/struct type, judged out of this pass's bounded-fix budget. (no bd issue filed yet)"
   - "parity-5: InferenceRecommendationsJob.InputConfig (fixed this pass to stop being silently dropped) is stored as opaque json.RawMessage passthrough rather than the fully-typed RecommendationJobInputConfig union (ContainerConfig/Endpoints/ModelPackageVersionArn/ModelName/...) — same convention as the parity-4 AI-job families' passthrough fields. Every field a client sends round-trips exactly; no server-synthesized sub-field is fabricated. (no bd issue filed yet)"
   - "parity-5: lineage's CreateAction/CreateArtifact accept no MetadataProperties field (a real, optional CreateActionInput/CreateArtifactInput field) — low-severity accept-and-drop left for a follow-up pass since the rest of this family was clean. (no bd issue filed yet)"
+  - "parity-6: CreateAutoMLJobV2/DescribeAutoMLJobV2's AutoMLProblemTypeConfig is a 5-member tagged union (ImageClassificationJobConfig/TabularJobConfig/TextClassificationJobConfig/TextGenerationJobConfig/TimeSeriesForecastingJobConfig), each itself a materially large nested struct (e.g. TabularJobConfig alone has CandidateGenerationConfig/FeatureSpecificationS3Uri/Mode/ProblemType/TargetAttributeName/...). Carried as opaque json.RawMessage passthrough, same established convention as this file's other deeply-nested unions (ai_benchmark_job/ai_recommendation_job/inference_recommendations_job) — every field a client sends round-trips exactly; only AutoMLProblemTypeConfigName (which member is present) is derived, not the member's internal fields. (no bd issue filed yet)"
+  - "parity-6: DescribeAutoMLJobV2Output's BestCandidate/PartialFailureReasons/ResolvedAttributes/AutoMLJobArtifacts/EndTime/FailureReason/ModelDeployResult are not modeled — these are server-synthesized/derived fields that mirror V1 DescribeAutoMLJobOutput's pre-existing, disclosed depth limit (V1 has never modeled BestCandidate/ResolvedAttributes/etc. either); not a V2-specific regression, just not newly fixed by this pass. (no bd issue filed yet)"
 
 deferred:                 # consciously not (fully) audited this pass (scope) — next pass targets
   - domain_app_userprofile_space (Domain/App/UserProfile portion; Space timestamp bug fixed)
@@ -440,3 +455,112 @@ effort than this pass's bounded-fix budget); `cluster`'s `Orchestrator`/`AutoSca
 nontrivial nested union type); `TrialComponent`/`Experiment`/`Trial`'s `CreatedBy`/
 `LastModifiedBy`/`Source` (`types.UserContext` — no IAM-identity model to derive from, class d,
 not fabricated); `lineage`'s `MetadataProperties` on Create.
+
+## parity-6 (2026-08-08): CreateAutoMLJobV2/DescribeAutoMLJobV2 dedicated handlers
+
+Fixes the actual gap bd issue `gopherstack-e39w` asked for. parity-5's own note claiming
+`AutoMLJobInputDataConfig` "does not exist anywhere in aws-sdk-go-v2/service/sagemaker" was
+wrong — verified directly against the pinned SDK (`v1.263.2`): it is
+`CreateAutoMLJobV2Input.AutoMLJobInputDataConfig` (`api_op_CreateAutoMLJobV2.go:91`, `This
+member is required`, `[]types.AutoMLJobChannel`), and also the corresponding
+`DescribeAutoMLJobV2Output` field. It is a real, V2-only field distinct from V1's
+`InputDataConfig` ([]types.AutoMLChannel) — parity-5 fixed the V1 field under a name that made
+this look already-handled, when the V2 gap (what the issue title actually named) was untouched.
+
+`handler_catalog.go` routed `CreateAutoMLJobV2`/`DescribeAutoMLJobV2` to the identical V1
+handlers (`handleCreateAutoMLJob`/`handleDescribeAutoMLJob`). A V2 request's
+`AutoMLJobInputDataConfig` and `AutoMLProblemTypeConfig` — both `This member is required` on
+`CreateAutoMLJobV2Input` — were unknown JSON fields to the V1 request struct and silently
+dropped; `DescribeAutoMLJobV2` never had a way to emit them back regardless. Full field-by-field
+divergence (verified against `api_op_{Create,Describe}AutoMLJob{,V2}.go`):
+
+- **Input, required, name differs**: `InputDataConfig` (V1) vs `AutoMLJobInputDataConfig` (V2) —
+  different field name AND different element type (`types.AutoMLChannel` has
+  `TargetAttributeName`/`SampleWeightAttributeName`; `types.AutoMLJobChannel` does not).
+- **Input, required, V2 only**: `AutoMLProblemTypeConfig` (a 5-member tagged union —
+  `ImageClassificationJobConfig`/`TabularJobConfig`/`TextClassificationJobConfig`/
+  `TextGenerationJobConfig`/`TimeSeriesForecastingJobConfig`). V1 has no equivalent required
+  field — the closest V1 fields, `ProblemType` (optional enum) and `AutoMLJobConfig`, are both
+  optional and structurally unrelated.
+- **Input, optional, V2 only**: `AutoMLComputeConfig`, `DataSplitConfig`, `SecurityConfig`. V1
+  has none of these.
+- **Input, optional, V1 only**: `AutoMLJobConfig`, `GenerateCandidateDefinitionsOnly`,
+  `ProblemType`.
+- **Input, optional, both (same type)**: `AutoMLJobObjective`, `ModelDeployConfig`, `Tags`.
+- **Output**: mirrors the input divergence — `DescribeAutoMLJobV2Output` additionally returns
+  `AutoMLProblemTypeConfigName` (derived, not a Create input) and `AutoMLComputeConfig`; V1's
+  `DescribeAutoMLJobOutput` additionally returns `AutoMLJobConfig`/`ProblemType`/
+  `GenerateCandidateDefinitionsOnly`. `ResolvedAttributes` exists on both but as different types
+  (`types.ResolvedAttributes` vs `types.AutoMLResolvedAttributes`) — neither is modeled by this
+  backend (pre-existing V1 depth limit, not new).
+- **Create*Output for both versions is identical**: just `AutoMLJobArn`.
+
+**Decision: separate handlers, not a shared one.** The required-field divergence alone rules out
+a shared handler — a JSON struct that satisfies both `InputDataConfig`/`AutoMLJobInputDataConfig`
+without misnaming one of them cannot exist, and `AutoMLProblemTypeConfig` has no V1 analogue to
+silently reuse. `handleCreateAutoMLJobV2`/`handleDescribeAutoMLJobV2` (new `handler_automl_v2.go`)
+were added; both versions still share the same `b.autoMLJobs` store and the same `AutoMLJob`
+struct (AWS job names are unique across V1/V2 in the same account+region), but each op now
+parses/emits its own accurate field subset via an explicit `map[string]any` response rather than
+relying on the struct's own JSON tags.
+
+This required also changing `handleDescribeAutoMLJob` (V1) from `json.Marshal(result)` (the
+struct's default tags) to the same explicit-map style: since `AutoMLJob` now carries V2-only
+fields (`AutoMLJobInputDataConfig`, `AutoMLProblemTypeConfig`), a V1 `Describe` of a job created
+via `CreateAutoMLJobV2` would otherwise leak them into the V1 response shape — caught by a test
+(`TestHandler_DescribeAutoMLJobV1_OmitsV2Fields`) asserting isolation both directions.
+
+`AutoMLProblemTypeConfigName` is derived at Describe time from which single top-level key is
+present in the opaque `AutoMLProblemTypeConfig` payload (`automlProblemTypeConfigName` in
+`automl_v2.go`), matching the member->JSON-key mapping in `serializers.go`'s
+`awsAwsjson11_serializeDocumentAutoMLProblemTypeConfig` — this is a real, verifiable derivation,
+not a guess. `AutoMLProblemTypeConfig`'s member configs themselves (`TabularJobConfig` etc.) are
+carried opaque (see `gaps:`), consistent with this service's established convention for other
+deeply-nested unions.
+
+Pre-fix verification: wrote `TestHandler_CreateAutoMLJobV2_RoundTrip` (table-driven,
+full/minimal cases) against the pre-fix code first — both subtests failed with `DescribeAutoMLJobV2
+must always emit AutoMLJobInputDataConfig`, confirming the field was silently absent from the V2
+Describe response entirely (the exact bug class this issue names). All AutoML tests pass after
+the fix; `go build ./...`, `go test -race ./services/sagemaker/...`, and
+`golangci-lint run ./services/sagemaker/...` are clean.
+
+**Bounded remainder (feature_store, DescribePipeline), same pass:**
+
+`feature_groups.go`'s `CreateFeatureGroupOptions`/`FeatureGroup` gained `OnlineStoreConfig`
+(`EnableOnlineStore`/`StorageType`/`SecurityConfig.KmsKeyId`/`TtlDuration`), `OfflineStoreConfig`
+(`S3StorageConfig`/`DataCatalogConfig`/`TableFormat`/`DisableGlueTableCreation`), and
+`ThroughputConfig` (`ThroughputMode`/`ProvisionedReadCapacityUnits`/`ProvisionedWriteCapacityUnits`)
+— all verified field-by-field against `types.{OnlineStoreConfig,OfflineStoreConfig,
+ThroughputConfig,ThroughputConfigDescription,S3StorageConfig,DataCatalogConfig,
+OnlineStoreSecurityConfig,TtlDuration}` in `types/types.go`. None of these are unions; all are
+small flat structs, so all are fully typed rather than carried opaque. `ThroughputConfig` (Create
+input) and `ThroughputConfigDescription` (Describe output) are distinct SDK type names with
+identical fields — this backend uses one Go type, `ThroughputConfig`, for both, since the wire
+shape is the same either direction. Pre-fix verification:
+`TestHandler_CreateFeatureGroup_StoreConfigsRoundTrip` failed with `OnlineStoreConfig must
+round-trip` (the field was entirely absent from the Describe response) before the fix.
+
+`pipelines.go`'s `DescribePipeline` gained a `versionID int64` parameter
+(`DescribePipelineInput.PipelineVersionId`) — when non-zero, it looks up that version in the
+existing `pipelineVersionsStore` (already populated by every `CreatePipeline`/`UpdatePipeline`
+call, per parity-5's pipeline-version-history work) and substitutes that version's
+`PipelineDefinition`; an unknown version ID now returns `ErrPipelineNotFound` instead of silently
+falling back to the current version. It also now returns `lastRunTime`
+(`DescribePipelineOutput.LastRunTime`), computed as the max `StartTime` across the pipeline's
+`PipelineExecution`s (matched by `PipelineArn`) — a real derived value, omitted (not zero-faked)
+when the pipeline has never run. Pre-fix verification:
+`TestHandler_DescribePipeline_PipelineVersionId/version_1_returns_original_definition` and
+`/unknown_version_is_not_found` both failed (version 1 returned the current v2 definition; the
+unknown version 99 returned 200 with the current pipeline instead of erroring), and
+`TestHandler_DescribePipeline_LastRunTime` failed with `a pipeline that has run must emit
+LastRunTime` — confirming the field was never emitted regardless of execution history.
+
+Not attempted, per this issue's explicit scope: `PipelineDefinitionS3Location` (needs a real
+cross-service S3 fetch) and the cluster family's six nested union/struct types
+(`Orchestrator`/`AutoScaling`/`NodeProvisioningMode`/`TieredStorageConfig`/
+`RestrictedInstanceGroups(Config)`).
+
+Gates for the full pass: `go build ./...`, `go test -race ./services/sagemaker/...`, and
+`golangci-lint run ./services/sagemaker/...` all clean, zero `nolint:{cyclop,gocyclo,gocognit,
+funlen}` added.

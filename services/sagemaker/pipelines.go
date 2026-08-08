@@ -136,8 +136,15 @@ func (b *InMemoryBackend) CreatePipeline(
 	return clonePipeline(p), nil
 }
 
-// DescribePipeline returns a pipeline by name.
-func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*Pipeline, error) {
+// DescribePipeline returns a pipeline by name. If versionID is non-zero, the
+// returned Pipeline's PipelineDefinition reflects that specific historical
+// version instead of the current one (DescribePipelineInput.PipelineVersionId,
+// api_op_DescribePipeline.go). lastRunTime is the StartTime of the most
+// recent PipelineExecution for this pipeline (DescribePipelineOutput.LastRunTime),
+// or the zero time if the pipeline has never been run.
+func (b *InMemoryBackend) DescribePipeline(
+	ctx context.Context, name string, versionID int64,
+) (*Pipeline, time.Time, error) {
 	b.mu.RLock("DescribePipeline")
 	defer b.mu.RUnlock()
 
@@ -145,10 +152,31 @@ func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*P
 
 	p, ok := b.pipelinesStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+		return nil, time.Time{}, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
 
-	return clonePipeline(p), nil
+	result := clonePipeline(p)
+
+	if versionID != 0 {
+		v, found := findPipelineVersion(b.pipelineVersionsStoreRO(region)[name], versionID)
+		if !found {
+			return nil, time.Time{}, fmt.Errorf(
+				"%w: pipeline %q version %d not found", ErrPipelineNotFound, name, versionID,
+			)
+		}
+
+		result.PipelineDefinition = v.PipelineDefinition
+	}
+
+	var lastRunTime time.Time
+
+	for _, pe := range b.pipelineExecutionsStoreRO(region).All() {
+		if pe.PipelineArn == p.PipelineArn && pe.StartTime.After(lastRunTime) {
+			lastRunTime = pe.StartTime
+		}
+	}
+
+	return result, lastRunTime, nil
 }
 
 // ListPipelines returns all pipelines.

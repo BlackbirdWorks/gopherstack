@@ -19,6 +19,9 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 		EventTimeFeatureName        string              `json:"EventTimeFeatureName"`
 		Description                 string              `json:"Description,omitempty"`
 		RoleArn                     string              `json:"RoleArn,omitempty"`
+		OnlineStoreConfig           *OnlineStoreConfig  `json:"OnlineStoreConfig,omitempty"`
+		OfflineStoreConfig          *OfflineStoreConfig `json:"OfflineStoreConfig,omitempty"`
+		ThroughputConfig            *ThroughputConfig   `json:"ThroughputConfig,omitempty"`
 		FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions"`
 		Tags                        []tagObject         `json:"Tags"`
 	}
@@ -39,6 +42,9 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 		RoleArn:                     req.RoleArn,
 		FeatureDefinitions:          req.FeatureDefinitions,
 		Tags:                        fromTagObjects(req.Tags),
+		OnlineStoreConfig:           req.OnlineStoreConfig,
+		OfflineStoreConfig:          req.OfflineStoreConfig,
+		ThroughputConfig:            req.ThroughputConfig,
 	})
 	if err != nil {
 		return nil, err
@@ -82,6 +88,18 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 	}
 	if fg.RoleArn != "" {
 		resp[keyRoleArn] = fg.RoleArn
+	}
+
+	if fg.OnlineStoreConfig != nil {
+		resp["OnlineStoreConfig"] = fg.OnlineStoreConfig
+	}
+
+	if fg.OfflineStoreConfig != nil {
+		resp["OfflineStoreConfig"] = fg.OfflineStoreConfig
+	}
+
+	if fg.ThroughputConfig != nil {
+		resp["ThroughputConfig"] = fg.ThroughputConfig
 	}
 
 	return json.Marshal(resp)

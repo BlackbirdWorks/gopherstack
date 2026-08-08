@@ -45,11 +45,11 @@ type AutoMLDataSource struct {
 	S3DataSource *AutoMLS3DataSource `json:"S3DataSource,omitempty"`
 }
 
-// AutoMLChannel is a named input source for CreateAutoMLJob/DescribeAutoMLJob.
-// SDK ref: aws-sdk-go-v2/service/sagemaker/types.AutoMLChannel — the field on
-// CreateAutoMLJobInput/DescribeAutoMLJobOutput is InputDataConfig
-// ([]types.AutoMLChannel), not "AutoMLJobInputDataConfig" (that name does not
-// exist in the SDK).
+// AutoMLChannel is a named input source for CreateAutoMLJob/DescribeAutoMLJob (V1).
+// SDK ref: types.AutoMLChannel — the field on CreateAutoMLJobInput/
+// DescribeAutoMLJobOutput is InputDataConfig ([]types.AutoMLChannel). The V2
+// field of a similar name, AutoMLJobInputDataConfig ([]types.AutoMLJobChannel,
+// CreateAutoMLJobV2Input:91), is a distinct, narrower type — see AutoMLJobChannel.
 type AutoMLChannel struct {
 	DataSource                *AutoMLDataSource `json:"DataSource,omitempty"`
 	ChannelType               string            `json:"ChannelType,omitempty"`
@@ -59,19 +59,31 @@ type AutoMLChannel struct {
 	SampleWeightAttributeName string            `json:"SampleWeightAttributeName,omitempty"`
 }
 
-// AutoMLJob represents a SageMaker AutoML job.
+// AutoMLJob represents a SageMaker AutoML job. It backs both V1
+// (CreateAutoMLJob/DescribeAutoMLJob) and V2 (CreateAutoMLJobV2/
+// DescribeAutoMLJobV2) jobs; the V2-only fields are zero-valued for a
+// V1-created job and vice versa, matching AWS's job-name-uniqueness-across-
+// versions behavior. Each op's handler marshals its own wire-accurate subset
+// rather than emitting this struct verbatim (see handler_automl.go /
+// handler_automl_v2.go).
 type AutoMLJob struct {
 	CreationTime             time.Time               `json:"CreationTime"`
 	LastModifiedTime         time.Time               `json:"LastModifiedTime"`
 	Tags                     map[string]string       `json:"Tags,omitempty"`
 	OutputDataConfig         *AutoMLOutputDataConfig `json:"OutputDataConfig,omitempty"`
 	AutoMLJobObjective       *AutoMLJobObjective     `json:"AutoMLJobObjective,omitempty"`
+	AutoMLComputeConfig      *AutoMLComputeConfig    `json:"AutoMLComputeConfig,omitempty"`
+	DataSplitConfig          *AutoMLDataSplitConfig  `json:"DataSplitConfig,omitempty"`
+	SecurityConfig           *AutoMLSecurityConfig   `json:"SecurityConfig,omitempty"`
+	ModelDeployConfig        *ModelDeployConfig      `json:"ModelDeployConfig,omitempty"`
 	AutoMLJobName            string                  `json:"AutoMLJobName"`
 	AutoMLJobArn             string                  `json:"AutoMLJobArn"`
 	AutoMLJobStatus          string                  `json:"AutoMLJobStatus"`
 	AutoMLJobSecondaryStatus string                  `json:"AutoMLJobSecondaryStatus"`
 	RoleArn                  string                  `json:"RoleArn,omitempty"`
 	InputDataConfig          []AutoMLChannel         `json:"InputDataConfig"`
+	AutoMLJobInputDataConfig []AutoMLJobChannel      `json:"AutoMLJobInputDataConfig,omitempty"`
+	AutoMLProblemTypeConfig  json.RawMessage         `json:"AutoMLProblemTypeConfig,omitempty"`
 }
 
 func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
@@ -90,6 +102,34 @@ func cloneAutoMLJob(j *AutoMLJob) *AutoMLJob {
 	if j.AutoMLJobObjective != nil {
 		obj := *j.AutoMLJobObjective
 		cp.AutoMLJobObjective = &obj
+	}
+
+	if j.AutoMLJobInputDataConfig != nil {
+		cp.AutoMLJobInputDataConfig = append([]AutoMLJobChannel{}, j.AutoMLJobInputDataConfig...)
+	}
+
+	if j.AutoMLProblemTypeConfig != nil {
+		cp.AutoMLProblemTypeConfig = append(json.RawMessage{}, j.AutoMLProblemTypeConfig...)
+	}
+
+	if j.AutoMLComputeConfig != nil {
+		cc := *j.AutoMLComputeConfig
+		cp.AutoMLComputeConfig = &cc
+	}
+
+	if j.DataSplitConfig != nil {
+		dsc := *j.DataSplitConfig
+		cp.DataSplitConfig = &dsc
+	}
+
+	if j.SecurityConfig != nil {
+		sc := *j.SecurityConfig
+		cp.SecurityConfig = &sc
+	}
+
+	if j.ModelDeployConfig != nil {
+		mdc := *j.ModelDeployConfig
+		cp.ModelDeployConfig = &mdc
 	}
 
 	return &cp

@@ -105,12 +105,20 @@ func (h *Handler) dispatchAutoMLCodeRepositoryOps(
 	ctx context.Context, op string, body []byte,
 ) ([]byte, bool, error) {
 	switch op {
-	case "CreateAutoMLJob", "CreateAutoMLJobV2":
+	case "CreateAutoMLJob":
 		r, err := h.handleCreateAutoMLJob(ctx, body)
 
 		return r, true, err
-	case "DescribeAutoMLJob", "DescribeAutoMLJobV2":
+	case "CreateAutoMLJobV2":
+		r, err := h.handleCreateAutoMLJobV2(ctx, body)
+
+		return r, true, err
+	case "DescribeAutoMLJob":
 		r, err := h.handleDescribeAutoMLJob(ctx, body)
+
+		return r, true, err
+	case "DescribeAutoMLJobV2":
+		r, err := h.handleDescribeAutoMLJobV2(ctx, body)
 
 		return r, true, err
 	case "StopAutoMLJob":

@@ -352,7 +352,8 @@ func (h *Handler) handleListPipelineParametersForExecution(
 
 func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		PipelineName string `json:"PipelineName"`
+		PipelineName      string `json:"PipelineName"`
+		PipelineVersionID int64  `json:"PipelineVersionId,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -363,7 +364,7 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.DescribePipeline(ctx, req.PipelineName)
+	p, lastRunTime, err := h.Backend.DescribePipeline(ctx, req.PipelineName, req.PipelineVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -385,6 +386,9 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 	}
 	if p.ParallelismConfiguration != nil {
 		resp["ParallelismConfiguration"] = p.ParallelismConfiguration
+	}
+	if !lastRunTime.IsZero() {
+		resp["LastRunTime"] = epochSeconds(lastRunTime)
 	}
 
 	return json.Marshal(resp)

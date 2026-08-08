@@ -41,7 +41,7 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		}
 	}
 
-	return json.Marshal(map[string]any{"AutoMLJobArn": result.AutoMLJobArn})
+	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
 }
 
 func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -57,12 +57,36 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeAutoMLJob(ctx, req.AutoMLJobName)
+	j, err := h.Backend.DescribeAutoMLJob(ctx, req.AutoMLJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	inputDataConfig := j.InputDataConfig
+	if inputDataConfig == nil {
+		inputDataConfig = []AutoMLChannel{}
+	}
+
+	resp := map[string]any{
+		keyAutoMLJobArn:             j.AutoMLJobArn,
+		keyAutoMLJobName:            j.AutoMLJobName,
+		keyAutoMLJobStatus:          j.AutoMLJobStatus,
+		keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
+		keyRoleArn:                  j.RoleArn,
+		keyCreationTime:             epochSeconds(j.CreationTime),
+		keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
+		"InputDataConfig":           inputDataConfig,
+	}
+
+	if j.OutputDataConfig != nil {
+		resp["OutputDataConfig"] = j.OutputDataConfig
+	}
+
+	if j.AutoMLJobObjective != nil {
+		resp["AutoMLJobObjective"] = j.AutoMLJobObjective
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleStopAutoMLJob(ctx context.Context, body []byte) error {
@@ -95,12 +119,12 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
 		summaries = append(summaries, map[string]any{
-			"AutoMLJobName":            j.AutoMLJobName,
-			"AutoMLJobArn":             j.AutoMLJobArn,
-			"AutoMLJobStatus":          j.AutoMLJobStatus,
-			"AutoMLJobSecondaryStatus": j.AutoMLJobSecondaryStatus,
-			keyCreationTime:            epochSeconds(j.CreationTime),
-			keyLastModifiedTime:        epochSeconds(j.LastModifiedTime),
+			keyAutoMLJobName:            j.AutoMLJobName,
+			keyAutoMLJobArn:             j.AutoMLJobArn,
+			keyAutoMLJobStatus:          j.AutoMLJobStatus,
+			keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
+			keyCreationTime:             epochSeconds(j.CreationTime),
+			keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
 		})
 	}
 
