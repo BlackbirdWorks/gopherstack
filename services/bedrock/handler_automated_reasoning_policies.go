@@ -69,7 +69,7 @@ func (h *Handler) routeARP(c *echo.Context, path, method string, body []byte) (b
 		return true, err
 	}
 
-	if ok, err := h.routeARPTestCase(c, path, method); ok {
+	if ok, err := h.routeARPTestCase(c, path, method, body); ok {
 		return true, err
 	}
 
@@ -110,12 +110,12 @@ func (h *Handler) routeARPBuildWorkflow(c *echo.Context, path, method string) (b
 	return false, nil
 }
 
-func (h *Handler) routeARPTestCase(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeARPTestCase(c *echo.Context, path, method string, body []byte) (bool, error) {
 	if ok, err := h.routeARPTestCaseCreate(c, path, method); ok {
 		return true, err
 	}
 
-	return h.routeARPTestCaseItem(c, path, method)
+	return h.routeARPTestCaseItem(c, path, method, body)
 }
 
 func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string) (bool, error) {
@@ -129,7 +129,7 @@ func (h *Handler) routeARPTestCaseCreate(c *echo.Context, path, method string) (
 	return false, nil
 }
 
-func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
 	case isARPTestCasesResultsPath(path) && method == http.MethodGet:
 		return true, h.handleListARPTestResults(c, path)
@@ -141,7 +141,7 @@ func (h *Handler) routeARPTestCaseItem(c *echo.Context, path, method string) (bo
 		return true, h.handleGetARPTestCase(c, path)
 	// UpdateAutomatedReasoningPolicyTestCase uses PATCH in the real SDK, not PUT.
 	case isARPTestCaseSubPath(path) && method == http.MethodPatch:
-		return true, h.handleUpdateARPTestCase(c, path)
+		return true, h.handleUpdateARPTestCase(c, path, body)
 	case isARPTestCaseSubPath(path) && method == http.MethodDelete:
 		return true, h.handleDeleteARPTestCase(c, path)
 	}
@@ -620,6 +620,20 @@ func (h *Handler) handleGetARPBuildWorkflowResultAssets(c *echo.Context, path st
 	return c.JSON(http.StatusOK, result)
 }
 
+// arpTestCaseToMap exposes the test case's content fields alongside the two keys
+// real AWS returns for Get/Update; the flat (non build-scoped) shape is a known,
+// separately tracked gap (PARITY.md families.AutomatedReasoningPolicy).
+func arpTestCaseToMap(tc *AutomatedReasoningPolicyTestCase) map[string]any {
+	return map[string]any{
+		keyTestCaseID:                      tc.TestCaseID,
+		keyPolicyArn:                       tc.PolicyArn,
+		"guardContent":                     tc.GuardContent,
+		"queryContent":                     tc.QueryContent,
+		"expectedAggregatedFindingsResult": tc.ExpectedAggregatedFindingsResult,
+		"confidenceThreshold":              tc.ConfidenceThreshold,
+	}
+}
+
 func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 	policyARN, testCaseID := extractARPTestCaseIDs(path)
 
@@ -628,10 +642,7 @@ func (h *Handler) handleGetARPTestCase(c *echo.Context, path string) error {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyTestCaseID: tc.TestCaseID,
-		keyPolicyArn:  tc.PolicyArn,
-	})
+	return c.JSON(http.StatusOK, arpTestCaseToMap(tc))
 }
 
 func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
@@ -640,19 +651,33 @@ func (h *Handler) handleListARPTestCases(c *echo.Context, path string) error {
 	summaries := make([]map[string]any, 0, len(cases))
 
 	for _, tc := range cases {
-		summaries = append(summaries, map[string]any{
-			keyTestCaseID: tc.TestCaseID,
-			keyPolicyArn:  tc.PolicyArn,
-		})
+		summaries = append(summaries, arpTestCaseToMap(tc))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"testCases": summaries})
 }
 
-func (h *Handler) handleUpdateARPTestCase(c *echo.Context, path string) error {
+type updateARPTestCaseInput struct {
+	ConfidenceThreshold              *float64 `json:"confidenceThreshold,omitempty"`
+	GuardContent                     string   `json:"guardContent"`
+	QueryContent                     string   `json:"queryContent,omitempty"`
+	ExpectedAggregatedFindingsResult string   `json:"expectedAggregatedFindingsResult"`
+	LastUpdatedAt                    string   `json:"lastUpdatedAt,omitempty"`
+	ClientRequestToken               string   `json:"clientRequestToken,omitempty"`
+}
+
+func (h *Handler) handleUpdateARPTestCase(c *echo.Context, path string, body []byte) error {
 	policyARN, testCaseID := extractARPTestCaseIDs(path)
 
-	tc, err := h.Backend.UpdateAutomatedReasoningPolicyTestCase(policyARN, testCaseID)
+	in, parseErr := parseBody[updateARPTestCaseInput](body)
+	if parseErr != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
+	}
+
+	tc, err := h.Backend.UpdateAutomatedReasoningPolicyTestCase(
+		policyARN, testCaseID, in.GuardContent, in.QueryContent,
+		in.ExpectedAggregatedFindingsResult, in.ConfidenceThreshold,
+	)
 	if err != nil {
 		return h.writeError(c, err)
 	}

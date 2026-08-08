@@ -123,9 +123,38 @@ type listModelCustomizationJobsOutput struct {
 	ModelCustomizationJobSummaries []modelCustomizationJobOutput `json:"modelCustomizationJobSummaries"`
 }
 
+// parseListModelCustomizationJobsQuery builds the backend filter/sort/pagination
+// input from the real ListModelCustomizationJobs query-string bindings
+// (aws-sdk-go-v2 serializers.go:6989-7027): statusEquals, nameContains,
+// creationTimeAfter/Before, sortBy, sortOrder, nextToken.
+func parseListModelCustomizationJobsQuery(c *echo.Context) *ListModelCustomizationJobsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListModelCustomizationJobsInput{
+		StatusEquals: q.Get("statusEquals"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListModelCustomizationJobs(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	jobs, outToken := h.Backend.ListModelCustomizationJobs(nextToken)
+	jobs, outToken := h.Backend.ListModelCustomizationJobs(parseListModelCustomizationJobsQuery(c))
 	summaries := make([]modelCustomizationJobOutput, 0, len(jobs))
 
 	for _, j := range jobs {

@@ -159,6 +159,45 @@ func TestAccuracy_InferenceProfile_ListContainsCreated(t *testing.T) {
 	}
 }
 
+// TestAccuracy_InferenceProfile_ListTypeFilter locks in that ListInferenceProfiles'
+// real query param is "type" (not "typeEquals" -- aws-sdk-go-v2
+// serializers.go:6752-6754) and that it's actually parsed and applied.
+func TestAccuracy_InferenceProfile_ListTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		query   string
+		wantLen int
+	}{
+		{name: "type application matches all", query: "?type=APPLICATION", wantLen: 2},
+		{name: "type system_defined matches none", query: "?type=SYSTEM_DEFINED", wantLen: 0},
+		{name: "no type filter matches all", query: "", wantLen: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			h := bedrock.NewHandler(b)
+
+			_, err := b.CreateInferenceProfile("profile-a", "", nil)
+			require.NoError(t, err)
+			_, err = b.CreateInferenceProfile("profile-b", "", nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodGet, "/inference-profiles"+tt.query, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			summaries := out["inferenceProfileSummaries"].([]any)
+			assert.Len(t, summaries, tt.wantLen)
+		})
+	}
+}
+
 func TestAccuracy_InferenceProfile_DeleteRemovesFromList(t *testing.T) {
 	t.Parallel()
 

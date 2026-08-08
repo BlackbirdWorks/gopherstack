@@ -34,6 +34,7 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*Cust
 	model := &CustomModel{
 		ModelArn:     modelARN,
 		ModelName:    modelName,
+		ModelStatus:  "Active",
 		CreationTime: time.Now().UTC(),
 		Tags:         copyTags(tags),
 	}
@@ -85,22 +86,73 @@ func (b *InMemoryBackend) GetCustomModel(idOrARN string) (*CustomModel, error) {
 	return &cp, nil
 }
 
-// ListCustomModels returns all custom models with optional pagination.
-func (b *InMemoryBackend) ListCustomModels(nextToken string) ([]*CustomModel, string) {
+// ListCustomModels returns custom models matching in's filters, sorted and
+// paginated. in may be nil, matching an unfiltered call. Structurally similar
+// to ListEvaluationJobs/ListModelInvocationJobs (same filter/sort/paginate
+// shape) but over a distinct resource type and filter set; see
+// matchesCustomModelFilter. baseModelArnEquals/foundationModelArnEquals aren't
+// supported: CreateCustomModel doesn't collect a base/foundation model source,
+// so gopherstack has nothing to filter on (bd follow-up needed to model that
+// data first).
+//
+//nolint:dupl // see doc comment above.
+func (b *InMemoryBackend) ListCustomModels(in *ListCustomModelsInput) ([]*CustomModel, string) {
 	b.mu.RLock("ListCustomModels")
 	defer b.mu.RUnlock()
 
 	list := make([]*CustomModel, 0, b.customModels.Len())
 
 	for _, m := range b.customModels.All() {
+		if !matchesCustomModelFilter(m, in) {
+			continue
+		}
+
 		cp := *m
 		cp.Tags = copyTags(m.Tags)
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].ModelArn < list[j].ModelArn })
+	descending := in != nil && in.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, j int) bool {
+		if descending {
+			return list[i].CreationTime.After(list[j].CreationTime)
+		}
 
-	return paginateBedrockSlice(list, nextToken)
+		return list[i].CreationTime.Before(list[j].CreationTime)
+	})
+
+	nextToken := ""
+	if in != nil {
+		list, nextToken = paginateBedrockSlice(list, in.NextToken)
+	}
+
+	return list, nextToken
+}
+
+// matchesCustomModelFilter reports whether a custom model satisfies the list
+// filters (modelStatus, nameContains, isOwned, creationTimeAfter/Before).
+func matchesCustomModelFilter(m *CustomModel, in *ListCustomModelsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.ModelStatus != "" && m.ModelStatus != in.ModelStatus {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(m.ModelName, in.NameContains) {
+		return false
+	}
+	// Single-account emulator: every custom model is owned by this account.
+	if in.IsOwned != nil && !*in.IsOwned {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !m.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !m.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // DeleteCustomModel removes a custom model by ARN or name.

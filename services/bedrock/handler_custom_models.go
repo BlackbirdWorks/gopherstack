@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -114,6 +115,7 @@ type customModelOutput struct {
 	CreationTime string `json:"creationTime"`
 	ModelArn     string `json:"modelArn"`
 	ModelName    string `json:"modelName"`
+	ModelStatus  string `json:"modelStatus,omitempty"`
 	Tags         []Tag  `json:"tags,omitempty"`
 }
 
@@ -121,6 +123,7 @@ func customModelToOutput(m *CustomModel) customModelOutput {
 	return customModelOutput{
 		ModelArn:     m.ModelArn,
 		ModelName:    m.ModelName,
+		ModelStatus:  m.ModelStatus,
 		CreationTime: m.CreationTime.Format(time.RFC3339),
 		Tags:         m.Tags,
 	}
@@ -140,9 +143,46 @@ type listCustomModelsOutput struct {
 	ModelSummaries []customModelOutput `json:"modelSummaries"`
 }
 
+// parseListCustomModelsQuery builds the backend filter/sort/pagination input from
+// the real ListCustomModels query-string bindings (aws-sdk-go-v2
+// serializers.go:6152-6202): modelStatus, nameContains, isOwned,
+// creationTimeAfter/Before, sortBy, sortOrder, nextToken. baseModelArnEquals and
+// foundationModelArnEquals are intentionally not parsed -- see ListCustomModels'
+// doc comment.
+func parseListCustomModelsQuery(c *echo.Context) *ListCustomModelsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListCustomModelsInput{
+		ModelStatus:  q.Get("modelStatus"),
+		NameContains: q.Get("nameContains"),
+		SortBy:       q.Get("sortBy"),
+		SortOrder:    q.Get("sortOrder"),
+		NextToken:    q.Get("nextToken"),
+	}
+
+	if v := q.Get("isOwned"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			in.IsOwned = &b
+		}
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
+}
+
 func (h *Handler) handleListCustomModels(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	models, outToken := h.Backend.ListCustomModels(nextToken)
+	models, outToken := h.Backend.ListCustomModels(parseListCustomModelsQuery(c))
 	summaries := make([]customModelOutput, 0, len(models))
 
 	for _, m := range models {

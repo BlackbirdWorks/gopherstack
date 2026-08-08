@@ -162,6 +162,56 @@ func TestAccuracy_CustomModel_ListViaHTTP(t *testing.T) {
 	}
 }
 
+// TestAccuracy_CustomModel_ListFilters locks in that ListCustomModels' real
+// query params (nameContains, modelStatus) are parsed and applied, not
+// silently ignored (aws-sdk-go-v2 serializers.go:6152-6202).
+func TestAccuracy_CustomModel_ListFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		query     string
+		wantNames []string
+	}{
+		{name: "namecontains matches one", query: "?nameContains=alpha", wantNames: []string{"alpha-model"}},
+		{name: "namecontains matches none", query: "?nameContains=zzz", wantNames: nil},
+		{
+			name:      "modelstatus active matches all",
+			query:     "?modelStatus=Active",
+			wantNames: []string{"alpha-model", "beta-model"},
+		},
+		{name: "modelstatus failed matches none", query: "?modelStatus=Failed", wantNames: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			h := bedrock.NewHandler(b)
+
+			_, err := b.CreateCustomModel("alpha-model", nil)
+			require.NoError(t, err)
+			_, err = b.CreateCustomModel("beta-model", nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodGet, "/custom-models"+tt.query, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			models := out["modelSummaries"].([]any)
+
+			gotNames := make([]string, 0, len(models))
+			for _, m := range models {
+				gotNames = append(gotNames, m.(map[string]any)["modelName"].(string))
+			}
+
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
 func TestAccuracy_CustomModel_DeleteViaHTTP(t *testing.T) {
 	t.Parallel()
 

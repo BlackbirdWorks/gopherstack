@@ -87,9 +87,15 @@ func (b *InMemoryBackend) GetModelCustomizationJob(idOrARN string) (*ModelCustom
 	return &cp, nil
 }
 
-// ListModelCustomizationJobs returns all customization jobs with optional pagination.
+// ListModelCustomizationJobs returns customization jobs matching in's filters,
+// sorted and paginated. in may be nil, matching an unfiltered call.
+// Structurally similar to ListEvaluationJobs/ListModelInvocationJobs (same
+// filter/sort/paginate shape) but over a distinct resource type and filter
+// set; see matchesCustomizationJobFilter.
+//
+//nolint:dupl // see doc comment above.
 func (b *InMemoryBackend) ListModelCustomizationJobs(
-	nextToken string,
+	in *ListModelCustomizationJobsInput,
 ) ([]*ModelCustomizationJob, string) {
 	b.mu.RLock("ListModelCustomizationJobs")
 	defer b.mu.RUnlock()
@@ -97,14 +103,52 @@ func (b *InMemoryBackend) ListModelCustomizationJobs(
 	list := make([]*ModelCustomizationJob, 0, b.modelCustomizationJobs.Len())
 
 	for _, j := range b.modelCustomizationJobs.All() {
+		if !matchesCustomizationJobFilter(j, in) {
+			continue
+		}
+
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].JobArn < list[j].JobArn })
+	descending := in != nil && in.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, j int) bool {
+		if descending {
+			return list[i].CreationTime.After(list[j].CreationTime)
+		}
 
-	return paginateBedrockSlice(list, nextToken)
+		return list[i].CreationTime.Before(list[j].CreationTime)
+	})
+
+	nextToken := ""
+	if in != nil {
+		list, nextToken = paginateBedrockSlice(list, in.NextToken)
+	}
+
+	return list, nextToken
+}
+
+// matchesCustomizationJobFilter reports whether a job satisfies the list
+// filters (statusEquals, nameContains, creationTimeAfter/Before).
+func matchesCustomizationJobFilter(j *ModelCustomizationJob, in *ListModelCustomizationJobsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !j.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !j.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // StopModelCustomizationJob stops a running customization job.

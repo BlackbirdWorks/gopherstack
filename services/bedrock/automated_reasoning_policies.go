@@ -118,9 +118,12 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 	}
 
 	id := b.newARPTestCaseID()
+	now := time.Now().UTC()
 	tc := &AutomatedReasoningPolicyTestCase{
 		TestCaseID: id,
 		PolicyArn:  policyARN,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	b.arpTestCases.Put(tc)
 	cp := *tc
@@ -364,9 +367,12 @@ func (b *InMemoryBackend) ListAutomatedReasoningPolicyTestCases(policyARN string
 	return cases
 }
 
-// UpdateAutomatedReasoningPolicyTestCase updates a test case (idempotent touch).
+// UpdateAutomatedReasoningPolicyTestCase updates a test case's content, query,
+// expected result, and confidence threshold
+// (aws-sdk-go-v2 api_op_UpdateAutomatedReasoningPolicyTestCase.go:34-71).
 func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(
-	policyARN, testCaseID string,
+	policyARN, testCaseID, guardContent, queryContent, expectedResult string,
+	confidenceThreshold *float64,
 ) (*AutomatedReasoningPolicyTestCase, error) {
 	b.mu.Lock("UpdateAutomatedReasoningPolicyTestCase")
 	defer b.mu.Unlock()
@@ -375,6 +381,20 @@ func (b *InMemoryBackend) UpdateAutomatedReasoningPolicyTestCase(
 	if !ok || tc.PolicyArn != policyARN {
 		return nil, fmt.Errorf("%w: test case %s not found", ErrNotFound, testCaseID)
 	}
+
+	if guardContent == "" {
+		return nil, fmt.Errorf("%w: guardContent is required", ErrValidation)
+	}
+
+	if expectedResult == "" {
+		return nil, fmt.Errorf("%w: expectedAggregatedFindingsResult is required", ErrValidation)
+	}
+
+	tc.GuardContent = guardContent
+	tc.QueryContent = queryContent
+	tc.ExpectedAggregatedFindingsResult = expectedResult
+	tc.ConfidenceThreshold = confidenceThreshold
+	tc.UpdatedAt = time.Now().UTC()
 
 	cp := *tc
 

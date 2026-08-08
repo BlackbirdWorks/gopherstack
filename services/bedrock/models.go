@@ -207,6 +207,7 @@ type EvaluationJob struct {
 	JobDescription   string                     `json:"jobDescription,omitempty"`
 	RoleArn          string                     `json:"roleArn,omitempty"`
 	Status           string                     `json:"status"`
+	ApplicationType  string                     `json:"applicationType,omitempty"`
 	Tags             []Tag                      `json:"tags,omitempty"`
 	EvaluatorConfig  *EvaluationModelConfig     `json:"evaluatorConfig,omitempty"`
 	InferenceConfig  *EvaluationInferenceConfig `json:"inferenceConfig,omitempty"`
@@ -233,8 +234,14 @@ type AutomatedReasoningPolicyBuildWorkflow struct {
 
 // AutomatedReasoningPolicyTestCase represents a test case for a policy.
 type AutomatedReasoningPolicyTestCase struct {
-	TestCaseID string `json:"testCaseId"`
-	PolicyArn  string `json:"policyArn"`
+	CreatedAt                        time.Time `json:"createdAt"`
+	UpdatedAt                        time.Time `json:"updatedAt"`
+	ConfidenceThreshold              *float64  `json:"confidenceThreshold,omitempty"`
+	TestCaseID                       string    `json:"testCaseId"`
+	PolicyArn                        string    `json:"policyArn"`
+	GuardContent                     string    `json:"guardContent,omitempty"`
+	QueryContent                     string    `json:"queryContent,omitempty"`
+	ExpectedAggregatedFindingsResult string    `json:"expectedAggregatedFindingsResult,omitempty"`
 }
 
 // AutomatedReasoningPolicyVersion represents a version of a policy.
@@ -251,6 +258,7 @@ type CustomModel struct {
 	CreationTime time.Time `json:"creationTime"`
 	ModelArn     string    `json:"modelArn"`
 	ModelName    string    `json:"modelName"`
+	ModelStatus  string    `json:"modelStatus"`
 	Tags         []Tag     `json:"tags,omitempty"`
 }
 
@@ -383,6 +391,7 @@ type CreateEvaluationJobInput struct {
 	JobName         string
 	JobDescription  string
 	RoleArn         string
+	ApplicationType string
 	Tags            []Tag
 	EvaluatorConfig *EvaluationModelConfig
 	InferenceConfig *EvaluationInferenceConfig
@@ -477,12 +486,37 @@ type ListModelInvocationJobsInput struct {
 
 // ListEvaluationJobsInput holds filter/pagination params for ListEvaluationJobs.
 type ListEvaluationJobsInput struct {
+	StatusEquals          string
+	ApplicationTypeEquals string
+	NameContains          string
+	CreationTimeAfter     *time.Time
+	CreationTimeBefore    *time.Time
+	SortBy                string // CreationTime (default)
+	SortOrder             string // Ascending (default) | Descending
+	NextToken             string
+}
+
+// ListModelCustomizationJobsInput holds filter/pagination params for
+// ListModelCustomizationJobs.
+type ListModelCustomizationJobsInput struct {
 	StatusEquals       string
 	NameContains       string
 	CreationTimeAfter  *time.Time
 	CreationTimeBefore *time.Time
 	SortBy             string // CreationTime (default)
 	SortOrder          string // Ascending (default) | Descending
+	NextToken          string
+}
+
+// ListCustomModelsInput holds filter/pagination params for ListCustomModels.
+type ListCustomModelsInput struct {
+	CreationTimeAfter  *time.Time
+	CreationTimeBefore *time.Time
+	IsOwned            *bool
+	ModelStatus        string
+	NameContains       string
+	SortBy             string
+	SortOrder          string
 	NextToken          string
 }
 

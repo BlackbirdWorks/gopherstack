@@ -725,7 +725,11 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 
 	// Update
 	recUpd := doRequest(t, h, http.MethodPatch,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID,
+		map[string]any{
+			"guardContent":                     "the model said X",
+			"expectedAggregatedFindingsResult": "VALID",
+		})
 	assert.Equal(t, http.StatusOK, recUpd.Code)
 
 	// Delete
@@ -737,6 +741,91 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 	recGet2 := doRequest(t, h, http.MethodGet,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
 	assert.Equal(t, http.StatusNotFound, recGet2.Code)
+}
+
+// TestAccuracy_ARPTestCase_UpdateAppliesContent locks in that
+// UpdateAutomatedReasoningPolicyTestCase actually parses and stores its request
+// body (aws-sdk-go-v2 api_op_UpdateAutomatedReasoningPolicyTestCase.go:29-71) --
+// gopherstack previously accepted PATCH bodies but never read them, only echoing
+// testCaseId/policyArn back.
+func TestAccuracy_ARPTestCase_UpdateAppliesContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "upd-content-pol"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	mustUnmarshal(t, rec, &created)
+	policyARN := created["policyArn"].(string)
+
+	recTC := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, recTC.Code)
+
+	var tc map[string]any
+	mustUnmarshal(t, recTC, &tc)
+	tcID := tc["testCaseId"].(string)
+
+	confidence := 0.85
+	updRec := doRequest(t, h, http.MethodPatch,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID,
+		map[string]any{
+			"guardContent":                     "the model said the sky is blue",
+			"queryContent":                     "what color is the sky?",
+			"expectedAggregatedFindingsResult": "VALID",
+			"confidenceThreshold":              confidence,
+		})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	mustUnmarshal(t, getRec, &getOut)
+	assert.Equal(t, "the model said the sky is blue", getOut["guardContent"])
+	assert.Equal(t, "what color is the sky?", getOut["queryContent"])
+	assert.Equal(t, "VALID", getOut["expectedAggregatedFindingsResult"])
+	assert.InEpsilon(t, confidence, getOut["confidenceThreshold"], 0)
+}
+
+// TestAccuracy_ARPTestCase_UpdateRequiresGuardContent locks in that
+// UpdateAutomatedReasoningPolicyTestCase's required guardContent and
+// expectedAggregatedFindingsResult fields are enforced, not silently accepted
+// as absent.
+func TestAccuracy_ARPTestCase_UpdateRequiresGuardContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "req-content-pol"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	mustUnmarshal(t, rec, &created)
+	policyARN := created["policyArn"].(string)
+
+	recTC := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, recTC.Code)
+
+	var tc map[string]any
+	mustUnmarshal(t, recTC, &tc)
+	tcID := tc["testCaseId"].(string)
+
+	updRec := doRequest(t, h, http.MethodPatch,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	assert.Equal(t, http.StatusBadRequest, updRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	mustUnmarshal(t, getRec, &getOut)
+	assert.Empty(t, getOut["guardContent"], "a rejected update must not mutate the test case")
 }
 
 // TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod locks in the parity fix for

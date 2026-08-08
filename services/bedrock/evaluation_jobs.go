@@ -49,6 +49,7 @@ func (b *InMemoryBackend) CreateEvaluationJob(
 		opt := opts[0]
 		job.JobDescription = opt.JobDescription
 		job.RoleArn = opt.RoleArn
+		job.ApplicationType = opt.ApplicationType
 		job.EvaluatorConfig = opt.EvaluatorConfig
 		job.InferenceConfig = opt.InferenceConfig
 		job.EvaluationConfig = opt.EvalConfig
@@ -174,12 +175,16 @@ func (b *InMemoryBackend) ListEvaluationJobs(in *ListEvaluationJobsInput) ([]*Ev
 }
 
 // matchesEvaluationJobFilter reports whether an evaluation job satisfies the
-// list filters (statusEquals, nameContains, creationTimeAfter/Before).
+// list filters (statusEquals, applicationTypeEquals, nameContains,
+// creationTimeAfter/Before).
 func matchesEvaluationJobFilter(j *EvaluationJob, in *ListEvaluationJobsInput) bool {
 	if in == nil {
 		return true
 	}
 	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.ApplicationTypeEquals != "" && j.ApplicationType != in.ApplicationTypeEquals {
 		return false
 	}
 	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
