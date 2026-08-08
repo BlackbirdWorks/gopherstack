@@ -31,7 +31,12 @@ ops:
   RollbackTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   ExecuteSql: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Deprecated op; executes for real against the same per-resource engine DB
-    and records to the statement log like the other ops.}
+    and records to the statement log like the other ops. resultFrame is now
+    populated for query statements (records + resultSetMetadata), converted
+    from the same engine row extraction ExecuteStatement uses, at the wire
+    boundary into the older Value union (bigIntValue/bitValue, not
+    longValue/booleanValue) -- gopherstack-7ows. Left nil for DML, which
+    still only reports numberOfRecordsUpdated.}
 # Families audited as a group (when per-op is impractical):
 families:
   routing: {status: ok, note: >

@@ -53,6 +53,42 @@ type ColumnMetadata struct {
 	IsSigned            bool   `json:"isSigned"`
 }
 
+// Value represents a single field value in the deprecated ExecuteSql
+// result set -- the older Value union (types.Value in
+// aws-sdk-go-v2/service/rdsdata, deserializers.go:3496), distinct from
+// Field: bigIntValue/bitValue instead of longValue/booleanValue. No
+// arrayValues/intValue/realValue/structValue members: the mock engine's row
+// extraction (engine.go's fieldFromValue) never produces those.
+type Value struct {
+	IsNull      *bool    `json:"isNull,omitempty"`
+	BitValue    *bool    `json:"bitValue,omitempty"`
+	BigIntValue *int64   `json:"bigIntValue,omitempty"`
+	DoubleValue *float64 `json:"doubleValue,omitempty"`
+	StringValue *string  `json:"stringValue,omitempty"`
+	BlobValue   []byte   `json:"blobValue,omitempty"`
+}
+
+// Record is a single row of a ResultFrame (types.Record in
+// aws-sdk-go-v2/service/rdsdata, deserializers.go:2865).
+type Record struct {
+	Values []Value `json:"values"`
+}
+
+// ResultSetMetadata describes the columns of a ResultFrame (types.ResultSetMetadata,
+// deserializers.go:2954).
+type ResultSetMetadata struct {
+	ColumnMetadata []ColumnMetadata `json:"columnMetadata"`
+	ColumnCount    int64            `json:"columnCount"`
+}
+
+// ResultFrame is the result set of a single ExecuteSql statement
+// (types.ResultFrame, deserializers.go:2913). It is left nil for statements
+// that don't produce rows -- see SQLStatementResult.
+type ResultFrame struct {
+	ResultSetMetadata *ResultSetMetadata `json:"resultSetMetadata,omitempty"`
+	Records           []Record           `json:"records"`
+}
+
 // Transaction represents an in-progress database transaction.
 type Transaction struct {
 	TransactionID string `json:"transactionId"`
@@ -90,5 +126,6 @@ type UpdateResult struct {
 
 // SQLStatementResult represents the result of a single SQL statement in an ExecuteSql call.
 type SQLStatementResult struct {
-	NumberOfRecordsUpdated int64 `json:"numberOfRecordsUpdated"`
+	ResultFrame            *ResultFrame `json:"resultFrame,omitempty"`
+	NumberOfRecordsUpdated int64        `json:"numberOfRecordsUpdated"`
 }
