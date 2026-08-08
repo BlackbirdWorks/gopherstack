@@ -189,6 +189,120 @@ func parseStepAdjustments(vals url.Values) ([]StepAdjustment, error) {
 	return stepAdjustments, nil
 }
 
+// parsePredictiveScalingConfiguration parses PredictiveScalingConfiguration.*
+// form values into a PredictiveScalingConfiguration (see models.go for the
+// field mapping to types.PredictiveScalingConfiguration, aws-sdk-go-v2/
+// service/autoscaling/types/types.go:2558). Returns nil, nil if the
+// top-level object was not specified.
+func parsePredictiveScalingConfiguration(vals url.Values) (*PredictiveScalingConfiguration, error) {
+	const prefix = "PredictiveScalingConfiguration."
+
+	maxBehavior := vals.Get(prefix + "MaxCapacityBreachBehavior")
+	mode := vals.Get(prefix + "Mode")
+	maxBufferStr := vals.Get(prefix + "MaxCapacityBuffer")
+	schedBufferStr := vals.Get(prefix + "SchedulingBufferTime")
+
+	specs, err := parsePredictiveScalingMetricSpecifications(vals, prefix+"MetricSpecifications.member.")
+	if err != nil {
+		return nil, err
+	}
+
+	if maxBehavior == "" && mode == "" && maxBufferStr == "" && schedBufferStr == "" && len(specs) == 0 {
+		return nil, nil //nolint:nilnil // absent config means "not a predictive policy", not an error
+	}
+
+	cfg := &PredictiveScalingConfiguration{
+		MaxCapacityBreachBehavior: maxBehavior,
+		Mode:                      mode,
+		MetricSpecifications:      specs,
+	}
+
+	if maxBufferStr != "" {
+		n, parseErr := parseIntVal(maxBufferStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid PredictiveScalingConfiguration.MaxCapacityBuffer", ErrInvalidParameter)
+		}
+
+		cfg.MaxCapacityBuffer = &n
+	}
+
+	if schedBufferStr != "" {
+		n, parseErr := parseIntVal(schedBufferStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf(
+				"%w: invalid PredictiveScalingConfiguration.SchedulingBufferTime",
+				ErrInvalidParameter,
+			)
+		}
+
+		cfg.SchedulingBufferTime = &n
+	}
+
+	return cfg, nil
+}
+
+// parsePredictiveScalingMetricSpecifications parses
+// MetricSpecifications.member.N.* form values. TargetValue is required by
+// AWS on every element, so its presence (like ScalingAdjustment in
+// parseStepAdjustments) is used as the loop-continuation sentinel.
+func parsePredictiveScalingMetricSpecifications(
+	vals url.Values, prefix string,
+) ([]PredictiveScalingMetricSpecification, error) {
+	var specs []PredictiveScalingMetricSpecification
+
+	for i := 1; ; i++ {
+		memberPrefix := fmt.Sprintf("%s%d.", prefix, i)
+
+		targetStr := vals.Get(memberPrefix + "TargetValue")
+		pair := parsePredefinedMetricRef(vals, memberPrefix+"PredefinedMetricPairSpecification.")
+		load := parsePredefinedMetricRef(vals, memberPrefix+"PredefinedLoadMetricSpecification.")
+		scalingMetric := parsePredefinedMetricRef(
+			vals,
+			memberPrefix+"PredefinedScalingMetricSpecification.",
+		)
+
+		if targetStr == "" && pair == nil && load == nil && scalingMetric == nil {
+			break
+		}
+
+		spec := PredictiveScalingMetricSpecification{
+			PredefinedMetricPairSpecification:    pair,
+			PredefinedLoadMetricSpecification:    load,
+			PredefinedScalingMetricSpecification: scalingMetric,
+		}
+
+		if targetStr != "" {
+			tv, parseErr := strconv.ParseFloat(targetStr, 64)
+			if parseErr != nil {
+				return nil, fmt.Errorf("%w: invalid %sTargetValue", ErrInvalidParameter, memberPrefix)
+			}
+
+			spec.TargetValue = tv
+		}
+
+		specs = append(specs, spec)
+	}
+
+	return specs, nil
+}
+
+// parsePredefinedMetricRef parses the {PredefinedMetricType,
+// ResourceLabel} shape shared by PredefinedMetricPairSpecification,
+// PredefinedLoadMetricSpecification, and PredefinedScalingMetricSpecification.
+func parsePredefinedMetricRef(vals url.Values, prefix string) *PredefinedMetricRef {
+	metricType := vals.Get(prefix + "PredefinedMetricType")
+	resourceLabel := vals.Get(prefix + "ResourceLabel")
+
+	if metricType == "" && resourceLabel == "" {
+		return nil
+	}
+
+	return &PredefinedMetricRef{
+		PredefinedMetricType: metricType,
+		ResourceLabel:        resourceLabel,
+	}
+}
+
 func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 	intFields, err := scalingPolicyIntFields(vals)
 	if err != nil {
@@ -205,21 +319,27 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	predictiveScaling, err := parsePredictiveScalingConfiguration(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	input := ScalingPolicyInput{
-		AutoScalingGroupName:   vals.Get("AutoScalingGroupName"),
-		PolicyName:             vals.Get("PolicyName"),
-		PolicyType:             vals.Get("PolicyType"),
-		AdjustmentType:         vals.Get("AdjustmentType"),
-		MetricAggregationType:  vals.Get("MetricAggregationType"),
-		ScalingAdjustment:      intFields.scalingAdjustment,
-		MinAdjustmentStep:      intFields.minAdjustmentStep,
-		MinAdjustmentMagnitude: intFields.minAdjustmentMagnitude,
-		StepAdjustments:        stepAdjustments,
-		Cooldown:               intFields.cooldown,
-		TargetValue:            ttc.targetValue,
-		MetricType:             ttc.metricType,
-		DisableScaleIn:         ttc.disableScaleIn,
-		EstimatedWarmup:        ttc.estimatedWarmup,
+		AutoScalingGroupName:           vals.Get("AutoScalingGroupName"),
+		PolicyName:                     vals.Get("PolicyName"),
+		PolicyType:                     vals.Get("PolicyType"),
+		AdjustmentType:                 vals.Get("AdjustmentType"),
+		MetricAggregationType:          vals.Get("MetricAggregationType"),
+		ScalingAdjustment:              intFields.scalingAdjustment,
+		MinAdjustmentStep:              intFields.minAdjustmentStep,
+		MinAdjustmentMagnitude:         intFields.minAdjustmentMagnitude,
+		StepAdjustments:                stepAdjustments,
+		Cooldown:                       intFields.cooldown,
+		TargetValue:                    ttc.targetValue,
+		MetricType:                     ttc.metricType,
+		DisableScaleIn:                 ttc.disableScaleIn,
+		EstimatedWarmup:                ttc.estimatedWarmup,
+		PredictiveScalingConfiguration: predictiveScaling,
 	}
 
 	policy, putErr := h.Backend.PutScalingPolicy(input)
@@ -299,6 +419,12 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 			xmlPolicy.TargetTrackingConfiguration = ttc
 		}
 
+		if p.PredictiveScalingConfiguration != nil {
+			xmlPolicy.PredictiveScalingConfiguration = toXMLPredictiveScalingConfiguration(
+				p.PredictiveScalingConfiguration,
+			)
+		}
+
 		members = append(members, xmlPolicy)
 	}
 
@@ -364,6 +490,72 @@ type xmlTargetTrackingConfiguration struct {
 	EstimatedInstanceWarmup       int32                             `xml:"EstimatedInstanceWarmup,omitempty"`
 }
 
+// toXMLPredictiveScalingConfiguration converts the stored config to its XML
+// response shape, matching DescribePolicies' ScalingPolicy.
+// PredictiveScalingConfiguration wire shape (deserializers.go:16133).
+func toXMLPredictiveScalingConfiguration(cfg *PredictiveScalingConfiguration) *xmlPredictiveScalingConfiguration {
+	specs := make([]xmlPredictiveScalingMetricSpecification, 0, len(cfg.MetricSpecifications))
+	for _, s := range cfg.MetricSpecifications {
+		specs = append(specs, xmlPredictiveScalingMetricSpecification{
+			PredefinedMetricPairSpecification: toXMLPredefinedMetricRef(
+				s.PredefinedMetricPairSpecification,
+			),
+			PredefinedLoadMetricSpecification: toXMLPredefinedMetricRef(
+				s.PredefinedLoadMetricSpecification,
+			),
+			PredefinedScalingMetricSpecification: toXMLPredefinedMetricRef(
+				s.PredefinedScalingMetricSpecification,
+			),
+			TargetValue: s.TargetValue,
+		})
+	}
+
+	return &xmlPredictiveScalingConfiguration{
+		MaxCapacityBreachBehavior: cfg.MaxCapacityBreachBehavior,
+		Mode:                      cfg.Mode,
+		MaxCapacityBuffer:         cfg.MaxCapacityBuffer,
+		SchedulingBufferTime:      cfg.SchedulingBufferTime,
+		MetricSpecifications:      xmlPredictiveScalingMetricSpecificationList{Members: specs},
+	}
+}
+
+func toXMLPredefinedMetricRef(
+	m *PredefinedMetricRef,
+) *xmlPredefinedMetricRef {
+	if m == nil {
+		return nil
+	}
+
+	return &xmlPredefinedMetricRef{
+		PredefinedMetricType: m.PredefinedMetricType,
+		ResourceLabel:        m.ResourceLabel,
+	}
+}
+
+type xmlPredefinedMetricRef struct {
+	PredefinedMetricType string `xml:"PredefinedMetricType,omitempty"`
+	ResourceLabel        string `xml:"ResourceLabel,omitempty"`
+}
+
+type xmlPredictiveScalingMetricSpecification struct {
+	PredefinedMetricPairSpecification    *xmlPredefinedMetricRef `xml:"PredefinedMetricPairSpecification,omitempty"`
+	PredefinedLoadMetricSpecification    *xmlPredefinedMetricRef `xml:"PredefinedLoadMetricSpecification,omitempty"`
+	PredefinedScalingMetricSpecification *xmlPredefinedMetricRef `xml:"PredefinedScalingMetricSpecification,omitempty"`
+	TargetValue                          float64                 `xml:"TargetValue"`
+}
+
+type xmlPredictiveScalingMetricSpecificationList struct {
+	Members []xmlPredictiveScalingMetricSpecification `xml:"member"`
+}
+
+type xmlPredictiveScalingConfiguration struct {
+	MaxCapacityBuffer         *int32                                      `xml:"MaxCapacityBuffer,omitempty"`
+	SchedulingBufferTime      *int32                                      `xml:"SchedulingBufferTime,omitempty"`
+	MaxCapacityBreachBehavior string                                      `xml:"MaxCapacityBreachBehavior,omitempty"`
+	Mode                      string                                      `xml:"Mode,omitempty"`
+	MetricSpecifications      xmlPredictiveScalingMetricSpecificationList `xml:"MetricSpecifications"`
+}
+
 type xmlStepAdjustment struct {
 	MetricIntervalLowerBound *float64 `xml:"MetricIntervalLowerBound,omitempty"`
 	MetricIntervalUpperBound *float64 `xml:"MetricIntervalUpperBound,omitempty"`
@@ -376,18 +568,19 @@ type xmlStepAdjustmentList struct {
 
 // xmlScalingPolicy is the XML type for a scaling policy.
 type xmlScalingPolicy struct {
-	TargetTrackingConfiguration *xmlTargetTrackingConfiguration `xml:"TargetTrackingConfiguration,omitempty"`
-	StepAdjustments             *xmlStepAdjustmentList          `xml:"StepAdjustments,omitempty"`
-	PolicyName                  string                          `xml:"PolicyName"`
-	PolicyARN                   string                          `xml:"PolicyARN"`
-	AutoScalingGroupName        string                          `xml:"AutoScalingGroupName"`
-	PolicyType                  string                          `xml:"PolicyType,omitempty"`
-	AdjustmentType              string                          `xml:"AdjustmentType,omitempty"`
-	MetricAggregationType       string                          `xml:"MetricAggregationType,omitempty"`
-	ScalingAdjustment           int32                           `xml:"ScalingAdjustment,omitempty"`
-	MinAdjustmentStep           int32                           `xml:"MinAdjustmentStep,omitempty"`
-	MinAdjustmentMagnitude      int32                           `xml:"MinAdjustmentMagnitude,omitempty"`
-	Cooldown                    int32                           `xml:"Cooldown,omitempty"`
+	TargetTrackingConfiguration    *xmlTargetTrackingConfiguration    `xml:"TargetTrackingConfiguration,omitempty"`
+	PredictiveScalingConfiguration *xmlPredictiveScalingConfiguration `xml:"PredictiveScalingConfiguration,omitempty"`
+	StepAdjustments                *xmlStepAdjustmentList             `xml:"StepAdjustments,omitempty"`
+	PolicyName                     string                             `xml:"PolicyName"`
+	PolicyARN                      string                             `xml:"PolicyARN"`
+	AutoScalingGroupName           string                             `xml:"AutoScalingGroupName"`
+	PolicyType                     string                             `xml:"PolicyType,omitempty"`
+	AdjustmentType                 string                             `xml:"AdjustmentType,omitempty"`
+	MetricAggregationType          string                             `xml:"MetricAggregationType,omitempty"`
+	ScalingAdjustment              int32                              `xml:"ScalingAdjustment,omitempty"`
+	MinAdjustmentStep              int32                              `xml:"MinAdjustmentStep,omitempty"`
+	MinAdjustmentMagnitude         int32                              `xml:"MinAdjustmentMagnitude,omitempty"`
+	Cooldown                       int32                              `xml:"Cooldown,omitempty"`
 }
 
 type xmlScalingPolicyList struct {

@@ -304,8 +304,21 @@ func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result
 				}
 			}
 		} else {
-			// ABANDON: AWS terminates the instance that failed to launch.
+			// ABANDON: "we can terminate and replace the instance" (AWS docs,
+			// lifecycle-hooks.html). Terminate the failed instance, then top the
+			// group back up to DesiredCapacity exactly as finishTermination's
+			// terminationReplace disposition does, so the replacement is itself
+			// gated by the same launching hook.
 			b.removeInstanceByID(g, action.InstanceID)
+
+			oldLen := len(g.Instances)
+			g.Instances = b.adjustInstances(g, g.Instances, g.DesiredCapacity)
+
+			for _, inst := range g.Instances[oldLen:] {
+				b.instanceIndex[inst.InstanceID] = g.AutoScalingGroupName
+			}
+
+			b.gateNewLaunchInstances(g, oldLen)
 		}
 	case transitionTerminating:
 		// Both CONTINUE and ABANDON allow termination to proceed for a terminating

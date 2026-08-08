@@ -129,14 +129,18 @@ func TestAutoscalingHandler_LifecycleHookGatesLaunch(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name           string
-		result         string
-		wantState      string
-		wantRemoved    bool
-		wantInstanceOK bool
+		name            string
+		result          string
+		wantState       string
+		wantReplacement bool
 	}{
-		{name: "continue resolves to InService", result: "CONTINUE", wantState: "InService", wantInstanceOK: true},
-		{name: "abandon removes the instance", result: "ABANDON", wantRemoved: true},
+		{name: "continue resolves to InService", result: "CONTINUE", wantState: "InService"},
+		{
+			name:            "abandon terminates and relaunches a replacement",
+			result:          "ABANDON",
+			wantState:       "Pending:Wait",
+			wantReplacement: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -197,15 +201,16 @@ func TestAutoscalingHandler_LifecycleHookGatesLaunch(t *testing.T) {
 			parsed = describeASGInstances(t, body)
 			gotInstances := parsed.Result.AutoScalingGroups.Members[0].Instances.Members
 
-			if tc.wantRemoved {
-				assert.Empty(t, gotInstances, "ABANDON on a launch hook must remove the instance")
-
-				return
-			}
-
+			// AWS: ABANDON on a launch hook means "terminate and replace the instance"
+			// (lifecycle-hooks.html), so DesiredCapacity=1 is maintained by a
+			// replacement -- not left at zero.
 			require.Len(t, gotInstances, 1)
-			assert.Equal(t, tc.wantState, gotInstances[0].LifecycleState,
-				"CompleteLifecycleAction(CONTINUE) must move the instance to InService")
+			assert.Equal(t, tc.wantState, gotInstances[0].LifecycleState)
+
+			if tc.wantReplacement {
+				assert.NotEqual(t, inst.InstanceID, gotInstances[0].InstanceID,
+					"the replacement must be a new instance, not the abandoned one")
+			}
 		})
 	}
 }
