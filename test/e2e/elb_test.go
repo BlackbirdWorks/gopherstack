@@ -147,6 +147,15 @@ func TestELBDashboard_CreateAndDelete(t *testing.T) {
 	err = page.Locator("button:has-text('Delete')").First().Click()
 	require.NoError(t, err)
 
+	confirmDialog := page.Locator("[role='alertdialog']")
+	err = confirmDialog.WaitFor(playwright.LocatorWaitForOptions{
+		State:   playwright.WaitForSelectorStateVisible,
+		Timeout: playwright.Float(10000),
+	})
+	require.NoError(t, err)
+	err = confirmDialog.Locator("button:has-text('Delete')").Click()
+	require.NoError(t, err)
+
 	err = page.Locator("text=No load balancers").First().WaitFor(playwright.LocatorWaitForOptions{
 		Timeout: playwright.Float(60000),
 	})
