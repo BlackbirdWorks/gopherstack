@@ -31,15 +31,18 @@ package backup
 // through persistence, mirroring services/ses's IdentityRecord/
 // ConfigurationSet precedent.
 //
-// mpaApprovals (map[string]string, vaultName -> mpaApprovalTeamArn) and the
-// remaining raw indexes/settings maps (vaultARNIndex, planARNIndex,
-// planIDIndex, frameworkARNIndex, reportPlanARNIndex, globalSettings,
-// recoveryPointIndexStatus) are
-// deliberately left plain maps: their values are plain strings, not *T, so
-// they do not fit store.Table's keyed-by-identity-value shape (mirroring
-// ses's "policies" map, left raw for the same reason). regionSettings is a
-// single *RegionSettings pointer, not a collection, and is unaffected by
-// this refactor.
+// mpaApprovals, globalSettings and recoveryPointIndexStatus
+// (map[string]string) and regionSettings (a single *RegionSettings pointer,
+// not a collection) are deliberately left plain fields rather than
+// store.Table: their values are not *T, so they do not fit store.Table's
+// keyed-by-identity-value shape (mirroring ses's "policies" map). They are
+// still real user state, so persistence.go carries all four as explicit
+// backendSnapshot fields (gopherstack-y5b4) rather than via b.registry.
+//
+// vaultARNIndex, planARNIndex, planIDIndex, frameworkARNIndex and
+// reportPlanARNIndex are derived lookup caches, not source state -- they are
+// rebuilt from the restored tables by rebuildARNIndexes (persistence.go)
+// rather than persisted.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func vaultKeyFn(v *Vault) string { return v.BackupVaultName }

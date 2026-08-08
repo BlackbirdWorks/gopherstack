@@ -174,8 +174,12 @@
   "backup": {
     "fields": [
       "AccountID string `json:\"accountID\"`",
+      "GlobalSettings map[string]string `json:\"globalSettings,omitempty\"`",
+      "GlobalSettingsLastUpdate time.Time `json:\"globalSettingsLastUpdate,omitzero\"`",
       "MpaApprovals map[string]string `json:\"mpaApprovals,omitempty\"`",
+      "RecoveryPointIndexStatus map[string]string `json:\"recoveryPointIndexStatus,omitempty\"`",
       "Region string `json:\"region\"`",
+      "RegionSettings *RegionSettings `json:\"regionSettings,omitempty\"`",
       "Tables map[string]json.RawMessage `json:\"tables\"`"
     ],
     "version": 1

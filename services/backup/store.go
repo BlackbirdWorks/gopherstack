@@ -1,6 +1,8 @@
 package backup
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -73,6 +75,7 @@ func (b *InMemoryBackend) Reset() {
 	b.frameworkARNIndex = make(map[string]string)
 	b.reportPlanARNIndex = make(map[string]string)
 	b.globalSettings = make(map[string]string)
+	b.globalSettingsLastUpdate = time.Time{}
 	b.regionSettings = nil
 	b.recoveryPointIndexStatus = make(map[string]string)
 }
