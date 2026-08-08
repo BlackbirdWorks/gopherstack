@@ -106,7 +106,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 	var result *AdapterVersion
 	var done bool
 	var notFound bool
-	var key string
+	var key, version string
 
 	func() {
 		b.mu.Lock("CreateAdapterVersion")
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 			return
 		}
 
-		version := uuid.NewString()
+		version = uuid.NewString()
 		av := &AdapterVersion{
 			Region:         region,
 			AdapterID:      adapterID,
@@ -169,9 +169,14 @@ func (b *InMemoryBackend) CreateAdapterVersionWithOptions(
 		b.mu.RLock("CreateAdapterVersion-read")
 		defer b.mu.RUnlock()
 
-		stored, _ := b.adapterVersions.Get(key)
-		result = cloneAdapterVersion(stored)
+		if stored, ok := b.adapterVersions.Get(key); ok {
+			result = cloneAdapterVersion(stored)
+		}
 	}()
+
+	if result == nil {
+		return nil, fmt.Errorf("%w: adapter version %s/%s not found", ErrAdapterVersionNotFound, adapterID, version)
+	}
 
 	return result, nil
 }

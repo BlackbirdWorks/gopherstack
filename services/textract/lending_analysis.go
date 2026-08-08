@@ -88,7 +88,7 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 
 	var result *LendingJob
 	var done bool
-	var key string
+	var key, jobID string
 
 	func() {
 		b.mu.Lock("StartLendingAnalysis")
@@ -106,7 +106,7 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 			}
 		}
 
-		jobID := uuid.NewString()
+		jobID = uuid.NewString()
 		job := &LendingJob{
 			Region:              region,
 			JobID:               jobID,
@@ -154,9 +154,14 @@ func (b *InMemoryBackend) StartLendingAnalysisWithOptions(
 		b.mu.RLock("StartLendingAnalysis-read")
 		defer b.mu.RUnlock()
 
-		stored, _ := b.lendingJobs.Get(key)
-		result = cloneLendingJob(stored)
+		if stored, ok := b.lendingJobs.Get(key); ok {
+			result = cloneLendingJob(stored)
+		}
 	}()
+
+	if result == nil {
+		return nil, fmt.Errorf("%w: lending job %s not found", ErrJobNotFound, jobID)
+	}
 
 	return result, nil
 }

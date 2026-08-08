@@ -86,7 +86,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 
 	var result *DocumentJob
 	var done bool
-	var key string
+	var key, jobID string
 
 	func() {
 		b.mu.Lock("StartDocumentAnalysis")
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 			}
 		}
 
-		jobID := uuid.NewString()
+		jobID = uuid.NewString()
 		blocks := analyzeDocumentBlocks(documentURI, featureTypes, queries)
 		job := &DocumentJob{
 			Region:             region,
@@ -154,9 +154,14 @@ func (b *InMemoryBackend) StartDocumentAnalysisWithOptions(
 		b.mu.RLock("StartDocumentAnalysis-read")
 		defer b.mu.RUnlock()
 
-		stored, _ := b.jobs.Get(key)
-		result = cloneJob(stored)
+		if stored, ok := b.jobs.Get(key); ok {
+			result = cloneJob(stored)
+		}
 	}()
+
+	if result == nil {
+		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
+	}
 
 	return result, nil
 }
