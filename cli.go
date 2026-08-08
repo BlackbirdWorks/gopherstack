@@ -68,6 +68,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 	"github.com/blackbirdworks/gopherstack/pkgs/version"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
@@ -5674,7 +5675,7 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0):
-// of the ~90 gopherstack services with native tagging support, this wires 70 (dynamodb, sqs,
+// of the ~90 gopherstack services with native tagging support, this wires 91 (dynamodb, sqs,
 // sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
 // cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
@@ -5683,13 +5684,19 @@ func registerTaggingService(
 // servicediscovery, memorydb, accessanalyzer, dlm, ce, mediapackage, swf, fis,
 // codeconnections, mediastore, mwaa, pipes, macie2, managedblockchain, mediaconvert,
 // datasync, codedeploy, inspector2, ram, rekognition, translate, appstream,
-// mediatailor, vpclattice, codepipeline, kinesisanalyticsv2, opsworks). The rest remain
-// unwired -- see PARITY.md's gaps section for the honest remaining list and why a few
-// (notably s3control, whose taggable ARNs span the "s3"/"s3-object-lambda" service
-// namespaces rather than "s3control" itself, and codebuild, whose real API has no
-// TagResource/CreateTags-style mutation call at all -- tags are set only via
+// mediatailor, vpclattice, codepipeline, kinesisanalyticsv2, opsworks, comprehend,
+// shield, transcribe, verifiedpermissions, waf, securityhub, apprunner,
+// route53resolver, timestreamwrite, s3tables, workmail, pinpoint,
+// applicationautoscaling, codeartifact, cleanrooms, appmesh, personalize, sesv2,
+// xray, awsconfig, scheduler). The rest remain unwired -- see PARITY.md's gaps
+// section for the honest remaining list and why a few (notably s3control, whose
+// taggable ARNs span the "s3"/"s3-object-lambda" service namespaces rather than
+// "s3control" itself; codebuild, whose real API has no TagResource/CreateTags-style
+// mutation call at all -- tags are set only via
 // CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
-// bodies) need more than this dispatch shape supports today.
+// bodies; and forecast, whose only resource-creation path is an unexported backend
+// method reachable solely through its own JSON operation dispatch) need more than
+// this dispatch shape supports today.
 //
 // byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
 // rather than one parameter per service: the wired-service count keeps growing, and a
@@ -5709,6 +5716,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireResourceGroupsTaggingMisc(bk, byName)
 	wireResourceGroupsTaggingApps(bk, byName)
 	wireResourceGroupsTaggingExtra(bk, byName)
+	wireResourceGroupsTaggingSweep5(bk, byName)
 }
 
 // wireResourceGroupsTaggingCore wires the original core set of tagging services
@@ -5853,6 +5861,39 @@ func wireResourceGroupsTaggingExtra(
 	wireTaggingOpsWorks(bk, byName["OpsWorks"])
 }
 
+// wireResourceGroupsTaggingSweep5 wires this sweep's services (gopherstack-3xne,
+// fifth pass): Comprehend, Shield, Transcribe, VerifiedPermissions, WAF Classic,
+// SecurityHub, AppRunner, Route53Resolver, Timestream Write, S3 Tables, WorkMail,
+// Pinpoint, Application Auto Scaling, CodeArtifact, Clean Rooms, App Mesh, Personalize,
+// SESv2, X-Ray, AWS Config, and EventBridge Scheduler. Split out (rather than folded
+// into an existing group) to keep every group under this repo's funlen limit.
+func wireResourceGroupsTaggingSweep5(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	byName map[string]service.Registerable,
+) {
+	wireTaggingComprehend(bk, byName["Comprehend"])
+	wireTaggingShield(bk, byName["Shield"])
+	wireTaggingTranscribe(bk, byName["Transcribe"])
+	wireTaggingVerifiedPermissions(bk, byName["VerifiedPermissions"])
+	wireTaggingWAF(bk, byName["WAF"])
+	wireTaggingSecurityHub(bk, byName["SecurityHub"])
+	wireTaggingAppRunner(bk, byName["AppRunner"])
+	wireTaggingRoute53Resolver(bk, byName["Route53Resolver"])
+	wireTaggingTimestreamWrite(bk, byName["TimestreamWrite"])
+	wireTaggingS3Tables(bk, byName["S3tables"])
+	wireTaggingWorkMail(bk, byName["WorkMail"])
+	wireTaggingPinpoint(bk, byName["Pinpoint"])
+	wireTaggingApplicationAutoScaling(bk, byName["ApplicationAutoscaling"])
+	wireTaggingCodeArtifact(bk, byName["CodeArtifact"])
+	wireTaggingCleanRooms(bk, byName["CleanRooms"])
+	wireTaggingAppMesh(bk, byName["AppMesh"])
+	wireTaggingPersonalize(bk, byName["Personalize"])
+	wireTaggingSESv2(bk, byName["SESv2"])
+	wireTaggingXRay(bk, byName["Xray"])
+	wireTaggingAWSConfig(bk, byName["AWSConfig"])
+	wireTaggingScheduler(bk, byName["Scheduler"])
+}
+
 func wireTaggingDDB(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	ddbReg service.Registerable,
@@ -5912,6 +5953,20 @@ func wireTaggingDDB(
 type taggedARNEntry struct {
 	Tags map[string]string
 	ARN  string
+}
+
+// mapToTagSlice converts a tag map into a slice of a service's own Key/Value tag
+// struct type via newTag, for services whose native TagResource takes []T rather than
+// map[string]string. Shared by every wireTaggingXxx that needs this conversion so the
+// conversion loop isn't duplicated per service (each service's tag struct is a
+// distinct named type, so the loop itself can't be shared without this).
+func mapToTagSlice[T any](tags map[string]string, newTag func(key, value string) T) []T {
+	out := make([]T, 0, len(tags))
+	for k, v := range tags {
+		out = append(out, newTag(k, v))
+	}
+
+	return out
 }
 
 // wireTaggingARNResources registers a tagging service whose resources are described by
@@ -6077,6 +6132,63 @@ func nestedResourceType(resourceARN, service string) string {
 
 	return resourceTypeFromARN(resourceARN, service)
 }
+
+// s3tablesResourceType derives the resource-type string for an S3 Tables ARN.
+// Buckets are flat ("bucket/{name}", 2 segments) but tables nest one level
+// deeper under a namespace ("bucket/{bucket}/table/{namespace}/{table}", 5
+// segments -- see InMemoryBackend.TableARN) -- neither resourceTypeFromARN
+// (would read every table as a bucket) nor nestedResourceType (only handles
+// exactly 4 segments) fits, so this checks for the literal "table" segment.
+func s3tablesResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "s3tables"
+	}
+
+	segs := strings.Split(parts[arnResourceFieldCount-1], "/")
+	if len(segs) >= s3tablesTableSegmentCount && segs[2] == "table" {
+		return "s3tables:table"
+	}
+
+	return resourceTypeFromARN(resourceARN, "s3tables")
+}
+
+// s3tablesTableSegmentCount is the minimum "/"-delimited segment count of a
+// table ARN ("bucket", "{bucket}", "table", ...) that s3tablesResourceType
+// checks before reading the literal "table" segment.
+const s3tablesTableSegmentCount = 3
+
+// appmeshResourceType derives the resource-type string for an App Mesh ARN.
+// Mesh sub-resources nest to varying depths -- a mesh itself is 2 segments
+// ("mesh/{name}"), most sub-resources (virtualNode, virtualRouter,
+// virtualGateway, virtualService) are 4 ("mesh/{name}/virtualNode/{name}"),
+// and routes/gateway routes nest one level deeper still, at 6
+// ("mesh/{name}/virtualRouter/{name}/route/{name}", see routeARN/
+// gatewayRouteARN in virtual_routers.go/virtual_gateways.go) -- deeper than
+// nestedResourceType's fixed 4-segment check handles. For any even segment
+// count the innermost resource kind is always the second-to-last segment,
+// so this generalizes that rule instead of hardcoding a depth.
+func appmeshResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "appmesh"
+	}
+
+	segs := strings.Split(parts[arnResourceFieldCount-1], "/")
+	if len(segs) >= appmeshMinNestedSegmentCount && len(segs)%appmeshSegmentPairSize == 0 {
+		return "appmesh:" + segs[len(segs)-2]
+	}
+
+	return "appmesh"
+}
+
+// appmeshMinNestedSegmentCount and appmeshSegmentPairSize bound
+// appmeshResourceType's "even segment count" check: a well-formed App Mesh
+// resource segment is always a sequence of "kind/id" pairs.
+const (
+	appmeshMinNestedSegmentCount = 2
+	appmeshSegmentPairSize       = 2
+)
 
 func wireTaggingSQS(
 	bk resourcegroupstaggingapibackend.StorageBackend,
@@ -7949,6 +8061,745 @@ func wireTaggingOpsWorks(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 		},
 		opsworksBk.TagResource,
 		opsworksBk.UntagResource,
+	)
+}
+
+// wireTaggingComprehend wires the Comprehend backend into the Resource Groups Tagging
+// API. Comprehend keeps tags for every job/resource kind it supports in one flat
+// ARN-keyed lookup, so resourceTypeFromARN derives the per-resource type. Confirmed
+// against services/comprehend/store.go's resourceARN helper: "comprehend", region,
+// account, resourceType+"/"+name(+"/version/"+version for versioned resources, which
+// still derives the correct base type since resourceTypeFromARN only reads up to the
+// first "/").
+//
+//nolint:dupl // structurally mirrors wireTaggingAWSConfig (both need mapToTagSlice) but wires an unrelated backend
+func wireTaggingComprehend(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*comprehendbackend.Handler)
+	if !ok {
+		return
+	}
+
+	cBk := h.Backend
+	if cBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "comprehend",
+		func(arn string) string { return resourceTypeFromARN(arn, "comprehend") },
+		func() []taggedARNEntry {
+			items := cBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, tags map[string]string) error {
+			return cBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) comprehendbackend.Tag {
+				return comprehendbackend.Tag{Key: k, Value: v}
+			}))
+		},
+		cBk.UntagResource,
+	)
+}
+
+// wireTaggingShield wires the Shield backend into the Resource Groups Tagging API.
+// TagResource/ListTagsForResource/UntagResource only resolve Shield protection ARNs or
+// resource ARNs already associated with a protection (see resolveTaggableProtection in
+// services/shield/tags.go) -- protection groups build their own ARN
+// (protectionGroupARN) but are never accepted by TagResource, so protections are the
+// only taggable kind and a constant resource type is used, matching this repo's
+// SQS/SNS-style single-kind convention.
+func wireTaggingShield(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*shieldbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sBk, ok := h.Backend.(*shieldbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "shield", constantResourceType("shield:protection"),
+		func() []taggedARNEntry {
+			items := sBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		sBk.TagResource,
+		sBk.UntagResource,
+	)
+}
+
+// wireTaggingTranscribe wires the Transcribe backend into the Resource Groups Tagging
+// API. Transcribe keeps tags for every job/vocabulary/model kind it supports in one flat
+// ARN-keyed lookup, so resourceTypeFromARN derives the per-resource type. Confirmed
+// against services/transcribe/store.go's resourceARN helper: "transcribe",
+// config.DefaultRegion, defaultAccountID, resourceType+"/"+name.
+func wireTaggingTranscribe(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*transcribebackend.Handler)
+	if !ok {
+		return
+	}
+
+	tBk, ok := h.Backend.(*transcribebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "transcribe",
+		func(arn string) string { return resourceTypeFromARN(arn, "transcribe") },
+		func() []taggedARNEntry {
+			items := tBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		tBk.TagResource,
+		tBk.UntagResource,
+	)
+}
+
+// wireTaggingVerifiedPermissions wires the Verified Permissions backend into the
+// Resource Groups Tagging API. It keeps tags for policy stores, policies, policy
+// templates, and identity sources in one flat ARN-keyed lookup, so resourceTypeFromARN
+// derives the per-resource type. Confirmed against services/verifiedpermissions'
+// arn.Build call sites: "verifiedpermissions", region (sometimes ""), account,
+// resourceType+"/"+resourceID.
+func wireTaggingVerifiedPermissions(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*verifiedpermissionsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	vpBk, ok := h.Backend.(*verifiedpermissionsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "verifiedpermissions",
+		func(arn string) string { return resourceTypeFromARN(arn, "verifiedpermissions") },
+		func() []taggedARNEntry {
+			items := vpBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		vpBk.TagResource,
+		vpBk.UntagResource,
+	)
+}
+
+// wireTaggingWAF wires the WAF Classic backend into the Resource Groups Tagging API.
+// WAF keeps tags for IP sets, rules, rule groups, rate-based rules, and web ACLs in one
+// flat ARN-keyed lookup, so resourceTypeFromARN derives the per-resource type. Confirmed
+// against services/waf's arn.Build call sites: "waf", "" (global, no region), account,
+// kind+"/"+id.
+func wireTaggingWAF(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*wafbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wBk, ok := h.Backend.(*wafbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "waf",
+		func(arn string) string { return resourceTypeFromARN(arn, "waf") },
+		func() []taggedARNEntry {
+			items := wBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		wBk.TagResource,
+		wBk.UntagResource,
+	)
+}
+
+// wireTaggingSecurityHub wires the Security Hub backend into the Resource Groups
+// Tagging API. It keeps tags for every resource kind it supports (hubs, standards
+// subscriptions, configuration policies, aggregators, connectors, action targets,
+// finding aggregators, and more) in one flat ARN-keyed lookup, so resourceTypeFromARN
+// derives the per-resource type. Confirmed against services/securityhub's arn.Build
+// call sites: "securityhub", region, account, kind+"/"+id (fmt.Sprintf-built, same
+// "type/id" shape).
+func wireTaggingSecurityHub(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*securityhubbackend.Handler)
+	if !ok {
+		return
+	}
+
+	shBk, ok := h.Backend.(*securityhubbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "securityhub",
+		func(arn string) string { return resourceTypeFromARN(arn, "securityhub") },
+		func() []taggedARNEntry {
+			items := shBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		shBk.TagResource,
+		shBk.UntagResource,
+	)
+}
+
+// wireTaggingAppRunner wires the App Runner backend into the Resource Groups Tagging
+// API. It keeps tags for services, auto-scaling configurations, connections,
+// observability configurations, VPC connectors, and VPC ingress connections in one flat
+// ARN-keyed lookup; resourceExists (services/apprunner/tags.go) accepts all six kinds,
+// so resourceTypeFromARN derives the per-resource type from each ARN's own leading
+// segment (e.g. "autoscalingconfiguration/{name}/{revision}/{id}" still yields
+// "apprunner:autoscalingconfiguration" -- resourceTypeFromARN reads only up to the
+// first "/", so the extra revision/id segments of this single-kind compound key don't
+// need nestedResourceType).
+func wireTaggingAppRunner(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*apprunnerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	arBk, ok := h.Backend.(*apprunnerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "apprunner",
+		func(arn string) string { return resourceTypeFromARN(arn, "apprunner") },
+		func() []taggedARNEntry {
+			items := arBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		arBk.TagResource,
+		arBk.UntagResource,
+	)
+}
+
+// wireTaggingRoute53Resolver wires the Route 53 Resolver backend into the Resource
+// Groups Tagging API. It keeps tags for every resource kind it supports (resolver
+// endpoints, resolver rules, resolver configs, firewall domain lists, firewall rules,
+// firewall rule groups, firewall rule group associations, outpost resolvers, and query
+// log configs) in one flat ARN-keyed lookup with no nesting -- every kind is its own
+// top-level "type/id" segment (confirmed against every arn.Build call site in the
+// package) -- so resourceTypeFromARN derives the per-resource type.
+// TagResource/UntagResource take a context (used for region resolution), so this uses
+// wireTaggingCtxARNResources.
+func wireTaggingRoute53Resolver(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*route53resolverbackend.Handler)
+	if !ok {
+		return
+	}
+
+	r53Bk, ok := h.Backend.(*route53resolverbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "route53resolver",
+		func(arn string) string { return resourceTypeFromARN(arn, "route53resolver") },
+		func() []taggedARNEntry {
+			items := r53Bk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(ctx context.Context, arn string, tags map[string]string) error {
+			return r53Bk.TagResource(ctx, arn, svctags.MapToKV(tags))
+		},
+		r53Bk.UntagResource,
+	)
+}
+
+// wireTaggingTimestreamWrite wires the Timestream Write backend into the Resource
+// Groups Tagging API. Its ARN service namespace is "timestream", not "timestreamwrite"
+// (confirmed against services/timestreamwrite/store.go's databaseARN/tableARN
+// helpers). Tables nest one level under their database
+// ("database/{db}/table/{table}"), which nestedResourceType handles (a bare database
+// ARN falls back to resourceTypeFromARN's first-segment rule).
+func wireTaggingTimestreamWrite(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*timestreamwritebackend.Handler)
+	if !ok {
+		return
+	}
+
+	twBk := h.Backend
+	if twBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "timestream",
+		func(arn string) string { return nestedResourceType(arn, "timestream") },
+		func() []taggedARNEntry {
+			items := twBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		twBk.TagResource,
+		twBk.UntagResource,
+	)
+}
+
+// wireTaggingS3Tables wires the S3 Tables backend into the Resource Groups Tagging
+// API. It tags both table bucket ARNs and table ARNs, which nest a table under a
+// namespace under a bucket (see s3tablesResourceType's doc comment for why neither
+// resourceTypeFromARN nor nestedResourceType fits this depth).
+func wireTaggingS3Tables(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*s3tablesbackend.Handler)
+	if !ok {
+		return
+	}
+
+	stBk := h.Backend
+	if stBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "s3tables", s3tablesResourceType,
+		func() []taggedARNEntry {
+			items := stBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		stBk.TagResource,
+		stBk.UntagResource,
+	)
+}
+
+// wireTaggingWorkMail wires the WorkMail backend into the Resource Groups Tagging API.
+// Organizations are flat ("organization/{id}") but users, groups, and resources nest
+// one level under their owning organization ("organization/{id}/{user|group|resource}/
+// {id}", confirmed against services/workmail/store.go's entityARN helper), so
+// nestedResourceType derives the per-resource type.
+func wireTaggingWorkMail(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*workmailbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wmBk, ok := h.Backend.(*workmailbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "workmail",
+		func(arn string) string { return nestedResourceType(arn, "workmail") },
+		func() []taggedARNEntry {
+			items := wmBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, tags map[string]string) error {
+			return wmBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) workmailbackend.Tag {
+				return workmailbackend.Tag{Key: k, Value: v}
+			}))
+		},
+		wmBk.UntagResource,
+	)
+}
+
+// wireTaggingPinpoint wires the Pinpoint backend into the Resource Groups Tagging API.
+// Its ARN service namespace is "mobiletargeting", not "pinpoint" (confirmed against
+// every arn.Build call site in services/pinpoint). Apps and templates are flat, but
+// campaigns/journeys/segments nest one level under their owning app
+// ("apps/{appId}/{campaigns|journeys|segments}/{id}"), so nestedResourceType derives
+// the per-resource type. Export/import jobs also build "apps/..." ARNs but are never
+// entered into the tag index (see TaggedResources' doc comment), so they never surface.
+func wireTaggingPinpoint(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*pinpointbackend.Handler)
+	if !ok {
+		return
+	}
+
+	pBk, ok := h.Backend.(*pinpointbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "mobiletargeting",
+		func(arn string) string { return nestedResourceType(arn, "mobiletargeting") },
+		func() []taggedARNEntry {
+			items := pBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		pBk.TagResource,
+		pBk.UntagResource,
+	)
+}
+
+// wireTaggingApplicationAutoScaling wires the Application Auto Scaling backend into
+// the Resource Groups Tagging API. Scalable targets build ARNs under the real
+// "application-autoscaling" namespace (services/applicationautoscaling/
+// scalable_targets.go), while scheduled actions and scaling policies build ARNs under
+// "autoscaling" instead (matching real AWS's own historical split) -- but
+// TagResource/ListTagsForResource/UntagResource only ever resolve scalable targets
+// (see TaggedResources' doc comment), so only the "application-autoscaling" namespace
+// is wired, with a constant resource type since it is the only taggable kind.
+func wireTaggingApplicationAutoScaling(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*applicationautoscalingbackend.Handler)
+	if !ok {
+		return
+	}
+
+	aasBk := h.Backend
+	if aasBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "application-autoscaling",
+		constantResourceType("application-autoscaling:scalable-target"),
+		func() []taggedARNEntry {
+			items := aasBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		aasBk.TagResource,
+		aasBk.UntagResource,
+	)
+}
+
+// wireTaggingCodeArtifact wires the CodeArtifact backend into the Resource Groups
+// Tagging API. Domains, repositories, and package groups are each their own top-level
+// "type/id"-shaped ARN (confirmed against every arn.Build call site in the package,
+// including repository's "repository/{domain}/{repo}" and package-group's
+// "package-group/{domain}{pattern}" -- both still resolve correctly since
+// resourceTypeFromARN reads only up to the first "/"), so resourceTypeFromARN derives
+// the per-resource type. TagResource/UntagResource take a context (used for region
+// resolution), so this uses wireTaggingCtxARNResources.
+func wireTaggingCodeArtifact(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*codeartifactbackend.Handler)
+	if !ok {
+		return
+	}
+
+	caBk := h.Backend
+	if caBk == nil {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "codeartifact",
+		func(arn string) string { return resourceTypeFromARN(arn, "codeartifact") },
+		func() []taggedARNEntry {
+			items := caBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		caBk.TagResource,
+		caBk.UntagResource,
+	)
+}
+
+// wireTaggingCleanRooms wires the Clean Rooms backend into the Resource Groups
+// Tagging API. Collaborations, memberships, and configured tables are flat, but
+// configured-table associations, ID namespace associations, configured-audience-model
+// associations, analysis templates, privacy budget templates, ID mapping tables, and
+// intermediate tables all nest one level under their owning membership
+// ("membership/{id}/{kind}/{id}", confirmed against every arn.Build call site in the
+// package), so nestedResourceType derives the per-resource type.
+func wireTaggingCleanRooms(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*cleanroomsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	crBk, ok := h.Backend.(*cleanroomsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "cleanrooms",
+		func(arn string) string { return nestedResourceType(arn, "cleanrooms") },
+		func() []taggedARNEntry {
+			items := crBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		crBk.TagResource,
+		crBk.UntagResource,
+	)
+}
+
+// wireTaggingAppMesh wires the App Mesh backend into the Resource Groups Tagging API.
+// See appmeshResourceType's doc comment for why mesh sub-resources need their own
+// derivation rather than resourceTypeFromARN or nestedResourceType.
+func wireTaggingAppMesh(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*appmeshbackend.Handler)
+	if !ok {
+		return
+	}
+
+	amBk, ok := h.Backend.(*appmeshbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "appmesh", appmeshResourceType,
+		func() []taggedARNEntry {
+			items := amBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		amBk.TagResource,
+		amBk.UntagResource,
+	)
+}
+
+// wireTaggingPersonalize wires the Personalize backend into the Resource Groups
+// Tagging API. It keeps tags for every resource kind it supports (dataset groups,
+// datasets, schemas, solutions, solution versions, campaigns, event trackers, filters,
+// recommenders, metric attributions, and jobs) in one flat ARN-keyed lookup, each its
+// own top-level "type/id" segment (confirmed against services/personalize/store.go's
+// personalizeARN helper), so resourceTypeFromARN derives the per-resource type.
+func wireTaggingPersonalize(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*personalizebackend.Handler)
+	if !ok {
+		return
+	}
+
+	pzBk := h.Backend
+	if pzBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "personalize",
+		func(arn string) string { return resourceTypeFromARN(arn, "personalize") },
+		func() []taggedARNEntry {
+			items := pzBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		pzBk.TagResource,
+		pzBk.UntagResource,
+	)
+}
+
+// wireTaggingSESv2 wires the SESv2 backend into the Resource Groups Tagging API. Its
+// ARN service namespace is "ses", not "sesv2" (confirmed against
+// services/sesv2/deliverability.go and tenants.go's arn.Build call sites -- SESv2
+// identities and tenants share the same "ses" namespace SES v1 uses for the same
+// underlying resources). Identities and tenants are each their own flat "type/id" ARN,
+// so resourceTypeFromARN derives the per-resource type. services/ses (SES v1) builds
+// no ARNs of its own today, so there is no shared-namespace ownership collision to
+// guard against yet -- unlike kinesisanalytics v1/v2, see this issue's notes.
+func wireTaggingSESv2(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*sesv2backend.Handler)
+	if !ok {
+		return
+	}
+
+	sesBk, ok := h.Backend.(*sesv2backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "ses",
+		func(arn string) string { return resourceTypeFromARN(arn, "ses") },
+		func() []taggedARNEntry {
+			items := sesBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		sesBk.TagResource,
+		sesBk.UntagResource,
+	)
+}
+
+// wireTaggingXRay wires the X-Ray backend into the Resource Groups Tagging API.
+// resourceExists (services/xray/tags.go) only accepts group and sampling-rule ARNs,
+// each its own flat "type/.../id" segment (group ARNs carry a hardcoded "default"
+// scope segment, "group/default/{name}", but resourceTypeFromARN still derives
+// "xray:group" correctly since it reads only up to the first "/"), so
+// resourceTypeFromARN derives the per-resource type.
+func wireTaggingXRay(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*xraybackend.Handler)
+	if !ok {
+		return
+	}
+
+	xBk, ok := h.Backend.(*xraybackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "xray",
+		func(arn string) string { return resourceTypeFromARN(arn, "xray") },
+		func() []taggedARNEntry {
+			items := xBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		xBk.TagResource,
+		xBk.UntagResource,
+	)
+}
+
+// wireTaggingAWSConfig wires the AWS Config backend into the Resource Groups Tagging
+// API. Its ARN service namespace is "config", not "awsconfig" (confirmed against
+// services/awsconfig's recorderArn/connectorArn helpers, which hand-build
+// "arn:aws:config:..." rather than using pkgs/arn). Configuration recorders and
+// connectors are each their own flat "type/id" ARN, so resourceTypeFromARN derives the
+// per-resource type.
+//
+//nolint:dupl // structurally mirrors wireTaggingComprehend (both need mapToTagSlice) but wires an unrelated backend
+func wireTaggingAWSConfig(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*awsconfigbackend.Handler)
+	if !ok {
+		return
+	}
+
+	acfgBk := h.Backend
+	if acfgBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "config",
+		func(arn string) string { return resourceTypeFromARN(arn, "config") },
+		func() []taggedARNEntry {
+			items := acfgBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arn string, tags map[string]string) error {
+			return acfgBk.TagResource(arn, mapToTagSlice(tags, func(k, v string) awsconfigbackend.Tag {
+				return awsconfigbackend.Tag{Key: k, Value: v}
+			}))
+		},
+		acfgBk.UntagResource,
+	)
+}
+
+// wireTaggingScheduler wires the EventBridge Scheduler backend into the Resource
+// Groups Tagging API. Schedules and schedule groups are each their own flat "type/..."
+// ARN -- a schedule's ARN is "schedule/{group}/{name}" (3 segments, still a single
+// kind since the group name is a namespacing prefix, not a second nested resource
+// kind), so resourceTypeFromARN derives the per-resource type.
+// TagResource/UntagResource take a context (used for region resolution), so this uses
+// wireTaggingCtxARNResources.
+func wireTaggingScheduler(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*schedulerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	schBk, ok := h.Backend.(*schedulerbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "scheduler",
+		func(arn string) string { return resourceTypeFromARN(arn, "scheduler") },
+		func() []taggedARNEntry {
+			items := schBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		schBk.TagResource,
+		schBk.UntagResource,
 	)
 }
 

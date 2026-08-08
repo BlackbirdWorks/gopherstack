@@ -471,6 +471,31 @@ func (b *InMemoryBackend) ListTags(resourceArn string) ([]Tag, error) {
 	return out, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Comprehend resource ARN that currently has
+// at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceArn, current := range b.tags {
+		if len(current) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(current)})
+	}
+
+	return out
+}
+
 // PutResourcePolicy saves a resource policy.
 func (b *InMemoryBackend) PutResourcePolicy(resourceArn, policy, expectedRevision string) (string, error) {
 	b.mu.Lock("PutResourcePolicy")

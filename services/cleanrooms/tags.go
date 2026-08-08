@@ -85,6 +85,31 @@ func (b *InMemoryBackend) TagResource(resourceArn string, tags map[string]string
 	return nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Clean Rooms resource ARN that currently has
+// at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tagsByArn))
+
+	for resourceArn, tags := range b.tagsByArn {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 func (b *InMemoryBackend) UntagResource(resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()

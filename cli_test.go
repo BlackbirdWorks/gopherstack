@@ -23,20 +23,28 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
+	svctags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 	accessanalyzerbackend "github.com/blackbirdworks/gopherstack/services/accessanalyzer"
 	appconfigbackend "github.com/blackbirdworks/gopherstack/services/appconfig"
+	applicationautoscalingbackend "github.com/blackbirdworks/gopherstack/services/applicationautoscaling"
+	appmeshbackend "github.com/blackbirdworks/gopherstack/services/appmesh"
+	apprunnerbackend "github.com/blackbirdworks/gopherstack/services/apprunner"
 	appstreambackend "github.com/blackbirdworks/gopherstack/services/appstream"
 	athenabackend "github.com/blackbirdworks/gopherstack/services/athena"
+	awsconfigbackend "github.com/blackbirdworks/gopherstack/services/awsconfig"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
 	cebackend "github.com/blackbirdworks/gopherstack/services/ce"
+	cleanroomsbackend "github.com/blackbirdworks/gopherstack/services/cleanrooms"
 	cloudfrontbackend "github.com/blackbirdworks/gopherstack/services/cloudfront"
 	cwlogsbackend "github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
+	codeartifactbackend "github.com/blackbirdworks/gopherstack/services/codeartifact"
 	codecommitbackend "github.com/blackbirdworks/gopherstack/services/codecommit"
 	codeconnectionsbackend "github.com/blackbirdworks/gopherstack/services/codeconnections"
 	codedeploybackend "github.com/blackbirdworks/gopherstack/services/codedeploy"
 	codepipelinebackend "github.com/blackbirdworks/gopherstack/services/codepipeline"
 	cognitoidpbackend "github.com/blackbirdworks/gopherstack/services/cognitoidp"
+	comprehendbackend "github.com/blackbirdworks/gopherstack/services/comprehend"
 	datasyncbackend "github.com/blackbirdworks/gopherstack/services/datasync"
 	daxbackend "github.com/blackbirdworks/gopherstack/services/dax"
 	detectivebackend "github.com/blackbirdworks/gopherstack/services/detective"
@@ -66,20 +74,34 @@ import (
 	mwaabackend "github.com/blackbirdworks/gopherstack/services/mwaa"
 	neptunebackend "github.com/blackbirdworks/gopherstack/services/neptune"
 	opensearchbackend "github.com/blackbirdworks/gopherstack/services/opensearch"
+	personalizebackend "github.com/blackbirdworks/gopherstack/services/personalize"
+	pinpointbackend "github.com/blackbirdworks/gopherstack/services/pinpoint"
 	pipesbackend "github.com/blackbirdworks/gopherstack/services/pipes"
 	rambackend "github.com/blackbirdworks/gopherstack/services/ram"
 	rdsbackend "github.com/blackbirdworks/gopherstack/services/rds"
 	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 	rekognitionbackend "github.com/blackbirdworks/gopherstack/services/rekognition"
 	resourcegroupstaggingapibackend "github.com/blackbirdworks/gopherstack/services/resourcegroupstaggingapi"
+	route53resolverbackend "github.com/blackbirdworks/gopherstack/services/route53resolver"
+	s3tablesbackend "github.com/blackbirdworks/gopherstack/services/s3tables"
 	sagemakerbackend "github.com/blackbirdworks/gopherstack/services/sagemaker"
+	schedulerbackend "github.com/blackbirdworks/gopherstack/services/scheduler"
+	securityhubbackend "github.com/blackbirdworks/gopherstack/services/securityhub"
 	servicediscoverybackend "github.com/blackbirdworks/gopherstack/services/servicediscovery"
+	sesv2backend "github.com/blackbirdworks/gopherstack/services/sesv2"
+	shieldbackend "github.com/blackbirdworks/gopherstack/services/shield"
 	sfnbackend "github.com/blackbirdworks/gopherstack/services/stepfunctions"
 	swfbackend "github.com/blackbirdworks/gopherstack/services/swf"
+	timestreamwritebackend "github.com/blackbirdworks/gopherstack/services/timestreamwrite"
+	transcribebackend "github.com/blackbirdworks/gopherstack/services/transcribe"
 	transferbackend "github.com/blackbirdworks/gopherstack/services/transfer"
 	translatebackend "github.com/blackbirdworks/gopherstack/services/translate"
+	verifiedpermissionsbackend "github.com/blackbirdworks/gopherstack/services/verifiedpermissions"
 	vpclatticebackend "github.com/blackbirdworks/gopherstack/services/vpclattice"
+	wafbackend "github.com/blackbirdworks/gopherstack/services/waf"
 	wafv2backend "github.com/blackbirdworks/gopherstack/services/wafv2"
+	workmailbackend "github.com/blackbirdworks/gopherstack/services/workmail"
+	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
 // parseCLI parses the given args (key=value env pairs) into a CLI value
@@ -1758,6 +1780,383 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				return app.ApplicationARN
 			},
 			wantResourceType: "kinesisanalytics:application",
+		},
+		{
+			name: "comprehend_job",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				cBk := comprehendbackend.NewInMemoryBackend(accountID, region)
+				job, err := cBk.StartJob("entities-detection-job", "wiring-test-job", map[string]any{
+					"InputDataConfig":   map[string]any{"S3Uri": "s3://bucket/input"},
+					"OutputDataConfig":  map[string]any{"S3Uri": "s3://bucket/output"},
+					"DataAccessRoleArn": "arn:aws:iam::" + accountID + ":role/wiring-test-role",
+				}, nil)
+				require.NoError(t, err)
+				require.NoError(t, cBk.TagResource(
+					job.JobArn, []comprehendbackend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingComprehend(bk, comprehendbackend.NewHandler(cBk))
+
+				return job.JobArn
+			},
+			wantResourceType: "comprehend:entities-detection-job",
+		},
+		{
+			name: "shield_protection",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				sBk := shieldbackend.NewInMemoryBackend(accountID, region)
+				sBk.AddSubscriptionInternal()
+				p, err := sBk.CreateProtection(
+					"wiring-test-protection",
+					"arn:aws:elasticloadbalancing:"+region+":"+accountID+":loadbalancer/wiring-test-elb",
+					map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingShield(bk, shieldbackend.NewHandler(sBk))
+
+				return p.ProtectionArn
+			},
+			wantResourceType: "shield:protection",
+		},
+		{
+			name: "transcribe_vocabulary",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				tBk := transcribebackend.NewInMemoryBackend()
+				_, err := tBk.CreateVocabulary(&transcribebackend.Vocabulary{
+					VocabularyName: "wiring-test-vocab",
+					LanguageCode:   "en-US",
+					Phrases:        []string{"hello"},
+				})
+				require.NoError(t, err)
+
+				vocabARN := "arn:aws:transcribe:" + region + ":" + accountID + ":vocabulary/wiring-test-vocab"
+				require.NoError(t, tBk.TagResource(vocabARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingTranscribe(bk, transcribebackend.NewHandler(tBk))
+
+				return vocabARN
+			},
+			wantResourceType: "transcribe:vocabulary",
+		},
+		{
+			name: "verifiedpermissions_policy_store",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				vpBk := verifiedpermissionsbackend.NewInMemoryBackend(accountID, region)
+				ps, err := vpBk.CreatePolicyStore(
+					"wiring test store", map[string]string{wantTagKey: wantTagValue}, "OFF", "DISABLED", "",
+				)
+				require.NoError(t, err)
+
+				wireTaggingVerifiedPermissions(bk, verifiedpermissionsbackend.NewHandler(vpBk))
+
+				return ps.Arn
+			},
+			wantResourceType: "verifiedpermissions:policy-store",
+		},
+		{
+			name: "waf_ip_set",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				wBk := wafbackend.NewInMemoryBackend(accountID, region)
+				ipSet, err := wBk.CreateIPSet(
+					"wiring-test-ipset", wBk.GetChangeToken(), map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				ipSetARN := "arn:aws:waf::" + accountID + ":ipset/" + ipSet.IPSetId
+
+				wireTaggingWAF(bk, wafbackend.NewHandler(wBk))
+
+				return ipSetARN
+			},
+			wantResourceType: "waf:ipset",
+		},
+		{
+			name: "securityhub_hub",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				shBk := securityhubbackend.NewInMemoryBackend(accountID, region)
+				require.NoError(t, shBk.EnableHub(false, map[string]string{wantTagKey: wantTagValue}))
+
+				hubARN := "arn:aws:securityhub:" + region + ":" + accountID + ":hub/default"
+
+				wireTaggingSecurityHub(bk, securityhubbackend.NewHandler(shBk))
+
+				return hubARN
+			},
+			wantResourceType: "securityhub:hub",
+		},
+		{
+			name: "apprunner_connection",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				arBk := apprunnerbackend.NewInMemoryBackend(accountID, region)
+				conn, err := arBk.CreateConnection(
+					"wiring-test-conn", "GITHUB", map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingAppRunner(bk, apprunnerbackend.NewHandler(arBk))
+
+				return conn.ConnectionArn
+			},
+			wantResourceType: "apprunner:connection",
+		},
+		{
+			name: "route53resolver_firewall_domain_list",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				r53Bk := route53resolverbackend.NewInMemoryBackend(accountID, region)
+				dl, err := r53Bk.CreateFirewallDomainList(context.Background(), "wiring-test-list", "")
+				require.NoError(t, err)
+				require.NoError(t, r53Bk.TagResource(
+					context.Background(), dl.ARN, []svctags.KV{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingRoute53Resolver(bk, route53resolverbackend.NewHandler(r53Bk))
+
+				return dl.ARN
+			},
+			wantResourceType: "route53resolver:firewall-domain-list",
+		},
+		{
+			name: "timestreamwrite_database",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				twBk := timestreamwritebackend.NewInMemoryBackend()
+				db, err := twBk.CreateDatabase(
+					"wiring-test-db", "", map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingTimestreamWrite(bk, timestreamwritebackend.NewHandler(twBk))
+
+				return db.ARN
+			},
+			wantResourceType: "timestream:database",
+		},
+		{
+			name: "s3tables_bucket",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				stBk := s3tablesbackend.NewInMemoryBackend(accountID, region)
+				bucket, err := stBk.CreateTableBucket("wiring-test-bucket", s3tablesbackend.CreateTableBucketOptions{})
+				require.NoError(t, err)
+				require.NoError(t, stBk.TagResource(bucket.ARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingS3Tables(bk, s3tablesbackend.NewHandler(stBk))
+
+				return bucket.ARN
+			},
+			wantResourceType: "s3tables:bucket",
+		},
+		{
+			name: "workmail_organization",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				wmBk := workmailbackend.NewInMemoryBackend(accountID, region)
+				org, err := wmBk.CreateOrganization(context.Background(), "wiring-test-org", nil)
+				require.NoError(t, err)
+				require.NoError(t, wmBk.TagResource(
+					org.ARN, []workmailbackend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingWorkMail(bk, workmailbackend.NewHandler(wmBk))
+
+				return org.ARN
+			},
+			wantResourceType: "workmail:organization",
+		},
+		{
+			name: "pinpoint_app",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				pBk := pinpointbackend.NewInMemoryBackend(region, accountID)
+				app, err := pBk.CreateApp(
+					region,
+					accountID,
+					"wiring-test-app",
+					map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingPinpoint(bk, pinpointbackend.NewHandler(pBk))
+
+				return app.ARN
+			},
+			wantResourceType: "mobiletargeting:apps",
+		},
+		{
+			name: "applicationautoscaling_scalable_target",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				aasBk := applicationautoscalingbackend.NewInMemoryBackend(accountID, region)
+				target, err := aasBk.RegisterScalableTarget(
+					"ecs", "service/wiring-cluster/wiring-svc", "ecs:service:DesiredCount",
+					1, 10, map[string]string{wantTagKey: wantTagValue}, "", nil,
+				)
+				require.NoError(t, err)
+
+				wireTaggingApplicationAutoScaling(bk, applicationautoscalingbackend.NewHandler(aasBk))
+
+				return target.ARN
+			},
+			wantResourceType: "application-autoscaling:scalable-target",
+		},
+		{
+			name: "codeartifact_domain",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				caBk := codeartifactbackend.NewInMemoryBackend(accountID, region)
+				dom, err := caBk.CreateDomain(
+					context.Background(), "wiring-test-domain", "", map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingCodeArtifact(bk, codeartifactbackend.NewHandler(caBk))
+
+				return dom.ARN
+			},
+			wantResourceType: "codeartifact:domain",
+		},
+		{
+			name: "cleanrooms_collaboration",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				crBk := cleanroomsbackend.NewInMemoryBackend(accountID, region)
+				collab, err := crBk.CreateCollaboration(
+					"wiring-test-collab", "", "creator", nil, nil, "",
+					map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingCleanRooms(bk, cleanroomsbackend.NewHandler(crBk))
+
+				return collab.Arn
+			},
+			wantResourceType: "cleanrooms:collaboration",
+		},
+		{
+			name: "appmesh_mesh",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				amBk := appmeshbackend.NewInMemoryBackend(accountID, region)
+				mesh, err := amBk.CreateMesh("wiring-test-mesh", nil, map[string]string{wantTagKey: wantTagValue})
+				require.NoError(t, err)
+
+				wireTaggingAppMesh(bk, appmeshbackend.NewHandler(amBk))
+
+				return mesh.Meta.Arn
+			},
+			wantResourceType: "appmesh:mesh",
+		},
+		{
+			name: "personalize_dataset_group",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				pzBk := personalizebackend.NewInMemoryBackend(accountID, region)
+				dg, err := pzBk.CreateDatasetGroup(
+					"wiring-test-dg", "", "", "", map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingPersonalize(bk, personalizebackend.NewHandler(pzBk))
+
+				return dg.DatasetGroupArn
+			},
+			wantResourceType: "personalize:dataset-group",
+		},
+		{
+			name: "sesv2_tenant",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				sesBk := sesv2backend.NewInMemoryBackend()
+				tenant, err := sesBk.CreateTenant("wiring-test-tenant", nil)
+				require.NoError(t, err)
+				require.NoError(t, sesBk.TagResource(tenant.TenantARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingSESv2(bk, sesv2backend.NewHandler(sesBk))
+
+				return tenant.TenantARN
+			},
+			wantResourceType: "ses:tenant",
+		},
+		{
+			name: "xray_group",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				xBk := xraybackend.NewInMemoryBackend(accountID, region)
+				g, err := xBk.CreateGroup("wiring-test-group", "")
+				require.NoError(t, err)
+				require.NoError(t, xBk.TagResource(g.GroupARN, map[string]string{wantTagKey: wantTagValue}))
+
+				wireTaggingXRay(bk, xraybackend.NewHandler(xBk))
+
+				return g.GroupARN
+			},
+			wantResourceType: "xray:group",
+		},
+		{
+			name: "awsconfig_recorder",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				acfgBk := awsconfigbackend.NewInMemoryBackend()
+				require.NoError(t, acfgBk.PutConfigurationRecorder(
+					"wiring-test-recorder", "arn:aws:iam::"+accountID+":role/wiring-test-role", nil,
+				))
+
+				recorderARN := "arn:aws:config:" + region + ":" + accountID + ":config-recorder/wiring-test-recorder"
+				require.NoError(t, acfgBk.TagResource(
+					recorderARN, []awsconfigbackend.Tag{{Key: wantTagKey, Value: wantTagValue}},
+				))
+
+				wireTaggingAWSConfig(bk, awsconfigbackend.NewHandler(acfgBk))
+
+				return recorderARN
+			},
+			wantResourceType: "config:config-recorder",
+		},
+		{
+			name: "scheduler_schedule_group",
+			wire: func(t *testing.T, bk resourcegroupstaggingapibackend.StorageBackend) string {
+				t.Helper()
+
+				schBk := schedulerbackend.NewInMemoryBackend(accountID, region)
+				g, err := schBk.CreateScheduleGroup(
+					context.Background(), "wiring-test-group", "", map[string]string{wantTagKey: wantTagValue},
+				)
+				require.NoError(t, err)
+
+				wireTaggingScheduler(bk, schedulerbackend.NewHandler(schBk))
+
+				return g.ARN
+			},
+			wantResourceType: "scheduler:schedule-group",
 		},
 	}
 

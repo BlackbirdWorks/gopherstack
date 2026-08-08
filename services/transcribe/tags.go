@@ -82,3 +82,28 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 
 	return result, nil
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Transcribe resource ARN that currently has
+// at least one tag applied via TagResource or recorded at creation time.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.resourceTags))
+
+	for resourceArn, tags := range b.resourceTags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}

@@ -126,6 +126,31 @@ func (b *InMemoryBackend) resolveShieldProtectionARN(resourceARN string) *Protec
 	return p
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Shield protection ARN that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, b.protections.Len())
+
+	for _, p := range b.protections.All() {
+		if len(p.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: p.ProtectionArn, Tags: maps.Clone(p.Tags)})
+	}
+
+	return out
+}
+
 // cloneTags returns a deep copy of the given tag map.
 func cloneTags(tags map[string]string) map[string]string {
 	if tags == nil {

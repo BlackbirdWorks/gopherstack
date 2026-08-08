@@ -102,3 +102,28 @@ const (
 	// maxTagsPerResource is the maximum number of user-applied tags per resource.
 	maxTagsPerResource = 50
 )
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every X-Ray group or sampling rule ARN that
+// currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.resourceTags))
+
+	for resourceARN, tags := range b.resourceTags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}

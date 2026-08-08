@@ -51,3 +51,28 @@ func (b *InMemoryBackend) ListTagsForResource(arn string) map[string]string {
 
 	return result
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Timestream Write database or table ARN that
+// currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceARN, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
