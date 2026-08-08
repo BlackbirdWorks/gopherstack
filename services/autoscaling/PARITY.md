@@ -107,8 +107,8 @@ families:
   ec2-provisioning (ASG->EC2 real instance launch/terminate via EC2Launcher): {status: ok, note: "was gap bd gopherstack-8sk, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by an undocumented earlier pass - services/autoscaling/ec2_launch.go defines EC2Launcher (LaunchInstances/TerminateInstances), auto_scaling_groups.go/instances.go route scale-out/in through it when wired (SetEC2Launcher), bd gopherstack-8sk is closed. Ledger corrected to reflect reality"}
   elbv2-target-registration (ASG->ELBv2 real target register/deregister via ELBv2TargetRegistrar): {status: ok, note: "was gap bd gopherstack-18k, marked NOT-fixed by the prior ledger; independently field-diffed this pass and found ALREADY fixed by the same undocumented earlier pass - services/autoscaling/elbv2_targets.go defines ELBv2TargetRegistrar (RegisterTargets/DeregisterTargets), wired into attach/detach/scale-in paths, bd gopherstack-18k is closed. Ledger corrected to reflect reality"}
   scheduled-action-scheduler (background execution of Put/BatchPutScheduledUpdateGroupAction): {status: ok, note: "NEW this pass, closing bd gopherstack-6ys. Prior passes correctly parsed/persisted StartTime/EndTime/Recurrence but nothing ever evaluated them against wall-clock time - DescribeScheduledActions reflected what was requested, but no action ever fired. Added scheduled_action_cron.go (5-field Unix-cron parser matching AWS's documented Recurrence format: minute hour day-of-month month day-of-week - distinct from EventBridge's 6-field cron() with a year field) and scheduled_action_scheduler.go (ScheduledActionScheduler, a service.BackgroundWorker: 1-minute ticker, wired via pkgs/worker.SingleRun in handler.go's StartWorker/Shutdown so it is ctx-parented and Shutdown-drained like every other service's background worker in this codebase). Each tick applies any due action's MinSize/MaxSize/DesiredCapacity through the same validated capacity path (applyUpdateCapacityLocked) UpdateAutoScalingGroup uses, so it inherits identical validation/error behavior. Covers one-time actions (Recurrence empty, fires once at/after StartTime) and recurring actions (bounded by StartTime/EndTime when set); a new ScheduledAction.LastExecutedTime field (internal bookkeeping, not on the wire - AWS's real ScheduledUpdateGroupAction response type has no equivalent field) prevents re-firing the same occurrence and prevents an invalid action from busy-looping every tick"}
+  lifecycle-hook-chaining (multiple hooks on one transition): {status: ok, note: "FIXED this pass (bd gopherstack-9tqg, deferred from bd gopherstack-2uti/b7d3a8485). Registering a second+ hook on the same transition previously armed nothing - see dated Notes section below for the ordering rule, the chain data model, and how it composes with ABANDON's terminate-and-replace"}
 gaps:
-  - Multiple lifecycle hooks of the *same* transition on one group: this simulation gates on a single (deterministic, lowest-named) hook per transition per group, matching the common case; AWS supports N hooks per transition each independently gating the same instance. Re-evaluated this pass (bd gopherstack-2uti) with AWS docs in hand (see Notes) - AWS's own docs describe this as an ordered chain ("abandon stops any remaining actions, such as other lifecycle hooks"), not documented concurrency, but implementing the chain (re-arming the next hook in sequence, short-circuiting on ABANDON) touches every armLifecycleWait call site and the Restore-time rearm path; judged too large/risky to rush alongside the other two fixes this pass and deliberately deferred. Documented simplification, see Notes
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
 deferred:
   - InstanceRequirements.BaselinePerformanceFactors (the one field of InstanceRequirements's 25 not modelled - see Notes for the other 24, fixed this pass). It nests a CPU-instance-family reference list (CpuPerformanceFactorRequest.References []PerformanceFactorReferenceRequest) that has no analogue elsewhere in this handler; deliberately not attempted this pass. No bd id filed yet.
@@ -206,6 +206,77 @@ missing feature or a documented simplification):
    the Restore-time `rearmPendingWaits` path) is a materially larger, riskier change
    than (1) and (2) above and was deliberately left as a documented gap rather than
    rushed - see `gaps`.
+
+### bd gopherstack-9tqg (2026-08-08): lifecycle-hook chaining
+
+Implemented the chain deferred by bd `gopherstack-2uti`/b7d3a8485 above: registering a
+second (or third, ...) hook on the same transition now actually arms it, instead of
+silently doing nothing.
+
+**Ordering rule.** Neither `PutLifecycleHookInput` nor `LifecycleHookSpecification`
+(`aws-sdk-go-v2/service/autoscaling@v1.70.4` `api_op_PutLifecycleHook.go:70-140`,
+`types.go:1973-2020`) carries an order/priority field, and `DescribeLifecycleHooksOutput`
+(`api_op_DescribeLifecycleHooks.go:42-51`) is a plain `[]types.LifecycleHook` with no
+ordering metadata either - the SDK does not determine chain order, and the pending-hook
+wait itself is not observable to a client beyond the instance's coarse
+`LifecycleState` (`Pending:Wait`/`Terminating:Wait`; there is no per-hook field on
+`AutoScalingInstanceDetails`). Chose **registration order** as the defensible default
+and documented it here and in `lifecycleHookChain`'s doc comment
+(`lifecycle_hooks.go`): each `LifecycleHook` gets an internal-only `Sequence` field,
+assigned once from a backend counter (`nextHookSeq`) the first time a hook of that name
+is registered (`putLifecycleHookLocked`) and preserved across updates to the same hook.
+`Sequence` is never sent or accepted on the wire - `handleDescribeLifecycleHooks` builds
+`xmlLifecycleHook` field-by-field rather than by converting `LifecycleHook` directly, so
+adding it couldn't leak onto the response the way a straight type conversion would have.
+
+**Mechanics.** `armLifecycleWait` now also records the armed hook's name on the
+instance (`Instance.LifecycleHookName`). `applyLifecycleResult`, on CONTINUE, looks up
+the next hook in `lifecycleHookChain` after the one that just resolved and re-arms the
+same instance on it instead of applying the transition's terminal effect; only once the
+chain is exhausted does it fall through to `InService`/`finishTermination`. ABANDON
+never consults the chain - it goes straight to the terminal effect at whatever position
+it occurred, i.e. short-circuits.
+
+**Composing with b7d3a8485's terminate-and-replace.** ABANDON on a launching hook,
+at any chain position, still reuses the exact same terminate-and-replace branch
+(`removeInstanceByID` + `adjustInstances` + `gateNewLaunchInstances`) that existed
+before this pass - chaining only changes *which* hook's resolution can reach that
+branch, not the branch itself. The replacement instance is a brand-new `Instance`, so
+`gateNewLaunchInstances` arms it via `firstHookInChain`, restarting the launch chain
+from hook 1 rather than continuing wherever the abandoned instance's chain position
+was. Verified with a three-hook launching test
+(`launchChainAbandonShortCircuits`): hook-1 CONTINUE advances to hook-2 (proving the
+chain-advance code path actually ran, not merely that a single-hook flow still works),
+hook-2 ABANDON terminates-and-replaces without hook-3 ever being armed, and the
+replacement is confirmed back at hook-1 (completing hook-3 on it is a no-op; completing
+hook-1 is not).
+
+**Restore mid-chain.** The hardest part: `pendingHookTokens` (in-flight timers/action
+state, including which hook is currently gating an instance) is deliberately never
+persisted, but which hook an instance is paused on cannot be recovered from
+`lifecycleHookChain` alone once the group's earlier hooks have already resolved. Added
+`Instance.LifecycleHookName` (internal-only, rides along transparently in the existing
+`AutoScalingGroup`/`store.Table[AutoScalingGroup]` JSON snapshot - additive field, no
+`autoscalingSnapshotVersion` bump needed, same precedent as b7d3a8485's
+`PredictiveScalingConfiguration` addition) so `rearmPendingWaits` can look the specific
+hook back up by name after `Restore()`, falling back to `firstHookInChain` only when
+that hook is empty (pre-chain-tracking snapshot) or gone (deleted while persisted).
+`nextHookSeq` itself is not persisted (it is not observable through any AWS API, so
+there is nothing to keep byte-identical across a restore); `Restore()` recomputes it as
+the max `Sequence` across restored hooks, so hooks registered post-restore chain after
+all of them rather than colliding. Verified with a dedicated round-trip test
+(`TestAutoscalingHandler_LifecycleHookChainResumesAfterRestore`): a two-hook launch
+chain is advanced past hook-1 (now waiting on hook-2), snapshotted, restored into a
+fresh backend, and completing hook-1 again post-restore is asserted to be a no-op
+(proving the chain did not restart) while completing hook-2 is what actually resolves
+it (proving it correctly resumed there) - confirmed failing pre-fix (hook-1 alone
+finishes the transition, since pre-fix `rearmPendingWaits` always re-armed the chain's
+first hook).
+
+**Data-model change, stated explicitly**: this required two new fields -
+`LifecycleHook.Sequence` (chain ordering) and `Instance.LifecycleHookName` (chain
+position, for restore) - neither of which exists on AWS's wire types; both are
+internal bookkeeping only.
 
 ### Parity-3 sweep (2026-07-23): scheduler, 7 CreateASG/UpdateASG fields, ledger correction
 
@@ -402,32 +473,31 @@ group's effective capacity accounting consistent for concurrent
 single-instance case and was judged too risky to rush. Filed as a known, explicit gap
 above rather than silently left broken.
 
-**ABANDON semantics** (fixed this pass, bd `gopherstack-2uti` - see dated section
-below for the AWS-docs citation): for a *launching* hook, ABANDON terminates the
-pending instance and now also relaunches a replacement to restore `DesiredCapacity`,
-gated by the same launch hook. For a *terminating* hook, both CONTINUE and ABANDON
-proceed with the termination once resolved for a *single*-hook group (AWS lets
-ABANDON/CONTINUE only affect hook-chaining for termination, not whether the instance
-is actually terminated - you cannot veto a termination via a terminating lifecycle
-hook); see the multiple-hooks paragraph below for what ABANDON changes once more than
-one hook is chained.
+**ABANDON semantics** (launching case fixed bd `gopherstack-2uti`/b7d3a8485; chaining
+fixed bd `gopherstack-9tqg` - see dated section below): for a *launching* hook, ABANDON
+terminates the pending instance and relaunches a replacement to restore
+`DesiredCapacity`, gated by the same launch chain from its first hook. ABANDON at any
+position in either chain now also short-circuits every hook still to come, matching
+AWS's documented "abandon stops any remaining actions, such as other lifecycle hooks".
+For a *terminating* hook, both CONTINUE and ABANDON eventually let the instance
+terminate (you cannot veto a termination via a terminating lifecycle hook) - CONTINUE
+differs from ABANDON only in whether the next chained hook, if any, gets to run first.
 
-**Multiple-hooks-per-transition simplification** (re-evaluated, not fixed, this pass -
-bd `gopherstack-2uti`): `findHookForTransition` returns a single,
-deterministically-chosen (lowest hook name) hook per transition per group. Real AWS
-supports registering several hooks on the same transition, each independently gating
-the instance in sequence. The overwhelming majority of real-world ASG configs register
-at most one hook per transition; documented here so the next auditor doesn't mistake
-this for an oversight.
+**Multiple-hooks-per-transition chaining** (fixed bd `gopherstack-9tqg`, deferred from
+bd `gopherstack-2uti`/b7d3a8485 - see dated section below for the full writeup):
+hooks on the same transition now form AWS's documented ordered chain instead of only
+the first ever being armed.
 
 **Restore/persistence**: `pendingHookTokens` (in-flight timers) are intentionally not
-part of `backendSnapshot` - a `*time.Timer` can't be serialized, and this predates
-this pass's changes. What's new this pass: `Restore()` now sweeps every instance left
-in `Pending:Wait`/`Terminating:Wait` by a restored snapshot and re-arms a timer for it
-(using the still-registered hook's HeartbeatTimeout/DefaultResult, or the AWS default
-if the hook itself is gone). Without this, an instance restored mid-wait would be
-stuck in that state forever, since nothing would ever call
-`CompleteLifecycleAction`/hit a timeout for it.
+part of `backendSnapshot` - a `*time.Timer` can't be serialized. `Restore()` sweeps
+every instance left in `Pending:Wait`/`Terminating:Wait` by a restored snapshot and
+re-arms a timer for it. Without this, an instance restored mid-wait would be stuck in
+that state forever, since nothing would ever call `CompleteLifecycleAction`/hit a
+timeout for it. Since bd `gopherstack-9tqg` (see dated section below), the re-armed
+hook is the one the instance was *actually* waiting on
+(`Instance.LifecycleHookName`, itself part of the persisted group so it survives the
+round-trip) rather than always the chain's first hook, so a group restored mid-chain
+resumes at the right position instead of restarting or getting stuck.
 
 ### Other wire-shape bugs fixed this pass
 

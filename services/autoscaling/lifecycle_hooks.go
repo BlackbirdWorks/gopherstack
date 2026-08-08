@@ -76,9 +76,40 @@ func (b *InMemoryBackend) AddLifecycleHook(hook LifecycleHook) error {
 	}
 
 	cp := hook
-	b.lifecycleHooks.Put(&cp)
+	b.putLifecycleHookLocked(&cp)
 
 	return nil
+}
+
+// putLifecycleHookLocked upserts hook into b.lifecycleHooks, assigning it the
+// next chain Sequence on first registration and preserving the existing one
+// across updates. Must be called with b.mu held (write lock).
+func (b *InMemoryBackend) putLifecycleHookLocked(hook *LifecycleHook) {
+	key := scopedKey(hook.AutoScalingGroupName, hook.LifecycleHookName)
+	if existing, ok := b.lifecycleHooks.Get(key); ok {
+		hook.Sequence = existing.Sequence
+	} else {
+		b.nextHookSeq++
+		hook.Sequence = b.nextHookSeq
+	}
+
+	b.lifecycleHooks.Put(hook)
+}
+
+// recomputeNextHookSeqLocked restores nextHookSeq after a snapshot Restore, so
+// hooks registered post-restore chain after every restored hook instead of
+// colliding with (or racing behind) Sequence numbers already in use. Must be
+// called with b.mu held (write lock).
+func (b *InMemoryBackend) recomputeNextHookSeqLocked() {
+	var maxSeq int64
+
+	for _, h := range b.lifecycleHooks.All() {
+		if h.Sequence > maxSeq {
+			maxSeq = h.Sequence
+		}
+	}
+
+	b.nextHookSeq = maxSeq
 }
 
 // defaultHeartbeatTimeout is the default HeartbeatTimeout for lifecycle hooks (1 hour), matching AWS.
@@ -102,7 +133,7 @@ func (b *InMemoryBackend) PutLifecycleHook(hook LifecycleHook) error {
 	}
 
 	cp := hook
-	b.lifecycleHooks.Put(&cp)
+	b.putLifecycleHookLocked(&cp)
 
 	return nil
 }
@@ -216,23 +247,63 @@ func (b *InMemoryBackend) cleanupHookTimers(groupName, hookName string) {
 	}
 }
 
-// findHookForTransition returns the first lifecycle hook registered for the given
-// group whose LifecycleTransition matches transition, or nil if none is registered.
-// AWS allows multiple hooks per transition (each must complete independently); this
-// simulation supports one active hook per transition per group, which covers the
-// overwhelming majority of real configurations. Must be called with b.mu held.
-func findHookForTransition(hooks []*LifecycleHook, transition string) *LifecycleHook {
-	var found *LifecycleHook
+// lifecycleHookChain returns the hooks registered for transition, ordered by
+// registration Sequence (ties broken by name for determinism). AWS documents
+// hooks on one transition as an ORDERED CHAIN, not concurrent execution:
+// ABANDON "stops any remaining actions, such as other lifecycle hooks" while
+// CONTINUE "allows any other lifecycle hooks to complete" (lifecycle-hooks.html).
+// Neither PutLifecycleHookInput nor LifecycleHookSpecification carries an
+// order/priority field, so registration order is the defensible default.
+// Must be called with b.mu held.
+func lifecycleHookChain(hooks []*LifecycleHook, transition string) []*LifecycleHook {
+	chain := make([]*LifecycleHook, 0, len(hooks))
 
 	for _, h := range hooks {
 		if h.LifecycleTransition == transition {
-			if found == nil || h.LifecycleHookName < found.LifecycleHookName {
-				found = h
-			}
+			chain = append(chain, h)
 		}
 	}
 
-	return found
+	sort.Slice(chain, func(i, j int) bool {
+		if chain[i].Sequence != chain[j].Sequence {
+			return chain[i].Sequence < chain[j].Sequence
+		}
+
+		return chain[i].LifecycleHookName < chain[j].LifecycleHookName
+	})
+
+	return chain
+}
+
+// firstHookInChain returns the first hook (by chain order) registered for
+// transition, or nil if none is registered. Must be called with b.mu held.
+func firstHookInChain(hooks []*LifecycleHook, transition string) *LifecycleHook {
+	chain := lifecycleHookChain(hooks, transition)
+	if len(chain) == 0 {
+		return nil
+	}
+
+	return chain[0]
+}
+
+// nextHookInChain returns the hook chained after currentHookName for
+// transition, or nil if currentHookName was last in the chain, or is no
+// longer registered (e.g. deleted mid-wait, in which case the chain stops
+// rather than guessing a position). Must be called with b.mu held.
+func nextHookInChain(hooks []*LifecycleHook, transition, currentHookName string) *LifecycleHook {
+	chain := lifecycleHookChain(hooks, transition)
+
+	for i, h := range chain {
+		if h.LifecycleHookName == currentHookName {
+			if i+1 < len(chain) {
+				return chain[i+1]
+			}
+
+			return nil
+		}
+	}
+
+	return nil
 }
 
 // armLifecycleWait puts inst into the appropriate "Wait" lifecycle state and starts a
@@ -247,6 +318,8 @@ func (b *InMemoryBackend) armLifecycleWait(
 	} else {
 		inst.LifecycleState = lifecycleStateTerminatingWait
 	}
+
+	inst.LifecycleHookName = hook.LifecycleHookName
 
 	token := uuid.NewString()
 	timeout := time.Duration(hook.HeartbeatTimeout) * time.Second
@@ -293,12 +366,21 @@ func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result
 		return // group was deleted while the action was pending
 	}
 
+	// CONTINUE "allows any other lifecycle hooks to complete" (lifecycle-hooks.html):
+	// if another hook is chained after this one, arm it and stop here. ABANDON must
+	// never reach armNextInChain -- it "stops any remaining actions, such as other
+	// lifecycle hooks" and falls through to the terminal handling below instead.
+	if strings.EqualFold(result, lifecycleActionContinue) && b.armNextInChain(g, action) {
+		return
+	}
+
 	switch action.Transition {
 	case transitionLaunching:
 		if strings.EqualFold(result, lifecycleActionContinue) {
 			for i := range g.Instances {
 				if g.Instances[i].InstanceID == action.InstanceID {
 					g.Instances[i].LifecycleState = lifecycleStateInService
+					g.Instances[i].LifecycleHookName = ""
 
 					break
 				}
@@ -308,7 +390,8 @@ func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result
 			// lifecycle-hooks.html). Terminate the failed instance, then top the
 			// group back up to DesiredCapacity exactly as finishTermination's
 			// terminationReplace disposition does, so the replacement is itself
-			// gated by the same launching hook.
+			// gated by the same launching hook (from its first hook, chained forward
+			// like any other new instance).
 			b.removeInstanceByID(g, action.InstanceID)
 
 			oldLen := len(g.Instances)
@@ -321,11 +404,30 @@ func (b *InMemoryBackend) applyLifecycleResult(action *pendingHookAction, result
 			b.gateNewLaunchInstances(g, oldLen)
 		}
 	case transitionTerminating:
-		// Both CONTINUE and ABANDON allow termination to proceed for a terminating
-		// hook (the result only affects any downstream hook chaining, which this
-		// simulation does not model).
+		// Reached on ABANDON at any chain position, or CONTINUE with no further
+		// chained hook -- both proceed to the actual termination.
 		b.finishTermination(g, action)
 	}
+}
+
+// armNextInChain re-arms action's instance on the hook chained after
+// action.HookName for action.Transition, if one is registered, and reports
+// whether it did so. Must be called with b.mu held.
+func (b *InMemoryBackend) armNextInChain(g *AutoScalingGroup, action *pendingHookAction) bool {
+	next := nextHookInChain(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), action.Transition, action.HookName)
+	if next == nil {
+		return false
+	}
+
+	for i := range g.Instances {
+		if g.Instances[i].InstanceID == action.InstanceID {
+			b.armLifecycleWait(g, next, &g.Instances[i], action.Transition, action.Disposition)
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // rearmPendingWaits re-arms heartbeat timers for any instances left in a lifecycle
@@ -349,7 +451,14 @@ func (b *InMemoryBackend) rearmPendingWaits() {
 				continue
 			}
 
-			hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transition)
+			// Resume at the hook the instance was actually waiting on, not the start
+			// of the chain -- inst.LifecycleHookName is empty only for a
+			// pre-chain-tracking snapshot or a hook deleted while persisted, in
+			// which case restarting the chain is the best available fallback.
+			hook, ok := b.lifecycleHooks.Get(scopedKey(g.AutoScalingGroupName, inst.LifecycleHookName))
+			if !ok {
+				hook = firstHookInChain(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transition)
+			}
 
 			heartbeat := defaultHeartbeatTimeout
 			defaultResult := lifecycleActionAbandon
@@ -359,6 +468,7 @@ func (b *InMemoryBackend) rearmPendingWaits() {
 				heartbeat = hook.HeartbeatTimeout
 				defaultResult = hook.DefaultResult
 				hookName = hook.LifecycleHookName
+				inst.LifecycleHookName = hookName
 			}
 
 			token := uuid.NewString()

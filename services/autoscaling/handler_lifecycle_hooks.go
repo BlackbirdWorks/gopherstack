@@ -80,7 +80,17 @@ func (h *Handler) handleDescribeLifecycleHooks(vals url.Values) (any, error) {
 
 	members := make([]xmlLifecycleHook, 0, len(hooks))
 	for _, hook := range hooks {
-		members = append(members, xmlLifecycleHook(hook))
+		members = append(members, xmlLifecycleHook{
+			LifecycleHookName:     hook.LifecycleHookName,
+			AutoScalingGroupName:  hook.AutoScalingGroupName,
+			LifecycleTransition:   hook.LifecycleTransition,
+			DefaultResult:         hook.DefaultResult,
+			NotificationTargetARN: hook.NotificationTargetARN,
+			NotificationMetadata:  hook.NotificationMetadata,
+			RoleARN:               hook.RoleARN,
+			HeartbeatTimeout:      hook.HeartbeatTimeout,
+			GlobalTimeout:         hook.GlobalTimeout,
+		})
 	}
 
 	return &describeLifecycleHooksResponse{

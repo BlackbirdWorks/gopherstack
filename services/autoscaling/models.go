@@ -442,7 +442,13 @@ type Instance struct {
 	HealthStatus            string    `json:"HealthStatus"`
 	LaunchConfigurationName string    `json:"LaunchConfigurationName,omitempty"`
 	InstanceType            string    `json:"InstanceType,omitempty"`
-	ProtectedFromScaleIn    bool      `json:"ProtectedFromScaleIn,omitempty"`
+	// LifecycleHookName is the hook currently gating this instance's
+	// Pending:Wait/Terminating:Wait state, if any -- internal-only (not part of
+	// AWS's AutoScalingInstanceDetails), so a restored group resumes its hook
+	// chain at the right position instead of restarting it (see
+	// rearmPendingWaits).
+	LifecycleHookName    string `json:"LifecycleHookName,omitempty"`
+	ProtectedFromScaleIn bool   `json:"ProtectedFromScaleIn,omitempty"`
 }
 
 // Tag is a key/value pair attached to a resource, optionally propagated to new instances.
@@ -544,8 +550,15 @@ type LifecycleHook struct {
 	NotificationTargetARN string `json:"NotificationTargetARN,omitempty"`
 	NotificationMetadata  string `json:"NotificationMetadata,omitempty"`
 	RoleARN               string `json:"RoleARN,omitempty"`
-	HeartbeatTimeout      int32  `json:"HeartbeatTimeout,omitempty"`
-	GlobalTimeout         int32  `json:"GlobalTimeout,omitempty"`
+	// Sequence orders this hook within its transition's chain (registration
+	// order). AWS exposes no order/priority field on PutLifecycleHookInput or
+	// LifecycleHookSpecification (autoscaling@v1.70.4
+	// api_op_PutLifecycleHook.go:70-140, types.go:1973-2020) though
+	// lifecycle-hooks.html documents hooks as an ordered chain, so this is
+	// internal-only: never sent or accepted on the wire.
+	Sequence         int64 `json:"sequence,omitempty"`
+	HeartbeatTimeout int32 `json:"HeartbeatTimeout,omitempty"`
+	GlobalTimeout    int32 `json:"GlobalTimeout,omitempty"`
 }
 
 // CompleteLifecycleActionInput holds the input for CompleteLifecycleAction.

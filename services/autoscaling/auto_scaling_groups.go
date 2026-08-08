@@ -167,9 +167,11 @@ func (b *InMemoryBackend) CreateAutoScalingGroup(input CreateAutoScalingGroupInp
 
 	// Register any initial lifecycle hooks BEFORE gating instances so a launch hook
 	// specified at creation time applies to the group's own initial instances too.
+	// Registration order (LifecycleHookSpecificationList's own member order) is what
+	// determines their chain position -- see putLifecycleHookLocked.
 	for _, hook := range normalizedHooks {
 		cp := hook
-		b.lifecycleHooks.Put(&cp)
+		b.putLifecycleHookLocked(&cp)
 	}
 
 	b.gateNewLaunchInstances(group, 0)
@@ -619,7 +621,7 @@ func (b *InMemoryBackend) applyScaleIn(g *AutoScalingGroup, targetCount int) {
 		return
 	}
 
-	hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transitionTerminating)
+	hook := firstHookInChain(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transitionTerminating)
 	if hook != nil {
 		for i := range g.Instances {
 			if removeSet[i] {
