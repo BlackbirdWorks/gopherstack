@@ -1251,19 +1251,119 @@ type VideoDescription struct {
 	Sharpness       int32
 }
 
+// BurnInDestinationSettings configures burned-in captions
+// (types.BurnInDestinationSettings, types.go:998). Wire keys "alignment"/
+// "backgroundColor"/"backgroundOpacity"/"font"/"fontColor"/"fontOpacity"/
+// "fontResolution"/"fontSize"/"outlineColor"/"outlineSize"/"shadowColor"/
+// "shadowOpacity"/"shadowXOffset"/"shadowYOffset"/"subtitleRows"/
+// "teletextGridControl"/"xPosition"/"yPosition". Font reuses InputLocation.
+type BurnInDestinationSettings struct {
+	Font                InputLocation
+	Alignment           string
+	BackgroundColor     string
+	FontColor           string
+	FontSize            string
+	OutlineColor        string
+	ShadowColor         string
+	SubtitleRows        string
+	TeletextGridControl string
+	BackgroundOpacity   int32
+	FontOpacity         int32
+	FontResolution      int32
+	OutlineSize         int32
+	ShadowOpacity       int32
+	ShadowXOffset       int32
+	ShadowYOffset       int32
+	XPosition           int32
+	YPosition           int32
+}
+
+// DvbSubDestinationSettings configures DVB-Sub captions
+// (types.DvbSubDestinationSettings, types.go:2216) -- the same field set as
+// BurnInDestinationSettings, under DVB-Sub-scoped enum types on the SDK
+// side (both are plain strings here).
+type DvbSubDestinationSettings struct {
+	Font                InputLocation
+	Alignment           string
+	BackgroundColor     string
+	FontColor           string
+	FontSize            string
+	OutlineColor        string
+	ShadowColor         string
+	SubtitleRows        string
+	TeletextGridControl string
+	BackgroundOpacity   int32
+	FontOpacity         int32
+	FontResolution      int32
+	OutlineSize         int32
+	ShadowOpacity       int32
+	ShadowXOffset       int32
+	ShadowYOffset       int32
+	XPosition           int32
+	YPosition           int32
+}
+
+// EbuTtDDestinationSettings configures EBU-TT-D captions
+// (types.EbuTtDDestinationSettings, types.go:2469). Wire keys
+// "copyrightHolder"/"defaultFontSize"/"defaultLineHeight"/"fillLineGap"/
+// "fontFamily"/"styleControl".
+type EbuTtDDestinationSettings struct {
+	CopyrightHolder   string
+	FontFamily        string
+	FillLineGap       string
+	StyleControl      string
+	DefaultFontSize   int32
+	DefaultLineHeight int32
+}
+
+// TtmlDestinationSettings configures TTML captions
+// (types.TtmlDestinationSettings, types.go:8483). Wire key "styleControl".
+type TtmlDestinationSettings struct {
+	StyleControl string
+}
+
+// WebvttDestinationSettings configures WebVTT captions
+// (types.WebvttDestinationSettings, types.go:8792). Wire key "styleControl".
+type WebvttDestinationSettings struct {
+	StyleControl string
+}
+
+// CaptionDestinationSettings is the tagged union of caption output formats
+// (types.CaptionDestinationSettings, types.go:1151); at most one variant is
+// set. Arib/Embedded/EmbeddedPlusScte20/RtmpCaptionInfo/
+// Scte20PlusEmbedded/Scte27/SmpteTt/TeletextDestinationSettings have no
+// fields on the real wire, so a bool records "this variant is set" -- same
+// convention as AudioCodecSettings.PassThroughSettings.
+type CaptionDestinationSettings struct {
+	BurnInDestinationSettings             *BurnInDestinationSettings
+	DvbSubDestinationSettings             *DvbSubDestinationSettings
+	EbuTtDDestinationSettings             *EbuTtDDestinationSettings
+	TtmlDestinationSettings               *TtmlDestinationSettings
+	WebvttDestinationSettings             *WebvttDestinationSettings
+	AribDestinationSettings               bool
+	EmbeddedDestinationSettings           bool
+	EmbeddedPlusScte20DestinationSettings bool
+	RtmpCaptionInfoDestinationSettings    bool
+	Scte20PlusEmbeddedDestinationSettings bool
+	Scte27DestinationSettings             bool
+	SmpteTtDestinationSettings            bool
+	TeletextDestinationSettings           bool
+}
+
 // CaptionDescription names one caption output derived from an input caption
-// selector. Wire keys "captionSelectorName"/"name"/"accessibility"/
-// "dvbDashAccessibility"/"languageCode"/"languageDescription" -- verified
-// against types.CaptionDescription. DestinationSettings (the ~15-variant
-// per-format union: burn-in/DVB-Sub/SCTE-27/WebVTT/etc) and CaptionDashRoles
-// are deliberately NOT modeled; see PARITY.md's gaps entry.
+// selector. Wire keys "captionDashRoles"/"captionSelectorName"/"name"/
+// "accessibility"/"destinationSettings"/"dvbDashAccessibility"/
+// "languageCode"/"languageDescription" -- verified against
+// types.CaptionDescription, types.go:1107.
 type CaptionDescription struct {
+	DestinationSettings  *CaptionDestinationSettings
 	CaptionSelectorName  string
 	Name                 string
 	Accessibility        string
 	DvbDashAccessibility string
 	LanguageCode         string
 	LanguageDescription  string
+	CaptionDashRoles     []string
 }
 
 // OutputLocationRef references an OutputDestination by ID (types.
@@ -2057,9 +2157,10 @@ func (n ChannelNielsenConfiguration) hasNielsenConfiguration() bool {
 
 // EncoderSettings is EncoderSettings' modeled subset -- see the per-type doc
 // comments above and PARITY.md's gaps entry for exactly what's excluded (the
-// per-codec AudioCodecSettings/VideoCodecSettings unions, the
-// per-output-technology OutputGroupSettings/OutputSettings unions, and the
-// per-caption-format CaptionDestinationSettings union). AvailConfiguration/
+// per-codec AudioCodecSettings/VideoCodecSettings unions and the
+// per-output-technology OutputGroupSettings/OutputSettings unions).
+// CaptionDestinationSettings (gopherstack-1szb) IS modeled in full, alongside
+// its BurnIn/DvbSub/EbuTtD/Ttml/Webvtt sub-shapes above. AvailConfiguration/
 // ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
 // (gopherstack-sthr) ARE modeled in full below -- unlike the codec/
 // output-technology unions, none of these four is itself a large per-format

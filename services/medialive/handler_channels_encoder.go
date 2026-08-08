@@ -884,13 +884,302 @@ func extractVideoDescriptions(raw []any) []VideoDescription {
 
 // -- CaptionDescriptions --
 
+// burnInAndDvbSubOutput is the shared wire shape of BurnInDestinationSettings
+// and DvbSubDestinationSettings (types.go:998, :2216) -- identical field set,
+// separate DVB-Sub-scoped enums on the SDK side that both collapse to plain
+// strings here.
+type burnInAndDvbSubOutput struct {
+	Font                *inputLocationOutput `json:"font,omitempty"`
+	Alignment           string               `json:"alignment,omitempty"`
+	BackgroundColor     string               `json:"backgroundColor,omitempty"`
+	FontColor           string               `json:"fontColor,omitempty"`
+	FontSize            string               `json:"fontSize,omitempty"`
+	OutlineColor        string               `json:"outlineColor,omitempty"`
+	ShadowColor         string               `json:"shadowColor,omitempty"`
+	SubtitleRows        string               `json:"subtitleRows,omitempty"`
+	TeletextGridControl string               `json:"teletextGridControl,omitempty"`
+	BackgroundOpacity   int32                `json:"backgroundOpacity,omitempty"`
+	FontOpacity         int32                `json:"fontOpacity,omitempty"`
+	FontResolution      int32                `json:"fontResolution,omitempty"`
+	OutlineSize         int32                `json:"outlineSize,omitempty"`
+	ShadowOpacity       int32                `json:"shadowOpacity,omitempty"`
+	ShadowXOffset       int32                `json:"shadowXOffset,omitempty"`
+	ShadowYOffset       int32                `json:"shadowYOffset,omitempty"`
+	XPosition           int32                `json:"xPosition,omitempty"`
+	YPosition           int32                `json:"yPosition,omitempty"`
+}
+
+// burnInFieldsToOutput builds the shared wire shape from
+// BurnInDestinationSettings' field set; DvbSubDestinationSettings is
+// structurally identical (same field names/types/order), so callers convert
+// to it first rather than duplicating this body.
+func burnInFieldsToOutput(s BurnInDestinationSettings) *burnInAndDvbSubOutput {
+	return &burnInAndDvbSubOutput{
+		Font:                toInputLocationOutput(s.Font),
+		Alignment:           s.Alignment,
+		BackgroundColor:     s.BackgroundColor,
+		FontColor:           s.FontColor,
+		FontSize:            s.FontSize,
+		OutlineColor:        s.OutlineColor,
+		ShadowColor:         s.ShadowColor,
+		SubtitleRows:        s.SubtitleRows,
+		TeletextGridControl: s.TeletextGridControl,
+		BackgroundOpacity:   s.BackgroundOpacity,
+		FontOpacity:         s.FontOpacity,
+		FontResolution:      s.FontResolution,
+		OutlineSize:         s.OutlineSize,
+		ShadowOpacity:       s.ShadowOpacity,
+		ShadowXOffset:       s.ShadowXOffset,
+		ShadowYOffset:       s.ShadowYOffset,
+		XPosition:           s.XPosition,
+		YPosition:           s.YPosition,
+	}
+}
+
+func toBurnInDestinationSettingsOutput(s *BurnInDestinationSettings) *burnInAndDvbSubOutput {
+	if s == nil {
+		return nil
+	}
+
+	return burnInFieldsToOutput(*s)
+}
+
+func toDvbSubDestinationSettingsOutput(s *DvbSubDestinationSettings) *burnInAndDvbSubOutput {
+	if s == nil {
+		return nil
+	}
+
+	return burnInFieldsToOutput(BurnInDestinationSettings(*s))
+}
+
+// extractBurnInFields is extractBurnInDestinationSettings/
+// extractDvbSubDestinationSettings' shared body -- see burnInFieldsToOutput.
+func extractBurnInFields(raw map[string]any) BurnInDestinationSettings {
+	return BurnInDestinationSettings{
+		Font:                extractInputLocation(raw, "font"),
+		Alignment:           stringFromAny(raw["alignment"]),
+		BackgroundColor:     stringFromAny(raw["backgroundColor"]),
+		FontColor:           stringFromAny(raw["fontColor"]),
+		FontSize:            stringFromAny(raw["fontSize"]),
+		OutlineColor:        stringFromAny(raw["outlineColor"]),
+		ShadowColor:         stringFromAny(raw["shadowColor"]),
+		SubtitleRows:        stringFromAny(raw["subtitleRows"]),
+		TeletextGridControl: stringFromAny(raw["teletextGridControl"]),
+		BackgroundOpacity:   int32FromAny(raw["backgroundOpacity"]),
+		FontOpacity:         int32FromAny(raw["fontOpacity"]),
+		FontResolution:      int32FromAny(raw["fontResolution"]),
+		OutlineSize:         int32FromAny(raw["outlineSize"]),
+		ShadowOpacity:       int32FromAny(raw["shadowOpacity"]),
+		ShadowXOffset:       int32FromAny(raw["shadowXOffset"]),
+		ShadowYOffset:       int32FromAny(raw["shadowYOffset"]),
+		XPosition:           int32FromAny(raw["xPosition"]),
+		YPosition:           int32FromAny(raw["yPosition"]),
+	}
+}
+
+func extractBurnInDestinationSettings(m map[string]any) *BurnInDestinationSettings {
+	raw, ok := m["burnInDestinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := extractBurnInFields(raw)
+
+	return &out
+}
+
+func extractDvbSubDestinationSettings(m map[string]any) *DvbSubDestinationSettings {
+	raw, ok := m["dvbSubDestinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := DvbSubDestinationSettings(extractBurnInFields(raw))
+
+	return &out
+}
+
+type ebuTtDDestinationSettingsOutput struct {
+	CopyrightHolder   string `json:"copyrightHolder,omitempty"`
+	FontFamily        string `json:"fontFamily,omitempty"`
+	FillLineGap       string `json:"fillLineGap,omitempty"`
+	StyleControl      string `json:"styleControl,omitempty"`
+	DefaultFontSize   int32  `json:"defaultFontSize,omitempty"`
+	DefaultLineHeight int32  `json:"defaultLineHeight,omitempty"`
+}
+
+func toEbuTtDDestinationSettingsOutput(s *EbuTtDDestinationSettings) *ebuTtDDestinationSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := ebuTtDDestinationSettingsOutput(*s)
+
+	return &out
+}
+
+func extractEbuTtDDestinationSettings(m map[string]any) *EbuTtDDestinationSettings {
+	raw, ok := m["ebuTtDDestinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &EbuTtDDestinationSettings{
+		CopyrightHolder:   stringFromAny(raw["copyrightHolder"]),
+		FontFamily:        stringFromAny(raw["fontFamily"]),
+		FillLineGap:       stringFromAny(raw["fillLineGap"]),
+		StyleControl:      stringFromAny(raw["styleControl"]),
+		DefaultFontSize:   int32FromAny(raw["defaultFontSize"]),
+		DefaultLineHeight: int32FromAny(raw["defaultLineHeight"]),
+	}
+}
+
+type ttmlDestinationSettingsOutput struct {
+	StyleControl string `json:"styleControl,omitempty"`
+}
+
+func toTtmlDestinationSettingsOutput(s *TtmlDestinationSettings) *ttmlDestinationSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := ttmlDestinationSettingsOutput(*s)
+
+	return &out
+}
+
+func extractTtmlDestinationSettings(m map[string]any) *TtmlDestinationSettings {
+	raw, ok := m["ttmlDestinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &TtmlDestinationSettings{StyleControl: stringFromAny(raw["styleControl"])}
+}
+
+type webvttDestinationSettingsOutput struct {
+	StyleControl string `json:"styleControl,omitempty"`
+}
+
+func toWebvttDestinationSettingsOutput(s *WebvttDestinationSettings) *webvttDestinationSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := webvttDestinationSettingsOutput(*s)
+
+	return &out
+}
+
+func extractWebvttDestinationSettings(m map[string]any) *WebvttDestinationSettings {
+	raw, ok := m["webvttDestinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &WebvttDestinationSettings{StyleControl: stringFromAny(raw["styleControl"])}
+}
+
+type captionDestinationSettingsOutput struct {
+	BurnInDestinationSettings *burnInAndDvbSubOutput           `json:"burnInDestinationSettings,omitempty"`
+	DvbSubDestinationSettings *burnInAndDvbSubOutput           `json:"dvbSubDestinationSettings,omitempty"`
+	EbuTtDDestinationSettings *ebuTtDDestinationSettingsOutput `json:"ebuTtDDestinationSettings,omitempty"`
+	TtmlDestinationSettings   *ttmlDestinationSettingsOutput   `json:"ttmlDestinationSettings,omitempty"`
+	WebvttDestinationSettings *webvttDestinationSettingsOutput `json:"webvttDestinationSettings,omitempty"`
+
+	AribDestinationSettings               *emptyMarker `json:"aribDestinationSettings,omitempty"`
+	EmbeddedDestinationSettings           *emptyMarker `json:"embeddedDestinationSettings,omitempty"`
+	EmbeddedPlusScte20DestinationSettings *emptyMarker `json:"embeddedPlusScte20DestinationSettings,omitempty"`
+	RtmpCaptionInfoDestinationSettings    *emptyMarker `json:"rtmpCaptionInfoDestinationSettings,omitempty"`
+	Scte20PlusEmbeddedDestinationSettings *emptyMarker `json:"scte20PlusEmbeddedDestinationSettings,omitempty"`
+	Scte27DestinationSettings             *emptyMarker `json:"scte27DestinationSettings,omitempty"`
+	SmpteTtDestinationSettings            *emptyMarker `json:"smpteTtDestinationSettings,omitempty"`
+	TeletextDestinationSettings           *emptyMarker `json:"teletextDestinationSettings,omitempty"`
+}
+
+func toCaptionDestinationSettingsOutput(s *CaptionDestinationSettings) *captionDestinationSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := &captionDestinationSettingsOutput{
+		BurnInDestinationSettings: toBurnInDestinationSettingsOutput(s.BurnInDestinationSettings),
+		DvbSubDestinationSettings: toDvbSubDestinationSettingsOutput(s.DvbSubDestinationSettings),
+		EbuTtDDestinationSettings: toEbuTtDDestinationSettingsOutput(s.EbuTtDDestinationSettings),
+		TtmlDestinationSettings:   toTtmlDestinationSettingsOutput(s.TtmlDestinationSettings),
+		WebvttDestinationSettings: toWebvttDestinationSettingsOutput(s.WebvttDestinationSettings),
+	}
+
+	if s.AribDestinationSettings {
+		out.AribDestinationSettings = &emptyMarker{}
+	}
+
+	if s.EmbeddedDestinationSettings {
+		out.EmbeddedDestinationSettings = &emptyMarker{}
+	}
+
+	if s.EmbeddedPlusScte20DestinationSettings {
+		out.EmbeddedPlusScte20DestinationSettings = &emptyMarker{}
+	}
+
+	if s.RtmpCaptionInfoDestinationSettings {
+		out.RtmpCaptionInfoDestinationSettings = &emptyMarker{}
+	}
+
+	if s.Scte20PlusEmbeddedDestinationSettings {
+		out.Scte20PlusEmbeddedDestinationSettings = &emptyMarker{}
+	}
+
+	if s.Scte27DestinationSettings {
+		out.Scte27DestinationSettings = &emptyMarker{}
+	}
+
+	if s.SmpteTtDestinationSettings {
+		out.SmpteTtDestinationSettings = &emptyMarker{}
+	}
+
+	if s.TeletextDestinationSettings {
+		out.TeletextDestinationSettings = &emptyMarker{}
+	}
+
+	return out
+}
+
+func extractCaptionDestinationSettings(m map[string]any) *CaptionDestinationSettings {
+	raw, ok := m["destinationSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	out := &CaptionDestinationSettings{
+		BurnInDestinationSettings: extractBurnInDestinationSettings(raw),
+		DvbSubDestinationSettings: extractDvbSubDestinationSettings(raw),
+		EbuTtDDestinationSettings: extractEbuTtDDestinationSettings(raw),
+		TtmlDestinationSettings:   extractTtmlDestinationSettings(raw),
+		WebvttDestinationSettings: extractWebvttDestinationSettings(raw),
+	}
+
+	_, out.AribDestinationSettings = raw["aribDestinationSettings"]
+	_, out.EmbeddedDestinationSettings = raw["embeddedDestinationSettings"]
+	_, out.EmbeddedPlusScte20DestinationSettings = raw["embeddedPlusScte20DestinationSettings"]
+	_, out.RtmpCaptionInfoDestinationSettings = raw["rtmpCaptionInfoDestinationSettings"]
+	_, out.Scte20PlusEmbeddedDestinationSettings = raw["scte20PlusEmbeddedDestinationSettings"]
+	_, out.Scte27DestinationSettings = raw["scte27DestinationSettings"]
+	_, out.SmpteTtDestinationSettings = raw["smpteTtDestinationSettings"]
+	_, out.TeletextDestinationSettings = raw["teletextDestinationSettings"]
+
+	return out
+}
+
 type captionDescriptionOutput struct {
-	CaptionSelectorName  string `json:"captionSelectorName,omitempty"`
-	Name                 string `json:"name"`
-	Accessibility        string `json:"accessibility,omitempty"`
-	DvbDashAccessibility string `json:"dvbDashAccessibility,omitempty"`
-	LanguageCode         string `json:"languageCode,omitempty"`
-	LanguageDescription  string `json:"languageDescription,omitempty"`
+	DestinationSettings  *captionDestinationSettingsOutput `json:"destinationSettings,omitempty"`
+	CaptionSelectorName  string                            `json:"captionSelectorName,omitempty"`
+	Name                 string                            `json:"name"`
+	Accessibility        string                            `json:"accessibility,omitempty"`
+	DvbDashAccessibility string                            `json:"dvbDashAccessibility,omitempty"`
+	LanguageCode         string                            `json:"languageCode,omitempty"`
+	LanguageDescription  string                            `json:"languageDescription,omitempty"`
+	CaptionDashRoles     []string                          `json:"captionDashRoles,omitempty"`
 }
 
 func toCaptionDescriptionsOutput(descs []CaptionDescription) []captionDescriptionOutput {
@@ -900,7 +1189,16 @@ func toCaptionDescriptionsOutput(descs []CaptionDescription) []captionDescriptio
 
 	out := make([]captionDescriptionOutput, 0, len(descs))
 	for _, d := range descs {
-		out = append(out, captionDescriptionOutput(d))
+		out = append(out, captionDescriptionOutput{
+			CaptionSelectorName:  d.CaptionSelectorName,
+			Name:                 d.Name,
+			Accessibility:        d.Accessibility,
+			DvbDashAccessibility: d.DvbDashAccessibility,
+			LanguageCode:         d.LanguageCode,
+			LanguageDescription:  d.LanguageDescription,
+			CaptionDashRoles:     d.CaptionDashRoles,
+			DestinationSettings:  toCaptionDestinationSettingsOutput(d.DestinationSettings),
+		})
 	}
 
 	return out
@@ -922,6 +1220,8 @@ func extractCaptionDescriptions(raw []any) []CaptionDescription {
 			DvbDashAccessibility: stringFromAny(m["dvbDashAccessibility"]),
 			LanguageCode:         stringFromAny(m["languageCode"]),
 			LanguageDescription:  stringFromAny(m["languageDescription"]),
+			CaptionDashRoles:     anySliceToStrings(mustSlice(m["captionDashRoles"])),
+			DestinationSettings:  extractCaptionDestinationSettings(m),
 		})
 	}
 

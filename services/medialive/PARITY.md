@@ -215,17 +215,26 @@ families:
           omitempty by TestChannel_OutputSettings.
           NOT modeled, and never accepted as an opaque passthrough blob (a
           shape a client cannot read back through the real SDK is the bug
-          class this fix exists to close, so these are cleanly absent
-          rather than faked): VideoDescription.CodecSettings (types.
+          class this fix exists to close, so it is cleanly absent rather
+          than faked): VideoDescription.CodecSettings (types.
           VideoCodecSettings, 5 variants -- Av1Settings 25 fields,
           H264Settings 45, H265Settings 43, Mpeg2Settings 18,
           FrameCaptureSettings 4 -- genuinely large, several fields
-          themselves reference further nested settings structs);
-          CaptionDescription.DestinationSettings (types.
-          CaptionDestinationSettings, 12 variants -- most are 1-field or
-          empty-marker structs, but BurnInDestinationSettings and
-          DvbSubDestinationSettings are 19 fields each with font/color/
-          outline styling).
+          themselves reference further nested settings structs).
+          CaptionDescription.DestinationSettings (gopherstack-1szb, this
+          pass) is now modeled in full: types.CaptionDestinationSettings
+          (types.go:1151) is actually 13 variants, not the 12 the bd issue
+          counted -- 8 are empty-marker structs (Arib/Embedded/
+          EmbeddedPlusScte20/RtmpCaptionInfo/Scte20PlusEmbedded/Scte27/
+          SmpteTt/Teletext, same *emptyMarker-pointer convention as
+          PassThroughSettings above), Ttml and Webvtt are single-field
+          (styleControl), EbuTtD is 6 fields, and BurnIn/DvbSub (types.go:998,
+          :2216) are 18 fields each (not 19 as originally estimated) sharing
+          one font/color/outline/shadow/position field set under separate
+          DVB-Sub-scoped enums. CaptionDescription's CaptionDashRoles is
+          modeled alongside it. Proof: handler_channels_captions_test.go's
+          TestChannel_CaptionDestinationSettings drives a real
+          aws-sdk-go-v2 client through every variant family.
       Also closed the "anywhereSettings.channelPlacementGroupId is accepted
       without existence validation" gap sweep 5 flagged: Create/UpdateChannel
       now validate it against real ChannelPlacementGroup state the same way
@@ -636,33 +645,35 @@ deferred: []
 # genuinely out of scope for this pass.
 gaps:
   - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
-    gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n).
-    See Channel's note above for the full list of what IS modeled: AvailConfiguration/
-    ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration (gopherstack-sthr
-    pass 1 -- none turned out to be a large per-format union, each is a small flat struct or a
-    small tagged union); AudioDescription's CodecSettings/AudioNormalizationSettings/
-    AudioWatermarkingSettings/RemixSettings/AudioDashRoles/DvbDashAccessibility (gopherstack-sthr
-    pass 2 -- the AudioCodecSettings union verified as 7 variants of flat scalar structs, not the
-    ~20 the bd issue title estimated); and OutputGroup.OutputGroupSettings +
-    Output.OutputSettings, modeled together (gopherstack-hj9n -- 11 variants each, down through
-    every nested container/CDN/stream sub-union: M2tsSettings, MultiplexM2tsSettings, HlsSettings,
-    HlsCdnSettings, KeyProviderSettings, ArchiveCdnSettings, FrameCaptureCdnSettings, M3u8Settings,
-    MediaPackageV2GroupSettings/MediaPackageV2DestinationSettings). Genuinely NOT modeled, and
+    gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n,
+    then gopherstack-1szb). See Channel's note above for the full list of what IS modeled:
+    AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
+    (gopherstack-sthr pass 1 -- none turned out to be a large per-format union, each is a small
+    flat struct or a small tagged union); AudioDescription's CodecSettings/
+    AudioNormalizationSettings/AudioWatermarkingSettings/RemixSettings/AudioDashRoles/
+    DvbDashAccessibility (gopherstack-sthr pass 2 -- the AudioCodecSettings union verified as 7
+    variants of flat scalar structs, not the ~20 the bd issue title estimated);
+    OutputGroup.OutputGroupSettings + Output.OutputSettings, modeled together (gopherstack-hj9n --
+    11 variants each, down through every nested container/CDN/stream sub-union: M2tsSettings,
+    MultiplexM2tsSettings, HlsSettings, HlsCdnSettings, KeyProviderSettings, ArchiveCdnSettings,
+    FrameCaptureCdnSettings, M3u8Settings, MediaPackageV2GroupSettings/
+    MediaPackageV2DestinationSettings); and CaptionDescription.DestinationSettings +
+    CaptionDashRoles (gopherstack-1szb -- types.CaptionDestinationSettings is 13 variants, not the
+    12 the bd issue counted: 8 empty-marker structs, Ttml/Webvtt single-field, EbuTtD 6 fields,
+    BurnIn/DvbSub 18 fields each, not 19 as originally estimated). Genuinely NOT modeled, and
     confirmed still impractical to hand-model in a single pass after checking real field counts
     against the pinned SDK (not just variant counts): VideoDescription.CodecSettings (types.
     VideoCodecSettings, 5 variants -- Av1Settings 25 fields, H264Settings 45, H265Settings 43,
-    Mpeg2Settings 18, FrameCaptureSettings 4); CaptionDescription.DestinationSettings (types.
-    CaptionDestinationSettings, 12 variants -- 9 are 1-field/empty-marker, but
-    BurnInDestinationSettings/DvbSubDestinationSettings are 19 fields each). None of these are
-    accepted as an opaque passthrough blob -- a caller setting any of them today gets a 201/200
-    response but the value is cleanly absent (never echoed back by Describe/List), not silently
-    corrupted or faked. (bd: gopherstack-jb9i closed the 12-of-17-member gap; gopherstack-sthr
-    closed AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/
-    NielsenConfiguration and, in a second sub-pass, AudioDescription's
+    Mpeg2Settings 18, FrameCaptureSettings 4). Never accepted as an opaque passthrough blob -- a
+    caller setting it today gets a 201/200 response but the value is cleanly absent (never echoed
+    back by Describe/List), not silently corrupted or faked. (bd: gopherstack-jb9i closed the
+    12-of-17-member gap; gopherstack-sthr closed AvailConfiguration/ColorCorrectionSettings/
+    MotionGraphicsConfiguration/NielsenConfiguration and, in a second sub-pass, AudioDescription's
     codec/normalization/watermarking/remix/dash-role/accessibility fields; gopherstack-hj9n closed
-    OutputGroupSettings/OutputSettings together per its explicit ordering instruction; the two
-    remaining unions above -- VideoCodecSettings and CaptionDestinationSettings -- would need
-    their own follow-up issue if "true AWS parity" on them specifically is ever prioritized.)
+    OutputGroupSettings/OutputSettings together per its explicit ordering instruction;
+    gopherstack-1szb closed CaptionDestinationSettings, leaving VideoCodecSettings alone rather
+    than half-modeling it in the same pass -- it would need its own follow-up issue if "true AWS
+    parity" on it specifically is ever prioritized.)
   - InputAttachment.InputSettings is now modeled in full (gopherstack-sthr, this pass) -- see
     Channel's note above. InputAttachmentName/InputId/LogicalInterfaceNames/
     AutomaticInputFailoverSettings (including all 3 failover-condition variants) were already
