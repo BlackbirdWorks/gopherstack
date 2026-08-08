@@ -435,6 +435,8 @@ var cognitoSentinelErrors = []struct { //nolint:gochecknoglobals // package-leve
 	{ErrUnexpectedLambda, ErrUnexpectedLambda.Error()},
 	{ErrReplicaNotFound, ErrReplicaNotFound.Error()},
 	{ErrServiceQuotaExceeded, ErrServiceQuotaExceeded.Error()},
+	{ErrTermsNotFound, ErrTermsNotFound.Error()},
+	{ErrTermsExists, ErrTermsExists.Error()},
 	{errUnknownAction, "UnknownOperationException"},
 }
 
@@ -459,7 +461,7 @@ func resolveErrorType(err error) (string, int) {
 }
 
 // cognitoMaxResultsCap is the AWS upper bound on MaxResults/Limit for the
-// Cognito IDP list operations (ListUserPools, ListUserPoolClients, ListUsers).
+// Cognito IDP list operations (ListUserPools, ListUserPoolClients, ListUsers, ListTerms).
 const cognitoMaxResultsCap = 60
 
 // validateCognitoMaxResults clamps and validates a MaxResults/Limit value.

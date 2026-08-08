@@ -68,7 +68,8 @@ func identityProvidersPoolIndexFn(v *IdentityProvider) string { return v.UserPoo
 
 func domainsKeyFn(v *UserPoolDomain) string { return v.Domain }
 
-func termsKeyFn(v *Terms) string { return v.UserPoolID }
+func termsKeyFn(v *Terms) string       { return v.TermsID }
+func termsPoolIndexFn(v *Terms) string { return v.UserPoolID }
 
 func userImportJobsKeyFn(v *UserImportJob) string       { return userImportJobKey(v.UserPoolID, v.JobID) }
 func userImportJobsPoolIndexFn(v *UserImportJob) string { return v.UserPoolID }
@@ -188,6 +189,7 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.terms = store.Register(b.registry, "terms", store.New(termsKeyFn))
+		b.termsByPool = b.terms.AddIndex("byPool", termsPoolIndexFn)
 	},
 	func(b *InMemoryBackend) {
 		b.userImportJobs = store.Register(b.registry, "userImportJobs", store.New(userImportJobsKeyFn))

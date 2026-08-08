@@ -70,7 +70,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				_, err = b.CreateUserPoolDomain(pool.ID, "test-domain")
 				require.NoError(t, err)
 
-				_, err = b.CreateTerms(pool.ID, "accept these terms")
+				_, err = b.CreateTerms(
+					pool.ID, client.ClientID, "terms-of-use", cognitoidp.TermsEnforcementNone,
+					cognitoidp.TermsSourceLink, map[string]string{"cognito:default": "https://terms.example.com"},
+				)
 				require.NoError(t, err)
 
 				_, err = b.CreateUserImportJob(
@@ -144,9 +147,17 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, poolID, domain.UserPoolID)
 
-				terms, err := b.DescribeTerms(poolID)
+				termsList, _, err := b.ListTerms(poolID, 0, "")
 				require.NoError(t, err)
-				assert.Equal(t, "accept these terms", terms.Text)
+				require.Len(t, termsList, 1)
+				assert.Equal(t, "terms-of-use", termsList[0].TermsName)
+				assert.Equal(t, clientID, termsList[0].ClientID)
+
+				terms, err := b.DescribeTerms(poolID, termsList[0].TermsID)
+				require.NoError(t, err)
+				assert.Equal(t, cognitoidp.TermsEnforcementNone, terms.Enforcement)
+				assert.Equal(t, cognitoidp.TermsSourceLink, terms.TermsSource)
+				assert.Equal(t, "https://terms.example.com", terms.Links["cognito:default"])
 
 				jobs, err := b.ListUserImportJobs(poolID)
 				require.NoError(t, err)
@@ -497,4 +508,66 @@ func TestPersistence_MFAFieldsSurviveSnapshot(t *testing.T) {
 			assert.WithinDuration(t, want.LastAuthTime, got.LastAuthTime, time.Second, "LastAuthTime")
 		})
 	}
+}
+
+// TestInMemoryBackend_RestoreDropsPreRedesignTerms is the regression guard for
+// gopherstack-kxow's terms/ redesign: a v1 snapshot's "terms" table can carry
+// pre-redesign {UserPoolID, Text} rows (CreateTerms accepted them before the
+// redesign, even though no real SDK client could ever reach it). Restore must
+// drop those rows -- they decode into the new Terms shape with an empty
+// TermsID, which restoreTermsLocked filters out -- while every other table in
+// the same snapshot survives untouched. This is the case the version bump
+// this issue originally shipped would have gotten wrong: bumping
+// cognitoidpSnapshotVersion discards the WHOLE snapshot on mismatch, not just
+// terms, so real pools/users/password-hashes would have been lost on upgrade
+// to protect a table that cannot hold real data anyway.
+func TestInMemoryBackend_RestoreDropsPreRedesignTerms(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	b := newTestBackend()
+
+	pool, err := b.CreateUserPool("terms-migration-pool")
+	require.NoError(t, err)
+
+	user, err := b.AdminCreateUserWithPolicy(pool.ID, "alice", "TempPass123!", map[string]string{
+		"email": "alice@example.com",
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, user.PasswordHash)
+
+	data := b.Snapshot(ctx)
+	require.NotEmpty(t, data)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(data, &raw))
+
+	tables, ok := raw["tables"].(map[string]any)
+	require.True(t, ok)
+
+	// Pre-redesign shape: {UserPoolID, Text} keyed by UserPoolID, no TermsID field at all.
+	tables["terms"] = []map[string]string{
+		{"userPoolID": pool.ID, "text": "accept these terms"},
+	}
+	raw["version"] = float64(1)
+
+	spliced, err := json.Marshal(raw)
+	require.NoError(t, err)
+
+	restored := newTestBackend()
+	require.NoError(t, restored.Restore(ctx, spliced))
+
+	pools := restored.ListUserPools()
+	require.Len(t, pools, 1)
+	assert.Equal(t, "terms-migration-pool", pools[0].Name)
+
+	restoredUser, err := restored.AdminGetUser(pool.ID, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, user.PasswordHash, restoredUser.PasswordHash, "password hash must survive")
+	assert.Equal(t, "alice@example.com", restoredUser.Attributes["email"])
+
+	termsList, _, err := restored.ListTerms(pool.ID, 0, "")
+	require.NoError(t, err)
+	assert.Empty(t, termsList, "pre-redesign terms rows must be dropped, not misdecoded")
 }

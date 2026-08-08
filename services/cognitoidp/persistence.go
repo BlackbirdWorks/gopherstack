@@ -27,6 +27,15 @@ var (
 // partially decode) any mismatch — see Restore below. There was no version
 // guard prior to Phase 3.3's pkgs/store conversion, so any pre-existing
 // snapshot decodes with Version 0 and is treated as incompatible.
+//
+// Deliberately NOT bumped for the terms/ redesign (gopherstack-kxow): a
+// version bump here discards the ENTIRE snapshot on mismatch (see Restore
+// below), not just the changed table -- every user pool, user, password hash,
+// and MFA setting in a real deployment would be lost on upgrade to save a
+// table that cannot hold real data anyway (CreateTerms was unreachable by any
+// real SDK client pre-redesign; its own required-member validation rejects
+// the request before it is ever sent). restoreTermsLocked handles the old
+// terms shape defensively instead -- see its doc comment.
 const cognitoidpSnapshotVersion = 1
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
@@ -89,7 +98,8 @@ func userSnapshotKeyFn(v *userSnapshot) string { return userKey(v.UserPoolID, v.
 // while every other converted table (clients, groups, resourceServers,
 // identityProviders, domains, terms, userImportJobs, managedLoginBrandings,
 // uiCustomizations, typedRiskConfigurations) is clean enough to register
-// directly, with no DTO needed.
+// directly, with no DTO needed. "terms" is snapshotted this same way but
+// restored separately and defensively -- see restoreTermsLocked.
 //
 // Every field below the Tables map is a resource left as a plain map on
 // InMemoryBackend (see store_setup.go's registerAllTables doc for why each
@@ -334,6 +344,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return err
 	}
 
+	b.restoreTermsLocked(ctx, snap.Tables["terms"])
 	b.restoreRawMapsLocked(&snap)
 
 	return nil
@@ -358,7 +369,8 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.provisionedLimits = make(map[string]int32)
 }
 
-// restoreTablesLocked decodes tables into every store.Table-backed resource.
+// restoreTablesLocked decodes tables into every store.Table-backed resource
+// EXCEPT terms, which restoreTermsLocked handles separately and defensively.
 // pools/users go through a DTO transform (see restorePoolsFromSnapshot/
 // restoreUsersFromSnapshot); every other converted table restores straight
 // into its live *store.Table (Restore rebuilds the table's primary map AND
@@ -375,7 +387,6 @@ func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage)
 	store.Register(dtoReg, "resourceServers", b.resourceServers)
 	store.Register(dtoReg, "identityProviders", b.identityProviders)
 	store.Register(dtoReg, "domains", b.domains)
-	store.Register(dtoReg, "terms", b.terms)
 	store.Register(dtoReg, "userImportJobs", b.userImportJobs)
 	store.Register(dtoReg, "managedLoginBrandings", b.managedLoginBrandings)
 	store.Register(dtoReg, "uiCustomizations", b.uiCustomizations)
@@ -395,6 +406,50 @@ func (b *InMemoryBackend) restoreTablesLocked(tables map[string]json.RawMessage)
 	b.users.Restore(restoreUsersFromSnapshot(userDTOs.All()))
 
 	return nil
+}
+
+// restoreTermsLocked decodes the "terms" table on its own, outside
+// restoreTablesLocked's shared dtoReg.RestoreAll, because it must tolerate a
+// v1 snapshot predating the terms/ redesign (gopherstack-kxow): those rows
+// were {UserPoolID, Text} with no TermsID at all. CreateTerms was unreachable
+// by any real SDK client before the redesign (its own required-member
+// validation rejects the request client-side), so no real snapshot can
+// contain a genuine pre-redesign terms row -- dropping anything that doesn't
+// decode into the current shape, or decodes but lacks a TermsID, is correct
+// and loses nothing. A raw payload that fails to unmarshal at all (corrupt or
+// a shape from some other future change) is likewise dropped rather than
+// failing the whole Restore, unlike dtoReg.RestoreAll's other tables. Caller
+// must hold b.mu in write mode.
+func (b *InMemoryBackend) restoreTermsLocked(ctx context.Context, raw json.RawMessage) {
+	if len(raw) == 0 {
+		b.terms.Restore(nil)
+
+		return
+	}
+
+	var items []*Terms
+
+	if err := json.Unmarshal(raw, &items); err != nil {
+		logger.Load(ctx).WarnContext(ctx, "cognitoidp: dropping unparseable terms snapshot", "error", err)
+		b.terms.Restore(nil)
+
+		return
+	}
+
+	valid := make([]*Terms, 0, len(items))
+
+	for _, t := range items {
+		if t != nil && t.TermsID != "" {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) != len(items) {
+		logger.Load(ctx).WarnContext(ctx, "cognitoidp: dropped pre-redesign terms rows on restore",
+			"total", len(items), "kept", len(valid))
+	}
+
+	b.terms.Restore(valid)
 }
 
 // restoreRawMapsLocked loads every resource left as a plain map (see
