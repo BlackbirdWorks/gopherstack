@@ -261,15 +261,7 @@ func (h *Handler) dispatchListTagsForResource(input map[string]any) ([]byte, err
 }
 
 func (h *Handler) dispatchTagResource(input map[string]any) ([]byte, error) {
-	tags := make(map[string]string)
-	if tagsInput, ok := input["Tags"].([]any); ok {
-		for _, tag := range tagsInput {
-			if t, okTag := tag.(map[string]any); okTag {
-				tags[stringValue(t["Key"])] = stringValue(t["Value"])
-			}
-		}
-	}
-	err := h.Backend.TagResource(stringValue(input["ResourceArn"]), tags)
+	err := h.Backend.TagResource(stringValue(input["ResourceArn"]), tagsFromInput(input))
 	if err != nil {
 		return nil, err
 	}

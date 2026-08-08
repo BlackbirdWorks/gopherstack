@@ -34,8 +34,9 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceIDs := parseSourceIDMembers(vals)
 	eventCategories := parseEventCategoryMembers(vals)
 	enabled := parseBoolParam(vals, "Enabled")
+	tags := parseTags(vals)
 	sub, err := h.Backend.CreateEventSubscription(
-		ctx, name, snsTopicARN, sourceType, eventCategories, sourceIDs, enabled,
+		ctx, name, snsTopicARN, sourceType, eventCategories, sourceIDs, enabled, tags,
 	)
 	if err != nil {
 		return nil, err

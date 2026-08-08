@@ -229,6 +229,7 @@ type DBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string            `json:"dbClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
 	DBClusterArn                string            `json:"dbClusterArn"`
+	DBClusterSnapshotArn        string            `json:"dbClusterSnapshotArn"`
 	Engine                      string            `json:"engine"`
 	Status                      string            `json:"status"`
 	EngineVersion               string            `json:"engineVersion"`

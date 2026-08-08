@@ -13,9 +13,16 @@ func (h *Handler) handleCreateDBClusterParameterGroup(
 	name := vals.Get("DBClusterParameterGroupName")
 	family := vals.Get("DBParameterGroupFamily")
 	description := vals.Get("Description")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	pg, err := h.Backend.CreateDBClusterParameterGroup(ctx, name, family, description)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, pg.DBClusterParameterGroupArn, tags)
 	}
 
 	return &createDBClusterParameterGroupResponse{

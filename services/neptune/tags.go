@@ -26,6 +26,72 @@ func (b *InMemoryBackend) tagsStoreRO(region string) map[string][]Tag {
 	return map[string][]Tag{}
 }
 
+// taggableResourceKind describes one ARN resource-type segment that
+// AddTagsToResource/RemoveTagsFromResource/ListTagsForResource accept,
+// keeping validateResourceARN a flat lookup instead of a growing switch.
+type taggableResourceKind struct {
+	has      func(b *InMemoryBackend, region, resID string) bool
+	notFound error
+	label    string
+}
+
+// neptuneTaggableKinds maps every ARN resource-type segment Neptune stores
+// tags for to its existence check. A kind missing here is exactly the
+// memorydb-shaped bug (gopherstack-2mwl): TagResource/CreateXxx's tags are
+// silently accepted by AddTagsToResource's caller but ListTagsForResource
+// (which also runs through validateResourceARN) then errors "unsupported
+// resource type", so the caller-visible failure mode is a loud 400, not a
+// silent drop -- still wrong, and still the same missing-case root cause.
+//
+//nolint:gochecknoglobals // read-only lookup table initialized once at startup
+var neptuneTaggableKinds = map[string]taggableResourceKind{
+	"cluster": {
+		has:      (*InMemoryBackend).clusterHas,
+		notFound: ErrClusterNotFound,
+		label:    "cluster",
+	},
+	"db": {
+		has:      (*InMemoryBackend).instanceHas,
+		notFound: ErrInstanceNotFound,
+		label:    "instance",
+	},
+	"cluster-snapshot": {
+		has:      (*InMemoryBackend).clusterSnapshotHas,
+		notFound: ErrClusterSnapshotNotFound,
+		label:    "cluster snapshot",
+	},
+	"subgrp": {
+		has:      (*InMemoryBackend).subnetGroupHas,
+		notFound: ErrSubnetGroupNotFound,
+		label:    "subnet group",
+	},
+	"cluster-pg": {
+		has:      (*InMemoryBackend).clusterParameterGroupHas,
+		notFound: ErrClusterParameterGroupNotFound,
+		label:    "cluster parameter group",
+	},
+	"cluster-endpoint": {
+		has:      (*InMemoryBackend).clusterEndpointHas,
+		notFound: ErrClusterEndpointNotFound,
+		label:    "cluster endpoint",
+	},
+	"pg": {
+		has:      (*InMemoryBackend).parameterGroupHas,
+		notFound: ErrParameterGroupNotFound,
+		label:    "parameter group",
+	},
+	"es": {
+		has:      (*InMemoryBackend).eventSubscriptionHas,
+		notFound: ErrSubscriptionNotFound,
+		label:    "event subscription",
+	},
+	"global-cluster": {
+		has:      func(b *InMemoryBackend, _, resID string) bool { return b.globalClusters.Has(resID) },
+		notFound: ErrGlobalClusterNotFound,
+		label:    "global cluster",
+	},
+}
+
 // validateResourceARN checks whether an ARN refers to a known Neptune resource in the given region.
 // Must be called while holding at least a read lock.
 func (b *InMemoryBackend) validateResourceARN(region, arnStr string) error {
@@ -35,37 +101,12 @@ func (b *InMemoryBackend) validateResourceARN(region, arnStr string) error {
 		return fmt.Errorf("%w: invalid ARN format: %s", ErrInvalidParameter, arnStr)
 	}
 	resType, resID := parts[5], parts[6]
-	switch resType {
-	case "cluster":
-		if !b.clusterHas(region, resID) {
-			return fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, resID)
-		}
-	case "db":
-		if !b.instanceHas(region, resID) {
-			return fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, resID)
-		}
-	case "cluster-snapshot":
-		if !b.clusterSnapshotHas(region, resID) {
-			return fmt.Errorf(
-				"%w: cluster snapshot %s not found",
-				ErrClusterSnapshotNotFound,
-				resID,
-			)
-		}
-	case "subgrp":
-		if !b.subnetGroupHas(region, resID) {
-			return fmt.Errorf("%w: subnet group %s not found", ErrSubnetGroupNotFound, resID)
-		}
-	case "cluster-pg":
-		if !b.clusterParameterGroupHas(region, resID) {
-			return fmt.Errorf(
-				"%w: cluster parameter group %s not found",
-				ErrClusterParameterGroupNotFound,
-				resID,
-			)
-		}
-	default:
+	kind, ok := neptuneTaggableKinds[resType]
+	if !ok {
 		return fmt.Errorf("%w: unsupported resource type in ARN: %s", ErrInvalidParameter, arnStr)
+	}
+	if !kind.has(b, region, resID) {
+		return fmt.Errorf("%w: %s %s not found", kind.notFound, kind.label, resID)
 	}
 
 	return nil

@@ -44,6 +44,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	name, snsTopicARN, sourceType string,
 	eventCategories, sourceIDs []string,
 	enabled *bool,
+	tags map[string]string,
 ) (*EventSubscription, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: SubscriptionName is required", ErrInvalidParameter)
@@ -62,6 +63,7 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	if enabled != nil {
 		isEnabled = *enabled
 	}
+	subArn := b.eventSubscriptionARN(region, name)
 	sub := &EventSubscription{
 		region:                   region,
 		SubscriptionName:         name,
@@ -71,11 +73,14 @@ func (b *InMemoryBackend) CreateEventSubscription(
 		EventCategories:          cats,
 		SourceIDs:                ids,
 		Enabled:                  isEnabled,
-		EventSubscriptionArn:     b.eventSubscriptionARN(region, name),
+		EventSubscriptionArn:     subArn,
 		CustomerAwsID:            b.accountID,
 		SubscriptionCreationTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.eventSubscriptionPut(sub)
+	if len(tags) > 0 {
+		b.tagsStore(region)[subArn] = tagsFromMap(tags)
+	}
 
 	return copyEventSubscription(sub), nil
 }

@@ -118,6 +118,9 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 	}
 	table.Put(resource)
 	b.arnIndex[resource.ARN] = arnEntry{kind: kind, name: name}
+	if tags := tagsFromInput(data); len(tags) > 0 {
+		b.tags[resource.ARN] = tags
+	}
 	if kind == kindMonitor {
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
 	}

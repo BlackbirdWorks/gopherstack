@@ -31,6 +31,10 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceType := vals.Get("SourceType")
 	enabled := vals.Get("Enabled") != "false"
 	sourceIDs := parseSourceIDMembers(vals)
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	sub, err := h.Backend.CreateEventSubscription(
 		ctx,
 		name,
@@ -41,6 +45,9 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, sub.EventSubscriptionArn, tags)
 	}
 
 	return &createEventSubscriptionResponse{
