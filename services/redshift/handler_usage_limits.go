@@ -4,17 +4,20 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- CreateUsageLimit ----
 
 type xmlUsageLimit struct {
-	UsageLimitID      string `xml:"UsageLimitId"`
-	ClusterIdentifier string `xml:"ClusterIdentifier"`
-	FeatureType       string `xml:"FeatureType,omitempty"`
-	LimitType         string `xml:"LimitType,omitempty"`
-	BreachAction      string `xml:"BreachAction,omitempty"`
-	Amount            int64  `xml:"Amount"`
+	UsageLimitID      string       `xml:"UsageLimitId"`
+	ClusterIdentifier string       `xml:"ClusterIdentifier"`
+	FeatureType       string       `xml:"FeatureType,omitempty"`
+	LimitType         string       `xml:"LimitType,omitempty"`
+	BreachAction      string       `xml:"BreachAction,omitempty"`
+	Tags              []svcTags.KV `xml:"Tags>Tag,omitempty"`
+	Amount            int64        `xml:"Amount"`
 }
 
 type createUsageLimitResponse struct {
@@ -50,6 +53,7 @@ func usageLimitToXML(ul *UsageLimit) xmlUsageLimit {
 		LimitType:         ul.LimitType,
 		Amount:            ul.Amount,
 		BreachAction:      ul.BreachAction,
+		Tags:              tagMapToKVList(ul.Tags),
 	}
 }
 

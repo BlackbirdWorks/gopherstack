@@ -236,6 +236,44 @@ func TestHandler_ModifyScheduledAction(t *testing.T) {
 	}
 }
 
+// TestHandler_ScheduledAction_NextInvocations locks in that NextInvocations is
+// computed from the real Schedule cron()/at() expression (this backend has no
+// pricing-style fallback for this field -- an unparseable expression like
+// "rate(1 day)", which real Redshift does not accept for ScheduledAction.Schedule,
+// must yield no fabricated NextInvocations at all).
+func TestHandler_ScheduledAction_NextInvocations(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+
+	// Every minute -- guaranteed at least one NextInvocations entry within a
+	// minute of "now", wrapped in the real ScheduledActionTime list element
+	// (confirmed against awsAwsquery_deserializeDocumentScheduledActionTimeList
+	// in aws-sdk-go-v2/service/redshift@v1.65.4/deserializers.go).
+	rec := postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=every-minute&Schedule=cron(*+*+*+*+?+*)")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), "<NextInvocations><ScheduledActionTime>")
+
+	rec = postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=future-at&Schedule=at(2099-01-01T00:00:00)")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	const wantFutureInvocation = "<NextInvocations><ScheduledActionTime>2099-01-01T00:00:00Z" +
+		"</ScheduledActionTime></NextInvocations>"
+	assert.Contains(t, rec.Body.String(), wantFutureInvocation)
+
+	rec = postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=past-at&Schedule=at(2000-01-01T00:00:00)")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "<ScheduledActionTime>")
+
+	rec = postRedshiftForm(t, h, "Action=CreateScheduledAction&Version=2012-12-01"+
+		"&ScheduledActionName=unsupported-rate&Schedule=rate(1+day)")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "<ScheduledActionTime>")
+}
+
 // ---- Backend tests for ScheduledAction ----
 
 func TestBackend_ScheduledAction(t *testing.T) {

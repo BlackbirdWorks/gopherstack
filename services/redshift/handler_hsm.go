@@ -3,13 +3,16 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ----- HSM -----
 
 type hsmClientCertificateXML struct {
-	HsmClientCertificateIdentifier string `xml:"HsmClientCertificateIdentifier"`
-	HsmClientCertificatePublicKey  string `xml:"HsmClientCertificatePublicKey"`
+	HsmClientCertificateIdentifier string       `xml:"HsmClientCertificateIdentifier"`
+	HsmClientCertificatePublicKey  string       `xml:"HsmClientCertificatePublicKey"`
+	Tags                           []svcTags.KV `xml:"Tags>Tag,omitempty"`
 }
 
 type createHsmClientCertificateResponse struct {
@@ -20,7 +23,7 @@ type createHsmClientCertificateResponse struct {
 
 func (h *Handler) handleCreateHsmClientCertificate(vals url.Values) (any, error) {
 	id := vals.Get("HsmClientCertificateIdentifier")
-	cert, err := h.Backend.CreateHsmClientCertificate(id, nil)
+	cert, err := h.Backend.CreateHsmClientCertificate(id, parseRedshiftTags(vals))
 	if err != nil {
 		return nil, err
 	}
@@ -30,6 +33,7 @@ func (h *Handler) handleCreateHsmClientCertificate(vals url.Values) (any, error)
 		Result: hsmClientCertificateXML{
 			HsmClientCertificateIdentifier: cert.HsmClientCertificateIdentifier,
 			HsmClientCertificatePublicKey:  cert.HsmClientCertificatePublicKey,
+			Tags:                           tagMapToKVList(cert.Tags),
 		},
 	}, nil
 }
@@ -69,6 +73,7 @@ func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, err
 		members = append(members, hsmClientCertificateXML{
 			HsmClientCertificateIdentifier: c.HsmClientCertificateIdentifier,
 			HsmClientCertificatePublicKey:  c.HsmClientCertificatePublicKey,
+			Tags:                           tagMapToKVList(c.Tags),
 		})
 	}
 
@@ -79,10 +84,11 @@ func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, err
 }
 
 type hsmConfigurationXML struct {
-	HsmConfigurationIdentifier string `xml:"HsmConfigurationIdentifier"`
-	Description                string `xml:"Description"`
-	HsmIPAddress               string `xml:"HsmIPAddress"`
-	HsmPartitionName           string `xml:"HsmPartitionName"`
+	HsmConfigurationIdentifier string       `xml:"HsmConfigurationIdentifier"`
+	Description                string       `xml:"Description"`
+	HsmIPAddress               string       `xml:"HsmIPAddress"`
+	HsmPartitionName           string       `xml:"HsmPartitionName"`
+	Tags                       []svcTags.KV `xml:"Tags>Tag,omitempty"`
 }
 
 type createHsmConfigurationResponse struct {
@@ -91,14 +97,19 @@ type createHsmConfigurationResponse struct {
 	Result  hsmConfigurationXML `xml:"CreateHsmConfigurationResult"`
 }
 
+// handleCreateHsmConfiguration implements CreateHsmConfiguration. Real
+// CreateHsmConfigurationInput serializes the IP address param as "HsmIpAddress"
+// (confirmed against awsAwsquery_serializeOpDocumentCreateHsmConfigurationInput in
+// aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go) -- a real SDK client never
+// sends "HsmIPAddress", so the previous vals.Get("HsmIPAddress") silently dropped it.
 func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
 	id := vals.Get("HsmConfigurationIdentifier")
 	cfg, err := h.Backend.CreateHsmConfiguration(
 		id,
 		vals.Get("Description"),
-		vals.Get("HsmIPAddress"),
+		vals.Get("HsmIpAddress"),
 		vals.Get("HsmPartitionName"),
-		nil,
+		parseRedshiftTags(vals),
 	)
 	if err != nil {
 		return nil, err
@@ -111,6 +122,7 @@ func (h *Handler) handleCreateHsmConfiguration(vals url.Values) (any, error) {
 			Description:                cfg.Description,
 			HsmIPAddress:               cfg.HsmIPAddress,
 			HsmPartitionName:           cfg.HsmPartitionName,
+			Tags:                       tagMapToKVList(cfg.Tags),
 		},
 	}, nil
 }
@@ -152,6 +164,7 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 			Description:                c.Description,
 			HsmIPAddress:               c.HsmIPAddress,
 			HsmPartitionName:           c.HsmPartitionName,
+			Tags:                       tagMapToKVList(c.Tags),
 		})
 	}
 

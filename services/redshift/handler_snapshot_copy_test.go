@@ -21,10 +21,14 @@ func TestHandler_CreateSnapshotCopyGrant(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "success",
-			body:         "Action=CreateSnapshotCopyGrant&Version=2012-12-01&SnapshotCopyGrantName=my-grant&KmsKeyId=key123",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateSnapshotCopyGrantResponse", "my-grant"},
+			name: "success",
+			body: "Action=CreateSnapshotCopyGrant&Version=2012-12-01&SnapshotCopyGrantName=my-grant&KmsKeyId=key123" +
+				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateSnapshotCopyGrantResponse", "my-grant",
+				"<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>",
+			},
 		},
 		{
 			name:     "duplicate",

@@ -188,6 +188,63 @@ func TestRedshiftHandler_PurchaseReservedNodeOffering(t *testing.T) {
 	}
 }
 
+// TestHandler_PurchaseReservedNodeOffering_RecurringCharges locks in that
+// RecurringCharges is derived from the offering's real UsagePrice (this
+// backend's pricing model, see defaultReservedNodeOfferings) rather than left
+// unmodeled: a No Upfront offering (nonzero UsagePrice) must produce a real
+// <RecurringCharges><RecurringCharge> entry (confirmed wrapper name against
+// awsAwsquery_deserializeDocumentRecurringChargeList in
+// aws-sdk-go-v2/service/redshift@v1.65.4/deserializers.go), while an All
+// Upfront offering (zero UsagePrice) must produce none -- not a fabricated one.
+func TestHandler_PurchaseReservedNodeOffering_RecurringCharges(t *testing.T) {
+	t.Parallel()
+
+	const wantNoUpfrontCharge = "<RecurringCharges><RecurringCharge>" +
+		"<RecurringChargeFrequency>Hourly</RecurringChargeFrequency>" +
+		"<RecurringChargeAmount>0.1</RecurringChargeAmount>" +
+		"</RecurringCharge></RecurringCharges>"
+
+	tests := []struct {
+		name            string
+		offeringID      string
+		nodeID          string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:         "no_upfront_has_recurring_charge",
+			offeringID:   "offering-dc2-large-1yr-noupfront",
+			nodeID:       "rn-noupfront",
+			wantContains: []string{wantNoUpfrontCharge},
+		},
+		{
+			name:            "all_upfront_has_no_recurring_charge",
+			offeringID:      "offering-dc2-large-1yr-allupfront",
+			nodeID:          "rn-allupfront",
+			wantNotContains: []string{"<RecurringCharge>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			rec := postRedshiftForm(t, h, "Action=PurchaseReservedNodeOffering&Version=2012-12-01"+
+				"&ReservedNodeOfferingId="+tt.offeringID+"&ReservedNodeId="+tt.nodeID)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+			for _, s := range tt.wantContains {
+				assert.Contains(t, rec.Body.String(), s)
+			}
+
+			for _, s := range tt.wantNotContains {
+				assert.NotContains(t, rec.Body.String(), s)
+			}
+		})
+	}
+}
+
 // ---- DescribeReservedNodeExchangeStatus ----
 
 func TestRedshiftHandler_DescribeReservedNodeExchangeStatus(t *testing.T) {

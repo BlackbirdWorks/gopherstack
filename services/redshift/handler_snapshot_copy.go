@@ -4,13 +4,16 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // ---- CreateSnapshotCopyGrant ----
 
 type xmlSnapshotCopyGrant struct {
-	SnapshotCopyGrantName string `xml:"SnapshotCopyGrantName"`
-	KMSKeyID              string `xml:"KmsKeyId,omitempty"`
+	SnapshotCopyGrantName string       `xml:"SnapshotCopyGrantName"`
+	KMSKeyID              string       `xml:"KmsKeyId,omitempty"`
+	Tags                  []svcTags.KV `xml:"Tags>Tag,omitempty"`
 }
 
 type createSnapshotCopyGrantResponse struct {
@@ -34,6 +37,7 @@ func (h *Handler) handleCreateSnapshotCopyGrant(vals url.Values) (any, error) {
 		Grant: xmlSnapshotCopyGrant{
 			SnapshotCopyGrantName: grant.SnapshotCopyGrantName,
 			KMSKeyID:              grant.KMSKeyID,
+			Tags:                  tagMapToKVList(grant.Tags),
 		},
 	}, nil
 }
@@ -82,6 +86,7 @@ func (h *Handler) handleDescribeSnapshotCopyGrants(vals url.Values) (any, error)
 		members = append(members, xmlSnapshotCopyGrant{
 			SnapshotCopyGrantName: g.SnapshotCopyGrantName,
 			KMSKeyID:              g.KMSKeyID,
+			Tags:                  tagMapToKVList(g.Tags),
 		})
 	}
 

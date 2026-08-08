@@ -245,7 +245,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateIdcApplication(
-		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r",
+		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r", "None",
 	)
 	require.NoError(t, err)
 

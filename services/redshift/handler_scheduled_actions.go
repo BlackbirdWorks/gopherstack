@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"strconv"
+	"time"
 )
 
 // ----- Scheduled Actions -----
@@ -46,6 +47,7 @@ type scheduledActionXML struct {
 	IamRole                    string                    `xml:"IamRole,omitempty"`
 	ScheduledActionDescription string                    `xml:"ScheduledActionDescription,omitempty"`
 	State                      string                    `xml:"State"`
+	NextInvocations            []string                  `xml:"NextInvocations>ScheduledActionTime,omitempty"`
 }
 
 type createScheduledActionResponse struct {
@@ -93,7 +95,24 @@ func scheduledActionToXML(a *ScheduledAction) scheduledActionXML {
 		ScheduledActionDescription: a.ScheduledActionDescription,
 		State:                      a.State,
 		TargetAction:               targetActionToXML(a.TargetAction),
+		NextInvocations:            nextInvocationsXML(a.Schedule),
 	}
+}
+
+// nextInvocationsXML formats nextInvocations' computed times the same way this
+// service formats every other query-XML timestamp (RFC3339, see PARITY.md Notes).
+func nextInvocationsXML(schedule string) []string {
+	times := nextInvocations(schedule, time.Now().UTC())
+	if len(times) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(times))
+	for _, t := range times {
+		out = append(out, t.Format(time.RFC3339))
+	}
+
+	return out
 }
 
 // parseTargetAction parses the TargetAction.{PauseCluster,ResumeCluster,ResizeCluster}
