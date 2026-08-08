@@ -95,6 +95,54 @@ func (b *InMemoryBackend) ListTagsForResource(
 	return result, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every CodeConnections resource ARN (connections, hosts,
+// repository links) that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	b.connections.Range(func(conn *Connection) bool {
+		if len(conn.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: conn.ConnectionArn, Tags: cloneCodeConnTags(conn.Tags)})
+		}
+
+		return true
+	})
+
+	b.hosts.Range(func(host *Host) bool {
+		if len(host.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: host.HostArn, Tags: cloneCodeConnTags(host.Tags)})
+		}
+
+		return true
+	})
+
+	b.repositoryLinks.Range(func(link *RepositoryLink) bool {
+		if len(link.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: link.RepositoryLinkArn, Tags: cloneCodeConnTags(link.Tags)})
+		}
+
+		return true
+	})
+
+	return out
+}
+
+func cloneCodeConnTags(tags map[string]string) map[string]string {
+	out := make(map[string]string, len(tags))
+	maps.Copy(out, tags)
+
+	return out
+}
+
 // sortedTagKeys returns the keys of the tags map in sorted order.
 func sortedTagKeys(tags map[string]string) []string {
 	keys := collections.SortedKeys(tags)

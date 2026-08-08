@@ -104,6 +104,43 @@ func (b *InMemoryBackend) applyTagsLocked(resourceARN string, tags map[string]st
 	return fmt.Errorf("%w: %s", ErrResourceNotFound, resourceARN)
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every FIS resource ARN (safety lever, experiment templates,
+// experiments) that currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	if b.safetyLever != nil && len(b.safetyLever.Tags) > 0 {
+		out = append(out, TaggedEntry{ARN: b.safetyLever.Arn, Tags: copyStringMap(b.safetyLever.Tags)})
+	}
+
+	b.templates.Range(func(tpl *ExperimentTemplate) bool {
+		if len(tpl.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: tpl.Arn, Tags: copyStringMap(tpl.Tags)})
+		}
+
+		return true
+	})
+
+	b.experiments.Range(func(exp *Experiment) bool {
+		if len(exp.Tags) > 0 {
+			out = append(out, TaggedEntry{ARN: exp.Arn, Tags: copyStringMap(exp.Tags)})
+		}
+
+		return true
+	})
+
+	return out
+}
+
 // UntagResource removes specific tags from a resource.
 func (b *InMemoryBackend) UntagResource(resourceARN string, keys []string) error {
 	b.mu.Lock("UntagResource")
