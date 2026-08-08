@@ -107,7 +107,7 @@ func metricAttributionToMap(ma *MetricAttribution) map[string]any {
 
 func metricAttributeToMap(m MetricAttribute) map[string]any {
 	return map[string]any{
-		"eventType":  m.EventType,
+		keyEventType: m.EventType,
 		"expression": m.Expression,
 		"metricName": m.MetricName,
 	}
@@ -130,7 +130,7 @@ func extractMetricAttributes(input map[string]any, key string) []MetricAttribute
 			continue
 		}
 
-		eventType, _ := entry["eventType"].(string)
+		eventType, _ := entry[keyEventType].(string)
 		expression, _ := entry["expression"].(string)
 		metricName, _ := entry["metricName"].(string)
 		out = append(out, MetricAttribute{EventType: eventType, Expression: expression, MetricName: metricName})

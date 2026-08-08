@@ -19,24 +19,26 @@ const (
 	personalizeRuntimeTargetPrefix = "AmazonPersonalizeRuntime."
 	personalizeContentType         = "application/x-amz-json-1.1"
 
-	keyDatasetGroupArn      = "datasetGroupArn"
-	keyDatasetArn           = "datasetArn"
-	keySchemaArn            = "schemaArn"
-	keySolutionArn          = "solutionArn"
-	keySolutionVersionArn   = "solutionVersionArn"
-	keyCampaignArn          = "campaignArn"
-	keyRecommenderArn       = "recommenderArn"
-	keyMetricAttributionArn = "metricAttributionArn"
-	keyRoleArn              = "roleArn"
-	keyDomain               = "domain"
-	keyName                 = "name"
-	keyRecipeArn            = "recipeArn"
-	keyRecipeType           = "recipeType"
-	keyCreationDateTime     = "creationDateTime"
-	keyLastUpdatedDateTime  = "lastUpdatedDateTime"
-	keyJobName              = "jobName"
-	keyJobOutput            = "jobOutput"
-	keyStatus               = "status"
+	keyDatasetGroupArn          = "datasetGroupArn"
+	keyDatasetArn               = "datasetArn"
+	keySchemaArn                = "schemaArn"
+	keySolutionArn              = "solutionArn"
+	keySolutionVersionArn       = "solutionVersionArn"
+	keyCampaignArn              = "campaignArn"
+	keyRecommenderArn           = "recommenderArn"
+	keyMetricAttributionArn     = "metricAttributionArn"
+	keyRoleArn                  = "roleArn"
+	keyDomain                   = "domain"
+	keyName                     = "name"
+	keyRecipeArn                = "recipeArn"
+	keyRecipeType               = "recipeType"
+	keyCreationDateTime         = "creationDateTime"
+	keyLastUpdatedDateTime      = "lastUpdatedDateTime"
+	keyJobName                  = "jobName"
+	keyJobOutput                = "jobOutput"
+	keyStatus                   = "status"
+	keyEventType                = "eventType"
+	keyPerformIncrementalUpdate = "performIncrementalUpdate"
 
 	recipeTypeUserPersonalization = "USER_PERSONALIZATION"
 )
@@ -334,6 +336,36 @@ func int32Field(m map[string]any, key string) int32 {
 	}
 
 	return 0
+}
+
+// rawMap returns m[key] as a map[string]any, or nil if absent/wrong type.
+func rawMap(m map[string]any, key string) map[string]any {
+	raw, _ := m[key].(map[string]any)
+
+	return raw
+}
+
+// decodeConfig converts a generically-decoded JSON sub-object into a typed
+// config struct via a marshal/unmarshal round trip -- dispatch() already
+// decoded the whole request body into map[string]any, so this is how a
+// specific sub-object (solutionConfig/campaignConfig/recommenderConfig) gets
+// deep-typed field access instead of staying an opaque map.
+func decodeConfig[T any](raw map[string]any) *T {
+	if raw == nil {
+		return nil
+	}
+
+	b, marshalErr := json.Marshal(raw)
+	if marshalErr != nil {
+		return nil
+	}
+
+	var cfg T
+	if err := json.Unmarshal(b, &cfg); err != nil {
+		return nil
+	}
+
+	return &cfg
 }
 
 func strSlice(m map[string]any, key string) []string {

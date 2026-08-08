@@ -18,7 +18,7 @@ import (
 func (b *InMemoryBackend) CreateSolution(
 	name, datasetGroupArn, recipeArn, eventType string,
 	performAutoML, performHPO, performAutoTraining, performIncrementalUpdate bool,
-	solutionConfig map[string]any,
+	solutionConfig *SolutionConfig,
 	tags map[string]string,
 ) (*Solution, error) {
 	b.mu.Lock("CreateSolution")
@@ -108,11 +108,11 @@ func (b *InMemoryBackend) UpdateSolution(
 	}
 	sol.LastUpdatedDateTime = time.Now().UTC()
 	sol.LatestSolutionUpdate = map[string]any{
-		keyCreationDateTime:        awstime.Epoch(sol.LastUpdatedDateTime),
-		keyLastUpdatedDateTime:     awstime.Epoch(sol.LastUpdatedDateTime),
-		"performAutoTraining":      sol.PerformAutoTraining,
-		"performIncrementalUpdate": sol.PerformIncrementalUpdate,
-		keyStatus:                  sol.Status,
+		keyCreationDateTime:         awstime.Epoch(sol.LastUpdatedDateTime),
+		keyLastUpdatedDateTime:      awstime.Epoch(sol.LastUpdatedDateTime),
+		"performAutoTraining":       sol.PerformAutoTraining,
+		keyPerformIncrementalUpdate: sol.PerformIncrementalUpdate,
+		keyStatus:                   sol.Status,
 	}
 
 	return sol, nil
@@ -192,12 +192,19 @@ func (b *InMemoryBackend) CreateSolutionVersion(
 		Status:             statusActive,
 		TrainingMode:       trainingMode,
 		TrainingHours:      mockMetricValue,
-		// SolutionConfig reflects the configuration used to train this
-		// version, inherited from the parent solution at training time
-		// (the real API has no per-version override on CreateSolutionVersion).
-		SolutionConfig:      sol.SolutionConfig,
-		CreationDateTime:    now,
-		LastUpdatedDateTime: now,
+		// SolutionConfig and the fields below reflect the parent solution's
+		// state at training time (the real API has no per-version override on
+		// CreateSolutionVersion) -- these are value copies, so a later
+		// UpdateSolution call cannot retroactively change them.
+		SolutionConfig:           sol.SolutionConfig,
+		DatasetGroupArn:          sol.DatasetGroupArn,
+		EventType:                sol.EventType,
+		RecipeArn:                sol.RecipeArn,
+		PerformAutoML:            sol.PerformAutoML,
+		PerformHPO:               sol.PerformHPO,
+		PerformIncrementalUpdate: sol.PerformIncrementalUpdate,
+		CreationDateTime:         now,
+		LastUpdatedDateTime:      now,
 	}
 	b.solutionVersions.Put(sv)
 	if len(tags) > 0 {
@@ -238,6 +245,29 @@ func (b *InMemoryBackend) ListSolutionVersions(
 	}
 
 	return paginateItems(filtered, solutionVersionKeyFn, maxResults, nextToken)
+}
+
+// LatestSolutionVersion returns the most recently created solution version
+// for solutionArn, or nil if none exist yet. Populates
+// Solution.latestSolutionVersion (types.SolutionVersionSummary,
+// types.go:2164) on DescribeSolution -- confirmed against
+// deserializers.go:15334, which maps the "latestSolutionVersion" key to that
+// summary type, not the full SolutionVersion.
+func (b *InMemoryBackend) LatestSolutionVersion(solutionArn string) *SolutionVersion {
+	b.mu.RLock("LatestSolutionVersion")
+	defer b.mu.RUnlock()
+
+	var latest *SolutionVersion
+	for _, sv := range b.solutionVersions.All() {
+		if sv.SolutionArn != solutionArn {
+			continue
+		}
+		if latest == nil || sv.CreationDateTime.After(latest.CreationDateTime) {
+			latest = sv
+		}
+	}
+
+	return latest
 }
 
 // StopSolutionVersionCreation transitions a solution version to CREATE STOPPED.

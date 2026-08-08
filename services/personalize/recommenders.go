@@ -13,7 +13,7 @@ import (
 func (b *InMemoryBackend) CreateRecommender(
 	name, datasetGroupArn, recipeArn string,
 	minRPS int32,
-	recommenderConfig map[string]any,
+	recommenderConfig *RecommenderConfig,
 	tags map[string]string,
 ) (*Recommender, error) {
 	b.mu.Lock("CreateRecommender")
@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateRecommender(
 		return nil, fmt.Errorf("%w: recipe %q not found", ErrNotFound, recipeArn)
 	}
 
+	recommenderConfig = withMinRPS(recommenderConfig, minRPS)
 	now := time.Now().UTC()
 	r := &Recommender{
 		RecommenderArn:                     b.personalizeARN("recommender", name),
@@ -72,7 +73,7 @@ func (b *InMemoryBackend) DescribeRecommender(nameOrArn string) (*Recommender, e
 func (b *InMemoryBackend) UpdateRecommender(
 	nameOrArn string,
 	minRPS int32,
-	recommenderConfig map[string]any,
+	recommenderConfig *RecommenderConfig,
 ) (*Recommender, error) {
 	b.mu.Lock("UpdateRecommender")
 	defer b.mu.Unlock()
@@ -90,7 +91,7 @@ func (b *InMemoryBackend) UpdateRecommender(
 	if minRPS > 0 {
 		r.MinRecommendationRequestsPerSecond = minRPS
 	}
-	r.RecommenderConfig = recommenderConfig
+	r.RecommenderConfig = withMinRPS(recommenderConfig, minRPS)
 	r.LastUpdatedDateTime = time.Now().UTC()
 	r.LatestRecommenderUpdate = map[string]any{
 		keyCreationDateTime:    awstime.Epoch(r.LastUpdatedDateTime),
@@ -178,4 +179,20 @@ func (b *InMemoryBackend) findRecommender(nameOrArn string) *Recommender {
 	}
 
 	return nil
+}
+
+// withMinRPS returns cfg with MinRecommendationRequestsPerSecond set to
+// minRPS, allocating cfg if nil. Keeps the typed sub-object authoritative
+// instead of the separate Recommender.MinRecommendationRequestsPerSecond
+// bookkeeping field drifting out of sync with it.
+func withMinRPS(cfg *RecommenderConfig, minRPS int32) *RecommenderConfig {
+	if minRPS <= 0 {
+		return cfg
+	}
+	if cfg == nil {
+		cfg = &RecommenderConfig{}
+	}
+	cfg.MinRecommendationRequestsPerSecond = &minRPS
+
+	return cfg
 }

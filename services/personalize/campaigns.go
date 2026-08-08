@@ -13,7 +13,7 @@ import (
 func (b *InMemoryBackend) CreateCampaign(
 	name, solutionVersionArn string,
 	minProvisionedTPS int32,
-	campaignConfig map[string]any,
+	campaignConfig *CampaignConfig,
 	tags map[string]string,
 ) (*Campaign, error) {
 	b.mu.Lock("CreateCampaign")
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) DescribeCampaign(nameOrArn string) (*Campaign, error) 
 func (b *InMemoryBackend) UpdateCampaign(
 	nameOrArn, solutionVersionArn string,
 	minProvisionedTPS int32,
-	campaignConfig map[string]any,
+	campaignConfig *CampaignConfig,
 ) (*Campaign, error) {
 	b.mu.Lock("UpdateCampaign")
 	defer b.mu.Unlock()

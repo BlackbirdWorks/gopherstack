@@ -8,7 +8,7 @@ func (h *Handler) createCampaign(input map[string]any) (map[string]any, error) {
 	name, _ := input["name"].(string)
 	solutionVersionArn, _ := input["solutionVersionArn"].(string)
 	minProvisionedTPS := int32Field(input, "minProvisionedTPS")
-	campaignConfig, _ := input["campaignConfig"].(map[string]any)
+	campaignConfig := decodeConfig[CampaignConfig](rawMap(input, "campaignConfig"))
 	tags := extractTags(input)
 
 	c, err := h.Backend.CreateCampaign(name, solutionVersionArn, minProvisionedTPS, campaignConfig, tags)
@@ -34,7 +34,7 @@ func (h *Handler) updateCampaign(input map[string]any) (map[string]any, error) {
 	nameOrArn, _ := input["campaignArn"].(string)
 	solutionVersionArn, _ := input["solutionVersionArn"].(string)
 	minProvisionedTPS := int32Field(input, "minProvisionedTPS")
-	campaignConfig, _ := input["campaignConfig"].(map[string]any)
+	campaignConfig := decodeConfig[CampaignConfig](rawMap(input, "campaignConfig"))
 
 	c, err := h.Backend.UpdateCampaign(nameOrArn, solutionVersionArn, minProvisionedTPS, campaignConfig)
 	if err != nil {

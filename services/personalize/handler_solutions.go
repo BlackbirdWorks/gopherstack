@@ -8,15 +8,15 @@ func (h *Handler) createSolution(input map[string]any) (map[string]any, error) {
 	name, _ := input["name"].(string)
 	datasetGroupArn, _ := input["datasetGroupArn"].(string)
 	recipeArn, _ := input["recipeArn"].(string)
-	eventType, _ := input["eventType"].(string)
+	eventType, _ := input[keyEventType].(string)
 	performAutoML, _ := input["performAutoML"].(bool)
 	performHPO, _ := input["performHPO"].(bool)
 	// performAutoTraining defaults to true when omitted (the real API
 	// automatically creates new solution versions every 7 days unless told
 	// otherwise); performIncrementalUpdate defaults to false.
 	performAutoTraining := boolFieldDefault(input, "performAutoTraining", true)
-	performIncrementalUpdate, _ := input["performIncrementalUpdate"].(bool)
-	solutionConfig, _ := input["solutionConfig"].(map[string]any)
+	performIncrementalUpdate, _ := input[keyPerformIncrementalUpdate].(bool)
+	solutionConfig := decodeConfig[SolutionConfig](rawMap(input, "solutionConfig"))
 	tags := extractTags(input)
 
 	sol, err := h.Backend.CreateSolution(
@@ -39,8 +39,9 @@ func (h *Handler) describeSolution(input map[string]any) (map[string]any, error)
 	if err != nil {
 		return nil, err
 	}
+	latest := h.Backend.LatestSolutionVersion(sol.SolutionArn)
 
-	return map[string]any{"solution": solutionToMap(sol)}, nil
+	return map[string]any{"solution": solutionToMap(sol, latest)}, nil
 }
 
 func (h *Handler) updateSolution(input map[string]any) (map[string]any, error) {
@@ -54,7 +55,7 @@ func (h *Handler) updateSolution(input map[string]any) (map[string]any, error) {
 	if v, ok := input["performAutoTraining"].(bool); ok {
 		performAutoTraining = &v
 	}
-	if v, ok := input["performIncrementalUpdate"].(bool); ok {
+	if v, ok := input[keyPerformIncrementalUpdate].(bool); ok {
 		performIncrementalUpdate = &v
 	}
 
@@ -81,7 +82,10 @@ func (h *Handler) listSolutions(input map[string]any) (map[string]any, error) {
 
 	summaries := make([]map[string]any, 0, len(list))
 	for _, sol := range list {
-		summaries = append(summaries, solutionToMap(sol))
+		// ListSolutionsOutput items are types.SolutionSummary, which has no
+		// latestSolutionVersion member (types.go:1990) -- unlike
+		// DescribeSolution, no per-item cross-table lookup here.
+		summaries = append(summaries, solutionToMap(sol, nil))
 	}
 
 	result := map[string]any{"solutions": summaries}
@@ -150,20 +154,20 @@ func (h *Handler) getSolutionMetrics(input map[string]any) (map[string]any, erro
 	return h.Backend.GetSolutionMetrics(svArn)
 }
 
-func solutionToMap(sol *Solution) map[string]any {
+func solutionToMap(sol *Solution, latest *SolutionVersion) map[string]any {
 	m := map[string]any{
-		keySolutionArn:             sol.SolutionArn,
-		keyName:                    sol.Name,
-		keyDatasetGroupArn:         sol.DatasetGroupArn,
-		keyRecipeArn:               sol.RecipeArn,
-		"eventType":                sol.EventType,
-		"performAutoML":            sol.PerformAutoML,
-		"performHPO":               sol.PerformHPO,
-		"performAutoTraining":      sol.PerformAutoTraining,
-		"performIncrementalUpdate": sol.PerformIncrementalUpdate,
-		keyStatus:                  sol.Status,
-		keyCreationDateTime:        awstime.Epoch(sol.CreationDateTime),
-		keyLastUpdatedDateTime:     awstime.Epoch(sol.LastUpdatedDateTime),
+		keySolutionArn:              sol.SolutionArn,
+		keyName:                     sol.Name,
+		keyDatasetGroupArn:          sol.DatasetGroupArn,
+		keyRecipeArn:                sol.RecipeArn,
+		keyEventType:                sol.EventType,
+		"performAutoML":             sol.PerformAutoML,
+		"performHPO":                sol.PerformHPO,
+		"performAutoTraining":       sol.PerformAutoTraining,
+		keyPerformIncrementalUpdate: sol.PerformIncrementalUpdate,
+		keyStatus:                   sol.Status,
+		keyCreationDateTime:         awstime.Epoch(sol.CreationDateTime),
+		keyLastUpdatedDateTime:      awstime.Epoch(sol.LastUpdatedDateTime),
 	}
 	if sol.SolutionConfig != nil {
 		m["solutionConfig"] = sol.SolutionConfig
@@ -176,22 +180,56 @@ func solutionToMap(sol *Solution) map[string]any {
 	if sol.LatestSolutionUpdate != nil {
 		m["latestSolutionUpdate"] = sol.LatestSolutionUpdate
 	}
+	if latest != nil {
+		m["latestSolutionVersion"] = solutionVersionSummaryToMap(latest)
+	}
+
+	return m
+}
+
+// solutionVersionSummaryToMap builds the types.SolutionVersionSummary shape
+// (types.go:2164, deserializers.go:16041) -- a strict subset of the full
+// SolutionVersion fields returned by solutionVersionToMap.
+func solutionVersionSummaryToMap(sv *SolutionVersion) map[string]any {
+	m := map[string]any{
+		keySolutionVersionArn: sv.SolutionVersionArn,
+		keyStatus:             sv.Status,
+		"trainingMode":        sv.TrainingMode,
+		// trainingType is always MANUAL: this backend has no autotraining
+		// scheduler, every SolutionVersion is created via an explicit
+		// CreateSolutionVersion call (types.TrainingType, enums.go:163).
+		"trainingType":         "MANUAL",
+		keyCreationDateTime:    awstime.Epoch(sv.CreationDateTime),
+		keyLastUpdatedDateTime: awstime.Epoch(sv.LastUpdatedDateTime),
+	}
+	if sv.FailureReason != "" {
+		m["failureReason"] = sv.FailureReason
+	}
 
 	return m
 }
 
 func solutionVersionToMap(sv *SolutionVersion) map[string]any {
 	m := map[string]any{
-		keySolutionVersionArn:  sv.SolutionVersionArn,
-		keySolutionArn:         sv.SolutionArn,
-		keyStatus:              sv.Status,
-		"trainingMode":         sv.TrainingMode,
-		"trainingHours":        sv.TrainingHours,
-		keyCreationDateTime:    awstime.Epoch(sv.CreationDateTime),
-		keyLastUpdatedDateTime: awstime.Epoch(sv.LastUpdatedDateTime),
+		keySolutionVersionArn:       sv.SolutionVersionArn,
+		keySolutionArn:              sv.SolutionArn,
+		keyDatasetGroupArn:          sv.DatasetGroupArn,
+		keyRecipeArn:                sv.RecipeArn,
+		keyEventType:                sv.EventType,
+		"performAutoML":             sv.PerformAutoML,
+		"performHPO":                sv.PerformHPO,
+		keyPerformIncrementalUpdate: sv.PerformIncrementalUpdate,
+		keyStatus:                   sv.Status,
+		"trainingMode":              sv.TrainingMode,
+		"trainingHours":             sv.TrainingHours,
+		keyCreationDateTime:         awstime.Epoch(sv.CreationDateTime),
+		keyLastUpdatedDateTime:      awstime.Epoch(sv.LastUpdatedDateTime),
 	}
 	if sv.SolutionConfig != nil {
 		m["solutionConfig"] = sv.SolutionConfig
+	}
+	if sv.FailureReason != "" {
+		m["failureReason"] = sv.FailureReason
 	}
 
 	return m

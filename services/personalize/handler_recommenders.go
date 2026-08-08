@@ -1,10 +1,6 @@
 package personalize
 
-import (
-	"maps"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
-)
+import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
 
 // --- Recommender ---
 
@@ -12,8 +8,9 @@ func (h *Handler) createRecommender(input map[string]any) (map[string]any, error
 	name, _ := input["name"].(string)
 	datasetGroupArn, _ := input["datasetGroupArn"].(string)
 	recipeArn, _ := input["recipeArn"].(string)
-	recommenderConfig, _ := input["recommenderConfig"].(map[string]any)
-	minRPS := int32Field(recommenderConfig, "minRecommendationRequestsPerSecond")
+	rawConfig := rawMap(input, "recommenderConfig")
+	minRPS := int32Field(rawConfig, "minRecommendationRequestsPerSecond")
+	recommenderConfig := decodeConfig[RecommenderConfig](rawConfig)
 	tags := extractTags(input)
 
 	r, err := h.Backend.CreateRecommender(name, datasetGroupArn, recipeArn, minRPS, recommenderConfig, tags)
@@ -37,8 +34,9 @@ func (h *Handler) describeRecommender(input map[string]any) (map[string]any, err
 
 func (h *Handler) updateRecommender(input map[string]any) (map[string]any, error) {
 	nameOrArn, _ := input["recommenderArn"].(string)
-	recommenderConfig, _ := input["recommenderConfig"].(map[string]any)
-	minRPS := int32Field(recommenderConfig, "minRecommendationRequestsPerSecond")
+	rawConfig := rawMap(input, "recommenderConfig")
+	minRPS := int32Field(rawConfig, "minRecommendationRequestsPerSecond")
+	recommenderConfig := decodeConfig[RecommenderConfig](rawConfig)
 
 	r, err := h.Backend.UpdateRecommender(nameOrArn, minRPS, recommenderConfig)
 	if err != nil {
@@ -97,24 +95,17 @@ func (h *Handler) stopRecommender(input map[string]any) (map[string]any, error) 
 }
 
 func recommenderToMap(r *Recommender) map[string]any {
-	// recommenderConfig always includes minRecommendationRequestsPerSecond
-	// (the one field this backend also tracks as its own struct field, for
-	// callers that only ever set that one sub-field) merged with whatever
-	// other sub-fields the caller originally supplied.
-	cfg := map[string]any{
-		"minRecommendationRequestsPerSecond": r.MinRecommendationRequestsPerSecond,
-	}
-	maps.Copy(cfg, r.RecommenderConfig)
-
 	m := map[string]any{
 		keyRecommenderArn:      r.RecommenderArn,
 		keyName:                r.Name,
 		keyDatasetGroupArn:     r.DatasetGroupArn,
 		keyRecipeArn:           r.RecipeArn,
 		keyStatus:              r.Status,
-		"recommenderConfig":    cfg,
 		keyCreationDateTime:    awstime.Epoch(r.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(r.LastUpdatedDateTime),
+	}
+	if r.RecommenderConfig != nil {
+		m["recommenderConfig"] = r.RecommenderConfig
 	}
 	if r.LatestRecommenderUpdate != nil {
 		m["latestRecommenderUpdate"] = r.LatestRecommenderUpdate
