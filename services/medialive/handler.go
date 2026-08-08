@@ -665,6 +665,12 @@ func int32FromAny(v any) int32 {
 	return int32(intFromAny(v))
 }
 
+func float64FromAny(v any) float64 {
+	f, _ := v.(float64)
+
+	return f
+}
+
 func extractTags(body map[string]any) map[string]string {
 	raw, hasTags := body["tags"].(map[string]any)
 	if !hasTags {

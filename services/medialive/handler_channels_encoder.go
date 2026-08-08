@@ -363,14 +363,420 @@ func extractThumbnailConfiguration(m map[string]any) ThumbnailConfiguration {
 
 // -- AudioDescriptions --
 
+type aacSettingsOutput struct {
+	CodingMode      string  `json:"codingMode,omitempty"`
+	InputType       string  `json:"inputType,omitempty"`
+	Profile         string  `json:"profile,omitempty"`
+	RateControlMode string  `json:"rateControlMode,omitempty"`
+	RawFormat       string  `json:"rawFormat,omitempty"`
+	Spec            string  `json:"spec,omitempty"`
+	VbrQuality      string  `json:"vbrQuality,omitempty"`
+	Bitrate         float64 `json:"bitrate,omitempty"`
+	SampleRate      float64 `json:"sampleRate,omitempty"`
+}
+
+func toAacSettingsOutput(s *AacSettings) *aacSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := aacSettingsOutput(*s)
+
+	return &out
+}
+
+func extractAacSettings(m map[string]any) *AacSettings {
+	raw, ok := m["aacSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &AacSettings{
+		CodingMode:      stringFromAny(raw["codingMode"]),
+		InputType:       stringFromAny(raw["inputType"]),
+		Profile:         stringFromAny(raw["profile"]),
+		RateControlMode: stringFromAny(raw["rateControlMode"]),
+		RawFormat:       stringFromAny(raw["rawFormat"]),
+		Spec:            stringFromAny(raw["spec"]),
+		VbrQuality:      stringFromAny(raw["vbrQuality"]),
+		Bitrate:         float64FromAny(raw["bitrate"]),
+		SampleRate:      float64FromAny(raw["sampleRate"]),
+	}
+}
+
+type ac3SettingsOutput struct {
+	AttenuationControl string  `json:"attenuationControl,omitempty"`
+	BitstreamMode      string  `json:"bitstreamMode,omitempty"`
+	CodingMode         string  `json:"codingMode,omitempty"`
+	DrcProfile         string  `json:"drcProfile,omitempty"`
+	LfeFilter          string  `json:"lfeFilter,omitempty"`
+	MetadataControl    string  `json:"metadataControl,omitempty"`
+	Bitrate            float64 `json:"bitrate,omitempty"`
+	Dialnorm           int32   `json:"dialnorm,omitempty"`
+}
+
+func toAc3SettingsOutput(s *Ac3Settings) *ac3SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := ac3SettingsOutput(*s)
+
+	return &out
+}
+
+func extractAc3Settings(m map[string]any) *Ac3Settings {
+	raw, ok := m["ac3Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Ac3Settings{
+		AttenuationControl: stringFromAny(raw["attenuationControl"]),
+		BitstreamMode:      stringFromAny(raw["bitstreamMode"]),
+		CodingMode:         stringFromAny(raw["codingMode"]),
+		DrcProfile:         stringFromAny(raw["drcProfile"]),
+		LfeFilter:          stringFromAny(raw["lfeFilter"]),
+		MetadataControl:    stringFromAny(raw["metadataControl"]),
+		Bitrate:            float64FromAny(raw["bitrate"]),
+		Dialnorm:           int32FromAny(raw["dialnorm"]),
+	}
+}
+
+type eac3AtmosSettingsOutput struct {
+	CodingMode   string  `json:"codingMode,omitempty"`
+	DrcLine      string  `json:"drcLine,omitempty"`
+	DrcRf        string  `json:"drcRf,omitempty"`
+	Bitrate      float64 `json:"bitrate,omitempty"`
+	HeightTrim   float64 `json:"heightTrim,omitempty"`
+	SurroundTrim float64 `json:"surroundTrim,omitempty"`
+	Dialnorm     int32   `json:"dialnorm,omitempty"`
+}
+
+func toEac3AtmosSettingsOutput(s *Eac3AtmosSettings) *eac3AtmosSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := eac3AtmosSettingsOutput(*s)
+
+	return &out
+}
+
+func extractEac3AtmosSettings(m map[string]any) *Eac3AtmosSettings {
+	raw, ok := m["eac3AtmosSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Eac3AtmosSettings{
+		CodingMode:   stringFromAny(raw["codingMode"]),
+		DrcLine:      stringFromAny(raw["drcLine"]),
+		DrcRf:        stringFromAny(raw["drcRf"]),
+		Bitrate:      float64FromAny(raw["bitrate"]),
+		HeightTrim:   float64FromAny(raw["heightTrim"]),
+		SurroundTrim: float64FromAny(raw["surroundTrim"]),
+		Dialnorm:     int32FromAny(raw["dialnorm"]),
+	}
+}
+
+type eac3SettingsOutput struct {
+	AttenuationControl   string  `json:"attenuationControl,omitempty"`
+	BitstreamMode        string  `json:"bitstreamMode,omitempty"`
+	CodingMode           string  `json:"codingMode,omitempty"`
+	DcFilter             string  `json:"dcFilter,omitempty"`
+	DrcLine              string  `json:"drcLine,omitempty"`
+	DrcRf                string  `json:"drcRf,omitempty"`
+	LfeControl           string  `json:"lfeControl,omitempty"`
+	LfeFilter            string  `json:"lfeFilter,omitempty"`
+	MetadataControl      string  `json:"metadataControl,omitempty"`
+	PassthroughControl   string  `json:"passthroughControl,omitempty"`
+	PhaseControl         string  `json:"phaseControl,omitempty"`
+	StereoDownmix        string  `json:"stereoDownmix,omitempty"`
+	SurroundExMode       string  `json:"surroundExMode,omitempty"`
+	SurroundMode         string  `json:"surroundMode,omitempty"`
+	Bitrate              float64 `json:"bitrate,omitempty"`
+	LoRoCenterMixLevel   float64 `json:"loRoCenterMixLevel,omitempty"`
+	LoRoSurroundMixLevel float64 `json:"loRoSurroundMixLevel,omitempty"`
+	LtRtCenterMixLevel   float64 `json:"ltRtCenterMixLevel,omitempty"`
+	LtRtSurroundMixLevel float64 `json:"ltRtSurroundMixLevel,omitempty"`
+	Dialnorm             int32   `json:"dialnorm,omitempty"`
+}
+
+func toEac3SettingsOutput(s *Eac3Settings) *eac3SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := eac3SettingsOutput(*s)
+
+	return &out
+}
+
+func extractEac3Settings(m map[string]any) *Eac3Settings {
+	raw, ok := m["eac3Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Eac3Settings{
+		AttenuationControl:   stringFromAny(raw["attenuationControl"]),
+		BitstreamMode:        stringFromAny(raw["bitstreamMode"]),
+		CodingMode:           stringFromAny(raw["codingMode"]),
+		DcFilter:             stringFromAny(raw["dcFilter"]),
+		DrcLine:              stringFromAny(raw["drcLine"]),
+		DrcRf:                stringFromAny(raw["drcRf"]),
+		LfeControl:           stringFromAny(raw["lfeControl"]),
+		LfeFilter:            stringFromAny(raw["lfeFilter"]),
+		MetadataControl:      stringFromAny(raw["metadataControl"]),
+		PassthroughControl:   stringFromAny(raw["passthroughControl"]),
+		PhaseControl:         stringFromAny(raw["phaseControl"]),
+		StereoDownmix:        stringFromAny(raw["stereoDownmix"]),
+		SurroundExMode:       stringFromAny(raw["surroundExMode"]),
+		SurroundMode:         stringFromAny(raw["surroundMode"]),
+		Bitrate:              float64FromAny(raw["bitrate"]),
+		LoRoCenterMixLevel:   float64FromAny(raw["loRoCenterMixLevel"]),
+		LoRoSurroundMixLevel: float64FromAny(raw["loRoSurroundMixLevel"]),
+		LtRtCenterMixLevel:   float64FromAny(raw["ltRtCenterMixLevel"]),
+		LtRtSurroundMixLevel: float64FromAny(raw["ltRtSurroundMixLevel"]),
+		Dialnorm:             int32FromAny(raw["dialnorm"]),
+	}
+}
+
+type mp2SettingsOutput struct {
+	CodingMode string  `json:"codingMode,omitempty"`
+	Bitrate    float64 `json:"bitrate,omitempty"`
+	SampleRate float64 `json:"sampleRate,omitempty"`
+}
+
+func toMp2SettingsOutput(s *Mp2Settings) *mp2SettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := mp2SettingsOutput(*s)
+
+	return &out
+}
+
+func extractMp2Settings(m map[string]any) *Mp2Settings {
+	raw, ok := m["mp2Settings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &Mp2Settings{
+		CodingMode: stringFromAny(raw["codingMode"]),
+		Bitrate:    float64FromAny(raw["bitrate"]),
+		SampleRate: float64FromAny(raw["sampleRate"]),
+	}
+}
+
+type wavSettingsOutput struct {
+	CodingMode string  `json:"codingMode,omitempty"`
+	BitDepth   float64 `json:"bitDepth,omitempty"`
+	SampleRate float64 `json:"sampleRate,omitempty"`
+}
+
+func toWavSettingsOutput(s *WavSettings) *wavSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := wavSettingsOutput(*s)
+
+	return &out
+}
+
+func extractWavSettings(m map[string]any) *WavSettings {
+	raw, ok := m["wavSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &WavSettings{
+		CodingMode: stringFromAny(raw["codingMode"]),
+		BitDepth:   float64FromAny(raw["bitDepth"]),
+		SampleRate: float64FromAny(raw["sampleRate"]),
+	}
+}
+
+type audioCodecSettingsOutput struct {
+	AacSettings         *aacSettingsOutput       `json:"aacSettings,omitempty"`
+	Ac3Settings         *ac3SettingsOutput       `json:"ac3Settings,omitempty"`
+	Eac3AtmosSettings   *eac3AtmosSettingsOutput `json:"eac3AtmosSettings,omitempty"`
+	Eac3Settings        *eac3SettingsOutput      `json:"eac3Settings,omitempty"`
+	Mp2Settings         *mp2SettingsOutput       `json:"mp2Settings,omitempty"`
+	WavSettings         *wavSettingsOutput       `json:"wavSettings,omitempty"`
+	PassThroughSettings *emptyMarker             `json:"passThroughSettings,omitempty"`
+}
+
+func toAudioCodecSettingsOutput(s *AudioCodecSettings) *audioCodecSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	out := &audioCodecSettingsOutput{
+		AacSettings:       toAacSettingsOutput(s.AacSettings),
+		Ac3Settings:       toAc3SettingsOutput(s.Ac3Settings),
+		Eac3AtmosSettings: toEac3AtmosSettingsOutput(s.Eac3AtmosSettings),
+		Eac3Settings:      toEac3SettingsOutput(s.Eac3Settings),
+		Mp2Settings:       toMp2SettingsOutput(s.Mp2Settings),
+		WavSettings:       toWavSettingsOutput(s.WavSettings),
+	}
+
+	if s.PassThroughSettings {
+		out.PassThroughSettings = &emptyMarker{}
+	}
+
+	return out
+}
+
+func extractAudioCodecSettings(m map[string]any) *AudioCodecSettings {
+	raw, ok := m["codecSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	_, hasPassThrough := raw["passThroughSettings"]
+
+	return &AudioCodecSettings{
+		AacSettings:         extractAacSettings(raw),
+		Ac3Settings:         extractAc3Settings(raw),
+		Eac3AtmosSettings:   extractEac3AtmosSettings(raw),
+		Eac3Settings:        extractEac3Settings(raw),
+		Mp2Settings:         extractMp2Settings(raw),
+		WavSettings:         extractWavSettings(raw),
+		PassThroughSettings: hasPassThrough,
+	}
+}
+
+type nielsenCBETOutput struct {
+	CbetCheckDigitString string `json:"cbetCheckDigitString,omitempty"`
+	CbetStepaside        string `json:"cbetStepaside,omitempty"`
+	Csid                 string `json:"csid,omitempty"`
+}
+
+func toNielsenCBETOutput(n *NielsenCBET) *nielsenCBETOutput {
+	if n == nil {
+		return nil
+	}
+
+	out := nielsenCBETOutput(*n)
+
+	return &out
+}
+
+func extractNielsenCBET(m map[string]any) *NielsenCBET {
+	raw, ok := m["nielsenCbetSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &NielsenCBET{
+		CbetCheckDigitString: stringFromAny(raw["cbetCheckDigitString"]),
+		CbetStepaside:        stringFromAny(raw["cbetStepaside"]),
+		Csid:                 stringFromAny(raw["csid"]),
+	}
+}
+
+type nielsenNaesIiNwOutput struct {
+	CheckDigitString string  `json:"checkDigitString,omitempty"`
+	Timezone         string  `json:"timezone,omitempty"`
+	Sid              float64 `json:"sid,omitempty"`
+}
+
+func toNielsenNaesIiNwOutput(n *NielsenNaesIiNw) *nielsenNaesIiNwOutput {
+	if n == nil {
+		return nil
+	}
+
+	out := nielsenNaesIiNwOutput(*n)
+
+	return &out
+}
+
+func extractNielsenNaesIiNw(m map[string]any) *NielsenNaesIiNw {
+	raw, ok := m["nielsenNaesIiNwSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &NielsenNaesIiNw{
+		CheckDigitString: stringFromAny(raw["checkDigitString"]),
+		Timezone:         stringFromAny(raw["timezone"]),
+		Sid:              float64FromAny(raw["sid"]),
+	}
+}
+
+type nielsenWatermarksSettingsOutput struct {
+	NielsenCbetSettings     *nielsenCBETOutput     `json:"nielsenCbetSettings,omitempty"`
+	NielsenNaesIiNwSettings *nielsenNaesIiNwOutput `json:"nielsenNaesIiNwSettings,omitempty"`
+	NielsenDistributionType string                 `json:"nielsenDistributionType,omitempty"`
+}
+
+func toNielsenWatermarksSettingsOutput(s *NielsenWatermarksSettings) *nielsenWatermarksSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &nielsenWatermarksSettingsOutput{
+		NielsenCbetSettings:     toNielsenCBETOutput(s.NielsenCbetSettings),
+		NielsenNaesIiNwSettings: toNielsenNaesIiNwOutput(s.NielsenNaesIiNwSettings),
+		NielsenDistributionType: s.NielsenDistributionType,
+	}
+}
+
+func extractNielsenWatermarksSettings(m map[string]any) *NielsenWatermarksSettings {
+	raw, ok := m["nielsenWatermarksSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &NielsenWatermarksSettings{
+		NielsenCbetSettings:     extractNielsenCBET(raw),
+		NielsenNaesIiNwSettings: extractNielsenNaesIiNw(raw),
+		NielsenDistributionType: stringFromAny(raw["nielsenDistributionType"]),
+	}
+}
+
+type audioWatermarkSettingsOutput struct {
+	NielsenWatermarksSettings *nielsenWatermarksSettingsOutput `json:"nielsenWatermarksSettings,omitempty"`
+}
+
+func toAudioWatermarkSettingsOutput(s *AudioWatermarkSettings) *audioWatermarkSettingsOutput {
+	if s == nil {
+		return nil
+	}
+
+	return &audioWatermarkSettingsOutput{
+		NielsenWatermarksSettings: toNielsenWatermarksSettingsOutput(s.NielsenWatermarksSettings),
+	}
+}
+
+func extractAudioWatermarkSettings(m map[string]any) *AudioWatermarkSettings {
+	raw, ok := m["audioWatermarkingSettings"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &AudioWatermarkSettings{NielsenWatermarksSettings: extractNielsenWatermarksSettings(raw)}
+}
+
 type audioDescriptionOutput struct {
-	Name                string `json:"name"`
-	AudioSelectorName   string `json:"audioSelectorName,omitempty"`
-	LanguageCode        string `json:"languageCode,omitempty"`
-	LanguageCodeControl string `json:"languageCodeControl,omitempty"`
-	AudioType           string `json:"audioType,omitempty"`
-	AudioTypeControl    string `json:"audioTypeControl,omitempty"`
-	StreamName          string `json:"streamName,omitempty"`
+	AudioNormalizationSettings *audioNormalizationSettingsOutput `json:"audioNormalizationSettings,omitempty"`
+	CodecSettings              *audioCodecSettingsOutput         `json:"codecSettings,omitempty"`
+	AudioWatermarkingSettings  *audioWatermarkSettingsOutput     `json:"audioWatermarkingSettings,omitempty"`
+	RemixSettings              *remixSettingsOutput              `json:"remixSettings,omitempty"`
+	LanguageCodeControl        string                            `json:"languageCodeControl,omitempty"`
+	AudioTypeControl           string                            `json:"audioTypeControl,omitempty"`
+	StreamName                 string                            `json:"streamName,omitempty"`
+	DvbDashAccessibility       string                            `json:"dvbDashAccessibility,omitempty"`
+	AudioType                  string                            `json:"audioType,omitempty"`
+	Name                       string                            `json:"name"`
+	LanguageCode               string                            `json:"languageCode,omitempty"`
+	AudioSelectorName          string                            `json:"audioSelectorName,omitempty"`
+	AudioDashRoles             []string                          `json:"audioDashRoles,omitempty"`
 }
 
 func toAudioDescriptionsOutput(descs []AudioDescription) []audioDescriptionOutput {
@@ -379,8 +785,23 @@ func toAudioDescriptionsOutput(descs []AudioDescription) []audioDescriptionOutpu
 	}
 
 	out := make([]audioDescriptionOutput, 0, len(descs))
+
 	for _, d := range descs {
-		out = append(out, audioDescriptionOutput(d))
+		out = append(out, audioDescriptionOutput{
+			Name:                       d.Name,
+			AudioSelectorName:          d.AudioSelectorName,
+			LanguageCode:               d.LanguageCode,
+			LanguageCodeControl:        d.LanguageCodeControl,
+			AudioType:                  d.AudioType,
+			AudioTypeControl:           d.AudioTypeControl,
+			StreamName:                 d.StreamName,
+			DvbDashAccessibility:       d.DvbDashAccessibility,
+			AudioDashRoles:             d.AudioDashRoles,
+			AudioNormalizationSettings: toAudioNormalizationSettingsOutput(d.AudioNormalizationSettings),
+			RemixSettings:              toRemixSettingsOutput(d.RemixSettings),
+			AudioWatermarkingSettings:  toAudioWatermarkSettingsOutput(d.AudioWatermarkingSettings),
+			CodecSettings:              toAudioCodecSettingsOutput(d.CodecSettings),
+		})
 	}
 
 	return out
@@ -396,13 +817,19 @@ func extractAudioDescriptions(raw []any) []AudioDescription {
 		}
 
 		out = append(out, AudioDescription{
-			Name:                stringFromAny(m["name"]),
-			AudioSelectorName:   stringFromAny(m["audioSelectorName"]),
-			LanguageCode:        stringFromAny(m["languageCode"]),
-			LanguageCodeControl: stringFromAny(m["languageCodeControl"]),
-			AudioType:           stringFromAny(m["audioType"]),
-			AudioTypeControl:    stringFromAny(m["audioTypeControl"]),
-			StreamName:          stringFromAny(m["streamName"]),
+			Name:                       stringFromAny(m["name"]),
+			AudioSelectorName:          stringFromAny(m["audioSelectorName"]),
+			LanguageCode:               stringFromAny(m["languageCode"]),
+			LanguageCodeControl:        stringFromAny(m["languageCodeControl"]),
+			AudioType:                  stringFromAny(m["audioType"]),
+			AudioTypeControl:           stringFromAny(m["audioTypeControl"]),
+			StreamName:                 stringFromAny(m["streamName"]),
+			DvbDashAccessibility:       stringFromAny(m["dvbDashAccessibility"]),
+			AudioDashRoles:             anySliceToStrings(mustSlice(m["audioDashRoles"])),
+			AudioNormalizationSettings: extractAudioNormalizationSettings(m),
+			RemixSettings:              extractRemixSettings(m),
+			AudioWatermarkingSettings:  extractAudioWatermarkSettings(m),
+			CodecSettings:              extractAudioCodecSettings(m),
 		})
 	}
 

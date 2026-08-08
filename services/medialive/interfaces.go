@@ -663,14 +663,310 @@ func (s ChannelAutomaticInputFailoverSettings) hasFailover() bool {
 
 // ChannelInputAttachment attaches an Input to a Channel
 // (types.InputAttachment). InputSettings (per-attachment audio/caption/video
-// selector configuration -- itself a deep union comparable in size to
-// EncoderSettings' codec settings) is deliberately NOT modeled; see
-// PARITY.md's gaps entry for this family.
+// selector configuration) is modeled in full below (gopherstack-sthr).
 type ChannelInputAttachment struct {
-	LogicalInterfaceNames          []string
+	InputSettings                  InputSettings
 	InputAttachmentName            string
 	InputID                        string
+	LogicalInterfaceNames          []string
 	AutomaticInputFailoverSettings ChannelAutomaticInputFailoverSettings
+}
+
+// AudioHlsRenditionSelection picks an audio rendition out of an HLS input's
+// #EXT-X-MEDIA tags. Wire keys "groupId"/"name" -- verified against
+// types.AudioHlsRenditionSelection.
+type AudioHlsRenditionSelection struct {
+	GroupID string
+	Name    string
+}
+
+// AudioLanguageSelection picks an audio stream by its 3-letter language
+// code. Wire keys "languageCode"/"languageSelectionPolicy" -- verified
+// against types.AudioLanguageSelection.
+type AudioLanguageSelection struct {
+	LanguageCode            string
+	LanguageSelectionPolicy string
+}
+
+// AudioDolbyEDecode configures Dolby E program extraction. Wire key
+// "programSelection" -- verified against types.AudioDolbyEDecode.
+type AudioDolbyEDecode struct {
+	ProgramSelection string
+}
+
+// InputChannelLevel maps one input channel into an AudioChannelMapping's
+// output channel with a gain adjustment. Wire keys "gain"/"inputChannel" --
+// verified against types.InputChannelLevel.
+type InputChannelLevel struct {
+	Gain         int32
+	InputChannel int32
+}
+
+// AudioChannelMapping is one output-channel entry of RemixSettings. Wire
+// keys "inputChannelLevels"/"outputChannel" -- verified against
+// types.AudioChannelMapping.
+type AudioChannelMapping struct {
+	InputChannelLevels []InputChannelLevel
+	OutputChannel      int32
+}
+
+// RemixSettings controls fine-grained input-to-output audio channel
+// remixing. Wire keys "channelMappings"/"channelsIn"/"channelsOut" --
+// verified against types.RemixSettings.
+type RemixSettings struct {
+	ChannelMappings []AudioChannelMapping
+	ChannelsIn      int32
+	ChannelsOut     int32
+}
+
+// AudioNormalizationSettings configures loudness normalization. Wire keys
+// "algorithm"/"algorithmControl"/"peakCalculation"/"peakLimiterThreshold"/
+// "targetLkfs" -- verified against types.AudioNormalizationSettings.
+type AudioNormalizationSettings struct {
+	Algorithm            string
+	AlgorithmControl     string
+	PeakCalculation      string
+	PeakLimiterThreshold float64
+	TargetLkfs           float64
+}
+
+// AudioPreMixerSettings configures per-PID/per-track audio remixing before
+// interleaving (types.AudioPreMixerSettings). Wire keys
+// "audioNormalizationSettings"/"channels"/"gainDb"/"remixSettings".
+type AudioPreMixerSettings struct {
+	AudioNormalizationSettings *AudioNormalizationSettings
+	RemixSettings              *RemixSettings
+	GainDB                     float64
+	Channels                   int32
+}
+
+// AudioPid is one PID entry of an AudioPidSelection. Wire keys
+// "dolbyEDecode"/"pid"/"premixSettings" -- verified against types.AudioPid.
+type AudioPid struct {
+	DolbyEDecode   *AudioDolbyEDecode
+	PremixSettings *AudioPreMixerSettings
+	Pid            int32
+}
+
+// AudioPidSelection selects one or more audio PIDs from a source. Wire keys
+// "pid"/"pids" -- verified against types.AudioPidSelection.
+type AudioPidSelection struct {
+	Pids []AudioPid
+	Pid  int32
+}
+
+// AudioTrack is one track entry of an AudioTrackSelection. Wire keys
+// "premixSettings"/"track" -- verified against types.AudioTrack.
+type AudioTrack struct {
+	PremixSettings *AudioPreMixerSettings
+	Track          int32
+}
+
+// AudioTrackSelection selects one or more audio tracks from a source. Wire
+// keys "dolbyEDecode"/"tracks" -- verified against types.AudioTrackSelection.
+type AudioTrackSelection struct {
+	DolbyEDecode *AudioDolbyEDecode
+	Tracks       []AudioTrack
+}
+
+// AudioSelectorSettings is the tagged union of audio-selection methods
+// (types.AudioSelectorSettings); at most one variant is set.
+type AudioSelectorSettings struct {
+	AudioHlsRenditionSelection *AudioHlsRenditionSelection
+	AudioLanguageSelection     *AudioLanguageSelection
+	AudioPidSelection          *AudioPidSelection
+	AudioTrackSelection        *AudioTrackSelection
+}
+
+// AudioSelector names one audio selector an input exposes for
+// AudioDescriptions to reference. Wire keys "name"/"selectorSettings" --
+// verified against types.AudioSelector.
+type AudioSelector struct {
+	SelectorSettings AudioSelectorSettings
+	Name             string
+}
+
+// AncillarySourceSettings extracts captions from an ancillary data channel.
+// Wire key "sourceAncillaryChannelNumber" -- verified against
+// types.AncillarySourceSettings.
+type AncillarySourceSettings struct {
+	SourceAncillaryChannelNumber int32
+}
+
+// DvbSubSourceSettings extracts DVB-Sub captions. Wire keys
+// "ocrLanguage"/"pid" -- verified against types.DvbSubSourceSettings.
+type DvbSubSourceSettings struct {
+	OcrLanguage string
+	Pid         int32
+}
+
+// EmbeddedSourceSettings extracts embedded 608/708 captions. Wire keys
+// "convert608To708"/"scte20Detection"/"source608ChannelNumber"/
+// "source608TrackNumber" -- verified against types.EmbeddedSourceSettings.
+type EmbeddedSourceSettings struct {
+	Convert608To708        string
+	Scte20Detection        string
+	Source608ChannelNumber int32
+	Source608TrackNumber   int32
+}
+
+// Scte20SourceSettings extracts SCTE-20 captions. Wire keys
+// "convert608To708"/"source608ChannelNumber" -- verified against
+// types.Scte20SourceSettings.
+type Scte20SourceSettings struct {
+	Convert608To708        string
+	Source608ChannelNumber int32
+}
+
+// Scte27SourceSettings extracts SCTE-27 captions. Wire keys
+// "ocrLanguage"/"pid" -- verified against types.Scte27SourceSettings.
+type Scte27SourceSettings struct {
+	OcrLanguage string
+	Pid         int32
+}
+
+// SmartSubtitleSourceSettings extracts Elemental-Inference-generated
+// subtitles. Wire keys "captionSynchronizationMode"/"inferenceFeedOutput" --
+// verified against types.SmartSubtitleSourceSettings.
+type SmartSubtitleSourceSettings struct {
+	CaptionSynchronizationMode string
+	InferenceFeedOutput        string
+}
+
+// CaptionRectangle positions a TTML/EBU-TT-D caption display region as
+// frame-relative percentages. Wire keys "height"/"leftOffset"/"topOffset"/
+// "width" -- verified against types.CaptionRectangle.
+type CaptionRectangle struct {
+	Height     float64
+	LeftOffset float64
+	TopOffset  float64
+	Width      float64
+}
+
+// TeletextSourceSettings extracts Teletext captions. Wire keys
+// "outputRectangle"/"pageNumber" -- verified against
+// types.TeletextSourceSettings.
+type TeletextSourceSettings struct {
+	OutputRectangle *CaptionRectangle
+	PageNumber      string
+}
+
+// CaptionSelectorSettings is the tagged union of caption-source formats
+// (types.CaptionSelectorSettings); at most one variant is set.
+// AribSourceSettings (types.AribSourceSettings) has no fields on the real
+// wire, so a bool records "this variant is set" -- same convention as
+// ChannelMotionGraphicsSettings.HTMLMotionGraphicsSettings.
+type CaptionSelectorSettings struct {
+	AncillarySourceSettings     *AncillarySourceSettings
+	DvbSubSourceSettings        *DvbSubSourceSettings
+	EmbeddedSourceSettings      *EmbeddedSourceSettings
+	Scte20SourceSettings        *Scte20SourceSettings
+	Scte27SourceSettings        *Scte27SourceSettings
+	SmartSubtitleSourceSettings *SmartSubtitleSourceSettings
+	TeletextSourceSettings      *TeletextSourceSettings
+	AribSourceSettings          bool
+}
+
+// CaptionSelector names one caption selector an input exposes for
+// CaptionDescriptions to reference. Wire keys "languageCode"/"name"/
+// "selectorSettings" -- verified against types.CaptionSelector.
+type CaptionSelector struct {
+	Name             string
+	LanguageCode     string
+	SelectorSettings CaptionSelectorSettings
+}
+
+// Hdr10Settings supplies HDR10 color-space metadata missing from an AWS
+// Elemental Link source. Wire keys "maxCll"/"maxFall" -- verified against
+// types.Hdr10Settings.
+type Hdr10Settings struct {
+	MaxCll  int32
+	MaxFall int32
+}
+
+// VideoSelectorColorSpaceSettings is the tagged union of color-space
+// metadata sources (types.VideoSelectorColorSpaceSettings). The real SDK
+// currently defines exactly one variant, Hdr10Settings.
+type VideoSelectorColorSpaceSettings struct {
+	Hdr10Settings *Hdr10Settings
+}
+
+// VideoSelectorPid selects a video PID from a source. Wire key "pid" --
+// verified against types.VideoSelectorPid.
+type VideoSelectorPid struct {
+	Pid int32
+}
+
+// VideoSelectorProgramID selects a program from a multi-program transport
+// stream. Wire key "programId" -- verified against
+// types.VideoSelectorProgramId.
+type VideoSelectorProgramID struct {
+	ProgramID int32
+}
+
+// VideoSelectorSettings is the tagged union of video-selection methods
+// (types.VideoSelectorSettings); at most one variant is set.
+type VideoSelectorSettings struct {
+	VideoSelectorPid       *VideoSelectorPid
+	VideoSelectorProgramID *VideoSelectorProgramID
+}
+
+// VideoSelector configures which video elementary stream an input decodes
+// and how its color-space metadata is handled. Wire keys "colorSpace"/
+// "colorSpaceSettings"/"colorSpaceUsage"/"selectorSettings" -- verified
+// against types.VideoSelector.
+type VideoSelector struct {
+	SelectorSettings   VideoSelectorSettings
+	ColorSpaceSettings VideoSelectorColorSpaceSettings
+	ColorSpace         string
+	ColorSpaceUsage    string
+}
+
+// HlsInputSettings configures HLS-manifest-specific input behavior. Wire
+// keys "bandwidth"/"bufferSegments"/"retries"/"retryInterval"/
+// "scte35Source" -- verified against types.HlsInputSettings.
+type HlsInputSettings struct {
+	Scte35Source   string
+	Bandwidth      int32
+	BufferSegments int32
+	Retries        int32
+	RetryInterval  int32
+}
+
+// MulticastInputSettings restricts a multicast input to a specific source
+// IP (Source-Specific Multicast). Wire key "sourceIpAddress" -- verified
+// against types.MulticastInputSettings.
+type MulticastInputSettings struct {
+	SourceIPAddress string
+}
+
+// NetworkInputSettings configures HLS/multicast-specific input behavior and
+// TLS certificate validation (types.NetworkInputSettings). Wire keys
+// "hlsInputSettings"/"multicastInputSettings"/"serverValidation".
+type NetworkInputSettings struct {
+	HlsInputSettings       *HlsInputSettings
+	MulticastInputSettings *MulticastInputSettings
+	ServerValidation       string
+}
+
+// InputSettings configures per-attachment audio/caption/video selectors and
+// filtering for a ChannelInputAttachment (types.InputSettings). Wire keys
+// "audioSelectors"/"captionSelectors"/"deblockFilter"/"denoiseFilter"/
+// "filterStrength"/"inputFilter"/"networkInputSettings"/"scte35Pid"/
+// "smpte2038DataPreference"/"sourceEndBehavior"/"videoSelector" -- verified
+// against types.InputSettings.
+type InputSettings struct {
+	VideoSelector           VideoSelector
+	NetworkInputSettings    NetworkInputSettings
+	DeblockFilter           string
+	DenoiseFilter           string
+	InputFilter             string
+	Smpte2038DataPreference string
+	SourceEndBehavior       string
+	AudioSelectors          []AudioSelector
+	CaptionSelectors        []CaptionSelector
+	FilterStrength          int32
+	Scte35Pid               int32
 }
 
 // InputLocation is a URI plus optional Parameter-Store-backed credentials,
@@ -779,21 +1075,166 @@ type ThumbnailConfiguration struct {
 	State string
 }
 
+// AacSettings configures AAC audio encoding. Wire keys "bitrate"/
+// "codingMode"/"inputType"/"profile"/"rateControlMode"/"rawFormat"/
+// "sampleRate"/"spec"/"vbrQuality" -- verified against types.AacSettings.
+type AacSettings struct {
+	CodingMode      string
+	InputType       string
+	Profile         string
+	RateControlMode string
+	RawFormat       string
+	Spec            string
+	VbrQuality      string
+	Bitrate         float64
+	SampleRate      float64
+}
+
+// Ac3Settings configures AC3 (Dolby Digital) audio encoding. Wire keys
+// "attenuationControl"/"bitrate"/"bitstreamMode"/"codingMode"/"dialnorm"/
+// "drcProfile"/"lfeFilter"/"metadataControl" -- verified against
+// types.Ac3Settings.
+type Ac3Settings struct {
+	AttenuationControl string
+	BitstreamMode      string
+	CodingMode         string
+	DrcProfile         string
+	LfeFilter          string
+	MetadataControl    string
+	Bitrate            float64
+	Dialnorm           int32
+}
+
+// Eac3AtmosSettings configures Dolby Digital Plus with Dolby Atmos audio
+// encoding. Wire keys "bitrate"/"codingMode"/"dialnorm"/"drcLine"/"drcRf"/
+// "heightTrim"/"surroundTrim" -- verified against types.Eac3AtmosSettings.
+type Eac3AtmosSettings struct {
+	CodingMode   string
+	DrcLine      string
+	DrcRf        string
+	Bitrate      float64
+	HeightTrim   float64
+	SurroundTrim float64
+	Dialnorm     int32
+}
+
+// Eac3Settings configures Dolby Digital Plus audio encoding
+// (types.Eac3Settings). Wire keys "attenuationControl"/"bitrate"/
+// "bitstreamMode"/"codingMode"/"dcFilter"/"dialnorm"/"drcLine"/"drcRf"/
+// "lfeControl"/"lfeFilter"/"loRoCenterMixLevel"/"loRoSurroundMixLevel"/
+// "ltRtCenterMixLevel"/"ltRtSurroundMixLevel"/"metadataControl"/
+// "passthroughControl"/"phaseControl"/"stereoDownmix"/"surroundExMode"/
+// "surroundMode".
+type Eac3Settings struct {
+	AttenuationControl   string
+	BitstreamMode        string
+	CodingMode           string
+	DcFilter             string
+	DrcLine              string
+	DrcRf                string
+	LfeControl           string
+	LfeFilter            string
+	MetadataControl      string
+	PassthroughControl   string
+	PhaseControl         string
+	StereoDownmix        string
+	SurroundExMode       string
+	SurroundMode         string
+	Bitrate              float64
+	LoRoCenterMixLevel   float64
+	LoRoSurroundMixLevel float64
+	LtRtCenterMixLevel   float64
+	LtRtSurroundMixLevel float64
+	Dialnorm             int32
+}
+
+// Mp2Settings configures MPEG-1 Layer 2 audio encoding. Wire keys
+// "bitrate"/"codingMode"/"sampleRate" -- verified against types.Mp2Settings.
+type Mp2Settings struct {
+	CodingMode string
+	Bitrate    float64
+	SampleRate float64
+}
+
+// WavSettings configures WAV audio encoding. Wire keys "bitDepth"/
+// "codingMode"/"sampleRate" -- verified against types.WavSettings.
+type WavSettings struct {
+	CodingMode string
+	BitDepth   float64
+	SampleRate float64
+}
+
+// AudioCodecSettings is the tagged union of audio codecs
+// (types.AudioCodecSettings); at most one variant is set.
+// PassThroughSettings (types.PassThroughSettings) has no fields on the real
+// wire, so a bool records "this variant is set" -- same convention as
+// ChannelMotionGraphicsSettings.HTMLMotionGraphicsSettings.
+type AudioCodecSettings struct {
+	AacSettings         *AacSettings
+	Ac3Settings         *Ac3Settings
+	Eac3AtmosSettings   *Eac3AtmosSettings
+	Eac3Settings        *Eac3Settings
+	Mp2Settings         *Mp2Settings
+	WavSettings         *WavSettings
+	PassThroughSettings bool
+}
+
+// NielsenCBET configures Nielsen CBET watermarking. Wire keys
+// "cbetCheckDigitString"/"cbetStepaside"/"csid" -- verified against
+// types.NielsenCBET.
+type NielsenCBET struct {
+	CbetCheckDigitString string
+	CbetStepaside        string
+	Csid                 string
+}
+
+// NielsenNaesIiNw configures Nielsen NAES II / NW watermarking. Wire keys
+// "checkDigitString"/"sid"/"timezone" -- verified against
+// types.NielsenNaesIiNw.
+type NielsenNaesIiNw struct {
+	CheckDigitString string
+	Timezone         string
+	Sid              float64
+}
+
+// NielsenWatermarksSettings configures which Nielsen watermark(s) to embed
+// (types.NielsenWatermarksSettings). Wire keys "nielsenCbetSettings"/
+// "nielsenDistributionType"/"nielsenNaesIiNwSettings".
+type NielsenWatermarksSettings struct {
+	NielsenCbetSettings     *NielsenCBET
+	NielsenNaesIiNwSettings *NielsenNaesIiNw
+	NielsenDistributionType string
+}
+
+// AudioWatermarkSettings configures audio watermarking solutions
+// (types.AudioWatermarkSettings). Wire key "nielsenWatermarksSettings".
+type AudioWatermarkSettings struct {
+	NielsenWatermarksSettings *NielsenWatermarksSettings
+}
+
 // AudioDescription names one audio encode derived from an input audio
-// selector. Wire keys "audioSelectorName"/"audioType"/"audioTypeControl"/
-// "languageCode"/"languageCodeControl"/"name"/"streamName" -- verified
-// against types.AudioDescription. CodecSettings/AudioNormalizationSettings/
-// AudioWatermarkingSettings/RemixSettings/AudioDashRoles/
-// DvbDashAccessibility (per-codec and DVB-DASH-accessibility unions) are
-// deliberately NOT modeled; see PARITY.md's gaps entry.
+// selector. Wire keys "audioDashRoles"/"audioNormalizationSettings"/
+// "audioSelectorName"/"audioType"/"audioTypeControl"/
+// "audioWatermarkingSettings"/"codecSettings"/"dvbDashAccessibility"/
+// "languageCode"/"languageCodeControl"/"name"/"remixSettings"/
+// "streamName" -- verified against types.AudioDescription.
+// AudioNormalizationSettings/RemixSettings reuse the same domain types
+// InputSettings' AudioPreMixerSettings uses (types.AudioNormalizationSettings/
+// types.RemixSettings are the same SDK shapes in both places).
 type AudioDescription struct {
-	Name                string
-	AudioSelectorName   string
-	LanguageCode        string
-	LanguageCodeControl string
-	AudioType           string
-	AudioTypeControl    string
-	StreamName          string
+	AudioNormalizationSettings *AudioNormalizationSettings
+	CodecSettings              *AudioCodecSettings
+	AudioWatermarkingSettings  *AudioWatermarkSettings
+	RemixSettings              *RemixSettings
+	LanguageCodeControl        string
+	AudioTypeControl           string
+	StreamName                 string
+	DvbDashAccessibility       string
+	AudioType                  string
+	Name                       string
+	LanguageCode               string
+	AudioSelectorName          string
+	AudioDashRoles             []string
 }
 
 // VideoDescription names one video encode. Wire keys "name"/"height"/
