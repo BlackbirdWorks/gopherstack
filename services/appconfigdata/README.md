@@ -8,13 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 2 (2 ok) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- appconfigdata's config content store (SetConfiguration) is entirely self-contained and is never populated by services/appconfig (the control-plane service that owns applications/environments/configuration-profiles/hosted-config-versions/deployments). SetConfiguration is reachable only via the internal dashboard admin endpoints (cli.go:6091, dashboard/ui.go:1345/2020), not from any real AppConfig deployment flow. Real AWS semantics: GetLatestConfiguration serves whatever the *active deployment* for the app/env/profile currently is; StartConfigurationSession 404s (ErrNoActiveDeployment) until one exists. gopherstack instead requires a manual/dashboard SetConfiguration call to seed content per app/env/profile key -- functionally similar per-session but with no link to services/appconfig's deployment lifecycle (no deployment-state transitions, no rollback-on-deploy, no version pinning to a specific DeploymentId even though ConfigVersion.DeploymentId exists as a field and is never populated). This is a cross-service wiring gap in services/appconfig + cli.go/dashboard, out of scope for an appconfigdata-only edit -- fixing it means wiring a Set<Config>-style accessor into cli.go's provider-init sequence (the same pattern used by wireIoTRules/wireAppSyncLambda for other control-plane/data-plane service pairs), and this pass's mandate explicitly forbids editing cli.go. Re-confirmed still open and already tracked: bd issue gopherstack-uiyi ("appconfigdata disconnected from appconfig control-plane"), open, priority 2.
+- services/appconfig is now bridged to appconfigdata (bd gopherstack-uiyi, closed; commit 41f3817bd): appconfig's InMemoryBackend.finalizeDeploymentLocked (every completion path -- synchronous zero-duration, the async reconciler, and restore-time finalization funnel through it) and revertDeployedConfigLocked (an AllowRevert StopDeployment) call publishDeployedConfigurationLocked, which pushes the deployed content into appconfigdata via PublishConfiguration, stamping ConfigVersion.DeploymentId with the real deployment number. cli.go's wireAppConfigDeployments wires appconfigdata's *InMemoryBackend straight in as appconfig's DeployedConfigurationPublisher, no adapter. A real StartDeployment now surfaces through StartConfigurationSession + GetLatestConfiguration polling, and StartConfigurationSession correctly 404s with ErrNoActiveDeployment until a deployment has completed, matching real AWS.
+- The bridge only covers AppConfig-hosted configuration profiles: publishDeployedConfigurationLocked skips any profile whose LocationURI isn't the "hosted" sentinel (services/appconfig/configuration.go:86, contentTypeHostedLocation at services/appconfig/store.go:26) -- the same restriction CurrentDeployedConfiguration already had. Profiles backed by SSM Parameter Store, SSM documents, S3, or Secrets Manager still never populate appconfigdata; SetConfiguration remains reachable only via the dashboard admin endpoints (cli.go:8293, dashboard/ui.go:1462/2195) with no deployment attribution for those location types.
 
 ## More
 
