@@ -217,7 +217,7 @@ func TestHandler_PersistenceSnapshotRestore(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// The device must be visible through h2.
-	devices := bk2.ListWirelessDevices(testAccountID, testRegion)
+	devices := bk2.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{})
 	assert.Len(t, devices, 1)
 	assert.Equal(t, "persist-dev", devices[0].Name)
 }
@@ -514,7 +514,7 @@ func Test_RouteMatcher_TagOperations(t *testing.T) {
 
 // Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount verifies the op is
 // reachable at its real wire path+method: POST /partner-accounts (no path
-// parameter — the partner account ID is Sidewalk.AmazonId in the body). A
+// parameter — the partner account ID is Sidewalk.AmazonID in the body). A
 // prior version of this handler only accepted PUT /partner-accounts/{id},
 // which no real aws-sdk-go-v2 client ever sends.
 func Test_RouteMatcher_AssociateAwsAccountWithPartnerAccount(t *testing.T) {

@@ -27,12 +27,12 @@ func wirelessGatewayARN(region, accountID, id string) string {
 }
 
 // copyWirelessGateway returns a shallow copy of gw with independent Tags and
-// LoRaWAN maps.
+// LoRaWAN.
 func copyWirelessGateway(gw *WirelessGateway) *WirelessGateway {
 	cp := *gw
 	cp.Tags = make(map[string]string, len(gw.Tags))
 	maps.Copy(cp.Tags, gw.Tags)
-	cp.LoRaWAN = copyAnyMap(gw.LoRaWAN)
+	cp.LoRaWAN = copyLoRaWANGateway(gw.LoRaWAN)
 
 	return &cp
 }
@@ -40,7 +40,7 @@ func copyWirelessGateway(gw *WirelessGateway) *WirelessGateway {
 // CreateWirelessGateway creates a new wireless gateway.
 func (b *InMemoryBackend) CreateWirelessGateway(
 	accountID, region, name, description string,
-	loRaWAN map[string]any,
+	loRaWAN *LoRaWANGateway,
 	tags map[string]string,
 ) (*WirelessGateway, error) {
 	b.mu.Lock("CreateWirelessGateway")
@@ -129,12 +129,13 @@ func (b *InMemoryBackend) DeleteWirelessGateway(accountID, region, id string) er
 
 // UpdateWirelessGateway updates mutable fields on an existing wireless
 // gateway. UpdateWirelessGatewayInput carries JoinEuiFilters/MaxEirp/
-// NetIdFilters as top-level fields (not nested under LoRaWAN, unlike
-// Create), so loRaWANUpdates merges them into the stored LoRaWAN map under
-// their real field names.
+// NetIDFilters as top-level fields (not nested under a LoRaWAN sub-object,
+// unlike Create -- api_op_UpdateWirelessGateway.go:27), so they merge
+// field-by-field into the stored LoRaWANGateway; a nil/empty value leaves
+// the existing field untouched.
 func (b *InMemoryBackend) UpdateWirelessGateway(
 	accountID, region, id, name, description string,
-	loRaWANUpdates map[string]any,
+	joinEuiFilters [][]string, netIDFilters []string, maxEirp *float32,
 ) error {
 	b.mu.Lock("UpdateWirelessGateway")
 	defer b.mu.Unlock()
@@ -149,7 +150,26 @@ func (b *InMemoryBackend) UpdateWirelessGateway(
 	}
 
 	gw.Description = description
-	gw.LoRaWAN = mergeAnyMap(gw.LoRaWAN, loRaWANUpdates)
+
+	if joinEuiFilters == nil && netIDFilters == nil && maxEirp == nil {
+		return nil
+	}
+
+	if gw.LoRaWAN == nil {
+		gw.LoRaWAN = &LoRaWANGateway{}
+	}
+
+	if joinEuiFilters != nil {
+		gw.LoRaWAN.JoinEuiFilters = joinEuiFilters
+	}
+
+	if netIDFilters != nil {
+		gw.LoRaWAN.NetIDFilters = netIDFilters
+	}
+
+	if maxEirp != nil {
+		gw.LoRaWAN.MaxEirp = maxEirp
+	}
 
 	return nil
 }

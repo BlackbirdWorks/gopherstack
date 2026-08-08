@@ -7,22 +7,20 @@ type WirelessDevice struct {
 	CreatedAt            time.Time         `json:"createdAt"`
 	LastUplinkReceivedAt *time.Time        `json:"lastUplinkReceivedAt,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
-	// LoRaWAN and Sidewalk hold the request's nested LoRaWAN/Sidewalk
-	// configuration object verbatim (whatever JSON object the client sent in
-	// CreateWirelessDevice/UpdateWirelessDevice), round-tripped back exactly
-	// on Get/List. Stored opaquely rather than as individually typed fields
-	// because the real shapes (types.LoRaWANDevice / SidewalkCreateWirelessDevice)
-	// carry many optional nested vendor sub-objects (ABP/OTAA session keys,
-	// FPorts, ...); this still captures real, non-fabricated client state.
-	LoRaWAN         map[string]any `json:"loRaWAN,omitempty"`
-	Sidewalk        map[string]any `json:"sidewalk,omitempty"`
-	Positioning     string         `json:"positioning,omitempty"`
-	Name            string         `json:"name"`
-	ID              string         `json:"id"`
-	ARN             string         `json:"arn"`
-	Description     string         `json:"description,omitempty"`
-	Type            string         `json:"type"`
-	DestinationName string         `json:"destinationName,omitempty"`
+	// LoRaWAN uses the types.LoRaWANDevice shape shared by
+	// CreateWirelessDevice's request and GetWirelessDevice's response.
+	// Sidewalk is stored as the richer types.SidewalkDevice (get) shape;
+	// CreateWirelessDevice's narrower SidewalkCreateWirelessDevice request is
+	// converted into it via sidewalkDeviceFromCreate (lorawan_types.go).
+	LoRaWAN         *LoRaWANDevice  `json:"loRaWAN,omitempty"`
+	Sidewalk        *SidewalkDevice `json:"sidewalk,omitempty"`
+	Positioning     string          `json:"positioning,omitempty"`
+	Name            string          `json:"name"`
+	ID              string          `json:"id"`
+	ARN             string          `json:"arn"`
+	Description     string          `json:"description,omitempty"`
+	Type            string          `json:"type"`
+	DestinationName string          `json:"destinationName,omitempty"`
 	// AccountID and Region are not part of the AWS wire shape for this
 	// resource; they exist purely so store.Table's keyFn (store_setup.go) can
 	// derive the account+region-scoped composite key this backend requires.
@@ -38,19 +36,17 @@ type WirelessGateway struct {
 	CreatedAt            time.Time         `json:"createdAt"`
 	LastUplinkReceivedAt *time.Time        `json:"lastUplinkReceivedAt,omitempty"`
 	Tags                 map[string]string `json:"tags,omitempty"`
-	// LoRaWAN holds the request's nested LoRaWAN gateway configuration object
-	// (GatewayEui, RfRegion, JoinEuiFilters, NetIdFilters, MaxEirp, SubBands,
-	// Beaconing, ...) verbatim -- see the identical comment on
-	// WirelessDevice.LoRaWAN above for why this is stored opaquely.
-	LoRaWAN          map[string]any `json:"loRaWAN,omitempty"`
-	Name             string         `json:"name"`
-	ID               string         `json:"id"`
-	ARN              string         `json:"arn"`
-	Description      string         `json:"description,omitempty"`
-	ConnectionStatus string         `json:"connectionStatus,omitempty"`
-	FirmwareVersion  string         `json:"firmwareVersion,omitempty"`
-	FirmwareModel    string         `json:"firmwareModel,omitempty"`
-	FirmwareStation  string         `json:"firmwareStation,omitempty"`
+	// LoRaWAN uses the types.LoRaWANGateway shape shared by
+	// CreateWirelessGateway/GetWirelessGateway.
+	LoRaWAN          *LoRaWANGateway `json:"loRaWAN,omitempty"`
+	Name             string          `json:"name"`
+	ID               string          `json:"id"`
+	ARN              string          `json:"arn"`
+	Description      string          `json:"description,omitempty"`
+	ConnectionStatus string          `json:"connectionStatus,omitempty"`
+	FirmwareVersion  string          `json:"firmwareVersion,omitempty"`
+	FirmwareModel    string          `json:"firmwareModel,omitempty"`
+	FirmwareStation  string          `json:"firmwareStation,omitempty"`
 	// AccountID and Region exist purely for store.Table's keyFn; see the
 	// identical comment on WirelessDevice above.
 	AccountID string `json:"-"`
@@ -161,20 +157,16 @@ type MulticastGroup struct {
 
 // NetworkAnalyzerConfig represents an IoT Wireless network analyzer configuration.
 type NetworkAnalyzerConfig struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	Name        string            `json:"name"`
-	ARN         string            `json:"arn"`
-	Description string            `json:"description,omitempty"`
-	AccountID   string            `json:"-"`
-	Region      string            `json:"-"`
-	// TraceContent holds the TraceContent object (LogLevel,
-	// MulticastFrameInfo, WirelessDeviceFrameInfo) supplied at creation or
-	// update time, echoed back verbatim on Get -- see the identical comment
-	// on WirelessDevice.LoRaWAN above.
-	TraceContent     map[string]any `json:"traceContent,omitempty"`
-	WirelessDevices  []string       `json:"wirelessDevices,omitempty"`
-	WirelessGateways []string       `json:"wirelessGateways,omitempty"`
-	MulticastGroups  []string       `json:"multicastGroups,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	ARN              string            `json:"arn"`
+	Description      string            `json:"description,omitempty"`
+	AccountID        string            `json:"-"`
+	Region           string            `json:"-"`
+	TraceContent     *TraceContent     `json:"traceContent,omitempty"`
+	WirelessDevices  []string          `json:"wirelessDevices,omitempty"`
+	WirelessGateways []string          `json:"wirelessGateways,omitempty"`
+	MulticastGroups  []string          `json:"multicastGroups,omitempty"`
 }
 
 // WirelessDeviceImportTask represents an IoT Wireless device bulk-import task.

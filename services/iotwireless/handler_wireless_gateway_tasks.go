@@ -27,10 +27,10 @@ type getWirelessGatewayTaskResponse struct {
 }
 
 type getWirelessGatewayTaskDefinitionResponse struct {
-	Update          map[string]any `json:"Update,omitempty"`
-	Arn             string         `json:"Arn"`
-	Name            string         `json:"Name"`
-	AutoCreateTasks bool           `json:"AutoCreateTasks"`
+	Update          *UpdateWirelessGatewayTaskCreate `json:"Update,omitempty"`
+	Arn             string                           `json:"Arn"`
+	Name            string                           `json:"Name"`
+	AutoCreateTasks bool                             `json:"AutoCreateTasks"`
 }
 
 // taskDefEntry mirrors real AWS's UpdateWirelessGatewayTaskEntry list-entry
@@ -38,9 +38,9 @@ type getWirelessGatewayTaskDefinitionResponse struct {
 // entries even though they are on Create/Get -- confirmed against
 // types.UpdateWirelessGatewayTaskEntry.
 type taskDefEntry struct {
-	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
-	ID      string         `json:"Id"`
-	Arn     string         `json:"Arn"`
+	LoRaWAN *LoRaWANUpdateGatewayTaskEntry `json:"LoRaWAN,omitempty"`
+	ID      string                         `json:"Id"`
+	Arn     string                         `json:"Arn"`
 }
 
 type listWirelessGatewayTaskDefinitionsResponse struct {
@@ -94,9 +94,9 @@ func (h *Handler) deleteWirelessGatewayTask(c *echo.Context, gatewayID string) e
 
 func (h *Handler) createWirelessGatewayTaskDefinition(c *echo.Context) error {
 	var req struct {
-		Update          map[string]any `json:"Update"`
-		Name            string         `json:"Name"`
-		AutoCreateTasks bool           `json:"AutoCreateTasks"`
+		Update          *UpdateWirelessGatewayTaskCreate `json:"Update"`
+		Name            string                           `json:"Name"`
+		AutoCreateTasks bool                             `json:"AutoCreateTasks"`
 	}
 
 	body := readStubBody(c)
@@ -140,15 +140,10 @@ func (h *Handler) listWirelessGatewayTaskDefinitions(c *echo.Context) error {
 	entries := make([]taskDefEntry, 0, len(page))
 
 	for _, def := range page {
-		var loRaWAN map[string]any
-		if update, ok := def.Update["LoRaWAN"].(map[string]any); ok {
-			loRaWAN = update
-		}
-
 		entries = append(entries, taskDefEntry{
 			ID:      def.ID,
 			Arn:     def.ARN,
-			LoRaWAN: loRaWAN,
+			LoRaWAN: loRaWANUpdateGatewayTaskEntryFrom(def.Update),
 		})
 	}
 

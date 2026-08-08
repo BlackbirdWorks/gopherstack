@@ -51,7 +51,10 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *iotwireless.InMemoryBackend, _ string) {
 				t.Helper()
 
-				assert.Empty(t, b.ListWirelessDevices(testAccountID, testRegion))
+				assert.Empty(
+					t,
+					b.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{}),
+				)
 			},
 		},
 	}

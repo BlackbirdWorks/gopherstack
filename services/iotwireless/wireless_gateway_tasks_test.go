@@ -63,9 +63,10 @@ func TestInMemoryBackend_GatewayTaskDefinition_UpdateFieldRoundTrips(t *testing.
 
 	b := iotwireless.NewInMemoryBackend()
 
-	update := map[string]any{
-		"UpdateDataRole":   "role-arn",
-		"UpdateDataSource": "s3://bucket/fw",
+	role, source := "role-arn", "s3://bucket/fw"
+	update := &iotwireless.UpdateWirelessGatewayTaskCreate{
+		UpdateDataRole:   &role,
+		UpdateDataSource: &source,
 	}
 
 	def, err := b.CreateWirelessGatewayTaskDefinition(testAccountID, testRegion, "taskdef", true, update)
@@ -73,7 +74,8 @@ func TestInMemoryBackend_GatewayTaskDefinition_UpdateFieldRoundTrips(t *testing.
 
 	got, err := b.GetWirelessGatewayTaskDefinition(def.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "role-arn", got.Update["UpdateDataRole"])
+	require.NotNil(t, got.Update)
+	assert.Equal(t, "role-arn", *got.Update.UpdateDataRole)
 	assert.True(t, got.AutoCreateTasks)
 }
 

@@ -22,68 +22,73 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 		t.Parallel()
 
 		bk := iotwireless.NewInMemoryBackend()
-		loRaWAN := map[string]any{"DeviceProfileId": "dp-1", "ServiceProfileId": "sp-1"}
-		sidewalk := map[string]any{"SidewalkManufacturingSn": "sn-1"}
+		dp1, sp1, sn1 := "dp-1", "sp-1", "sn-1"
+		loRaWAN := &iotwireless.LoRaWANDevice{DeviceProfileID: &dp1, ServiceProfileID: &sp1}
+		sidewalk := &iotwireless.SidewalkCreateWirelessDevice{SidewalkManufacturingSn: &sn1}
 
 		d, err := bk.CreateWirelessDevice(
 			testAccountID, testRegion, "dev-1", "LoRaWAN", "dest-1", "", "Enabled",
 			loRaWAN, sidewalk, nil,
 		)
 		require.NoError(t, err)
-		assert.Equal(t, "dp-1", d.LoRaWAN["DeviceProfileId"])
+		require.NotNil(t, d.LoRaWAN)
+		assert.Equal(t, "dp-1", *d.LoRaWAN.DeviceProfileID)
 		assert.Equal(t, "Enabled", d.Positioning)
 
 		got, err := bk.GetWirelessDevice(testAccountID, testRegion, d.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "dp-1", got.LoRaWAN["DeviceProfileId"])
-		assert.Equal(t, "sn-1", got.Sidewalk["SidewalkManufacturingSn"])
+		require.NotNil(t, got.Sidewalk)
+		assert.Equal(t, "dp-1", *got.LoRaWAN.DeviceProfileID)
+		assert.Equal(t, "sn-1", *got.Sidewalk.SidewalkManufacturingSn)
 
-		// GetWirelessDevice's returned map must be independent of the
-		// backend's stored map -- mutating it must not corrupt state.
-		got.LoRaWAN["DeviceProfileId"] = "mutated"
+		// GetWirelessDevice's returned LoRaWAN must be independent of the
+		// backend's stored one -- mutating it must not corrupt state.
+		mutated := "mutated"
+		got.LoRaWAN.DeviceProfileID = &mutated
 		got2, err := bk.GetWirelessDevice(testAccountID, testRegion, d.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "dp-1", got2.LoRaWAN["DeviceProfileId"])
+		assert.Equal(t, "dp-1", *got2.LoRaWAN.DeviceProfileID)
 
 		// UpdateWirelessDevice merges rather than replaces.
+		sp2 := "sp-2"
 		err = bk.UpdateWirelessDevice(
 			testAccountID, testRegion, d.ID, "", "", "", "",
-			map[string]any{"ServiceProfileId": "sp-2"}, nil,
+			&iotwireless.LoRaWANUpdateDevice{ServiceProfileID: &sp2}, nil,
 		)
 		require.NoError(t, err)
 
 		updated, err := bk.GetWirelessDevice(testAccountID, testRegion, d.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "dp-1", updated.LoRaWAN["DeviceProfileId"], "merge must keep untouched keys")
-		assert.Equal(t, "sp-2", updated.LoRaWAN["ServiceProfileId"], "merge must apply new keys")
+		assert.Equal(t, "dp-1", *updated.LoRaWAN.DeviceProfileID, "merge must keep untouched fields")
+		assert.Equal(t, "sp-2", *updated.LoRaWAN.ServiceProfileID, "merge must apply new fields")
 	})
 
 	t.Run("wireless_gateway", func(t *testing.T) {
 		t.Parallel()
 
 		bk := iotwireless.NewInMemoryBackend()
-		loRaWAN := map[string]any{"GatewayEui": "eui-1", "RfRegion": "US915"}
+		eui, rfRegion := "eui-1", "US915"
+		loRaWAN := &iotwireless.LoRaWANGateway{GatewayEui: &eui, RfRegion: &rfRegion}
 
 		gw, err := bk.CreateWirelessGateway(testAccountID, testRegion, "gw-1", "", loRaWAN, nil)
 		require.NoError(t, err)
-		assert.Equal(t, "eui-1", gw.LoRaWAN["GatewayEui"])
+		require.NotNil(t, gw.LoRaWAN)
+		assert.Equal(t, "eui-1", *gw.LoRaWAN.GatewayEui)
 
 		got, err := bk.GetWirelessGateway(testAccountID, testRegion, gw.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "US915", got.LoRaWAN["RfRegion"])
+		assert.Equal(t, "US915", *got.LoRaWAN.RfRegion)
 
-		// UpdateWirelessGateway's JoinEuiFilters/MaxEirp/NetIdFilters merge
-		// into the LoRaWAN map under their real (top-level-on-update) names.
-		err = bk.UpdateWirelessGateway(
-			testAccountID, testRegion, gw.ID, "", "",
-			map[string]any{"MaxEirp": float32(15)},
-		)
+		// UpdateWirelessGateway's JoinEuiFilters/MaxEirp/NetIDFilters merge
+		// into the stored LoRaWANGateway under their real (top-level-on-update) names.
+		maxEirp := float32(15)
+		err = bk.UpdateWirelessGateway(testAccountID, testRegion, gw.ID, "", "", nil, nil, &maxEirp)
 		require.NoError(t, err)
 
 		updated, err := bk.GetWirelessGateway(testAccountID, testRegion, gw.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "eui-1", updated.LoRaWAN["GatewayEui"], "merge must keep untouched keys")
-		assert.InDelta(t, float32(15), updated.LoRaWAN["MaxEirp"], 0.001)
+		assert.Equal(t, "eui-1", *updated.LoRaWAN.GatewayEui, "merge must keep untouched fields")
+		assert.InDelta(t, float32(15), *updated.LoRaWAN.MaxEirp, 0.001)
 	})
 
 	t.Run("device_profile", func(t *testing.T) {
