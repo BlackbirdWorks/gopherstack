@@ -70,6 +70,8 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, ug.ARN)
+
 	type result struct {
 		XMLName     xml.Name `xml:"CreateUserGroupResponse"`
 		Xmlns       string   `xml:"xmlns,attr"`

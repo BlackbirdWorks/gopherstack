@@ -45,6 +45,8 @@ func (h *Handler) createCacheSecurityGroup(ctx context.Context, c *echo.Context,
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, sg.ARN)
+
 	type result struct {
 		XMLName            xml.Name              `xml:"CreateCacheSecurityGroupResponse"`
 		Xmlns              string                `xml:"xmlns,attr"`

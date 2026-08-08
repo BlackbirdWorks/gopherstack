@@ -11,6 +11,15 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// applyCreateTimeTags applies any Tags.Tag.N.Key/Value form fields to resourceARN
+// right after creation. Errors are discarded: resourceARN was just created by the
+// caller, so AddTagsToResource can only fail here if the ARN lookup itself is broken.
+func (h *Handler) applyCreateTimeTags(ctx context.Context, form url.Values, resourceARN string) {
+	if initialTags := parseFormTags(form); len(initialTags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, resourceARN, initialTags)
+	}
+}
+
 func (h *Handler) listTagsForResource(ctx context.Context, c *echo.Context, form url.Values) error {
 	arn := form.Get("ResourceName")
 	tags, err := h.Backend.ListTagsForResource(ctx, arn)

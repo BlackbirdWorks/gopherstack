@@ -346,6 +346,8 @@ func (h *Handler) createServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, snap.ARN)
+
 	type result struct {
 		XMLName                 xml.Name                   `xml:"CreateServerlessCacheSnapshotResponse"`
 		Xmlns                   string                     `xml:"xmlns,attr"`

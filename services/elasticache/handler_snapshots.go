@@ -68,6 +68,8 @@ func (h *Handler) createSnapshot(ctx context.Context, c *echo.Context, form url.
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, snap.ARN)
+
 	type result struct {
 		XMLName  xml.Name    `xml:"CreateSnapshotResponse"`
 		Xmlns    string      `xml:"xmlns,attr"`

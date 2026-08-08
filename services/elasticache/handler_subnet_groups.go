@@ -77,9 +77,7 @@ func (h *Handler) createCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	if initialTags := parseFormTags(form); len(initialTags) > 0 {
-		_ = h.Backend.AddTagsToResource(ctx, sg.ARN, initialTags)
-	}
+	h.applyCreateTimeTags(ctx, form, sg.ARN)
 
 	type result struct {
 		XMLName          xml.Name            `xml:"CreateCacheSubnetGroupResponse"`
