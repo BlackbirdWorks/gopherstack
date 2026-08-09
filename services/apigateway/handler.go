@@ -615,7 +615,7 @@ func isUserRequestPath(path string) bool {
 	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	const minSegs = 4 // restapis, apiId, stageName, _user_request_
 
-	return len(segs) >= minSegs && segs[0] == "restapis" && segs[3] == "_user_request_"
+	return len(segs) >= minSegs && segs[0] == apiGWSegRestAPIs && segs[3] == "_user_request_"
 }
 
 // handleUserRequestEcho handles data-plane invocations at the standard AWS endpoint:

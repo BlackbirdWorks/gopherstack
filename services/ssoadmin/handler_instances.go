@@ -51,15 +51,21 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleCreateInstance(c *echo.Context, body []byte) error {
 	var req struct {
-		Name            string `json:"Name"`
-		OwnerAccountID  string `json:"OwnerAccountId"`
-		IdentityStoreID string `json:"IdentityStoreId"`
+		Name            string    `json:"Name"`
+		OwnerAccountID  string    `json:"OwnerAccountId"`
+		IdentityStoreID string    `json:"IdentityStoreId"`
+		Tags            []tagView `json:"Tags"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
 	}
 
-	inst, err := h.Backend.CreateInstance(req.Name, req.OwnerAccountID, req.IdentityStoreID)
+	tags := make(map[string]string, len(req.Tags))
+	for _, t := range req.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	inst, err := h.Backend.CreateInstance(req.Name, req.OwnerAccountID, req.IdentityStoreID, tags)
 	if err != nil {
 		return handleBackendError(c, err, "failed to create instance")
 	}

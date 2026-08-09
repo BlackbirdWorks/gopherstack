@@ -266,6 +266,7 @@ type CreateStageInput struct {
 	DefaultRouteSettings *RouteSettings           `json:"defaultRouteSettings,omitempty"`
 	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
 	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
+	Tags                 map[string]string        `json:"tags,omitempty"`
 	StageName            string                   `json:"stageName"`
 	DeploymentID         string                   `json:"deploymentId,omitempty"`
 	Description          string                   `json:"description,omitempty"`
@@ -592,10 +593,11 @@ type CreateModelInput struct {
 
 // Portal represents an API Gateway v2 portal.
 type Portal struct {
-	Tags     map[string]string `json:"tags,omitempty"`
-	PortalID string            `json:"portalId"`
-	LogoURI  string            `json:"logoUri,omitempty"`
-	Status   string            `json:"status,omitempty"`
+	Tags      map[string]string `json:"tags,omitempty"`
+	PortalID  string            `json:"portalId"`
+	PortalArn string            `json:"portalArn,omitempty"`
+	LogoURI   string            `json:"logoUri,omitempty"`
+	Status    string            `json:"status,omitempty"`
 }
 
 // CreatePortalInput is the input for CreatePortal.
@@ -606,10 +608,11 @@ type CreatePortalInput struct {
 
 // PortalProduct represents a portal product.
 type PortalProduct struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	PortalProductID string            `json:"portalProductId"`
-	DisplayName     string            `json:"displayName"`
-	Description     string            `json:"description,omitempty"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	PortalProductID  string            `json:"portalProductId"`
+	PortalProductArn string            `json:"portalProductArn,omitempty"`
+	DisplayName      string            `json:"displayName"`
+	Description      string            `json:"description,omitempty"`
 }
 
 // CreatePortalProductInput is the input for CreatePortalProduct.

@@ -512,6 +512,12 @@ linters:
       # real SDK client the way this package's other tests are.
       - path: 'outposts/ordering_requirements_test.go'
         linters: [ testpackage ]
+      # iotanalytics is AWS-deprecated (no longer available for use), so every
+      # SDK type/method/field the client touches carries an SA1019 deprecation
+      # notice -- gopherstack still emulates it, so the whole file is exempt
+      # rather than sprinkling ~15 identical inline nolints.
+      - path: 'iotanalytics/handler_create_tags_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // GenerateClientCertificate creates a new client certificate for mutual TLS.
@@ -14,6 +16,7 @@ func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertific
 	id := randomID(apiIDLength)
 	now := time.Now()
 	cert := &ClientCertificate{
+		Tags:                  tags.FromMap("apigw.clientcert."+id+".tags", input.Tags),
 		ClientCertificateID:   id,
 		Description:           input.Description,
 		PemEncodedCertificate: "-----BEGIN CERTIFICATE-----\nMIICpDCCAYwCCQDU...(mock)...\n-----END CERTIFICATE-----",

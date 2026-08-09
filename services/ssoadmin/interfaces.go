@@ -12,7 +12,7 @@ type StorageBackend interface {
 	Reset()
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
-	CreateInstance(name, ownerAccountID, identityStoreID string) (*Instance, error)
+	CreateInstance(name, ownerAccountID, identityStoreID string, tags map[string]string) (*Instance, error)
 	ListInstances() []*Instance
 	DescribeInstance(instanceArn string) (*Instance, error)
 	DeleteInstance(instanceArn string) error

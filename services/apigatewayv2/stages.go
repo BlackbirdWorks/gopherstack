@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateStage(apiID string, input CreateStageInput) (*St
 		ClientCertificateID:  input.ClientCertificateID,
 		AutoDeploy:           input.AutoDeploy,
 		StageVariables:       input.StageVariables,
+		Tags:                 copyTags(input.Tags),
 		CreatedDate:          now,
 		LastUpdatedDate:      now,
 		AccessLogSettings:    input.AccessLogSettings,

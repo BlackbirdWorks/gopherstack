@@ -10,7 +10,16 @@ import (
 )
 
 // CreateInstance creates a new SSO instance.
-func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID string) (*Instance, error) {
+func (b *InMemoryBackend) CreateInstance(
+	name, ownerAccountID, identityStoreID string,
+	tags map[string]string,
+) (*Instance, error) {
+	if len(tags) > 0 {
+		if err := validateTags(tags); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("CreateInstance")
 	defer b.mu.Unlock()
 
@@ -41,10 +50,12 @@ func (b *InMemoryBackend) CreateInstance(name, ownerAccountID, identityStoreID s
 		CreatedDate:     time.Now().UTC(),
 		Tags:            make(map[string]string),
 	}
+	maps.Copy(inst.Tags, tags)
 	b.instances.Put(inst)
 
 	cp := *inst
-	cp.Tags = make(map[string]string)
+	cp.Tags = make(map[string]string, len(inst.Tags))
+	maps.Copy(cp.Tags, inst.Tags)
 
 	return &cp, nil
 }

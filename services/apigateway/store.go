@@ -48,7 +48,10 @@ type StorageBackend interface {
 	DeleteMethodResponse(restAPIID, resourceID, httpMethod, statusCode string) error
 
 	// Integrations
-	PutIntegration(restAPIID, resourceID, httpMethod string, input PutIntegrationInput) (*Integration, error)
+	PutIntegration(
+		restAPIID, resourceID, httpMethod string,
+		input PutIntegrationInput,
+	) (*Integration, error)
 	GetIntegration(restAPIID, resourceID, httpMethod string) (*Integration, error)
 	DeleteIntegration(restAPIID, resourceID, httpMethod string) error
 
@@ -57,7 +60,9 @@ type StorageBackend interface {
 		restAPIID, resourceID, httpMethod, statusCode string,
 		input PutIntegrationResponseInput,
 	) (*IntegrationResponse, error)
-	GetIntegrationResponse(restAPIID, resourceID, httpMethod, statusCode string) (*IntegrationResponse, error)
+	GetIntegrationResponse(
+		restAPIID, resourceID, httpMethod, statusCode string,
+	) (*IntegrationResponse, error)
 	DeleteIntegrationResponse(restAPIID, resourceID, httpMethod, statusCode string) error
 
 	// Deployments
@@ -65,7 +70,10 @@ type StorageBackend interface {
 	GetDeployment(restAPIID, deploymentID string) (*Deployment, error)
 	GetDeployments(restAPIID string) ([]Deployment, error)
 	DeleteDeployment(restAPIID, deploymentID string) error
-	UpdateDeployment(restAPIID, deploymentID string, input UpdateDeploymentInput) (*Deployment, error)
+	UpdateDeployment(
+		restAPIID, deploymentID string,
+		input UpdateDeploymentInput,
+	) (*Deployment, error)
 
 	// Stages
 	GetStages(restAPIID string) ([]Stage, error)
@@ -76,14 +84,23 @@ type StorageBackend interface {
 	CreateAuthorizer(restAPIID string, input CreateAuthorizerInput) (*Authorizer, error)
 	GetAuthorizer(restAPIID, authorizerID string) (*Authorizer, error)
 	GetAuthorizers(restAPIID string) ([]Authorizer, error)
-	UpdateAuthorizer(restAPIID, authorizerID string, input UpdateAuthorizerInput) (*Authorizer, error)
+	UpdateAuthorizer(
+		restAPIID, authorizerID string,
+		input UpdateAuthorizerInput,
+	) (*Authorizer, error)
 	DeleteAuthorizer(restAPIID, authorizerID string) error
 
 	// Request Validators
-	CreateRequestValidator(restAPIID string, input CreateRequestValidatorInput) (*RequestValidator, error)
+	CreateRequestValidator(
+		restAPIID string,
+		input CreateRequestValidatorInput,
+	) (*RequestValidator, error)
 	GetRequestValidator(restAPIID, validatorID string) (*RequestValidator, error)
 	GetRequestValidators(restAPIID string) ([]RequestValidator, error)
-	UpdateRequestValidator(restAPIID, validatorID string, input UpdateRequestValidatorInput) (*RequestValidator, error)
+	UpdateRequestValidator(
+		restAPIID, validatorID string,
+		input UpdateRequestValidatorInput,
+	) (*RequestValidator, error)
 	DeleteRequestValidator(restAPIID, validatorID string) error
 
 	// API Keys
@@ -244,9 +261,6 @@ const (
 	defaultBurstLimit = 5000
 	defaultRateLimit  = 10000.0
 
-	// arnSplitParts is used when splitting ARNs at a specific substring.
-	arnSplitParts = 2
-
 	// defaultPageSize is used when no limit is specified in paginated list operations.
 	// AWS API Gateway defaults list operations to a page size of 25.
 	defaultPageSize = 25
@@ -301,7 +315,12 @@ func decodePosition(position string) (string, bool) {
 // cursor (empty when the last page is reached). The cursor is mutation-stable: it is
 // derived from the last returned item's key, so resuming does the right thing even if
 // the underlying collection changed between calls.
-func paginatePageByKey[T any](all []T, limit int, position string, keyOf func(T) string) ([]T, string) {
+func paginatePageByKey[T any](
+	all []T,
+	limit int,
+	position string,
+	keyOf func(T) string,
+) ([]T, string) {
 	if limit <= 0 {
 		limit = defaultPageSize
 	}
@@ -444,36 +463,33 @@ func NewInMemoryBackend() *InMemoryBackend {
 	return b
 }
 
+// closeAllTags closes the *tags.Tags store of every item in items, skipping
+// items whose store is nil.
+func closeAllTags[T any](items []*T, get func(*T) *tags.Tags) {
+	for _, v := range items {
+		if t := get(v); t != nil {
+			t.Close()
+		}
+	}
+}
+
 // Reset clears all in-memory state from the backend. It is used by the
 // POST /_gopherstack/reset endpoint for CI pipelines and rapid local development.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	// Close all REST API tag stores to prevent resource leaks.
-	for _, api := range b.restApis.All() {
-		if api.Tags != nil {
-			api.Tags.Close()
-		}
-	}
-
-	for _, k := range b.apiKeys.All() {
-		if k.Tags != nil {
-			k.Tags.Close()
-		}
-	}
-
-	for _, dn := range b.domainNames.All() {
-		if dn.Tags != nil {
-			dn.Tags.Close()
-		}
-	}
-
-	for _, p := range b.usagePlans.All() {
-		if p.Tags != nil {
-			p.Tags.Close()
-		}
-	}
+	// Close every taggable resource's tag store to prevent resource leaks.
+	closeAllTags(b.restApis.All(), func(v *RestAPI) *tags.Tags { return v.Tags })
+	closeAllTags(b.apiKeys.All(), func(v *APIKey) *tags.Tags { return v.Tags })
+	closeAllTags(b.domainNames.All(), func(v *DomainName) *tags.Tags { return v.Tags })
+	closeAllTags(b.usagePlans.All(), func(v *UsagePlan) *tags.Tags { return v.Tags })
+	closeAllTags(b.vpcLinks.All(), func(v *VpcLink) *tags.Tags { return v.Tags })
+	closeAllTags(
+		b.clientCertificates.All(),
+		func(v *ClientCertificate) *tags.Tags { return v.Tags },
+	)
+	closeAllTags(b.stages.All(), func(v *Stage) *tags.Tags { return v.Tags })
 
 	b.registry.ResetAll()
 	// The "dirty" tables (see store_setup.go's registerAllTables doc) are

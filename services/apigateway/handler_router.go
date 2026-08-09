@@ -172,6 +172,7 @@ const (
 // path segment constants used in REST route matching.
 const (
 	apiGWUnknownOp                             = "Unknown"
+	apiGWSegRestAPIs                           = "restapis"
 	apiGWSegResources                          = "resources"
 	apiGWSegDeployment                         = "deployments"
 	apiGWSegStages                             = "stages"
@@ -222,7 +223,7 @@ func parseAPIGWRESTPath(method, path string, query url.Values) (string, map[stri
 	}
 
 	switch segs[0] {
-	case "restapis":
+	case apiGWSegRestAPIs:
 		return parseAPIGWRestAPIsPath(method, segs, n, query)
 	case apiGWSegAPIKeys:
 		return parseAPIGWAPIKeysPath(method, segs, n, query)

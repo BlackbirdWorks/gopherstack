@@ -171,11 +171,18 @@ type deleteCertificateInput struct {
 	CertificateArn string `json:"CertificateArn"`
 }
 
+// Certificate/PrivateKey/CertificateChain are []byte, not string: the real
+// SDK base64-encodes these blob fields on the wire (acm@v1.43.4
+// serializers.go:3284-3301, Base64EncodeBytes), and encoding/json auto-
+// decodes a JSON string into []byte the same way. A string field would leave
+// the payload still base64-encoded, breaking every real client's
+// ImportCertificate.
 type importCertificateInput struct {
-	CertificateArn   string `json:"CertificateArn"`
-	Certificate      string `json:"Certificate"`
-	PrivateKey       string `json:"PrivateKey"`
-	CertificateChain string `json:"CertificateChain"`
+	CertificateArn   string              `json:"CertificateArn"`
+	Certificate      []byte              `json:"Certificate"`
+	PrivateKey       []byte              `json:"PrivateKey"`
+	CertificateChain []byte              `json:"CertificateChain"`
+	Tags             []map[string]string `json:"Tags"`
 }
 
 type importCertificateOutput struct {
@@ -553,13 +560,26 @@ func (h *Handler) jsonImportCertificate(ctx context.Context, body []byte) (any, 
 	}
 	cert, err := h.Backend.ImportCertificate(
 		ctx,
-		input.Certificate,
-		input.PrivateKey,
-		input.CertificateChain,
+		string(input.Certificate),
+		string(input.PrivateKey),
+		string(input.CertificateChain),
 		input.CertificateArn,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(input.Tags) > 0 {
+		kvMap := make(map[string]string, len(input.Tags))
+
+		for _, tag := range input.Tags {
+			if k, ok := tag["Key"]; ok {
+				kvMap[k] = tag["Value"]
+			}
+		}
+		if setErr := h.setTags(cert.ARN, kvMap); setErr != nil {
+			return nil, setErr
+		}
 	}
 
 	return &importCertificateOutput{CertificateArn: cert.ARN}, nil

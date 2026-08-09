@@ -397,13 +397,16 @@ type EventConfig struct {
 
 // API represents an AppSync Event API.
 type API struct {
-	Tags         map[string]string `json:"tags,omitempty"`
-	DNS          map[string]string `json:"dns,omitempty"`
-	EventConfig  *EventConfig      `json:"eventConfig,omitempty"`
-	Name         string            `json:"name"`
-	APIID        string            `json:"apiId"`
-	ARN          string            `json:"arn"`
-	OwnerContact string            `json:"ownerContact,omitempty"`
+	Tags        map[string]string `json:"tags,omitempty"`
+	DNS         map[string]string `json:"dns,omitempty"`
+	EventConfig *EventConfig      `json:"eventConfig,omitempty"`
+	Name        string            `json:"name"`
+	APIID       string            `json:"apiId"`
+	// ARN's wire key is "apiArn", not "arn" -- verified against the real
+	// deserializer (appsync@v1.56.4 deserializers.go:12050), which is the only
+	// field name real clients recognize to discover an Event API's ARN.
+	ARN          string `json:"apiArn"`
+	OwnerContact string `json:"ownerContact,omitempty"`
 }
 
 // Integration is the data source integration for an event handler.

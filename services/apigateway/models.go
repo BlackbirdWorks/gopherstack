@@ -177,6 +177,7 @@ type MethodSetting struct {
 
 // Stage represents a deployment stage.
 type Stage struct {
+	Tags                *tags.Tags               `json:"tags,omitempty"`
 	CanarySettings      *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings   *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	MethodSettings      map[string]MethodSetting `json:"methodSettings,omitempty"`
@@ -510,6 +511,7 @@ type CreateModelInput struct {
 
 // CreateStageInput is the input for the standalone CreateStage operation.
 type CreateStageInput struct {
+	Tags                 map[string]string        `json:"tags,omitempty"`
 	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
@@ -845,6 +847,7 @@ type PutGatewayResponseInput struct {
 
 // ClientCertificate represents an API Gateway client certificate.
 type ClientCertificate struct {
+	Tags                  *tags.Tags    `json:"tags,omitempty"`
 	CreatedDate           unixEpochTime `json:"createdDate"`
 	ExpirationDate        unixEpochTime `json:"expirationDate"`
 	PemEncodedCertificate string        `json:"pemEncodedCertificate"`
@@ -884,12 +887,12 @@ type ImportRestAPIInput struct {
 
 // VpcLink represents a VPC Link for private integrations.
 type VpcLink struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Status      string            `json:"status"`
-	TargetARNs  []string          `json:"targetArns,omitempty"`
+	Tags        *tags.Tags `json:"tags,omitempty"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	TargetARNs  []string   `json:"targetArns,omitempty"`
 }
 
 // CreateVpcLinkInput is the input for CreateVpcLink.
