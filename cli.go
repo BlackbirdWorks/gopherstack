@@ -2849,6 +2849,13 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// Wire CloudWatch Logs → Lambda log delivery.
 	wireLambdaCWLogs(byName["Lambda"], byName["CloudWatchLogs"])
 
+	// Wire Timestream Query → Timestream Write's shared tag store, so
+	// CreateScheduledQuery's Tags reach TagResource/ListTagsForResource --
+	// timestreamquery's own RouteMatcher defers those ops to TimestreamWrite
+	// (handler.go's writeServiceTagOps), matching real Timestream's single
+	// tag store shared across both API surfaces.
+	wireTimestreamQueryTags(byName["TimestreamQuery"], byName["TimestreamWrite"])
+
 	// Wire CloudWatch Logs subscription filter delivery to Lambda, Kinesis, and Firehose.
 	wireCWLogsSubscriptionFilters(
 		appCtx.JanitorCtx,
@@ -5214,6 +5221,26 @@ func wireLambdaCWLogs(lambdaReg, cwlogsReg service.Registerable) {
 		if cwlogsBk, cwBkOk := cwlogsH.Backend.(*cwlogsbackend.InMemoryBackend); cwBkOk {
 			lambdaBk.SetCWLogsBackend(&cwLogsAdapter{backend: cwlogsBk})
 		}
+	}
+}
+
+// wireTimestreamQueryTags connects the Timestream Query backend to
+// Timestream Write's shared tag store (see timestreamquery.TagWriteBackend).
+// timestreamwrite.InMemoryBackend.TagResource already matches the seam's
+// interface signature, so no adapter type is needed.
+func wireTimestreamQueryTags(tsqReg, tswReg service.Registerable) {
+	tsqH, ok := tsqReg.(*timestreamquerybackend.Handler)
+	if !ok {
+		return
+	}
+
+	tsqBk, bkOk := tsqH.Backend.(*timestreamquerybackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if tswH, tswOk := tswReg.(*timestreamwritebackend.Handler); tswOk {
+		tsqBk.SetTagWriteBackend(tswH.Backend)
 	}
 }
 

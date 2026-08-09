@@ -48,6 +48,10 @@ func (h *Handler) cborPutDashboard(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	if entry, _, entryErr := h.Backend.GetDashboard(name); entryErr == nil {
+		h.applyCreationTags(input, entry.DashboardArn)
+	}
+
 	return writeCBOR(c, cbor.Map{"DashboardValidationMessages": dashboardValidationMessagesCBOR(messages)})
 }
 

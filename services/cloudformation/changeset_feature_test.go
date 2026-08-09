@@ -53,7 +53,7 @@ func TestChangeSet_TypeAndExecutionStatus(t *testing.T) {
 				tc.setup(b)
 			}
 			cs, err := b.CreateChangeSet(t.Context(), tc.stackName, tc.changeSetName,
-				simpleTemplate, "test", nil, nil)
+				simpleTemplate, "test", nil, nil, nil)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantChangeSetType, cs.ChangeSetType)
 			assert.Equal(t, tc.wantExecStatus, cs.ExecutionStatus)
@@ -70,7 +70,7 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateChangeSet(t.Context(), "exec-status-stack", "my-cs",
-		modifiedTemplate, "test", nil, nil)
+		modifiedTemplate, "test", nil, nil, nil)
 	require.NoError(t, err)
 
 	// After execute, the changeset is removed (EXECUTE_COMPLETE).
@@ -122,7 +122,7 @@ func TestChangeSet_Capabilities_ThreadedToExecute(t *testing.T) {
 			b := newBackend()
 
 			cs, err := b.CreateChangeSet(
-				t.Context(), "cs-cap-stack", "cs-cap", iamTemplate, "test", nil, tt.capabilities,
+				t.Context(), "cs-cap-stack", "cs-cap", iamTemplate, "test", nil, tt.capabilities, nil,
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.capabilities, cs.Capabilities)

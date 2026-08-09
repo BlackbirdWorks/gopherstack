@@ -82,6 +82,14 @@ func (b *InMemoryBackend) CreateScheduledQuery(
 		b.scheduledQueryTokens.set(clientToken, arnStr)
 	}
 
+	if len(tags) > 0 && b.tagWriteBackend != nil {
+		// Best-effort: TimestreamWrite is the shared tag store real clients'
+		// TagResource/ListTagsForResource calls hit (writeServiceTagOps); a
+		// failure here would only affect that cross-service view, not this
+		// scheduled query's own creation.
+		_ = b.tagWriteBackend.TagResource(arnStr, tags)
+	}
+
 	return cloneScheduledQuery(sq), nil
 }
 

@@ -802,6 +802,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 		"test changeset",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "cs-base", cs.StackName)
@@ -839,7 +840,7 @@ func TestChangeSet_Delete(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil)
+	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil, nil)
 	require.NoError(t, err)
 
 	err = b.DeleteChangeSet("cs-del", "del-cs")

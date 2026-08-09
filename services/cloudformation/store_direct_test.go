@@ -648,6 +648,7 @@ func TestChangeSet_ExecuteOnNewStack(t *testing.T) {
 		"init",
 		nil,
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "brand-new", cs.StackName)
@@ -794,6 +795,7 @@ func TestChangeSet_ChangesContainAdd(t *testing.T) {
 		"my-changes",
 		newTmpl,
 		"add queue",
+		nil,
 		nil,
 		nil,
 	)

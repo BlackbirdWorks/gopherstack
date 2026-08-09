@@ -168,15 +168,17 @@ func (b *InMemoryBackend) CreateWorkspaceBundle(
 	defer b.mu.Unlock()
 
 	id := b.nextID("wsb-")
+	stored := cloneTags(tags)
 	bun := &storedCustomBundle{
 		BundleID:    id,
 		Name:        name,
 		Description: description,
 		ImageID:     imageID,
 		ComputeType: computeType,
-		Tags:        cloneTags(tags),
+		Tags:        stored,
 	}
 	b.customBundles.Put(bun)
+	b.tags[id] = stored
 
 	return bun, nil
 }

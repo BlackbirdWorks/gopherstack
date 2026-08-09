@@ -46,6 +46,10 @@ func (h *Handler) cborPutAlarmMuteRule(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	// Keyed by MuteName, matching the (non-ARN-shaped) value
+	// cborGetAlarmMuteRule already returns as AlarmMuteRuleArn.
+	h.applyCreationTags(input, rule.MuteName)
+
 	return writeCBOR(c, cbor.Map{})
 }
 

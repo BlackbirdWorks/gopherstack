@@ -46,6 +46,7 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 
 	cs, err := h.Backend.CreateChangeSet(
 		c.Request().Context(), stackName, changeSetName, templateBody, description, params, capabilities,
+		parseTags(form),
 	)
 	if err != nil {
 		return h.xmlError(c, "AlreadyExistsException", err.Error())
@@ -231,6 +232,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 		CreationTime    string      `xml:"CreationTime"`
 		Description     string      `xml:"Description,omitempty"`
 		Capabilities    []string    `xml:"Capabilities>member,omitempty"`
+		Tags            []Tag       `xml:"Tags>member,omitempty"`
 		Changes         []changeXML `xml:"Changes>member"`
 	}
 	type response struct {
@@ -254,6 +256,7 @@ func (h *Handler) handleDescribeChangeSet(form url.Values, c *echo.Context) erro
 			CreationTime:    cs.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 			Description:     cs.Description,
 			Capabilities:    cs.Capabilities,
+			Tags:            cs.Tags,
 			Changes:         changes,
 		},
 		RequestID: uuid.New().String(),

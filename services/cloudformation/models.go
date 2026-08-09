@@ -132,6 +132,7 @@ type ChangeSet struct {
 	Parameters            []Parameter            `xml:"-"                               json:"parameters,omitempty"`
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
+	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.

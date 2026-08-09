@@ -36,6 +36,7 @@ type StorageBackend interface {
 		stackName, changeSetName, templateBody, description string,
 		params []Parameter,
 		capabilities []string,
+		tags []Tag,
 	) (*ChangeSet, error)
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
 	ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error

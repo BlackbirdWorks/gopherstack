@@ -29,6 +29,7 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 		b.region, b.accountID, id,
 	)
 
+	stored := cloneTags(tags)
 	pool := &storedPool{
 		PoolID:              id,
 		PoolArn:             arn,
@@ -40,9 +41,10 @@ func (b *InMemoryBackend) CreateWorkspacesPool(
 		RunningMode:         runningMode,
 		DesiredUserSessions: desiredUserSessions,
 		CreatedAt:           time.Now().UTC(),
-		Tags:                cloneTags(tags),
+		Tags:                stored,
 	}
 	b.pools.Put(pool)
+	b.tags[id] = stored
 
 	return pool, nil
 }

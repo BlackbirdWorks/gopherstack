@@ -10,13 +10,15 @@ func (b *InMemoryBackend) CreateConnectionAlias(
 	defer b.mu.Unlock()
 
 	id := b.nextID("wsca-")
+	stored := cloneTags(tags)
 	b.connAliases.Put(&storedConnAlias{
 		AliasID:          id,
 		ConnectionString: connectionString,
 		State:            "CREATED",
 		OwnerAccountID:   b.accountID,
-		Tags:             cloneTags(tags),
+		Tags:             stored,
 	})
+	b.tags[id] = stored
 
 	return id, nil
 }
