@@ -216,13 +216,15 @@ type EvaluationJob struct {
 
 // AutomatedReasoningPolicy represents an Automated Reasoning policy.
 type AutomatedReasoningPolicy struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	PolicyArn   string    `json:"policyArn"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
-	Status      string    `json:"status"`
-	Tags        []Tag     `json:"tags,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+	PolicyArn      string    `json:"policyArn"`
+	Name           string    `json:"name"`
+	Description    string    `json:"description,omitempty"`
+	Status         string    `json:"status"`
+	DefinitionHash string    `json:"definitionHash,omitempty"`
+	Version        string    `json:"version,omitempty"`
+	Tags           []Tag     `json:"tags,omitempty"`
 }
 
 // AutomatedReasoningPolicyBuildWorkflow represents a build workflow for a policy.
@@ -251,6 +253,7 @@ type AutomatedReasoningPolicyVersion struct {
 	Name           string    `json:"name"`
 	DefinitionHash string    `json:"definitionHash"`
 	Version        string    `json:"version"`
+	Tags           []Tag     `json:"tags,omitempty"`
 }
 
 // CustomModel represents a custom model.

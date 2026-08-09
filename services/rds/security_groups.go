@@ -125,6 +125,7 @@ func (b *InMemoryBackend) CreateDBSecurityGroup(name, description string) (*DBSe
 	sg := &DBSecurityGroup{
 		DBSecurityGroupName:        name,
 		DBSecurityGroupDescription: description,
+		DBSecurityGroupArn:         b.rdsARN("secgrp", name),
 	}
 	b.dbSecurityGroups.Put(sg)
 	cp := *sg

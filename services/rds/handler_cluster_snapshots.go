@@ -14,6 +14,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, snap.DBClusterSnapshotArn)
+
 	return &createDBClusterSnapshotResponse{
 		Xmlns:             rdsXMLNS,
 		DBClusterSnapshot: toXMLClusterSnapshot(snap),

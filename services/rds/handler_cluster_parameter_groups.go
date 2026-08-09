@@ -15,6 +15,8 @@ func (h *Handler) handleCreateDBClusterParameterGroup(vals url.Values) (any, err
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, pg.DBParameterGroupArn)
+
 	return &createDBClusterParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
 		DBParameterGroup: toXMLClusterParameterGroup(pg),

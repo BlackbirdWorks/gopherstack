@@ -15,6 +15,8 @@ func (h *Handler) handleCreateDBSnapshot(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, snap.DBSnapshotArn)
+
 	return &createDBSnapshotResponse{
 		Xmlns:      rdsXMLNS,
 		DBSnapshot: toXMLSnapshot(snap),

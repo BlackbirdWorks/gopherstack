@@ -30,6 +30,8 @@ func (h *Handler) handleCreateDBParameterGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, pg.DBParameterGroupArn)
+
 	return &createDBParameterGroupResponse{
 		Xmlns:            rdsXMLNS,
 		DBParameterGroup: toXMLParameterGroup(pg),

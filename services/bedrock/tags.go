@@ -51,17 +51,143 @@ func filterTags(existing []Tag, removeKeys map[string]bool) []Tag {
 	return result
 }
 
+// taggableResolvers lists, one closure per taggable resource family, how to
+// find that family's Tags field by ARN. Data-driven (rather than one
+// hand-written if-chain per operation) so TagResource/UntagResource/
+// ListTagsForResource all share a single registry and adding a family means
+// adding one entry here, not three near-identical branches (which is exactly
+// how CreateModelCopyJob et al. went missing from this registry despite the
+// backend correctly storing tags on the resource itself -- gopherstack-2mwl).
+//
+//nolint:gochecknoglobals // registration table, analogous to arnCollectorFuncs elsewhere
+var taggableResolvers = []func(*InMemoryBackend, string) (*[]Tag, bool){
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		id, ok := b.guardrailsByARN[resourceARN]
+		if !ok {
+			return nil, false
+		}
+
+		g, _ := b.guardrails.Get(id)
+
+		return &g.Tags, true
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.evaluationJobs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.customModels.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.customModelDeployments.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.inferenceProfiles.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.marketplaceEndpoints.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.modelCopyJobs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.modelImportJobs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.promptRouters.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.modelCustomizationJobs.Get(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+	func(b *InMemoryBackend, resourceARN string) (*[]Tag, bool) {
+		if v, ok := b.findARPVersionByARN(resourceARN); ok {
+			return &v.Tags, true
+		}
+
+		return nil, false
+	},
+}
+
+// findTaggableResource returns a pointer to the Tags field of the resource
+// identified by resourceARN, searching every family in taggableResolvers.
+// Caller must hold at least a read lock.
+func (b *InMemoryBackend) findTaggableResource(resourceARN string) (*[]Tag, bool) {
+	for _, resolve := range taggableResolvers {
+		if tags, ok := resolve(b, resourceARN); ok {
+			return tags, true
+		}
+	}
+
+	return nil, false
+}
+
 // ListTagsForResource returns tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
-	tags, ok := b.findTagsByARN(resourceARN)
+	tags, ok := b.findTaggableResource(resourceARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	return copyTags(tags), nil
+	return copyTags(*tags), nil
 }
 
 // TagResource adds or updates tags on a resource identified by ARN.
@@ -69,50 +195,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags []Tag) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
-	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g, _ := b.guardrails.Get(id)
-		g.Tags = mergeTags(g.Tags, tags)
-
-		return nil
+	existing, ok := b.findTaggableResource(resourceARN)
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
 	}
 
-	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
-		pmt.Tags = mergeTags(pmt.Tags, tags)
+	*existing = mergeTags(*existing, tags)
 
-		return nil
-	}
-
-	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
-		job.Tags = mergeTags(job.Tags, tags)
-
-		return nil
-	}
-
-	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
-		policy.Tags = mergeTags(policy.Tags, tags)
-
-		return nil
-	}
-
-	if model, ok := b.customModels.Get(resourceARN); ok {
-		model.Tags = mergeTags(model.Tags, tags)
-
-		return nil
-	}
-
-	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
-		deployment.Tags = mergeTags(deployment.Tags, tags)
-
-		return nil
-	}
-
-	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
-		job.Tags = mergeTags(job.Tags, tags)
-
-		return nil
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil
 }
 
 // UntagResource removes tags from a resource identified by ARN.
@@ -120,88 +210,31 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
+	existing, ok := b.findTaggableResource(resourceARN)
+	if !ok {
+		return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	}
+
 	removeSet := make(map[string]bool, len(tagKeys))
 	for _, k := range tagKeys {
 		removeSet[k] = true
 	}
 
-	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g, _ := b.guardrails.Get(id)
-		g.Tags = filterTags(g.Tags, removeSet)
+	*existing = filterTags(*existing, removeSet)
 
-		return nil
-	}
-
-	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
-		pmt.Tags = filterTags(pmt.Tags, removeSet)
-
-		return nil
-	}
-
-	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
-		job.Tags = filterTags(job.Tags, removeSet)
-
-		return nil
-	}
-
-	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
-		policy.Tags = filterTags(policy.Tags, removeSet)
-
-		return nil
-	}
-
-	if model, ok := b.customModels.Get(resourceARN); ok {
-		model.Tags = filterTags(model.Tags, removeSet)
-
-		return nil
-	}
-
-	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
-		deployment.Tags = filterTags(deployment.Tags, removeSet)
-
-		return nil
-	}
-
-	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
-		job.Tags = filterTags(job.Tags, removeSet)
-
-		return nil
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrNotFound, resourceARN)
+	return nil
 }
 
-// findTagsByARN returns the tags slice pointer for a resource by ARN.
-// Caller must hold at least a read lock.
-func (b *InMemoryBackend) findTagsByARN(resourceARN string) ([]Tag, bool) {
-	if id, ok := b.guardrailsByARN[resourceARN]; ok {
-		g, _ := b.guardrails.Get(id)
-
-		return g.Tags, true
-	}
-
-	if pmt, ok := b.provisionedModelThroughputs.Get(resourceARN); ok {
-		return pmt.Tags, true
-	}
-
-	if job, ok := b.evaluationJobs.Get(resourceARN); ok {
-		return job.Tags, true
-	}
-
-	if policy, ok := b.automatedReasoningPolicies.Get(resourceARN); ok {
-		return policy.Tags, true
-	}
-
-	if model, ok := b.customModels.Get(resourceARN); ok {
-		return model.Tags, true
-	}
-
-	if deployment, ok := b.customModelDeployments.Get(resourceARN); ok {
-		return deployment.Tags, true
-	}
-
-	if job, ok := b.advancedPromptOptimizationJobs.Get(resourceARN); ok {
-		return job.Tags, true
+// findARPVersionByARN looks up an AutomatedReasoningPolicyVersion by its own
+// externally-visible ARN (policyARN + "/version/" + versionNum), which
+// differs from the "policyARN:versionNum" key arpVersions is stored under
+// (see arpVersionsKeyFn) -- a linear scan over the small per-account version
+// set is simplest here rather than maintaining a second index.
+func (b *InMemoryBackend) findARPVersionByARN(resourceARN string) (*AutomatedReasoningPolicyVersion, bool) {
+	for _, v := range b.arpVersions.All() {
+		if v.PolicyArn == resourceARN {
+			return v, true
+		}
 	}
 
 	return nil, false

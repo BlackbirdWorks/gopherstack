@@ -36,6 +36,10 @@ func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				h.setTags("ip:"+ip.InstanceProfileName, tags)
+			}
+
 			return &CreateInstanceProfileResponse{
 				Xmlns: iamXMLNS,
 				CreateInstanceProfileResult: CreateInstanceProfileResult{

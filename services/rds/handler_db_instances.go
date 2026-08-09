@@ -140,6 +140,8 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, inst.DBInstanceArn)
+
 	return &createDBInstanceResponse{
 		Xmlns:      rdsXMLNS,
 		DBInstance: toXMLInstance(inst),
@@ -507,6 +509,8 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, inst.DBInstanceArn)
 
 	return &createDBInstanceReadReplicaResponse{
 		Xmlns:      rdsXMLNS,

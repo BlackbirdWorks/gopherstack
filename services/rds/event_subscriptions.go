@@ -92,13 +92,14 @@ func (b *InMemoryBackend) CreateEventSubscription(
 	cats := make([]string, len(eventCategories))
 	copy(cats, eventCategories)
 	sub := &EventSubscription{
-		SubscriptionName: name,
-		SnsTopicArn:      snsTopicARN,
-		Status:           subscriptionStatusActive,
-		SourceType:       sourceType,
-		SourceIDs:        ids,
-		EventCategories:  cats,
-		Enabled:          true,
+		SubscriptionName:     name,
+		SnsTopicArn:          snsTopicARN,
+		EventSubscriptionArn: b.rdsARN("es", name),
+		Status:               subscriptionStatusActive,
+		SourceType:           sourceType,
+		SourceIDs:            ids,
+		EventCategories:      cats,
+		Enabled:              true,
 	}
 	b.eventSubscriptions.Put(sub)
 	cp := *sub

@@ -18,6 +18,8 @@ func (h *Handler) handleCreateDBSubnetGroup(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, sg.DBSubnetGroupArn)
+
 	return &createDBSubnetGroupResponse{
 		Xmlns:         rdsXMLNS,
 		DBSubnetGroup: toXMLSubnetGroup(sg),
@@ -70,6 +72,7 @@ func toXMLSubnetGroup(sg *DBSubnetGroup) xmlDBSubnetGroup {
 	return xmlDBSubnetGroup{
 		DBSubnetGroupName:        sg.DBSubnetGroupName,
 		DBSubnetGroupDescription: sg.DBSubnetGroupDescription,
+		DBSubnetGroupArn:         sg.DBSubnetGroupArn,
 		VpcID:                    sg.VpcID,
 		SubnetGroupStatus:        sg.Status,
 		Subnets:                  xmlSubnetList{Members: subnetMembers},
@@ -87,6 +90,7 @@ type xmlSubnetList struct {
 type xmlDBSubnetGroup struct {
 	DBSubnetGroupName        string        `xml:"DBSubnetGroupName"`
 	DBSubnetGroupDescription string        `xml:"DBSubnetGroupDescription"`
+	DBSubnetGroupArn         string        `xml:"DBSubnetGroupArn,omitempty"`
 	VpcID                    string        `xml:"VpcId"`
 	SubnetGroupStatus        string        `xml:"SubnetGroupStatus"`
 	Subnets                  xmlSubnetList `xml:"Subnets"`

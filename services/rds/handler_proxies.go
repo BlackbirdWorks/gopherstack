@@ -22,6 +22,8 @@ func (h *Handler) handleCreateDBProxy(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, proxy.DBProxyARN)
+
 	return createDBProxyResponse{
 		Xmlns:   rdsXMLNS,
 		DBProxy: toXMLProxy(proxy),
@@ -215,6 +217,8 @@ func (h *Handler) handleCreateDBProxyEndpoint(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, ep.DBProxyEndpointARN)
 
 	return createDBProxyEndpointResponse{
 		Xmlns:           rdsXMLNS,

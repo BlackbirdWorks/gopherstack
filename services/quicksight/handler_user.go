@@ -62,6 +62,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 		strField(body, "UserRole"),
 		strField(body, "IdentityType"),
 		strField(body, "SessionName"),
+		tagsFromBody(body),
 	)
 	if err != nil {
 		return httpErr(c, err)

@@ -73,7 +73,7 @@ func (rc *ResourceCreator) createCloudFrontFunction(
 
 	runtime := functionRuntime(props, params, physicalIDs)
 
-	fn, err := rc.backends.CloudFront.Backend.CreateFunction(name, "", runtime, code)
+	fn, err := rc.backends.CloudFront.Backend.CreateFunction(name, "", runtime, code, nil)
 	if err != nil {
 		return "", fmt.Errorf("create CloudFront function %s: %w", name, err)
 	}

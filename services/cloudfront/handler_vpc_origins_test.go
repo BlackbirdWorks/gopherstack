@@ -31,9 +31,9 @@ func TestVpcOriginCRUD(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/2020-05-31/vpc-origin",
 			body: []byte(
-				`<VpcOriginRequest>` +
+				`<CreateVpcOriginRequest>` +
 					`<VpcOriginEndpointConfig><Name>my-vpc-origin</Name></VpcOriginEndpointConfig>` +
-					`</VpcOriginRequest>`,
+					`</CreateVpcOriginRequest>`,
 			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
@@ -55,7 +55,7 @@ func TestVpcOriginCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateVpcOrigin("list-vpc-origin")
+				_, err := h.Backend.CreateVpcOrigin("list-vpc-origin", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -73,7 +73,7 @@ func TestVpcOriginCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				origin, err := h.Backend.CreateVpcOrigin("get-vpc-origin")
+				origin, err := h.Backend.CreateVpcOrigin("get-vpc-origin", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/vpc-origin/" + origin.ID
@@ -90,13 +90,13 @@ func TestVpcOriginCRUD(t *testing.T) {
 			method: http.MethodPut,
 			path:   "",
 			body: []byte(
-				`<VpcOriginRequest>` +
+				`<UpdateVpcOriginRequest>` +
 					`<VpcOriginEndpointConfig><Name>updated-vpc-origin</Name></VpcOriginEndpointConfig>` +
-					`</VpcOriginRequest>`,
+					`</UpdateVpcOriginRequest>`,
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				origin, err := h.Backend.CreateVpcOrigin("old-vpc-origin")
+				origin, err := h.Backend.CreateVpcOrigin("old-vpc-origin", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/vpc-origin/" + origin.ID
@@ -115,7 +115,7 @@ func TestVpcOriginCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				origin, err := h.Backend.CreateVpcOrigin("del-vpc-origin")
+				origin, err := h.Backend.CreateVpcOrigin("del-vpc-origin", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/vpc-origin/" + origin.ID
@@ -188,7 +188,7 @@ func TestInMemoryBackend_VpcOrigin(t *testing.T) {
 			name: "create_get_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				origin, err := b.CreateVpcOrigin("vpc-origin-name")
+				origin, err := b.CreateVpcOrigin("vpc-origin-name", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, origin.ID)
 

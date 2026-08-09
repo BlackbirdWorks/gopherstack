@@ -16,11 +16,27 @@ type functionConfigXML struct {
 	FunctionCode string   `xml:"FunctionCode"`
 }
 
-type createFunctionRequestXML struct {
-	XMLName        xml.Name          `xml:"CreateFunctionRequest"`
+// functionRequestFields is shared by Create and Update, whose real request
+// shapes carry identical fields but different root element names
+// (CreateFunctionRequest vs UpdateFunctionRequest; cloudfront@v1.67.4
+// serializers.go). A prior single struct fixed the root to
+// "CreateFunctionRequest", so every real UpdateFunction call (root
+// UpdateFunctionRequest) failed decode and was rejected as MalformedXML.
+type functionRequestFields struct {
 	Name           string            `xml:"Name"`
 	FunctionCode   string            `xml:"FunctionCode"`
 	FunctionConfig functionConfigXML `xml:"FunctionConfig"`
+	Tags           tagsXML           `xml:"Tags"`
+}
+
+type createFunctionRequestXML struct {
+	XMLName xml.Name `xml:"CreateFunctionRequest"`
+	functionRequestFields
+}
+
+type updateFunctionRequestXML struct {
+	XMLName xml.Name `xml:"UpdateFunctionRequest"`
+	functionRequestFields
 }
 
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
@@ -54,6 +70,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		req.FunctionConfig.Comment,
 		req.FunctionConfig.Runtime,
 		code,
+		tagsXMLToMap(req.Tags),
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
@@ -178,7 +195,7 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 		return h.handleError(c, qErr)
 	}
 
-	var req createFunctionRequestXML
+	var req updateFunctionRequestXML
 	if len(body) > 0 {
 		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
 			return xmlResp(

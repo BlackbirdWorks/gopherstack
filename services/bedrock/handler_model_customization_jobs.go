@@ -57,7 +57,13 @@ type createModelCustomizationJobInput struct {
 	JobName             string `json:"jobName"`
 	BaseModelIdentifier string `json:"baseModelIdentifier"`
 	CustomizationType   string `json:"customizationType,omitempty"`
-	Tags                []Tag  `json:"tags,omitempty"`
+	// JobTags, not Tags: real CreateModelCustomizationJobInput carries the
+	// job's own tags as JobTags (wire key "jobTags"), separate from
+	// CustomModelTags (wire key "customModelTags") on the resulting output
+	// model, which gopherstack does not track as an independently taggable
+	// resource (bedrock@v1.66.4 serializers.go:
+	// awsRestjson1_serializeOpDocumentCreateModelCustomizationJobInput).
+	Tags []Tag `json:"jobTags,omitempty"`
 }
 
 type createModelCustomizationJobOutput struct {

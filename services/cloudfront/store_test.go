@@ -443,9 +443,9 @@ func TestInMemoryBackend_NewResourceTypesCRUD(t *testing.T) {
 			name: "function_duplicate_name",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code")
+				_, err := b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
-				_, err = b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code")
+				_, err = b.CreateFunction("dup-fn", "", "cloudfront-js-2.0", "code", nil)
 				require.Error(t, err)
 			},
 		},
@@ -453,7 +453,7 @@ func TestInMemoryBackend_NewResourceTypesCRUD(t *testing.T) {
 			name: "function_publish_sets_live",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFunction("live-fn", "", "cloudfront-js-2.0", "code")
+				_, err := b.CreateFunction("live-fn", "", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 				fn, err := b.PublishFunction("live-fn")
 				require.NoError(t, err)
@@ -464,7 +464,7 @@ func TestInMemoryBackend_NewResourceTypesCRUD(t *testing.T) {
 			name: "function_update_sets_development",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFunction("upd-fn2", "", "cloudfront-js-2.0", "code")
+				_, err := b.CreateFunction("upd-fn2", "", "cloudfront-js-2.0", "code", nil)
 				require.NoError(t, err)
 				_, err = b.PublishFunction("upd-fn2")
 				require.NoError(t, err)

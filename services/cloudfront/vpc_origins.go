@@ -2,6 +2,7 @@ package cloudfront
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/google/uuid"
@@ -15,7 +16,7 @@ func (b *InMemoryBackend) vpcOriginARN(id string) string {
 }
 
 // CreateVpcOrigin creates a new CloudFront VPC Origin.
-func (b *InMemoryBackend) CreateVpcOrigin(name string) (*VpcOrigin, error) {
+func (b *InMemoryBackend) CreateVpcOrigin(name string, tags map[string]string) (*VpcOrigin, error) {
 	b.mu.Lock("CreateVpcOrigin")
 	defer b.mu.Unlock()
 
@@ -29,6 +30,9 @@ func (b *InMemoryBackend) CreateVpcOrigin(name string) (*VpcOrigin, error) {
 		ARN:  b.vpcOriginARN(id),
 		Name: name,
 		ETag: uuid.NewString(),
+	}
+	if len(tags) > 0 {
+		origin.Tags = maps.Clone(tags)
 	}
 	b.vpcOrigins.Put(origin)
 	cp := *origin

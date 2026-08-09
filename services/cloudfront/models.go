@@ -259,15 +259,16 @@ type ResponseHeadersPolicy struct {
 
 // Function represents a CloudFront Function.
 type Function struct {
-	Name             string `json:"name"`
-	Comment          string `json:"comment,omitempty"`
-	Runtime          string `json:"runtime"`
-	FunctionCode     string `json:"functionCode"`
-	Status           string `json:"status"` // DEVELOPMENT or LIVE
-	ETag             string `json:"eTag"`
-	ARN              string `json:"arn"`
-	CreatedTime      string `json:"createdTime"`
-	LastModifiedTime string `json:"lastModifiedTime"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	Runtime          string            `json:"runtime"`
+	FunctionCode     string            `json:"functionCode"`
+	Status           string            `json:"status"` // DEVELOPMENT or LIVE
+	ETag             string            `json:"eTag"`
+	ARN              string            `json:"arn"`
+	CreatedTime      string            `json:"createdTime"`
+	LastModifiedTime string            `json:"lastModifiedTime"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.
@@ -370,11 +371,12 @@ type RealtimeLogConfig struct {
 
 // KeyValueStore represents a CloudFront Key Value Store.
 type KeyValueStore struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	Tags    map[string]string `json:"tags,omitempty"`
+	ID      string            `json:"id"`
+	ARN     string            `json:"arn"`
+	Name    string            `json:"name"`
+	Comment string            `json:"comment,omitempty"`
+	ETag    string            `json:"eTag"`
 	// Status reflects the provisioning state (AWS: PROVISIONING → READY). The
 	// emulator provisions synchronously and reports READY immediately.
 	Status string `json:"status"`
@@ -385,10 +387,11 @@ type KeyValueStore struct {
 
 // VpcOrigin represents a CloudFront VPC Origin.
 type VpcOrigin struct {
-	ID   string `json:"id"`
-	ARN  string `json:"arn"`
-	Name string `json:"name"`
-	ETag string `json:"eTag"`
+	Tags map[string]string `json:"tags,omitempty"`
+	ID   string            `json:"id"`
+	ARN  string            `json:"arn"`
+	Name string            `json:"name"`
+	ETag string            `json:"eTag"`
 }
 
 // OriginRequestPolicyConfig carries optional full-config inputs for CreateOriginRequestPolicy.

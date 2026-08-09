@@ -4,7 +4,7 @@ import "time"
 
 type StorageBackend interface {
 	// Namespaces
-	CreateNamespace(accountID, namespace, capacityRegion string) (*Namespace, error)
+	CreateNamespace(accountID, namespace, capacityRegion string, tags map[string]string) (*Namespace, error)
 	DescribeNamespace(accountID, namespace string) (*Namespace, error)
 	DeleteNamespace(accountID, namespace string) error
 	ListNamespaces(accountID string, maxResults int32, nextToken string) ([]*Namespace, string, error)
@@ -28,7 +28,10 @@ type StorageBackend interface {
 	) ([]*GroupMember, string, error)
 
 	// Users
-	RegisterUser(accountID, namespace, userName, email, role, identityType, sessionName string) (*User, error)
+	RegisterUser(
+		accountID, namespace, userName, email, role, identityType, sessionName string,
+		tags map[string]string,
+	) (*User, error)
 	DescribeUser(accountID, namespace, userName string) (*User, error)
 	UpdateUser(accountID, namespace, userName, email, role string) (*User, error)
 	DeleteUser(accountID, namespace, userName string) error
@@ -440,7 +443,7 @@ type StorageBackend interface {
 	UpdateDashboardsQAConfiguration(accountID, status string) (string, error)
 
 	// Brands
-	CreateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
+	CreateBrand(accountID, brandID string, definition map[string]any, tags map[string]string) (*Brand, error)
 	DescribeBrand(accountID, brandID, versionID string) (*Brand, error)
 	UpdateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
 	DeleteBrand(accountID, brandID string) error

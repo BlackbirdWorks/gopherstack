@@ -57,13 +57,15 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicy(
 	now := time.Now().UTC()
 
 	policy := &AutomatedReasoningPolicy{
-		PolicyArn:   policyARN,
-		Name:        name,
-		Description: description,
-		Status:      "ACTIVE",
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Tags:        copyTags(tags),
+		PolicyArn:      policyARN,
+		Name:           name,
+		Description:    description,
+		Status:         "ACTIVE",
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		DefinitionHash: fmt.Sprintf("%x", now.UnixNano()),
+		Version:        "DRAFT",
+		Tags:           copyTags(tags),
 	}
 	b.automatedReasoningPolicies.Put(policy)
 	b.arpByName[name] = policyARN
@@ -135,6 +137,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyTestCase(
 // CreateAutomatedReasoningPolicyVersion creates a new version of an Automated Reasoning policy.
 func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 	policyARN, definitionHash string,
+	tags []Tag,
 ) (*AutomatedReasoningPolicyVersion, error) {
 	b.mu.Lock("CreateAutomatedReasoningPolicyVersion")
 	defer b.mu.Unlock()
@@ -158,6 +161,7 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 		DefinitionHash: definitionHash,
 		Version:        versionNum,
 		CreatedAt:      time.Now().UTC(),
+		Tags:           copyTags(tags),
 	}
 	b.arpVersions.Put(version)
 	cp := *version

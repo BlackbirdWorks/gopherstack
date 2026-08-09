@@ -230,11 +230,13 @@ type createAutomatedReasoningPolicyInput struct {
 }
 
 type createAutomatedReasoningPolicyOutput struct {
-	CreatedAt isoTime `json:"createdAt"`
-	UpdatedAt isoTime `json:"updatedAt"`
-	PolicyArn string  `json:"policyArn"`
-	Name      string  `json:"name"`
-	Status    string  `json:"status"`
+	CreatedAt      isoTime `json:"createdAt"`
+	UpdatedAt      isoTime `json:"updatedAt"`
+	PolicyArn      string  `json:"policyArn"`
+	Name           string  `json:"name"`
+	Status         string  `json:"status"`
+	DefinitionHash string  `json:"definitionHash,omitempty"`
+	Version        string  `json:"version,omitempty"`
 }
 
 func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []byte) error {
@@ -252,11 +254,13 @@ func (h *Handler) handleCreateAutomatedReasoningPolicy(c *echo.Context, body []b
 	}
 
 	return c.JSON(http.StatusCreated, createAutomatedReasoningPolicyOutput{
-		PolicyArn: policy.PolicyArn,
-		Name:      policy.Name,
-		Status:    policy.Status,
-		CreatedAt: isoTime{policy.CreatedAt},
-		UpdatedAt: isoTime{policy.UpdatedAt},
+		PolicyArn:      policy.PolicyArn,
+		Name:           policy.Name,
+		Status:         policy.Status,
+		CreatedAt:      isoTime{policy.CreatedAt},
+		UpdatedAt:      isoTime{policy.UpdatedAt},
+		DefinitionHash: policy.DefinitionHash,
+		Version:        policy.Version,
 	})
 }
 
@@ -311,6 +315,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyTestCase(c *echo.Context, 
 
 type createAutomatedReasoningPolicyVersionInput struct {
 	LastUpdatedDefinitionHash string `json:"lastUpdatedDefinitionHash"`
+	Tags                      []Tag  `json:"tags,omitempty"`
 }
 
 // handleCreateAutomatedReasoningPolicyVersion creates a policy version.
@@ -334,6 +339,7 @@ func (h *Handler) handleCreateAutomatedReasoningPolicyVersion(
 	version, opErr := h.Backend.CreateAutomatedReasoningPolicyVersion(
 		policyARN,
 		in.LastUpdatedDefinitionHash,
+		in.Tags,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)

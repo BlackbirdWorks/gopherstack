@@ -97,6 +97,8 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, cluster.DBClusterArn)
+
 	return &createDBClusterResponse{
 		Xmlns:     rdsXMLNS,
 		DBCluster: toXMLCluster(cluster),

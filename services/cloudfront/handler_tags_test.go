@@ -189,7 +189,13 @@ func TestTagging(t *testing.T) {
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+				// Real ListTagsForResourceOutput binds Tags as the sole httpPayload
+				// member, so the wire root is <Tags> directly -- no
+				// ListTagsForResourceResponse envelope (cloudfront@v1.67.4
+				// deserializers.go: HandleDeserialize decodes straight off the
+				// document root into awsRestxml_deserializeDocumentTags).
+				assert.Contains(t, rec.Body.String(), "<Tags ")
+				assert.NotContains(t, rec.Body.String(), "ListTagsForResourceResponse")
 			},
 		},
 	}

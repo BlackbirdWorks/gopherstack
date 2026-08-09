@@ -29,13 +29,14 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	copy(cats, sub.EventCategories)
 
 	return xmlEventSubscription{
-		CustSubscriptionID:  sub.SubscriptionName,
-		SnsTopicArn:         sub.SnsTopicArn,
-		Status:              sub.Status,
-		SourceType:          sub.SourceType,
-		Enabled:             sub.Enabled,
-		SourceIDsList:       xmlSourceIDList{Members: ids},
-		EventCategoriesList: xmlEventCategoryList{Members: cats},
+		CustSubscriptionID:   sub.SubscriptionName,
+		SnsTopicArn:          sub.SnsTopicArn,
+		EventSubscriptionArn: sub.EventSubscriptionArn,
+		Status:               sub.Status,
+		SourceType:           sub.SourceType,
+		Enabled:              sub.Enabled,
+		SourceIDsList:        xmlSourceIDList{Members: ids},
+		EventCategoriesList:  xmlEventCategoryList{Members: cats},
 	}
 }
 
@@ -48,13 +49,14 @@ type xmlEventCategoryList struct {
 }
 
 type xmlEventSubscription struct {
-	CustSubscriptionID  string               `xml:"CustSubscriptionId"`
-	SnsTopicArn         string               `xml:"SnsTopicArn,omitempty"`
-	Status              string               `xml:"Status"`
-	SourceType          string               `xml:"SourceType,omitempty"`
-	SourceIDsList       xmlSourceIDList      `xml:"SourceIdsList"`
-	EventCategoriesList xmlEventCategoryList `xml:"EventCategoriesList,omitempty"`
-	Enabled             bool                 `xml:"Enabled,omitempty"`
+	CustSubscriptionID   string               `xml:"CustSubscriptionId"`
+	SnsTopicArn          string               `xml:"SnsTopicArn,omitempty"`
+	EventSubscriptionArn string               `xml:"EventSubscriptionArn,omitempty"`
+	Status               string               `xml:"Status"`
+	SourceType           string               `xml:"SourceType,omitempty"`
+	SourceIDsList        xmlSourceIDList      `xml:"SourceIdsList"`
+	EventCategoriesList  xmlEventCategoryList `xml:"EventCategoriesList,omitempty"`
+	Enabled              bool                 `xml:"Enabled,omitempty"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {
@@ -108,6 +110,8 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, sub.EventSubscriptionArn)
 
 	return &createEventSubscriptionResponse{
 		Xmlns:             rdsXMLNS,

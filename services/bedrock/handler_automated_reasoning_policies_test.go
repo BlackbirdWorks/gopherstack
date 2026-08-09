@@ -317,19 +317,19 @@ func TestAccuracy_ARPVersion_PerPolicyNumberingIsolated(t *testing.T) {
 	require.NoError(t, err)
 
 	// Each policy starts its own counter.
-	v1a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes")
+	v1a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "1", v1a.Version)
 
-	v1b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes")
+	v1b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "1", v1b.Version, "per-policy counter — beta starts at 1")
 
-	v2a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes")
+	v2a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2", v2a.Version)
 
-	v2b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes")
+	v2b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2", v2b.Version)
 }

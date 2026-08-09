@@ -66,7 +66,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// functions (keyed by Name)
-	fn, err := orig.CreateFunction("my-function", "c", "cloudfront-js-2.0", "function handler(e){}")
+	fn, err := orig.CreateFunction("my-function", "c", "cloudfront-js-2.0", "function handler(e){}", nil)
 	require.NoError(t, err)
 
 	// originRequestPolicies
@@ -99,11 +99,11 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// keyValueStores
-	kvs, err := orig.CreateKeyValueStore("my-kvs", "c")
+	kvs, err := orig.CreateKeyValueStore("my-kvs", "c", nil)
 	require.NoError(t, err)
 
 	// vpcOrigins
-	vpcOrigin, err := orig.CreateVpcOrigin("my-vpc-origin")
+	vpcOrigin, err := orig.CreateVpcOrigin("my-vpc-origin", nil)
 	require.NoError(t, err)
 
 	// trustStores

@@ -14,6 +14,8 @@ func (h *Handler) handleCreateBlueGreenDeployment(vals url.Values) (any, error) 
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, deployment.BlueGreenDeploymentIdentifier)
+
 	return &createBlueGreenDeploymentResponse{
 		Xmlns:               rdsXMLNS,
 		BlueGreenDeployment: toXMLBlueGreenDeployment(deployment),

@@ -2,6 +2,7 @@ package cloudfront
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -16,7 +17,7 @@ func (b *InMemoryBackend) keyValueStoreARN(id string) string {
 }
 
 // CreateKeyValueStore creates a new CloudFront Key Value Store.
-func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueStore, error) {
+func (b *InMemoryBackend) CreateKeyValueStore(name, comment string, tags map[string]string) (*KeyValueStore, error) {
 	b.mu.Lock("CreateKeyValueStore")
 	defer b.mu.Unlock()
 
@@ -41,6 +42,9 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string) (*KeyValueSt
 		ETag:             uuid.NewString(),
 		Status:           kvsStatusReady,
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(tags) > 0 {
+		kvs.Tags = maps.Clone(tags)
 	}
 	b.keyValueStores.Put(kvs)
 	b.keyValueStoreByName[name] = id

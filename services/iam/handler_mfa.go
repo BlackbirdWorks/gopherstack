@@ -91,6 +91,10 @@ func (h *Handler) iamVirtualMFAFullDispatch() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				h.setTags("mfa:"+device.SerialNumber, tags)
+			}
+
 			return &CreateVirtualMFADeviceResponse{
 				Xmlns: iamXMLNS,
 				CreateVirtualMFADeviceResult: CreateVirtualMFADeviceResult{

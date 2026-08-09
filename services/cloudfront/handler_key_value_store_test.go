@@ -19,7 +19,7 @@ func TestKVSStatusAndTimestamp(t *testing.T) {
 	t.Parallel()
 
 	b := newB(t)
-	kvs, err := b.CreateKeyValueStore("kvs-status", "c")
+	kvs, err := b.CreateKeyValueStore("kvs-status", "c", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "READY", kvs.Status)
 	assert.NotEmpty(t, kvs.LastModifiedTime)
@@ -37,8 +37,13 @@ func TestUpdateKeyValueStore(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	// Create KVS.
-	createRec := cfRequest(t, h, http.MethodPost, prefix+"key-value-store",
-		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>initial</Comment></KeyValueStoreRequest>`)
+	createRec := cfRequest(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"key-value-store",
+		`<CreateKeyValueStoreRequest><Name>test-kvs</Name><Comment>initial</Comment></CreateKeyValueStoreRequest>`,
+	)
 	if createRec.Code != http.StatusCreated {
 		t.Fatalf("create: want 201, got %d: %s", createRec.Code, createRec.Body.String())
 	}
@@ -55,16 +60,26 @@ func TestUpdateKeyValueStore(t *testing.T) {
 	}
 
 	// Update without If-Match must be rejected with 412.
-	noMatch := cfRequest(t, h, http.MethodPut, prefix+"key-value-store/"+kvsID,
-		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>x</Comment></KeyValueStoreRequest>`)
+	noMatch := cfRequest(
+		t,
+		h,
+		http.MethodPut,
+		prefix+"key-value-store/"+kvsID,
+		`<UpdateKeyValueStoreRequest><Name>test-kvs</Name><Comment>x</Comment></UpdateKeyValueStoreRequest>`,
+	)
 	if noMatch.Code != http.StatusPreconditionFailed {
 		t.Errorf("update without If-Match: want 412, got %d", noMatch.Code)
 	}
 
 	// Update with matching If-Match succeeds.
-	updateRec := cfRequestWithBodyHeaders(t, h, http.MethodPut, prefix+"key-value-store/"+kvsID,
-		`<KeyValueStoreRequest><Name>test-kvs</Name><Comment>updated</Comment></KeyValueStoreRequest>`,
-		map[string]string{"If-Match": etag})
+	updateRec := cfRequestWithBodyHeaders(
+		t,
+		h,
+		http.MethodPut,
+		prefix+"key-value-store/"+kvsID,
+		`<UpdateKeyValueStoreRequest><Name>test-kvs</Name><Comment>updated</Comment></UpdateKeyValueStoreRequest>`,
+		map[string]string{"If-Match": etag},
+	)
 	if updateRec.Code != http.StatusOK {
 		t.Fatalf("update: want 200, got %d: %s", updateRec.Code, updateRec.Body.String())
 	}
@@ -90,7 +105,7 @@ func TestKVSDataPlane(t *testing.T) {
 
 	makeKVS := func(t *testing.T, b *cloudfront.InMemoryBackend) string {
 		t.Helper()
-		kvs, err := b.CreateKeyValueStore("test-kvs", "comment")
+		kvs, err := b.CreateKeyValueStore("test-kvs", "comment", nil)
 		require.NoError(t, err)
 
 		return kvs.ID
@@ -235,7 +250,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "put_get_value",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, err = b.PutKVSValue(kvs.ID, "key1", "val1", "")
 				require.NoError(t, err)
@@ -248,7 +263,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "delete_value",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, err = b.PutKVSValue(kvs.ID, "key1", "val1", "")
 				require.NoError(t, err)
@@ -262,7 +277,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "list_values_sorted",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, err = b.PutKVSValue(kvs.ID, "beta", "2", "")
 				require.NoError(t, err)
@@ -279,7 +294,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "batch_update_keys",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, err = b.PutKVSValue(kvs.ID, "del-me", "gone", "")
 				require.NoError(t, err)
@@ -296,7 +311,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "etag_mismatch_rejected",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, err = b.PutKVSValue(kvs.ID, "k", "v", "wrong-etag")
 				require.Error(t, err)
@@ -306,7 +321,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "etag_match_accepted",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				etag1, err := b.PutKVSValue(kvs.ID, "k", "v1", "")
 				require.NoError(t, err)
@@ -321,7 +336,7 @@ func TestInMemoryBackend_KVSDataPlane(t *testing.T) {
 			name: "get_not_found",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs", "")
+				kvs, err := b.CreateKeyValueStore("kvs", "", nil)
 				require.NoError(t, err)
 				_, _, err = b.GetKVSValue(kvs.ID, "missing")
 				require.Error(t, err)
@@ -365,7 +380,9 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 			name:   "create_key_value_store",
 			method: http.MethodPost,
 			path:   "/2020-05-31/key-value-store",
-			body:   []byte(`<KeyValueStoreRequest><Name>my-kvs</Name><Comment>test</Comment></KeyValueStoreRequest>`),
+			body: []byte(
+				`<CreateKeyValueStoreRequest><Name>my-kvs</Name><Comment>test</Comment></CreateKeyValueStoreRequest>`,
+			),
 			setup: func(t *testing.T, _ *cloudfront.Handler) string {
 				t.Helper()
 
@@ -386,7 +403,7 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateKeyValueStore("list-kvs", "comment")
+				_, err := h.Backend.CreateKeyValueStore("list-kvs", "comment", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -405,7 +422,7 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				kvs, err := h.Backend.CreateKeyValueStore("get-kvs", "comment")
+				kvs, err := h.Backend.CreateKeyValueStore("get-kvs", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/key-value-store/" + kvs.ID
@@ -424,7 +441,7 @@ func TestKeyValueStoreCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				kvs, err := h.Backend.CreateKeyValueStore("del-kvs", "delete me")
+				kvs, err := h.Backend.CreateKeyValueStore("del-kvs", "delete me", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/key-value-store/" + kvs.ID
@@ -497,7 +514,7 @@ func TestInMemoryBackend_KeyValueStore(t *testing.T) {
 			name: "create_get_list_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				kvs, err := b.CreateKeyValueStore("kvs-name", "comment")
+				kvs, err := b.CreateKeyValueStore("kvs-name", "comment", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, kvs.ID)
 

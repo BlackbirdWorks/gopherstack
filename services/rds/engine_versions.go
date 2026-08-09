@@ -30,10 +30,11 @@ func (b *InMemoryBackend) CreateCustomDBEngineVersion(
 	}
 
 	cev := &CustomDBEngineVersion{
-		Engine:        engine,
-		EngineVersion: engineVersion,
-		Status:        instanceStatusAvailable,
-		Description:   description,
+		Engine:             engine,
+		EngineVersion:      engineVersion,
+		DBEngineVersionArn: b.rdsARN("cev", engine+"/"+engineVersion),
+		Status:             instanceStatusAvailable,
+		Description:        description,
 	}
 	b.customEngineVersions.Put(cev)
 	cp := *cev

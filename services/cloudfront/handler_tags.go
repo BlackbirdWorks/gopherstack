@@ -24,6 +24,21 @@ type untagBody struct {
 	Keys []string `xml:"Items>Key"`
 }
 
+// tagsXMLToMap converts a decoded tagsXML into the map[string]string shape
+// backend Create methods take.
+func tagsXMLToMap(t tagsXML) map[string]string {
+	if len(t.Items) == 0 {
+		return nil
+	}
+
+	kv := make(map[string]string, len(t.Items))
+	for _, item := range t.Items {
+		kv[item.Key] = item.Value
+	}
+
+	return kv
+}
+
 func (h *Handler) handleTagResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("Resource")
 
@@ -96,15 +111,7 @@ func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 
 	tags := tagsXML{XMLNS: cfNS, Items: items}
 
-	type listTagsResp struct {
-		XMLName xml.Name `xml:"ListTagsForResourceResponse"`
-		XMLNS   string   `xml:"xmlns,attr"`
-		Tags    tagsXML  `xml:"Tags"`
-	}
-
-	resp := listTagsResp{XMLNS: cfNS, Tags: tags}
-
-	out, xmlErr := xml.Marshal(resp)
+	out, xmlErr := xml.Marshal(tags)
 	if xmlErr != nil {
 		return h.handleError(c, xmlErr)
 	}

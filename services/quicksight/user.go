@@ -2,6 +2,7 @@ package quicksight
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -12,6 +13,7 @@ import (
 
 func (b *InMemoryBackend) RegisterUser(
 	accountID, namespace, userName, email, role, identityType, sessionName string,
+	tags map[string]string,
 ) (*User, error) {
 	if userName == "" || email == "" {
 		return nil, ErrValidation
@@ -48,6 +50,10 @@ func (b *InMemoryBackend) RegisterUser(
 		Active:       true,
 	}
 	b.users.Put(u)
+
+	if len(tags) > 0 {
+		b.tags[u.Arn] = maps.Clone(tags)
+	}
 
 	return u.toUser(), nil
 }
