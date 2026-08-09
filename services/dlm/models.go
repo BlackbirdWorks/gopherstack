@@ -189,3 +189,93 @@ func matchesAnyTagPair(have, want []tagPair) bool {
 
 	return false
 }
+
+// defaultPolicyFields holds the "[Default policies only]" top-level request
+// members shared by CreateLifecyclePolicyInput and UpdateLifecyclePolicyInput
+// (aws-sdk-go-v2/service/dlm@v1.39.4/api_op_CreateLifecyclePolicy.go:65-138,
+// api_op_UpdateLifecyclePolicy.go:39-97). The real API has no separate
+// storage for them: types.PolicyDetails documents identically-named members
+// (types/types.go:512-648) for all of them except DefaultPolicy, whose
+// request-side value (VOLUME/INSTANCE) is the same enum PolicyDetails uses
+// for its ResourceType member (types/types.go:614-622) -- so these are
+// folded into the stored PolicyDetails document under those keys.
+// DefaultPolicy is Create-only: UpdateLifecyclePolicyInput has no such
+// member, since the policy type can't change after creation.
+type defaultPolicyFields struct {
+	Exclusions             map[string]any
+	CopyTags               *bool
+	CreateInterval         *int32
+	RetainInterval         *int32
+	ExtendDeletion         *bool
+	DefaultPolicy          string
+	CrossRegionCopyTargets []any
+}
+
+// defaultPolicyOverrideCount is the number of PolicyDetails keys overrides
+// can set: CopyTags, CreateInterval, RetainInterval, ExtendDeletion,
+// CrossRegionCopyTargets, Exclusions.
+const defaultPolicyOverrideCount = 6
+
+func (f defaultPolicyFields) empty() bool {
+	return f.DefaultPolicy == "" && f.CopyTags == nil && f.CreateInterval == nil &&
+		f.RetainInterval == nil && f.ExtendDeletion == nil && f.CrossRegionCopyTargets == nil &&
+		f.Exclusions == nil
+}
+
+// overrides renders f's non-DefaultPolicy members as PolicyDetails-keyed
+// entries.
+func (f defaultPolicyFields) overrides() map[string]any {
+	out := make(map[string]any, defaultPolicyOverrideCount)
+
+	if f.CopyTags != nil {
+		out["CopyTags"] = *f.CopyTags
+	}
+
+	if f.CreateInterval != nil {
+		out["CreateInterval"] = *f.CreateInterval
+	}
+
+	if f.RetainInterval != nil {
+		out["RetainInterval"] = *f.RetainInterval
+	}
+
+	if f.ExtendDeletion != nil {
+		out["ExtendDeletion"] = *f.ExtendDeletion
+	}
+
+	if f.CrossRegionCopyTargets != nil {
+		out["CrossRegionCopyTargets"] = f.CrossRegionCopyTargets
+	}
+
+	if f.Exclusions != nil {
+		out["Exclusions"] = f.Exclusions
+	}
+
+	return out
+}
+
+// applyTo returns details with f's fields merged in, always overwriting a
+// same-named key already present -- callers that also send a conflicting
+// nested PolicyDetails value get the explicit top-level value, matching the
+// real API's documented (if unenforced client-side) "either top-level or
+// PolicyDetails, not both" contract. Returns details unchanged, including a
+// nil details, when f is empty.
+func (f defaultPolicyFields) applyTo(details map[string]any) map[string]any {
+	if f.empty() {
+		return details
+	}
+
+	const resourceTypeAndPolicyLanguage = 2
+
+	merged := make(map[string]any, len(details)+defaultPolicyOverrideCount+resourceTypeAndPolicyLanguage)
+	maps.Copy(merged, details)
+
+	if f.DefaultPolicy != "" {
+		merged["ResourceType"] = f.DefaultPolicy
+		merged["PolicyLanguage"] = "SIMPLIFIED"
+	}
+
+	maps.Copy(merged, f.overrides())
+
+	return merged
+}

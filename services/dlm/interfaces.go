@@ -22,8 +22,16 @@ type StorageBackend interface {
 	// SettablePolicyStateValues is a non-pointer value type on the wire (the
 	// real SDK's serializer only ever emits it `if len(State) > 0`, so an
 	// explicit empty State is not constructible even by the real SDK).
+	//
+	// defaultPolicyOverrides carries the top-level [Default policies only]
+	// request fields (see defaultPolicyFields), PolicyDetails-keyed. It must
+	// be applied under the same lock as the rest of the update: when
+	// policyDetails is nil the overrides target the policy's EXISTING stored
+	// PolicyDetails, so merging in the handler instead would race a
+	// concurrent update.
 	UpdateLifecyclePolicy(
-		policyID string, description, executionRoleARN *string, state string, policyDetails map[string]any,
+		policyID string, description, executionRoleARN *string, state string,
+		policyDetails map[string]any, defaultPolicyOverrides map[string]any,
 	) error
 
 	TagResource(resourceARN string, tags map[string]string) error

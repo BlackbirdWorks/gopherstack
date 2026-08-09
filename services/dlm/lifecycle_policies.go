@@ -138,7 +138,7 @@ func (b *InMemoryBackend) GetLifecyclePolicy(policyID string) (*Policy, error) {
 // it. See the StorageBackend.UpdateLifecyclePolicy doc comment for why.
 func (b *InMemoryBackend) UpdateLifecyclePolicy(
 	policyID string, description, executionRoleARN *string, state string,
-	policyDetails map[string]any,
+	policyDetails map[string]any, defaultPolicyOverrides map[string]any,
 ) error {
 	b.mu.Lock("UpdateLifecyclePolicy")
 	defer b.mu.Unlock()
@@ -160,8 +160,16 @@ func (b *InMemoryBackend) UpdateLifecyclePolicy(
 		p.State = state
 	}
 
-	if policyDetails != nil {
-		p.PolicyDetails = policyDetails
+	if policyDetails != nil || len(defaultPolicyOverrides) > 0 {
+		base := policyDetails
+		if base == nil {
+			base = p.PolicyDetails
+		}
+
+		merged := make(map[string]any, len(base)+len(defaultPolicyOverrides))
+		maps.Copy(merged, base)
+		maps.Copy(merged, defaultPolicyOverrides)
+		p.PolicyDetails = merged
 	}
 
 	p.DateModified = time.Now().UTC()

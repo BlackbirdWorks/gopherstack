@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -354,6 +355,163 @@ func TestHandler_UpdateLifecyclePolicy_ExplicitEmptyVsOmitted(t *testing.T) {
 			assert.Equal(t, tc.wantRoleArn, policy["ExecutionRoleArn"])
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// CreateLifecyclePolicy / UpdateLifecyclePolicy: top-level default-policy
+// fields (CopyTags, CreateInterval, RetainInterval, ExtendDeletion,
+// CrossRegionCopyTargets, Exclusions, DefaultPolicy)
+// ---------------------------------------------------------------------------
+
+// TestHandler_CreateLifecyclePolicy_DefaultPolicyFields verifies the
+// top-level [Default policies only] request members documented on
+// CreateLifecyclePolicyInput (aws-sdk-go-v2/service/dlm@v1.39.4/
+// api_op_CreateLifecyclePolicy.go:65-138) are accepted and survive a
+// Create->Get round trip nested inside PolicyDetails under the same field
+// names the real types.PolicyDetails documents for them (types/types.go:
+// 512-648), matching real AWS's behavior of folding these convenience
+// fields into the stored PolicyDetails document.
+func TestHandler_CreateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createBody map[string]any
+		wantDetail map[string]any
+		name       string
+	}{
+		{
+			name: "default policy volume maps to resourcetype and policylanguage",
+			createBody: map[string]any{
+				"DefaultPolicy": "VOLUME",
+			},
+			wantDetail: map[string]any{
+				"ResourceType":   "VOLUME",
+				"PolicyLanguage": "SIMPLIFIED",
+			},
+		},
+		{
+			name: "copytags createinterval retaininterval extenddeletion",
+			createBody: map[string]any{
+				"CopyTags":       true,
+				"CreateInterval": float64(3),
+				"RetainInterval": float64(10),
+				"ExtendDeletion": true,
+			},
+			wantDetail: map[string]any{
+				"CopyTags":       true,
+				"CreateInterval": float64(3),
+				"RetainInterval": float64(10),
+				"ExtendDeletion": true,
+			},
+		},
+		{
+			name: "crossregioncopytargets and exclusions",
+			createBody: map[string]any{
+				"CrossRegionCopyTargets": []any{
+					map[string]any{"TargetRegion": "us-west-2"},
+				},
+				"Exclusions": map[string]any{"ExcludeBootVolumes": true},
+			},
+			wantDetail: map[string]any{
+				"CrossRegionCopyTargets": []any{
+					map[string]any{"TargetRegion": "us-west-2"},
+				},
+				"Exclusions": map[string]any{"ExcludeBootVolumes": true},
+			},
+		},
+		{
+			name: "top-level field overwrites the same key sent in PolicyDetails",
+			createBody: map[string]any{
+				"CopyTags":      true,
+				"PolicyDetails": map[string]any{"CopyTags": false},
+			},
+			wantDetail: map[string]any{
+				"CopyTags": true,
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{
+				"Description":      "default policy test",
+				"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+				"State":            "ENABLED",
+			}
+			maps.Copy(body, tc.createBody)
+
+			createRec := doRequest(t, h, http.MethodPost, "/policies", body)
+			require.Equal(t, http.StatusCreated, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			policyID := createResp["PolicyId"].(string)
+
+			getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			policy := getResp["Policy"].(map[string]any)
+			details := policy["PolicyDetails"].(map[string]any)
+
+			for k, want := range tc.wantDetail {
+				assert.Equal(t, want, details[k], "PolicyDetails[%q]", k)
+			}
+		})
+	}
+}
+
+// TestHandler_UpdateLifecyclePolicy_DefaultPolicyFields verifies the
+// top-level [Default policies only] request members documented on
+// UpdateLifecyclePolicyInput (aws-sdk-go-v2/service/dlm@v1.39.4/
+// api_op_UpdateLifecyclePolicy.go:39-97, notably no DefaultPolicy member --
+// the policy type cannot be changed after creation) are merged into the
+// existing stored PolicyDetails when the PATCH body omits PolicyDetails
+// entirely, preserving unrelated nested fields like Schedules.
+func TestHandler_UpdateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, "/policies", map[string]any{
+		"Description":      "update default policy fields",
+		"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+		"State":            "ENABLED",
+		"PolicyDetails": map[string]any{
+			"PolicyType": "EBS_SNAPSHOT_MANAGEMENT",
+			"Schedules":  []any{map[string]any{"Name": "daily"}},
+			"CopyTags":   true,
+		},
+	})
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	policyID := createResp["PolicyId"].(string)
+
+	patchRec := doRequest(t, h, http.MethodPatch, fmt.Sprintf("/policies/%s", policyID), map[string]any{
+		"CopyTags":       false,
+		"RetainInterval": float64(14),
+	})
+	require.Equal(t, http.StatusOK, patchRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	policy := getResp["Policy"].(map[string]any)
+	details := policy["PolicyDetails"].(map[string]any)
+
+	assert.Equal(t, "EBS_SNAPSHOT_MANAGEMENT", details["PolicyType"], "unrelated PolicyDetails fields must survive")
+	assert.NotEmpty(t, details["Schedules"], "Schedules must survive an update that only touches top-level fields")
+	assert.Equal(t, false, details["CopyTags"], "top-level CopyTags must overwrite the previously stored value")
+	assert.InDelta(t, float64(14), details["RetainInterval"], 0)
 }
 
 // ---------------------------------------------------------------------------

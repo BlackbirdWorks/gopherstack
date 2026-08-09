@@ -9,8 +9,17 @@
 		DeleteLifecyclePolicyCommand,
 		TagResourceCommand,
 		UntagResourceCommand,
+		PolicyTypeValues,
+		PolicyLanguageValues,
+		ResourceTypeValues,
+		ResourceLocationValues,
+		LocationValues,
+		RetentionIntervalUnitValues,
 		type LifecyclePolicySummary,
-		type LifecyclePolicy
+		type LifecyclePolicy,
+		type PolicyDetails,
+		type Schedule,
+		type Tag as PolicyDetailTag
 	} from '@aws-sdk/client-dlm';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
@@ -116,6 +125,207 @@
 
 	const activeTabError = $derived(tabLoader.getError(activeTab));
 
+	// --- PolicyDetails editor (shared by Create and Edit) ---
+	//
+	// policyDetailsDraft covers PolicyType, PolicyLanguage, ResourceTypes,
+	// ResourceLocations, TargetTags, the default-policy fields (ResourceType,
+	// CreateInterval, RetainInterval, CopyTags, ExtendDeletion,
+	// CrossRegionCopyTargets, Exclusions), and per-schedule Name, CopyTags,
+	// TagsToAdd, VariableTags, CreateRule, RetainRule. Actions, EventSource,
+	// Parameters (event-based-policy fields) and each schedule's
+	// FastRestoreRule/CrossRegionCopyRules/ShareRules/DeprecateRule/
+	// ArchiveRule/CreateRule.Scripts have no dedicated control -- offering one
+	// without verifying every nested shape risked a silent no-op. They are
+	// preserved verbatim when editing a policy that already has them (the
+	// draft is the real loaded object; controls only touch the paths listed
+	// above), and Actions/EventSource/Parameters can still be set through the
+	// "Advanced (JSON)" box below, which is merged over the structured draft
+	// on submit.
+	let policyDetailsDraft = $state<PolicyDetails>({});
+	let advancedDetailsJSON = $state('');
+	let advancedDetailsJSONError = $state<string | null>(null);
+
+	function pruneEmpty(value: unknown): unknown {
+		if (Array.isArray(value)) {
+			const pruned = value.map((v) => pruneEmpty(v)).filter((v) => v !== undefined);
+			return pruned.length > 0 ? pruned : undefined;
+		}
+		if (value && typeof value === 'object') {
+			const out: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(value)) {
+				const p = pruneEmpty(v);
+				if (p !== undefined) out[k] = p;
+			}
+			return Object.keys(out).length > 0 ? out : undefined;
+		}
+		if (value === '' || value === null || value === undefined) return undefined;
+		if (typeof value === 'number' && Number.isNaN(value)) return undefined;
+		return value;
+	}
+
+	// splitAdvancedFields pulls the fields with no dedicated control out of a
+	// loaded PolicyDetails so they seed the Advanced JSON box instead of
+	// silently vanishing from the structured draft.
+	function splitAdvancedFields(details: PolicyDetails): {
+		rest: PolicyDetails;
+		advanced: Pick<PolicyDetails, 'Actions' | 'EventSource' | 'Parameters'>;
+	} {
+		const { Actions, EventSource, Parameters, ...rest } = details;
+		const advanced: Pick<PolicyDetails, 'Actions' | 'EventSource' | 'Parameters'> = {};
+		if (Actions !== undefined) advanced.Actions = Actions;
+		if (EventSource !== undefined) advanced.EventSource = EventSource;
+		if (Parameters !== undefined) advanced.Parameters = Parameters;
+		return { rest, advanced };
+	}
+
+	function loadPolicyDetailsDraft(details?: PolicyDetails): void {
+		// $state.snapshot, not structuredClone: details may be (nested inside)
+		// a $state proxy (e.g. viewedPolicy.PolicyDetails), and structuredClone
+		// throws DataCloneError on Svelte's reactive proxy internals.
+		const { rest, advanced } = splitAdvancedFields($state.snapshot(details ?? {}));
+		policyDetailsDraft = rest;
+		advancedDetailsJSON = Object.keys(advanced).length > 0 ? JSON.stringify(advanced, null, 2) : '';
+		advancedDetailsJSONError = null;
+	}
+
+	// buildPolicyDetailsPayload prunes the structured draft, then merges the
+	// Advanced JSON box (if any) over it -- the advanced fields always win on
+	// key collision, since they were the more recent/explicit edit.
+	function buildPolicyDetailsPayload(): PolicyDetails | undefined {
+		const pruned = (pruneEmpty(policyDetailsDraft) as PolicyDetails | undefined) ?? {};
+		advancedDetailsJSONError = null;
+		if (!advancedDetailsJSON.trim()) {
+			return Object.keys(pruned).length > 0 ? pruned : undefined;
+		}
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(advancedDetailsJSON);
+		} catch {
+			advancedDetailsJSONError = 'Advanced JSON is not valid JSON.';
+			throw new Error(advancedDetailsJSONError);
+		}
+		const merged = { ...pruned, ...(parsed && typeof parsed === 'object' ? parsed : {}) };
+		return Object.keys(merged).length > 0 ? merged : undefined;
+	}
+
+	function numOrUndef(v: string): number | undefined {
+		return v === '' ? undefined : Number(v);
+	}
+
+	function toggleInList<T>(list: T[] | undefined, value: T): T[] {
+		const set = new Set(list ?? []);
+		if (set.has(value)) set.delete(value);
+		else set.add(value);
+		return [...set];
+	}
+
+	function tagListOps(getList: () => PolicyDetailTag[] | undefined, setList: (v: PolicyDetailTag[]) => void) {
+		return {
+			add: () => setList([...(getList() ?? []), { Key: '', Value: '' }]),
+			remove: (i: number) => setList((getList() ?? []).filter((_, idx) => idx !== i)),
+			setKey: (i: number, v: string) => {
+				const list = [...(getList() ?? [])];
+				list[i] = { ...list[i], Key: v };
+				setList(list);
+			},
+			setValue: (i: number, v: string) => {
+				const list = [...(getList() ?? [])];
+				list[i] = { ...list[i], Value: v };
+				setList(list);
+			}
+		};
+	}
+
+	const targetTagsOps = tagListOps(
+		() => policyDetailsDraft.TargetTags,
+		(v) => (policyDetailsDraft.TargetTags = v)
+	);
+
+	function updateExclusions(patch: Partial<PolicyDetails['Exclusions']>): void {
+		policyDetailsDraft.Exclusions = { ...policyDetailsDraft.Exclusions, ...patch };
+	}
+
+	const excludeTagsOps = tagListOps(
+		() => policyDetailsDraft.Exclusions?.ExcludeTags,
+		(v) => updateExclusions({ ExcludeTags: v })
+	);
+
+	function addExcludeVolumeType(): void {
+		updateExclusions({ ExcludeVolumeTypes: [...(policyDetailsDraft.Exclusions?.ExcludeVolumeTypes ?? []), ''] });
+	}
+	function removeExcludeVolumeType(i: number): void {
+		updateExclusions({
+			ExcludeVolumeTypes: (policyDetailsDraft.Exclusions?.ExcludeVolumeTypes ?? []).filter((_, idx) => idx !== i)
+		});
+	}
+	function setExcludeVolumeType(i: number, v: string): void {
+		const list = [...(policyDetailsDraft.Exclusions?.ExcludeVolumeTypes ?? [])];
+		list[i] = v;
+		updateExclusions({ ExcludeVolumeTypes: list });
+	}
+
+	function addCrossRegionCopyTarget(): void {
+		policyDetailsDraft.CrossRegionCopyTargets = [
+			...(policyDetailsDraft.CrossRegionCopyTargets ?? []),
+			{ TargetRegion: '' }
+		];
+	}
+	function removeCrossRegionCopyTarget(i: number): void {
+		policyDetailsDraft.CrossRegionCopyTargets = (policyDetailsDraft.CrossRegionCopyTargets ?? []).filter(
+			(_, idx) => idx !== i
+		);
+	}
+	function setCrossRegionCopyTargetRegion(i: number, v: string): void {
+		const list = [...(policyDetailsDraft.CrossRegionCopyTargets ?? [])];
+		list[i] = { TargetRegion: v };
+		policyDetailsDraft.CrossRegionCopyTargets = list;
+	}
+
+	function addSchedule(): void {
+		policyDetailsDraft.Schedules = [...(policyDetailsDraft.Schedules ?? []), { CreateRule: {}, RetainRule: {} }];
+	}
+	function removeSchedule(i: number): void {
+		policyDetailsDraft.Schedules = (policyDetailsDraft.Schedules ?? []).filter((_, idx) => idx !== i);
+	}
+	function updateSchedule(i: number, patch: Partial<Schedule>): void {
+		const list = [...(policyDetailsDraft.Schedules ?? [])];
+		if (!list[i]) return;
+		list[i] = { ...list[i], ...patch };
+		policyDetailsDraft.Schedules = list;
+	}
+	function updateScheduleCreateRule(i: number, patch: Partial<Schedule['CreateRule']>): void {
+		const sch = policyDetailsDraft.Schedules?.[i];
+		updateSchedule(i, { CreateRule: { ...sch?.CreateRule, ...patch } });
+	}
+	function updateScheduleRetainRule(i: number, patch: Partial<Schedule['RetainRule']>): void {
+		const sch = policyDetailsDraft.Schedules?.[i];
+		updateSchedule(i, { RetainRule: { ...sch?.RetainRule, ...patch } });
+	}
+
+	function scheduleTagListOps(i: number, field: 'TagsToAdd' | 'VariableTags') {
+		return tagListOps(
+			() => policyDetailsDraft.Schedules?.[i]?.[field],
+			(v) => updateSchedule(i, { [field]: v })
+		);
+	}
+
+	function addScheduleTime(i: number): void {
+		const sch = policyDetailsDraft.Schedules?.[i];
+		updateScheduleCreateRule(i, { Times: [...(sch?.CreateRule?.Times ?? []), ''] });
+	}
+	function removeScheduleTime(i: number, timeIndex: number): void {
+		const sch = policyDetailsDraft.Schedules?.[i];
+		updateScheduleCreateRule(i, {
+			Times: (sch?.CreateRule?.Times ?? []).filter((_, idx) => idx !== timeIndex)
+		});
+	}
+	function setScheduleTime(i: number, timeIndex: number, v: string): void {
+		const sch = policyDetailsDraft.Schedules?.[i];
+		const list = [...(sch?.CreateRule?.Times ?? [])];
+		list[timeIndex] = v;
+		updateScheduleCreateRule(i, { Times: list });
+	}
+
 	// --- Create ---
 
 	let createModal = $state<Modal | null>(null);
@@ -132,6 +342,7 @@
 		newExecutionRoleArn = '';
 		newState = 'ENABLED';
 		newTags = [];
+		loadPolicyDetailsDraft();
 		createModal?.open();
 	}
 
@@ -160,7 +371,8 @@
 					Description: newDescription,
 					ExecutionRoleArn: newExecutionRoleArn,
 					State: newState,
-					Tags: Object.keys(tags).length > 0 ? tags : undefined
+					Tags: Object.keys(tags).length > 0 ? tags : undefined,
+					PolicyDetails: buildPolicyDetailsPayload()
 				})
 			);
 			toast.success('Lifecycle policy created');
@@ -273,7 +485,7 @@
 		}
 	}
 
-	// --- Edit (top-level fields only -- see PARITY notes on PolicyDetails) ---
+	// --- Edit ---
 
 	let editModal = $state<Modal | null>(null);
 	let editing = $state(false);
@@ -289,6 +501,7 @@
 		editDescription = p.Description ?? '';
 		editExecutionRoleArn = p.ExecutionRoleArn ?? '';
 		editState = p.State === 'DISABLED' ? 'DISABLED' : 'ENABLED';
+		loadPolicyDetailsDraft(p.PolicyDetails);
 		editModal?.open();
 	}
 
@@ -306,7 +519,8 @@
 					PolicyId: editPolicyId,
 					Description: editDescription,
 					ExecutionRoleArn: editExecutionRoleArn,
-					State: editState
+					State: editState,
+					PolicyDetails: buildPolicyDetailsPayload()
 				})
 			);
 			toast.success('Lifecycle policy updated');
@@ -399,6 +613,514 @@
 	</div>
 </div>
 
+{#snippet policyDetailsFields(idPrefix: string)}
+	<div class="max-h-96 space-y-4 overflow-y-auto rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+		<h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Policy content</h3>
+
+		<div class="grid grid-cols-2 gap-3">
+			<div>
+				<label for={`${idPrefix}-policytype`} class="text-xs text-slate-500 dark:text-slate-400">Policy type</label>
+				<select
+					id={`${idPrefix}-policytype`}
+					bind:value={policyDetailsDraft.PolicyType}
+					class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+				>
+					<option value={undefined}>—</option>
+					{#each Object.values(PolicyTypeValues) as v (v)}
+						<option value={v}>{v}</option>
+					{/each}
+				</select>
+			</div>
+			<div>
+				<label for={`${idPrefix}-policylanguage`} class="text-xs text-slate-500 dark:text-slate-400"
+					>Policy language</label
+				>
+				<select
+					id={`${idPrefix}-policylanguage`}
+					bind:value={policyDetailsDraft.PolicyLanguage}
+					class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+				>
+					<option value={undefined}>—</option>
+					{#each Object.values(PolicyLanguageValues) as v (v)}
+						<option value={v}>{v}</option>
+					{/each}
+				</select>
+			</div>
+		</div>
+
+		<div>
+			<span class="text-xs text-slate-500 dark:text-slate-400">Resource types (custom policies)</span>
+			<div class="mt-1 flex gap-3">
+				{#each Object.values(ResourceTypeValues) as rt (rt)}
+					<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+						<input
+							type="checkbox"
+							checked={policyDetailsDraft.ResourceTypes?.includes(rt)}
+							onchange={() => (policyDetailsDraft.ResourceTypes = toggleInList(policyDetailsDraft.ResourceTypes, rt))}
+							class="rounded border-gray-300"
+						/>
+						{rt}
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div>
+			<span class="text-xs text-slate-500 dark:text-slate-400">Resource locations</span>
+			<div class="mt-1 flex gap-3">
+				{#each Object.values(ResourceLocationValues) as rl (rl)}
+					<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+						<input
+							type="checkbox"
+							checked={policyDetailsDraft.ResourceLocations?.includes(rl)}
+							onchange={() =>
+								(policyDetailsDraft.ResourceLocations = toggleInList(policyDetailsDraft.ResourceLocations, rl))}
+							class="rounded border-gray-300"
+						/>
+						{rl}
+					</label>
+				{/each}
+			</div>
+		</div>
+
+		<div>
+			<div class="flex items-center justify-between">
+				<span class="text-xs text-slate-500 dark:text-slate-400">Target tags</span>
+				<button
+					type="button"
+					onclick={targetTagsOps.add}
+					aria-label="Add target tag"
+					class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add tag</button
+				>
+			</div>
+			{#each policyDetailsDraft.TargetTags ?? [] as tag, i (i)}
+				<div class="mt-2 flex items-center gap-2">
+					<input
+						value={tag.Key ?? ''}
+						oninput={(e) => targetTagsOps.setKey(i, e.currentTarget.value)}
+						placeholder="Key"
+						aria-label="Target tag key"
+						class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+					/>
+					<input
+						value={tag.Value ?? ''}
+						oninput={(e) => targetTagsOps.setValue(i, e.currentTarget.value)}
+						placeholder="Value"
+						aria-label="Target tag value"
+						class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+					/>
+					<button
+						type="button"
+						onclick={() => targetTagsOps.remove(i)}
+						aria-label="Remove target tag row"
+						class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+					>
+				</div>
+			{/each}
+		</div>
+
+		<div class="space-y-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+			<p class="text-xs font-medium text-slate-500 dark:text-slate-400">
+				Default policy settings (SIMPLIFIED policies only)
+			</p>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for={`${idPrefix}-resourcetype`} class="text-xs text-slate-500 dark:text-slate-400"
+						>Default policy resource type</label
+					>
+					<select
+						id={`${idPrefix}-resourcetype`}
+						bind:value={policyDetailsDraft.ResourceType}
+						class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+					>
+						<option value={undefined}>—</option>
+						{#each Object.values(ResourceTypeValues) as v (v)}
+							<option value={v}>{v}</option>
+						{/each}
+					</select>
+				</div>
+				<div class="flex items-end gap-4 pb-1.5">
+					<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+						<input
+							type="checkbox"
+							checked={policyDetailsDraft.CopyTags ?? false}
+							onchange={(e) => (policyDetailsDraft.CopyTags = e.currentTarget.checked)}
+							class="rounded border-gray-300"
+						/>
+						Copy tags
+					</label>
+					<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+						<input
+							type="checkbox"
+							checked={policyDetailsDraft.ExtendDeletion ?? false}
+							onchange={(e) => (policyDetailsDraft.ExtendDeletion = e.currentTarget.checked)}
+							class="rounded border-gray-300"
+						/>
+						Extend deletion
+					</label>
+				</div>
+			</div>
+			<div class="grid grid-cols-2 gap-3">
+				<div>
+					<label for={`${idPrefix}-createinterval`} class="text-xs text-slate-500 dark:text-slate-400"
+						>Create interval (days)</label
+					>
+					<input
+						id={`${idPrefix}-createinterval`}
+						type="number"
+						value={policyDetailsDraft.CreateInterval ?? ''}
+						oninput={(e) => (policyDetailsDraft.CreateInterval = numOrUndef(e.currentTarget.value))}
+						class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+					/>
+				</div>
+				<div>
+					<label for={`${idPrefix}-retaininterval`} class="text-xs text-slate-500 dark:text-slate-400"
+						>Retain interval (days)</label
+					>
+					<input
+						id={`${idPrefix}-retaininterval`}
+						type="number"
+						value={policyDetailsDraft.RetainInterval ?? ''}
+						oninput={(e) => (policyDetailsDraft.RetainInterval = numOrUndef(e.currentTarget.value))}
+						class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+					/>
+				</div>
+			</div>
+
+			<div>
+				<div class="flex items-center justify-between">
+					<span class="text-xs text-slate-500 dark:text-slate-400">Cross-Region copy targets</span>
+					<button
+						type="button"
+						onclick={addCrossRegionCopyTarget}
+						class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add region</button
+					>
+				</div>
+				{#each policyDetailsDraft.CrossRegionCopyTargets ?? [] as target, i (i)}
+					<div class="mt-2 flex items-center gap-2">
+						<input
+							value={target.TargetRegion ?? ''}
+							oninput={(e) => setCrossRegionCopyTargetRegion(i, e.currentTarget.value)}
+							placeholder="us-west-2"
+							aria-label="Cross-Region copy target region"
+							class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+						<button
+							type="button"
+							onclick={() => removeCrossRegionCopyTarget(i)}
+							aria-label="Remove Cross-Region copy target"
+							class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+						>
+					</div>
+				{/each}
+			</div>
+
+			<div class="space-y-2">
+				<span class="text-xs text-slate-500 dark:text-slate-400">Exclusions</span>
+				<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+					<input
+						type="checkbox"
+						checked={policyDetailsDraft.Exclusions?.ExcludeBootVolumes ?? false}
+						onchange={(e) => updateExclusions({ ExcludeBootVolumes: e.currentTarget.checked })}
+						class="rounded border-gray-300"
+					/>
+					Exclude boot volumes
+				</label>
+				<div>
+					<div class="flex items-center justify-between">
+						<span class="text-xs text-slate-500 dark:text-slate-400">Exclude volume types</span>
+						<button
+							type="button"
+							onclick={addExcludeVolumeType}
+							class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add type</button
+						>
+					</div>
+					{#each policyDetailsDraft.Exclusions?.ExcludeVolumeTypes ?? [] as vt, i (i)}
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								value={vt}
+								oninput={(e) => setExcludeVolumeType(i, e.currentTarget.value)}
+								placeholder="gp2"
+								aria-label="Excluded volume type"
+								class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+							/>
+							<button
+								type="button"
+								onclick={() => removeExcludeVolumeType(i)}
+								aria-label="Remove excluded volume type"
+								class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+							>
+						</div>
+					{/each}
+				</div>
+				<div>
+					<div class="flex items-center justify-between">
+						<span class="text-xs text-slate-500 dark:text-slate-400">Exclude tags</span>
+						<button
+							type="button"
+							onclick={excludeTagsOps.add}
+							aria-label="Add exclude tag"
+							class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add tag</button
+						>
+					</div>
+					{#each policyDetailsDraft.Exclusions?.ExcludeTags ?? [] as tag, i (i)}
+						<div class="mt-2 flex items-center gap-2">
+							<input
+								value={tag.Key ?? ''}
+								oninput={(e) => excludeTagsOps.setKey(i, e.currentTarget.value)}
+								placeholder="Key"
+								aria-label="Exclude tag key"
+								class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+							/>
+							<input
+								value={tag.Value ?? ''}
+								oninput={(e) => excludeTagsOps.setValue(i, e.currentTarget.value)}
+								placeholder="Value"
+								aria-label="Exclude tag value"
+								class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+							/>
+							<button
+								type="button"
+								onclick={() => excludeTagsOps.remove(i)}
+								aria-label="Remove exclude tag row"
+								class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+							>
+						</div>
+					{/each}
+				</div>
+			</div>
+		</div>
+
+		<div class="space-y-3">
+			<div class="flex items-center justify-between">
+				<span class="text-xs font-medium text-slate-500 dark:text-slate-400"
+					>Schedules (custom policies)</span
+				>
+				<button
+					type="button"
+					onclick={addSchedule}
+					class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add schedule</button
+				>
+			</div>
+			{#each policyDetailsDraft.Schedules ?? [] as sch, i (i)}
+				{@const tagsToAddOps = scheduleTagListOps(i, 'TagsToAdd')}
+				{@const variableTagsOps = scheduleTagListOps(i, 'VariableTags')}
+				<div class="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+					<div class="flex items-center justify-between">
+						<input
+							value={sch.Name ?? ''}
+							oninput={(e) => updateSchedule(i, { Name: e.currentTarget.value })}
+							placeholder="Schedule name"
+							aria-label="Schedule name"
+							class="w-2/3 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+						<button
+							type="button"
+							onclick={() => removeSchedule(i)}
+							aria-label="Remove schedule {i + 1}"
+							class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+						>
+					</div>
+					<label class="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-200">
+						<input
+							type="checkbox"
+							checked={sch.CopyTags ?? false}
+							onchange={(e) => updateSchedule(i, { CopyTags: e.currentTarget.checked })}
+							class="rounded border-gray-300"
+						/>
+						Copy tags
+					</label>
+
+					<p class="text-xs font-medium text-slate-500 dark:text-slate-400">Create rule</p>
+					<div class="grid grid-cols-2 gap-2">
+						<select
+							value={sch.CreateRule?.Location ?? ''}
+							onchange={(e) =>
+								updateScheduleCreateRule(i, {
+									Location: (e.currentTarget.value || undefined) as LocationValues | undefined
+								})}
+							aria-label="Create rule location"
+							class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						>
+							<option value="">Location —</option>
+							{#each Object.values(LocationValues) as v (v)}
+								<option value={v}>{v}</option>
+							{/each}
+						</select>
+						<input
+							type="number"
+							value={sch.CreateRule?.Interval ?? ''}
+							oninput={(e) => updateScheduleCreateRule(i, { Interval: numOrUndef(e.currentTarget.value) })}
+							placeholder="Interval (hours)"
+							aria-label="Create rule interval"
+							class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+						<input
+							value={sch.CreateRule?.CronExpression ?? ''}
+							oninput={(e) =>
+								updateScheduleCreateRule(i, { CronExpression: e.currentTarget.value || undefined })}
+							placeholder="Cron expression (alternative to interval)"
+							aria-label="Create rule cron expression"
+							class="col-span-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+					</div>
+					<div>
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-slate-500 dark:text-slate-400">Times (UTC, hh:mm)</span>
+							<button
+								type="button"
+								onclick={() => addScheduleTime(i)}
+								class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add time</button
+							>
+						</div>
+						{#each sch.CreateRule?.Times ?? [] as time, timeIndex (timeIndex)}
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									value={time}
+									oninput={(e) => setScheduleTime(i, timeIndex, e.currentTarget.value)}
+									placeholder="09:00"
+									aria-label="Create rule time"
+									class="w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+								/>
+								<button
+									type="button"
+									onclick={() => removeScheduleTime(i, timeIndex)}
+									aria-label="Remove create rule time"
+									class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+								>
+							</div>
+						{/each}
+					</div>
+
+					<p class="text-xs font-medium text-slate-500 dark:text-slate-400">Retain rule</p>
+					<div class="grid grid-cols-2 gap-2">
+						<input
+							type="number"
+							value={sch.RetainRule?.Count ?? ''}
+							oninput={(e) => updateScheduleRetainRule(i, { Count: numOrUndef(e.currentTarget.value) })}
+							placeholder="Count"
+							aria-label="Retain rule count"
+							class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+						<input
+							type="number"
+							value={sch.RetainRule?.Interval ?? ''}
+							oninput={(e) => updateScheduleRetainRule(i, { Interval: numOrUndef(e.currentTarget.value) })}
+							placeholder="Interval"
+							aria-label="Retain rule interval"
+							class="rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						/>
+						<select
+							value={sch.RetainRule?.IntervalUnit ?? ''}
+							onchange={(e) =>
+							updateScheduleRetainRule(i, {
+								IntervalUnit: (e.currentTarget.value || undefined) as RetentionIntervalUnitValues | undefined
+							})}
+							aria-label="Retain rule interval unit"
+							class="col-span-2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+						>
+							<option value="">Interval unit —</option>
+							{#each Object.values(RetentionIntervalUnitValues) as v (v)}
+								<option value={v}>{v}</option>
+							{/each}
+						</select>
+					</div>
+
+					<div>
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-slate-500 dark:text-slate-400">Tags to add</span>
+							<button
+								type="button"
+								onclick={tagsToAddOps.add}
+								aria-label="Add tags to add entry"
+								class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add tag</button
+							>
+						</div>
+						{#each sch.TagsToAdd ?? [] as tag, tagIndex (tagIndex)}
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									value={tag.Key ?? ''}
+									oninput={(e) => tagsToAddOps.setKey(tagIndex, e.currentTarget.value)}
+									placeholder="Key"
+									aria-label="Tags to add key"
+									class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+								/>
+								<input
+									value={tag.Value ?? ''}
+									oninput={(e) => tagsToAddOps.setValue(tagIndex, e.currentTarget.value)}
+									placeholder="Value"
+									aria-label="Tags to add value"
+									class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+								/>
+								<button
+									type="button"
+									onclick={() => tagsToAddOps.remove(tagIndex)}
+									aria-label="Remove tags to add row"
+									class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+								>
+							</div>
+						{/each}
+					</div>
+
+					<div>
+						<div class="flex items-center justify-between">
+							<span class="text-xs text-slate-500 dark:text-slate-400"
+								>Variable tags (instance policies)</span
+							>
+							<button
+								type="button"
+								onclick={variableTagsOps.add}
+								aria-label="Add variable tag"
+								class="text-xs text-teal-600 dark:text-teal-400 hover:underline">Add tag</button
+							>
+						</div>
+						{#each sch.VariableTags ?? [] as tag, tagIndex (tagIndex)}
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									value={tag.Key ?? ''}
+									oninput={(e) => variableTagsOps.setKey(tagIndex, e.currentTarget.value)}
+									placeholder="Key"
+									aria-label="Variable tag key"
+									class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+								/>
+								<input
+									value={tag.Value ?? ''}
+									oninput={(e) => variableTagsOps.setValue(tagIndex, e.currentTarget.value)}
+									placeholder="$(instance-id)"
+									aria-label="Variable tag value"
+									class="w-1/2 rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+								/>
+								<button
+									type="button"
+									onclick={() => variableTagsOps.remove(tagIndex)}
+									aria-label="Remove variable tag row"
+									class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
+								>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/each}
+		</div>
+
+		<div>
+			<label for={`${idPrefix}-advanced-json`} class="text-xs text-slate-500 dark:text-slate-400"
+				>Advanced (JSON): Actions, EventSource, Parameters -- merged over the fields above on save</label
+			>
+			<textarea
+				id={`${idPrefix}-advanced-json`}
+				bind:value={advancedDetailsJSON}
+				rows="4"
+				placeholder={'{"EventSource": {"Type": "MANAGED_CWE", ...}}'}
+				class="mt-1 w-full rounded-lg border border-gray-200 bg-white px-2 py-1.5 font-mono text-xs text-gray-900 dark:border-gray-600 dark:bg-slate-700 dark:text-white"
+			></textarea>
+			{#if advancedDetailsJSONError}
+				<p class="mt-1 text-sm text-red-600 dark:text-red-400">{advancedDetailsJSONError}</p>
+			{/if}
+		</div>
+	</div>
+{/snippet}
+
 <Modal bind:this={createModal} title="Create Lifecycle Policy">
 	{#snippet children()}
 		<div class="space-y-3">
@@ -467,10 +1189,7 @@
 					</div>
 				{/each}
 			</div>
-			<p class="text-xs text-slate-500 dark:text-slate-400">
-				Policy content (schedules, targets, retention rules) is not editable here -- see the
-				project follow-up notes.
-			</p>
+			{@render policyDetailsFields('pd-create')}
 			{#if createError}
 				<p class="text-sm text-red-600 dark:text-red-400">{createError}</p>
 			{/if}
@@ -527,6 +1246,7 @@
 					<option value="DISABLED">DISABLED</option>
 				</select>
 			</div>
+			{@render policyDetailsFields('pd-edit')}
 			{#if editError}
 				<p class="text-sm text-red-600 dark:text-red-400">{editError}</p>
 			{/if}

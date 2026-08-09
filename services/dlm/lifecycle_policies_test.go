@@ -151,7 +151,7 @@ func TestBackend_UpdateLifecyclePolicy_PartialUpdate(t *testing.T) {
 				updateRole = new(tc.updateRole)
 			}
 
-			err = b.UpdateLifecyclePolicy(p.PolicyID, updateDesc, updateRole, tc.updateState, nil)
+			err = b.UpdateLifecyclePolicy(p.PolicyID, updateDesc, updateRole, tc.updateState, nil, nil)
 			require.NoError(t, err)
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
@@ -191,7 +191,7 @@ func TestBackend_UpdateLifecyclePolicy_ExplicitEmptyClearsField(t *testing.T) {
 			p, err := b.CreateLifecyclePolicy("original", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, nil)
 			require.NoError(t, err)
 
-			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, tc.description, nil, "", nil))
+			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, tc.description, nil, "", nil, nil))
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
 			require.NoError(t, err)
@@ -222,7 +222,7 @@ func TestBackend_UpdateLifecyclePolicy_NilDetailsPreserved(t *testing.T) {
 			require.NoError(t, err)
 
 			// Update with nil PolicyDetails — must not clear existing details.
-			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, new("new desc"), nil, "", nil))
+			require.NoError(t, b.UpdateLifecyclePolicy(p.PolicyID, new("new desc"), nil, "", nil, nil))
 
 			got, err := b.GetLifecyclePolicy(p.PolicyID)
 			require.NoError(t, err)

@@ -217,19 +217,37 @@ func classifyPath(method, path string) string {
 
 func (h *Handler) handleCreateLifecyclePolicy(c *echo.Context, body []byte) error {
 	var req struct {
-		Tags             map[string]string `json:"Tags"`
-		PolicyDetails    map[string]any    `json:"PolicyDetails"`
-		Description      string            `json:"Description"`
-		ExecutionRoleArn string            `json:"ExecutionRoleArn"`
-		State            string            `json:"State"`
+		Tags                   map[string]string `json:"Tags"`
+		PolicyDetails          map[string]any    `json:"PolicyDetails"`
+		Exclusions             map[string]any    `json:"Exclusions"`
+		CopyTags               *bool             `json:"CopyTags"`
+		CreateInterval         *int32            `json:"CreateInterval"`
+		RetainInterval         *int32            `json:"RetainInterval"`
+		ExtendDeletion         *bool             `json:"ExtendDeletion"`
+		Description            string            `json:"Description"`
+		ExecutionRoleArn       string            `json:"ExecutionRoleArn"`
+		State                  string            `json:"State"`
+		DefaultPolicy          string            `json:"DefaultPolicy"`
+		CrossRegionCopyTargets []any             `json:"CrossRegionCopyTargets"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
+	defaultFields := defaultPolicyFields{
+		DefaultPolicy:          req.DefaultPolicy,
+		CopyTags:               req.CopyTags,
+		CreateInterval:         req.CreateInterval,
+		RetainInterval:         req.RetainInterval,
+		ExtendDeletion:         req.ExtendDeletion,
+		CrossRegionCopyTargets: req.CrossRegionCopyTargets,
+		Exclusions:             req.Exclusions,
+	}
+	policyDetails := defaultFields.applyTo(req.PolicyDetails)
+
 	policy, err := h.Backend.CreateLifecyclePolicy(
-		req.Description, req.ExecutionRoleArn, req.State, req.Tags, req.PolicyDetails,
+		req.Description, req.ExecutionRoleArn, req.State, req.Tags, policyDetails,
 	)
 	if err != nil {
 		return h.mapError(c, err)
@@ -322,23 +340,35 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 
 func (h *Handler) handleUpdateLifecyclePolicy(c *echo.Context, policyID string, body []byte) error {
 	var req struct {
-		PolicyDetails map[string]any `json:"PolicyDetails"`
-		// Description/ExecutionRoleArn are *string, not string: the real
-		// UpdateLifecyclePolicyInput carries them as pointers on the wire,
-		// so an explicit "" (clear the field) must be distinguishable from
-		// an omitted key (leave unchanged) -- see StorageBackend's doc
-		// comment on UpdateLifecyclePolicy.
-		Description      *string `json:"Description"`
-		ExecutionRoleArn *string `json:"ExecutionRoleArn"`
-		State            string  `json:"State"`
+		PolicyDetails          map[string]any `json:"PolicyDetails"`
+		Description            *string        `json:"Description"`
+		ExecutionRoleArn       *string        `json:"ExecutionRoleArn"`
+		Exclusions             map[string]any `json:"Exclusions"`
+		CopyTags               *bool          `json:"CopyTags"`
+		CreateInterval         *int32         `json:"CreateInterval"`
+		RetainInterval         *int32         `json:"RetainInterval"`
+		ExtendDeletion         *bool          `json:"ExtendDeletion"`
+		State                  string         `json:"State"`
+		CrossRegionCopyTargets []any          `json:"CrossRegionCopyTargets"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, "invalid request body"))
 	}
 
+	// UpdateLifecyclePolicyInput has no DefaultPolicy member (the policy
+	// type can't change after creation) -- see defaultPolicyFields doc.
+	defaultFields := defaultPolicyFields{
+		CopyTags:               req.CopyTags,
+		CreateInterval:         req.CreateInterval,
+		RetainInterval:         req.RetainInterval,
+		ExtendDeletion:         req.ExtendDeletion,
+		CrossRegionCopyTargets: req.CrossRegionCopyTargets,
+		Exclusions:             req.Exclusions,
+	}
+
 	if err := h.Backend.UpdateLifecyclePolicy(
-		policyID, req.Description, req.ExecutionRoleArn, req.State, req.PolicyDetails,
+		policyID, req.Description, req.ExecutionRoleArn, req.State, req.PolicyDetails, defaultFields.overrides(),
 	); err != nil {
 		return h.mapError(c, err)
 	}
