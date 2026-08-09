@@ -304,8 +304,10 @@ type xmlEventCategoryMap struct {
 	EventCategories xmlEventCategoryList `xml:"EventCategories"`
 }
 
+// docdb@v1.51.4 deserializers.go:13826 wraps each entry in
+// <EventCategoriesMap>, not <EventCategoryMap>.
 type xmlEventCategoriesMapList struct {
-	Members []xmlEventCategoryMap `xml:"EventCategoryMap"`
+	Members []xmlEventCategoryMap `xml:"EventCategoriesMap"`
 }
 
 type describeEventCategoriesResult struct {

@@ -77,8 +77,10 @@ func (h *Handler) handleDeleteUsageLimit(vals url.Values) (any, error) {
 
 // ---- DescribeUsageLimits ----
 
+// redshift@v1.65.4 deserializers.go:45683 wraps each entry in <member>,
+// not <UsageLimit>.
 type xmlUsageLimitList struct {
-	Limits []xmlUsageLimit `xml:"UsageLimit"`
+	Limits []xmlUsageLimit `xml:"member"`
 }
 
 type describeUsageLimitsResponse struct {

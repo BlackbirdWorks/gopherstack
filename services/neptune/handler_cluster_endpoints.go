@@ -129,8 +129,10 @@ type createDBClusterEndpointResponse struct {
 
 // New XML types for the additional operations.
 
+// neptune@v1.48.4 deserializers.go:12676 wraps each entry in
+// <DBClusterEndpointList>, not <DBClusterEndpoint>.
 type xmlDBClusterEndpointList struct {
-	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpoint"`
+	Members []xmlDBClusterEndpoint `xml:"DBClusterEndpointList"`
 }
 
 type describeDBClusterEndpointsResult struct {

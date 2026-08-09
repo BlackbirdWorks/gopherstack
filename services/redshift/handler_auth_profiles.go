@@ -59,8 +59,10 @@ func (h *Handler) handleDeleteAuthenticationProfile(vals url.Values) (any, error
 
 // ---- DescribeAuthenticationProfiles ----
 
+// redshift@v1.65.4 deserializers.go:24257 wraps each entry in <member>,
+// not <AuthenticationProfile>.
 type xmlAuthenticationProfileList struct {
-	Profiles []xmlAuthenticationProfile `xml:"AuthenticationProfile"`
+	Profiles []xmlAuthenticationProfile `xml:"member"`
 }
 
 type describeAuthenticationProfilesResponse struct {

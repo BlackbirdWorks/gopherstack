@@ -158,8 +158,10 @@ type xmlGlobalClusterMemberList struct {
 	Members []xmlGlobalClusterMember `xml:"GlobalClusterMember"`
 }
 
+// neptune@v1.48.4 deserializers.go:18396 wraps each entry in
+// <GlobalClusterMember>, not <GlobalCluster>.
 type xmlGlobalClusterList struct {
-	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalClusterMember"`
 }
 
 type xmlGlobalCluster struct {

@@ -873,12 +873,20 @@ func TestCloudWatchHandler_GetMetricData_ScanByDescending(t *testing.T) {
 	rec := postForm(t, h, queryBody)
 	require.Equal(t, http.StatusOK, rec.Code)
 
+	// Decode against the real wire shape (cloudwatch@v1.66.3 schemas.go:
+	// GetMetricDataOutput_MetricDataResults = AddMember("MetricDataResults",
+	// _MetricDataResults); _MetricDataResults.AddMember("member", ...)) --
+	// GetMetricDataResult>MetricDataResults>member, not >member directly. A
+	// prior handler bug (a resultEntry.XMLName override silently winning over
+	// the parent field's own tag, dropping the <MetricDataResults> level) made
+	// this test's old two-segment decode struct match the bug's own wrong
+	// output instead of AWS's real one.
 	type result struct {
 		ID         string   `xml:"Id"`
 		Timestamps []string `xml:"Timestamps>member"`
 	}
 	type resp struct {
-		Results []result `xml:"GetMetricDataResult>member"`
+		Results []result `xml:"GetMetricDataResult>MetricDataResults>member"`
 	}
 	var out resp
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &out))

@@ -10,6 +10,7 @@ import (
 	docdbsdk "github.com/aws/aws-sdk-go-v2/service/docdb"
 	"github.com/aws/aws-sdk-go-v2/service/docdb/types"
 	"github.com/labstack/echo/v5"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -412,4 +413,57 @@ func Test_SDKRoundTrip_ApplyPendingMaintenanceAction(t *testing.T) {
 	action := out.ResourcePendingMaintenanceActions.PendingMaintenanceActionDetails[0]
 	require.Equal(t, "system-update", aws.ToString(action.Action))
 	require.Equal(t, "immediate", aws.ToString(action.OptInStatus))
+}
+
+// Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters proves the real SDK
+// client sees DescribeGlobalClusters' top-level list. The handler wrapped
+// each entry in <GlobalCluster>, but the real deserializer
+// (docdb@v1.51.4 deserializers.go:14551) matches <GlobalClusterMember> for
+// this particular list -- unrecognized elements are skipped silently, so a
+// real client always saw an empty slice regardless of what was stored.
+func Test_SDKRoundTrip_DescribeGlobalClusters_ListsClusters(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateDBCluster(ctx, &docdbsdk.CreateDBClusterInput{
+		DBClusterIdentifier: aws.String("rt-gc-list-source"),
+		Engine:              aws.String("docdb"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateGlobalCluster(ctx, &docdbsdk.CreateGlobalClusterInput{
+		GlobalClusterIdentifier:   aws.String("rt-gc-list"),
+		SourceDBClusterIdentifier: aws.String("rt-gc-list-source"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeGlobalClusters(ctx, &docdbsdk.DescribeGlobalClustersInput{
+		GlobalClusterIdentifier: aws.String("rt-gc-list"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.GlobalClusters, 1)
+	assert.Equal(t, "rt-gc-list", aws.ToString(out.GlobalClusters[0].GlobalClusterIdentifier))
+}
+
+// Test_SDKRoundTrip_DescribeEventCategories proves the real SDK client sees
+// DescribeEventCategories' entries. The handler wrapped each entry in
+// <EventCategoryMap>, but the real deserializer
+// (docdb@v1.51.4 deserializers.go:13826) matches <EventCategoriesMap> --
+// unrecognized elements are skipped silently, so a real client always saw
+// an empty slice.
+func Test_SDKRoundTrip_DescribeEventCategories(t *testing.T) {
+	t.Parallel()
+
+	backend := docdb.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := docdb.NewHandler(backend)
+	client := newTestDocDBClient(t, h)
+
+	out, err := client.DescribeEventCategories(t.Context(), &docdbsdk.DescribeEventCategoriesInput{})
+	require.NoError(t, err)
+	require.NotEmpty(t, out.EventCategoriesMapList)
+	assert.NotEmpty(t, out.EventCategoriesMapList[0].EventCategories)
 }
