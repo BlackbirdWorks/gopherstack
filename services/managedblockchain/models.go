@@ -237,6 +237,7 @@ type approvalThresholdPolicyRequest struct {
 // memberConfiguration holds the configuration for the first (or new) member.
 type memberConfiguration struct {
 	FrameworkConfiguration *memberFrameworkConfigurationRequest `json:"FrameworkConfiguration"`
+	Tags                   map[string]string                    `json:"Tags,omitempty"`
 	Description            string                               `json:"Description"`
 	KmsKeyArn              string                               `json:"KmsKeyArn,omitempty"`
 	Name                   string                               `json:"Name"`
@@ -330,8 +331,12 @@ type listNetworksResponse struct {
 }
 
 // createMemberRequest is the request body for POST /networks/{networkId}/members.
+// createMemberRequest is the request body for CreateMember. The real
+// CreateMemberInput has no top-level Tags field -- Tags is nested under
+// MemberConfiguration (confirmed against aws-sdk-go-v2
+// managedblockchain@v1.34.4 api_op_CreateMember.go and
+// types.MemberConfiguration).
 type createMemberRequest struct {
-	Tags                map[string]string   `json:"Tags"`
 	ClientRequestToken  string              `json:"ClientRequestToken"`
 	InvitationID        string              `json:"InvitationId"`
 	MemberConfiguration memberConfiguration `json:"MemberConfiguration"`

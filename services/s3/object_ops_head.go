@@ -126,6 +126,7 @@ func (h *S3Handler) writeHeadObjectResponse(
 		SSEKMSKeyID:       aws.ToString(out.SSEKMSKeyId),
 		SSECAlgorithm:     aws.ToString(out.SSECustomerAlgorithm),
 		SSECKeyMD5:        aws.ToString(out.SSECustomerKeyMD5),
+		TagCount:          out.TagCount,
 	}
 
 	h.setCommonHeaders(w, details)

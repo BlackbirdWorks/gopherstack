@@ -32,7 +32,7 @@ func (h *Handler) handleCreateMember(c *echo.Context, networkID string, body []b
 		req.MemberConfiguration.Description,
 		adminUsername,
 		req.MemberConfiguration.KmsKeyArn,
-		req.Tags,
+		req.MemberConfiguration.Tags,
 	)
 	if err != nil {
 		return h.writeBackendError(c, err)

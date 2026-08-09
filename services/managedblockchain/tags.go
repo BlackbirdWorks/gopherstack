@@ -9,8 +9,10 @@ type TaggedEntry struct {
 }
 
 // resourceTags returns res's Tags field for the resource kinds TagResource
-// supports (Network, Member, Node, Accessor), or nil for anything else
-// (e.g. Invitation, which carries no tags).
+// supports (Network, Member, Node, Accessor, Proposal -- CreateProposal
+// accepts Tags in the real CreateProposalInput, aws-sdk-go-v2
+// managedblockchain@v1.34.4 api_op_CreateProposal.go), or nil for anything
+// else (e.g. Invitation, which carries no tags).
 func resourceTags(res any) map[string]string {
 	switch r := res.(type) {
 	case *Network:
@@ -20,6 +22,8 @@ func resourceTags(res any) map[string]string {
 	case *Node:
 		return r.Tags
 	case *Accessor:
+		return r.Tags
+	case *Proposal:
 		return r.Tags
 	default:
 		return nil
@@ -77,6 +81,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 		maps.Copy(result, r.Tags)
 
 		return result, nil
+	case *Proposal:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
+
+		return result, nil
 	}
 
 	return nil, ErrResourceNotFound
@@ -125,6 +134,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		maps.Copy(r.Tags, tags)
 
 		return nil
+	case *Proposal:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
 	}
 
 	return ErrResourceNotFound
@@ -160,6 +177,12 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 		return nil
 	case *Accessor:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	case *Proposal:
 		for _, k := range tagKeys {
 			delete(r.Tags, k)
 		}

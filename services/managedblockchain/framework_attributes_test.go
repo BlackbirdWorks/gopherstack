@@ -398,8 +398,7 @@ func TestInMemoryBackend_CloneFrameworkAttributesDoesNotMutate(t *testing.T) {
 
 	network, member, err := b.CreateNetwork(
 		testRegion, testAccountID, "clone-net", "", "", "", "clone-member", "",
-		nil, nil, "STARTER", "admin", "",
-	)
+		nil, nil, nil, "STARTER", "admin", "")
 	require.NoError(t, err)
 
 	node, err := b.CreateNode(testRegion, testAccountID, network.ID, member.ID, "bc.t3.small", "us-east-1a", "", nil)

@@ -4,7 +4,7 @@ package managedblockchain
 type StorageBackend interface {
 	CreateNetwork(
 		region, accountID, name, description, framework, frameworkVersion, memberName, memberDescription string,
-		tags map[string]string,
+		tags, memberTags map[string]string,
 		votingPolicy *VotingPolicy,
 		fabricEdition, memberAdminUsername, memberKmsKeyArn string,
 	) (*Network, *Member, error)

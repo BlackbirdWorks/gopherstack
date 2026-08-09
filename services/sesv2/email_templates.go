@@ -19,8 +19,9 @@ type EmailTemplateContent struct {
 
 // EmailTemplate represents a SES v2 email template.
 type EmailTemplate struct {
-	CreatedAt       time.Time             `json:"createdAt"`
 	TemplateContent *EmailTemplateContent `json:"templateContent"`
+	Tags            map[string]string     `json:"tags,omitempty"`
+	CreatedAt       time.Time             `json:"createdAt"`
 	TemplateName    string                `json:"templateName"`
 }
 
@@ -65,6 +66,7 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 		TemplateName:    templateName,
 		TemplateContent: contentCopy,
 		CreatedAt:       time.Now(),
+		Tags:            tags,
 	}
 	b.emailTemplates.Put(t)
 

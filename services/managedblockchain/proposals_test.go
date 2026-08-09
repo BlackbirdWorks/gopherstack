@@ -80,6 +80,45 @@ func TestHandler_CreateProposal(t *testing.T) {
 	}
 }
 
+// TestCreateProposal_TagsReachTagStore verifies that Tags supplied on
+// CreateProposal (confirmed accepted by the real CreateProposalInput,
+// aws-sdk-go-v2 managedblockchain@v1.34.4 api_op_CreateProposal.go) reach
+// ListTagsForResource, not just the proposal's own record -- Proposal was
+// previously never registered in the backend's ARN index at all, so
+// ListTagsForResource(proposalArn) failed outright regardless of what
+// CreateProposal stored (gopherstack-2mwl).
+func TestCreateProposal_TagsReachTagStore(t *testing.T) {
+	t.Parallel()
+
+	h, b := newTestHandlerWithBackend(t)
+	netID, memID := createTestNetwork(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/networks/"+netID+"/proposals", map[string]any{
+		"MemberId":    memID,
+		"Description": "tagged proposal",
+		"Tags":        map[string]string{"priority": "high"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	proposalID, _ := resp["ProposalId"].(string)
+	require.NotEmpty(t, proposalID)
+
+	getRec := doRequest(t, h, http.MethodGet, "/networks/"+netID+"/proposals/"+proposalID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	proposal := getResp["Proposal"].(map[string]any)
+	proposalArn, _ := proposal["Arn"].(string)
+	require.NotEmpty(t, proposalArn)
+
+	tags, err := b.ListTagsForResource(proposalArn)
+	require.NoError(t, err)
+	assert.Equal(t, "high", tags["priority"])
+}
+
 func TestHandler_GetProposal(t *testing.T) {
 	t.Parallel()
 

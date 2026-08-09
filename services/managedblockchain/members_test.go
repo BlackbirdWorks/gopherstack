@@ -42,12 +42,11 @@ func TestInMemoryBackend_MemberLifecycle(t *testing.T) {
 				"",
 				"initial",
 				"",
-				nil,
+				nil, nil,
 				nil,
 				"",
 				"admin",
-				"",
-			)
+				"")
 			require.NoError(t, err)
 
 			// CreateMember
@@ -525,7 +524,11 @@ func TestHandler_UpdateMember(t *testing.T) {
 	}
 }
 
-// TestHandler_CreateMemberWithTags verifies tags are persisted on CreateMember.
+// TestHandler_CreateMemberWithTags verifies tags supplied via
+// MemberConfiguration.Tags -- the real CreateMemberInput's only Tags field
+// (confirmed against aws-sdk-go-v2 managedblockchain@v1.34.4
+// api_op_CreateMember.go, which has no top-level Tags at all) -- are
+// persisted on CreateMember (gopherstack-2mwl).
 func TestHandler_CreateMemberWithTags(t *testing.T) {
 	t.Parallel()
 
@@ -535,9 +538,11 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	h.AccountID = testAccountID
 	h.DefaultRegion = testRegion
 
+	memberConfig := testMemberConfiguration("tagged-member")
+	memberConfig["Tags"] = map[string]string{"role": "validator"}
+
 	rec := doRequest(t, h, http.MethodPost, "/networks/"+n.ID+"/members", map[string]any{
-		"MemberConfiguration": testMemberConfiguration("tagged-member"),
-		"Tags":                map[string]string{"role": "validator"},
+		"MemberConfiguration": memberConfig,
 	})
 
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -558,6 +563,16 @@ func TestHandler_CreateMemberWithTags(t *testing.T) {
 	member := memResp["Member"].(map[string]any)
 	tags := member["Tags"].(map[string]any)
 	assert.Equal(t, "validator", tags["role"])
+
+	// ListTagsForResource must see the same tags (gopherstack-2mwl: creation
+	// tags reaching the resource's own struct is not sufficient -- they must
+	// also reach the shared tag store).
+	memberArn, _ := member["Arn"].(string)
+	require.NotEmpty(t, memberArn)
+
+	listedTags, err := b.ListTagsForResource(memberArn)
+	require.NoError(t, err)
+	assert.Equal(t, "validator", listedTags["role"])
 }
 
 // TestHandler_DeleteMemberCascadeNodes verifies nodes are deleted with the member.

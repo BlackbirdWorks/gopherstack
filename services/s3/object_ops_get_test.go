@@ -492,3 +492,48 @@ func TestHandler_GetObject(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_GetHeadObject_TagCount verifies that GetObject/HeadObject echo
+// x-amz-tagging-count for a tagged object (confirmed in aws-sdk-go-v2
+// s3@v1.106.5 deserializers.go:6889,8819) and omit it for an untagged one,
+// matching real S3 ("if any" in the TagCount field doc).
+func TestHandler_GetHeadObject_TagCount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		method    string
+		wantCount string
+		tagged    bool
+	}{
+		{name: "get tagged", method: http.MethodGet, tagged: true, wantCount: "2"},
+		{name: "get untagged", method: http.MethodGet, tagged: false, wantCount: ""},
+		{name: "head tagged", method: http.MethodHead, tagged: true, wantCount: "2"},
+		{name: "head untagged", method: http.MethodHead, tagged: false, wantCount: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "tc-bkt")
+
+			putReq := httptest.NewRequest(http.MethodPut, "/tc-bkt/tc-key", strings.NewReader("body"))
+			if tt.tagged {
+				putReq.Header.Set("X-Amz-Tagging", "a=1&b=2")
+			}
+
+			putRec := httptest.NewRecorder()
+			serveS3Handler(handler, putRec, putReq)
+			require.Equal(t, http.StatusOK, putRec.Code)
+
+			req := httptest.NewRequest(tt.method, "/tc-bkt/tc-key", nil)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.wantCount, rec.Header().Get("X-Amz-Tagging-Count"))
+		})
+	}
+}

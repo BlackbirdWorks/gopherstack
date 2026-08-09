@@ -339,8 +339,10 @@ func TestInMemoryBackend_ExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 1, managedblockchain.AccessorCount(b))
 	assert.Equal(t, 1, managedblockchain.ProposalCount(b))
 	assert.Equal(t, 1, managedblockchain.InvitationCount(b))
-	// ARN index: network + member + node + accessor = 4
-	assert.Equal(t, 4, managedblockchain.ARNIndexSize(b))
+	// ARN index: network + member + node + accessor + proposal = 5
+	// (proposal included since CreateProposal accepts Tags on the real API,
+	// gopherstack-2mwl).
+	assert.Equal(t, 5, managedblockchain.ARNIndexSize(b))
 }
 
 // TestErrValidationMapping verifies ErrValidation wraps ErrInvalidParameter.

@@ -45,7 +45,7 @@ package managedblockchain
 // registry instead (the same technique services/workmail's permissions
 // table uses for its own two-component hidden key).
 //
-// arnToResource (map[string]any, an ARN → *Network/*Member/*Node/*Accessor
+// arnToResource (map[string]any, an ARN → *Network/*Member/*Node/*Accessor/*Proposal
 // reverse-lookup cache) is deliberately NOT converted: store.Table requires
 // every value to share one concrete type V with its own identity, but this
 // map's values are a type union with no common identity field. It remains a

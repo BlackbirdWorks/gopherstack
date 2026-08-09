@@ -186,12 +186,14 @@ func toEmailTemplateContentOutput(c *EmailTemplateContent) *emailTemplateContent
 type emailTemplateOutput struct {
 	TemplateContent *emailTemplateContentOutput `json:"TemplateContent,omitempty"`
 	TemplateName    string                      `json:"TemplateName"`
+	Tags            []tagEntry                  `json:"Tags,omitempty"`
 }
 
 func toEmailTemplateOutput(t *EmailTemplate) *emailTemplateOutput {
 	return &emailTemplateOutput{
 		TemplateName:    t.TemplateName,
 		TemplateContent: toEmailTemplateContentOutput(t.TemplateContent),
+		Tags:            tagsToEntries(t.Tags),
 	}
 }
 

@@ -60,6 +60,7 @@ func (h *Handler) handleCreateNetwork(c *echo.Context, body []byte) error {
 		req.MemberConfiguration.Name,
 		req.MemberConfiguration.Description,
 		req.Tags,
+		req.MemberConfiguration.Tags,
 		votingPolicy,
 		edition,
 		adminUsername,
