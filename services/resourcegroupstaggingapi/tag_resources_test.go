@@ -225,6 +225,18 @@ func TestTagResources_ARN_Validation(t *testing.T) {
 			arns:    []string{"arn:aws:sqs:us-east-1:000000000000:q1", "bad"},
 			wantErr: true,
 		},
+		{
+			// ResourceARN shape max length is 1011 (botocore
+			// resourcegroupstaggingapi/2017-01-26/service-2.json).
+			name:    "arn_at_max_length",
+			arns:    []string{arnOfLength(t, 1011)},
+			wantErr: false,
+		},
+		{
+			name:    "arn_over_max_length",
+			arns:    []string{arnOfLength(t, 1012)},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -3,7 +3,6 @@ package resourcegroupstaggingapi
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -37,9 +36,13 @@ const minTagsPerPage = 100
 // maxTagsPerPage is the maximum allowed TagsPerPage value for GetResources.
 const maxTagsPerPage = 500
 
-// resourceTypeFilterRE validates a ResourceTypeFilters entry.
-// Service prefix must be lowercase; resource suffix may contain mixed-case characters.
-var resourceTypeFilterRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*(:[a-zA-Z0-9][a-zA-Z0-9-_/.]*)?$`)
+// maxResourceTypeFilterLen is the real API's AmazonResourceType shape max length; its
+// pattern is `[\s\S]*` (unconstrained -- any character, including none), so length is
+// the only enforced constraint. See botocore resourcegroupstaggingapi/2017-01-26/
+// service-2.json's AmazonResourceType shape (max: 256, min: 0); aws-sdk-go-v2 v1.35.4's
+// api_op_GetResources.go:113-116 documents "the length constraint requirement applies
+// to each resource type filter" without adding a format restriction.
+const maxResourceTypeFilterLen = 256
 
 // GetResourcesInput is the request payload for GetResources.
 type GetResourcesInput struct {
@@ -177,9 +180,18 @@ func validateGetResourcesInput(input *GetResourcesInput) error {
 		}
 	}
 
-	for _, rt := range input.ResourceTypeFilters {
-		if !resourceTypeFilterRE.MatchString(rt) {
-			return fmt.Errorf("%w: invalid ResourceTypeFilter format %q", ErrValidation, rt)
+	for i, rt := range input.ResourceTypeFilters {
+		if len(rt) > maxResourceTypeFilterLen {
+			return fmt.Errorf(
+				"%w: ResourceTypeFilters[%d] exceeds maximum length of %d",
+				ErrValidation, i, maxResourceTypeFilterLen,
+			)
+		}
+	}
+
+	for _, arn := range input.ResourceARNList {
+		if err := validateResourceARNLength(arn); err != nil {
+			return err
 		}
 	}
 

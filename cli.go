@@ -5744,6 +5744,28 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireResourceGroupsTaggingApps(bk, byName)
 	wireResourceGroupsTaggingExtra(bk, byName)
 	wireResourceGroupsTaggingSweep5(bk, byName)
+	wireResourceGroupsTaggingPolicy(bk, byName["Organizations"])
+}
+
+// wireResourceGroupsTaggingPolicy registers Organizations' effective TAG_POLICY
+// document as the source ListRequiredTags derives required-tag rows from (see
+// services/resourcegroupstaggingapi/cross_service.go's TagPolicyProvider and
+// compliance.go's requiredTagsFromPolicy). Central wiring, not the tagging
+// service's own concern: it is the only place that knows about both backends.
+func wireResourceGroupsTaggingPolicy(bk resourcegroupstaggingapibackend.StorageBackend, orgReg service.Registerable) {
+	orgH, ok := orgReg.(*organizationsbackend.Handler)
+	if !ok || orgH.Backend == nil {
+		return
+	}
+
+	bk.RegisterTagPolicyProvider(func() (string, bool) {
+		ep, err := orgH.Backend.DescribeEffectivePolicy("TAG_POLICY", "")
+		if err != nil {
+			return "", false
+		}
+
+		return ep.PolicyContent, true
+	})
 }
 
 // wireResourceGroupsTaggingCore wires the original core set of tagging services
