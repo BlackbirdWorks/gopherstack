@@ -2,11 +2,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import AppConfigDataPage from "./+page.svelte";
 
-// This page has no @aws-sdk/client-appconfigdata dependency to mock (it is
-// not installed in this repo — see the page's own header comment) — every
-// call, real (StartConfigurationSession / GetLatestConfiguration) and
-// gopherstack-admin alike, goes through plain fetch(). So the only mock
-// this test file needs is a URL/method-routed global.fetch.
+// StartConfigurationSession / GetLatestConfiguration go through the typed
+// AppConfigDataClient (mocked below, same as every other page's SDK client);
+// the gopherstack-only admin endpoints (Sessions/Fixtures/Stats tabs) go
+// through plain fetch(), so both mocks are needed.
+
+const mockSend = vi.fn();
+
+vi.mock("$lib/aws-client", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getAppConfigDataClient: () => ({ send: mockSend }),
+}));
 
 const confirmDestructive = vi.fn().mockResolvedValue(true);
 vi.mock("$lib/confirm-dialog", () => ({
@@ -40,17 +46,6 @@ function jsonResponse(status: number, body: unknown, headers: Record<string, str
     headers,
     json: () => Promise.resolve(body),
     text: () => Promise.resolve(JSON.stringify(body)),
-  };
-}
-
-function blobResponse(status: number, text: string, headers: Record<string, string> = {}) {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: "",
-    headers,
-    json: () => Promise.reject(new Error("not json")),
-    text: () => Promise.resolve(text),
   };
 }
 
@@ -140,26 +135,17 @@ function defaultRoutes(overrides: Partial<Record<string, Route["handle"]>> = {})
           text: () => Promise.resolve(""),
         })),
     },
-    {
-      match: (url, method) => method === "POST" && url.startsWith("/configurationsessions"),
-      handle:
-        overrides.startSession ??
-        (() => jsonResponse(201, { InitialConfigurationToken: "initial-token-abc123" })),
-    },
-    {
-      match: (url, method) => method === "GET" && url.startsWith("/configuration?"),
-      handle:
-        overrides.poll ??
-        (() =>
-          blobResponse(200, '{"featureFlag":true}', {
-            "Next-Poll-Configuration-Token": "next-token-def456",
-            "Next-Poll-Interval-In-Seconds": "30",
-            "Content-Type": "application/json",
-            "Version-Label": "v1",
-          })),
-    },
   ];
 }
+
+const DEFAULT_START_SESSION_RESULT = { InitialConfigurationToken: "initial-token-abc123" };
+const DEFAULT_POLL_RESULT = {
+  NextPollConfigurationToken: "next-token-def456",
+  NextPollIntervalInSeconds: 30,
+  ContentType: "application/json",
+  VersionLabel: "v1",
+  Configuration: new TextEncoder().encode('{"featureFlag":true}'),
+};
 
 async function fillSessionForm(
   app = "my-app",
@@ -176,6 +162,7 @@ async function fillSessionForm(
 describe("AppConfigData Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
     try {
@@ -210,6 +197,7 @@ describe("AppConfigData Page", () => {
 
   it("starts a session and shows the returned token", async () => {
     installFetchMock(defaultRoutes());
+    mockSend.mockResolvedValueOnce(DEFAULT_START_SESSION_RESULT);
     render(AppConfigDataPage);
     await fillSessionForm();
     await fireEvent.click(screen.getByRole("button", { name: /Start Session/ }));
@@ -221,15 +209,14 @@ describe("AppConfigData Page", () => {
   });
 
   it("shows a no-active-deployment hint and links to Test Fixtures on a 404", async () => {
-    installFetchMock(
-      defaultRoutes({
-        startSession: () =>
-          jsonResponse(404, {
-            __type: "ResourceNotFoundException",
-            message:
-              "No deployment exists for the given application, environment, and configuration profile.",
-          }),
-      }),
+    installFetchMock(defaultRoutes());
+    mockSend.mockRejectedValueOnce(
+      Object.assign(
+        new Error(
+          "No deployment exists for the given application, environment, and configuration profile.",
+        ),
+        { name: "ResourceNotFoundException", $metadata: { httpStatusCode: 404 } },
+      ),
     );
     render(AppConfigDataPage);
     await fillSessionForm();
@@ -254,6 +241,8 @@ describe("AppConfigData Page", () => {
 
   it("polls for the latest configuration, renders the content, and rotates the token", async () => {
     installFetchMock(defaultRoutes());
+    mockSend.mockResolvedValueOnce(DEFAULT_START_SESSION_RESULT);
+    mockSend.mockResolvedValueOnce(DEFAULT_POLL_RESULT);
     render(AppConfigDataPage);
     await fillSessionForm();
     await fireEvent.click(screen.getByRole("button", { name: /Start Session/ }));
@@ -278,15 +267,12 @@ describe("AppConfigData Page", () => {
   });
 
   it("shows an explicit unchanged message on an empty poll body", async () => {
-    installFetchMock(
-      defaultRoutes({
-        poll: () =>
-          blobResponse(200, "", {
-            "Next-Poll-Configuration-Token": "next-token-def456",
-            "Next-Poll-Interval-In-Seconds": "30",
-          }),
-      }),
-    );
+    installFetchMock(defaultRoutes());
+    mockSend.mockResolvedValueOnce(DEFAULT_START_SESSION_RESULT);
+    mockSend.mockResolvedValueOnce({
+      NextPollConfigurationToken: "next-token-def456",
+      NextPollIntervalInSeconds: 30,
+    });
     render(AppConfigDataPage);
     await fillSessionForm();
     await fireEvent.click(screen.getByRole("button", { name: /Start Session/ }));
