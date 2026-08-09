@@ -28,7 +28,7 @@ func (b *InMemoryBackend) CreateFlow(
 
 	b.flowCounter++
 	id := fmt.Sprintf("flow-%08d", b.flowCounter)
-	flowArn := arn.Build("bedrock-agent", b.region, b.accountID, "flow/"+id)
+	flowArn := arn.Build("bedrock", b.region, b.accountID, "flow/"+id)
 	now := time.Now()
 
 	tagsCopy := make(map[string]string, len(tags))
