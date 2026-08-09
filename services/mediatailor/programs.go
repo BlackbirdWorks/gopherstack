@@ -193,6 +193,7 @@ func (b *InMemoryBackend) CreateProgram(
 		AudienceMedia:      cloneAudienceMedia(audienceMedia),
 	}
 	b.programs.Put(prog)
+	b.tags[progARN] = copyTags(tags)
 
 	return prog, nil
 }

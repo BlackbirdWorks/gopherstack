@@ -65,6 +65,7 @@ func (b *InMemoryBackend) CreatePrefetchSchedule(
 		Tags:                           copyTags(tags),
 	}
 	b.prefetchSchedules.Put(ps)
+	b.tags[psARN] = copyTags(tags)
 
 	return ps, nil
 }

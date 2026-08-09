@@ -14,10 +14,12 @@ type TaggedEntry struct {
 }
 
 // resolveTaggableLocked resolves resourceArn to the tags.Tags instance of
-// whichever resource kind it names. App, ResiliencyPolicy, and AppAssessment
-// all carry a Tags map with their own ARN-keyed TagResource/UntagResource/
-// ListTagsForResource surface (confirmed from every ARN-bearing field's own
-// doc comment in types/types.go -- see PARITY.md's tagging section).
+// whichever resource kind it names. App, ResiliencyPolicy, AppAssessment,
+// and RecommendationTemplate all carry a Tags map with their own ARN-keyed
+// TagResource/UntagResource/ListTagsForResource surface (confirmed from
+// every ARN-bearing field's own doc comment in types/types.go -- see
+// PARITY.md's tagging section; CreateRecommendationTemplateInput.Tags at
+// resiliencehub@v1.38.3 api_op_CreateRecommendationTemplate.go:46).
 func (b *InMemoryBackend) resolveTaggableLocked(resourceArn string) (*tags.Tags, bool) {
 	if a, ok := b.resolveAppLocked(resourceArn); ok {
 		return a.Tags, true
@@ -29,6 +31,10 @@ func (b *InMemoryBackend) resolveTaggableLocked(resourceArn string) (*tags.Tags,
 
 	if asmt, ok := b.resolveAssessmentLocked(resourceArn); ok {
 		return asmt.Tags, true
+	}
+
+	if t, ok := b.resolveTemplateLocked(resourceArn); ok {
+		return t.Tags, true
 	}
 
 	return nil, false
@@ -80,8 +86,9 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return t.Clone(), nil
 }
 
-// TaggedResources returns every tagged App, ResiliencyPolicy, and
-// AppAssessment, for the resourcegroupstaggingapi integration.
+// TaggedResources returns every tagged App, ResiliencyPolicy,
+// AppAssessment, and RecommendationTemplate, for the
+// resourcegroupstaggingapi integration.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
@@ -103,6 +110,12 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	for _, asmt := range b.assessments.Snapshot() {
 		if asmt.Tags != nil && asmt.Tags.Len() > 0 {
 			out = append(out, TaggedEntry{ARN: asmt.ARN, Tags: asmt.Tags.Clone()})
+		}
+	}
+
+	for _, t := range b.templates.Snapshot() {
+		if t.Tags != nil && t.Tags.Len() > 0 {
+			out = append(out, TaggedEntry{ARN: t.ARN, Tags: t.Tags.Clone()})
 		}
 	}
 

@@ -51,6 +51,7 @@ func (b *InMemoryBackend) CreateLiveSource(
 		HTTPPackageConfigurations: cfgs,
 	}
 	b.liveSources.Put(ls)
+	b.tags[lsARN] = copyTags(tags)
 
 	return ls, nil
 }
