@@ -46,6 +46,7 @@ type CreateTableInput struct {
 	AttributeDefinitions      []AttributeDefinition  `json:"AttributeDefinitions"`
 	GlobalSecondaryIndexes    []GlobalSecondaryIndex `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndex  `json:"LocalSecondaryIndexes,omitempty"`
+	Tags                      []Tag                  `json:"Tags,omitempty"`
 }
 
 type CreateTableOutput struct {

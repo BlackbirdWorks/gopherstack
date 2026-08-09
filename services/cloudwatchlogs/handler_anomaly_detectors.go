@@ -6,12 +6,13 @@ import (
 )
 
 type createLogAnomalyDetectorInput struct {
-	DetectorName          string   `json:"detectorName"`
-	EvaluationFrequency   string   `json:"evaluationFrequency"`
-	FilterPattern         string   `json:"filterPattern"`
-	KmsKeyID              string   `json:"kmsKeyId"`
-	LogGroupArnList       []string `json:"logGroupArnList"`
-	AnomalyVisibilityTime int64    `json:"anomalyVisibilityTime"`
+	Tags                  map[string]string `json:"tags"`
+	DetectorName          string            `json:"detectorName"`
+	EvaluationFrequency   string            `json:"evaluationFrequency"`
+	FilterPattern         string            `json:"filterPattern"`
+	KmsKeyID              string            `json:"kmsKeyId"`
+	LogGroupArnList       []string          `json:"logGroupArnList"`
+	AnomalyVisibilityTime int64             `json:"anomalyVisibilityTime"`
 }
 
 type createLogAnomalyDetectorOutput struct {
@@ -94,6 +95,10 @@ func (h *Handler) handleCreateLogAnomalyDetector(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(input.Tags) > 0 {
+		h.setTags(detectorArn, input.Tags)
 	}
 
 	return &createLogAnomalyDetectorOutput{AnomalyDetectorArn: detectorArn}, nil

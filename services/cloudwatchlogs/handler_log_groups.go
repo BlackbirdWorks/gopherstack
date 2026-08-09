@@ -86,15 +86,19 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 			if err := json.Unmarshal(b, &input); err != nil {
 				return nil, err
 			}
-			if _, err := h.Backend.CreateLogGroup(
+			group, err := h.Backend.CreateLogGroup(
 				ctx,
 				input.LogGroupName,
 				input.LogGroupClass,
 				input.KmsKeyID,
-			); err != nil {
+			)
+			if err != nil {
 				return nil, err
 			}
 			if len(input.Tags) > 0 {
+				// Real clients read tags via ListTagsForResource(ARN), the
+				// non-deprecated path -- ListTagsLogGroup(name) below is legacy.
+				h.setTags(group.Arn, input.Tags)
 				h.setTags(input.LogGroupName, input.Tags)
 			}
 

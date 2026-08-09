@@ -171,6 +171,19 @@ func (b *InMemoryBackend) CreateOpsMetadata(
 	b.opsMetadataStore(region).Put(&meta)
 	resToArn[input.ResourceID] = arn
 
+	if len(input.Tags) > 0 {
+		if b.miscResourceTags[region] == nil {
+			b.miscResourceTags[region] = make(map[string]map[string]string)
+		}
+		miscTags := b.miscResourceTagsStore(region)
+		if miscTags[arn] == nil {
+			miscTags[arn] = make(map[string]string)
+		}
+		for _, t := range input.Tags {
+			miscTags[arn][t.Key] = t.Value
+		}
+	}
+
 	return &CreateOpsMetadataOutput{OpsMetadataArn: arn}, nil
 }
 

@@ -140,9 +140,9 @@ func TestDescribeSecret_AllFields(t *testing.T) {
 	assert.NotEmpty(t, desc.ARN)
 	assert.NotNil(t, desc.CreatedDate)
 	assert.Nil(t, desc.DeletedDate)
-	require.NotNil(t, desc.Tags)
-	tagMap := desc.Tags.Clone()
-	assert.Equal(t, "myapp", tagMap["app"])
+	require.Len(t, desc.Tags, 1)
+	assert.Equal(t, "app", desc.Tags[0].Key)
+	assert.Equal(t, "myapp", desc.Tags[0].Value)
 }
 
 // ---------------------------------------------------------------------------

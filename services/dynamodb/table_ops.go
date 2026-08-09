@@ -13,6 +13,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/models"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -266,6 +267,13 @@ func newTableFromCreateInput(tableName string, input *dynamodb.CreateTableInput)
 				t.SSEType = string(types.SSETypeKms)
 			}
 			t.SSEKMSMasterKeyArn = aws.ToString(input.SSESpecification.KMSMasterKeyId)
+		}
+	}
+
+	if len(input.Tags) > 0 {
+		t.Tags = tags.New("dynamodb.table." + tableName + ".tags")
+		for _, tag := range input.Tags {
+			t.Tags.Set(aws.ToString(tag.Key), aws.ToString(tag.Value))
 		}
 	}
 

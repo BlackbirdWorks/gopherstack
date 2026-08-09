@@ -269,9 +269,16 @@ func (b *InMemoryBackend) DescribeActivations(
 	defer b.mu.RUnlock()
 
 	activations := b.activationsStore(region)
+	miscTags := b.miscResourceTagsStore(region)
 	list := make([]Activation, 0, activations.Len())
+
 	for _, a := range activations.All() {
-		list = append(list, *a)
+		cp := *a
+		for k, v := range miscTags[a.ActivationID] {
+			cp.Tags = append(cp.Tags, Tag{Key: k, Value: v})
+		}
+		sort.Slice(cp.Tags, func(i, j int) bool { return cp.Tags[i].Key < cp.Tags[j].Key })
+		list = append(list, cp)
 	}
 
 	return &DescribeActivationsOutput{ActivationList: list}, nil

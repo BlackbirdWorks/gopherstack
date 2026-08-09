@@ -211,20 +211,20 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	DeletedDate            *float64            `json:"DeletedDate,omitempty"`
+	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
 	LastChangedDate        *float64            `json:"LastChangedDate,omitempty"`
 	LastAccessedDate       *float64            `json:"LastAccessedDate,omitempty"`
 	LastRotatedDate        *float64            `json:"LastRotatedDate,omitempty"`
 	CreatedDate            *float64            `json:"CreatedDate,omitempty"`
 	NextRotationDate       *float64            `json:"NextRotationDate,omitempty"`
-	Tags                   *tags.Tags          `json:"Tags,omitempty"`
+	DeletedDate            *float64            `json:"DeletedDate,omitempty"`
 	RotationRules          *RotationRulesType  `json:"RotationRules,omitempty"`
-	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
 	ARN                    string              `json:"ARN"`
 	Name                   string              `json:"Name"`
 	Description            string              `json:"Description,omitempty"`
 	KmsKeyID               string              `json:"KmsKeyId,omitempty"`
 	RotationLambdaARN      string              `json:"RotationLambdaARN,omitempty"`
+	Tags                   []Tag               `json:"Tags,omitempty"`
 	RotationEnabled        bool                `json:"RotationEnabled,omitempty"`
 }
 
@@ -266,7 +266,7 @@ type DescribeSecretInput struct {
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
 type DescribeSecretOutput struct {
-	Tags               *tags.Tags              `json:"Tags,omitempty"`
+	Tags               []Tag                   `json:"Tags,omitempty"`
 	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
 	CreatedDate        *float64                `json:"CreatedDate,omitempty"`
 	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`

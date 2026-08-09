@@ -573,7 +573,7 @@ func (b *InMemoryBackend) DescribeSecret(
 		KmsKeyID:           secret.KmsKeyID,
 		RotationLambdaARN:  secret.RotationLambdaARN,
 		RotationRules:      cloneRotationRules(secret.RotationRules),
-		Tags:               secret.Tags,
+		Tags:               tagsToSlice(secret.Tags),
 		CreatedDate:        secret.CreatedDate,
 		DeletedDate:        secret.DeletedDate,
 		LastChangedDate:    secret.LastChangedDate,
@@ -767,7 +767,7 @@ func secretToListEntry(s *Secret) SecretListEntry {
 		LastRotatedDate:        s.LastRotatedDate,
 		CreatedDate:            s.CreatedDate,
 		NextRotationDate:       computeNextRotationDate(s),
-		Tags:                   s.Tags,
+		Tags:                   tagsToSlice(s.Tags),
 		SecretVersionsToStages: versionStages,
 	}
 }
