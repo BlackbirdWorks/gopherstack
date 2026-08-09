@@ -176,7 +176,7 @@ func (h *ServerlessHandler) Handler() echo.HandlerFunc {
 // by the real X-Amz-Target action name now that routing no longer derives
 // the op from URL shape.
 //
-//nolint:gochecknoglobals // read-only dispatch table, same convention as cronMonthNames in schedule.go
+//nolint:gochecknoglobals // read-only dispatch table, same convention as pkgs/awscron's month/day-of-week name tables
 var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte) error{
 	"CreateNamespace":       (*ServerlessHandler).handleCreateNamespace,
 	"GetNamespace":          (*ServerlessHandler).handleGetNamespace,

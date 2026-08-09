@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awscron"
 )
 
 var (
@@ -67,10 +69,8 @@ func parseISO8601Duration(s string) (time.Duration, error) {
 const muteCronFields = 5
 
 // muteCronExpr is a parsed 5-field AWS cron(min hour dom month dow) mute
-// schedule. The field-matching primitives below (matchCronField and callees)
-// are lifted from services/redshift/schedule.go, which already covers this
-// same AWS cron dialect; eventbridge/schedule.go has a third copy. All three
-// are tracked for consolidation by bd issue gopherstack-wx3l.
+// schedule; field matching is shared with eventbridge/redshift's 6-field
+// dialects via pkgs/awscron.
 type muteCronExpr struct {
 	minute     string
 	hour       string
@@ -97,209 +97,19 @@ func parseMuteCron(expr string) (*muteCronExpr, error) {
 }
 
 func (c *muteCronExpr) matches(t time.Time) bool {
-	if !matchCronField(cronFieldMinute, c.minute, t.Minute(), cronMinuteMin, cronMinuteMax) {
+	if !awscron.MatchField(awscron.FieldMinute, c.minute, t.Minute(), awscron.MinuteMin, awscron.MinuteMax) {
 		return false
 	}
 
-	if !matchCronField(cronFieldHour, c.hour, t.Hour(), cronHourMin, cronHourMax) {
+	if !awscron.MatchField(awscron.FieldHour, c.hour, t.Hour(), awscron.HourMin, awscron.HourMax) {
 		return false
 	}
 
-	if !matchCronField(cronFieldMonth, c.month, int(t.Month()), cronMonthMin, cronMonthMax) {
+	if !awscron.MatchField(awscron.FieldMonth, c.month, int(t.Month()), awscron.MonthMin, awscron.MonthMax) {
 		return false
 	}
 
-	return c.matchDayFields(t)
-}
-
-// matchDayFields evaluates dayOfMonth/dayOfWeek: a wildcard field defers
-// entirely to the other; when both are concrete, AWS matches if either is
-// satisfied (same rule as the eventbridge/redshift cron dialects).
-func (c *muteCronExpr) matchDayFields(t time.Time) bool {
-	domWild := c.dayOfMonth == "?" || c.dayOfMonth == "*"
-	dowWild := c.dayOfWeek == "?" || c.dayOfWeek == "*"
-
-	switch {
-	case domWild && dowWild:
-		return true
-	case domWild:
-		return matchCronField(cronFieldDayOfWeek, c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax)
-	case dowWild:
-		return matchCronField(cronFieldDayOfMonth, c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax)
-	default:
-		domMatch := matchCronField(cronFieldDayOfMonth, c.dayOfMonth, t.Day(), cronDayOfMonthMin, cronDayOfMonthMax)
-		dowMatch := matchCronField(
-			cronFieldDayOfWeek, c.dayOfWeek, int(t.Weekday()), cronDayOfWeekMin, cronDayOfWeekMax,
-		)
-
-		return domMatch || dowMatch
-	}
-}
-
-type cronFieldKind int
-
-const (
-	cronFieldMinute cronFieldKind = iota
-	cronFieldHour
-	cronFieldDayOfMonth
-	cronFieldMonth
-	cronFieldDayOfWeek
-)
-
-const (
-	cronMinuteMin, cronMinuteMax         = 0, 59
-	cronHourMin, cronHourMax             = 0, 23
-	cronMonthMin, cronMonthMax           = 1, 12
-	cronDayOfMonthMin, cronDayOfMonthMax = 1, 31
-	cronDayOfWeekMin, cronDayOfWeekMax   = 0, 6
-)
-
-//nolint:gochecknoglobals // read-only lookup table initialized once at startup
-var cronMonthNames = map[string]int{
-	"JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, //nolint:mnd // calendar month numbers, not magic constants
-	"MAY": 5, "JUN": 6, "JUL": 7, "AUG": 8, //nolint:mnd // calendar month numbers, not magic constants
-	"SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12, //nolint:mnd // calendar month numbers, not magic constants
-}
-
-// cronDowNames maps AWS's three-letter day-of-week names directly to Go's
-// time.Weekday numbering (0 = Sunday), so no offset is needed after lookup.
-//
-//nolint:gochecknoglobals // read-only lookup table initialized once at startup
-var cronDowNames = map[string]int{
-	"SUN": 0, "MON": 1, "TUE": 2, "WED": 3, //nolint:mnd // time.Weekday numbers, not magic constants
-	"THU": 4, "FRI": 5, "SAT": 6, //nolint:mnd // time.Weekday numbers, not magic constants
-}
-
-// awsDayOfWeekBase is AWS's numeric base for day-of-week fields (1-7, 1 =
-// Sunday), vs. Go's time.Weekday (0-6, 0 = Sunday).
-const awsDayOfWeekBase = 1
-
-func cronTokenValue(kind cronFieldKind, token string) (int, bool) {
-	switch kind {
-	case cronFieldMonth:
-		if n, ok := cronMonthNames[strings.ToUpper(token)]; ok {
-			return n, true
-		}
-	case cronFieldDayOfWeek:
-		if n, ok := cronDowNames[strings.ToUpper(token)]; ok {
-			return n, true
-		}
-	case cronFieldMinute, cronFieldHour, cronFieldDayOfMonth:
-		// Numeric-only fields; fall through to the plain-integer parse below.
-	}
-
-	n, err := strconv.Atoi(token)
-	if err != nil {
-		return 0, false
-	}
-
-	if kind == cronFieldDayOfWeek {
-		const daysPerWeek = 7
-		n = ((n-awsDayOfWeekBase)%daysPerWeek + daysPerWeek) % daysPerWeek
-	}
-
-	return n, true
-}
-
-func matchCronField(kind cronFieldKind, field string, val, fieldMin, fieldMax int) bool {
-	if field == "*" || field == "?" {
-		return true
-	}
-
-	for part := range strings.SplitSeq(field, ",") {
-		if matchCronToken(kind, strings.TrimSpace(part), val, fieldMin, fieldMax) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func matchCronToken(kind cronFieldKind, token string, val, fieldMin, fieldMax int) bool {
-	switch {
-	case strings.Contains(token, "/"):
-		// Checked before "-": a step's start may itself be a range (e.g.
-		// "0-30/10"), which must not be misrouted to matchCronRange.
-		return matchCronStep(kind, token, val, fieldMin, fieldMax)
-	case strings.Contains(token, "-"):
-		return matchCronRange(kind, token, val)
-	default:
-		n, ok := cronTokenValue(kind, token)
-
-		return ok && n == val
-	}
-}
-
-const cronRangeParts = 2
-
-func matchCronRange(kind cronFieldKind, token string, val int) bool {
-	parts := strings.SplitN(token, "-", cronRangeParts)
-	if len(parts) != cronRangeParts {
-		return false
-	}
-
-	lo, ok1 := cronTokenValue(kind, parts[0])
-	hi, ok2 := cronTokenValue(kind, parts[1])
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	if kind == cronFieldDayOfWeek && hi < lo {
-		// A day-of-week range may wrap past Saturday back to Sunday after the
-		// AWS->Go conversion (e.g. AWS "FRI-MON" spans Fri,Sat,Sun,Mon).
-		return val >= lo || val <= hi
-	}
-
-	return val >= lo && val <= hi
-}
-
-func matchCronStep(kind cronFieldKind, token string, val, fieldMin, fieldMax int) bool {
-	parts := strings.SplitN(token, "/", cronRangeParts)
-	if len(parts) != cronRangeParts {
-		return false
-	}
-
-	step, err := strconv.Atoi(parts[1])
-	if err != nil || step <= 0 {
-		return false
-	}
-
-	start, end, ok := cronStepBounds(kind, parts[0], fieldMin, fieldMax)
-	if !ok {
-		return false
-	}
-
-	for v := start; v <= end; v += step {
-		if v == val {
-			return true
-		}
-	}
-
-	return false
-}
-
-// cronStepBounds resolves the "start" portion of a step token ("*/N",
-// "5/N", or a range "0-30/N") into the [start, end] the step iterates over.
-func cronStepBounds(kind cronFieldKind, start string, fieldMin, fieldMax int) (int, int, bool) {
-	switch {
-	case start == "*":
-		return fieldMin, fieldMax, true
-	case strings.Contains(start, "-"):
-		parts := strings.SplitN(start, "-", cronRangeParts)
-		if len(parts) != cronRangeParts {
-			return 0, 0, false
-		}
-
-		lo, ok1 := cronTokenValue(kind, parts[0])
-		hi, ok2 := cronTokenValue(kind, parts[1])
-
-		return lo, hi, ok1 && ok2
-	default:
-		n, ok := cronTokenValue(kind, start)
-
-		return n, fieldMax, ok
-	}
+	return awscron.MatchDayFields(c.dayOfMonth, c.dayOfWeek, t)
 }
 
 // muteAtLayout is AWS's one-time mute expression format: at(yyyy-MM-ddThh:mm)
