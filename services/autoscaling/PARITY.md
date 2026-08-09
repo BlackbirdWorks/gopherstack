@@ -1,6 +1,6 @@
 ---
 service: autoscaling
-sdk_module: aws-sdk-go-v2/service/autoscaling@v1.64.2
+sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
 last_audit_commit: 1c4ee34e
 last_audit_date: 2026-07-23
 overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling version bump
@@ -33,9 +33,9 @@ overall: A            # parity-3 sweep. No aws-sdk-go-v2/service/autoscaling ver
                        # is ctx-parented and Shutdown-drained via pkgs/worker.SingleRun
                        # (see families below).
 ops:
-  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. Prior pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe. This pass (bd gopherstack-2uti): MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements (attribute-based instance-type selection, 24 of 25 sub-fields - see deferred) is now parsed; also fixed a real loop-termination bug in parseLaunchTemplateOverrides - an override carrying only InstanceRequirements (no InstanceType/WeightedCapacity/LaunchTemplateSpecification, the common real-world shape) was indistinguishable from 'no more members', silently truncating every override after it too"}
-  DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it). This pass (bd gopherstack-2uti): projects InstanceRequirements on each override (see CreateAutoScalingGroup)"}
-  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior passes: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open); wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy). This pass (bd gopherstack-2uti): inherits the InstanceRequirements parsing fix via the shared parseMixedInstancesPolicy/parseLaunchTemplateOverrides helpers"}
+  CreateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy, LifecycleHookSpecificationList, TrafficSources were parsed as no-ops (silently dropped) - now parsed, validated, and registered atomically with the group; initial instances are gated by any launch hook just registered. Prior pass: wired 7 previously-unparsed fields (AvailabilityZoneDistribution, AvailabilityZoneImpairmentPolicy, CapacityReservationSpecification, DeletionProtection, InstanceLifecyclePolicy, InstanceMaintenancePolicy, SkipZonalShiftValidation) - parsed, validated (DeletionProtection enum), stored, and (all but SkipZonalShiftValidation, which real AWS itself never echoes back - verified against types.AutoScalingGroup) projected on Describe. bd gopherstack-2uti: MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements (attribute-based instance-type selection, 24 of 25 sub-fields) is now parsed; also fixed a real loop-termination bug in parseLaunchTemplateOverrides - an override carrying only InstanceRequirements (no InstanceType/WeightedCapacity/LaunchTemplateSpecification, the common real-world shape) was indistinguishable from 'no more members', silently truncating every override after it too. bd gopherstack-02ue (this pass): the 25th and last InstanceRequirements field, BaselinePerformanceFactors, is now modelled too - see Notes for its wire-shape outlier (singular 'Reference' key, 'item'-wrapped list)"}
+  DescribeAutoScalingGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "added MixedInstancesPolicy to the XML projection (was entirely absent from xmlAutoScalingGroup even though the backend model carried it). bd gopherstack-2uti: projects InstanceRequirements on each override (see CreateAutoScalingGroup). bd gopherstack-02ue (this pass): projects BaselinePerformanceFactors too"}
+  UpdateAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MixedInstancesPolicy was not parsed from the request. Prior passes: scale-in path (via applyDesiredCapacityChange) now also gates on a terminating lifecycle hook (bd gopherstack-9wo; re-verified present in code this pass, the bd issue itself was just stale-open); wired the same 7 fields as CreateAutoScalingGroup (see above); each pointer-struct field replaces the group's existing value wholesale when present in the request (matches AWS's opaque-nested-object semantics - there is no partial-field patch for e.g. InstanceMaintenancePolicy). bd gopherstack-2uti / bd gopherstack-02ue: inherits the InstanceRequirements (incl. BaselinePerformanceFactors) parsing fix via the shared parseMixedInstancesPolicy/parseLaunchTemplateOverrides helpers"}
   DeleteAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: DeletionProtection is now a real gate, not just a stored/echoed value - prevent-all-deletion rejects every delete, prevent-force-deletion rejects only ForceDelete=true, matching real AWS's ResourceInUse (ErrorCode) fault. Previously the field didn't exist on the model at all"}
   CreateLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLaunchConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -72,7 +72,7 @@ ops:
   DescribeLoadBalancers: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeMetricCollectionTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeNotificationConfigurations: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MinAdjustmentStep and MetricAggregationType were never returned. This pass (bd gopherstack-2uti): now echoes back PredictiveScalingConfiguration (see PutScalingPolicy)"}
+  DescribePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MinAdjustmentStep and MetricAggregationType were never returned. bd gopherstack-2uti: now echoes back PredictiveScalingConfiguration (see PutScalingPolicy). bd gopherstack-02ue (this pass): now echoes back TargetTrackingConfiguration.CustomizedMetricSpecification and the three predictive-scaling Customized*MetricSpecification variants"}
   DescribeScalingProcessTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeTerminationPolicyTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeTrafficSources: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -89,7 +89,7 @@ ops:
   GetPredictiveScalingForecast: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed: response was missing the required UpdateTime field and returned a wrong-shaped, entirely empty LoadForecast; now returns UpdateTime and a real (though intentionally naive - see Notes) Timestamps/Values series"}
   LaunchInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 3 bugs: (1) handler read the wrong query param (DesiredCapacity instead of the real RequestedCapacity, so every call silently launched only 1 instance regardless of the requested count); (2) response used the DescribeAutoScalingGroups per-instance shape instead of the real LaunchInstancesOutput InstanceCollection (grouped by AZ/InstanceType with InstanceIds) shape; (3) the backend never added launched instances to instanceIndex, so they could never be found by TerminateInstanceInAutoScalingGroup"}
   PutNotificationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MetricAggregationType was accepted nowhere on input or output. This pass (bd gopherstack-2uti): PredictiveScalingConfiguration rode along entirely unparsed - accepted with 200 OK, silently discarded (worse than a missing feature: the caller believes predictive scaling is configured and it is not). Now parses the top-level scalar fields (MaxCapacityBreachBehavior/MaxCapacityBuffer/Mode/SchedulingBufferTime) and MetricSpecifications' three predefined-metric variants (PredefinedMetricPairSpecification/PredefinedLoadMetricSpecification/PredefinedScalingMetricSpecification); Customized* variants remain deferred (see deferred)"}
+  PutScalingPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: MetricAggregationType was accepted nowhere on input or output. bd gopherstack-2uti: PredictiveScalingConfiguration rode along entirely unparsed - accepted with 200 OK, silently discarded. Now parses the top-level scalar fields (MaxCapacityBreachBehavior/MaxCapacityBuffer/Mode/SchedulingBufferTime) and MetricSpecifications' three predefined-metric variants. bd gopherstack-02ue (this pass): the four Customized*MetricSpecification variants (TargetTrackingConfiguration.CustomizedMetricSpecification, and PredictiveScalingMetricSpecification's Customized{Load,Scaling,Capacity}MetricSpecification) were the same silent-discard gap - TargetTrackingConfiguration.CustomizedMetricSpecification was worse: a dead ScalingPolicy.CustomizedMetricSpecification string field existed but was never even parsed from the wire. All four now modelled in full, including the shared CloudWatch MetricDataQuery/MetricStat/Metric/Dimensions nesting - see Notes"}
   PutScheduledUpdateGroupAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: StartTime/EndTime were parsed nowhere and silently dropped despite the backend model and DescribeScheduledActions XML projection already supporting them"}
   PutWarmPool: {wire: ok, errors: ok, state: ok, persist: ok}
   RecordLifecycleActionHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "was re-arming a timer that called a no-op (expireHookAction just deleted the map entry); now re-arms to re-resolve with the hook's DefaultResult, and supports lookup by instance ID (not just token)"}
@@ -110,9 +110,7 @@ families:
   lifecycle-hook-chaining (multiple hooks on one transition): {status: ok, note: "FIXED this pass (bd gopherstack-9tqg, deferred from bd gopherstack-2uti/b7d3a8485). Registering a second+ hook on the same transition previously armed nothing - see dated Notes section below for the ordering rule, the chain data model, and how it composes with ABANDON's terminate-and-replace"}
 gaps:
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
-deferred:
-  - InstanceRequirements.BaselinePerformanceFactors (the one field of InstanceRequirements's 25 not modelled - see Notes for the other 24, fixed this pass). It nests a CPU-instance-family reference list (CpuPerformanceFactorRequest.References []PerformanceFactorReferenceRequest) that has no analogue elsewhere in this handler; deliberately not attempted this pass. No bd id filed yet.
-  - PredictiveScalingConfiguration.MetricSpecifications[].Customized{Capacity,Load,Scaling}MetricSpecification (the CloudWatch MetricDataQuery/math-expression variant of a predictive scaling metric spec - see Notes for the predefined-metric variants, fixed this pass). Deliberately not attempted this pass: MetricDataQuery is a full CloudWatch metric-math sub-language shared with GetMetricData, out of scope for a PutScalingPolicy fix. No bd id filed yet.
+deferred: []
 leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
 
@@ -277,6 +275,106 @@ first hook).
 `LifecycleHook.Sequence` (chain ordering) and `Instance.LifecycleHookName` (chain
 position, for restore) - neither of which exists on AWS's wire types; both are
 internal bookkeeping only.
+
+### bd gopherstack-02ue (2026-08-09): Customized\*MetricSpecification, InstanceRequirements.BaselinePerformanceFactors
+
+Closed the two items `gopherstack-2uti` deferred, plus a third, related gap found
+while auditing the first: all four `Customized*MetricSpecification` variants this
+service accepts were either unparsed or (in `TargetTrackingConfiguration.
+CustomizedMetricSpecification`'s case) not even wired to a form key at all - a dead
+`ScalingPolicy.CustomizedMetricSpecification string` field existed but nothing ever
+set it from `vals`. All verified against `aws-sdk-go-v2/service/autoscaling@v1.70.4`'s
+`serializers.go`/`deserializers.go` before writing any parsing code, per the
+`parsePredictiveScalingConfiguration` precedent from `gopherstack-2uti`.
+
+**The four variants and their shared math-expression sub-language.**
+`TargetTrackingConfiguration.CustomizedMetricSpecification`
+(`types.CustomizedMetricSpecification`, `types.go:587`) and the three predictive-scaling
+variants - `PredictiveScalingMetricSpecification.Customized{Load,Scaling,Capacity}
+MetricSpecification` (`types.PredictiveScalingCustomized{Load,Scaling,Capacity}Metric`,
+`types.go:2625/2638/2651`, each just `{MetricDataQueries []MetricDataQuery}`) - all
+bottom out in the same CloudWatch metric-data-query shape, duplicated by smithy-codegen
+under two Go type names for what is structurally one shape:
+`types.MetricDataQuery`/`types.MetricStat` (`types.go:2268`/`2345`, no `Period`) for the
+predictive-scaling variants, and `types.TargetTrackingMetricDataQuery`/
+`types.TargetTrackingMetricStat` (`types.go:3400`/`3459`, has `Period`) for the
+target-tracking variant. Both nest `types.Metric` (`types.go:2182`:
+`MetricName`/`Namespace`/`Dimensions []MetricDimension`) and `types.MetricDimension`
+(`types.go:2314`: `Name`/`Value`). This bottoms out cleanly - `Expression` is a plain
+string referencing other queries' `Id`s, not another nested structure - so it was
+modelled to full depth rather than partially, per the "worse than absent" rule: models
+`MetricDataQuery`, `MetricDataStat`, `MetricRef`, `MetricDimension`,
+`CustomizedMetricSpecification` (the legacy pre-metric-math shape - `MetricName`/
+`Namespace`/`Dimensions`/`Statistic`/`Unit`/`Period` - and the newer `Metrics`
+metric-data-query list, both accepted since AWS's mutual-exclusivity rule is its own
+validation, not the parser's), and `CustomMetricQueries` (the `{MetricDataQueries}`
+wrapper shared structurally by all three predictive-scaling variants).
+
+**Exact query-protocol flattening**, confirmed against `serializers.go`, not guessed:
+
+- `TargetTrackingConfiguration.CustomizedMetricSpecification.{MetricName,Namespace,
+  Statistic,Unit,Period}` are flat scalars (`serializers.go:4985`
+  `awsAwsquery_serializeDocumentCustomizedMetricSpecification`).
+- `...CustomizedMetricSpecification.Dimensions.member.N.{Name,Value}` - standard
+  `.member.`-flattened list (`serializers.go:5767`).
+- `...CustomizedMetricSpecification.Metrics.member.N.{Id,Expression,Label,Period,
+  ReturnData}` - standard `.member.`-flattened list (`serializers.go:6508`); this is
+  the exact key path the issue's prompt named as the worked example
+  (`...Metrics.member.1.Id`), confirmed correct.
+- `...Metrics.member.N.MetricStat.{Stat,Period,Unit}` plus
+  `...MetricStat.Metric.{MetricName,Namespace}` and
+  `...MetricStat.Metric.Dimensions.member.M.{Name,Value}` (`serializers.go:6559`,
+  `5680`, `5750`).
+- `PredictiveScalingConfiguration.MetricSpecifications.member.N.Customized
+  {Load,Scaling,Capacity}MetricSpecification.MetricDataQueries.member.M.*` follows the
+  identical shape one level down (no `Period` on this variant's `MetricDataQuery`/
+  `MetricStat` - `serializers.go:5704/5716/5789`, confirmed by their absence in those
+  serializer bodies, not by omission from mine).
+
+**`InstanceRequirements.BaselinePerformanceFactors`** (`types.
+BaselinePerformanceFactorsRequest`, referenced `types.go:1267`/`2582`) nests
+`CpuPerformanceFactorRequest.References []PerformanceFactorReferenceRequest`
+(`types.go:550`/`2468`) - small and fully bounded, modelled in full. Its wire shape is
+a genuine outlier worth flagging for the next person: `References` serializes under the
+**singular** key `Reference`, not `References`
+(`serializers.go:4971` `awsAwsquery_serializeDocumentCpuPerformanceFactorRequest`), and
+that list is wrapped in `item`, not `member`
+(`serializers.go:5918` `awsAwsquery_serializeDocumentPerformanceFactorReferenceSetRequest`)
+- every other list in this handler uses `member`. Confirmed the same on the response
+(deserializer) side (`deserializers.go:10587`/`16003`). Full flattened key:
+`MixedInstancesPolicy.LaunchTemplate.Overrides.member.N.InstanceRequirements.
+BaselinePerformanceFactors.Cpu.Reference.item.M.InstanceFamily`.
+
+**Operations checked, one by one** (grepped every `api_op_*.go` for
+`TargetTrackingConfiguration`/`PredictiveScalingConfiguration`/`MixedInstancesPolicy`/
+`InstanceRequirements` rather than assuming): `PutScalingPolicy` and `DescribePolicies`
+are the only operations carrying `TargetTrackingConfiguration`/
+`PredictiveScalingConfiguration` (fixed, both directions).
+`CreateAutoScalingGroup`/`UpdateAutoScalingGroup` and `DescribeAutoScalingGroups` are
+the only operations reaching `InstanceRequirements` (via `MixedInstancesPolicy.
+LaunchTemplate.Overrides`; fixed, both directions). `PutWarmPool` does **not** carry
+`InstanceRequirements` - warm pools have no launch-template-override mechanism of their
+own, confirmed by its absence from `api_op_PutWarmPool.go`.
+
+**Verification.** `handler_customized_metrics_test.go` drives all four Customized
+variants plus `BaselinePerformanceFactors` through a real `aws-sdk-go-v2` client against
+an `httptest` server (not hand-built form bodies - the campaign's own "27 such tests
+found" warning is precisely about a test that can't see this bug class because it
+shares the handler's wrong parse). Each of the four new round-trip tests was run first
+against a pristine pre-fix worktree and confirmed to fail (nested body silently
+dropped, top-level 200 OK); all four pass against the fix. `persistence_test.go` gained
+two more `TestInMemoryBackend_Persistence` cases (`CustomizedMetricSpecification` and
+`BaselinePerformanceFactors` survive `Snapshot`/`Restore`) - both structs are stored
+directly by `store.Table`'s JSON-marshal-the-real-struct path (no hand-maintained DTO
+in `persistence.go`), so the new `omitempty` fields round-trip automatically; the tests
+exist to prove that, not to work around a gap. No `autoscalingSnapshotVersion` bump -
+purely additive fields.
+
+**Not touched.** `ScalingPolicy.CustomMetricSpec` (`models.go`, a second, entirely
+unrelated dead `string` field sitting next to the one this pass fixed) is still
+unreferenced anywhere in the handler. Flagged here rather than removed or wired up -
+outside this issue's scope and its intended shape is unclear (unlike
+`CustomizedMetricSpecification`, there's no AWS field it obviously maps to).
 
 ### Parity-3 sweep (2026-07-23): scheduler, 7 CreateASG/UpdateASG fields, ledger correction
 

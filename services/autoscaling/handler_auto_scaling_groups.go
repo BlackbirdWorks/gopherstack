@@ -644,7 +644,37 @@ func toXMLInstanceRequirements(ir *InstanceRequirements) *xmlInstanceRequirement
 		BareMetal:                                      ir.BareMetal,
 		BurstablePerformance:                           ir.BurstablePerformance,
 		LocalStorage:                                   ir.LocalStorage,
+		BaselinePerformanceFactors:                     toXMLBaselinePerformanceFactors(ir.BaselinePerformanceFactors),
 	}
+}
+
+// toXMLPerformanceFactorReferenceList converts a []PerformanceFactorReference
+// to its XML response shape. The wrapper element is "item", not "member" --
+// see parsePerformanceFactorReferences for the citation.
+func toXMLPerformanceFactorReferenceList(refs []PerformanceFactorReference) *xmlPerformanceFactorReferenceList {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	members := make([]xmlPerformanceFactorReference, 0, len(refs))
+	for _, r := range refs {
+		members = append(members, xmlPerformanceFactorReference(r))
+	}
+
+	return &xmlPerformanceFactorReferenceList{Items: members}
+}
+
+func toXMLBaselinePerformanceFactors(bpf *BaselinePerformanceFactors) *xmlBaselinePerformanceFactors {
+	if bpf == nil || bpf.CPU == nil {
+		return nil
+	}
+
+	refs := toXMLPerformanceFactorReferenceList(bpf.CPU.References)
+	if refs == nil {
+		return nil
+	}
+
+	return &xmlBaselinePerformanceFactors{CPU: &xmlCPUPerformanceFactor{Reference: *refs}}
 }
 
 func toXMLIntRangeRequest(r *IntRangeRequest) *xmlIntRangeRequest {
@@ -763,12 +793,13 @@ type xmlFloatRangeRequest struct {
 // (models.go), matching DescribeAutoScalingGroups' LaunchTemplateOverrides.
 // InstanceRequirements wire shape (deserializers.go:12592).
 type xmlInstanceRequirements struct {
-	RequireHibernateSupport   *bool                 `xml:"RequireHibernateSupport,omitempty"`
-	MemoryGiBPerVCpu          *xmlFloatRangeRequest `xml:"MemoryGiBPerVCpu,omitempty"`
-	AcceleratorCount          *xmlIntRangeRequest   `xml:"AcceleratorCount,omitempty"`
-	AcceleratorTotalMemoryMiB *xmlIntRangeRequest   `xml:"AcceleratorTotalMemoryMiB,omitempty"`
-	BaselineEbsBandwidthMbps  *xmlIntRangeRequest   `xml:"BaselineEbsBandwidthMbps,omitempty"`
-	NetworkInterfaceCount     *xmlIntRangeRequest   `xml:"NetworkInterfaceCount,omitempty"`
+	RequireHibernateSupport    *bool                          `xml:"RequireHibernateSupport,omitempty"`
+	MemoryGiBPerVCpu           *xmlFloatRangeRequest          `xml:"MemoryGiBPerVCpu,omitempty"`
+	AcceleratorCount           *xmlIntRangeRequest            `xml:"AcceleratorCount,omitempty"`
+	AcceleratorTotalMemoryMiB  *xmlIntRangeRequest            `xml:"AcceleratorTotalMemoryMiB,omitempty"`
+	BaselineEbsBandwidthMbps   *xmlIntRangeRequest            `xml:"BaselineEbsBandwidthMbps,omitempty"`
+	NetworkInterfaceCount      *xmlIntRangeRequest            `xml:"NetworkInterfaceCount,omitempty"`
+	BaselinePerformanceFactors *xmlBaselinePerformanceFactors `xml:"BaselinePerformanceFactors,omitempty"`
 	// omitempty is redundant on *int32 (encoding/xml always skips a nil
 	// pointer field); dropped from the three tags below to fit the lll limit.
 	SpotMaxPricePercentageOverLowestPrice *int32                `xml:"SpotMaxPricePercentageOverLowestPrice"`
@@ -791,6 +822,35 @@ type xmlInstanceRequirements struct {
 	ExcludedInstanceTypes                     xmlStringValueList  `xml:"ExcludedInstanceTypes,omitempty"`
 	InstanceGenerations                       xmlStringValueList  `xml:"InstanceGenerations,omitempty"`
 	LocalStorageTypes                         xmlStringValueList  `xml:"LocalStorageTypes,omitempty"`
+}
+
+// xmlPerformanceFactorReference is the XML response projection of
+// PerformanceFactorReference, matching AWS types.PerformanceFactorReferenceRequest
+// (deserializers.go:15954).
+type xmlPerformanceFactorReference struct {
+	InstanceFamily string `xml:"InstanceFamily,omitempty"`
+}
+
+// xmlPerformanceFactorReferenceList wraps its members in "item", not
+// "member" -- see parsePerformanceFactorReferences for the citation
+// (deserializers.go:16003).
+type xmlPerformanceFactorReferenceList struct {
+	Items []xmlPerformanceFactorReference `xml:"item"`
+}
+
+// xmlCPUPerformanceFactor is the XML response projection of
+// CPUPerformanceFactor, matching AWS types.CpuPerformanceFactorRequest
+// (deserializers.go:10587). The field is named "Reference" (singular) on the
+// wire, not "References".
+type xmlCPUPerformanceFactor struct {
+	Reference xmlPerformanceFactorReferenceList `xml:"Reference"`
+}
+
+// xmlBaselinePerformanceFactors is the XML response projection of
+// BaselinePerformanceFactors, matching AWS types.BaselinePerformanceFactorsRequest
+// (deserializers.go:9834).
+type xmlBaselinePerformanceFactors struct {
+	CPU *xmlCPUPerformanceFactor `xml:"Cpu,omitempty"`
 }
 
 type xmlLaunchTemplateOverrideList struct {
@@ -1055,6 +1115,22 @@ func parseFloatRangeRequest(vals url.Values, prefix string) *FloatRangeRequest {
 // types.go:1267). Returns nil if nothing was specified.
 func parseInstanceRequirements(vals url.Values, prefix string) *InstanceRequirements {
 	ir := &InstanceRequirements{}
+
+	hasRanges := parseInstanceRequirementRanges(vals, prefix, ir)
+	hasLists := parseInstanceRequirementLists(vals, prefix, ir)
+	hasScalars := parseInstanceRequirementScalars(vals, prefix, ir)
+
+	if !hasRanges && !hasLists && !hasScalars {
+		return nil
+	}
+
+	return ir
+}
+
+// parseInstanceRequirementRanges parses the six *IntRangeRequest and three
+// *FloatRangeRequest {Min,Max} sub-fields of InstanceRequirements into ir,
+// returning whether any was set.
+func parseInstanceRequirementRanges(vals url.Values, prefix string, ir *InstanceRequirements) bool {
 	hasAny := false
 
 	intRanges := []struct {
@@ -1090,6 +1166,15 @@ func parseInstanceRequirements(vals url.Values, prefix string) *InstanceRequirem
 		}
 	}
 
+	return hasAny
+}
+
+// parseInstanceRequirementLists parses the eight .member.N-flattened string
+// list sub-fields of InstanceRequirements into ir, returning whether any was
+// set.
+func parseInstanceRequirementLists(vals url.Values, prefix string, ir *InstanceRequirements) bool {
+	hasAny := false
+
 	stringLists := []struct {
 		dest *[]string
 		sub  string
@@ -1109,6 +1194,15 @@ func parseInstanceRequirements(vals url.Values, prefix string) *InstanceRequirem
 			hasAny = true
 		}
 	}
+
+	return hasAny
+}
+
+// parseInstanceRequirementScalars parses the remaining plain-string,
+// *int32, *bool, and BaselinePerformanceFactors sub-fields of
+// InstanceRequirements into ir, returning whether any was set.
+func parseInstanceRequirementScalars(vals url.Values, prefix string, ir *InstanceRequirements) bool {
+	hasAny := false
 
 	strFields := []struct {
 		dest *string
@@ -1148,11 +1242,48 @@ func parseInstanceRequirements(vals url.Values, prefix string) *InstanceRequirem
 		hasAny = true
 	}
 
-	if !hasAny {
+	if bpf := parseBaselinePerformanceFactors(vals, prefix+"BaselinePerformanceFactors."); bpf != nil {
+		ir.BaselinePerformanceFactors = bpf
+		hasAny = true
+	}
+
+	return hasAny
+}
+
+// parsePerformanceFactorReferences parses a
+// BaselinePerformanceFactors.Cpu.Reference.item.N.InstanceFamily list.
+// Verified against serializers.go:5918
+// (awsAwsquery_serializeDocumentPerformanceFactorReferenceSetRequest): unlike
+// every other list in this handler, the wrapper element is "item", not
+// "member" -- and the field itself is serialized under the singular key
+// "Reference", not "References" (serializers.go:4971).
+func parsePerformanceFactorReferences(vals url.Values, prefix string) []PerformanceFactorReference {
+	var refs []PerformanceFactorReference
+
+	for i := 1; ; i++ {
+		key := fmt.Sprintf("%sitem.%d.InstanceFamily", prefix, i)
+
+		v := vals.Get(key)
+		if v == "" {
+			break
+		}
+
+		refs = append(refs, PerformanceFactorReference{InstanceFamily: v})
+	}
+
+	return refs
+}
+
+// parseBaselinePerformanceFactors parses InstanceRequirements.
+// BaselinePerformanceFactors.* form values (types.BaselinePerformanceFactorsRequest,
+// serializers.go:4826). Returns nil if nothing was specified.
+func parseBaselinePerformanceFactors(vals url.Values, prefix string) *BaselinePerformanceFactors {
+	refs := parsePerformanceFactorReferences(vals, prefix+"Cpu.Reference.")
+	if len(refs) == 0 {
 		return nil
 	}
 
-	return ir
+	return &BaselinePerformanceFactors{CPU: &CPUPerformanceFactor{References: refs}}
 }
 
 // parseInstancesDistribution parses the InstancesDistribution.* form values within a

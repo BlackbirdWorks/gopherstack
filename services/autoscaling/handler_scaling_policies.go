@@ -101,10 +101,11 @@ func scalingPolicyIntFields(vals url.Values) (scalingPolicyIntFieldValues, error
 // targetTrackingFields holds the parsed TargetTrackingConfiguration.* portion
 // of a PutScalingPolicy request.
 type targetTrackingFields struct {
-	metricType      string
-	targetValue     float64
-	estimatedWarmup int32
-	disableScaleIn  bool
+	customizedMetricSpec *CustomizedMetricSpecification
+	metricType           string
+	targetValue          float64
+	estimatedWarmup      int32
+	disableScaleIn       bool
 }
 
 // parseTargetTrackingFields parses the TargetTrackingConfiguration.* form values.
@@ -130,7 +131,198 @@ func parseTargetTrackingFields(vals url.Values) (targetTrackingFields, error) {
 	f.metricType = vals.Get("TargetTrackingConfiguration.PredefinedMetricSpecification.PredefinedMetricType")
 	f.disableScaleIn = vals.Get("TargetTrackingConfiguration.DisableScaleIn") == formValueTrue
 
+	spec, err := parseCustomizedMetricSpecification(vals, "TargetTrackingConfiguration.CustomizedMetricSpecification.")
+	if err != nil {
+		return f, err
+	}
+
+	f.customizedMetricSpec = spec
+
 	return f, nil
+}
+
+// parseMetricDimensions parses a Dimensions.member.N.{Name,Value} list shared
+// by types.Metric and types.CustomizedMetricSpecification
+// (serializers.go:5750, 5767).
+func parseMetricDimensions(vals url.Values, prefix string) []MetricDimension {
+	var dims []MetricDimension
+
+	for i := 1; ; i++ {
+		memberPrefix := fmt.Sprintf("%sDimensions.member.%d.", prefix, i)
+
+		name := vals.Get(memberPrefix + "Name")
+		value := vals.Get(memberPrefix + "Value")
+
+		if name == "" && value == "" {
+			break
+		}
+
+		dims = append(dims, MetricDimension{Name: name, Value: value})
+	}
+
+	return dims
+}
+
+// parseMetricRef parses the {MetricName,Namespace,Dimensions} shape of AWS
+// types.Metric (serializers.go:5680). Returns nil if nothing was specified.
+func parseMetricRef(vals url.Values, prefix string) *MetricRef {
+	name := vals.Get(prefix + "MetricName")
+	namespace := vals.Get(prefix + "Namespace")
+	dims := parseMetricDimensions(vals, prefix)
+
+	if name == "" && namespace == "" && len(dims) == 0 {
+		return nil
+	}
+
+	return &MetricRef{MetricName: name, Namespace: namespace, Dimensions: dims}
+}
+
+// parseMetricDataStat parses the {Metric,Stat,Unit[,Period]} shape shared by
+// types.MetricStat (serializers.go:5789, no Period) and
+// types.TargetTrackingMetricStat (serializers.go:6559, has Period).
+// withPeriod selects which variant's wire shape to parse.
+func parseMetricDataStat(vals url.Values, prefix string, withPeriod bool) (*MetricDataStat, error) {
+	metric := parseMetricRef(vals, prefix+"Metric.")
+	stat := vals.Get(prefix + "Stat")
+	unit := vals.Get(prefix + "Unit")
+	periodStr := ""
+
+	if withPeriod {
+		periodStr = vals.Get(prefix + "Period")
+	}
+
+	if metric == nil && stat == "" && unit == "" && periodStr == "" {
+		return nil, nil //nolint:nilnil // absent stat is a meaningful "not specified" state, not an error
+	}
+
+	ms := &MetricDataStat{Metric: metric, Stat: stat, Unit: unit}
+
+	if periodStr != "" {
+		n, parseErr := parseIntVal(periodStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid %sPeriod", ErrInvalidParameter, prefix)
+		}
+
+		ms.Period = &n
+	}
+
+	return ms, nil
+}
+
+// parseMetricDataQueries parses a metric-data-query list shared by
+// types.MetricDataQuery (serializers.go:5704, no Period -- predictive
+// scaling's customized metrics) and types.TargetTrackingMetricDataQuery
+// (serializers.go:6508, has Period -- TargetTrackingConfiguration.
+// CustomizedMetricSpecification.Metrics). withPeriod selects which variant's
+// wire shape to parse. Id is required by AWS on every element, so its
+// presence is the loop-continuation sentinel (matching parseStepAdjustments).
+func parseMetricDataQueries(vals url.Values, prefix string, withPeriod bool) ([]MetricDataQuery, error) {
+	var queries []MetricDataQuery
+
+	for i := 1; ; i++ {
+		memberPrefix := fmt.Sprintf("%smember.%d.", prefix, i)
+
+		id := vals.Get(memberPrefix + "Id")
+		if id == "" {
+			break
+		}
+
+		stat, err := parseMetricDataStat(vals, memberPrefix+"MetricStat.", withPeriod)
+		if err != nil {
+			return nil, err
+		}
+
+		q := MetricDataQuery{
+			ID:         id,
+			Expression: vals.Get(memberPrefix + "Expression"),
+			Label:      vals.Get(memberPrefix + "Label"),
+			MetricStat: stat,
+		}
+
+		if v := vals.Get(memberPrefix + "ReturnData"); v != "" {
+			b := v == formValueTrue
+			q.ReturnData = &b
+		}
+
+		if withPeriod {
+			if v := vals.Get(memberPrefix + "Period"); v != "" {
+				n, parseErr := parseIntVal(v)
+				if parseErr != nil {
+					return nil, fmt.Errorf("%w: invalid %sPeriod", ErrInvalidParameter, memberPrefix)
+				}
+
+				q.Period = &n
+			}
+		}
+
+		queries = append(queries, q)
+	}
+
+	return queries, nil
+}
+
+// parseCustomizedMetricSpecification parses
+// TargetTrackingConfiguration.CustomizedMetricSpecification.* form values
+// (types.CustomizedMetricSpecification, serializers.go:4985). Returns nil if
+// nothing was specified.
+func parseCustomizedMetricSpecification(vals url.Values, prefix string) (*CustomizedMetricSpecification, error) {
+	metricName := vals.Get(prefix + "MetricName")
+	namespace := vals.Get(prefix + "Namespace")
+	statistic := vals.Get(prefix + "Statistic")
+	unit := vals.Get(prefix + "Unit")
+	periodStr := vals.Get(prefix + "Period")
+	dims := parseMetricDimensions(vals, prefix)
+
+	queries, err := parseMetricDataQueries(vals, prefix+"Metrics.", true)
+	if err != nil {
+		return nil, err
+	}
+
+	if metricName == "" && namespace == "" && statistic == "" && unit == "" &&
+		periodStr == "" && len(dims) == 0 && len(queries) == 0 {
+		return nil, nil //nolint:nilnil // absent spec means "not customized", not an error
+	}
+
+	spec := &CustomizedMetricSpecification{
+		MetricName: metricName,
+		Namespace:  namespace,
+		Statistic:  statistic,
+		Unit:       unit,
+		Dimensions: dims,
+		Metrics:    queries,
+	}
+
+	if periodStr != "" {
+		n, parseErr := parseIntVal(periodStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid %sPeriod", ErrInvalidParameter, prefix)
+		}
+
+		spec.Period = &n
+	}
+
+	return spec, nil
+}
+
+// parsePredictiveScalingCustomizedMetric parses a Customized{Load,Scaling,
+// Capacity}MetricSpecification.MetricDataQueries.member.N.* block, the
+// {MetricDataQueries} shape shared by types.PredictiveScalingCustomized
+// {Load,Scaling,Capacity}Metric (serializers.go:6001-6042). Returns nil if
+// nothing was specified.
+func parsePredictiveScalingCustomizedMetric(
+	vals url.Values,
+	prefix string,
+) (*CustomMetricQueries, error) {
+	queries, err := parseMetricDataQueries(vals, prefix+"MetricDataQueries.", false)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(queries) == 0 {
+		return nil, nil //nolint:nilnil // absent customized metric means "not specified", not an error
+	}
+
+	return &CustomMetricQueries{MetricDataQueries: queries}, nil
 }
 
 // parseStepAdjustmentBound parses a single optional float bound
@@ -244,7 +436,11 @@ func parsePredictiveScalingConfiguration(vals url.Values) (*PredictiveScalingCon
 // parsePredictiveScalingMetricSpecifications parses
 // MetricSpecifications.member.N.* form values. TargetValue is required by
 // AWS on every element, so its presence (like ScalingAdjustment in
-// parseStepAdjustments) is used as the loop-continuation sentinel.
+// parseStepAdjustments) is used as the loop-continuation sentinel; the
+// Customized* checks are added defensively for the same reason the
+// MixedInstancesPolicy override loop checks InstanceRequirements (see
+// parseLaunchTemplateOverrides) -- a spec carrying only a Customized* metric
+// must not be mistaken for "end of list".
 func parsePredictiveScalingMetricSpecifications(
 	vals url.Values, prefix string,
 ) ([]PredictiveScalingMetricSpecification, error) {
@@ -261,14 +457,39 @@ func parsePredictiveScalingMetricSpecifications(
 			memberPrefix+"PredefinedScalingMetricSpecification.",
 		)
 
-		if targetStr == "" && pair == nil && load == nil && scalingMetric == nil {
+		customizedLoad, err := parsePredictiveScalingCustomizedMetric(
+			vals, memberPrefix+"CustomizedLoadMetricSpecification.",
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		customizedScaling, err := parsePredictiveScalingCustomizedMetric(
+			vals, memberPrefix+"CustomizedScalingMetricSpecification.",
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		customizedCapacity, err := parsePredictiveScalingCustomizedMetric(
+			vals, memberPrefix+"CustomizedCapacityMetricSpecification.",
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if targetStr == "" && pair == nil && load == nil && scalingMetric == nil &&
+			customizedLoad == nil && customizedScaling == nil && customizedCapacity == nil {
 			break
 		}
 
 		spec := PredictiveScalingMetricSpecification{
-			PredefinedMetricPairSpecification:    pair,
-			PredefinedLoadMetricSpecification:    load,
-			PredefinedScalingMetricSpecification: scalingMetric,
+			PredefinedMetricPairSpecification:     pair,
+			PredefinedLoadMetricSpecification:     load,
+			PredefinedScalingMetricSpecification:  scalingMetric,
+			CustomizedLoadMetricSpecification:     customizedLoad,
+			CustomizedScalingMetricSpecification:  customizedScaling,
+			CustomizedCapacityMetricSpecification: customizedCapacity,
 		}
 
 		if targetStr != "" {
@@ -340,6 +561,7 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		DisableScaleIn:                 ttc.disableScaleIn,
 		EstimatedWarmup:                ttc.estimatedWarmup,
 		PredictiveScalingConfiguration: predictiveScaling,
+		CustomizedMetricSpecification:  ttc.customizedMetricSpec,
 	}
 
 	policy, putErr := h.Backend.PutScalingPolicy(input)
@@ -416,6 +638,8 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 				}
 			}
 
+			ttc.CustomizedMetricSpecification = toXMLCustomizedMetricSpecification(p.CustomizedMetricSpecification)
+
 			xmlPolicy.TargetTrackingConfiguration = ttc
 		}
 
@@ -485,9 +709,164 @@ type xmlPredefinedMetricSpecification struct {
 
 type xmlTargetTrackingConfiguration struct {
 	PredefinedMetricSpecification *xmlPredefinedMetricSpecification `xml:"PredefinedMetricSpecification,omitempty"`
+	CustomizedMetricSpecification *xmlCustomizedMetricSpecification `xml:"CustomizedMetricSpecification,omitempty"`
 	TargetValue                   float64                           `xml:"TargetValue"`
 	DisableScaleIn                bool                              `xml:"DisableScaleIn,omitempty"`
 	EstimatedInstanceWarmup       int32                             `xml:"EstimatedInstanceWarmup,omitempty"`
+}
+
+type xmlMetricDimension struct {
+	Name  string `xml:"Name"`
+	Value string `xml:"Value"`
+}
+
+type xmlMetricDimensionList struct {
+	Members []xmlMetricDimension `xml:"member"`
+}
+
+// xmlMetricRef is the XML response projection of MetricRef, matching AWS
+// types.Metric (deserializers.go:14890).
+type xmlMetricRef struct {
+	Dimensions *xmlMetricDimensionList `xml:"Dimensions,omitempty"`
+	MetricName string                  `xml:"MetricName,omitempty"`
+	Namespace  string                  `xml:"Namespace,omitempty"`
+}
+
+func toXMLMetricRef(m *MetricRef) *xmlMetricRef {
+	if m == nil {
+		return nil
+	}
+
+	return &xmlMetricRef{
+		MetricName: m.MetricName,
+		Namespace:  m.Namespace,
+		Dimensions: toXMLMetricDimensionList(m.Dimensions),
+	}
+}
+
+func toXMLMetricDimensionList(dims []MetricDimension) *xmlMetricDimensionList {
+	if len(dims) == 0 {
+		return nil
+	}
+
+	members := make([]xmlMetricDimension, 0, len(dims))
+	for _, d := range dims {
+		members = append(members, xmlMetricDimension(d))
+	}
+
+	return &xmlMetricDimensionList{Members: members}
+}
+
+// xmlMetricDataStat is the XML response projection of MetricDataStat,
+// matching AWS types.MetricStat (deserializers.go:15487) and
+// types.TargetTrackingMetricStat (deserializers.go:18997) -- both share this
+// shape on the wire, differing only in whether Period is populated.
+type xmlMetricDataStat struct {
+	Metric *xmlMetricRef `xml:"Metric,omitempty"`
+	Period *int32        `xml:"Period,omitempty"`
+	Stat   string        `xml:"Stat,omitempty"`
+	Unit   string        `xml:"Unit,omitempty"`
+}
+
+func toXMLMetricDataStat(s *MetricDataStat) *xmlMetricDataStat {
+	if s == nil {
+		return nil
+	}
+
+	return &xmlMetricDataStat{
+		Metric: toXMLMetricRef(s.Metric),
+		Period: s.Period,
+		Stat:   s.Stat,
+		Unit:   s.Unit,
+	}
+}
+
+// xmlMetricDataQuery is the XML response projection of MetricDataQuery,
+// matching AWS types.MetricDataQuery (deserializers.go:15143) and
+// types.TargetTrackingMetricDataQuery (deserializers.go:18883).
+type xmlMetricDataQuery struct {
+	MetricStat *xmlMetricDataStat `xml:"MetricStat,omitempty"`
+	Period     *int32             `xml:"Period,omitempty"`
+	ReturnData *bool              `xml:"ReturnData,omitempty"`
+	ID         string             `xml:"Id"`
+	Expression string             `xml:"Expression,omitempty"`
+	Label      string             `xml:"Label,omitempty"`
+}
+
+type xmlMetricDataQueryList struct {
+	Members []xmlMetricDataQuery `xml:"member"`
+}
+
+func toXMLMetricDataQueryList(queries []MetricDataQuery) *xmlMetricDataQueryList {
+	if len(queries) == 0 {
+		return nil
+	}
+
+	members := make([]xmlMetricDataQuery, 0, len(queries))
+	for _, q := range queries {
+		members = append(members, xmlMetricDataQuery{
+			ID:         q.ID,
+			Expression: q.Expression,
+			Label:      q.Label,
+			MetricStat: toXMLMetricDataStat(q.MetricStat),
+			Period:     q.Period,
+			ReturnData: q.ReturnData,
+		})
+	}
+
+	return &xmlMetricDataQueryList{Members: members}
+}
+
+// xmlCustomizedMetricSpecification is the XML response projection of
+// CustomizedMetricSpecification, matching AWS
+// types.CustomizedMetricSpecification (deserializers.go:10629).
+type xmlCustomizedMetricSpecification struct {
+	Dimensions *xmlMetricDimensionList `xml:"Dimensions,omitempty"`
+	Metrics    *xmlMetricDataQueryList `xml:"Metrics,omitempty"`
+	Period     *int32                  `xml:"Period,omitempty"`
+	MetricName string                  `xml:"MetricName,omitempty"`
+	Namespace  string                  `xml:"Namespace,omitempty"`
+	Statistic  string                  `xml:"Statistic,omitempty"`
+	Unit       string                  `xml:"Unit,omitempty"`
+}
+
+func toXMLCustomizedMetricSpecification(spec *CustomizedMetricSpecification) *xmlCustomizedMetricSpecification {
+	if spec == nil {
+		return nil
+	}
+
+	return &xmlCustomizedMetricSpecification{
+		MetricName: spec.MetricName,
+		Namespace:  spec.Namespace,
+		Statistic:  spec.Statistic,
+		Unit:       spec.Unit,
+		Period:     spec.Period,
+		Dimensions: toXMLMetricDimensionList(spec.Dimensions),
+		Metrics:    toXMLMetricDataQueryList(spec.Metrics),
+	}
+}
+
+// xmlCustomMetricQueries is the XML response projection of
+// CustomMetricQueries, matching AWS
+// types.PredictiveScalingCustomized{Capacity,Load,Scaling}Metric
+// (deserializers.go:16235, 16277, 16319).
+type xmlCustomMetricQueries struct {
+	MetricDataQueries xmlMetricDataQueryList `xml:"MetricDataQueries"`
+}
+
+func toXMLCustomMetricQueries(
+	m *CustomMetricQueries,
+) *xmlCustomMetricQueries {
+	if m == nil {
+		return nil
+	}
+
+	queries := toXMLMetricDataQueryList(m.MetricDataQueries)
+	if queries == nil {
+		queries = &xmlMetricDataQueryList{}
+	}
+
+	return &xmlCustomMetricQueries{MetricDataQueries: *queries}
 }
 
 // toXMLPredictiveScalingConfiguration converts the stored config to its XML
@@ -505,6 +884,15 @@ func toXMLPredictiveScalingConfiguration(cfg *PredictiveScalingConfiguration) *x
 			),
 			PredefinedScalingMetricSpecification: toXMLPredefinedMetricRef(
 				s.PredefinedScalingMetricSpecification,
+			),
+			CustomizedLoadMetricSpecification: toXMLCustomMetricQueries(
+				s.CustomizedLoadMetricSpecification,
+			),
+			CustomizedScalingMetricSpecification: toXMLCustomMetricQueries(
+				s.CustomizedScalingMetricSpecification,
+			),
+			CustomizedCapacityMetricSpecification: toXMLCustomMetricQueries(
+				s.CustomizedCapacityMetricSpecification,
 			),
 			TargetValue: s.TargetValue,
 		})
@@ -538,10 +926,13 @@ type xmlPredefinedMetricRef struct {
 }
 
 type xmlPredictiveScalingMetricSpecification struct {
-	PredefinedMetricPairSpecification    *xmlPredefinedMetricRef `xml:"PredefinedMetricPairSpecification,omitempty"`
-	PredefinedLoadMetricSpecification    *xmlPredefinedMetricRef `xml:"PredefinedLoadMetricSpecification,omitempty"`
-	PredefinedScalingMetricSpecification *xmlPredefinedMetricRef `xml:"PredefinedScalingMetricSpecification,omitempty"`
-	TargetValue                          float64                 `xml:"TargetValue"`
+	PredefinedMetricPairSpecification     *xmlPredefinedMetricRef `xml:"PredefinedMetricPairSpecification,omitempty"`
+	PredefinedLoadMetricSpecification     *xmlPredefinedMetricRef `xml:"PredefinedLoadMetricSpecification,omitempty"`
+	PredefinedScalingMetricSpecification  *xmlPredefinedMetricRef `xml:"PredefinedScalingMetricSpecification,omitempty"`
+	CustomizedLoadMetricSpecification     *xmlCustomMetricQueries `xml:"CustomizedLoadMetricSpecification,omitempty"`
+	CustomizedScalingMetricSpecification  *xmlCustomMetricQueries `xml:"CustomizedScalingMetricSpecification,omitempty"`
+	CustomizedCapacityMetricSpecification *xmlCustomMetricQueries `xml:"CustomizedCapacityMetricSpecification,omitempty"`
+	TargetValue                           float64                 `xml:"TargetValue"`
 }
 
 type xmlPredictiveScalingMetricSpecificationList struct {
