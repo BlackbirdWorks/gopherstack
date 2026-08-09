@@ -31,27 +31,39 @@ const sagemakerSnapshotVersion = 1
 // pre-conversion snapshot format) rather than store.Table's default
 // json.Marshal-of-time.Time encoding.
 type persistedCluster struct {
-	CreationTime   string                  `json:"CreationTime"`
-	Nodes          map[string]*ClusterNode `json:"Nodes"`
-	Tags           map[string]string       `json:"Tags,omitempty"`
-	ClusterArn     string                  `json:"ClusterArn"`
-	ClusterName    string                  `json:"ClusterName"`
-	ClusterStatus  string                  `json:"ClusterStatus"`
-	NodeRecovery   string                  `json:"NodeRecovery,omitempty"`
-	InstanceGroups []ClusterInstanceGroup  `json:"InstanceGroups,omitempty"`
+	CreationTime         string                      `json:"CreationTime"`
+	Nodes                map[string]*ClusterNode     `json:"Nodes"`
+	Tags                 map[string]string           `json:"Tags,omitempty"`
+	VpcConfig            *VpcConfig                  `json:"VpcConfig,omitempty"`
+	AutoScaling          *ClusterAutoScalingConfig   `json:"AutoScaling,omitempty"`
+	Orchestrator         *ClusterOrchestrator        `json:"Orchestrator,omitempty"`
+	TieredStorageConfig  *ClusterTieredStorageConfig `json:"TieredStorageConfig,omitempty"`
+	ClusterArn           string                      `json:"ClusterArn"`
+	ClusterName          string                      `json:"ClusterName"`
+	ClusterStatus        string                      `json:"ClusterStatus"`
+	NodeRecovery         string                      `json:"NodeRecovery,omitempty"`
+	ClusterRole          string                      `json:"ClusterRole,omitempty"`
+	NodeProvisioningMode string                      `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups       []ClusterInstanceGroup      `json:"InstanceGroups,omitempty"`
 }
 
 // toPersistedCluster converts a live Cluster to its persisted DTO shape.
 func toPersistedCluster(c *Cluster) *persistedCluster {
 	pc := &persistedCluster{
-		CreationTime:   c.CreationTime.Format(time.RFC3339),
-		ClusterArn:     c.ClusterArn,
-		ClusterName:    c.ClusterName,
-		ClusterStatus:  c.ClusterStatus,
-		NodeRecovery:   c.NodeRecovery,
-		Tags:           c.Tags,
-		InstanceGroups: c.InstanceGroups,
-		Nodes:          make(map[string]*ClusterNode, len(c.Nodes)),
+		CreationTime:         c.CreationTime.Format(time.RFC3339),
+		ClusterArn:           c.ClusterArn,
+		ClusterName:          c.ClusterName,
+		ClusterStatus:        c.ClusterStatus,
+		NodeRecovery:         c.NodeRecovery,
+		ClusterRole:          c.ClusterRole,
+		NodeProvisioningMode: c.NodeProvisioningMode,
+		VpcConfig:            c.VpcConfig,
+		AutoScaling:          c.AutoScaling,
+		Orchestrator:         c.Orchestrator,
+		TieredStorageConfig:  c.TieredStorageConfig,
+		Tags:                 c.Tags,
+		InstanceGroups:       c.InstanceGroups,
+		Nodes:                make(map[string]*ClusterNode, len(c.Nodes)),
 	}
 
 	for nk, nv := range c.Nodes {
@@ -71,14 +83,20 @@ func fromPersistedCluster(ctx context.Context, pc *persistedCluster) *Cluster {
 	}
 
 	c := &Cluster{
-		ClusterArn:     pc.ClusterArn,
-		ClusterName:    pc.ClusterName,
-		ClusterStatus:  pc.ClusterStatus,
-		NodeRecovery:   pc.NodeRecovery,
-		Tags:           pc.Tags,
-		InstanceGroups: pc.InstanceGroups,
-		CreationTime:   t,
-		Nodes:          make(map[string]*ClusterNode, len(pc.Nodes)),
+		ClusterArn:           pc.ClusterArn,
+		ClusterName:          pc.ClusterName,
+		ClusterStatus:        pc.ClusterStatus,
+		NodeRecovery:         pc.NodeRecovery,
+		ClusterRole:          pc.ClusterRole,
+		NodeProvisioningMode: pc.NodeProvisioningMode,
+		VpcConfig:            pc.VpcConfig,
+		AutoScaling:          pc.AutoScaling,
+		Orchestrator:         pc.Orchestrator,
+		TieredStorageConfig:  pc.TieredStorageConfig,
+		Tags:                 pc.Tags,
+		InstanceGroups:       pc.InstanceGroups,
+		CreationTime:         t,
+		Nodes:                make(map[string]*ClusterNode, len(pc.Nodes)),
 	}
 
 	for nk, nv := range pc.Nodes {

@@ -121,6 +121,79 @@ func TestPersistenceRoundtrip_PolicyCatalogAndPipelineVersions(t *testing.T) {
 	assert.Len(t, versions, 2)
 }
 
+// TestPersistenceRoundtrip_ClusterFullFields guards persistedCluster (the
+// hand-maintained DTO in persistence.go): ClusterRole and VpcConfig were
+// previously accepted by CreateCluster and returned by DescribeCluster but
+// silently dropped by Snapshot/Restore because they were never added to the
+// DTO alongside the fields fixed in the earlier ClusterRole/VpcConfig pass.
+// This also covers the AutoScaling/Orchestrator/NodeProvisioningMode/
+// TieredStorageConfig fields added by gopherstack-i359.
+func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+		"ClusterName": "persist-cluster",
+		"ClusterRole": "arn:aws:iam::000000000000:role/HyperPodClusterRole",
+		"VpcConfig": map[string]any{
+			"SecurityGroupIds": []any{"sg-1"},
+			"Subnets":          []any{"subnet-1"},
+		},
+		"AutoScaling": map[string]any{
+			"Mode":           "Enable",
+			"AutoScalerType": "Karpenter",
+		},
+		"Orchestrator": map[string]any{
+			"Eks": map[string]any{"ClusterArn": "arn:aws:eks:us-east-1:000000000000:cluster/eks1"},
+		},
+		"NodeProvisioningMode": "Continuous",
+		"TieredStorageConfig": map[string]any{
+			"Mode":                               "Enable",
+			"InstanceMemoryAllocationPercentage": 25,
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec = doSageMakerRequest(t, h2, "DescribeCluster", map[string]any{"ClusterName": "persist-cluster"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	assert.Equal(t, "arn:aws:iam::000000000000:role/HyperPodClusterRole", resp["ClusterRole"])
+
+	vpc, ok := resp["VpcConfig"].(map[string]any)
+	require.True(t, ok, "VpcConfig must survive snapshot/restore")
+	sgIDs, _ := vpc["SecurityGroupIds"].([]any)
+	require.Len(t, sgIDs, 1)
+	assert.Equal(t, "sg-1", sgIDs[0])
+
+	as, ok := resp["AutoScaling"].(map[string]any)
+	require.True(t, ok, "AutoScaling must survive snapshot/restore")
+	assert.Equal(t, "Enable", as["Mode"])
+	assert.Equal(t, "Karpenter", as["AutoScalerType"])
+
+	orch, ok := resp["Orchestrator"].(map[string]any)
+	require.True(t, ok, "Orchestrator must survive snapshot/restore")
+	eks, ok := orch["Eks"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "arn:aws:eks:us-east-1:000000000000:cluster/eks1", eks["ClusterArn"])
+
+	assert.Equal(t, "Continuous", resp["NodeProvisioningMode"])
+
+	tsc, ok := resp["TieredStorageConfig"].(map[string]any)
+	require.True(t, ok, "TieredStorageConfig must survive snapshot/restore")
+	assert.Equal(t, "Enable", tsc["Mode"])
+	assert.InDelta(t, 25, tsc["InstanceMemoryAllocationPercentage"], 0)
+}
+
 func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 

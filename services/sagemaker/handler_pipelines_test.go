@@ -70,6 +70,82 @@ func TestHandler_UpdatePipeline_FullFields(t *testing.T) {
 	assert.Equal(t, "Updated desc", descResp["PipelineDescription"])
 }
 
+// ---------------------------------------------------------------------------
+// CreatePipeline/UpdatePipeline: PipelineDefinitionS3Location rejection
+// (gopherstack-i359) — honouring it needs a real cross-service S3 GetObject,
+// out of scope here, so it is rejected explicitly instead of accepted and
+// silently dropped (leaving a client's pipeline created with an empty
+// PipelineDefinition and no error).
+// ---------------------------------------------------------------------------
+
+func TestHandler_CreatePipeline_S3Location_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+		"PipelineDefinitionS3Location": map[string]any{
+			"Bucket":    "my-bucket",
+			"ObjectKey": "defs/pipeline.json",
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ValidationException", body["__type"])
+
+	rec = doSageMakerRequest(t, h, "DescribePipeline", map[string]any{"PipelineName": "s3-def-pipeline"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the pipeline must not have been created")
+}
+
+func TestHandler_UpdatePipeline_S3Location_Rejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline-2",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+	})
+
+	rec := doSageMakerRequest(t, h, "UpdatePipeline", map[string]any{
+		"PipelineName": "s3-def-pipeline-2",
+		"PipelineDefinitionS3Location": map[string]any{
+			"Bucket":    "my-bucket",
+			"ObjectKey": "defs/pipeline.json",
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "ValidationException", body["__type"])
+}
+
+// TestHandler_CreatePipeline_S3Location_Rejected_RealClient confirms the
+// rejection fires against the real SDK's wire encoding of
+// PipelineDefinitionS3Location (types/types.go:17313, sagemaker@v1.263.2),
+// not just this test file's own hand-built JSON.
+func TestHandler_CreatePipeline_S3Location_Rejected_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreatePipeline(t.Context(), &sagemakersdk.CreatePipelineInput{
+		PipelineName: aws.String("s3-def-real"),
+		RoleArn:      aws.String("arn:aws:iam::000000000000:role/Role"),
+		PipelineDefinitionS3Location: &smtypes.PipelineDefinitionS3Location{
+			Bucket:    aws.String("my-bucket"),
+			ObjectKey: aws.String("defs/pipeline.json"),
+		},
+	})
+	require.Error(t, err)
+}
+
 func TestHandler_StartPipelineExecution_WithParams(t *testing.T) {
 	t.Parallel()
 
