@@ -15,6 +15,7 @@ import (
 const (
 	keyStateValue = "StateValue"
 	keyState      = "State"
+	keyStatus     = "Status"
 )
 
 const (

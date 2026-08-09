@@ -2,7 +2,9 @@ package cloudwatch_test
 
 import (
 	"encoding/xml"
+	"maps"
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,31 +14,20 @@ import (
 )
 
 // TestListAlarmMuteRules_ReturnsStoredRules verifies that ListAlarmMuteRules
-// returns rules previously created via PutAlarmMuteRule.
+// (query protocol) returns rules previously created via PutAlarmMuteRule.
+// Real query-protocol summaries carry only AlarmMuteRuleArn (no Name), per
+// botocore cloudwatch 2010-08-01 service-2.json's AlarmMuteRuleSummary shape.
 func TestListAlarmMuteRules_ReturnsStoredRules(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		seed         []string
-		wantNames    []string
-		wantNotNames []string
+		name    string
+		seed    []string
+		wantLen int
 	}{
-		{
-			name:      "empty store",
-			seed:      nil,
-			wantNames: nil,
-		},
-		{
-			name:      "single rule",
-			seed:      []string{"mute-prod"},
-			wantNames: []string{"mute-prod"},
-		},
-		{
-			name:      "multiple rules",
-			seed:      []string{"mute-alpha", "mute-beta", "mute-gamma"},
-			wantNames: []string{"mute-alpha", "mute-beta", "mute-gamma"},
-		},
+		{name: "empty store", seed: nil, wantLen: 0},
+		{name: "single rule", seed: []string{"mute-prod"}, wantLen: 1},
+		{name: "multiple rules", seed: []string{"mute-alpha", "mute-beta", "mute-gamma"}, wantLen: 3},
 	}
 
 	for _, tc := range tests {
@@ -45,37 +36,31 @@ func TestListAlarmMuteRules_ReturnsStoredRules(t *testing.T) {
 			h := newCWHandler()
 
 			for _, name := range tc.seed {
-				rec := postForm(t, h, "Action=PutAlarmMuteRule&MuteName="+name+"&MuteDuration=3600")
-				require.Equal(t, http.StatusOK, rec.Code, "PutAlarmMuteRule %s", name)
+				rec := postForm(t, h, url.Values{
+					"Action":                   []string{"PutAlarmMuteRule"},
+					"Name":                     []string{name},
+					"Rule.Schedule.Expression": []string{"cron(0 2 * * *)"},
+					"Rule.Schedule.Duration":   []string{"PT1H"},
+				}.Encode())
+				require.Equal(t, http.StatusOK, rec.Code, "PutAlarmMuteRule %s: %s", name, rec.Body.String())
 			}
 
-			rec := postForm(t, h, "Action=ListAlarmMuteRules")
+			rec := postForm(t, h, url.Values{"Action": []string{"ListAlarmMuteRules"}}.Encode())
 			require.Equal(t, http.StatusOK, rec.Code)
 			assert.Contains(t, rec.Body.String(), "ListAlarmMuteRulesResponse")
 
-			type muteRule struct {
-				MuteName string `xml:"MuteName"`
+			type summary struct {
+				AlarmMuteRuleArn string `xml:"AlarmMuteRuleArn"`
 			}
 			type listResp struct {
 				XMLName xml.Name `xml:"ListAlarmMuteRulesResponse"`
 				Result  struct {
-					Rules []muteRule `xml:"MuteRules>member"`
+					Summaries []summary `xml:"AlarmMuteRuleSummaries>member"`
 				} `xml:"ListAlarmMuteRulesResult"`
 			}
 			var r listResp
 			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &r))
-
-			got := make([]string, 0, len(r.Result.Rules))
-			for _, rule := range r.Result.Rules {
-				got = append(got, rule.MuteName)
-			}
-
-			for _, want := range tc.wantNames {
-				assert.Contains(t, got, want)
-			}
-			if tc.wantNames == nil {
-				assert.Empty(t, r.Result.Rules)
-			}
+			assert.Len(t, r.Result.Summaries, tc.wantLen)
 		})
 	}
 }
@@ -83,82 +68,143 @@ func TestListAlarmMuteRules_ReturnsStoredRules(t *testing.T) {
 func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 	t.Parallel()
 
+	validSchedule := url.Values{
+		"Rule.Schedule.Expression": []string{"cron(0 2 * * *)"},
+		"Rule.Schedule.Duration":   []string{"PT1H"},
+	}
+
 	tests := []struct {
-		setup           func(t *testing.T, h *cloudwatch.Handler, b *cloudwatch.InMemoryBackend)
+		setup           func(t *testing.T, b *cloudwatch.InMemoryBackend)
+		body            func() url.Values
 		name            string
-		body            string
 		wantContains    []string
 		wantNotContains []string
 		wantCode        int
 	}{
 		{
-			name: "PutAlarmMuteRule/success",
-			body: "Action=PutAlarmMuteRule&MuteName=my-mute-rule" +
-				"&Description=suppress+noisy+alerts" +
-				"&AlarmNames.member.1=alarm-a" +
-				"&MuteDuration=3600",
+			name: "put success",
+			body: func() url.Values {
+				v := url.Values{
+					"Action":                          []string{"PutAlarmMuteRule"},
+					"Name":                            []string{"my-mute-rule"},
+					"Description":                     []string{"suppress noisy alerts"},
+					"MuteTargets.AlarmNames.member.1": []string{"alarm-a"},
+				}
+				maps.Copy(v, validSchedule)
+
+				return v
+			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"PutAlarmMuteRuleResponse"},
 		},
 		{
-			name:     "PutAlarmMuteRule/missing name",
-			body:     "Action=PutAlarmMuteRule",
+			name: "put missing name",
+			body: func() url.Values {
+				return url.Values{"Action": []string{"PutAlarmMuteRule"}}
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			// Real CloudWatch has no UpdateAlarmMuteRule operation: PutAlarmMuteRule
-			// is create-or-update. Re-PUTting an existing mute name must update it
-			// in place.
-			name: "PutAlarmMuteRule/updates existing",
-			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
-				t.Helper()
-				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "update-mute"})
+			name: "put missing schedule",
+			body: func() url.Values {
+				return url.Values{"Action": []string{"PutAlarmMuteRule"}, "Name": []string{"no-schedule"}}
 			},
-			body:         "Action=PutAlarmMuteRule&MuteName=update-mute&Description=updated",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "put updates existing",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{Name: "update-mute"})
+			},
+			body: func() url.Values {
+				v := url.Values{
+					"Action":      []string{"PutAlarmMuteRule"},
+					"Name":        []string{"update-mute"},
+					"Description": []string{"updated"},
+				}
+				maps.Copy(v, validSchedule)
+
+				return v
+			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"PutAlarmMuteRuleResponse"},
 		},
 		{
-			name: "GetAlarmMuteRule/success",
-			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
+			name: "get success",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
 				t.Helper()
 				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{
-					MuteName:    "my-mute-rule",
+					Name:        "my-mute-rule",
 					Description: "suppress noisy alerts",
+					Schedule:    cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "PT1H"},
 				})
 			},
-			body:         "Action=GetAlarmMuteRule&MuteName=my-mute-rule",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"GetAlarmMuteRuleResponse", "my-mute-rule", "suppress noisy alerts"},
-		},
-		{
-			name:     "GetAlarmMuteRule/not found",
-			body:     "Action=GetAlarmMuteRule&MuteName=ghost-rule",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name:     "GetAlarmMuteRule/missing name",
-			body:     "Action=GetAlarmMuteRule",
-			wantCode: http.StatusBadRequest,
-		},
-		{
-			name: "DeleteAlarmMuteRule/success",
-			setup: func(t *testing.T, _ *cloudwatch.Handler, b *cloudwatch.InMemoryBackend) {
-				t.Helper()
-				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{MuteName: "delete-me"})
+			body: func() url.Values {
+				return url.Values{
+					"Action":            []string{"GetAlarmMuteRule"},
+					"AlarmMuteRuleName": []string{"my-mute-rule"},
+				}
 			},
-			body:         "Action=DeleteAlarmMuteRule&MuteName=delete-me",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"GetAlarmMuteRuleResponse",
+				"my-mute-rule",
+				"suppress noisy alerts",
+				"cron(0 2 * * *)",
+			},
+		},
+		{
+			name: "get not found",
+			body: func() url.Values {
+				return url.Values{
+					"Action":            []string{"GetAlarmMuteRule"},
+					"AlarmMuteRuleName": []string{"ghost-rule"},
+				}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "get missing name",
+			body: func() url.Values {
+				return url.Values{"Action": []string{"GetAlarmMuteRule"}}
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "delete success",
+			setup: func(t *testing.T, b *cloudwatch.InMemoryBackend) {
+				t.Helper()
+				b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{Name: "delete-me"})
+			},
+			body: func() url.Values {
+				return url.Values{
+					"Action":            []string{"DeleteAlarmMuteRule"},
+					"AlarmMuteRuleName": []string{"delete-me"},
+				}
+			},
 			wantCode:     http.StatusOK,
 			wantContains: []string{"DeleteAlarmMuteRuleResponse"},
 		},
 		{
-			name:     "DeleteAlarmMuteRule/not found",
-			body:     "Action=DeleteAlarmMuteRule&MuteName=ghost-rule",
-			wantCode: http.StatusBadRequest,
+			// DeleteAlarmMuteRule is idempotent (aws-sdk-go-v2 cloudwatch@v1.66.3
+			// api_op_DeleteAlarmMuteRule.go:19): deleting a rule that doesn't
+			// exist succeeds, it does not 400.
+			name: "delete not found is idempotent",
+			body: func() url.Values {
+				return url.Values{
+					"Action":            []string{"DeleteAlarmMuteRule"},
+					"AlarmMuteRuleName": []string{"ghost-rule"},
+				}
+			},
+			wantCode:     http.StatusOK,
+			wantContains: []string{"DeleteAlarmMuteRuleResponse"},
 		},
 		{
-			name:     "DeleteAlarmMuteRule/missing name",
-			body:     "Action=DeleteAlarmMuteRule",
+			name: "delete missing name",
+			body: func() url.Values {
+				return url.Values{"Action": []string{"DeleteAlarmMuteRule"}}
+			},
 			wantCode: http.StatusBadRequest,
 		},
 	}
@@ -169,12 +215,12 @@ func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 
 			h, b := newCWHandlerWithBackend()
 			if tt.setup != nil {
-				tt.setup(t, h, b)
+				tt.setup(t, b)
 			}
 
-			rec := postForm(t, h, tt.body)
+			rec := postForm(t, h, tt.body().Encode())
 
-			assert.Equal(t, tt.wantCode, rec.Code)
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
 			for _, s := range tt.wantContains {
 				assert.Contains(t, rec.Body.String(), s)
 			}
@@ -185,21 +231,24 @@ func TestCloudWatchHandler_AlarmMuteRule(t *testing.T) {
 	}
 }
 
-func TestCloudWatchHandler_AlarmMuteRule_AlarmNames(t *testing.T) {
+func TestCloudWatchHandler_AlarmMuteRule_MuteTargets(t *testing.T) {
 	t.Parallel()
 
 	h, b := newCWHandlerWithBackend()
 	b.PutAlarmMuteRuleInternal(&cloudwatch.AlarmMuteRule{
-		MuteName:   "mute-with-alarms",
+		Name:       "mute-with-alarms",
 		AlarmNames: []string{"alarm-1", "alarm-2", "alarm-3"},
 	})
 
-	rec := postForm(t, h, "Action=GetAlarmMuteRule&MuteName=mute-with-alarms")
+	rec := postForm(t, h, url.Values{
+		"Action":            []string{"GetAlarmMuteRule"},
+		"AlarmMuteRuleName": []string{"mute-with-alarms"},
+	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
 	assert.Contains(t, body, "alarm-1")
 	assert.Contains(t, body, "alarm-2")
 	assert.Contains(t, body, "alarm-3")
-	assert.Contains(t, body, "AlarmNames")
+	assert.Contains(t, body, "MuteTargets")
 }

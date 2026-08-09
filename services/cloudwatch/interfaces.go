@@ -96,8 +96,8 @@ type StorageBackend interface {
 	ListDashboards(prefix, nextToken string) (page.Page[DashboardEntry], error)
 	DeleteDashboards(names []string) error
 	PutAlarmMuteRule(rule *AlarmMuteRule) error
-	DeleteAlarmMuteRule(muteName string) error
-	GetAlarmMuteRule(muteName string) (*AlarmMuteRule, error)
+	DeleteAlarmMuteRule(name string) error
+	GetAlarmMuteRule(name string) (*AlarmMuteRule, error)
 	PutAnomalyDetector(detector *AnomalyDetector) error
 	DeleteAnomalyDetector(namespace, metricName, stat string, dims []Dimension) error
 	DescribeAnomalyDetectors(
@@ -117,7 +117,12 @@ type StorageBackend interface {
 	DescribeAlarmContributors(alarmName, nextToken string) (page.Page[AlarmContributor], error)
 	StartMetricStreams(names []string) error
 	StopMetricStreams(names []string) error
-	ListAlarmMuteRules(nextToken string, maxResults int) (page.Page[AlarmMuteRule], error)
+	ListAlarmMuteRules(
+		nextToken string,
+		maxResults int,
+		alarmName string,
+		statuses []string,
+	) (page.Page[AlarmMuteRule], error)
 	ListManagedInsightRules(
 		resourceARN, nextToken string,
 		maxResults int,

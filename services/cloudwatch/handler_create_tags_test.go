@@ -14,12 +14,9 @@ import (
 // Input struct accepts Tags (cloudwatch@v1.66.3: api_op_PutMetricAlarm.go,
 // api_op_PutCompositeAlarm.go, api_op_PutDashboard.go,
 // api_op_PutInsightRule.go, api_op_PutLogAlarm.go,
-// api_op_PutMetricStream.go, all `Tags []types.Tag`) through the real SDK
-// client and asserts ListTagsForResource sees what was supplied at creation
-// (gopherstack-2mwl). PutAlarmMuteRule is excluded: its wire shape has
-// diverged entirely from this SDK version (Name/Rule/MuteTargets, not the
-// MuteName/AlarmNames/MuteDuration gopherstack implements), tracked
-// separately from this issue's decode-drop class.
+// api_op_PutMetricStream.go, api_op_PutAlarmMuteRule.go, all `Tags
+// []types.Tag`) through the real SDK client and asserts ListTagsForResource
+// sees what was supplied at creation (gopherstack-2mwl).
 func TestPutOpsWithTags_RoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +190,35 @@ func TestPutOpsWithTags_RoundTrip(t *testing.T) {
 
 		got, err := client.ListTagsForResource(t.Context(), &cwsdk.ListTagsForResourceInput{
 			ResourceARN: out.Arn,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, wantTags, got.Tags)
+	})
+
+	t.Run("alarm mute rule", func(t *testing.T) {
+		t.Parallel()
+
+		client := newTestHandlerAndClient(t)
+
+		_, err := client.PutAlarmMuteRule(t.Context(), &cwsdk.PutAlarmMuteRuleInput{
+			Name: aws.String("tagged-mute-rule"),
+			Rule: &types.Rule{
+				Schedule: &types.Schedule{
+					Expression: aws.String("cron(0 2 * * *)"),
+					Duration:   aws.String("PT1H"),
+				},
+			},
+			Tags: wantTags,
+		})
+		require.NoError(t, err)
+
+		out, err := client.GetAlarmMuteRule(t.Context(), &cwsdk.GetAlarmMuteRuleInput{
+			AlarmMuteRuleName: aws.String("tagged-mute-rule"),
+		})
+		require.NoError(t, err)
+
+		got, err := client.ListTagsForResource(t.Context(), &cwsdk.ListTagsForResourceInput{
+			ResourceARN: out.AlarmMuteRuleArn,
 		})
 		require.NoError(t, err)
 		assert.Equal(t, wantTags, got.Tags)
