@@ -244,7 +244,9 @@ type StorageBackend interface {
 	ListJobExecutionsForThing(thingName string) []*JobExecution
 
 	// Batch 3: OTA Updates.
-	CreateOTAUpdate(id, description, roleARN string, targets []string, files []any) (*OTAUpdate, error)
+	CreateOTAUpdate(
+		id, description, roleARN string, targets []string, files []any, tags map[string]string,
+	) (*OTAUpdate, error)
 	GetOTAUpdate(id string) (*OTAUpdate, error)
 	DeleteOTAUpdate(id string) error
 	ListOTAUpdates() []*OTAUpdate

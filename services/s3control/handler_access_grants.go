@@ -240,8 +240,9 @@ func (h *Handler) dispatchAccessGrantsPrefixOps(c *echo.Context, path, method st
 // --- Access Grants Instance handlers ---
 
 type createAccessGrantsInstanceRequestXML struct {
-	XMLName           xml.Name `xml:"CreateAccessGrantsInstanceRequest"`
-	IdentityCenterArn string   `xml:"IdentityCenterArn"`
+	XMLName           xml.Name         `xml:"CreateAccessGrantsInstanceRequest"`
+	IdentityCenterArn string           `xml:"IdentityCenterArn"`
+	Tags              []resourceTagXML `xml:"Tags>Tag"`
 }
 
 type createAccessGrantsInstanceResponseXML struct {
@@ -263,6 +264,15 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 	}
 
 	inst := h.Backend.CreateAccessGrantsInstance(accountID, body.IdentityCenterArn)
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(inst.AccessGrantsInstanceArn, tags)
+	}
 
 	return writeXML(c, createAccessGrantsInstanceResponseXML{
 		AccessGrantsInstanceArn:   inst.AccessGrantsInstanceArn,
@@ -350,6 +360,7 @@ type createAccessGrantRequestXML struct {
 	Permission             string                      `xml:"Permission"`
 	Grantee                createAccessGrantGranteeXML `xml:"Grantee"`
 	ApplicationArn         string                      `xml:"ApplicationArn"`
+	Tags                   []resourceTagXML            `xml:"Tags>Tag"`
 }
 
 type createAccessGrantResponseXML struct {
@@ -383,6 +394,15 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(grant.AccessGrantArn, tags)
+	}
+
 	return writeXML(c, createAccessGrantResponseXML{
 		AccessGrantArn:         grant.AccessGrantArn,
 		AccessGrantID:          grant.AccessGrantID,
@@ -400,9 +420,10 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 // --- CreateAccessGrantsLocation handler ---
 
 type createAccessGrantsLocationRequestXML struct {
-	XMLName       xml.Name `xml:"CreateAccessGrantsLocationRequest"`
-	LocationScope string   `xml:"LocationScope"`
-	IAMRoleArn    string   `xml:"IAMRoleArn"`
+	XMLName       xml.Name         `xml:"CreateAccessGrantsLocationRequest"`
+	LocationScope string           `xml:"LocationScope"`
+	IAMRoleArn    string           `xml:"IAMRoleArn"`
+	Tags          []resourceTagXML `xml:"Tags>Tag"`
 }
 
 type createAccessGrantsLocationResponseXML struct {
@@ -426,6 +447,15 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 	}
 
 	loc := h.Backend.CreateAccessGrantsLocation(accountID, body.LocationScope, body.IAMRoleArn)
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(loc.AccessGrantsLocationArn, tags)
+	}
 
 	return writeXML(c, createAccessGrantsLocationResponseXML{
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,

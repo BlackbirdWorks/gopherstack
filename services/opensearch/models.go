@@ -228,6 +228,7 @@ type ServiceSoftwareOptions struct {
 
 // Application represents an OpenSearch UI application.
 type Application struct {
+	Tags          *tags.Tags      `json:"tags,omitempty"`
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
 	ARN           string          `json:"arn"`

@@ -78,6 +78,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		Enabled:          !payload.RuleDisabled,
 		CreatedAt:        time.Now(),
 	})
+	b.putResourceTagsLocked(arn, input.Tags)
 
 	return nil
 }

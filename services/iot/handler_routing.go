@@ -9,7 +9,57 @@ import (
 
 // matchIoTPath reports whether path belongs to the IoT control-plane.
 func matchIoTPath(path string) bool {
-	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) || matchFinalOpsPath(path)
+	return matchCoreIoTPath(path) || matchNewIoTPath(path) || matchBatch4Path(path) ||
+		matchFinalOpsPath(path) || matchTaggableResourcePath(path)
+}
+
+// matchTaggableResourcePath reports whether path belongs to one of the
+// resource families gopherstack-2mwl found entirely missing from this
+// route matcher -- the same previously-undiscovered unreachable-op bug
+// class documented on matchJobAndTemplatePath below, but far larger:
+// RouteMatcher is evaluated before op dispatch, so a real client's request
+// to any of these paths 404'd regardless of resolveOperation/the handler
+// being correct. Critically this included "/tags" itself, making
+// TagResource/UntagResource/ListTagsForResource unreachable for every
+// taggable resource kind, plus the Create path for every tag-accepting
+// resource family not already covered elsewhere in this file (authorizers,
+// billing groups, commands, custom metrics, dimensions, domain
+// configurations, dynamic thing groups, fleet metrics, OTA updates,
+// packages, provisioning templates, role aliases, streams).
+func matchTaggableResourcePath(path string) bool {
+	return matchTaggableResourcePathA(path) || matchTaggableResourcePathB(path)
+}
+
+func matchTaggableResourcePathA(path string) bool {
+	return path == pathTags ||
+		path == "/untag" ||
+		path == "/authorizers" ||
+		strings.HasPrefix(path, "/authorizer/") ||
+		path == "/billing-groups" ||
+		strings.HasPrefix(path, "/billing-groups/") ||
+		path == "/commands" ||
+		strings.HasPrefix(path, "/commands/") ||
+		path == "/custom-metrics" ||
+		strings.HasPrefix(path, "/custom-metric/") ||
+		path == "/dimensions" ||
+		strings.HasPrefix(path, "/dimensions/")
+}
+
+func matchTaggableResourcePathB(path string) bool {
+	return path == "/domainConfigurations" ||
+		strings.HasPrefix(path, "/domainConfigurations/") ||
+		strings.HasPrefix(path, "/dynamic-thing-groups/") ||
+		path == "/fleet-metrics" ||
+		strings.HasPrefix(path, "/fleet-metric/") ||
+		path == "/otaUpdates" ||
+		strings.HasPrefix(path, "/otaUpdates/") ||
+		path == "/packages" ||
+		path == pathProvisioningTemplates ||
+		strings.HasPrefix(path, "/provisioning-templates/") ||
+		path == "/role-aliases" ||
+		strings.HasPrefix(path, "/role-aliases/") ||
+		path == "/streams" ||
+		strings.HasPrefix(path, "/streams/")
 }
 
 // matchBatch4Path reports whether path belongs to the batch-4 routes (bulk

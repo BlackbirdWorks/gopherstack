@@ -72,7 +72,7 @@ func TestExportCounts(t *testing.T) {
 	_, err = b.AddDirectQueryDataSource("dq-1", "desc", json.RawMessage(`{"CloudWatchLog":{}}`), nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("app-1", nil, nil)
+	_, err = b.CreateApplication("app-1", nil, nil, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, 2, opensearch.DomainCount(b))

@@ -153,6 +153,7 @@ type createStorageLensGroupStorageLensGroupXML struct {
 type createStorageLensGroupRequestXML struct {
 	XMLName          xml.Name                                  `xml:"CreateStorageLensGroupRequest"`
 	StorageLensGroup createStorageLensGroupStorageLensGroupXML `xml:"StorageLensGroup"`
+	Tags             []resourceTagXML                          `xml:"Tags>Tag"`
 }
 
 func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
@@ -167,6 +168,15 @@ func (h *Handler) handleCreateStorageLensGroup(c *echo.Context) error {
 
 	if body.StorageLensGroup.Filter.Raw != "" {
 		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, grp.Name, body.StorageLensGroup.Filter.Raw)
+	}
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(grp.StorageLensGroupArn, tags)
 	}
 
 	return c.NoContent(http.StatusCreated)

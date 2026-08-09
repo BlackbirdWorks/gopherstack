@@ -119,15 +119,21 @@ type createJobXMLCapture struct {
 }
 
 type createJobRequestXML struct {
-	XMLName              xml.Name            `xml:"CreateJobRequest"`
-	ClientRequestToken   string              `xml:"ClientRequestToken"`
-	Description          string              `xml:"Description"`
-	RoleArn              string              `xml:"RoleArn"`
-	Manifest             createJobXMLCapture `xml:"Manifest"`
-	Operation            createJobXMLCapture `xml:"Operation"`
-	Report               createJobXMLCapture `xml:"Report"`
-	Priority             int32               `xml:"Priority"`
-	ConfirmationRequired bool                `xml:"ConfirmationRequired"`
+	XMLName            xml.Name            `xml:"CreateJobRequest"`
+	ClientRequestToken string              `xml:"ClientRequestToken"`
+	Description        string              `xml:"Description"`
+	RoleArn            string              `xml:"RoleArn"`
+	Manifest           createJobXMLCapture `xml:"Manifest"`
+	Operation          createJobXMLCapture `xml:"Operation"`
+	Report             createJobXMLCapture `xml:"Report"`
+	// CreateJobInput.Tags is []types.S3Tag, serialized with the smithy
+	// default array member name "member" -- unlike types.Tag (used by every
+	// other Create op here), which customizes it to "Tag"
+	// (awsRestxml_serializeDocumentS3TagSet vs ...TagList,
+	// s3control@v1.73.4 serializers.go).
+	Tags                 []resourceTagXML `xml:"Tags>member"`
+	Priority             int32            `xml:"Priority"`
+	ConfirmationRequired bool             `xml:"ConfirmationRequired"`
 }
 
 type createJobResponseXML struct {
@@ -159,6 +165,15 @@ func (h *Handler) handleCreateJob(c *echo.Context) error {
 			body.Report.Raw,
 			body.ConfirmationRequired,
 		)
+	}
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(job.JobArn, tags)
 	}
 
 	return writeXML(c, createJobResponseXML{

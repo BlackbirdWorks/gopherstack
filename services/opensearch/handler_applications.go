@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // applicationEndpoint synthesizes a plausible OpenSearch application
@@ -213,32 +214,36 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 
 // createApplicationRequest is the JSON request body for CreateApplication.
 type createApplicationRequest struct {
-	Name        string          `json:"Name"`
-	AppConfigs  []appConfigJSON `json:"AppConfigs"`
-	DataSources []appDSJSON     `json:"DataSources"`
+	Name        string          `json:"name"`
+	AppConfigs  []appConfigJSON `json:"appConfigs"`
+	DataSources []appDSJSON     `json:"dataSources"`
+	TagList     []svcTags.KV    `json:"tagList,omitempty"`
 }
 
 // appConfigJSON is the JSON representation of an AppConfig.
 type appConfigJSON struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // appDSJSON is the JSON representation of an application data source.
 type appDSJSON struct {
-	DataSourceArn string `json:"DataSourceArn"`
+	DataSourceArn string `json:"dataSourceArn"`
 }
 
 // createApplicationOutput is the JSON response for CreateApplication. Note
 // CreateApplicationOutput has no Status or LastUpdatedAt field (unlike
-// GetApplication) -- do not add them here.
+// GetApplication) -- do not add them here. Field names are lowerCamelCase,
+// matching the real deserializer's case-sensitive key switch (opensearch@v1.75.4
+// deserializers.go:1830 awsRestjson1_deserializeOpDocumentCreateApplicationOutput)
+// -- unlike the older Domain API surface, which is PascalCase.
 type createApplicationOutput struct {
-	ID          string          `json:"Id"`
-	Name        string          `json:"Name"`
-	ARN         string          `json:"Arn"`
-	AppConfigs  []appConfigJSON `json:"AppConfigs"`
-	DataSources []appDSJSON     `json:"DataSources"`
-	CreatedAt   float64         `json:"CreatedAt"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	ARN         string          `json:"arn"`
+	AppConfigs  []appConfigJSON `json:"appConfigs"`
+	DataSources []appDSJSON     `json:"dataSources"`
+	CreatedAt   float64         `json:"createdAt"`
 }
 
 func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +271,7 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 		dataSources = append(dataSources, AppDataSource(ds))
 	}
 
-	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources)
+	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources, svcTags.MapFromKV(req.TagList))
 	if createErr != nil {
 		if errors.Is(createErr, ErrApplicationAlreadyExists) {
 			h.writeError(

@@ -98,6 +98,7 @@ type CreateThingOutput struct {
 // CreateTopicRuleInput is the input for CreateTopicRule.
 type CreateTopicRuleInput struct {
 	TopicRulePayload *TopicRulePayload
+	Tags             map[string]string
 	RuleName         string
 }
 

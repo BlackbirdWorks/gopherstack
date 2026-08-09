@@ -36,8 +36,9 @@ const (
 	// (GET/POST /indexing/config). It is distinct from pathIndices ("/indices"), which is
 	// where the fleet-indexing search/aggregation surface (e.g. SearchIndex at
 	// /indices/search) lives.
-	pathIndexingConfig = "/indexing/config"
-	pathThings         = "/things"
+	pathIndexingConfig        = "/indexing/config"
+	pathThings                = "/things"
+	pathProvisioningTemplates = "/provisioning-templates"
 )
 
 const (

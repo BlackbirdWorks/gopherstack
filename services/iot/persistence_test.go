@@ -353,7 +353,7 @@ func seedPackagesAndCommands(t *testing.T, b *iot.InMemoryBackend) {
 
 	_, err := b.CreateOTAUpdate(
 		"gap-ota-update", "gap ota", "arn:aws:iam::123456789012:role/gap-role",
-		[]string{"arn:aws:iot:us-east-1:123456789012:thing/gap-thing"}, nil,
+		[]string{"arn:aws:iot:us-east-1:123456789012:thing/gap-thing"}, nil, nil,
 	)
 	require.NoError(t, err)
 

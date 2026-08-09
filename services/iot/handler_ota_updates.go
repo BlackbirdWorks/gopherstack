@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveOTAUpdateOps(path, method string) string {
@@ -29,15 +31,18 @@ func resolveOTAUpdateOps(path, method string) string {
 func (h *Handler) handleCreateOTAUpdate(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/otaUpdates/")
 	var req struct {
-		Description string   `json:"description"`
-		RoleARN     string   `json:"roleArn"`
-		Targets     []string `json:"targets"`
-		Files       []any    `json:"otaUpdateFiles"`
+		Description string    `json:"description"`
+		RoleARN     string    `json:"roleArn"`
+		Targets     []string  `json:"targets"`
+		Files       []any     `json:"otaUpdateFiles"`
+		Tags        []tags.KV `json:"tags"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	o, err := h.Backend.CreateOTAUpdate(id, req.Description, req.RoleARN, req.Targets, req.Files)
+	o, err := h.Backend.CreateOTAUpdate(
+		id, req.Description, req.RoleARN, req.Targets, req.Files, tags.MapFromKV(req.Tags),
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}

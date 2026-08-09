@@ -56,13 +56,15 @@ func decodeWhiteboxBody(t *testing.T, body []byte) map[string]any {
 }
 
 // TestTags_LegacyStoreClearedOnDelete locks in a leak fix: resource
-// families not covered by taggableResourceTags' fast path (Cluster,
-// Node, SignalMap, CloudWatchAlarmTemplate(Group),
-// EventBridgeRuleTemplate(Group), Reservation, Network, SdiSource,
-// ChannelPlacementGroup) store their tags in the legacy per-ARN b.tags map.
-// Before this fix, deleting one of these resources never removed its entry
-// from b.tags, so every create+tag+delete cycle left a permanent ghost row
-// for the lifetime of the backend. Exercised here via Cluster.
+// families not covered by taggableResourceTags' fast path -- whose real
+// Describe/List shapes have no inline Tags field, e.g. SdiSource,
+// Reservation -- store their tags in the legacy per-ARN b.tags map. Before
+// this fix, deleting one of these resources never removed its entry from
+// b.tags, so every create+tag+delete cycle left a permanent ghost row for
+// the lifetime of the backend. Exercised here via SdiSource. (Cluster
+// previously exercised this test, but gopherstack-2mwl moved Cluster into
+// taggableResourceTags' fast path since real DescribeClusterResult echoes
+// Tags inline -- its tags now live on the resource struct, not b.tags.)
 func TestTags_LegacyStoreClearedOnDelete(t *testing.T) {
 	t.Parallel()
 
@@ -71,21 +73,26 @@ func TestTags_LegacyStoreClearedOnDelete(t *testing.T) {
 
 	baseline := tagStoreCount(backend)
 
-	rec := doWhiteboxRequest(t, h, http.MethodPost, "/prod/clusters", map[string]any{"name": "tag-leak-cluster"})
+	// CreateSdiSource itself now seeds b.tags[arn] (even with an empty map
+	// when no tags are supplied), so the b.tags entry appears at creation,
+	// not first-tagging.
+	rec := doWhiteboxRequest(t, h, http.MethodPost, "/prod/sdiSources", map[string]any{"name": "tag-leak-sdisource"})
 	require.Equal(t, http.StatusCreated, rec.Code)
-	cluster := decodeWhiteboxBody(t, rec.Body.Bytes())
-	clusterID := cluster["id"].(string)
-	clusterARN := cluster["arn"].(string)
+	created := decodeWhiteboxBody(t, rec.Body.Bytes())
+	sdiSource := created["sdiSource"].(map[string]any)
+	sdiSourceID := sdiSource["id"].(string)
+	sdiSourceARN := sdiSource["arn"].(string)
+	assert.Equal(t, baseline+1, tagStoreCount(backend), "creating the sdiSource seeds one b.tags entry")
 
-	rec = doWhiteboxRequest(t, h, http.MethodPost, "/prod/tags/"+clusterARN, map[string]any{
+	rec = doWhiteboxRequest(t, h, http.MethodPost, "/prod/tags/"+sdiSourceARN, map[string]any{
 		"tags": map[string]any{"env": "leak-test"},
 	})
 	require.Equal(t, http.StatusNoContent, rec.Code)
-	assert.Equal(t, baseline+1, tagStoreCount(backend), "tagging the cluster adds one b.tags entry")
+	assert.Equal(t, baseline+1, tagStoreCount(backend), "tagging an already-known ARN does not add a second entry")
 
-	rec = doWhiteboxRequest(t, h, http.MethodDelete, "/prod/clusters/"+clusterID, nil)
+	rec = doWhiteboxRequest(t, h, http.MethodDelete, "/prod/sdiSources/"+sdiSourceID, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	assert.Equal(t, baseline, tagStoreCount(backend),
-		"deleting the cluster must remove its b.tags entry, not leave a ghost row")
+		"deleting the sdiSource must remove its b.tags entry, not leave a ghost row")
 }
