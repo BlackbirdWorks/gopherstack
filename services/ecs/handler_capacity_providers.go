@@ -222,9 +222,15 @@ func (h *Handler) handleDescribeCapacityProviders(
 	views := make([]capacityProviderView, 0, len(providers))
 	for _, cp := range providers {
 		v := toCapacityProviderView(cp)
+		v.Tags = nil
 
-		if !wantTags {
-			v.Tags = nil
+		if wantTags {
+			tags, tagErr := h.Backend.ListTagsForResource(cp.CapacityProviderArn)
+			if tagErr != nil {
+				return nil, tagErr
+			}
+
+			v.Tags = tags
 		}
 
 		views = append(views, v)

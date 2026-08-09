@@ -3,6 +3,7 @@ package appsync
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -228,12 +229,22 @@ func (h *Handler) ChaosRegions() []string { return []string{h.DefaultRegion} }
 // (set by native SDKs) and the X-Amz-User-Agent header (used by the AWS SDK for
 // JavaScript in a browser, which cannot set User-Agent itself) -- see
 // service.MatchesUserAgentMarker.
+//
+// "/v1/tags/{arn}" is shared with Batch/CodeArtifact/Kafka/MQ/Pinpoint/Polly, each of
+// which expose the same real AWS SDK tagging endpoint under their own /v1/ namespace,
+// so the tags branch is ARN-scoped via isAppSyncTagPath instead of a bare prefix match
+// -- an unguarded match here claims every other service's tag requests too (see
+// isBatchTagPath in services/batch/handler.go for the mirrored guard on that side).
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
 		if strings.HasPrefix(path, appsyncV2PathPrefix) {
 			return service.MatchesUserAgentMarker(c.Request().Header, "api/appsync")
+		}
+
+		if strings.HasPrefix(path, appsyncTagsPrefix) {
+			return isAppSyncTagPath(path)
 		}
 
 		return strings.HasPrefix(path, appsyncPathPrefix) ||
@@ -243,9 +254,32 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, appsyncIntrospectPrefix) ||
 			strings.HasPrefix(path, appsyncRealIntrospectPrefix) ||
 			strings.HasPrefix(path, appsyncEvalCodePrefix) ||
-			strings.HasPrefix(path, appsyncEvalTemplatePrefix) ||
-			strings.HasPrefix(path, appsyncTagsPrefix)
+			strings.HasPrefix(path, appsyncEvalTemplatePrefix)
 	}
+}
+
+// arnServiceSplitN is the n passed to [strings.SplitN] when parsing an ARN to reach
+// the service name at index 2 (arn:partition:service:...).
+const arnServiceSplitN = 4
+
+// isAppSyncTagPath reports whether path is a "/v1/tags/{arn}" request whose ARN names
+// the appsync service (arn:{partition}:appsync:...). Bare "/v1/tags" (no ARN) is not
+// claimed either: CodeArtifact owns that exact path for its own bulk operation.
+func isAppSyncTagPath(path string) bool {
+	encodedARN, ok := strings.CutPrefix(path, appsyncTagsPrefix+"/")
+	if !ok || encodedARN == "" {
+		return false
+	}
+
+	decodedARN, err := url.PathUnescape(encodedARN)
+	if err != nil {
+		return false
+	}
+
+	// arn:partition:service:region:account:resource — check the service segment.
+	parts := strings.SplitN(decodedARN, ":", arnServiceSplitN)
+
+	return len(parts) >= 3 && parts[2] == "appsync"
 }
 
 // MatchPriority returns the routing priority.

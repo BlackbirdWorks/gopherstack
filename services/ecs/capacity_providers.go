@@ -78,6 +78,10 @@ func (b *InMemoryBackend) CreateCapacityProvider(
 
 	b.capacityProviders.Put(cp)
 
+	if len(input.Tags) > 0 {
+		b.setResourceTagsLocked(cp.CapacityProviderArn, input.Tags)
+	}
+
 	out := *cp
 	out.Tags = copyTags(cp.Tags)
 

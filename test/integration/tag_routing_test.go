@@ -13,6 +13,9 @@ import (
 	aasdk "github.com/aws/aws-sdk-go-v2/service/accessanalyzer"
 	aatypes "github.com/aws/aws-sdk-go-v2/service/accessanalyzer/types"
 	amplifysdk "github.com/aws/aws-sdk-go-v2/service/amplify"
+	appsyncsdkv2 "github.com/aws/aws-sdk-go-v2/service/appsync"
+	appsynctypes "github.com/aws/aws-sdk-go-v2/service/appsync/types"
+	batchsdk "github.com/aws/aws-sdk-go-v2/service/batch"
 	bedrockagentsdk "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
 	cleanroomssdk "github.com/aws/aws-sdk-go-v2/service/cleanrooms"
 	cleanroomstypes "github.com/aws/aws-sdk-go-v2/service/cleanrooms/types"
@@ -554,6 +557,120 @@ func newFISTagProbe(ctx context.Context, t *testing.T) tagProbe {
 	}
 }
 
+// newBatchTagProbe exercises Batch's "/v1/tags/{arn}" REST tag path.
+// AppSync's RouteMatcher claims that same shared "/v1/tags/{arn}" prefix
+// unconditionally, so before services/batch/tags_route.go's TagsRouter,
+// Batch's own TagResource/ListTagsForResource/UntagResource requests were
+// misrouted to AppSync's handler and rejected with "invalid resourceArn".
+func newBatchTagProbe(ctx context.Context, t *testing.T) tagProbe {
+	t.Helper()
+
+	client := createBatchClient(t)
+
+	out, createErr := client.CreateComputeEnvironment(ctx, &batchsdk.CreateComputeEnvironmentInput{
+		ComputeEnvironmentName: aws.String("integ-tagrouting-" + uuid.NewString()[:8]),
+		Type:                   "UNMANAGED",
+	})
+	require.NoError(t, createErr, "batch CreateComputeEnvironment should succeed")
+	resourceARN := aws.ToString(out.ComputeEnvironmentArn)
+
+	t.Cleanup(func() {
+		cctx, cancel := tagRoutingCleanupCtx()
+		defer cancel()
+		_, _ = client.DeleteComputeEnvironment(
+			cctx,
+			&batchsdk.DeleteComputeEnvironmentInput{ComputeEnvironment: aws.String(resourceARN)},
+		)
+	})
+
+	return tagProbe{
+		service: "batch",
+		want:    "batch-value",
+		tag: func(ctx context.Context) error {
+			_, tagErr := client.TagResource(ctx, &batchsdk.TagResourceInput{
+				ResourceArn: aws.String(resourceARN), Tags: map[string]string{"env": "batch-value"},
+			})
+
+			return tagErr
+		},
+		list: func(ctx context.Context) (string, error) {
+			out, listErr := client.ListTagsForResource(
+				ctx,
+				&batchsdk.ListTagsForResourceInput{ResourceArn: aws.String(resourceARN)},
+			)
+			if listErr != nil {
+				return "", listErr
+			}
+
+			return out.Tags["env"], nil
+		},
+		untag: func(ctx context.Context) error {
+			_, untagErr := client.UntagResource(ctx, &batchsdk.UntagResourceInput{
+				ResourceArn: aws.String(resourceARN), TagKeys: []string{"env"},
+			})
+
+			return untagErr
+		},
+	}
+}
+
+// newAppSyncTagProbe exercises AppSync's own "/v1/tags/{arn}" REST tag path.
+// AppSync's RouteMatcher used to claim that shared "/v1/tags/{arn}" prefix
+// unconditionally regardless of which service the ARN named, which -- before
+// isAppSyncTagPath (services/appsync/handler.go) -- meant AppSync stole every
+// other service's tag requests on this prefix (see newBatchTagProbe). This
+// probe is the flip side: it guards that the fix didn't overcorrect and stop
+// AppSync from claiming its own genuine tag requests.
+func newAppSyncTagProbe(ctx context.Context, t *testing.T) tagProbe {
+	t.Helper()
+
+	client := createAppSyncClient(t)
+
+	out, createErr := client.CreateGraphqlApi(ctx, &appsyncsdkv2.CreateGraphqlApiInput{
+		Name:               aws.String("integ-tagrouting-" + uuid.NewString()[:8]),
+		AuthenticationType: appsynctypes.AuthenticationTypeApiKey,
+	})
+	require.NoError(t, createErr, "appsync CreateGraphqlApi should succeed")
+	apiID := aws.ToString(out.GraphqlApi.ApiId)
+	resourceARN := aws.ToString(out.GraphqlApi.Arn)
+
+	t.Cleanup(func() {
+		cctx, cancel := tagRoutingCleanupCtx()
+		defer cancel()
+		_, _ = client.DeleteGraphqlApi(cctx, &appsyncsdkv2.DeleteGraphqlApiInput{ApiId: aws.String(apiID)})
+	})
+
+	return tagProbe{
+		service: "appsync",
+		want:    "appsync-value",
+		tag: func(ctx context.Context) error {
+			_, tagErr := client.TagResource(ctx, &appsyncsdkv2.TagResourceInput{
+				ResourceArn: aws.String(resourceARN), Tags: map[string]string{"env": "appsync-value"},
+			})
+
+			return tagErr
+		},
+		list: func(ctx context.Context) (string, error) {
+			out, listErr := client.ListTagsForResource(
+				ctx,
+				&appsyncsdkv2.ListTagsForResourceInput{ResourceArn: aws.String(resourceARN)},
+			)
+			if listErr != nil {
+				return "", listErr
+			}
+
+			return out.Tags["env"], nil
+		},
+		untag: func(ctx context.Context) error {
+			_, untagErr := client.UntagResource(ctx, &appsyncsdkv2.UntagResourceInput{
+				ResourceArn: aws.String(resourceARN), TagKeys: []string{"env"},
+			})
+
+			return untagErr
+		},
+	}
+}
+
 func newAccessAnalyzerTagProbe(ctx context.Context, t *testing.T) tagProbe {
 	t.Helper()
 
@@ -914,16 +1031,22 @@ func createBedrockAgentClient(t *testing.T) *bedrockagentsdk.Client {
 
 // TestIntegration_TagRouting_CrossServiceIsolation exercises TagResource/
 // ListTagsForResource(or GetTags)/UntagResource for every service whose
-// RouteMatcher claims the shared "/tags/{resourceArn}" path, in one test
-// binary run against the shared multi-service router. Each service's own
-// tagging test previously ran and passed in isolation while a routing
-// regression silently misrouted another service's tag requests -- this test
-// tags every probed resource with a distinct value first, THEN lists every
-// one, so a future MatchPriority change or a missing ARN/scope guard that
-// steals another service's prefix shows up immediately as a cross-
-// contaminated tag value or an outright routing failure. See
-// bedrockagent/cleanrooms/grafana/outposts/resiliencehub/mgn/networkmanager's
-// Handler.RouteMatcher and pkgs/httputils.MatchesTaggedResourceARN.
+// RouteMatcher claims a shared "/tags/{resourceArn}" or "/v1/tags/{arn}"
+// path, in one test binary run against the shared multi-service router.
+// Each service's own tagging test previously ran and passed in isolation
+// while a routing regression silently misrouted another service's tag
+// requests -- this test tags every probed resource with a distinct value
+// first, THEN lists every one, so a future MatchPriority change or a
+// missing ARN/scope guard that steals another service's prefix shows up
+// immediately as a cross-contaminated tag value or an outright routing
+// failure. See bedrockagent/cleanrooms/grafana/outposts/resiliencehub/mgn/
+// networkmanager's Handler.RouteMatcher, pkgs/httputils.MatchesTaggedResourceARN,
+// and services/appsync/handler.go's isAppSyncTagPath / services/batch/handler.go's
+// isBatchTagPath (the "/v1/tags/{arn}" prefix, shared with CodeArtifact/Kafka/MQ/
+// Pinpoint/Polly too: AppSync's RouteMatcher used to claim it unconditionally with
+// no ARN check, at equal MatchPriority to Batch, so AppSync silently swallowed
+// every other service's tag requests on this prefix -- fixed by ARN-scoping the
+// claim on each side rather than escalating anyone's priority).
 //
 // apigateway and pipes are deliberately NOT probed here: both have their own
 // pre-existing, unrelated tag-storage/wire-decoding bugs (apigateway's
@@ -940,6 +1063,8 @@ func TestIntegration_TagRouting_CrossServiceIsolation(t *testing.T) {
 	probeFactories := []func(ctx context.Context, t *testing.T) tagProbe{
 		newGrafanaTagProbe,
 		newNetworkManagerTagProbe,
+		newBatchTagProbe,
+		newAppSyncTagProbe,
 		newBedrockAgentTagProbe,
 		newCleanroomsTagProbe,
 		newAmplifyTagProbe,
