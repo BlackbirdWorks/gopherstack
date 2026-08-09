@@ -8,6 +8,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -187,8 +188,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return strings.HasPrefix(path, "/applications") ||
-			strings.HasPrefix(path, "/deploymentstrategies") ||
+		// EMRServerless and ServerlessRepo also bind "/applications" bare in
+		// their real APIs; scope by SigV4 so a correctly-signed request for
+		// either isn't swallowed here regardless of registration/priority
+		// ordering (see gopherstack-ibeo).
+		if strings.HasPrefix(path, "/applications") {
+			return httputils.ScopedPrefixMatch(c.Request(), path, "/applications", "appconfig")
+		}
+
+		return strings.HasPrefix(path, "/deploymentstrategies") ||
 			// The AWS AppConfig API ships a known typo: DeleteDeploymentStrategy
 			// uses the misspelled "/deployementstrategies/{Id}" URI while every
 			// other deployment-strategy operation uses "/deploymentstrategies".

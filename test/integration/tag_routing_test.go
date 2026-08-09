@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -38,8 +39,12 @@ import (
 	outpostssdk "github.com/aws/aws-sdk-go-v2/service/outposts"
 	securityhubsdk "github.com/aws/aws-sdk-go-v2/service/securityhub"
 	"github.com/google/uuid"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	appconfigsvc "github.com/blackbirdworks/gopherstack/services/appconfig"
+	securityhubsvc "github.com/blackbirdworks/gopherstack/services/securityhub"
 )
 
 // tagRoutingCleanupCtx returns a context for use inside t.Cleanup callbacks.
@@ -1291,4 +1296,128 @@ func TestIntegration_ShadowListRouting_CrossServiceIsolation(t *testing.T) {
 	})
 	require.NoError(t, listErr, "iotdataplane ListNamedShadowsForThing should succeed")
 	assert.Contains(t, listOut.Results, shadowName)
+}
+
+// sigV4Authorization builds an Authorization header value carrying signingService
+// as the SigV4 credential-scope service name, matching the format
+// pkgs/httputils.ExtractServiceFromRequest parses. An empty signingService
+// returns "" (no header set), simulating an unsigned/local request.
+func sigV4Authorization(signingService string) string {
+	if signingService == "" {
+		return ""
+	}
+
+	return "AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/" + signingService + "/aws4_request"
+}
+
+// matcherContext builds an echo.Context wrapping a request shaped like
+// method+path, signed for signingService (or unsigned if empty), for driving
+// a RouteMatcher directly.
+func matcherContext(method, path, signingService string) *echo.Context {
+	req := httptest.NewRequest(method, path, nil)
+	if auth := sigV4Authorization(signingService); auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+
+	return echo.New().NewContext(req, httptest.NewRecorder())
+}
+
+// TestIntegration_ApplicationsRouting_CrossServiceIsolation drives AppConfig's
+// RouteMatcher directly against the real "/applications" wire path that both
+// EMRServerless and ServerlessRepo also bind bare for their own
+// CreateApplication/ListApplications:
+//   - aws-sdk-go-v2/service/emrserverless@v1.44.4, serializers.go:128
+//     ("/applications")
+//   - aws-sdk-go-v2/service/serverlessapplicationrepository@v1.33.4,
+//     serializers.go:43 ("/applications")
+//
+// EMRServerless and ServerlessRepo both register at MatchPriority 87, above
+// AppConfig's 86, specifically to be evaluated first and keep this masked --
+// but AppConfig's own RouteMatcher used to claim "/applications" with a bare
+// strings.HasPrefix and no SigV4 scope, so the collision becomes live the
+// moment that priority gap closes (gopherstack-ibeo). Unlike the
+// Kafka/MQ and IoT/iotdataplane probes above, the priority ordering here
+// still protects a real end-to-end call through the shared router today, so
+// this probe instead drives AppConfig's RouteMatcher directly -- the layer
+// priority was never meant to substitute for, and the one AppConfig's own
+// RouteMatcher unit test (which only ever sends AppConfig-shaped/unsigned
+// requests) never exercises.
+func TestIntegration_ApplicationsRouting_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		signingService string
+		want           bool
+	}{
+		{name: "unsigned request still matches appconfig", signingService: "", want: true},
+		{name: "appconfig signed request matches", signingService: "appconfig", want: true},
+		{name: "emr serverless signed request does not match", signingService: "emr-serverless", want: false},
+		{name: "serverlessrepo signed request does not match", signingService: "serverlessrepo", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := appconfigsvc.NewHandler(appconfigsvc.NewInMemoryBackend("000000000000", "us-east-1"))
+			c := matcherContext(http.MethodPost, "/applications", tt.signingService)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
+}
+
+// TestIntegration_AccountsRouting_CrossServiceIsolation drives SecurityHub's
+// RouteMatcher directly against the real AWS wire shapes sharing the
+// "/accounts" path family: SecurityHub's own EnableSecurityHub/
+// DisableSecurityHub/DescribeHub/UpdateSecurityHubConfiguration bind exactly
+// "/accounts" with no further segment (aws-sdk-go-v2/service/securityhub@v1.75.4,
+// serializers.go:3327,3965,4518,9601), while QuickSight's real API only ever
+// binds "/accounts/{AwsAccountId}/..." -- one level deeper -- e.g. CreateNamespace
+// at aws-sdk-go-v2/service/quicksight@v1.123.1, serializers.go:2892
+// ("/accounts/{AwsAccountId}"). SecurityHub's RouteMatcher used to also treat
+// "/accounts" as a plain prefix, claiming every QuickSight sub-path too;
+// QuickSight registers at MatchPriority 86, above SecurityHub's 85, so a real
+// end-to-end call is protected today regardless of this probe's outcome
+// (gopherstack-ibeo). Because the real grammar difference (exact vs.
+// one-level-deeper) is enough to disambiguate on its own, the fix needs no
+// SigV4 check here -- unsigned and SecurityHub-signed requests behave
+// identically.
+func TestIntegration_AccountsRouting_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		path           string
+		signingService string
+		want           bool
+	}{
+		{name: "exact accounts matches unsigned", path: "/accounts", signingService: "", want: true},
+		{
+			name: "exact accounts matches securityhub signed", path: "/accounts",
+			signingService: "securityhub", want: true,
+		},
+		{
+			name: "quicksight namespace path does not match unsigned", path: "/accounts/000000000000",
+			signingService: "", want: false,
+		},
+		{
+			name:           "quicksight namespace path does not match quicksight signed",
+			path:           "/accounts/000000000000",
+			signingService: "quicksight",
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := securityhubsvc.NewHandler(securityhubsvc.NewInMemoryBackend("000000000000", "us-east-1"))
+			c := matcherContext(http.MethodPost, tt.path, tt.signingService)
+
+			assert.Equal(t, tt.want, h.RouteMatcher()(c))
+		})
+	}
 }

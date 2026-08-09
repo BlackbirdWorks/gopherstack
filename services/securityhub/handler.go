@@ -386,7 +386,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // securityHubOnlyPathPrefixes are path prefixes that unambiguously belong to
 // SecurityHub (no other service registers them), so RouteMatcher can claim
 // them without further disambiguation. pathAccounts is checked separately
-// since it is an exact-or-prefix match rather than a plain prefix.
+// since it is an exact match, not a prefix.
 var securityHubOnlyPathPrefixes = []string{ //nolint:gochecknoglobals // read-only lookup data
 	"/actionTargets",
 	"/insights",
@@ -437,13 +437,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		// Unambiguous SecurityHub-only paths
+		// Unambiguous SecurityHub-only paths. /accounts is exact-match only:
+		// the real API (EnableSecurityHub, DisableSecurityHub, DescribeHub,
+		// UpdateSecurityHubConfiguration) never binds anything under
+		// /accounts/... -- that shape belongs to QuickSight
+		// (aws-sdk-go-v2/service/quicksight@v1.123.1, e.g. serializers.go:1023
+		// "/accounts/{AwsAccountId}/analyses/{AnalysisId}").
 		if path == pathAccounts || hasAnyPrefix(path, securityHubOnlyPathPrefixes) {
-			return true
-		}
-
-		// /accounts with any method
-		if strings.HasPrefix(path, pathAccounts) {
 			return true
 		}
 
