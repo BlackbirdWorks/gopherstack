@@ -188,7 +188,188 @@ func TestComputeQuotaListPagination_RealClient(t *testing.T) {
 
 	out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{})
 	require.NoError(t, err)
-	assert.Len(t, out.ComputeQuotaSummaries, 3)
+	require.Len(t, out.ComputeQuotaSummaries, 3)
+	// ComputeQuotaTarget is a required member of ComputeQuotaSummary --
+	// sagemaker@v1.263.2 types/types.go:6153.
+	assert.Equal(t, "team-1", aws.ToString(out.ComputeQuotaSummaries[0].ComputeQuotaTarget.TeamName))
+}
+
+// TestClusterSchedulerConfigCreate_StoresSchedulerConfigAndDescription_RealClient
+// drives Create through a real client with a populated SchedulerConfig and
+// Description and asserts Describe echoes them back -- gopherstack-kbxx: both
+// were accepted on the wire and silently dropped.
+func TestClusterSchedulerConfigCreate_StoresSchedulerConfigAndDescription_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	created, err := client.CreateClusterSchedulerConfig(t.Context(), &sagemakersdk.CreateClusterSchedulerConfigInput{
+		Name:        aws.String("hp-config-full"),
+		ClusterArn:  aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		Description: aws.String("my scheduler policy"),
+		SchedulerConfig: &smtypes.SchedulerConfig{
+			FairShare:           smtypes.FairShareEnabled,
+			IdleResourceSharing: smtypes.IdleResourceSharingEnabled,
+			PriorityClasses: []smtypes.PriorityClass{
+				{Name: aws.String("team-a"), Weight: aws.Int32(50)},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeClusterSchedulerConfig(t.Context(), &sagemakersdk.DescribeClusterSchedulerConfigInput{
+		ClusterSchedulerConfigId: created.ClusterSchedulerConfigId,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "my scheduler policy", aws.ToString(desc.Description))
+	require.NotNil(t, desc.SchedulerConfig)
+	assert.Equal(t, smtypes.FairShareEnabled, desc.SchedulerConfig.FairShare)
+	assert.Equal(t, smtypes.IdleResourceSharingEnabled, desc.SchedulerConfig.IdleResourceSharing)
+	require.Len(t, desc.SchedulerConfig.PriorityClasses, 1)
+	assert.Equal(t, "team-a", aws.ToString(desc.SchedulerConfig.PriorityClasses[0].Name))
+	assert.Equal(t, int32(50), aws.ToInt32(desc.SchedulerConfig.PriorityClasses[0].Weight))
+}
+
+// TestClusterSchedulerConfigUpdate_ReplacesSchedulerConfigAndDescription_RealClient
+// asserts Update's SchedulerConfig and Description members (both accepted and
+// dropped pre-fix) actually replace the stored values.
+func TestClusterSchedulerConfigUpdate_ReplacesSchedulerConfigAndDescription_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	created, err := client.CreateClusterSchedulerConfig(t.Context(), &sagemakersdk.CreateClusterSchedulerConfigInput{
+		Name:            aws.String("hp-config-upd"),
+		ClusterArn:      aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		Description:     aws.String("original"),
+		SchedulerConfig: &smtypes.SchedulerConfig{FairShare: smtypes.FairShareEnabled},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateClusterSchedulerConfig(t.Context(), &sagemakersdk.UpdateClusterSchedulerConfigInput{
+		ClusterSchedulerConfigId: created.ClusterSchedulerConfigId,
+		TargetVersion:            aws.Int32(1),
+		Description:              aws.String("updated"),
+		SchedulerConfig: &smtypes.SchedulerConfig{
+			FairShare:           smtypes.FairShareDisabled,
+			IdleResourceSharing: smtypes.IdleResourceSharingEnabled,
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeClusterSchedulerConfig(t.Context(), &sagemakersdk.DescribeClusterSchedulerConfigInput{
+		ClusterSchedulerConfigId: created.ClusterSchedulerConfigId,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "updated", aws.ToString(desc.Description))
+	require.NotNil(t, desc.SchedulerConfig)
+	assert.Equal(t, smtypes.FairShareDisabled, desc.SchedulerConfig.FairShare)
+	assert.Equal(t, smtypes.IdleResourceSharingEnabled, desc.SchedulerConfig.IdleResourceSharing)
+}
+
+// TestComputeQuotaCreate_StoresConfigTargetAndActivationState_RealClient drives
+// Create through a real client with a populated ComputeQuotaConfig,
+// ComputeQuotaTarget, Description and ActivationState and asserts Describe
+// echoes them back -- gopherstack-kbxx: all four were accepted on the wire and
+// silently dropped, and ComputeQuotaConfig/ComputeQuotaTarget are required by
+// the real API (sagemaker@v1.263.2 api_op_CreateComputeQuota.go).
+func TestComputeQuotaCreate_StoresConfigTargetAndActivationState_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	created, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+		Name:            aws.String("hp-quota-full"),
+		ClusterArn:      aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		Description:     aws.String("my compute quota"),
+		ActivationState: smtypes.ActivationStateDisabled,
+		ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{
+			TeamName:        aws.String("team-a"),
+			FairShareWeight: aws.Int32(25),
+		},
+		ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{
+			PreemptTeamTasks: smtypes.PreemptTeamTasksNever,
+			ComputeQuotaResources: []smtypes.ComputeQuotaResourceConfig{
+				{InstanceType: smtypes.ClusterInstanceTypeMlC5Xlarge, Count: aws.Int32(2)},
+			},
+			ResourceSharingConfig: &smtypes.ResourceSharingConfig{
+				Strategy:    smtypes.ResourceSharingStrategyLend,
+				BorrowLimit: aws.Int32(75),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeComputeQuota(t.Context(), &sagemakersdk.DescribeComputeQuotaInput{
+		ComputeQuotaId: created.ComputeQuotaId,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "my compute quota", aws.ToString(desc.Description))
+	assert.Equal(t, smtypes.ActivationStateDisabled, desc.ActivationState)
+	require.NotNil(t, desc.ComputeQuotaTarget)
+	assert.Equal(t, "team-a", aws.ToString(desc.ComputeQuotaTarget.TeamName))
+	assert.Equal(t, int32(25), aws.ToInt32(desc.ComputeQuotaTarget.FairShareWeight))
+	require.NotNil(t, desc.ComputeQuotaConfig)
+	assert.Equal(t, smtypes.PreemptTeamTasksNever, desc.ComputeQuotaConfig.PreemptTeamTasks)
+	require.Len(t, desc.ComputeQuotaConfig.ComputeQuotaResources, 1)
+	resource := desc.ComputeQuotaConfig.ComputeQuotaResources[0]
+	assert.Equal(t, smtypes.ClusterInstanceTypeMlC5Xlarge, resource.InstanceType)
+	assert.Equal(t, int32(2), aws.ToInt32(resource.Count))
+	require.NotNil(t, desc.ComputeQuotaConfig.ResourceSharingConfig)
+	assert.Equal(t, smtypes.ResourceSharingStrategyLend, desc.ComputeQuotaConfig.ResourceSharingConfig.Strategy)
+	assert.Equal(t, int32(75), aws.ToInt32(desc.ComputeQuotaConfig.ResourceSharingConfig.BorrowLimit))
+}
+
+// TestComputeQuotaUpdate_ReplacesConfigTargetActivationDescription_RealClient
+// asserts Update's ComputeQuotaConfig, ComputeQuotaTarget, ActivationState and
+// Description members actually replace the stored values.
+func TestComputeQuotaUpdate_ReplacesConfigTargetActivationDescription_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	created, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+		Name:               aws.String("hp-quota-upd"),
+		ClusterArn:         aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{},
+		ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{TeamName: aws.String("team-1")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateComputeQuota(t.Context(), &sagemakersdk.UpdateComputeQuotaInput{
+		ComputeQuotaId:  created.ComputeQuotaId,
+		TargetVersion:   aws.Int32(1),
+		Description:     aws.String("updated quota"),
+		ActivationState: smtypes.ActivationStateDisabled,
+		ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{
+			TeamName:        aws.String("team-2"),
+			FairShareWeight: aws.Int32(90),
+		},
+		ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{
+			PreemptTeamTasks: smtypes.PreemptTeamTasksLowerpriority,
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeComputeQuota(t.Context(), &sagemakersdk.DescribeComputeQuotaInput{
+		ComputeQuotaId: created.ComputeQuotaId,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "updated quota", aws.ToString(desc.Description))
+	assert.Equal(t, smtypes.ActivationStateDisabled, desc.ActivationState)
+	require.NotNil(t, desc.ComputeQuotaTarget)
+	assert.Equal(t, "team-2", aws.ToString(desc.ComputeQuotaTarget.TeamName))
+	assert.Equal(t, int32(90), aws.ToInt32(desc.ComputeQuotaTarget.FairShareWeight))
+	require.NotNil(t, desc.ComputeQuotaConfig)
+	assert.Equal(t, smtypes.PreemptTeamTasksLowerpriority, desc.ComputeQuotaConfig.PreemptTeamTasks)
 }
 
 // TestDescribeNotFound_RealClient asserts the not-found wire type for both

@@ -16,7 +16,11 @@ var (
 	// ErrPipelineNotFound is returned when a pipeline does not exist.
 	ErrPipelineNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrPipelineAlreadyExists is returned when a pipeline already exists.
-	ErrPipelineAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// CreatePipeline's error list is ConflictException, not ResourceInUse
+	// (botocore sagemaker/2017-07-24@1.43.56 service-2.json's
+	// CreatePipeline.errors) — wrap ErrConflictException so handleError's
+	// special case (see errors.go) picks the accurate wire type.
+	ErrPipelineAlreadyExists = awserr.New("ConflictException", ErrConflictException)
 	// ErrPipelineExecutionNotFound is returned when a pipeline execution does not exist.
 	ErrPipelineExecutionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )

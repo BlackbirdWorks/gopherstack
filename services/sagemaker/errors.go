@@ -20,12 +20,16 @@ var ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter
 // nothing else in the service constructs an error wrapping this sentinel.
 var ErrResourceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 
-// ErrConflictException is the shared base sentinel for ClusterSchedulerConfig
-// and ComputeQuota: sagemaker@v1.263.2's Create/Update error lists for both
-// (api_op_CreateClusterSchedulerConfig.go, api_op_UpdateClusterSchedulerConfig.go,
-// and their ComputeQuota equivalents) name ConflictException, not the
-// ResourceInUse handleError emits for the generic awserr.ErrConflict sentinel.
-// handleError special-cases errors.Is(err, ErrConflictException) ahead of the
-// generic ErrConflict branch, mirroring ErrResourceNotFound above; nothing
-// else in the service constructs an error wrapping this sentinel.
+// ErrConflictException is the shared base sentinel for the resources whose
+// real conflict error is ConflictException rather than the ResourceInUse
+// handleError emits for the generic awserr.ErrConflict sentinel: verified
+// per-resource against botocore sagemaker/2017-07-24@1.43.56 service-2.json's
+// operation error lists — ClusterSchedulerConfig and ComputeQuota
+// (Create/UpdateClusterSchedulerConfig, Create/UpdateComputeQuota),
+// ModelPackageGroup (DeleteModelPackageGroup), and Pipeline
+// (Create/Update/DeletePipeline). Most other "already exists"/"in use"
+// sentinels in this service do declare ResourceInUse and are unaffected;
+// see gopherstack-kbxx for the resource-by-resource audit. handleError
+// special-cases errors.Is(err, ErrConflictException) ahead of the generic
+// ErrConflict branch, mirroring ErrResourceNotFound above.
 var ErrConflictException = awserr.New("ConflictException", awserr.ErrConflict)

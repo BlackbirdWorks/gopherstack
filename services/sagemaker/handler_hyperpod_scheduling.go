@@ -12,9 +12,11 @@ import (
 
 func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ClusterSchedulerConfigName string      `json:"Name"`
-		ClusterArn                 string      `json:"ClusterArn"`
-		Tags                       []tagObject `json:"Tags"`
+		SchedulerConfig            *SchedulerConfig `json:"SchedulerConfig"`
+		ClusterSchedulerConfigName string           `json:"Name"`
+		ClusterArn                 string           `json:"ClusterArn"`
+		Description                string           `json:"Description"`
+		Tags                       []tagObject      `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -24,6 +26,8 @@ func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body [
 	c, err := h.Backend.CreateClusterSchedulerConfig(ctx, CreateClusterSchedulerConfigOptions{
 		ClusterSchedulerConfigName: req.ClusterSchedulerConfigName,
 		ClusterArn:                 req.ClusterArn,
+		Description:                req.Description,
+		SchedulerConfig:            req.SchedulerConfig,
 		Tags:                       fromTagObjects(req.Tags),
 	})
 	if err != nil {
@@ -82,8 +86,10 @@ func (h *Handler) handleListClusterSchedulerConfigs(ctx context.Context, body []
 
 func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ClusterSchedulerConfigID string `json:"ClusterSchedulerConfigId"`
-		TargetVersion            int32  `json:"TargetVersion"`
+		SchedulerConfig          *SchedulerConfig `json:"SchedulerConfig"`
+		Description              *string          `json:"Description"`
+		ClusterSchedulerConfigID string           `json:"ClusterSchedulerConfigId"`
+		TargetVersion            int32            `json:"TargetVersion"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -94,7 +100,11 @@ func (h *Handler) handleUpdateClusterSchedulerConfig(ctx context.Context, body [
 		return nil, fmt.Errorf("%w: TargetVersion is required", ErrValidation)
 	}
 
-	c, err := h.Backend.UpdateClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigID, req.TargetVersion)
+	c, err := h.Backend.UpdateClusterSchedulerConfig(ctx, req.ClusterSchedulerConfigID, req.TargetVersion,
+		UpdateClusterSchedulerConfigOptions{
+			SchedulerConfig: req.SchedulerConfig,
+			Description:     req.Description,
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -127,9 +137,13 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body [
 
 func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ComputeQuotaName string      `json:"Name"`
-		ClusterArn       string      `json:"ClusterArn"`
-		Tags             []tagObject `json:"Tags"`
+		ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
+		ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
+		ComputeQuotaName   string              `json:"Name"`
+		ClusterArn         string              `json:"ClusterArn"`
+		ActivationState    string              `json:"ActivationState"`
+		Description        string              `json:"Description"`
+		Tags               []tagObject         `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -137,9 +151,13 @@ func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]
 	}
 
 	q, err := h.Backend.CreateComputeQuota(ctx, CreateComputeQuotaOptions{
-		ComputeQuotaName: req.ComputeQuotaName,
-		ClusterArn:       req.ClusterArn,
-		Tags:             fromTagObjects(req.Tags),
+		ComputeQuotaName:   req.ComputeQuotaName,
+		ClusterArn:         req.ClusterArn,
+		ActivationState:    req.ActivationState,
+		Description:        req.Description,
+		ComputeQuotaConfig: req.ComputeQuotaConfig,
+		ComputeQuotaTarget: req.ComputeQuotaTarget,
+		Tags:               fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -186,6 +204,10 @@ func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]b
 			keyComputeQuotaArn:     q.ComputeQuotaArn,
 			keyComputeQuotaID:      q.ComputeQuotaID,
 			keyComputeQuotaVersion: q.ComputeQuotaVersion,
+			keyComputeQuotaConfig:  q.ComputeQuotaConfig,
+			keyComputeQuotaTarget:  q.ComputeQuotaTarget,
+			keyActivationState:     q.ActivationState,
+			keyClusterArn:          q.ClusterArn,
 			keyStatus:              q.Status,
 			keyCreationTime:        epochSeconds(q.CreationTime),
 			keyLastModifiedTime:    epochSeconds(q.LastModifiedTime),
@@ -197,8 +219,12 @@ func (h *Handler) handleListComputeQuotas(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ComputeQuotaID string `json:"ComputeQuotaId"`
-		TargetVersion  int32  `json:"TargetVersion"`
+		ComputeQuotaConfig *ComputeQuotaConfig `json:"ComputeQuotaConfig"`
+		ComputeQuotaTarget *ComputeQuotaTarget `json:"ComputeQuotaTarget"`
+		ActivationState    *string             `json:"ActivationState"`
+		Description        *string             `json:"Description"`
+		ComputeQuotaID     string              `json:"ComputeQuotaId"`
+		TargetVersion      int32               `json:"TargetVersion"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -209,7 +235,12 @@ func (h *Handler) handleUpdateComputeQuota(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: TargetVersion is required", ErrValidation)
 	}
 
-	q, err := h.Backend.UpdateComputeQuota(ctx, req.ComputeQuotaID, req.TargetVersion)
+	q, err := h.Backend.UpdateComputeQuota(ctx, req.ComputeQuotaID, req.TargetVersion, UpdateComputeQuotaOptions{
+		ComputeQuotaConfig: req.ComputeQuotaConfig,
+		ComputeQuotaTarget: req.ComputeQuotaTarget,
+		ActivationState:    req.ActivationState,
+		Description:        req.Description,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -29,15 +29,45 @@ var (
 	ErrClusterSchedulerConfigVersionConflict = awserr.New("ConflictException", ErrConflictException)
 )
 
+// SchedulerConfig is a ClusterSchedulerConfig's task-prioritization and
+// fair-share policy. sagemaker@v1.263.2 types/types.go:20581.
+type SchedulerConfig struct {
+	FairShare           string          `json:"FairShare,omitempty"`
+	IdleResourceSharing string          `json:"IdleResourceSharing,omitempty"`
+	PriorityClasses     []PriorityClass `json:"PriorityClasses,omitempty"`
+}
+
+// PriorityClass is one entry of a SchedulerConfig's PriorityClasses list.
+// sagemaker@v1.263.2 types/types.go:17733.
+type PriorityClass struct {
+	Name   string `json:"Name"`
+	Weight int32  `json:"Weight"`
+}
+
+func cloneSchedulerConfig(c *SchedulerConfig) *SchedulerConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	if c.PriorityClasses != nil {
+		cp.PriorityClasses = append([]PriorityClass(nil), c.PriorityClasses...)
+	}
+
+	return &cp
+}
+
 // ClusterSchedulerConfig represents a SageMaker cluster scheduler configuration.
 type ClusterSchedulerConfig struct {
 	CreationTime                  time.Time         `json:"CreationTime"`
 	LastModifiedTime              time.Time         `json:"LastModifiedTime"`
+	SchedulerConfig               *SchedulerConfig  `json:"SchedulerConfig,omitempty"`
 	Tags                          map[string]string `json:"Tags,omitempty"`
 	ClusterSchedulerConfigName    string            `json:"Name"`
 	ClusterSchedulerConfigArn     string            `json:"ClusterSchedulerConfigArn"`
 	ClusterSchedulerConfigID      string            `json:"ClusterSchedulerConfigId"`
 	ClusterArn                    string            `json:"ClusterArn,omitempty"`
+	Description                   string            `json:"Description,omitempty"`
 	Status                        string            `json:"Status"`
 	ClusterSchedulerConfigVersion int32             `json:"ClusterSchedulerConfigVersion"`
 }
@@ -45,6 +75,7 @@ type ClusterSchedulerConfig struct {
 func cloneClusterSchedulerConfig(c *ClusterSchedulerConfig) *ClusterSchedulerConfig {
 	cp := *c
 	cp.Tags = maps.Clone(c.Tags)
+	cp.SchedulerConfig = cloneSchedulerConfig(c.SchedulerConfig)
 
 	return &cp
 }
@@ -89,9 +120,11 @@ func (c *ClusterSchedulerConfig) UnmarshalJSON(data []byte) error {
 
 // CreateClusterSchedulerConfigOptions holds input fields for CreateClusterSchedulerConfig.
 type CreateClusterSchedulerConfigOptions struct {
+	SchedulerConfig            *SchedulerConfig
 	Tags                       map[string]string
 	ClusterSchedulerConfigName string
 	ClusterArn                 string
+	Description                string
 }
 
 // CreateClusterSchedulerConfig creates a SageMaker cluster scheduler configuration.
@@ -120,6 +153,8 @@ func (b *InMemoryBackend) CreateClusterSchedulerConfig(
 				ClusterSchedulerConfigID:      generateID()[:idPatternLen],
 				ClusterSchedulerConfigVersion: 1,
 				ClusterArn:                    opts.ClusterArn,
+				Description:                   opts.Description,
+				SchedulerConfig:               cloneSchedulerConfig(opts.SchedulerConfig),
 				Status:                        statusCreating,
 				Tags:                          mergeTags(nil, opts.Tags),
 				CreationTime:                  now,
@@ -187,6 +222,14 @@ func (b *InMemoryBackend) ListClusterSchedulerConfigs(
 	)
 }
 
+// UpdateClusterSchedulerConfigOptions holds the optional, settable-on-update
+// fields for UpdateClusterSchedulerConfig. A nil field means "not provided in
+// the request" and leaves the stored value unchanged.
+type UpdateClusterSchedulerConfigOptions struct {
+	SchedulerConfig *SchedulerConfig
+	Description     *string
+}
+
 // UpdateClusterSchedulerConfig applies an optimistic-concurrency update gated
 // by targetVersion. sagemaker@v1.263.2 api_op_UpdateClusterSchedulerConfig.go:29
 // requires ClusterSchedulerConfigId and TargetVersion; ClusterArn is not a
@@ -195,6 +238,7 @@ func (b *InMemoryBackend) UpdateClusterSchedulerConfig(
 	ctx context.Context,
 	id string,
 	targetVersion int32,
+	opts UpdateClusterSchedulerConfigOptions,
 ) (*ClusterSchedulerConfig, error) {
 	b.mu.Lock("UpdateClusterSchedulerConfig")
 	defer b.mu.Unlock()
@@ -211,6 +255,14 @@ func (b *InMemoryBackend) UpdateClusterSchedulerConfig(
 			"%w: cluster scheduler config %q target version %d does not match current version %d",
 			ErrClusterSchedulerConfigVersionConflict, id, targetVersion, c.ClusterSchedulerConfigVersion,
 		)
+	}
+
+	if opts.SchedulerConfig != nil {
+		c.SchedulerConfig = cloneSchedulerConfig(opts.SchedulerConfig)
+	}
+
+	if opts.Description != nil {
+		c.Description = *opts.Description
 	}
 
 	c.ClusterSchedulerConfigVersion++
@@ -254,22 +306,155 @@ var (
 	ErrComputeQuotaVersionConflict = awserr.New("ConflictException", ErrConflictException)
 )
 
+// AcceleratorPartitionConfig is a ComputeQuotaResourceConfig's fractional-GPU
+// allocation. sagemaker@v1.263.2 types/types.go:11 (accelerator_partition_config.go).
+type AcceleratorPartitionConfig struct {
+	Type  string `json:"Type"`
+	Count int32  `json:"Count"`
+}
+
+// ComputeQuotaResourceConfig is one resource allocation entry, used both by
+// ComputeQuotaConfig.ComputeQuotaResources and
+// ResourceSharingConfig.AbsoluteBorrowLimits. sagemaker@v1.263.2
+// types/types.go:6114.
+type ComputeQuotaResourceConfig struct {
+	AcceleratorPartition *AcceleratorPartitionConfig `json:"AcceleratorPartition,omitempty"`
+	Accelerators         *int32                      `json:"Accelerators,omitempty"`
+	Count                *int32                      `json:"Count,omitempty"`
+	MemoryInGiB          *float32                    `json:"MemoryInGiB,omitempty"`
+	VCpu                 *float32                    `json:"VCpu,omitempty"`
+	InstanceType         string                      `json:"InstanceType"`
+}
+
+// ResourceSharingConfig defines how a ComputeQuota lends and borrows idle
+// compute with other entities. sagemaker@v1.263.2 types/types.go:19878.
+type ResourceSharingConfig struct {
+	BorrowLimit          *int32                       `json:"BorrowLimit,omitempty"`
+	Strategy             string                       `json:"Strategy"`
+	AbsoluteBorrowLimits []ComputeQuotaResourceConfig `json:"AbsoluteBorrowLimits,omitempty"`
+}
+
+// ComputeQuotaConfig is a ComputeQuota's resource allocation configuration.
+// sagemaker@v1.263.2 types/types.go:6094.
+type ComputeQuotaConfig struct {
+	ResourceSharingConfig *ResourceSharingConfig       `json:"ResourceSharingConfig,omitempty"`
+	PreemptTeamTasks      string                       `json:"PreemptTeamTasks,omitempty"`
+	ComputeQuotaResources []ComputeQuotaResourceConfig `json:"ComputeQuotaResources,omitempty"`
+}
+
+// ComputeQuotaTarget is the entity a ComputeQuota allocates compute to.
+// sagemaker@v1.263.2 types/types.go:6208.
+type ComputeQuotaTarget struct {
+	FairShareWeight *int32 `json:"FairShareWeight,omitempty"`
+	TeamName        string `json:"TeamName"`
+}
+
+func cloneComputeQuotaResourceConfig(r ComputeQuotaResourceConfig) ComputeQuotaResourceConfig {
+	if r.AcceleratorPartition != nil {
+		ap := *r.AcceleratorPartition
+		r.AcceleratorPartition = &ap
+	}
+
+	if r.Accelerators != nil {
+		v := *r.Accelerators
+		r.Accelerators = &v
+	}
+
+	if r.Count != nil {
+		v := *r.Count
+		r.Count = &v
+	}
+
+	if r.MemoryInGiB != nil {
+		v := *r.MemoryInGiB
+		r.MemoryInGiB = &v
+	}
+
+	if r.VCpu != nil {
+		v := *r.VCpu
+		r.VCpu = &v
+	}
+
+	return r
+}
+
+func cloneComputeQuotaResourceConfigs(rs []ComputeQuotaResourceConfig) []ComputeQuotaResourceConfig {
+	if rs == nil {
+		return nil
+	}
+
+	cp := make([]ComputeQuotaResourceConfig, len(rs))
+	for i, r := range rs {
+		cp[i] = cloneComputeQuotaResourceConfig(r)
+	}
+
+	return cp
+}
+
+func cloneResourceSharingConfig(c *ResourceSharingConfig) *ResourceSharingConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	cp.AbsoluteBorrowLimits = cloneComputeQuotaResourceConfigs(c.AbsoluteBorrowLimits)
+
+	if c.BorrowLimit != nil {
+		v := *c.BorrowLimit
+		cp.BorrowLimit = &v
+	}
+
+	return &cp
+}
+
+func cloneComputeQuotaConfig(c *ComputeQuotaConfig) *ComputeQuotaConfig {
+	if c == nil {
+		return nil
+	}
+
+	cp := *c
+	cp.ComputeQuotaResources = cloneComputeQuotaResourceConfigs(c.ComputeQuotaResources)
+	cp.ResourceSharingConfig = cloneResourceSharingConfig(c.ResourceSharingConfig)
+
+	return &cp
+}
+
+func cloneComputeQuotaTarget(t *ComputeQuotaTarget) *ComputeQuotaTarget {
+	if t == nil {
+		return nil
+	}
+
+	cp := *t
+	if t.FairShareWeight != nil {
+		v := *t.FairShareWeight
+		cp.FairShareWeight = &v
+	}
+
+	return &cp
+}
+
 // ComputeQuota represents a SageMaker compute quota.
 type ComputeQuota struct {
-	CreationTime        time.Time         `json:"CreationTime"`
-	LastModifiedTime    time.Time         `json:"LastModifiedTime"`
-	Tags                map[string]string `json:"Tags,omitempty"`
-	ComputeQuotaName    string            `json:"Name"`
-	ComputeQuotaArn     string            `json:"ComputeQuotaArn"`
-	ComputeQuotaID      string            `json:"ComputeQuotaId"`
-	Status              string            `json:"Status"`
-	ClusterArn          string            `json:"ClusterArn,omitempty"`
-	ComputeQuotaVersion int32             `json:"ComputeQuotaVersion"`
+	CreationTime        time.Time           `json:"CreationTime"`
+	LastModifiedTime    time.Time           `json:"LastModifiedTime"`
+	ComputeQuotaConfig  *ComputeQuotaConfig `json:"ComputeQuotaConfig,omitempty"`
+	ComputeQuotaTarget  *ComputeQuotaTarget `json:"ComputeQuotaTarget,omitempty"`
+	Tags                map[string]string   `json:"Tags,omitempty"`
+	ComputeQuotaName    string              `json:"Name"`
+	ComputeQuotaArn     string              `json:"ComputeQuotaArn"`
+	ComputeQuotaID      string              `json:"ComputeQuotaId"`
+	Status              string              `json:"Status"`
+	ActivationState     string              `json:"ActivationState,omitempty"`
+	ClusterArn          string              `json:"ClusterArn,omitempty"`
+	Description         string              `json:"Description,omitempty"`
+	ComputeQuotaVersion int32               `json:"ComputeQuotaVersion"`
 }
 
 func cloneComputeQuota(q *ComputeQuota) *ComputeQuota {
 	cp := *q
 	cp.Tags = maps.Clone(q.Tags)
+	cp.ComputeQuotaConfig = cloneComputeQuotaConfig(q.ComputeQuotaConfig)
+	cp.ComputeQuotaTarget = cloneComputeQuotaTarget(q.ComputeQuotaTarget)
 
 	return &cp
 }
@@ -312,11 +497,20 @@ func (q *ComputeQuota) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// activationStateEnabled is the CreateComputeQuota/UpdateComputeQuota default
+// when ActivationState is omitted, per sagemaker@v1.263.2
+// api_op_CreateComputeQuota.go's ActivationState doc.
+const activationStateEnabled = "Enabled"
+
 // CreateComputeQuotaOptions holds input fields for CreateComputeQuota.
 type CreateComputeQuotaOptions struct {
-	Tags             map[string]string
-	ComputeQuotaName string
-	ClusterArn       string
+	ComputeQuotaConfig *ComputeQuotaConfig
+	ComputeQuotaTarget *ComputeQuotaTarget
+	Tags               map[string]string
+	ComputeQuotaName   string
+	ClusterArn         string
+	ActivationState    string
+	Description        string
 }
 
 // CreateComputeQuota creates a SageMaker compute quota.
@@ -326,6 +520,11 @@ func (b *InMemoryBackend) CreateComputeQuota(
 ) (*ComputeQuota, error) {
 	if opts.ComputeQuotaName == "" {
 		return nil, fmt.Errorf("%w: ComputeQuotaName is required", ErrValidation)
+	}
+
+	activationState := opts.ActivationState
+	if activationState == "" {
+		activationState = activationStateEnabled
 	}
 
 	return sagemakerCreate(ctx, b,
@@ -341,6 +540,10 @@ func (b *InMemoryBackend) CreateComputeQuota(
 				ComputeQuotaID:      generateID()[:idPatternLen],
 				ComputeQuotaVersion: 1,
 				ClusterArn:          opts.ClusterArn,
+				ActivationState:     activationState,
+				Description:         opts.Description,
+				ComputeQuotaConfig:  cloneComputeQuotaConfig(opts.ComputeQuotaConfig),
+				ComputeQuotaTarget:  cloneComputeQuotaTarget(opts.ComputeQuotaTarget),
 				Status:              statusCreated,
 				Tags:                mergeTags(nil, opts.Tags),
 				CreationTime:        now,
@@ -401,6 +604,16 @@ func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken strin
 	)
 }
 
+// UpdateComputeQuotaOptions holds the optional, settable-on-update fields for
+// UpdateComputeQuota. A nil field means "not provided in the request" and
+// leaves the stored value unchanged.
+type UpdateComputeQuotaOptions struct {
+	ComputeQuotaConfig *ComputeQuotaConfig
+	ComputeQuotaTarget *ComputeQuotaTarget
+	ActivationState    *string
+	Description        *string
+}
+
 // UpdateComputeQuota applies an optimistic-concurrency update gated by
 // targetVersion. sagemaker@v1.263.2 api_op_UpdateComputeQuota.go requires
 // ComputeQuotaId and TargetVersion; ClusterArn is not a member of the real
@@ -409,6 +622,7 @@ func (b *InMemoryBackend) UpdateComputeQuota(
 	ctx context.Context,
 	id string,
 	targetVersion int32,
+	opts UpdateComputeQuotaOptions,
 ) (*ComputeQuota, error) {
 	b.mu.Lock("UpdateComputeQuota")
 	defer b.mu.Unlock()
@@ -425,6 +639,22 @@ func (b *InMemoryBackend) UpdateComputeQuota(
 			"%w: compute quota %q target version %d does not match current version %d",
 			ErrComputeQuotaVersionConflict, id, targetVersion, q.ComputeQuotaVersion,
 		)
+	}
+
+	if opts.ComputeQuotaConfig != nil {
+		q.ComputeQuotaConfig = cloneComputeQuotaConfig(opts.ComputeQuotaConfig)
+	}
+
+	if opts.ComputeQuotaTarget != nil {
+		q.ComputeQuotaTarget = cloneComputeQuotaTarget(opts.ComputeQuotaTarget)
+	}
+
+	if opts.ActivationState != nil {
+		q.ActivationState = *opts.ActivationState
+	}
+
+	if opts.Description != nil {
+		q.Description = *opts.Description
 	}
 
 	q.ComputeQuotaVersion++

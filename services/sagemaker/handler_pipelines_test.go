@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -352,6 +355,31 @@ func TestHandler_Pipeline_Duplicate(t *testing.T) {
 
 	rec2 := doSageMakerRequest(t, h, "CreatePipeline", body)
 	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestHandler_Pipeline_Duplicate_RealClient asserts the wire error type is
+// ConflictException -- CreatePipeline's documented error (botocore
+// sagemaker/2017-07-24@1.43.56 service-2.json), not the generic
+// ResourceInUse gopherstack-kbxx found this mapped to.
+func TestHandler_Pipeline_Duplicate_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	in := &sagemakersdk.CreatePipelineInput{
+		PipelineName: aws.String("dup-pipeline-real"),
+		RoleArn:      aws.String("arn:aws:iam::000000000000:role/SageMakerRole"),
+	}
+
+	_, err := client.CreatePipeline(t.Context(), in)
+	require.NoError(t, err)
+
+	_, err = client.CreatePipeline(t.Context(), in)
+	require.Error(t, err)
+
+	var conflict *smtypes.ConflictException
+	require.ErrorAs(t, err, &conflict)
 }
 
 // ---------------------------------------------------------------------------

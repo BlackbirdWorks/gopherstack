@@ -17,8 +17,14 @@ var (
 	ErrModelPackageNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
 	// ErrModelPackageGroupNotFound is returned when a model package group does not exist.
 	ErrModelPackageGroupNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
-	// ErrModelPackageGroupHasPackages is returned when deleting a group that still has packages.
-	ErrModelPackageGroupHasPackages = awserr.New("ConflictException", awserr.ErrConflict)
+	// ErrModelPackageGroupHasPackages is returned when deleting a group that
+	// still has packages. DeleteModelPackageGroup's only documented error is
+	// ConflictException (botocore sagemaker/2017-07-24@1.43.56
+	// service-2.json's DeleteModelPackageGroup.errors), not the generic
+	// ResourceInUse handleError emits for awserr.ErrConflict — wrap the
+	// service's ErrConflictException sentinel so handleError's special case
+	// (see errors.go) picks the accurate wire type.
+	ErrModelPackageGroupHasPackages = awserr.New("ConflictException", ErrConflictException)
 )
 
 // ModelPackageBatchResult holds the result of describing a single model package in a batch.

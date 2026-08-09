@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -160,6 +163,36 @@ func TestDeleteModelPackageGroup_WithPackages_Conflict(t *testing.T) {
 	})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+// TestDeleteModelPackageGroup_WithPackages_RealClient asserts the wire error
+// type is ConflictException -- DeleteModelPackageGroup's only documented
+// error (botocore sagemaker/2017-07-24@1.43.56 service-2.json) -- not the
+// generic ResourceInUse gopherstack-kbxx found this mapped to.
+func TestDeleteModelPackageGroup_WithPackages_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateModelPackageGroup(t.Context(), &sagemakersdk.CreateModelPackageGroupInput{
+		ModelPackageGroupName: aws.String("grp-with-pkgs-real"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateModelPackage(t.Context(), &sagemakersdk.CreateModelPackageInput{
+		ModelPackageName:      aws.String("pkg-in-group-real"),
+		ModelPackageGroupName: aws.String("grp-with-pkgs-real"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteModelPackageGroup(t.Context(), &sagemakersdk.DeleteModelPackageGroupInput{
+		ModelPackageGroupName: aws.String("grp-with-pkgs-real"),
+	})
+	require.Error(t, err)
+
+	var conflict *smtypes.ConflictException
+	require.ErrorAs(t, err, &conflict)
 }
 
 func TestDeleteModelPackageGroup_AfterPackagesRemoved_OK(t *testing.T) {
