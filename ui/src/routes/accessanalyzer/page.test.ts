@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
+import { DeleteServiceLinkedAnalyzerCommand } from "@aws-sdk/client-accessanalyzer";
 import AccessAnalyzerPage from "./+page.svelte";
 
 // The Edit Analyzer and Edit Archive Rule modals (and the Create Archive
@@ -60,6 +61,7 @@ describe("Access Analyzer Page", () => {
     expect(screen.getByText("Analyzed Resources")).toBeInTheDocument();
     expect(screen.getByText("Access Previews")).toBeInTheDocument();
     expect(screen.getByText("Policy Generations")).toBeInTheDocument();
+    expect(screen.getByText("Policy Checks")).toBeInTheDocument();
   });
 
   it("shows empty state when no analyzers", async () => {
@@ -86,7 +88,9 @@ describe("Access Analyzer Page", () => {
     await fireEvent.click(screen.getByText("Create analyzer"));
     expect(screen.getByText("Create Analyzer")).toBeInTheDocument();
 
-    await fireEvent.input(screen.getByLabelText("Name"), { target: { value: "new-analyzer" } });
+    await fireEvent.input(screen.getByLabelText("Name"), {
+      target: { value: "new-analyzer" },
+    });
 
     mockSend.mockResolvedValueOnce({ arn: exampleAnalyzer.arn });
     mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
@@ -190,7 +194,10 @@ describe("Access Analyzer Page", () => {
     // current configuration, since ListAnalyzers/AnalyzerSummary never
     // carries it.
     mockSend.mockResolvedValueOnce({
-      analyzer: { ...exampleAnalyzer, configuration: { unusedAccess: { unusedAccessAge: 90 } } },
+      analyzer: {
+        ...exampleAnalyzer,
+        configuration: { unusedAccess: { unusedAccessAge: 90 } },
+      },
     });
     await fireEvent.click(screen.getByTitle("Edit"));
     expect(screen.getByText("Edit Analyzer")).toBeInTheDocument();
@@ -202,10 +209,14 @@ describe("Access Analyzer Page", () => {
     });
 
     await fireEvent.input(within(openDialog()).getByLabelText("Configuration (JSON)"), {
-      target: { value: JSON.stringify({ unusedAccess: { unusedAccessAge: 120 } }) },
+      target: {
+        value: JSON.stringify({ unusedAccess: { unusedAccessAge: 120 } }),
+      },
     });
 
-    mockSend.mockResolvedValueOnce({ configuration: { unusedAccess: { unusedAccessAge: 120 } } });
+    mockSend.mockResolvedValueOnce({
+      configuration: { unusedAccess: { unusedAccessAge: 120 } },
+    });
     mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
 
     await fireEvent.click(within(openDialog()).getByRole("button", { name: "Save" }));
@@ -254,7 +265,9 @@ describe("Access Analyzer Page", () => {
       JSON.stringify({ resourceType: { eq: ["AWS::S3::Bucket"] } }, null, 2),
     );
 
-    const newFilter = { resourceType: { eq: ["AWS::S3::Bucket", "AWS::S3::AccessPoint"] } };
+    const newFilter = {
+      resourceType: { eq: ["AWS::S3::Bucket", "AWS::S3::AccessPoint"] },
+    };
     await fireEvent.input(within(openDialog()).getByLabelText("Updated filter (JSON)"), {
       target: { value: JSON.stringify(newFilter) },
     });
@@ -291,6 +304,228 @@ describe("Access Analyzer Page", () => {
     // class that catches a malformed `render` entry rendering a blank cell.
     await waitFor(() => {
       expect(screen.getByText(JSON.stringify(newFilter))).toBeInTheDocument();
+    });
+  });
+
+  it("creates a service-linked analyzer and deletes it via DeleteServiceLinkedAnalyzer", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByText("No analyzers found"));
+
+    await fireEvent.click(screen.getByText("Create service-linked analyzer"));
+    expect(screen.getByText("Create Service-Linked Analyzer")).toBeInTheDocument();
+
+    const serviceLinkedAnalyzer = {
+      arn: "arn:aws:access-analyzer:us-east-1:123456789012:analyzer/_AccessAnalyzerForInternalUse-abcd1234",
+      name: "_AccessAnalyzerForInternalUse-abcd1234",
+      type: "ACCOUNT",
+      status: "ACTIVE",
+      createdAt: new Date("2024-01-01T00:00:00Z"),
+    };
+    mockSend.mockResolvedValueOnce({ arn: serviceLinkedAnalyzer.arn });
+    mockSend.mockResolvedValueOnce({ analyzers: [serviceLinkedAnalyzer] });
+    await fireEvent.click(within(openDialog()).getByRole("button", { name: "Create" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: serviceLinkedAnalyzer.name })).toBeInTheDocument();
+    });
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ analyzers: [] });
+    await fireEvent.click(screen.getByTitle("Delete"));
+
+    expect(confirmDestructive).toHaveBeenCalled();
+    expect(mockSend).toHaveBeenNthCalledWith(4, expect.any(DeleteServiceLinkedAnalyzerCommand));
+    await waitFor(() => {
+      expect(screen.getByText("No analyzers found")).toBeInTheDocument();
+    });
+  });
+
+  it("manages tags on an analyzer's detail view", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example" }));
+
+    mockSend.mockResolvedValueOnce({ analyzer: exampleAnalyzer });
+    mockSend.mockResolvedValueOnce({ tags: {} });
+    await fireEvent.click(screen.getByTitle("View"));
+
+    await waitFor(() => {
+      expect(within(openDialog()).getByText("No tags")).toBeInTheDocument();
+    });
+
+    await fireEvent.input(within(openDialog()).getByLabelText("New tag key"), {
+      target: { value: "team" },
+    });
+    await fireEvent.input(within(openDialog()).getByLabelText("New tag value"), {
+      target: { value: "security" },
+    });
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ tags: { team: "security" } });
+    await fireEvent.click(within(openDialog()).getByText("Add"));
+
+    await waitFor(() => {
+      expect(screen.getByText("team = security")).toBeInTheDocument();
+    });
+    expect(mockSend).toHaveBeenNthCalledWith(
+      4,
+      expect.objectContaining({
+        input: { resourceArn: exampleAnalyzer.arn, tags: { team: "security" } },
+      }),
+    );
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ tags: {} });
+    await fireEvent.click(screen.getByLabelText("Remove tag team"));
+
+    await waitFor(() => {
+      expect(within(openDialog()).getByText("No tags")).toBeInTheDocument();
+    });
+  });
+
+  it("applies an archive rule to existing findings", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example" }));
+
+    mockSend.mockResolvedValueOnce({
+      archiveRules: [
+        {
+          ruleName: "archive-old-buckets",
+          filter: { resourceType: { eq: ["AWS::S3::Bucket"] } },
+        },
+      ],
+    });
+    await fireEvent.click(screen.getByText("Archive Rules"));
+    await waitFor(() => screen.getByText("archive-old-buckets"));
+
+    mockSend.mockResolvedValueOnce({});
+    await fireEvent.click(screen.getByTitle("Apply to existing findings"));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          input: {
+            analyzerArn: exampleAnalyzer.arn,
+            ruleName: "archive-old-buckets",
+          },
+        }),
+      );
+    });
+  });
+
+  it("shows findings statistics on the findings tab", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example" }));
+
+    mockSend.mockResolvedValueOnce({ findings: [] });
+    mockSend.mockResolvedValueOnce({
+      findingsStatistics: [
+        {
+          externalAccessFindingsStatistics: {
+            totalActiveFindings: 2,
+            totalArchivedFindings: 1,
+            totalResolvedFindings: 0,
+          },
+        },
+      ],
+    });
+    await fireEvent.click(screen.getByText("Findings"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Active: 2")).toBeInTheDocument();
+      expect(screen.getByText("Archived: 1")).toBeInTheDocument();
+      expect(screen.getByText("Resolved: 0")).toBeInTheDocument();
+    });
+  });
+
+  it("generates and shows a finding recommendation", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example" }));
+
+    const exampleFinding = {
+      id: "finding-1",
+      resource: "arn:aws:s3:::example-bucket",
+      resourceType: "AWS::S3::Bucket",
+      status: "ACTIVE",
+      createdAt: new Date("2024-03-01T00:00:00Z"),
+    };
+    mockSend.mockResolvedValueOnce({ findings: [exampleFinding] });
+    mockSend.mockResolvedValueOnce({});
+    await fireEvent.click(screen.getByText("Findings"));
+    await waitFor(() => screen.getByRole("cell", { name: exampleFinding.id }));
+
+    mockSend.mockResolvedValueOnce({ ...exampleFinding });
+    await fireEvent.click(screen.getByTitle("View"));
+    await waitFor(() => screen.getByText("Generate recommendation"));
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({
+      status: "SUCCEEDED",
+      recommendedSteps: [],
+    });
+    await fireEvent.click(screen.getByText("Generate recommendation"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Status: SUCCEEDED")).toBeInTheDocument();
+      expect(screen.getByText("No recommended steps.")).toBeInTheDocument();
+    });
+  });
+
+  it("rescans an analyzed resource via StartResourceScan", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [exampleAnalyzer] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example" }));
+
+    const exampleResource = {
+      resourceArn: "arn:aws:s3:::example-bucket",
+      resourceType: "AWS::S3::Bucket",
+      resourceOwnerAccount: "123456789012",
+    };
+    mockSend.mockResolvedValueOnce({ analyzedResources: [exampleResource] });
+    await fireEvent.click(screen.getByText("Analyzed Resources"));
+    await waitFor(() => screen.getByRole("cell", { name: exampleResource.resourceArn }));
+
+    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ analyzedResources: [exampleResource] });
+    await fireEvent.click(screen.getByTitle("Rescan"));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenNthCalledWith(
+        3,
+        expect.objectContaining({
+          input: {
+            analyzerArn: exampleAnalyzer.arn,
+            resourceArn: exampleResource.resourceArn,
+          },
+        }),
+      );
+    });
+  });
+
+  it("runs a CheckAccessNotGranted policy check", async () => {
+    mockSend.mockResolvedValueOnce({ analyzers: [] });
+    render(AccessAnalyzerPage);
+    await waitFor(() => screen.getByText("No analyzers found"));
+
+    await fireEvent.click(screen.getByText("Policy Checks"));
+    await waitFor(() => screen.getByText("Run check"));
+
+    mockSend.mockResolvedValueOnce({
+      result: "PASS",
+      message: "The policy document does not grant the specified access.",
+    });
+    await fireEvent.click(screen.getByText("Run check"));
+
+    await waitFor(() => {
+      expect(screen.getByText("PASS")).toBeInTheDocument();
+      expect(
+        screen.getByText("The policy document does not grant the specified access."),
+      ).toBeInTheDocument();
     });
   });
 });
