@@ -15,7 +15,7 @@
 
 ### Known gaps
 
-- DefaultPolicy / SIMPLIFIED-policy-language top-level Create/Update fields (CopyTags, CreateInterval, CrossRegionCopyTargets, Exclusions, ExtendDeletion, RetainInterval, DefaultPolicy, DefaultPolicyType) are not implemented; only the PolicyDetails-based STANDARD policy path is supported. GetLifecyclePolicy falls back to a minimal synthesized `{"PolicyType": "EBS_SNAPSHOT_MANAGEMENT"}` PolicyDetails when none was stored, which is a reasonable approximation for this out-of-scope area, not a data-corrupting stub.
+- GetLifecyclePolicy does not echo a top-level DefaultPolicy bool for policies created via the default-policy top-level fields (see GetLifecyclePolicy note above); the equivalent information is present nested in PolicyDetails.ResourceType/PolicyLanguage instead.
 - LimitExceededException (the ~100-policies-per-account default AWS quota) is not enforced -- consistent with this codebase's general choice not to simulate account-level service quotas elsewhere.
 
 ## More
