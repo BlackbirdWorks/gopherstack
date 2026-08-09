@@ -55,6 +55,7 @@ func (h *Handler) routeCustomizationJob(
 
 type createModelCustomizationJobInput struct {
 	JobName             string `json:"jobName"`
+	CustomModelName     string `json:"customModelName"`
 	BaseModelIdentifier string `json:"baseModelIdentifier"`
 	CustomizationType   string `json:"customizationType,omitempty"`
 	// JobTags, not Tags: real CreateModelCustomizationJobInput carries the
@@ -80,7 +81,7 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 	}
 
 	job, opErr := h.Backend.CreateModelCustomizationJob(
-		in.JobName, in.BaseModelIdentifier, in.CustomizationType, in.Tags,
+		in.JobName, in.CustomModelName, in.BaseModelIdentifier, in.CustomizationType, in.Tags,
 	)
 	if opErr != nil {
 		return h.writeError(c, opErr)
@@ -89,6 +90,11 @@ func (h *Handler) handleCreateModelCustomizationJob(c *echo.Context, body []byte
 	return c.JSON(http.StatusCreated, createModelCustomizationJobOutput{JobArn: job.JobArn})
 }
 
+// modelCustomizationJobOutput is GetModelCustomizationJob's response shape
+// (bedrock@v1.66.4 GetModelCustomizationJobResponse via botocore
+// service-2.json: outputModelArn/outputModelName, not customModelArn/Name --
+// see modelCustomizationJobSummaryOutput for the distinct ListModelCustomizationJobs
+// shape).
 type modelCustomizationJobOutput struct {
 	CreationTime      string `json:"creationTime"`
 	LastModifiedTime  string `json:"lastModifiedTime"`
@@ -96,6 +102,7 @@ type modelCustomizationJobOutput struct {
 	JobName           string `json:"jobName"`
 	BaseModelArn      string `json:"baseModelArn"`
 	OutputModelArn    string `json:"outputModelArn"`
+	OutputModelName   string `json:"outputModelName"`
 	Status            string `json:"status"`
 	CustomizationType string `json:"customizationType,omitempty"`
 	Tags              []Tag  `json:"tags,omitempty"`
@@ -107,11 +114,42 @@ func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOut
 		JobName:           j.JobName,
 		BaseModelArn:      j.BaseModelArn,
 		OutputModelArn:    j.OutputModelArn,
+		OutputModelName:   j.CustomModelName,
 		Status:            j.Status,
 		CustomizationType: j.CustomizationType,
 		CreationTime:      j.CreationTime.Format(time.RFC3339),
 		LastModifiedTime:  j.LastModifiedTime.Format(time.RFC3339),
 		Tags:              j.Tags,
+	}
+}
+
+// modelCustomizationJobSummaryOutput is ListModelCustomizationJobs' per-item
+// shape (bedrock@v1.66.4 ModelCustomizationJobSummary via botocore
+// service-2.json): customModelArn/customModelName, distinct from Get's
+// outputModelArn/outputModelName.
+type modelCustomizationJobSummaryOutput struct {
+	CreationTime      string `json:"creationTime"`
+	LastModifiedTime  string `json:"lastModifiedTime"`
+	JobArn            string `json:"jobArn"`
+	JobName           string `json:"jobName"`
+	BaseModelArn      string `json:"baseModelArn"`
+	CustomModelArn    string `json:"customModelArn,omitempty"`
+	CustomModelName   string `json:"customModelName,omitempty"`
+	Status            string `json:"status"`
+	CustomizationType string `json:"customizationType,omitempty"`
+}
+
+func customizationJobToSummaryOutput(j *ModelCustomizationJob) modelCustomizationJobSummaryOutput {
+	return modelCustomizationJobSummaryOutput{
+		JobArn:            j.JobArn,
+		JobName:           j.JobName,
+		BaseModelArn:      j.BaseModelArn,
+		CustomModelArn:    j.OutputModelArn,
+		CustomModelName:   j.CustomModelName,
+		Status:            j.Status,
+		CustomizationType: j.CustomizationType,
+		CreationTime:      j.CreationTime.Format(time.RFC3339),
+		LastModifiedTime:  j.LastModifiedTime.Format(time.RFC3339),
 	}
 }
 
@@ -125,8 +163,8 @@ func (h *Handler) handleGetModelCustomizationJob(c *echo.Context, id string) err
 }
 
 type listModelCustomizationJobsOutput struct {
-	NextToken                      string                        `json:"nextToken,omitempty"`
-	ModelCustomizationJobSummaries []modelCustomizationJobOutput `json:"modelCustomizationJobSummaries"`
+	NextToken                      string                               `json:"nextToken,omitempty"`
+	ModelCustomizationJobSummaries []modelCustomizationJobSummaryOutput `json:"modelCustomizationJobSummaries"`
 }
 
 // parseListModelCustomizationJobsQuery builds the backend filter/sort/pagination
@@ -161,10 +199,10 @@ func parseListModelCustomizationJobsQuery(c *echo.Context) *ListModelCustomizati
 
 func (h *Handler) handleListModelCustomizationJobs(c *echo.Context) error {
 	jobs, outToken := h.Backend.ListModelCustomizationJobs(parseListModelCustomizationJobsQuery(c))
-	summaries := make([]modelCustomizationJobOutput, 0, len(jobs))
+	summaries := make([]modelCustomizationJobSummaryOutput, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, customizationJobToOutput(j))
+		summaries = append(summaries, customizationJobToSummaryOutput(j))
 	}
 
 	return c.JSON(http.StatusOK, listModelCustomizationJobsOutput{

@@ -17,9 +17,11 @@ const (
 	inferenceTypeProvisioned = "PROVISIONED"
 )
 
-// Customization type constants mirroring the AWS Bedrock API values.
+// Customization type constants mirroring the AWS Bedrock API values
+// (bedrock@v1.66.4 types/enums.go CustomizationType).
 const (
 	customizationTypeFineTuning = "FINE_TUNING"
+	customizationTypeImported   = "IMPORTED"
 )
 
 const bedrockDefaultPageSize = 100
@@ -36,6 +38,7 @@ const (
 	statusCompleted  = "Completed"
 	statusStopped    = "Stopped"
 	statusAvailable  = "AVAILABLE"
+	statusActive     = "Active"
 )
 
 // sortOrderDescending is the real AWS SortOrder value used by every List op

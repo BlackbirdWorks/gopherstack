@@ -215,7 +215,9 @@ func seedJobResources(
 	arpv, err := b.CreateAutomatedReasoningPolicyVersion(arp.PolicyArn, "definition-hash-123", nil)
 	require.NoError(t, err)
 
-	mcj, err := b.CreateModelCustomizationJob("test-cust-job", "amazon.titan-text-express-v1", "FINE_TUNING", tags)
+	mcj, err := b.CreateModelCustomizationJob(
+		"test-cust-job", "test-cust-model", "amazon.titan-text-express-v1", "FINE_TUNING", tags,
+	)
 	require.NoError(t, err)
 
 	mcpj, err := b.CreateModelCopyJob(customModelARN, tags)

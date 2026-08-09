@@ -256,13 +256,22 @@ type AutomatedReasoningPolicyVersion struct {
 	Tags           []Tag     `json:"tags,omitempty"`
 }
 
-// CustomModel represents a custom model.
+// CustomModel represents a custom model, either imported via CreateCustomModel
+// (BaseModelArn empty: the wire input never supplies a base model, and
+// gopherstack does not process model artifacts to derive one) or produced by
+// a completed CreateModelCustomizationJob (BaseModelArn/BaseModelName/JobArn/
+// JobName populated from the job).
 type CustomModel struct {
-	CreationTime time.Time `json:"creationTime"`
-	ModelArn     string    `json:"modelArn"`
-	ModelName    string    `json:"modelName"`
-	ModelStatus  string    `json:"modelStatus"`
-	Tags         []Tag     `json:"tags,omitempty"`
+	CreationTime      time.Time `json:"creationTime"`
+	ModelArn          string    `json:"modelArn"`
+	ModelName         string    `json:"modelName"`
+	ModelStatus       string    `json:"modelStatus"`
+	BaseModelArn      string    `json:"baseModelArn,omitempty"`
+	BaseModelName     string    `json:"baseModelName,omitempty"`
+	CustomizationType string    `json:"customizationType,omitempty"`
+	JobArn            string    `json:"jobArn,omitempty"`
+	JobName           string    `json:"jobName,omitempty"`
+	Tags              []Tag     `json:"tags,omitempty"`
 }
 
 // CustomModelDeployment represents a custom model deployment.
@@ -334,7 +343,12 @@ type ModelImportJob struct {
 	Tags              []Tag      `json:"tags,omitempty"`
 }
 
-// ModelCustomizationJob represents a model customization job.
+// ModelCustomizationJob represents a model customization job. BaseModelName is
+// the display name of the foundation model resolved from BaseModelArn (best
+// effort: only populated when the base model identifier matches a seeded
+// foundation model), carried here so the CustomModel materialized on
+// completion (see AdvanceCustomizationJobStatuses) can populate
+// CustomModelSummary's required baseModelName without a second lookup.
 type ModelCustomizationJob struct {
 	CreationTime      time.Time `json:"creationTime"`
 	LastModifiedTime  time.Time `json:"lastModifiedTime"`
@@ -342,7 +356,9 @@ type ModelCustomizationJob struct {
 	JobArn            string    `json:"jobArn"`
 	JobName           string    `json:"jobName"`
 	BaseModelArn      string    `json:"baseModelArn"`
+	BaseModelName     string    `json:"baseModelName,omitempty"`
 	OutputModelArn    string    `json:"outputModelArn"`
+	CustomModelName   string    `json:"customModelName"`
 	Status            string    `json:"status"`
 	CustomizationType string    `json:"customizationType,omitempty"`
 	Tags              []Tag     `json:"tags,omitempty"`
@@ -513,14 +529,16 @@ type ListModelCustomizationJobsInput struct {
 
 // ListCustomModelsInput holds filter/pagination params for ListCustomModels.
 type ListCustomModelsInput struct {
-	CreationTimeAfter  *time.Time
-	CreationTimeBefore *time.Time
-	IsOwned            *bool
-	ModelStatus        string
-	NameContains       string
-	SortBy             string
-	SortOrder          string
-	NextToken          string
+	CreationTimeAfter        *time.Time
+	CreationTimeBefore       *time.Time
+	IsOwned                  *bool
+	ModelStatus              string
+	NameContains             string
+	BaseModelArnEquals       string
+	FoundationModelArnEquals string
+	SortBy                   string
+	SortOrder                string
+	NextToken                string
 }
 
 // Agent represents an Amazon Bedrock Agent.

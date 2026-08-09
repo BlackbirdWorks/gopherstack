@@ -15,7 +15,13 @@ func (b *InMemoryBackend) newCustomModelID() string {
 	return fmt.Sprintf("cm-%07d", b.customModelCounter)
 }
 
-// CreateCustomModel creates a new custom model.
+// CreateCustomModel creates a new custom model with no base model: the wire
+// input carries only a data source (S3/SageMaker model package), never a
+// base model reference, and gopherstack doesn't process model artifacts to
+// derive one. BaseModelArn/BaseModelName stay empty, so baseModelArnEquals/
+// foundationModelArnEquals never match imported models -- matches real AWS
+// (bedrock@v1.66.4 api_op_CreateCustomModel.go: "The model appears in
+// ListCustomModels with a customizationType of imported").
 func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*CustomModel, error) {
 	b.mu.Lock("CreateCustomModel")
 	defer b.mu.Unlock()
@@ -32,11 +38,12 @@ func (b *InMemoryBackend) CreateCustomModel(modelName string, tags []Tag) (*Cust
 	modelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/"+id)
 
 	model := &CustomModel{
-		ModelArn:     modelARN,
-		ModelName:    modelName,
-		ModelStatus:  "Active",
-		CreationTime: time.Now().UTC(),
-		Tags:         copyTags(tags),
+		ModelArn:          modelARN,
+		ModelName:         modelName,
+		ModelStatus:       statusActive,
+		CustomizationType: customizationTypeImported,
+		CreationTime:      time.Now().UTC(),
+		Tags:              copyTags(tags),
 	}
 	b.customModels.Put(model)
 	b.customModelsByName[modelName] = modelARN
@@ -90,10 +97,10 @@ func (b *InMemoryBackend) GetCustomModel(idOrARN string) (*CustomModel, error) {
 // paginated. in may be nil, matching an unfiltered call. Structurally similar
 // to ListEvaluationJobs/ListModelInvocationJobs (same filter/sort/paginate
 // shape) but over a distinct resource type and filter set; see
-// matchesCustomModelFilter. baseModelArnEquals/foundationModelArnEquals aren't
-// supported: CreateCustomModel doesn't collect a base/foundation model source,
-// so gopherstack has nothing to filter on (bd follow-up needed to model that
-// data first).
+// matchesCustomModelFilter. baseModelArnEquals/foundationModelArnEquals only
+// match models produced by a completed CreateModelCustomizationJob -- those
+// carry a real BaseModelArn from the job's baseModelIdentifier. Imported
+// models (CreateCustomModel) have no base model and match neither filter.
 //
 //nolint:dupl // see doc comment above.
 func (b *InMemoryBackend) ListCustomModels(in *ListCustomModelsInput) ([]*CustomModel, string) {
@@ -130,7 +137,8 @@ func (b *InMemoryBackend) ListCustomModels(in *ListCustomModelsInput) ([]*Custom
 }
 
 // matchesCustomModelFilter reports whether a custom model satisfies the list
-// filters (modelStatus, nameContains, isOwned, creationTimeAfter/Before).
+// filters (modelStatus, nameContains, baseModelArnEquals/
+// foundationModelArnEquals, isOwned, creationTimeAfter/Before).
 func matchesCustomModelFilter(m *CustomModel, in *ListCustomModelsInput) bool {
 	if in == nil {
 		return true
@@ -139,6 +147,9 @@ func matchesCustomModelFilter(m *CustomModel, in *ListCustomModelsInput) bool {
 		return false
 	}
 	if in.NameContains != "" && !containsIgnoreCase(m.ModelName, in.NameContains) {
+		return false
+	}
+	if !matchesBaseModelFilter(m, in) {
 		return false
 	}
 	// Single-account emulator: every custom model is owned by this account.
@@ -153,6 +164,19 @@ func matchesCustomModelFilter(m *CustomModel, in *ListCustomModelsInput) bool {
 	}
 
 	return true
+}
+
+// matchesBaseModelFilter checks baseModelArnEquals/foundationModelArnEquals.
+// gopherstack only ever derives BaseModelArn from a foundation model (see
+// CreateModelCustomizationJob), so the two filters coincide here; real AWS's
+// baseModelArnEquals can also match a base that is itself a custom model
+// (chained fine-tuning).
+func matchesBaseModelFilter(m *CustomModel, in *ListCustomModelsInput) bool {
+	if in.BaseModelArnEquals != "" && m.BaseModelArn != in.BaseModelArnEquals {
+		return false
+	}
+
+	return in.FoundationModelArnEquals == "" || m.BaseModelArn == in.FoundationModelArnEquals
 }
 
 // DeleteCustomModel removes a custom model by ARN or name.

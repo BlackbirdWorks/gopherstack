@@ -201,7 +201,7 @@ func (b *InMemoryBackend) RegisterMarketplaceModelEndpoint(
 
 	ep, _ := b.marketplaceEndpoints.Get(epARN)
 	ep.ModelSourceID = modelSourceIdentifier
-	ep.Status = "Active"
+	ep.Status = statusActive
 	ep.UpdatedAt = time.Now().UTC()
 
 	cp := *ep

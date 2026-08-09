@@ -17,7 +17,7 @@ func TestAccuracy_CreateModelCustomizationJob_MissingJobName(t *testing.T) {
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs",
-		map[string]any{"baseModelId": "amazon.titan-text-express-v1"})
+		map[string]any{"baseModelIdentifier": "amazon.titan-text-express-v1"})
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -28,8 +28,9 @@ func TestAccuracy_CreateModelCustomizationJob_StatusInProgress(t *testing.T) {
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs",
 		map[string]any{
-			"jobName":     "my-finetune-job",
-			"baseModelId": "amazon.titan-text-express-v1",
+			"jobName":             "my-finetune-job",
+			"customModelName":     "my-finetune-model",
+			"baseModelIdentifier": "amazon.titan-text-express-v1",
 		})
 
 	require.Equal(t, http.StatusCreated, rec.Code)
@@ -60,6 +61,7 @@ func TestAccuracy_AdvanceCustomizationJobStatus(t *testing.T) {
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	job, err := b.CreateModelCustomizationJob(
 		"advance-test-job",
+		"advance-test-model",
 		"amazon.titan-text-express-v1",
 		"",
 		nil,
@@ -93,6 +95,7 @@ func TestAccuracy_CustomizationJob_StopTransitionsStatus(t *testing.T) {
 
 			job, err := b.CreateModelCustomizationJob(
 				"stop-job",
+				"stop-job-model",
 				"amazon.titan-text-express-v1",
 				"",
 				nil,
@@ -138,6 +141,7 @@ func TestAccuracy_CustomizationJob_ListViaHTTP(t *testing.T) {
 			for _, name := range tt.jobNames {
 				_, err := b.CreateModelCustomizationJob(
 					name,
+					name+"-model",
 					"amazon.titan-text-express-v1",
 					"",
 					nil,
@@ -203,6 +207,7 @@ func TestAccuracy_CustomizationJob_ListFilters(t *testing.T) {
 
 			_, err := b.CreateModelCustomizationJob(
 				"alpha-job",
+				"alpha-job-model",
 				"amazon.titan-text-express-v1",
 				"",
 				nil,
@@ -210,6 +215,7 @@ func TestAccuracy_CustomizationJob_ListFilters(t *testing.T) {
 			require.NoError(t, err)
 			betaJob, err := b.CreateModelCustomizationJob(
 				"beta-job",
+				"beta-job-model",
 				"amazon.titan-text-express-v1",
 				"",
 				nil,
@@ -238,10 +244,21 @@ func TestAccuracy_CustomizationJob_DuplicateNameConflict(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateModelCustomizationJob("dup-job", "amazon.titan-text-express-v1", "", nil)
+	_, err := b.CreateModelCustomizationJob("dup-job", "dup-job-model", "amazon.titan-text-express-v1", "", nil)
 	require.NoError(t, err)
 
-	_, err2 := b.CreateModelCustomizationJob("dup-job", "amazon.titan-text-express-v1", "", nil)
+	_, err2 := b.CreateModelCustomizationJob("dup-job", "dup-job-model-2", "amazon.titan-text-express-v1", "", nil)
+	require.Error(t, err2)
+}
+
+func TestAccuracy_CustomizationJob_DuplicateModelNameConflict(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	_, err := b.CreateModelCustomizationJob("job-one", "shared-model-name", "amazon.titan-text-express-v1", "", nil)
+	require.NoError(t, err)
+
+	_, err2 := b.CreateModelCustomizationJob("job-two", "shared-model-name", "amazon.titan-text-express-v1", "", nil)
 	require.Error(t, err2)
 }
 
@@ -249,7 +266,7 @@ func TestAccuracy_CustomizationJob_GetByNameOrARN(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
-	job, err := b.CreateModelCustomizationJob("lookup-job", "amazon.titan-text-express-v1", "", nil)
+	job, err := b.CreateModelCustomizationJob("lookup-job", "lookup-job-model", "amazon.titan-text-express-v1", "", nil)
 	require.NoError(t, err)
 
 	// Get by ARN.
@@ -269,6 +286,7 @@ func TestAccuracy_CustomizationJob_AdvanceCompletesJob(t *testing.T) {
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	job, err := b.CreateModelCustomizationJob(
 		"advance-job",
+		"advance-job-model",
 		"amazon.titan-text-express-v1",
 		"",
 		nil,
@@ -306,9 +324,10 @@ func TestAccuracy_CustomizationJob_CustomizationTypePreserved(t *testing.T) {
 			rec := doRequest(
 				t, h, http.MethodPost, "/model-customization-jobs",
 				map[string]any{
-					"jobName":           fmt.Sprintf("job-%s", tt.name),
-					"baseModelId":       "amazon.titan-text-express-v1",
-					"customizationType": tt.customizationType,
+					"jobName":             fmt.Sprintf("job-%s", tt.name),
+					"customModelName":     fmt.Sprintf("model-%s", tt.name),
+					"baseModelIdentifier": "amazon.titan-text-express-v1",
+					"customizationType":   tt.customizationType,
 				},
 			)
 			require.Equal(t, http.StatusCreated, rec.Code)
@@ -340,9 +359,9 @@ func TestHandler_ModelCustomizationJobLifecycle(t *testing.T) {
 
 	// Create customization job.
 	rec := doRequest(t, h, http.MethodPost, "/model-customization-jobs", map[string]any{
-		"jobName":         "my-customization-job",
-		"baseModelId":     "amazon.titan-text-express-v1",
-		"customModelName": "my-fine-tuned-model",
+		"jobName":             "my-customization-job",
+		"baseModelIdentifier": "amazon.titan-text-express-v1",
+		"customModelName":     "my-fine-tuned-model",
 	})
 	require.Equal(t, http.StatusCreated, rec.Code)
 
