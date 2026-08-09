@@ -25,11 +25,13 @@ const (
 	keyResourceCluster = "cluster"
 
 	// Operation name constants shared across handler files.
-	opCreateUsageLimit      = "CreateUsageLimit"
-	opDeleteUsageLimit      = "DeleteUsageLimit"
-	opCreateScheduledAction = "CreateScheduledAction"
-	opDeleteScheduledAction = "DeleteScheduledAction"
-	opUnknown               = "Unknown"
+	opCreateUsageLimit              = "CreateUsageLimit"
+	opDeleteUsageLimit              = "DeleteUsageLimit"
+	opCreateScheduledAction         = "CreateScheduledAction"
+	opDeleteScheduledAction         = "DeleteScheduledAction"
+	opCreateCustomDomainAssociation = "CreateCustomDomainAssociation"
+	opDeleteCustomDomainAssociation = "DeleteCustomDomainAssociation"
+	opUnknown                       = "Unknown"
 )
 
 const (
@@ -205,7 +207,7 @@ func supportedOpsGroup2() []string {
 		"RotateEncryptionKey",
 		"UpdatePartnerStatus",
 		// Completeness pass — previously notImplemented
-		"CreateCustomDomainAssociation",
+		opCreateCustomDomainAssociation,
 		"CreateEndpointAccess",
 		"CreateHsmClientCertificate",
 		"CreateHsmConfiguration",
@@ -213,7 +215,7 @@ func supportedOpsGroup2() []string {
 		"CreateQev2IdcApplication",
 		"CreateRedshiftIdcApplication",
 		opCreateScheduledAction,
-		"DeleteCustomDomainAssociation",
+		opDeleteCustomDomainAssociation,
 		"DeleteEndpointAccess",
 		"DeleteHsmClientCertificate",
 		"DeleteHsmConfiguration",
@@ -461,7 +463,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 // applications, scheduled actions, and cluster/namespace informational ops.
 func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
-		"CreateCustomDomainAssociation":    h.handleCreateCustomDomainAssociation,
+		opCreateCustomDomainAssociation:    h.handleCreateCustomDomainAssociation,
 		"CreateEndpointAccess":             h.handleCreateEndpointAccess,
 		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
 		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
@@ -469,7 +471,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"CreateQev2IdcApplication":         h.handleCreateQev2IdcApplication,
 		"CreateRedshiftIdcApplication":     h.handleCreateIdcApplication,
 		opCreateScheduledAction:            h.handleCreateScheduledAction,
-		"DeleteCustomDomainAssociation":    h.handleDeleteCustomDomainAssociation,
+		opDeleteCustomDomainAssociation:    h.handleDeleteCustomDomainAssociation,
 		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
 		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
 		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,

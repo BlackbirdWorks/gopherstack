@@ -95,7 +95,7 @@ func TestServerlessIndex_Reset(t *testing.T) {
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 
 	createTestNamespace(t, b, "ns")
-	_, err := b.CreateWorkgroup("wg", "ns", redshift.WorkgroupParams{BaseCapacity: 32})
+	_, err := b.CreateWorkgroup("wg", "ns", redshift.WorkgroupParams{BaseCapacity: 32}, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, redshift.ServerlessIndexLen(b, "namespace"))
@@ -148,7 +148,7 @@ func TestServerlessSnapshotIndex_OrderedWithFilter(t *testing.T) {
 		{"snap-0", "ns-b"},
 	}
 	for _, s := range seed {
-		_, cerr := b.CreateServerlessSnapshot(s.snap, s.ns, 0)
+		_, cerr := b.CreateServerlessSnapshot(s.snap, s.ns, 0, nil)
 		require.NoError(t, cerr)
 	}
 

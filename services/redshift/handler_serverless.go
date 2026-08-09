@@ -72,6 +72,14 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"GetScheduledAction",
 		"ListScheduledActions",
 		"UpdateScheduledAction",
+		"TagResource",
+		"UntagResource",
+		"ListTagsForResource",
+		opCreateCustomDomainAssociation,
+		opDeleteCustomDomainAssociation,
+		"GetCustomDomainAssociation",
+		"ListCustomDomainAssociations",
+		"UpdateCustomDomainAssociation",
 	}
 }
 
@@ -94,6 +102,8 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slSnapshots.Reset()
 	h.Backend.slUsageLimits.Reset()
 	h.Backend.slScheduledActions.Reset()
+	h.Backend.slResourceTags.Reset()
+	h.Backend.slCustomDomains.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -203,6 +213,15 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 	"ListScheduledActions":  (*ServerlessHandler).handleListScheduledActions,
 	"UpdateScheduledAction": (*ServerlessHandler).handleUpdateScheduledAction,
 	"DeleteScheduledAction": (*ServerlessHandler).handleDeleteScheduledAction,
+
+	"TagResource":                   (*ServerlessHandler).handleTagResource,
+	"UntagResource":                 (*ServerlessHandler).handleUntagResource,
+	"ListTagsForResource":           (*ServerlessHandler).handleListTagsForResource,
+	opCreateCustomDomainAssociation: (*ServerlessHandler).handleCreateCustomDomainAssociation,
+	"GetCustomDomainAssociation":    (*ServerlessHandler).handleGetCustomDomainAssociation,
+	"ListCustomDomainAssociations":  (*ServerlessHandler).handleListCustomDomainAssociations,
+	"UpdateCustomDomainAssociation": (*ServerlessHandler).handleUpdateCustomDomainAssociation,
+	opDeleteCustomDomainAssociation: (*ServerlessHandler).handleDeleteCustomDomainAssociation,
 }
 
 // ---------------------------------------------------------------------------
@@ -211,15 +230,16 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 
 func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) error {
 	var req struct {
-		NamespaceName               string   `json:"namespaceName"`
-		AdminUsername               string   `json:"adminUsername"`
-		DBName                      string   `json:"dbName"`
-		KmsKeyID                    string   `json:"kmsKeyId"`
-		DefaultIamRoleArn           string   `json:"defaultIamRoleArn"`
-		AdminPasswordSecretKmsKeyID string   `json:"adminPasswordSecretKmsKeyId"`
-		IamRoles                    []string `json:"iamRoles"`
-		LogExports                  []string `json:"logExports"`
-		ManageAdminPassword         bool     `json:"manageAdminPassword"`
+		NamespaceName               string      `json:"namespaceName"`
+		AdminUsername               string      `json:"adminUsername"`
+		DBName                      string      `json:"dbName"`
+		KmsKeyID                    string      `json:"kmsKeyId"`
+		DefaultIamRoleArn           string      `json:"defaultIamRoleArn"`
+		AdminPasswordSecretKmsKeyID string      `json:"adminPasswordSecretKmsKeyId"`
+		IamRoles                    []string    `json:"iamRoles"`
+		LogExports                  []string    `json:"logExports"`
+		Tags                        []slTagWire `json:"tags"`
+		ManageAdminPassword         bool        `json:"manageAdminPassword"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -240,6 +260,7 @@ func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) 
 		ManageAdminPassword:         req.ManageAdminPassword,
 		IamRoles:                    req.IamRoles,
 		LogExports:                  req.LogExports,
+		Tags:                        slTagsFromWire(req.Tags),
 	})
 	if err != nil {
 		return slHandleErr(c, err)
@@ -345,20 +366,24 @@ func (h *ServerlessHandler) handleDeleteNamespace(c *echo.Context, body []byte) 
 // ---------------------------------------------------------------------------
 
 type slWorkgroupReq struct {
-	PricePerformanceTarget               *PerformanceTarget `json:"pricePerformanceTarget"`
-	NamespaceName                        string             `json:"namespaceName"`
-	TrackName                            string             `json:"trackName"`
-	WorkgroupName                        string             `json:"workgroupName"`
-	IPAddressType                        string             `json:"ipAddressType"`
-	SecurityGroupIDs                     []string           `json:"securityGroupIds"`
-	ConfigParameters                     []ConfigParameter  `json:"configParameters"`
-	SubnetIDs                            []string           `json:"subnetIds"`
-	BaseCapacity                         int                `json:"baseCapacity"`
-	MaxCapacity                          int                `json:"maxCapacity"`
-	Port                                 int                `json:"port"`
-	EnhancedVpcRouting                   bool               `json:"enhancedVpcRouting"`
-	ExtraComputeForAutomaticOptimization bool               `json:"extraComputeForAutomaticOptimization"`
-	PubliclyAccessible                   bool               `json:"publiclyAccessible"`
+	PricePerformanceTarget *PerformanceTarget `json:"pricePerformanceTarget"`
+	NamespaceName          string             `json:"namespaceName"`
+	TrackName              string             `json:"trackName"`
+	WorkgroupName          string             `json:"workgroupName"`
+	IPAddressType          string             `json:"ipAddressType"`
+	SecurityGroupIDs       []string           `json:"securityGroupIds"`
+	ConfigParameters       []ConfigParameter  `json:"configParameters"`
+	SubnetIDs              []string           `json:"subnetIds"`
+	// Tags is CreateWorkgroupInput-only (UpdateWorkgroupRequest has no "tags"
+	// field, confirmed absent in service-2.json) but parsed on this shared
+	// struct for convenience; UpdateWorkgroup's handler simply never reads it.
+	Tags                                 []slTagWire `json:"tags"`
+	BaseCapacity                         int         `json:"baseCapacity"`
+	MaxCapacity                          int         `json:"maxCapacity"`
+	Port                                 int         `json:"port"`
+	EnhancedVpcRouting                   bool        `json:"enhancedVpcRouting"`
+	ExtraComputeForAutomaticOptimization bool        `json:"extraComputeForAutomaticOptimization"`
+	PubliclyAccessible                   bool        `json:"publiclyAccessible"`
 }
 
 func (r slWorkgroupReq) toParams() WorkgroupParams {
@@ -389,7 +414,7 @@ func (h *ServerlessHandler) handleCreateWorkgroup(c *echo.Context, body []byte) 
 		return slBadRequest(c, "workgroupName and namespaceName are required")
 	}
 
-	wg, err := h.Backend.CreateWorkgroup(req.WorkgroupName, req.NamespaceName, req.toParams())
+	wg, err := h.Backend.CreateWorkgroup(req.WorkgroupName, req.NamespaceName, req.toParams(), slTagsFromWire(req.Tags))
 	if err != nil {
 		return slHandleErr(c, err)
 	}
@@ -470,17 +495,36 @@ func (h *ServerlessHandler) handleDeleteWorkgroup(c *echo.Context, body []byte) 
 
 func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, body []byte) error {
 	var req struct {
-		WorkgroupName   string `json:"workgroupName"`
-		DBName          string `json:"dbName"`
-		DurationSeconds int    `json:"durationSeconds"`
+		WorkgroupName    string `json:"workgroupName"`
+		CustomDomainName string `json:"customDomainName"`
+		DBName           string `json:"dbName"`
+		DurationSeconds  int    `json:"durationSeconds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
+	workgroupName := req.WorkgroupName
+
+	// GetCredentialsRequest accepts either field: "The custom domain name or
+	// the workgroup name must be included in the request" (confirmed against
+	// GetCredentialsRequest's documentation in service-2.json).
+	if workgroupName == "" {
+		if req.CustomDomainName == "" {
+			return slBadRequest(c, "customDomainName or workgroupName is required")
+		}
+
+		resolved, err := h.Backend.WorkgroupNameByCustomDomainSL(req.CustomDomainName)
+		if err != nil {
+			return slHandleErr(c, err)
+		}
+
+		workgroupName = resolved
+	}
+
 	dbUser, dbPassword, expiration, nextRefresh, err := h.Backend.GetCredentials(
-		req.WorkgroupName, req.DBName, req.DurationSeconds,
+		workgroupName, req.DBName, req.DurationSeconds,
 	)
 	if err != nil {
 		return slHandleErr(c, err)
@@ -500,16 +544,19 @@ func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, body []byte) e
 
 func (h *ServerlessHandler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 	var req struct {
-		SnapshotName    string `json:"snapshotName"`
-		NamespaceName   string `json:"namespaceName"`
-		RetentionPeriod int    `json:"retentionPeriod"`
+		SnapshotName    string      `json:"snapshotName"`
+		NamespaceName   string      `json:"namespaceName"`
+		Tags            []slTagWire `json:"tags"`
+		RetentionPeriod int         `json:"retentionPeriod"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return slBadRequest(c, "invalid request body")
 	}
 
-	snap, err := h.Backend.CreateServerlessSnapshot(req.SnapshotName, req.NamespaceName, req.RetentionPeriod)
+	snap, err := h.Backend.CreateServerlessSnapshot(
+		req.SnapshotName, req.NamespaceName, req.RetentionPeriod, slTagsFromWire(req.Tags),
+	)
 	if err != nil {
 		return slHandleErr(c, err)
 	}
@@ -914,11 +961,14 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrWorkgroupNotFound),
 		errors.Is(err, ErrServerlessSnapshotNotFound),
 		errors.Is(err, ErrUsageLimitSLNotFound),
-		errors.Is(err, ErrScheduledActionSLNotFound):
+		errors.Is(err, ErrScheduledActionSLNotFound),
+		errors.Is(err, ErrServerlessResourceNotFound),
+		errors.Is(err, ErrCustomDomainSLNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
-		errors.Is(err, ErrServerlessConflict):
+		errors.Is(err, ErrServerlessConflict),
+		errors.Is(err, ErrCustomDomainSLConflict):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ConflictException", err.Error()))
 	default:
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))

@@ -31,6 +31,15 @@ var (
 	ErrScheduledActionSLNotFound = errors.New("ResourceNotFoundException")
 	// ErrServerlessValidation is returned when a request is missing a required field.
 	ErrServerlessValidation = errors.New("ValidationException")
+	// ErrServerlessResourceNotFound is returned by TagResource/UntagResource/
+	// ListTagsForResource when resourceArn matches no known taggable resource.
+	ErrServerlessResourceNotFound = errors.New("ResourceNotFoundException")
+	// ErrCustomDomainSLNotFound is returned when a serverless custom domain
+	// association does not exist (or does not belong to the given workgroup).
+	ErrCustomDomainSLNotFound = errors.New("ResourceNotFoundException")
+	// ErrCustomDomainSLConflict is returned when a custom domain name is
+	// already associated with a workgroup.
+	ErrCustomDomainSLConflict = errors.New("ConflictException")
 )
 
 // ---------------------------------------------------------------------------
@@ -62,6 +71,7 @@ type Namespace struct {
 // Grouped into a struct because the real CreateNamespaceInput carries more
 // fields than fit a readable positional parameter list.
 type CreateNamespaceParams struct {
+	Tags                        map[string]string
 	NamespaceName               string
 	AdminUsername               string
 	DBName                      string
@@ -87,9 +97,17 @@ type UpdateNamespaceParams struct {
 
 // Workgroup represents a Redshift Serverless workgroup.
 type Workgroup struct {
-	CreationDate                         time.Time          `json:"creationDate"`
+	CreationDate time.Time `json:"creationDate"`
+	// CustomDomainCertificateExpiryTime/CustomDomainCertificateArn/CustomDomainName
+	// mirror the association written by CreateCustomDomainAssociation (see
+	// serverless_custom_domains.go) -- real Workgroup carries these three
+	// fields directly (confirmed against the "Workgroup" shape in
+	// service-2.json), not just via GetCustomDomainAssociation.
+	CustomDomainCertificateExpiryTime    *time.Time         `json:"customDomainCertificateExpiryTime,omitempty"`
 	PricePerformanceTarget               *PerformanceTarget `json:"pricePerformanceTarget,omitempty"`
 	IPAddressType                        string             `json:"ipAddressType,omitempty"`
+	CustomDomainCertificateArn           string             `json:"customDomainCertificateArn,omitempty"`
+	CustomDomainName                     string             `json:"customDomainName,omitempty"`
 	WorkgroupArn                         string             `json:"workgroupArn"`
 	WorkgroupID                          string             `json:"workgroupId"`
 	WorkgroupName                        string             `json:"workgroupName"`
@@ -190,6 +208,32 @@ type ServerlessScheduledAction struct {
 	TargetAction               json.RawMessage `json:"targetAction,omitempty"`
 }
 
+// ServerlessCustomDomainAssociation represents a Redshift Serverless custom
+// domain association (the "Association" shape in service-2.json), distinct
+// from the classic-Redshift CustomDomainAssociation in custom_domains.go
+// (cluster-keyed, query/XML protocol) -- this one is workgroup-keyed JSON.
+// Keyed by CustomDomainName: a real custom domain name can be associated with
+// only one workgroup at a time (Create/Get/Delete/Update all require the pair,
+// but CustomDomainName alone is the natural unique key since it identifies a
+// real DNS name).
+type ServerlessCustomDomainAssociation struct {
+	CustomDomainCertificateExpiryTime *time.Time `json:"customDomainCertificateExpiryTime,omitempty"`
+	CustomDomainCertificateArn        string     `json:"customDomainCertificateArn,omitempty"`
+	CustomDomainName                  string     `json:"customDomainName"`
+	WorkgroupName                     string     `json:"workgroupName"`
+}
+
+// slResourceTagSet holds the tags attached to a taggable Redshift Serverless
+// resource, keyed by the resource's own ARN -- confirmed against
+// TagResourceRequest/UntagResourceRequest/ListTagsForResourceRequest's
+// "resourceArn" member in service-2.json. Namespace/Workgroup/Snapshot have no
+// "tags" field of their own on the wire (confirmed absent from their shapes),
+// so tags live here and are reachable only via ListTagsForResource.
+type slResourceTagSet struct {
+	Tags        map[string]string `json:"tags"`
+	ResourceArn string            `json:"resourceArn"`
+}
+
 // ---------------------------------------------------------------------------
 // Status constants for serverless resources
 // ---------------------------------------------------------------------------
@@ -215,6 +259,11 @@ const (
 	slCredMinDuration     = 900  // GetCredentialsInput.DurationSeconds minimum (real API)
 	slCredMaxDuration     = 3600 // GetCredentialsInput.DurationSeconds maximum (real API)
 	slDefaultPageSize     = 100  // default max results per page
+	// slCertExpiryDays is a fabricated-but-consistent validity window for a
+	// custom domain association's certificate, mirroring the same
+	// fabricated-but-consistent convention used for AdminPasswordSecretArn
+	// above -- this backend does not do real ACM certificate issuance.
+	slCertExpiryDays = 365
 )
 
 // ---------------------------------------------------------------------------

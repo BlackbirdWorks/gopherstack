@@ -58,6 +58,7 @@ func (b *InMemoryBackend) CreateNamespace(p CreateNamespaceParams) (*Namespace, 
 
 	b.slNamespaces.Put(ns)
 	b.slNamespaceIdx.insert(p.NamespaceName)
+	b.putServerlessTagsLocked(nsArn, p.Tags)
 
 	return cloneNamespace(ns), nil
 }

@@ -76,6 +76,8 @@ type InMemoryBackend struct {
 	slWorkgroups        *store.Table[Workgroup]
 	slSnapshots         *store.Table[ServerlessSnapshot]
 	slUsageLimits       *store.Table[ServerlessUsageLimit]
+	slResourceTags      *store.Table[slResourceTagSet]
+	slCustomDomains     *store.Table[ServerlessCustomDomainAssociation]
 	endpointAccesses    *store.Table[EndpointAccess]
 	// clusterTransitions holds in-flight lifecycle state, intentionally never
 	// persisted (see Restore) and keyed externally by cluster ID.
@@ -89,6 +91,7 @@ type InMemoryBackend struct {
 	slSnapshotIdx          sortedStringIndex
 	slUsageLimitIdx        sortedStringIndex
 	slScheduledActionIdx   sortedStringIndex
+	slCustomDomainIdx      sortedStringIndex
 	reconcileWG            sync.WaitGroup
 	clusterActivationDelay time.Duration
 	reconcileInterval      time.Duration

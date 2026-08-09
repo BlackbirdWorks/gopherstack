@@ -13,10 +13,13 @@ import (
 // Serverless Snapshots
 // ---------------------------------------------------------------------------
 
-// CreateServerlessSnapshot creates a snapshot of a serverless namespace.
+// CreateServerlessSnapshot creates a snapshot of a serverless namespace. tags
+// holds CreateSnapshotInput's "tags" (confirmed present on
+// CreateSnapshotRequest in service-2.json).
 func (b *InMemoryBackend) CreateServerlessSnapshot(
 	snapshotName, namespaceName string,
 	retentionPeriod int,
+	tags map[string]string,
 ) (*ServerlessSnapshot, error) {
 	b.mu.Lock("CreateServerlessSnapshot")
 	defer b.mu.Unlock()
@@ -48,6 +51,7 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 	}
 	b.slSnapshots.Put(snap)
 	b.slSnapshotIdx.insert(snapshotName)
+	b.putServerlessTagsLocked(snapArn, tags)
 
 	return cloneServerlessSnapshot(snap), nil
 }

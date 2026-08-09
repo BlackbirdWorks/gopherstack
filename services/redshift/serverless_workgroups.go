@@ -13,8 +13,13 @@ import (
 // Workgroup CRUD
 // ---------------------------------------------------------------------------
 
-// CreateWorkgroup creates a new Redshift Serverless workgroup.
-func (b *InMemoryBackend) CreateWorkgroup(workgroupName, namespaceName string, p WorkgroupParams) (*Workgroup, error) {
+// CreateWorkgroup creates a new Redshift Serverless workgroup. tags holds
+// CreateWorkgroupInput's "tags" (confirmed present on CreateWorkgroupRequest
+// in service-2.json; UpdateWorkgroupRequest has no such field, so it is
+// create-only and not part of WorkgroupParams, which UpdateWorkgroup shares).
+func (b *InMemoryBackend) CreateWorkgroup(
+	workgroupName, namespaceName string, p WorkgroupParams, tags map[string]string,
+) (*Workgroup, error) {
 	b.mu.Lock("CreateWorkgroup")
 	defer b.mu.Unlock()
 
@@ -74,6 +79,7 @@ func (b *InMemoryBackend) CreateWorkgroup(workgroupName, namespaceName string, p
 	}
 	b.slWorkgroups.Put(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
+	b.putServerlessTagsLocked(wgArn, tags)
 
 	return cloneWorkgroup(wg), nil
 }
@@ -215,6 +221,11 @@ func cloneWorkgroup(wg *Workgroup) *Workgroup {
 	if wg.PricePerformanceTarget != nil {
 		pt := *wg.PricePerformanceTarget
 		cp.PricePerformanceTarget = &pt
+	}
+
+	if wg.CustomDomainCertificateExpiryTime != nil {
+		t := *wg.CustomDomainCertificateExpiryTime
+		cp.CustomDomainCertificateExpiryTime = &t
 	}
 
 	return &cp

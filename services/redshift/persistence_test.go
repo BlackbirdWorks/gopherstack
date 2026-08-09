@@ -250,17 +250,25 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateNamespace(redshift.CreateNamespaceParams{
+	ns, err := b.CreateNamespace(redshift.CreateNamespaceParams{
 		NamespaceName: "rt-namespace",
 		AdminUsername: "admin",
 		DBName:        "rtdb",
+		Tags:          map[string]string{"env": "rt"},
 	})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkgroup("rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32})
+	_, err = b.CreateWorkgroup(
+		"rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32}, nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0)
+	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
+	require.NoError(t, err)
+
+	_, err = b.CreateCustomDomainAssociationSL(
+		"rt.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", "rt-workgroup",
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateServerlessUsageLimit(
@@ -361,6 +369,14 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	_, err = fresh.GetServerlessScheduledAction("rt-slscheduledaction")
 	require.NoError(t, err)
+
+	nsTags, err := fresh.ListServerlessResourceTags(ns.NamespaceArn)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"env": "rt"}, nsTags)
+
+	assoc, err := fresh.GetCustomDomainAssociationSL("rt.example.com", "rt-workgroup")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", assoc.CustomDomainCertificateArn)
 
 	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
 	// survived the round trip with the rt-cluster entry intact.
