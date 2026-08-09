@@ -5701,10 +5701,10 @@ func registerTaggingService(
 // service backends so that GetResources, GetTagKeys, GetTagValues, TagResources, and
 // UntagResources work cross-service.
 //
-// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0):
-// of the ~90 gopherstack services with native tagging support, this wires 91 (dynamodb, sqs,
-// sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis, stepfunctions,
-// cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
+// Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0,
+// gopherstack-8kco): of the ~90 gopherstack services with native tagging support, this wires 93
+// (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis,
+// stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
 // redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
 // outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail, dax,
 // detective, guardduty, transfer, cognitoidp, appconfig, codecommit,
@@ -5713,13 +5713,16 @@ func registerTaggingService(
 // datasync, codedeploy, inspector2, ram, rekognition, translate, appstream,
 // mediatailor, vpclattice, codepipeline, kinesisanalyticsv2, opsworks, comprehend,
 // shield, transcribe, verifiedpermissions, waf, securityhub, apprunner,
-// route53resolver, timestreamwrite, s3tables, workmail, pinpoint,
+// route53resolver, timestreamwrite, s3tables, s3, s3control, workmail, pinpoint,
 // applicationautoscaling, codeartifact, cleanrooms, appmesh, personalize, sesv2,
-// xray, awsconfig, scheduler). The rest remain unwired -- see PARITY.md's gaps
-// section for the honest remaining list and why a few (notably s3control, whose
-// taggable ARNs span the "s3"/"s3-object-lambda" service namespaces rather than
-// "s3control" itself; codebuild, whose real API has no TagResource/CreateTags-style
-// mutation call at all -- tags are set only via
+// xray, awsconfig, scheduler). s3control is wired only for the resource kinds taggable
+// through its generic TagResource/UntagResource/ListTagsForResource ops (access points,
+// Object Lambda access points, multi-region access points, access grants) -- see
+// wireTaggingS3Control's doc comment for why batch job tags, Storage Lens configuration
+// tags, and Outposts bucket tags (each a separate real store behind its own dedicated
+// AWS op) are out of scope. The rest remain unwired -- see PARITY.md's gaps section for
+// the honest remaining list and why a few (notably codebuild, whose real API has no
+// TagResource/CreateTags-style mutation call at all -- tags are set only via
 // CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
 // bodies; and forecast, whose only resource-creation path is an unexported backend
 // method reachable solely through its own JSON operation dispatch) need more than
@@ -5930,6 +5933,8 @@ func wireResourceGroupsTaggingSweep5(
 	wireTaggingRoute53Resolver(bk, byName["Route53Resolver"])
 	wireTaggingTimestreamWrite(bk, byName["TimestreamWrite"])
 	wireTaggingS3Tables(bk, byName["S3tables"])
+	wireTaggingS3(bk, byName["S3"])
+	wireTaggingS3Control(bk, byName["S3Control"])
 	wireTaggingWorkMail(bk, byName["WorkMail"])
 	wireTaggingPinpoint(bk, byName["Pinpoint"])
 	wireTaggingApplicationAutoScaling(bk, byName["ApplicationAutoscaling"])
@@ -8462,6 +8467,171 @@ func wireTaggingS3Tables(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 		stBk.TagResource,
 		stBk.UntagResource,
 	)
+}
+
+// wireTaggingS3 wires the S3 backend into the Resource Groups Tagging API.
+// Bucket ARNs (arn:aws:s3:::name) share the "s3" ARN service token with S3
+// Control's own resources (access points, jobs, access grants -- see
+// services/s3control/store.go's arnFmt* constants), so s3OwnsARN is used
+// instead of a plain arnServiceIs check to avoid claiming those (gopherstack-8kco).
+func wireTaggingS3(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*s3backend.S3Handler)
+	if !ok {
+		return
+	}
+
+	s3Bk, ok := h.Backend.(*s3backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := s3Bk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: "s3:bucket",
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(_ context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !s3OwnsARN(arnStr) {
+			return false, nil
+		}
+
+		return true, s3Bk.MergeBucketTags(s3BucketNameFromARN(arnStr), newTags)
+	})
+
+	bk.RegisterARNUntagger(func(_ context.Context, arnStr string, keys []string) (bool, error) {
+		if !s3OwnsARN(arnStr) {
+			return false, nil
+		}
+
+		return true, s3Bk.RemoveBucketTags(s3BucketNameFromARN(arnStr), keys)
+	})
+}
+
+// s3OwnsARN reports whether arnStr is a plain S3 bucket ARN (arn:aws:s3:::name)
+// rather than one of S3 Control's own resources under the shared "s3" ARN
+// service token. S3 bucket names can never contain "/" (bucket naming rules),
+// while every S3 Control resource kind nests a "kind/id" segment (accesspoint/,
+// job/, access-grants/, ... -- see services/s3control/store.go's arnFmt*
+// constants), so an unslashed resource segment is unambiguously a bucket.
+func s3OwnsARN(arnStr string) bool {
+	if !arnServiceIs(arnStr, "s3") {
+		return false
+	}
+
+	parts := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+
+	return len(parts) == arnResourceFieldCount && !strings.Contains(parts[arnResourceFieldCount-1], "/")
+}
+
+// s3BucketNameFromARN extracts the bucket name from a bucket ARN
+// (arn:aws:s3:::name). Callers must confirm s3OwnsARN first.
+func s3BucketNameFromARN(arnStr string) string {
+	parts := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return ""
+	}
+
+	return parts[arnResourceFieldCount-1]
+}
+
+// wireTaggingS3Control wires the S3 Control backend into the Resource Groups
+// Tagging API, covering only the resource kinds taggable through its generic
+// TagResource/UntagResource/ListTagsForResource ops (access points, Object
+// Lambda access points, multi-region access points, access grants -- see
+// InMemoryBackend.TaggedResources' doc comment). Batch job tags and Storage
+// Lens configuration tags are real, separate AWS ops
+// (Put/Get/DeleteJobTagging, Put/GetStorageLensConfigurationTagging) with no
+// generic ARN-tagger equivalent, and Outposts bucket tags live in their own
+// name-keyed store (bucketTagging, not ARN-keyed) -- none of the three fit
+// this dispatch shape and remain unwired.
+func wireTaggingS3Control(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*s3controlbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3cBk := h.Backend
+	if s3cBk == nil {
+		return
+	}
+
+	bk.RegisterProvider(func(_ context.Context) []resourcegroupstaggingapibackend.TaggedResource {
+		items := s3cBk.TaggedResources()
+		out := make([]resourcegroupstaggingapibackend.TaggedResource, 0, len(items))
+
+		for _, item := range items {
+			out = append(out, resourcegroupstaggingapibackend.TaggedResource{
+				ResourceARN:  item.ARN,
+				ResourceType: s3controlResourceType(item.ARN),
+				Tags:         item.Tags,
+			})
+		}
+
+		return out
+	})
+
+	bk.RegisterARNTagger(func(_ context.Context, arnStr string, newTags map[string]string) (bool, error) {
+		if !s3controlOwnsARN(arnStr) {
+			return false, nil
+		}
+
+		s3cBk.TagResource(arnStr, newTags)
+
+		return true, nil
+	})
+
+	bk.RegisterARNUntagger(func(_ context.Context, arnStr string, keys []string) (bool, error) {
+		if !s3controlOwnsARN(arnStr) {
+			return false, nil
+		}
+
+		s3cBk.UntagResource(arnStr, keys)
+
+		return true, nil
+	})
+}
+
+// s3controlOwnsARN reports whether arnStr is one of S3 Control's generically
+// taggable resources (see wireTaggingS3Control): Object Lambda access points
+// use the "s3-object-lambda" ARN service token outright, while access points
+// and access grants share the "s3" token with S3 bucket ARNs -- see
+// s3OwnsARN's doc comment for why requiring a nested "kind/id" resource
+// segment distinguishes them.
+func s3controlOwnsARN(arnStr string) bool {
+	if arnServiceIs(arnStr, "s3-object-lambda") {
+		return true
+	}
+
+	if !arnServiceIs(arnStr, "s3") {
+		return false
+	}
+
+	parts := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+
+	return len(parts) == arnResourceFieldCount && strings.Contains(parts[arnResourceFieldCount-1], "/")
+}
+
+// s3controlResourceType derives the AWS resource-type string for an s3control
+// ARN (e.g. "s3:accesspoint", "s3-object-lambda:accesspoint") from the ARN's
+// own service field, since s3controlOwnsARN accepts ARNs from two different
+// ARN service tokens.
+func s3controlResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "s3control"
+	}
+
+	return resourceTypeFromARN(resourceARN, parts[2])
 }
 
 // wireTaggingWorkMail wires the WorkMail backend into the Resource Groups Tagging API.
