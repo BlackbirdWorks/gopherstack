@@ -44,9 +44,11 @@ type xmlCidrChangeEntry struct {
 }
 
 type xmlChangeCidrCollectionRequest struct {
-	CollectionVersion *int64               `xml:"CollectionVersion"`
-	XMLName           xml.Name             `xml:"ChangeCidrCollectionRequest"`
-	Changes           []xmlCidrChangeEntry `xml:"Changes>Change"`
+	CollectionVersion *int64   `xml:"CollectionVersion"`
+	XMLName           xml.Name `xml:"ChangeCidrCollectionRequest"`
+	// The real serializer (awsRestxml_serializeDocumentCidrCollectionChanges,
+	// route53@v1.65.6) sends each entry as <member>, not <Change>.
+	Changes []xmlCidrChangeEntry `xml:"Changes>member"`
 }
 
 type xmlListCidrCollectionsResponse struct {

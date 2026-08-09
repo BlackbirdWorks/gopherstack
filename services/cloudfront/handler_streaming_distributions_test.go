@@ -151,7 +151,7 @@ func TestCreateStreamingDistributionWithTags_HTTP(t *testing.T) {
 		`<Comment>tagged streaming dist</Comment>` +
 		`<Enabled>false</Enabled>` +
 		`</StreamingDistributionConfig>` +
-		`<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>` +
+		`<Tags><Items><Tag><Key>env</Key><Value>prod</Value></Tag></Items></Tags>` +
 		`</StreamingDistributionConfigWithTags>`
 
 	rec := doXML(t, h, http.MethodPost, prefix+"streaming-distribution?Resource=WithTags", []byte(body))

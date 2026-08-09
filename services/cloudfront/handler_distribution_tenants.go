@@ -75,7 +75,10 @@ type createDistributionTenantXML struct {
 	Name           string   `xml:"Name"`
 	Domain         string   `xml:"Domain"`
 	Domains        []string `xml:"Domains>member>Domain"`
-	Tags           []tagXML `xml:"Tags>Tag"`
+	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
+	// Tags>Tag path (cloudfront@v1.67.4 serializers.go
+	// awsRestxml_serializeDocumentTags).
+	Tags []tagXML `xml:"Tags>Items>Tag"`
 }
 
 type updateDistributionTenantXML struct {
@@ -600,22 +603,24 @@ func (h *Handler) handleListDomainConflicts(c *echo.Context) error {
 
 	conflicts := h.Backend.ListDomainConflicts(req.Domain)
 
+	// The real deserializer (awsRestxml_deserializeDocumentDomainConflictsList,
+	// cloudfront@v1.67.4) wraps the list in <DomainConflicts>, and each entry
+	// is ALSO named <DomainConflicts> (not <Items>/<DomainConflict>).
 	var items strings.Builder
 	for _, dc := range conflicts {
 		fmt.Fprintf(
 			&items,
-			`<DomainConflict><Domain>%s</Domain><ResourceType>%s</ResourceType>`+
-				`<ResourceId>%s</ResourceId><AccountId>%s</AccountId></DomainConflict>`,
+			`<DomainConflicts><Domain>%s</Domain><ResourceType>%s</ResourceType>`+
+				`<ResourceId>%s</ResourceId><AccountId>%s</AccountId></DomainConflicts>`,
 			dc.Domain, dc.ResourceType, dc.ResourceID, dc.AccountID,
 		)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<DomainConflictList xmlns="%s">`+
-		`<Items>%s</Items>`+
-		`<Quantity>%d</Quantity>`+
+		`<DomainConflicts>%s</DomainConflicts>`+
 		`</DomainConflictList>`,
-		cfNS, items.String(), len(conflicts))
+		cfNS, items.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

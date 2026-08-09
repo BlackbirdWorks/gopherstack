@@ -9,19 +9,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// parseQueryTagMembers parses Query-protocol Tags.member.N.Key / Tags.member.N.Value
-// pairs (the encoding used by the SQS TagQueue Query API). Returns nil if no tags
-// are present so callers can leave the backend Tags input nil.
+// parseQueryTagMembers parses Query-protocol Tag.N.Key / Tag.N.Value pairs (the
+// encoding used by the SQS TagQueue Query API: TagMap is flattened with
+// locationName "Tag", key locationName "Key", value locationName "Value" --
+// see sqs 2012-11-05 service-2.json). Returns nil if no tags are present so
+// callers can leave the backend Tags input nil.
 func parseQueryTagMembers(vals url.Values) map[string]string {
 	tagMap := make(map[string]string)
 
 	for i := 1; i <= maxParseIterations; i++ {
-		key := vals.Get(fmt.Sprintf("Tags.member.%d.Key", i))
+		key := vals.Get(fmt.Sprintf("Tag.%d.Key", i))
 		if key == "" {
 			break
 		}
 
-		tagMap[key] = vals.Get(fmt.Sprintf("Tags.member.%d.Value", i))
+		tagMap[key] = vals.Get(fmt.Sprintf("Tag.%d.Value", i))
 	}
 
 	if len(tagMap) == 0 {
@@ -62,7 +64,9 @@ func (h *Handler) queryTagQueue(vals url.Values, region string) ([]byte, int, *q
 }
 
 func (h *Handler) queryUntagQueue(vals url.Values, region string) ([]byte, int, *queryError) {
-	tagKeys := parseQueryList(vals, "TagKeys.member")
+	// TagKeyList is flattened with member locationName "TagKey" (sqs
+	// 2012-11-05 service-2.json), not "TagKeys.member".
+	tagKeys := parseQueryList(vals, "TagKey")
 
 	if err := h.Backend.UntagQueue(&UntagQueueInput{
 		QueueURL: vals.Get("QueueUrl"),
