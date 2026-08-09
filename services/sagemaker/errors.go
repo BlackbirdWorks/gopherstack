@@ -19,3 +19,13 @@ var ErrValidation = awserr.New("ValidationException", awserr.ErrInvalidParameter
 // ErrNotFound branch so only these new families get the accurate wire type;
 // nothing else in the service constructs an error wrapping this sentinel.
 var ErrResourceNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
+
+// ErrConflictException is the shared base sentinel for ClusterSchedulerConfig
+// and ComputeQuota: sagemaker@v1.263.2's Create/Update error lists for both
+// (api_op_CreateClusterSchedulerConfig.go, api_op_UpdateClusterSchedulerConfig.go,
+// and their ComputeQuota equivalents) name ConflictException, not the
+// ResourceInUse handleError emits for the generic awserr.ErrConflict sentinel.
+// handleError special-cases errors.Is(err, ErrConflictException) ahead of the
+// generic ErrConflict branch, mirroring ErrResourceNotFound above; nothing
+// else in the service constructs an error wrapping this sentinel.
+var ErrConflictException = awserr.New("ConflictException", awserr.ErrConflict)

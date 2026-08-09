@@ -1,198 +1,250 @@
 package sagemaker_test
 
 import (
-	"encoding/json"
-	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/sagemaker"
 )
 
-func TestHandler_ClusterSchedulerConfigLifecycle(t *testing.T) {
+const smHyperpodRegion = "us-east-1"
+
+// TestClusterSchedulerConfigLifecycle_RealClient drives the full
+// Create/Describe/List/Update/Delete lifecycle through a real
+// aws-sdk-go-v2 client. sagemaker@v1.263.2 api_op_DescribeClusterSchedulerConfig.go,
+// api_op_UpdateClusterSchedulerConfig.go, and api_op_DeleteClusterSchedulerConfig.go
+// all key ClusterSchedulerConfigId (not Name) -- a hand-built request body
+// sending ClusterSchedulerConfigName would pass the old handler's decode
+// silently, which is exactly how gopherstack-ihxk survived; the real client's
+// own serializer can't be fooled that way.
+func TestClusterSchedulerConfigLifecycle_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
 
-	// Create: sagemaker@v1.263.2 serializers.go:39786 keys the name "Name", not
-	// "ClusterSchedulerConfigName".
-	rec := doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", map[string]any{
-		"Name":       "my-config",
-		"ClusterArn": "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
+	created, err := client.CreateClusterSchedulerConfig(t.Context(), &sagemakersdk.CreateClusterSchedulerConfigInput{
+		Name:            aws.String("hp-config"),
+		ClusterArn:      aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		SchedulerConfig: &smtypes.SchedulerConfig{},
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(created.ClusterSchedulerConfigId))
 
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	assert.Contains(t, createResp["ClusterSchedulerConfigArn"], "my-config")
+	id := aws.ToString(created.ClusterSchedulerConfigId)
 
-	// Describe
-	rec = doSageMakerRequest(t, h, "DescribeClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "my-config",
+	desc, err := client.DescribeClusterSchedulerConfig(
+		t.Context(),
+		&sagemakersdk.DescribeClusterSchedulerConfigInput{ClusterSchedulerConfigId: aws.String(id)},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "hp-config", aws.ToString(desc.Name))
+	assert.Equal(t, smtypes.SchedulerResourceStatusCreating, desc.Status)
+	assert.Equal(t, int32(1), aws.ToInt32(desc.ClusterSchedulerConfigVersion))
+
+	listOut, err := client.ListClusterSchedulerConfigs(t.Context(), &sagemakersdk.ListClusterSchedulerConfigsInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.ClusterSchedulerConfigSummaries, 1)
+	assert.Equal(t, id, aws.ToString(listOut.ClusterSchedulerConfigSummaries[0].ClusterSchedulerConfigId))
+
+	updated, err := client.UpdateClusterSchedulerConfig(t.Context(), &sagemakersdk.UpdateClusterSchedulerConfigInput{
+		ClusterSchedulerConfigId: aws.String(id),
+		TargetVersion:            aws.Int32(1),
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), aws.ToInt32(updated.ClusterSchedulerConfigVersion))
 
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "my-config", descResp["ClusterSchedulerConfigName"])
-	assert.Equal(t, "Creating", descResp["Status"])
-
-	// List
-	rec = doSageMakerRequest(t, h, "ListClusterSchedulerConfigs", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	summaries := listResp["ClusterSchedulerConfigSummaries"].([]any)
-	assert.Len(t, summaries, 1)
-
-	// Update
-	rec = doSageMakerRequest(t, h, "UpdateClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "my-config",
-		"ClusterArn":                 "arn:aws:sagemaker:us-east-1:000000000000:cluster/new-cluster",
+	// A stale TargetVersion (the pre-update value) must be rejected.
+	_, err = client.UpdateClusterSchedulerConfig(t.Context(), &sagemakersdk.UpdateClusterSchedulerConfigInput{
+		ClusterSchedulerConfigId: aws.String(id),
+		TargetVersion:            aws.Int32(1),
 	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Error(t, err)
 
-	// Delete
-	rec = doSageMakerRequest(t, h, "DeleteClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "my-config",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	var conflict *smtypes.ConflictException
+	require.ErrorAs(t, err, &conflict)
 
-	// Verify deleted
-	rec = doSageMakerRequest(t, h, "DescribeClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "my-config",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	_, err = client.DeleteClusterSchedulerConfig(
+		t.Context(),
+		&sagemakersdk.DeleteClusterSchedulerConfigInput{ClusterSchedulerConfigId: aws.String(id)},
+	)
+	require.NoError(t, err)
+
+	_, err = client.DescribeClusterSchedulerConfig(
+		t.Context(),
+		&sagemakersdk.DescribeClusterSchedulerConfigInput{ClusterSchedulerConfigId: aws.String(id)},
+	)
+	require.Error(t, err)
+
+	var notFound *smtypes.ResourceNotFound
+	require.ErrorAs(t, err, &notFound)
 }
 
-func TestHandler_ClusterSchedulerConfig_NotFound(t *testing.T) {
+// TestClusterSchedulerConfigCreate_DuplicateName_RealClient mirrors
+// TestClusterSchedulerConfigLifecycle_RealClient's duplicate-name case
+// through the real client, asserting the wire error is ConflictException
+// (sagemaker@v1.263.2 api_op_CreateClusterSchedulerConfig.go's error list),
+// not the service's generic ValidationException.
+func TestClusterSchedulerConfigCreate_DuplicateName_RealClient(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
 
-	rec := doSageMakerRequest(t, h, "DescribeClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "nonexistent",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ClusterSchedulerConfig_Duplicate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	body := map[string]any{"Name": "dup-config"}
-	doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", body)
-
-	rec := doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-// ---------------------------------------------------------------------------
-// ComputeQuota tests
-// ---------------------------------------------------------------------------
-
-func TestHandler_ComputeQuotaLifecycle(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	// Create: sagemaker@v1.263.2 serializers.go:39923 keys the name "Name", not
-	// "ComputeQuotaName".
-	rec := doSageMakerRequest(t, h, "CreateComputeQuota", map[string]any{
-		"Name":       "my-quota",
-		"ClusterArn": "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var createResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	assert.Contains(t, createResp["ComputeQuotaArn"], "my-quota")
-
-	// Describe
-	rec = doSageMakerRequest(t, h, "DescribeComputeQuota", map[string]any{
-		"ComputeQuotaName": "my-quota",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var descResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-	assert.Equal(t, "my-quota", descResp["ComputeQuotaName"])
-	assert.Equal(t, "Created", descResp["Status"])
-
-	// List
-	rec = doSageMakerRequest(t, h, "ListComputeQuotas", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var listResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &listResp))
-	summaries := listResp["ComputeQuotaSummaries"].([]any)
-	assert.Len(t, summaries, 1)
-
-	// Update
-	rec = doSageMakerRequest(t, h, "UpdateComputeQuota", map[string]any{
-		"ComputeQuotaName": "my-quota",
-		"ClusterArn":       "arn:aws:sagemaker:us-east-1:000000000000:cluster/new-cluster",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	var updateResp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &updateResp))
-	assert.Contains(t, updateResp["ComputeQuotaArn"], "my-quota")
-
-	// Delete
-	rec = doSageMakerRequest(t, h, "DeleteComputeQuota", map[string]any{
-		"ComputeQuotaName": "my-quota",
-	})
-	assert.Equal(t, http.StatusOK, rec.Code)
-
-	// Verify deleted
-	rec = doSageMakerRequest(t, h, "DescribeComputeQuota", map[string]any{
-		"ComputeQuotaName": "my-quota",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ComputeQuota_NotFound(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	rec := doSageMakerRequest(t, h, "DescribeComputeQuota", map[string]any{
-		"ComputeQuotaName": "nonexistent",
-	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ComputeQuota_Duplicate(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	body := map[string]any{"Name": "dup-quota"}
-	doSageMakerRequest(t, h, "CreateComputeQuota", body)
-
-	rec := doSageMakerRequest(t, h, "CreateComputeQuota", body)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-}
-
-func TestHandler_ListComputeQuotas_Pagination(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-
-	for i := range 3 {
-		doSageMakerRequest(t, h, "CreateComputeQuota", map[string]any{
-			"Name": "quota-" + string(rune('a'+i)),
-		})
+	in := &sagemakersdk.CreateClusterSchedulerConfigInput{
+		Name:            aws.String("dup-config"),
+		ClusterArn:      aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		SchedulerConfig: &smtypes.SchedulerConfig{},
 	}
 
-	rec := doSageMakerRequest(t, h, "ListComputeQuotas", map[string]any{})
-	assert.Equal(t, http.StatusOK, rec.Code)
+	_, err := client.CreateClusterSchedulerConfig(t.Context(), in)
+	require.NoError(t, err)
 
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	summaries := resp["ComputeQuotaSummaries"].([]any)
-	assert.Len(t, summaries, 3)
+	_, err = client.CreateClusterSchedulerConfig(t.Context(), in)
+	require.Error(t, err)
+
+	var conflict *smtypes.ConflictException
+	require.ErrorAs(t, err, &conflict)
+}
+
+// TestComputeQuotaLifecycle_RealClient is ClusterSchedulerConfig's lifecycle
+// test mirrored for ComputeQuota — sagemaker@v1.263.2
+// api_op_DescribeComputeQuota.go, api_op_UpdateComputeQuota.go, and
+// api_op_DeleteComputeQuota.go all key ComputeQuotaId (not Name).
+func TestComputeQuotaLifecycle_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	created, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+		Name:               aws.String("hp-quota"),
+		ClusterArn:         aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+		ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{},
+		ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{TeamName: aws.String("team-1")},
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, aws.ToString(created.ComputeQuotaId))
+
+	id := aws.ToString(created.ComputeQuotaId)
+
+	desc, err := client.DescribeComputeQuota(
+		t.Context(),
+		&sagemakersdk.DescribeComputeQuotaInput{ComputeQuotaId: aws.String(id)},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "hp-quota", aws.ToString(desc.Name))
+	assert.Equal(t, smtypes.SchedulerResourceStatusCreated, desc.Status)
+	assert.Equal(t, int32(1), aws.ToInt32(desc.ComputeQuotaVersion))
+
+	listOut, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{})
+	require.NoError(t, err)
+	require.Len(t, listOut.ComputeQuotaSummaries, 1)
+	assert.Equal(t, id, aws.ToString(listOut.ComputeQuotaSummaries[0].ComputeQuotaId))
+
+	updated, err := client.UpdateComputeQuota(t.Context(), &sagemakersdk.UpdateComputeQuotaInput{
+		ComputeQuotaId: aws.String(id),
+		TargetVersion:  aws.Int32(1),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), aws.ToInt32(updated.ComputeQuotaVersion))
+
+	_, err = client.DeleteComputeQuota(
+		t.Context(),
+		&sagemakersdk.DeleteComputeQuotaInput{ComputeQuotaId: aws.String(id)},
+	)
+	require.NoError(t, err)
+
+	_, err = client.DescribeComputeQuota(
+		t.Context(),
+		&sagemakersdk.DescribeComputeQuotaInput{ComputeQuotaId: aws.String(id)},
+	)
+	require.Error(t, err)
+
+	var notFound *smtypes.ResourceNotFound
+	require.ErrorAs(t, err, &notFound)
+}
+
+func TestComputeQuotaListPagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+	client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+	for i := range 3 {
+		_, err := client.CreateComputeQuota(t.Context(), &sagemakersdk.CreateComputeQuotaInput{
+			Name:               aws.String("hp-quota-" + string(rune('a'+i))),
+			ClusterArn:         aws.String("arn:aws:sagemaker:us-east-1:000000000000:cluster/hp-cluster"),
+			ComputeQuotaConfig: &smtypes.ComputeQuotaConfig{},
+			ComputeQuotaTarget: &smtypes.ComputeQuotaTarget{TeamName: aws.String("team-1")},
+		})
+		require.NoError(t, err)
+	}
+
+	out, err := client.ListComputeQuotas(t.Context(), &sagemakersdk.ListComputeQuotasInput{})
+	require.NoError(t, err)
+	assert.Len(t, out.ComputeQuotaSummaries, 3)
+}
+
+// TestDescribeNotFound_RealClient asserts the not-found wire type for both
+// resources is ResourceNotFound (sagemaker@v1.263.2's Describe/Update/Delete
+// error lists), not the service's generic ValidationException that the old
+// ErrClusterSchedulerConfigNotFound / ErrComputeQuotaNotFound sentinels used
+// to wrap.
+func TestDescribeNotFound_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		describe func(t *testing.T, client *sagemakersdk.Client) error
+		name     string
+	}{
+		{
+			name: "cluster scheduler config",
+			describe: func(t *testing.T, client *sagemakersdk.Client) error {
+				t.Helper()
+
+				_, err := client.DescribeClusterSchedulerConfig(
+					t.Context(),
+					&sagemakersdk.DescribeClusterSchedulerConfigInput{
+						ClusterSchedulerConfigId: aws.String("abcdef012345"),
+					},
+				)
+
+				return err
+			},
+		},
+		{
+			name: "compute quota",
+			describe: func(t *testing.T, client *sagemakersdk.Client) error {
+				t.Helper()
+
+				_, err := client.DescribeComputeQuota(
+					t.Context(),
+					&sagemakersdk.DescribeComputeQuotaInput{ComputeQuotaId: aws.String("abcdef012345")},
+				)
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := sagemaker.NewInMemoryBackend("000000000000", smHyperpodRegion)
+			client := newTestSageMakerClient(t, sagemaker.NewHandler(backend))
+
+			err := tt.describe(t, client)
+			require.Error(t, err)
+
+			var notFound *smtypes.ResourceNotFound
+			require.ErrorAs(t, err, &notFound)
+		})
+	}
 }

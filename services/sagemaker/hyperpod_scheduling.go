@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -15,21 +16,30 @@ import (
 // ---------------------------------------------------------------------------
 
 var (
-	// ErrClusterSchedulerConfigNotFound is returned when a cluster scheduler config does not exist.
-	ErrClusterSchedulerConfigNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
-	// ErrClusterSchedulerConfigAlreadyExists is returned when a cluster scheduler config already exists.
-	ErrClusterSchedulerConfigAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// ErrClusterSchedulerConfigNotFound is returned when a cluster scheduler config does not
+	// exist. sagemaker@v1.263.2 api_op_DescribeClusterSchedulerConfig.go:1 (and
+	// Update/Delete) list only ResourceNotFound as an error, not ValidationException.
+	ErrClusterSchedulerConfigNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
+	// ErrClusterSchedulerConfigAlreadyExists is returned when a cluster scheduler config
+	// already exists. Create's only documented error is ConflictException — see
+	// api_op_CreateClusterSchedulerConfig.go's addOperation error list.
+	ErrClusterSchedulerConfigAlreadyExists = awserr.New("ConflictException", ErrConflictException)
+	// ErrClusterSchedulerConfigVersionConflict is returned when Update's required
+	// TargetVersion doesn't match the resource's current version.
+	ErrClusterSchedulerConfigVersionConflict = awserr.New("ConflictException", ErrConflictException)
 )
 
 // ClusterSchedulerConfig represents a SageMaker cluster scheduler configuration.
 type ClusterSchedulerConfig struct {
-	CreationTime               time.Time         `json:"CreationTime"`
-	LastModifiedTime           time.Time         `json:"LastModifiedTime"`
-	Tags                       map[string]string `json:"Tags,omitempty"`
-	ClusterSchedulerConfigName string            `json:"ClusterSchedulerConfigName"`
-	ClusterSchedulerConfigArn  string            `json:"ClusterSchedulerConfigArn"`
-	ClusterArn                 string            `json:"ClusterArn,omitempty"`
-	Status                     string            `json:"Status"`
+	CreationTime                  time.Time         `json:"CreationTime"`
+	LastModifiedTime              time.Time         `json:"LastModifiedTime"`
+	Tags                          map[string]string `json:"Tags,omitempty"`
+	ClusterSchedulerConfigName    string            `json:"Name"`
+	ClusterSchedulerConfigArn     string            `json:"ClusterSchedulerConfigArn"`
+	ClusterSchedulerConfigID      string            `json:"ClusterSchedulerConfigId"`
+	ClusterArn                    string            `json:"ClusterArn,omitempty"`
+	Status                        string            `json:"Status"`
+	ClusterSchedulerConfigVersion int32             `json:"ClusterSchedulerConfigVersion"`
 }
 
 func cloneClusterSchedulerConfig(c *ClusterSchedulerConfig) *ClusterSchedulerConfig {
@@ -105,32 +115,55 @@ func (b *InMemoryBackend) CreateClusterSchedulerConfig(
 		},
 		func(arnStr string, now time.Time) *ClusterSchedulerConfig {
 			return &ClusterSchedulerConfig{
-				ClusterSchedulerConfigName: opts.ClusterSchedulerConfigName,
-				ClusterSchedulerConfigArn:  arnStr,
-				ClusterArn:                 opts.ClusterArn,
-				Status:                     statusCreating,
-				Tags:                       mergeTags(nil, opts.Tags),
-				CreationTime:               now,
-				LastModifiedTime:           now,
+				ClusterSchedulerConfigName:    opts.ClusterSchedulerConfigName,
+				ClusterSchedulerConfigArn:     arnStr,
+				ClusterSchedulerConfigID:      generateID()[:idPatternLen],
+				ClusterSchedulerConfigVersion: 1,
+				ClusterArn:                    opts.ClusterArn,
+				Status:                        statusCreating,
+				Tags:                          mergeTags(nil, opts.Tags),
+				CreationTime:                  now,
+				LastModifiedTime:              now,
 			}
 		},
 		cloneClusterSchedulerConfig,
 	)
 }
 
-// DescribeClusterSchedulerConfig returns a cluster scheduler config by name.
+// clusterSchedulerConfigByID scans tbl for the entry with the given
+// ClusterSchedulerConfigId. Describe/Update/Delete key off id (real API,
+// sagemaker@v1.263.2 api_op_DescribeClusterSchedulerConfig.go:33), but the
+// table's primary key stays Name to preserve Create's name-dedup check and
+// List's existing ordering.
+func clusterSchedulerConfigByID(tbl *store.Table[ClusterSchedulerConfig], id string) (*ClusterSchedulerConfig, bool) {
+	var found *ClusterSchedulerConfig
+
+	tbl.Range(func(v *ClusterSchedulerConfig) bool {
+		if v.ClusterSchedulerConfigID != id {
+			return true
+		}
+
+		found = v
+
+		return false
+	})
+
+	return found, found != nil
+}
+
+// DescribeClusterSchedulerConfig returns a cluster scheduler config by id.
 func (b *InMemoryBackend) DescribeClusterSchedulerConfig(
 	ctx context.Context,
-	name string,
+	id string,
 ) (*ClusterSchedulerConfig, error) {
 	b.mu.RLock("DescribeClusterSchedulerConfig")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.clusterSchedulerConfigsStoreRO(region).Get(name)
+	c, ok := clusterSchedulerConfigByID(b.clusterSchedulerConfigsStoreRO(region), id)
 	if !ok {
-		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, id)
 	}
 
 	return cloneClusterSchedulerConfig(c), nil
@@ -154,40 +187,52 @@ func (b *InMemoryBackend) ListClusterSchedulerConfigs(
 	)
 }
 
-// UpdateClusterSchedulerConfig updates a cluster scheduler config's cluster ARN.
-func (b *InMemoryBackend) UpdateClusterSchedulerConfig(ctx context.Context, name, clusterArn string) error {
+// UpdateClusterSchedulerConfig applies an optimistic-concurrency update gated
+// by targetVersion. sagemaker@v1.263.2 api_op_UpdateClusterSchedulerConfig.go:29
+// requires ClusterSchedulerConfigId and TargetVersion; ClusterArn is not a
+// member of the real input, so it is not settable here — it is Create-only.
+func (b *InMemoryBackend) UpdateClusterSchedulerConfig(
+	ctx context.Context,
+	id string,
+	targetVersion int32,
+) (*ClusterSchedulerConfig, error) {
 	b.mu.Lock("UpdateClusterSchedulerConfig")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	c, ok := b.clusterSchedulerConfigsStore(region).Get(name)
+	c, ok := clusterSchedulerConfigByID(b.clusterSchedulerConfigsStore(region), id)
 	if !ok {
-		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+		return nil, fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, id)
 	}
 
-	if clusterArn != "" {
-		c.ClusterArn = clusterArn
+	if targetVersion != c.ClusterSchedulerConfigVersion {
+		return nil, fmt.Errorf(
+			"%w: cluster scheduler config %q target version %d does not match current version %d",
+			ErrClusterSchedulerConfigVersionConflict, id, targetVersion, c.ClusterSchedulerConfigVersion,
+		)
 	}
 
+	c.ClusterSchedulerConfigVersion++
 	c.LastModifiedTime = time.Now()
 
-	return nil
+	return cloneClusterSchedulerConfig(c), nil
 }
 
-// DeleteClusterSchedulerConfig deletes a cluster scheduler config by name.
-func (b *InMemoryBackend) DeleteClusterSchedulerConfig(ctx context.Context, name string) error {
+// DeleteClusterSchedulerConfig deletes a cluster scheduler config by id.
+func (b *InMemoryBackend) DeleteClusterSchedulerConfig(ctx context.Context, id string) error {
 	b.mu.Lock("DeleteClusterSchedulerConfig")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.clusterSchedulerConfigsStore(region)
+	tbl := b.clusterSchedulerConfigsStore(region)
 
-	if _, ok := store.Get(name); !ok {
-		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, name)
+	c, ok := clusterSchedulerConfigByID(tbl, id)
+	if !ok {
+		return fmt.Errorf("%w: cluster scheduler config %q", ErrClusterSchedulerConfigNotFound, id)
 	}
 
-	store.Delete(name)
+	tbl.Delete(c.ClusterSchedulerConfigName)
 
 	return nil
 }
@@ -198,20 +243,28 @@ func (b *InMemoryBackend) DeleteClusterSchedulerConfig(ctx context.Context, name
 
 var (
 	// ErrComputeQuotaNotFound is returned when a compute quota does not exist.
-	ErrComputeQuotaNotFound = awserr.New("ValidationException", awserr.ErrNotFound)
-	// ErrComputeQuotaAlreadyExists is returned when a compute quota already exists.
-	ErrComputeQuotaAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// sagemaker@v1.263.2 api_op_DescribeComputeQuota.go (and Update/Delete) list
+	// only ResourceNotFound as an error, not ValidationException.
+	ErrComputeQuotaNotFound = awserr.New("ResourceNotFound", ErrResourceNotFound)
+	// ErrComputeQuotaAlreadyExists is returned when a compute quota already
+	// exists. Create's only documented error is ConflictException.
+	ErrComputeQuotaAlreadyExists = awserr.New("ConflictException", ErrConflictException)
+	// ErrComputeQuotaVersionConflict is returned when Update's required
+	// TargetVersion doesn't match the resource's current version.
+	ErrComputeQuotaVersionConflict = awserr.New("ConflictException", ErrConflictException)
 )
 
 // ComputeQuota represents a SageMaker compute quota.
 type ComputeQuota struct {
-	CreationTime     time.Time         `json:"CreationTime"`
-	LastModifiedTime time.Time         `json:"LastModifiedTime"`
-	Tags             map[string]string `json:"Tags,omitempty"`
-	ComputeQuotaName string            `json:"ComputeQuotaName"`
-	ComputeQuotaArn  string            `json:"ComputeQuotaArn"`
-	Status           string            `json:"Status"`
-	ClusterArn       string            `json:"ClusterArn,omitempty"`
+	CreationTime        time.Time         `json:"CreationTime"`
+	LastModifiedTime    time.Time         `json:"LastModifiedTime"`
+	Tags                map[string]string `json:"Tags,omitempty"`
+	ComputeQuotaName    string            `json:"Name"`
+	ComputeQuotaArn     string            `json:"ComputeQuotaArn"`
+	ComputeQuotaID      string            `json:"ComputeQuotaId"`
+	Status              string            `json:"Status"`
+	ClusterArn          string            `json:"ClusterArn,omitempty"`
+	ComputeQuotaVersion int32             `json:"ComputeQuotaVersion"`
 }
 
 func cloneComputeQuota(q *ComputeQuota) *ComputeQuota {
@@ -283,29 +336,51 @@ func (b *InMemoryBackend) CreateComputeQuota(
 		},
 		func(arnStr string, now time.Time) *ComputeQuota {
 			return &ComputeQuota{
-				ComputeQuotaName: opts.ComputeQuotaName,
-				ComputeQuotaArn:  arnStr,
-				ClusterArn:       opts.ClusterArn,
-				Status:           statusCreated,
-				Tags:             mergeTags(nil, opts.Tags),
-				CreationTime:     now,
-				LastModifiedTime: now,
+				ComputeQuotaName:    opts.ComputeQuotaName,
+				ComputeQuotaArn:     arnStr,
+				ComputeQuotaID:      generateID()[:idPatternLen],
+				ComputeQuotaVersion: 1,
+				ClusterArn:          opts.ClusterArn,
+				Status:              statusCreated,
+				Tags:                mergeTags(nil, opts.Tags),
+				CreationTime:        now,
+				LastModifiedTime:    now,
 			}
 		},
 		cloneComputeQuota,
 	)
 }
 
-// DescribeComputeQuota returns a compute quota by name.
-func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, name string) (*ComputeQuota, error) {
+// computeQuotaByID scans tbl for the entry with the given ComputeQuotaId.
+// Describe/Update/Delete key off id (real API, sagemaker@v1.263.2
+// api_op_DescribeComputeQuota.go:29), but the table's primary key stays Name
+// to preserve Create's name-dedup check and List's existing ordering.
+func computeQuotaByID(tbl *store.Table[ComputeQuota], id string) (*ComputeQuota, bool) {
+	var found *ComputeQuota
+
+	tbl.Range(func(v *ComputeQuota) bool {
+		if v.ComputeQuotaID != id {
+			return true
+		}
+
+		found = v
+
+		return false
+	})
+
+	return found, found != nil
+}
+
+// DescribeComputeQuota returns a compute quota by id.
+func (b *InMemoryBackend) DescribeComputeQuota(ctx context.Context, id string) (*ComputeQuota, error) {
 	b.mu.RLock("DescribeComputeQuota")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
 
-	q, ok := b.computeQuotasStoreRO(region).Get(name)
+	q, ok := computeQuotaByID(b.computeQuotasStoreRO(region), id)
 	if !ok {
-		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, id)
 	}
 
 	return cloneComputeQuota(q), nil
@@ -326,40 +401,52 @@ func (b *InMemoryBackend) ListComputeQuotas(ctx context.Context, nextToken strin
 	)
 }
 
-// UpdateComputeQuota updates a compute quota's cluster ARN.
-func (b *InMemoryBackend) UpdateComputeQuota(ctx context.Context, name, clusterArn string) error {
+// UpdateComputeQuota applies an optimistic-concurrency update gated by
+// targetVersion. sagemaker@v1.263.2 api_op_UpdateComputeQuota.go requires
+// ComputeQuotaId and TargetVersion; ClusterArn is not a member of the real
+// input, so it is not settable here — it is Create-only.
+func (b *InMemoryBackend) UpdateComputeQuota(
+	ctx context.Context,
+	id string,
+	targetVersion int32,
+) (*ComputeQuota, error) {
 	b.mu.Lock("UpdateComputeQuota")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
 
-	q, ok := b.computeQuotasStore(region).Get(name)
+	q, ok := computeQuotaByID(b.computeQuotasStore(region), id)
 	if !ok {
-		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+		return nil, fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, id)
 	}
 
-	if clusterArn != "" {
-		q.ClusterArn = clusterArn
+	if targetVersion != q.ComputeQuotaVersion {
+		return nil, fmt.Errorf(
+			"%w: compute quota %q target version %d does not match current version %d",
+			ErrComputeQuotaVersionConflict, id, targetVersion, q.ComputeQuotaVersion,
+		)
 	}
 
+	q.ComputeQuotaVersion++
 	q.LastModifiedTime = time.Now()
 
-	return nil
+	return cloneComputeQuota(q), nil
 }
 
-// DeleteComputeQuota deletes a compute quota by name.
-func (b *InMemoryBackend) DeleteComputeQuota(ctx context.Context, name string) error {
+// DeleteComputeQuota deletes a compute quota by id.
+func (b *InMemoryBackend) DeleteComputeQuota(ctx context.Context, id string) error {
 	b.mu.Lock("DeleteComputeQuota")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	store := b.computeQuotasStore(region)
+	tbl := b.computeQuotasStore(region)
 
-	if _, ok := store.Get(name); !ok {
-		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, name)
+	q, ok := computeQuotaByID(tbl, id)
+	if !ok {
+		return fmt.Errorf("%w: compute quota %q", ErrComputeQuotaNotFound, id)
 	}
 
-	store.Delete(name)
+	tbl.Delete(q.ComputeQuotaName)
 
 	return nil
 }

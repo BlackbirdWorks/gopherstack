@@ -35,6 +35,11 @@ const (
 
 const idByteLen = 12 // number of random bytes used when generating resource IDs
 
+// idPatternLen truncates generateID() to match ClusterSchedulerConfigId /
+// ComputeQuotaId's wire pattern `[a-z0-9]{12}` — botocore sagemaker/2017-07-24
+// service-2.json.gz shapes ClusterSchedulerConfigId, ComputeQuotaId.
+const idPatternLen = 12
+
 const sagemakerDefaultPageSize = 100
 
 const (
