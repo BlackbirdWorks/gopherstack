@@ -206,6 +206,9 @@ func (b *InMemoryBackend) initARNIndexMaps() {
 	b.modelPackageARNIndex = make(map[string]map[string]string)
 	b.processingJobARNIndex = make(map[string]map[string]string)
 	b.transformJobARNIndex = make(map[string]map[string]string)
+	b.modelPackageGroupARNIndex = make(map[string]map[string]string)
+	b.workteamARNIndex = make(map[string]map[string]string)
+	b.workforceARNIndex = make(map[string]map[string]string)
 }
 
 // initJobMaps (re)initialises the processing/transform/edge/device/inference-

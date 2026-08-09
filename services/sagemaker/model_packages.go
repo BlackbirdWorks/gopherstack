@@ -158,6 +158,7 @@ func (b *InMemoryBackend) CreateModelPackageGroup(
 		CreationTime:                 time.Now(),
 	}
 	b.modelPackageGroupsStore(region).Put(g)
+	b.modelPackageGroupARNIndexStore(region)[groupARN] = name
 
 	return cloneModelPackageGroup(g), nil
 }
@@ -184,7 +185,8 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(ctx context.Context, name stri
 
 	region := getRegion(ctx, b.region)
 
-	if _, ok := b.modelPackageGroupsStore(region).Get(name); !ok {
+	g, ok := b.modelPackageGroupsStore(region).Get(name)
+	if !ok {
 		return fmt.Errorf("%w: model package group %q not found", ErrModelPackageGroupNotFound, name)
 	}
 
@@ -198,6 +200,7 @@ func (b *InMemoryBackend) DeleteModelPackageGroup(ctx context.Context, name stri
 
 	store := b.modelPackageGroupsStore(region)
 	store.Delete(name)
+	delete(b.modelPackageGroupARNIndexStore(region), g.ModelPackageGroupArn)
 
 	return nil
 }

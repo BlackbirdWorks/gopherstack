@@ -381,6 +381,18 @@ func (b *InMemoryBackend) rebuildARNIndexes() {
 		b.aiWorkloadConfigs,
 		func(c *AIWorkloadConfig) (string, string) { return c.AIWorkloadConfigName, c.AIWorkloadConfigArn },
 	)
+	b.modelPackageGroupARNIndex = buildARNIndex(
+		b.modelPackageGroups,
+		func(g *ModelPackageGroup) (string, string) { return g.ModelPackageGroupName, g.ModelPackageGroupArn },
+	)
+	b.workteamARNIndex = buildARNIndex(
+		b.workteams,
+		func(w *Workteam) (string, string) { return w.WorkteamName, w.WorkteamArn },
+	)
+	b.workforceARNIndex = buildARNIndex(
+		b.workforces,
+		func(w *Workforce) (string, string) { return w.WorkforceName, w.WorkforceArn },
+	)
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

@@ -48,9 +48,9 @@ func newTestSageMakerClient(t *testing.T, h *sagemaker.Handler) *sagemakersdk.Cl
 }
 
 // TestCreateOpsWithTags_RoundTrip spot-checks resource kinds that ARE in
-// findTagMapLocked's 18-kind ARN-index registry (services/sagemaker/tags.go)
-// through the real SDK client, asserting ListTags sees what was supplied at
-// creation (gopherstack-2mwl).
+// findTagMapLocked's tag-lookup registry (services/sagemaker/tags.go) through
+// the real SDK client, asserting ListTags sees what was supplied at creation
+// (gopherstack-2mwl, gopherstack-qyon).
 func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -129,6 +129,24 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 			},
 		},
 		{
+			// CreateModelPackage's handler decoded Tags as a JSON object instead
+			// of the wire's array-of-{Key,Value} shape, so any tagged create
+			// failed outright (gopherstack-qyon) -- model package was never
+			// actually spot-verified despite being in the 18-kind registry.
+			name: "model package",
+			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
+				t.Helper()
+
+				out, err := client.CreateModelPackage(t.Context(), &sagemakersdk.CreateModelPackageInput{
+					ModelPackageName: aws.String("tagged-model-package"),
+					Tags:             []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+				})
+				require.NoError(t, err)
+
+				return out.ModelPackageArn
+			},
+		},
+		{
 			name: "action",
 			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
 				t.Helper()
@@ -163,6 +181,74 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 				return out.ExperimentArn
 			},
 		},
+		{
+			name: "context",
+			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
+				t.Helper()
+
+				out, err := client.CreateContext(t.Context(), &sagemakersdk.CreateContextInput{
+					ContextName: aws.String("tagged-context"),
+					ContextType: aws.String("Endpoint"),
+					Source:      &smtypes.ContextSource{SourceUri: aws.String("s3://bucket/key")},
+					Tags:        []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+				})
+				require.NoError(t, err)
+
+				return out.ContextArn
+			},
+		},
+		{
+			name: "artifact",
+			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
+				t.Helper()
+
+				out, err := client.CreateArtifact(t.Context(), &sagemakersdk.CreateArtifactInput{
+					ArtifactType: aws.String("Model"),
+					Source:       &smtypes.ArtifactSource{SourceUri: aws.String("s3://bucket/key")},
+					Tags:         []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+				})
+				require.NoError(t, err)
+
+				return out.ArtifactArn
+			},
+		},
+		{
+			name: "model package group",
+			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
+				t.Helper()
+
+				out, err := client.CreateModelPackageGroup(
+					t.Context(),
+					&sagemakersdk.CreateModelPackageGroupInput{
+						ModelPackageGroupName: aws.String("tagged-mpg"),
+						Tags: []smtypes.Tag{
+							{Key: aws.String("env"), Value: aws.String("test")},
+						},
+					},
+				)
+				require.NoError(t, err)
+
+				return out.ModelPackageGroupArn
+			},
+		},
+		{
+			name: "workforce",
+			setup: func(t *testing.T, client *sagemakersdk.Client) *string {
+				t.Helper()
+
+				out, err := client.CreateWorkforce(t.Context(), &sagemakersdk.CreateWorkforceInput{
+					WorkforceName: aws.String("tagged-workforce"),
+					CognitoConfig: &smtypes.CognitoConfig{
+						UserPool: aws.String("pool-1"),
+						ClientId: aws.String("client-1"),
+					},
+					Tags: []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+				})
+				require.NoError(t, err)
+
+				return out.WorkforceArn
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -187,17 +273,15 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestCreateWorkteam_TagsRoundTrip_KnownGap documents, rather than fixes,
-// gopherstack-2mwl's largest outstanding instance: CreateWorkteam accepts
-// Tags (sagemaker@v1.263.2 api_op_CreateWorkteam.go:78), and work teams are
+// TestCreateWorkteam_TagsRoundTrip documents the fix for gopherstack-2mwl's
+// largest outstanding instance: CreateWorkteam accepts Tags
+// (sagemaker@v1.263.2 api_op_CreateWorkteam.go:78), and work teams are
 // explicitly listed in the real AddTags doc comment (api_op_AddTags.go:13)
-// as a taggable kind, but "workteam" is not one of the 18 kinds in
-// findTagMapLocked's ARN-index registry (services/sagemaker/tags.go). 45 of
-// sagemaker's 63 tag-accepting Create ops share this shape; workteam stands
-// in for all of them here. This asserts the CURRENT (broken) behavior so the
-// test goes red -- forcing a deliberate update -- the day the registry gains
-// workteam's case, rather than silently drifting.
-func TestCreateWorkteam_TagsRoundTrip_KnownGap(t *testing.T) {
+// as a taggable kind. Workteam is now one of the kinds covered by
+// indexedTagLookups (services/sagemaker/tags.go); this was previously
+// TestCreateWorkteam_TagsRoundTrip_KnownGap, a tripwire asserting the
+// then-current broken behavior (gopherstack-qyon).
+func TestCreateWorkteam_TagsRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	backend := sagemaker.NewInMemoryBackend("000000000000", smTagsRTRegion)
@@ -217,7 +301,9 @@ func TestCreateWorkteam_TagsRoundTrip_KnownGap(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.ListTags(t.Context(), &sagemakersdk.ListTagsInput{ResourceArn: out.WorkteamArn})
-	require.Error(t, err, "known gap: workteam is absent from findTagMapLocked's registry")
-	assert.Contains(t, err.Error(), "not found")
+	got, err := client.ListTags(t.Context(), &sagemakersdk.ListTagsInput{ResourceArn: out.WorkteamArn})
+	require.NoError(t, err)
+	require.Len(t, got.Tags, 1)
+	assert.Equal(t, "env", aws.ToString(got.Tags[0].Key))
+	assert.Equal(t, "test", aws.ToString(got.Tags[0].Value))
 }

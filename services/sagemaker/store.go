@@ -82,6 +82,9 @@ type InMemoryBackend struct {
 	modelPackageARNIndex         map[string]map[string]string // region → ARN → model package ARN
 	processingJobARNIndex        map[string]map[string]string // region → ARN → job name
 	transformJobARNIndex         map[string]map[string]string // region → ARN → job name
+	modelPackageGroupARNIndex    map[string]map[string]string // region → ARN → model package group name
+	workteamARNIndex             map[string]map[string]string // region → ARN → workteam name
+	workforceARNIndex            map[string]map[string]string // region → ARN → workforce name
 	domains                      map[string]*store.Table[Domain]
 	userProfiles                 map[string]*store.Table[UserProfile]
 	apps                         map[string]*store.Table[App]

@@ -15,78 +15,14 @@ func (b *InMemoryBackend) AddTags(ctx context.Context, resourceARN string, tags 
 
 	region := getRegion(ctx, b.region)
 
-	if name, ok := b.modelARNIndexStore(region)[resourceARN]; ok {
-		m := tableGet(b.modelsStore(region), name)
-		m.Tags = mergeTags(m.Tags, tags)
-
-		return nil
+	tagMap := b.findTagMapLocked(resourceARN, region)
+	if tagMap == nil {
+		return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
 	}
 
-	if name, ok := b.endpointConfigARNIndexStore(region)[resourceARN]; ok {
-		ec := tableGet(b.endpointConfigsStore(region), name)
-		ec.Tags = mergeTags(ec.Tags, tags)
+	*tagMap = mergeTags(*tagMap, tags)
 
-		return nil
-	}
-
-	if name, ok := b.actionARNIndexStore(region)[resourceARN]; ok {
-		a := tableGet(b.actionsStore(region), name)
-		a.Tags = mergeTags(a.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.algorithmARNIndexStore(region)[resourceARN]; ok {
-		al := tableGet(b.algorithmsStore(region), name)
-		al.Tags = mergeTags(al.Tags, tags)
-
-		return nil
-	}
-
-	if _, ok := b.modelPackageARNIndexStore(region)[resourceARN]; ok {
-		mp := tableGet(b.modelPackagesStore(region), resourceARN)
-		mp.Tags = mergeTags(mp.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.endpointARNIndexStore(region)[resourceARN]; ok {
-		ep := tableGet(b.endpointsStore(region), name)
-		ep.Tags = mergeTags(ep.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.trainingJobARNIndexStore(region)[resourceARN]; ok {
-		tj := tableGet(b.trainingJobsStore(region), name)
-		tj.Tags = mergeTags(tj.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.notebookARNIndexStore(region)[resourceARN]; ok {
-		nb := tableGet(b.notebooksStore(region), name)
-		nb.Tags = mergeTags(nb.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.hpTuningJobARNIndexStore(region)[resourceARN]; ok {
-		j := tableGet(b.hpTuningJobsStore(region), name)
-		j.Tags = mergeTags(j.Tags, tags)
-
-		return nil
-	}
-
-	if name, ok := b.processingJobARNIndexStore(region)[resourceARN]; ok {
-		if pj, found := b.processingJobsStore(region).Get(name); found {
-			pj.Tags = mergeTags(pj.Tags, tags)
-
-			return nil
-		}
-	}
-
-	return fmt.Errorf("%w: resource %s not found", ErrValidation, resourceARN)
+	return nil
 }
 
 // ListTags returns tags for a resource identified by ARN.
@@ -107,115 +43,6 @@ func (b *InMemoryBackend) ListTags(ctx context.Context, resourceARN string) (map
 	return result, nil
 }
 
-// findTagMapLocked returns a pointer to the tags map for a resource identified by ARN.
-// Must be called with b.mu held. Returns nil if the resource is not found.
-func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *map[string]string {
-	if name, ok := b.modelARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.modelsStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.endpointConfigARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.endpointConfigsStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.actionARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.actionsStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.algorithmARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.algorithmsStoreRO(region), name).Tags
-	}
-
-	if _, ok := b.modelPackageARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.modelPackagesStoreRO(region), resourceARN).Tags
-	}
-
-	if name, ok := b.endpointARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.endpointsStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.trainingJobARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.trainingJobsStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.notebookARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.notebooksStoreRO(region), name).Tags
-	}
-
-	if name, ok := b.hpTuningJobARNIndexStoreRO(region)[resourceARN]; ok {
-		return &tableGet(b.hpTuningJobsStoreRO(region), name).Tags
-	}
-
-	if tags := b.findTagMapIndexedExtraLocked(resourceARN, region); tags != nil {
-		return tags
-	}
-
-	return b.findTagMapStatefulLocked(resourceARN, region)
-}
-
-// findTagMapIndexedExtraLocked handles the remaining ARN-indexed resource
-// kinds (processing jobs, transform jobs, clusters). Separated from
-// findTagMapLocked to keep it within cyclomatic-complexity limits.
-func (b *InMemoryBackend) findTagMapIndexedExtraLocked(resourceARN string, region string) *map[string]string {
-	if name, ok := b.processingJobARNIndexStoreRO(region)[resourceARN]; ok {
-		if pj, found := b.processingJobsStoreRO(region).Get(name); found {
-			return &pj.Tags
-		}
-	}
-
-	if name, ok := b.transformJobARNIndexStoreRO(region)[resourceARN]; ok {
-		if tj, found := b.transformJobsStoreRO(region).Get(name); found {
-			return &tj.Tags
-		}
-	}
-
-	if name, ok := b.clusterARNIndexStoreRO(region)[resourceARN]; ok {
-		if c, found := b.clustersStoreRO(region).Get(name); found {
-			return &c.Tags
-		}
-	}
-
-	return nil
-}
-
-// findTagMapStatefulLocked handles tag lookups for stateful resources (domains,
-// featureGroups, pipelines, experiments, trials, trialComponents). Separated
-// to keep findTagMapLocked within cognitive-complexity limits.
-func (b *InMemoryBackend) findTagMapStatefulLocked(resourceARN string, region string) *map[string]string {
-	for _, d := range b.domainsStoreRO(region).All() {
-		if d.DomainArn == resourceARN {
-			return &d.Tags
-		}
-	}
-	for _, fg := range b.featureGroupsStoreRO(region).All() {
-		if fg.FeatureGroupArn == resourceARN {
-			return &fg.Tags
-		}
-	}
-	for _, p := range b.pipelinesStoreRO(region).All() {
-		if p.PipelineArn == resourceARN {
-			return &p.Tags
-		}
-	}
-	for _, e := range b.experimentsStoreRO(region).All() {
-		if e.ExperimentArn == resourceARN {
-			return &e.Tags
-		}
-	}
-	for _, t := range b.trialsStoreRO(region).All() {
-		if t.TrialArn == resourceARN {
-			return &t.Tags
-		}
-	}
-	for _, tc := range b.trialComponentsStoreRO(region).All() {
-		if tc.TrialComponentArn == resourceARN {
-			return &tc.Tags
-		}
-	}
-
-	return nil
-}
-
 // DeleteTags removes tag keys from a resource identified by ARN.
 func (b *InMemoryBackend) DeleteTags(ctx context.Context, resourceARN string, tagKeys []string) error {
 	b.mu.Lock("DeleteTags")
@@ -230,6 +57,203 @@ func (b *InMemoryBackend) DeleteTags(ctx context.Context, resourceARN string, ta
 
 	for _, k := range tagKeys {
 		delete(*tags, k)
+	}
+
+	return nil
+}
+
+// tagLookup resolves a resource ARN to a pointer at its Tags field, or nil if
+// the ARN belongs to no resource of the kind this lookup covers.
+type tagLookup func(b *InMemoryBackend, region, resourceARN string) *map[string]string
+
+// indexedTagLookup builds a tagLookup for a resource kind whose store.Table is
+// keyed by name rather than ARN, resolved via a region-scoped ARN->name index.
+func indexedTagLookup[V any](
+	arnIndex func(b *InMemoryBackend, region string) map[string]string,
+	tbl func(b *InMemoryBackend, region string) *store.Table[V],
+	tagsOf func(*V) *map[string]string,
+) tagLookup {
+	return func(b *InMemoryBackend, region, resourceARN string) *map[string]string {
+		name, ok := arnIndex(b, region)[resourceARN]
+		if !ok {
+			return nil
+		}
+
+		v := tableGet(tbl(b, region), name)
+		if v == nil {
+			return nil
+		}
+
+		return tagsOf(v)
+	}
+}
+
+// directTagLookup builds a tagLookup for a resource kind whose store.Table is
+// keyed by its own ARN, so no separate ARN index is needed.
+func directTagLookup[V any](
+	tbl func(b *InMemoryBackend, region string) *store.Table[V],
+	tagsOf func(*V) *map[string]string,
+) tagLookup {
+	return func(b *InMemoryBackend, region, resourceARN string) *map[string]string {
+		v := tableGet(tbl(b, region), resourceARN)
+		if v == nil {
+			return nil
+		}
+
+		return tagsOf(v)
+	}
+}
+
+// scanTagLookup builds a tagLookup for a resource kind with no ARN index,
+// resolved by a linear scan comparing each stored value's own ARN field.
+func scanTagLookup[V any](
+	tbl func(b *InMemoryBackend, region string) *store.Table[V],
+	arnOf func(*V) string,
+	tagsOf func(*V) *map[string]string,
+) tagLookup {
+	return func(b *InMemoryBackend, region, resourceARN string) *map[string]string {
+		for _, v := range tbl(b, region).All() {
+			if arnOf(v) == resourceARN {
+				return tagsOf(v)
+			}
+		}
+
+		return nil
+	}
+}
+
+// indexedTagLookups covers resource kinds keyed by name in their store.Table
+// and resolved to an ARN via a region-scoped ARN index.
+func indexedTagLookups() []tagLookup {
+	return []tagLookup{
+		indexedTagLookup(
+			(*InMemoryBackend).modelARNIndexStoreRO, (*InMemoryBackend).modelsStoreRO,
+			func(v *Model) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).endpointConfigARNIndexStoreRO, (*InMemoryBackend).endpointConfigsStoreRO,
+			func(v *EndpointConfig) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).actionARNIndexStoreRO, (*InMemoryBackend).actionsStoreRO,
+			func(v *Action) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).algorithmARNIndexStoreRO, (*InMemoryBackend).algorithmsStoreRO,
+			func(v *Algorithm) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).endpointARNIndexStoreRO, (*InMemoryBackend).endpointsStoreRO,
+			func(v *Endpoint) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).trainingJobARNIndexStoreRO, (*InMemoryBackend).trainingJobsStoreRO,
+			func(v *TrainingJob) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).notebookARNIndexStoreRO, (*InMemoryBackend).notebooksStoreRO,
+			func(v *NotebookInstance) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).hpTuningJobARNIndexStoreRO, (*InMemoryBackend).hpTuningJobsStoreRO,
+			func(v *HyperParameterTuningJob) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).processingJobARNIndexStoreRO, (*InMemoryBackend).processingJobsStoreRO,
+			func(v *ProcessingJob) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).transformJobARNIndexStoreRO, (*InMemoryBackend).transformJobsStoreRO,
+			func(v *TransformJob) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).clusterARNIndexStoreRO, (*InMemoryBackend).clustersStoreRO,
+			func(v *Cluster) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).contextARNIndexStoreRO, (*InMemoryBackend).contextsStoreRO,
+			func(v *Context) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).modelPackageGroupARNIndexStoreRO, (*InMemoryBackend).modelPackageGroupsStoreRO,
+			func(v *ModelPackageGroup) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).workteamARNIndexStoreRO, (*InMemoryBackend).workteamsStoreRO,
+			func(v *Workteam) *map[string]string { return &v.Tags },
+		),
+		indexedTagLookup(
+			(*InMemoryBackend).workforceARNIndexStoreRO, (*InMemoryBackend).workforcesStoreRO,
+			func(v *Workforce) *map[string]string { return &v.Tags },
+		),
+	}
+}
+
+// directTagLookups covers resource kinds whose store.Table is keyed by their
+// own ARN already, so ListTags resolves them without a separate ARN index.
+func directTagLookups() []tagLookup {
+	return []tagLookup{
+		directTagLookup(
+			(*InMemoryBackend).modelPackagesStoreRO,
+			func(v *ModelPackage) *map[string]string { return &v.Tags },
+		),
+		directTagLookup(
+			(*InMemoryBackend).artifactsStoreRO,
+			func(v *Artifact) *map[string]string { return &v.Tags },
+		),
+	}
+}
+
+// statefulTagLookups covers resource kinds with no ARN index, resolved by
+// scanning each region's store.Table and comparing the stored ARN field.
+func statefulTagLookups() []tagLookup {
+	return []tagLookup{
+		scanTagLookup(
+			(*InMemoryBackend).domainsStoreRO,
+			func(v *Domain) string { return v.DomainArn },
+			func(v *Domain) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).featureGroupsStoreRO,
+			func(v *FeatureGroup) string { return v.FeatureGroupArn },
+			func(v *FeatureGroup) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).pipelinesStoreRO,
+			func(v *Pipeline) string { return v.PipelineArn },
+			func(v *Pipeline) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).experimentsStoreRO,
+			func(v *Experiment) string { return v.ExperimentArn },
+			func(v *Experiment) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).trialsStoreRO,
+			func(v *Trial) string { return v.TrialArn },
+			func(v *Trial) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).trialComponentsStoreRO,
+			func(v *TrialComponent) string { return v.TrialComponentArn },
+			func(v *TrialComponent) *map[string]string { return &v.Tags },
+		),
+	}
+}
+
+// findTagMapLocked returns a pointer to the tags map for a resource identified by ARN.
+// Must be called with b.mu held. Returns nil if the resource is not found.
+//
+// Adding a taggable kind means adding one entry to indexedTagLookups/
+// directTagLookups/statefulTagLookups above -- never a new branch here, so
+// this stays a flat loop regardless of registry size (see gopherstack-qyon).
+func (b *InMemoryBackend) findTagMapLocked(resourceARN string, region string) *map[string]string {
+	for _, lookups := range [][]tagLookup{indexedTagLookups(), directTagLookups(), statefulTagLookups()} {
+		for _, lookup := range lookups {
+			if tagMap := lookup(b, region, resourceARN); tagMap != nil {
+				return tagMap
+			}
+		}
 	}
 
 	return nil
@@ -254,8 +278,8 @@ type TaggedEntry struct {
 
 // appendTaggedResources walks every region's store.Table for one SageMaker resource
 // kind, appending a TaggedEntry for every value that carries at least one tag. field
-// extracts that kind's own ARN field and Tags field (every kind AddTags/findTagMapLocked
-// above reaches stores both directly on the value already -- see e.g. Model.ModelARN/
+// extracts that kind's own ARN field and Tags field (every kind the tagLookups above
+// reach stores both directly on the value already -- see e.g. Model.ModelARN/
 // Model.Tags -- so no ARN-index lookup is needed here, unlike the by-ARN lookup those
 // functions perform).
 func appendTaggedResources[V any](
@@ -280,15 +304,14 @@ func appendTaggedResources[V any](
 }
 
 // TaggedResources returns every SageMaker resource ARN, across every region and every
-// resource kind AddTags/DeleteTags/ListTags support (models, endpoint configs,
-// endpoints, training jobs, notebook instances, hyperparameter tuning jobs, actions,
-// algorithms, clusters, model packages, processing jobs, transform jobs, domains,
-// feature groups, pipelines, experiments, trials, and trial components -- see
-// findTagMapLocked/findTagMapIndexedExtraLocked/findTagMapStatefulLocked above for the
-// authoritative list this mirrors), that currently has at least one tag. Resource kinds
-// not reachable through AddTags/DeleteTags/ListTags (e.g. artifacts, contexts,
-// projects, monitoring schedules) are intentionally excluded: they are not taggable
-// through this backend's own tagging API either.
+// resource kind the tagLookups above support (models, endpoint configs, endpoints,
+// training jobs, notebook instances, hyperparameter tuning jobs, actions, algorithms,
+// clusters, contexts, model packages, model package groups, artifacts, processing
+// jobs, transform jobs, domains, feature groups, pipelines, experiments, trials,
+// trial components, work teams, and workforces), that currently has at least one tag.
+// Resource kinds not reachable through AddTags/DeleteTags/ListTags (e.g. projects,
+// monitoring schedules) are intentionally excluded: they are not taggable through
+// this backend's own tagging API either.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
@@ -322,8 +345,17 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	out = appendTaggedResources(out, b.clusters, func(v *Cluster) (string, map[string]string) {
 		return v.ClusterArn, v.Tags
 	})
+	out = appendTaggedResources(out, b.contexts, func(v *Context) (string, map[string]string) {
+		return v.ContextArn, v.Tags
+	})
 	out = appendTaggedResources(out, b.modelPackages, func(v *ModelPackage) (string, map[string]string) {
 		return v.ModelPackageArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.modelPackageGroups, func(v *ModelPackageGroup) (string, map[string]string) {
+		return v.ModelPackageGroupArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.artifacts, func(v *Artifact) (string, map[string]string) {
+		return v.ArtifactArn, v.Tags
 	})
 	out = appendTaggedResources(out, b.processingJobs, func(v *ProcessingJob) (string, map[string]string) {
 		return v.ProcessingJobArn, v.Tags
@@ -348,6 +380,12 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	})
 	out = appendTaggedResources(out, b.trialComponents, func(v *TrialComponent) (string, map[string]string) {
 		return v.TrialComponentArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.workteams, func(v *Workteam) (string, map[string]string) {
+		return v.WorkteamArn, v.Tags
+	})
+	out = appendTaggedResources(out, b.workforces, func(v *Workforce) (string, map[string]string) {
+		return v.WorkforceArn, v.Tags
 	})
 
 	return out
