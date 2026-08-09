@@ -450,19 +450,26 @@ type CreateDocumentationVersionInput struct {
 
 // DomainName represents a custom domain name for an API.
 type DomainName struct {
-	CreatedDate              *unixEpochTime           `json:"createdDate,omitempty"`
-	Tags                     *tags.Tags               `json:"tags,omitempty"`
-	EndpointConfiguration    *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
-	MutualTLSAuthentication  *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
-	DomainNameValue          string                   `json:"domainName"`
-	CertificateARN           string                   `json:"certificateArn,omitempty"`
-	RegionalCertificateARN   string                   `json:"regionalCertificateArn,omitempty"`
-	DistributionDomainName   string                   `json:"distributionDomainName,omitempty"`
-	DistributionHostedZoneID string                   `json:"distributionHostedZoneId,omitempty"`
-	RegionalDomainName       string                   `json:"regionalDomainName,omitempty"`
-	RegionalHostedZoneID     string                   `json:"regionalHostedZoneId,omitempty"`
-	SecurityPolicy           string                   `json:"securityPolicy,omitempty"`
-	DomainNameStatus         string                   `json:"domainNameStatus,omitempty"`
+	CreatedDate                         *unixEpochTime           `json:"createdDate,omitempty"`
+	Tags                                *tags.Tags               `json:"tags,omitempty"`
+	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	DomainNameValue                     string                   `json:"domainName"`
+	CertificateARN                      string                   `json:"certificateArn,omitempty"`
+	CertificateName                     string                   `json:"certificateName,omitempty"`
+	RegionalCertificateARN              string                   `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             string                   `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN string                   `json:"ownershipVerificationCertificateArn,omitempty"`
+	ManagementPolicy                    string                   `json:"managementPolicy,omitempty"`
+	Policy                              string                   `json:"policy,omitempty"`
+	RoutingMode                         string                   `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
+	DistributionDomainName              string                   `json:"distributionDomainName,omitempty"`
+	DistributionHostedZoneID            string                   `json:"distributionHostedZoneId,omitempty"`
+	RegionalDomainName                  string                   `json:"regionalDomainName,omitempty"`
+	RegionalHostedZoneID                string                   `json:"regionalHostedZoneId,omitempty"`
+	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
+	DomainNameStatus                    string                   `json:"domainNameStatus,omitempty"`
 }
 
 // CreateDomainNameInput is the input for CreateDomainName.
@@ -548,6 +555,7 @@ type UsagePlan struct {
 	ID          string                `json:"id"`
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitempty"`
+	ProductCode string                `json:"productCode,omitempty"`
 	APIStages   []APIStageAssociation `json:"apiStages,omitempty"`
 }
 
@@ -686,10 +694,15 @@ type TestInvokeMethodOutput struct {
 	Latency int64             `json:"latency"`
 }
 
-// UpdateUsagePlanInput is the input for UpdateUsagePlan.
+// UpdateUsagePlanInput is the input for UpdateUsagePlan. ProductCode is a
+// *string (rather than plain string) because UpdateUsagePlan's PATCH
+// documents "remove" as supported for "/productCode" (patch-operations.html)
+// — a plain string can't distinguish "explicitly cleared" from "not
+// provided in this PATCH at all".
 type UpdateUsagePlanInput struct {
 	Throttle    *ThrottleSettings     `json:"throttle,omitempty"`
 	Quota       *QuotaSettings        `json:"quota,omitempty"`
+	ProductCode *string               `json:"productCode,omitempty"`
 	Name        string                `json:"name,omitempty"`
 	Description string                `json:"description,omitempty"`
 	UsagePlanID string                `json:"usagePlanId"`
@@ -703,19 +716,31 @@ type APIStageAssociation struct {
 	Stage     string                       `json:"stage,omitempty"`
 }
 
-// UpdateDomainNameInput is the input for UpdateDomainName. CertificateARN and
-// RegionalCertificateARN are *string (rather than plain string) because
-// UpdateDomainName's PATCH documents "remove" as supported for both
-// "/certificateArn" and "/regionalCertificateArn" (patch-operations.html) —
-// a plain string can't distinguish "explicitly cleared" from "not provided
-// in this PATCH at all".
+// UpdateDomainNameInput is the input for UpdateDomainName. CertificateARN,
+// CertificateName, RegionalCertificateARN, RegionalCertificateName, and
+// OwnershipVerificationCertificateARN are *string (rather than plain string)
+// because UpdateDomainName's PATCH documents "remove" as supported for
+// "/certificateArn", "/certificateName", "/regionalCertificateArn",
+// "/regionalCertificateName", and "/ownershipVerificationCertificateArn"
+// (patch-operations.html) — a plain string can't distinguish "explicitly
+// cleared" from "not provided in this PATCH at all". ManagementPolicy,
+// Policy, RoutingMode, and EndpointAccessMode only document "replace"
+// (patch-operations.html), so a bare string is enough, matching RestApi's
+// Policy/EndpointAccessMode fields.
 type UpdateDomainNameInput struct {
-	EndpointConfiguration   *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
-	MutualTLSAuthentication *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
-	CertificateARN          *string                  `json:"certificateArn,omitempty"`
-	RegionalCertificateARN  *string                  `json:"regionalCertificateArn,omitempty"`
-	SecurityPolicy          string                   `json:"securityPolicy,omitempty"`
-	DomainName              string                   `json:"domainName"`
+	EndpointConfiguration               *EndpointConfiguration   `json:"endpointConfiguration,omitempty"`
+	MutualTLSAuthentication             *MutualTLSAuthentication `json:"mutualTlsAuthentication,omitempty"`
+	CertificateARN                      *string                  `json:"certificateArn,omitempty"`
+	CertificateName                     *string                  `json:"certificateName,omitempty"`
+	RegionalCertificateARN              *string                  `json:"regionalCertificateArn,omitempty"`
+	RegionalCertificateName             *string                  `json:"regionalCertificateName,omitempty"`
+	OwnershipVerificationCertificateARN *string                  `json:"ownershipVerificationCertificateArn,omitempty"`
+	SecurityPolicy                      string                   `json:"securityPolicy,omitempty"`
+	ManagementPolicy                    string                   `json:"managementPolicy,omitempty"`
+	Policy                              string                   `json:"policy,omitempty"`
+	RoutingMode                         string                   `json:"routingMode,omitempty"`
+	EndpointAccessMode                  string                   `json:"endpointAccessMode,omitempty"`
+	DomainName                          string                   `json:"domainName"`
 }
 
 // UpdateBasePathMappingInput is the input for UpdateBasePathMapping.

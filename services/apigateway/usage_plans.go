@@ -210,6 +210,10 @@ func (b *InMemoryBackend) UpdateUsagePlan(input UpdateUsagePlanInput) (*UsagePla
 		p.Quota = input.Quota
 	}
 
+	if input.ProductCode != nil {
+		p.ProductCode = *input.ProductCode
+	}
+
 	if input.APIStages != nil {
 		p.APIStages = input.APIStages
 	}

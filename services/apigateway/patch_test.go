@@ -1018,3 +1018,155 @@ func Test_ApplyStructuredPatch_DomainNameCertificateArnRemove(t *testing.T) {
 		})
 	}
 }
+
+// Test_ApplyStructuredPatch_DomainNameReplaceOnlyFields exercises the four
+// DomainName scalar fields patch-operations.html documents as replace-only
+// (gopherstack-npq5): "/managementPolicy", "/policy", "/routingMode",
+// "/endpointAccessMode". Before this fix none of these had a matching field
+// on UpdateDomainNameInput, so encoding/json silently dropped the value and
+// the PATCH was accepted and did nothing.
+func Test_ApplyStructuredPatch_DomainNameReplaceOnlyFields(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		want func(*apigateway.DomainName) string
+		name string
+		path string
+	}{
+		{
+			name: "managementPolicy",
+			path: "/managementPolicy",
+			want: func(d *apigateway.DomainName) string { return d.ManagementPolicy },
+		},
+		{
+			name: "policy",
+			path: "/policy",
+			want: func(d *apigateway.DomainName) string { return d.Policy },
+		},
+		{
+			name: "routingMode",
+			path: "/routingMode",
+			want: func(d *apigateway.DomainName) string { return d.RoutingMode },
+		},
+		{
+			name: "endpointAccessMode",
+			path: "/endpointAccessMode",
+			want: func(d *apigateway.DomainName) string { return d.EndpointAccessMode },
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAPIGWHandler()
+			domain := "replace-only-" + tt.name + ".example.com"
+			_, err := h.Backend.CreateDomainName(apigateway.CreateDomainNameInput{DomainName: domain})
+			require.NoError(t, err)
+
+			body := fmt.Sprintf(`[{"op":"replace","path":%q,"value":"new-value"}]`, tt.path)
+			rec := restRequest(t, h, http.MethodPatch, "/domainnames/"+domain, body)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			got, err := h.Backend.GetDomainName(domain)
+			require.NoError(t, err)
+			assert.Equal(t, "new-value", tt.want(got))
+		})
+	}
+}
+
+// Test_ApplyStructuredPatch_DomainNameRemovableCertificateFields exercises
+// the three DomainName certificate-identity fields patch-operations.html
+// documents as supporting add/replace/remove (gopherstack-npq5):
+// "/certificateName", "/regionalCertificateName",
+// "/ownershipVerificationCertificateArn". Mirrors
+// Test_ApplyStructuredPatch_DomainNameCertificateArnRemove's shape for the
+// three fields that same commit's fix didn't cover.
+func Test_ApplyStructuredPatch_DomainNameRemovableCertificateFields(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		want func(*apigateway.DomainName) string
+		name string
+		path string
+	}{
+		{
+			name: "certificateName",
+			path: "/certificateName",
+			want: func(d *apigateway.DomainName) string { return d.CertificateName },
+		},
+		{
+			name: "regionalCertificateName",
+			path: "/regionalCertificateName",
+			want: func(d *apigateway.DomainName) string { return d.RegionalCertificateName },
+		},
+		{
+			name: "ownershipVerificationCertificateArn",
+			path: "/ownershipVerificationCertificateArn",
+			want: func(d *apigateway.DomainName) string { return d.OwnershipVerificationCertificateARN },
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newAPIGWHandler()
+			domain := "removable-" + tt.name + ".example.com"
+			_, err := h.Backend.CreateDomainName(apigateway.CreateDomainNameInput{DomainName: domain})
+			require.NoError(t, err)
+
+			addBody := fmt.Sprintf(`[{"op":"add","path":%q,"value":"cert-value"}]`, tt.path)
+			rec := restRequest(t, h, http.MethodPatch, "/domainnames/"+domain, addBody)
+			require.Equal(t, http.StatusOK, rec.Code, "add body: %s", rec.Body.String())
+
+			got, err := h.Backend.GetDomainName(domain)
+			require.NoError(t, err)
+			assert.Equal(t, "cert-value", tt.want(got), "add must set the field")
+
+			removeBody := fmt.Sprintf(`[{"op":"remove","path":%q}]`, tt.path)
+			rec = restRequest(t, h, http.MethodPatch, "/domainnames/"+domain, removeBody)
+			require.Equal(t, http.StatusOK, rec.Code, "remove body: %s", rec.Body.String())
+
+			got, err = h.Backend.GetDomainName(domain)
+			require.NoError(t, err)
+			assert.Empty(t, tt.want(got), "explicit remove must clear the field")
+		})
+	}
+}
+
+// Test_ApplyStructuredPatch_UsagePlanProductCode exercises UpdateUsagePlan's
+// "/productCode" field, which patch-operations.html documents as supporting
+// add/replace/remove (gopherstack-npq5). UsagePlan had no ProductCode field
+// at all before this fix, so a PATCH naming it was accepted and did nothing.
+func Test_ApplyStructuredPatch_UsagePlanProductCode(t *testing.T) {
+	t.Parallel()
+
+	h := newAPIGWHandler()
+	plan, err := h.Backend.CreateUsagePlan(apigateway.CreateUsagePlanInput{Name: "product-code-plan"})
+	require.NoError(t, err)
+
+	addBody := `[{"op":"add","path":"/productCode","value":"prod-abc123"}]`
+	rec := restRequest(t, h, http.MethodPatch, "/usageplans/"+plan.ID, addBody)
+	require.Equal(t, http.StatusOK, rec.Code, "add body: %s", rec.Body.String())
+
+	got, err := h.Backend.GetUsagePlan(plan.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "prod-abc123", got.ProductCode, "add must set productCode")
+
+	replaceBody := `[{"op":"replace","path":"/productCode","value":"prod-xyz789"}]`
+	rec = restRequest(t, h, http.MethodPatch, "/usageplans/"+plan.ID, replaceBody)
+	require.Equal(t, http.StatusOK, rec.Code, "replace body: %s", rec.Body.String())
+
+	got, err = h.Backend.GetUsagePlan(plan.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "prod-xyz789", got.ProductCode, "replace must update productCode")
+
+	removeBody := `[{"op":"remove","path":"/productCode"}]`
+	rec = restRequest(t, h, http.MethodPatch, "/usageplans/"+plan.ID, removeBody)
+	require.Equal(t, http.StatusOK, rec.Code, "remove body: %s", rec.Body.String())
+
+	got, err = h.Backend.GetUsagePlan(plan.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.ProductCode, "explicit remove must clear productCode")
+}

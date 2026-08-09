@@ -157,7 +157,12 @@ var patchFieldKind = map[string]string{
 var removableTopLevelScalar = map[string]map[string]bool{
 	opUpdateRestAPI:    {"description": true},
 	opUpdateAuthorizer: {"identitySource": true},
-	opUpdateDomainName: {"certificateArn": true, "regionalCertificateArn": true},
+	opUpdateDomainName: {
+		"certificateArn": true, "certificateName": true,
+		"regionalCertificateArn": true, "regionalCertificateName": true,
+		"ownershipVerificationCertificateArn": true,
+	},
+	opUpdateUsagePlan: {"productCode": true},
 }
 
 // coerceTopLevelPatchValue converts a top-level PATCH value (always a JSON
