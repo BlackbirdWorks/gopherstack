@@ -5702,10 +5702,10 @@ func registerTaggingService(
 // UntagResources work cross-service.
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0,
-// gopherstack-8kco): of the ~90 gopherstack services with native tagging support, this wires 93
-// (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue, ecr, kinesis,
-// stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds, elasticache,
-// redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
+// gopherstack-8kco, gopherstack-pdqm): of the ~90 gopherstack services with native tagging
+// support, this wires 95 (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue,
+// ecr, kinesis, stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds,
+// elasticache, redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
 // outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail, dax,
 // detective, guardduty, transfer, cognitoidp, appconfig, codecommit,
 // servicediscovery, memorydb, accessanalyzer, dlm, ce, mediapackage, swf, fis,
@@ -5715,18 +5715,19 @@ func registerTaggingService(
 // shield, transcribe, verifiedpermissions, waf, securityhub, apprunner,
 // route53resolver, timestreamwrite, s3tables, s3, s3control, workmail, pinpoint,
 // applicationautoscaling, codeartifact, cleanrooms, appmesh, personalize, sesv2,
-// xray, awsconfig, scheduler). s3control is wired only for the resource kinds taggable
-// through its generic TagResource/UntagResource/ListTagsForResource ops (access points,
-// Object Lambda access points, multi-region access points, access grants) -- see
-// wireTaggingS3Control's doc comment for why batch job tags, Storage Lens configuration
-// tags, and Outposts bucket tags (each a separate real store behind its own dedicated
-// AWS op) are out of scope. The rest remain unwired -- see PARITY.md's gaps section for
-// the honest remaining list and why a few (notably codebuild, whose real API has no
-// TagResource/CreateTags-style mutation call at all -- tags are set only via
-// CreateProject/UpdateProject/CreateFleet/UpdateFleet/CreateReportGroup request
-// bodies; and forecast, whose only resource-creation path is an unexported backend
-// method reachable solely through its own JSON operation dispatch) need more than
-// this dispatch shape supports today.
+// xray, awsconfig, scheduler, appsync, emrserverless). s3control is wired only for the
+// resource kinds taggable through its generic TagResource/UntagResource/ListTagsForResource
+// ops (access points, Object Lambda access points, multi-region access points, access
+// grants) -- see wireTaggingS3Control's doc comment for why batch job tags, Storage Lens
+// configuration tags, and Outposts bucket tags (each a separate real store behind its own
+// dedicated AWS op) are out of scope. emrserverless is wired only for applications and job
+// runs -- see wireTaggingEmrServerless's doc comment for why sessions are out of scope. The
+// rest remain unwired -- see PARITY.md's gaps section for the honest remaining list and why a
+// few (notably codebuild, whose real API has no TagResource/CreateTags-style mutation call at
+// all -- tags are set only via CreateProject/UpdateProject/CreateFleet/UpdateFleet/
+// CreateReportGroup request bodies; and forecast, whose only resource-creation path is an
+// unexported backend method reachable solely through its own JSON operation dispatch) need
+// more than this dispatch shape supports today.
 //
 // byName supplies every dependency by service.Registerable.Name() (e.g. byName["DynamoDB"])
 // rather than one parameter per service: the wired-service count keeps growing, and a
@@ -5747,6 +5748,7 @@ func wireResourceGroupsTagging(taggingReg service.Registerable, byName map[strin
 	wireResourceGroupsTaggingApps(bk, byName)
 	wireResourceGroupsTaggingExtra(bk, byName)
 	wireResourceGroupsTaggingSweep5(bk, byName)
+	wireResourceGroupsTaggingSweep6(bk, byName)
 	wireResourceGroupsTaggingPolicy(bk, byName["Organizations"])
 }
 
@@ -5946,6 +5948,17 @@ func wireResourceGroupsTaggingSweep5(
 	wireTaggingXRay(bk, byName["Xray"])
 	wireTaggingAWSConfig(bk, byName["AWSConfig"])
 	wireTaggingScheduler(bk, byName["Scheduler"])
+}
+
+// wireResourceGroupsTaggingSweep6 wires this sweep's services (gopherstack-pdqm):
+// AppSync and EMR Serverless. Split out (rather than folded into
+// wireResourceGroupsTaggingSweep5) to keep every group under this repo's funlen limit.
+func wireResourceGroupsTaggingSweep6(
+	bk resourcegroupstaggingapibackend.StorageBackend,
+	byName map[string]service.Registerable,
+) {
+	wireTaggingAppSync(bk, byName["AppSync"])
+	wireTaggingEmrServerless(bk, byName["EmrServerless"])
 }
 
 func wireTaggingDDB(
@@ -8633,6 +8646,120 @@ func s3controlResourceType(resourceARN string) string {
 
 	return resourceTypeFromARN(resourceARN, parts[2])
 }
+
+// wireTaggingAppSync wires the AppSync backend into the Resource Groups Tagging API.
+// AppSync's own generic TagResource/UntagResource take an apiId, not the resourceArn
+// the tagging aggregator deals in (see appsync.InMemoryBackend.TagResource's doc
+// comment), so appsyncAPIIDFromARN bridges the two.
+func wireTaggingAppSync(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*appsyncbackend.Handler)
+	if !ok {
+		return
+	}
+
+	apBk, ok := h.Backend.(*appsyncbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "appsync",
+		func(arn string) string { return resourceTypeFromARN(arn, "appsync") },
+		func() []taggedARNEntry {
+			items := apBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			return apBk.TagResource(appsyncAPIIDFromARN(arnStr), newTags)
+		},
+		func(arnStr string, keys []string) error {
+			return apBk.UntagResource(appsyncAPIIDFromARN(arnStr), keys)
+		},
+	)
+}
+
+// appsyncAPIIDFromARN extracts the apiId from an AppSync resource ARN
+// (arn:aws:appsync:region:account:apis/{apiId}). Both GraphqlAPI (v1) and
+// Api (v2 Event API) resources share this ARN shape (see
+// appsync.InMemoryBackend.TagResource's doc comment).
+func appsyncAPIIDFromARN(arnStr string) string {
+	parts := strings.SplitN(arnStr, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return ""
+	}
+
+	const apisPrefix = "apis/"
+
+	resource := parts[arnResourceFieldCount-1]
+	if !strings.HasPrefix(resource, apisPrefix) {
+		return ""
+	}
+
+	return resource[len(apisPrefix):]
+}
+
+// wireTaggingEmrServerless wires the EMR Serverless backend into the Resource Groups
+// Tagging API, covering applications and job runs -- see
+// emrserverless.InMemoryBackend.TaggedResources' doc comment for why sessions are
+// excluded.
+func wireTaggingEmrServerless(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*emrserverlessbackend.Handler)
+	if !ok {
+		return
+	}
+
+	emrBk := h.Backend
+	if emrBk == nil {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "emr-serverless", emrServerlessResourceType,
+		func() []taggedARNEntry {
+			items := emrBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		emrBk.TagResource,
+		emrBk.UntagResource,
+	)
+}
+
+// emrServerlessResourceType derives the resource-type string for an EMR Serverless
+// ARN. Its resource segment leads with a "/" ("/applications/{id}" or
+// "/applications/{id}/jobruns/{id}" -- see InMemoryBackend.applicationARN/jobRunARN),
+// unlike the "type/id" shape resourceTypeFromARN/nestedResourceType expect, so this
+// strips it before reading segments.
+func emrServerlessResourceType(resourceARN string) string {
+	parts := strings.SplitN(resourceARN, ":", arnResourceFieldCount)
+	if len(parts) != arnResourceFieldCount {
+		return "emr-serverless"
+	}
+
+	segs := strings.Split(strings.TrimPrefix(parts[arnResourceFieldCount-1], "/"), "/")
+
+	switch {
+	case len(segs) == nestedResourceARNSegmentCount:
+		return "emr-serverless:" + segs[2]
+	case len(segs) >= emrServerlessFlatResourceSegmentCount:
+		return "emr-serverless:" + segs[0]
+	default:
+		return "emr-serverless"
+	}
+}
+
+// emrServerlessFlatResourceSegmentCount is the minimum "/"-delimited segment count
+// ("applications", "{id}") of a flat, non-nested EMR Serverless resource ARN.
+const emrServerlessFlatResourceSegmentCount = 2
 
 // wireTaggingWorkMail wires the WorkMail backend into the Resource Groups Tagging API.
 // Organizations are flat ("organization/{id}") but users, groups, and resources nest
