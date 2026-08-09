@@ -21,13 +21,12 @@ func TestFlowCRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusCreated, rec.Code)
 
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	flow := body["flow"].(map[string]any)
-	flowID := flow["flowId"].(string)
+	var flow map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &flow))
+	flowID, _ := flow["id"].(string)
 	assert.NotEmpty(t, flowID)
 	assert.Equal(t, "my-flow", flow["name"])
-	assert.Equal(t, "NOT_PREPARED", flow["status"])
+	assert.Equal(t, "NotPrepared", flow["status"])
 
 	// Get
 	rec = doAgentRequest(t, h, http.MethodGet, "/flows/"+flowID, nil)
@@ -47,8 +46,10 @@ func TestFlowCRUD(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Prepare
-	rec = doAgentRequest(t, h, http.MethodPost, "/flows/"+flowID+"/prepare", nil)
+	// Prepare: real PrepareFlow POSTs to the same "/flows/{id}" path as
+	// Get/Update/Delete (botocore bedrock-agent 2023-06-05 has no
+	// "/prepare" suffix).
+	rec = doAgentRequest(t, h, http.MethodPost, "/flows/"+flowID, nil)
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 
 	// Delete

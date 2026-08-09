@@ -569,16 +569,14 @@ const (
 	flowsPath   = "/flows"
 	promptsPath = "/prompts"
 
-	respFlow          = "flow"
-	respFlowAlias     = "flowAlias"
-	respFlowVersion   = "flowVersion"
-	respPrompt        = "prompt"
 	respPromptVersion = "promptVersion"
 	respAgentVersion  = "agentVersion"
 	respCollaborator  = "agentCollaborator"
 
+	// keyFlowID names the parent flow reference ("flowId") on FlowAlias
+	// responses; a resource's own id is always the flat "id" key (keyID).
 	keyFlowID         = "flowId"
-	keyFlowAliasID    = "flowAliasId"
+	keyID             = "id"
 	keyPromptID       = "promptId"
 	keyCollaboratorID = "collaboratorId"
 	keyVersion        = "version"

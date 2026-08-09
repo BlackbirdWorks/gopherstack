@@ -746,11 +746,13 @@ func (h *Handler) dispatchFlowID(
 			return h.handleUpdateFlow(ctx, c, flowID, body)
 		case http.MethodDelete:
 			return h.handleDeleteFlow(ctx, c, flowID)
+		case http.MethodPost:
+			// PrepareFlow POSTs to the same "/flows/{flowIdentifier}/" path
+			// as Get/Update/Delete -- botocore bedrock-agent 2023-06-05 has
+			// no "/prepare" suffix; method alone disambiguates it from
+			// CreateFlow (which POSTs to "/flows/" with no id).
+			return h.handlePrepareFlow(ctx, c, flowID)
 		}
-	}
-
-	if suffix == "/prepare" && method == http.MethodPost {
-		return h.handlePrepareFlow(ctx, c, flowID)
 	}
 
 	if strings.HasPrefix(suffix, "/versions") {

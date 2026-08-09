@@ -58,7 +58,11 @@ func (h *AgentsHandler) dispatchFlowIDRoutes(
 		return h.handleUpdateFlow(c, flowID, body)
 	case suffix == "" && method == http.MethodDelete:
 		return h.handleDeleteFlow(c, flowID)
-	case suffix == "/prepare" && method == http.MethodPost:
+	// PrepareFlow POSTs to the same "/flows/{flowIdentifier}/" path as
+	// Get/Update/Delete -- botocore bedrock-agent 2023-06-05 has no
+	// "/prepare" suffix; method alone disambiguates it from CreateFlow
+	// (which POSTs to "/flows/" with no id).
+	case suffix == "" && method == http.MethodPost:
 		return h.handlePrepareFlow(c, flowID)
 	case strings.HasPrefix(suffix, suffixAliases):
 		return h.dispatchFlowAliasRoutes(c, flowID, suffix, method, body)
@@ -95,7 +99,7 @@ func (h *AgentsHandler) handleCreateFlow(c *echo.Context, body []byte) error {
 		return c.JSON(http.StatusBadRequest, agentErrResp("ValidationException", err.Error()))
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{respFlow: f})
+	return c.JSON(http.StatusCreated, f)
 }
 
 func (h *AgentsHandler) handleGetFlow(c *echo.Context, flowID string) error {
@@ -104,7 +108,7 @@ func (h *AgentsHandler) handleGetFlow(c *echo.Context, flowID string) error {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respFlow: f})
+	return c.JSON(http.StatusOK, f)
 }
 
 func (h *AgentsHandler) handleListFlows(c *echo.Context) error {
@@ -138,7 +142,7 @@ func (h *AgentsHandler) handleUpdateFlow(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respFlow: f})
+	return c.JSON(http.StatusOK, f)
 }
 
 func (h *AgentsHandler) handleDeleteFlow(c *echo.Context, flowID string) error {
@@ -146,7 +150,7 @@ func (h *AgentsHandler) handleDeleteFlow(c *echo.Context, flowID string) error {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyFlowID: flowID, keyStatus: statusDeleting})
+	return c.JSON(http.StatusOK, map[string]any{keyID: flowID})
 }
 
 func (h *AgentsHandler) handlePrepareFlow(c *echo.Context, flowID string) error {
@@ -155,7 +159,7 @@ func (h *AgentsHandler) handlePrepareFlow(c *echo.Context, flowID string) error 
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusAccepted, map[string]any{keyFlowID: f.FlowID, keyStatus: f.Status})
+	return c.JSON(http.StatusAccepted, map[string]any{keyID: f.FlowID, keyStatus: f.Status})
 }
 
 func (h *AgentsHandler) handleValidateFlowDefinition(c *echo.Context) error {

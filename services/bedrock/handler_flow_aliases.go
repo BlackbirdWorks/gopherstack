@@ -57,7 +57,7 @@ func (h *AgentsHandler) handleCreateFlowAlias(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{respFlowAlias: fa})
+	return c.JSON(http.StatusCreated, fa)
 }
 
 func (h *AgentsHandler) handleGetFlowAlias(
@@ -68,7 +68,7 @@ func (h *AgentsHandler) handleGetFlowAlias(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respFlowAlias: fa})
+	return c.JSON(http.StatusOK, fa)
 }
 
 func (h *AgentsHandler) handleListFlowAliases(c *echo.Context, flowID string) error {
@@ -102,7 +102,7 @@ func (h *AgentsHandler) handleUpdateFlowAlias(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respFlowAlias: fa})
+	return c.JSON(http.StatusOK, fa)
 }
 
 func (h *AgentsHandler) handleDeleteFlowAlias(
@@ -114,6 +114,6 @@ func (h *AgentsHandler) handleDeleteFlowAlias(
 
 	return c.JSON(
 		http.StatusOK,
-		map[string]any{keyFlowID: flowID, keyFlowAliasID: aliasID, keyStatus: statusDeleting},
+		map[string]any{keyFlowID: flowID, keyID: aliasID},
 	)
 }

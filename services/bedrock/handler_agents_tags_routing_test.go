@@ -94,23 +94,21 @@ func TestFlowTags_RouteThroughRouteMatcher(t *testing.T) {
 	require.Equal(t, http.StatusCreated, createResp.StatusCode)
 
 	var created struct {
-		Flow struct {
-			FlowArn string `json:"flowArn"`
-		} `json:"flow"`
+		Arn string `json:"arn"`
 	}
 	require.NoError(t, json.NewDecoder(createResp.Body).Decode(&created))
-	require.NotEmpty(t, created.Flow.FlowArn)
+	require.NotEmpty(t, created.Arn)
 
 	client := newTestBedrockAgentSDKClient(t, srv.URL)
 
 	_, err = client.TagResource(t.Context(), &bedrockagentsdk.TagResourceInput{
-		ResourceArn: aws.String(created.Flow.FlowArn),
+		ResourceArn: aws.String(created.Arn),
 		Tags:        map[string]string{"env": "prod"},
 	})
 	require.NoError(t, err, "TagResource should route to AgentsHandler for a real flow ARN")
 
 	listOut, err := client.ListTagsForResource(t.Context(), &bedrockagentsdk.ListTagsForResourceInput{
-		ResourceArn: aws.String(created.Flow.FlowArn),
+		ResourceArn: aws.String(created.Arn),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "prod", listOut.Tags["env"])

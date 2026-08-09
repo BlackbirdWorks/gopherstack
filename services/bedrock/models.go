@@ -665,44 +665,51 @@ type AgentConfiguration struct {
 	RoleArn                string
 }
 
-// Flow represents an Amazon Bedrock Flow.
+// Flow represents an Amazon Bedrock Flow. CreateFlowResponse/GetFlowResponse/
+// UpdateFlowResponse have no httpPayload member (botocore bedrock-agent
+// 2023-06-05), so id/arn are flat wire keys, not flowId/flowArn.
 type Flow struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Tags        map[string]string `json:"tags,omitempty"`
-	FlowID      string            `json:"flowId"`
-	FlowArn     string            `json:"flowArn"`
+	FlowID      string            `json:"id"`
+	FlowArn     string            `json:"arn"`
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 	Status      string            `json:"status"`
 }
 
-// FlowAlias represents an alias for a Bedrock Flow.
+// FlowAlias represents an alias for a Bedrock Flow. Its own id/arn are flat
+// "id"/"arn"; "flowId" names only the parent flow (see Flow's doc comment).
 type FlowAlias struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	UpdatedAt    time.Time `json:"updatedAt"`
-	FlowAliasID  string    `json:"flowAliasId"`
-	FlowAliasArn string    `json:"flowAliasArn"`
+	FlowAliasID  string    `json:"id"`
+	FlowAliasArn string    `json:"arn"`
 	FlowID       string    `json:"flowId"`
 	Name         string    `json:"name"`
 	Description  string    `json:"description,omitempty"`
 }
 
-// FlowVersion represents a snapshot version of a Flow.
+// FlowVersion represents a snapshot version of a Flow. GetFlowVersionResponse
+// has no "flowId" member; the flow's own id/arn ride in "id"/"arn" (see
+// Flow's doc comment).
 type FlowVersion struct {
 	CreatedAt time.Time `json:"createdAt"`
-	FlowID    string    `json:"flowId"`
+	FlowID    string    `json:"id"`
+	FlowArn   string    `json:"arn"`
 	Version   string    `json:"version"`
 	Status    string    `json:"status"`
 }
 
-// Prompt represents an Amazon Bedrock Prompt.
+// Prompt represents an Amazon Bedrock Prompt (see Flow's doc comment for why
+// id/arn are flat wire keys).
 type Prompt struct {
 	CreatedAt   time.Time         `json:"createdAt"`
 	UpdatedAt   time.Time         `json:"updatedAt"`
 	Tags        map[string]string `json:"tags,omitempty"`
-	PromptID    string            `json:"promptId"`
-	PromptArn   string            `json:"promptArn"`
+	PromptID    string            `json:"id"`
+	PromptArn   string            `json:"arn"`
 	Name        string            `json:"name"`
 	Description string            `json:"description,omitempty"`
 }
