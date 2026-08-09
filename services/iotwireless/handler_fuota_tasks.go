@@ -11,16 +11,16 @@ import (
 )
 
 type createFuotaTaskRequest struct {
-	LoRaWAN             map[string]any `json:"LoRaWAN,omitempty"`
-	Name                string         `json:"Name"`
-	Description         string         `json:"Description"`
-	FirmwareUpdateImage string         `json:"FirmwareUpdateImage"`
-	FirmwareUpdateRole  string         `json:"FirmwareUpdateRole"`
-	Descriptor          string         `json:"Descriptor,omitempty"`
-	Tags                []tags.KV      `json:"Tags"`
-	FragmentIntervalMS  int32          `json:"FragmentIntervalMS,omitempty"`
-	FragmentSizeBytes   int32          `json:"FragmentSizeBytes,omitempty"`
-	RedundancyPercent   int32          `json:"RedundancyPercent,omitempty"`
+	LoRaWAN             *LoRaWANFuotaTask `json:"LoRaWAN,omitempty"`
+	Name                string            `json:"Name"`
+	Description         string            `json:"Description"`
+	FirmwareUpdateImage string            `json:"FirmwareUpdateImage"`
+	FirmwareUpdateRole  string            `json:"FirmwareUpdateRole"`
+	Descriptor          string            `json:"Descriptor,omitempty"`
+	Tags                []tags.KV         `json:"Tags"`
+	FragmentIntervalMS  int32             `json:"FragmentIntervalMS,omitempty"`
+	FragmentSizeBytes   int32             `json:"FragmentSizeBytes,omitempty"`
+	RedundancyPercent   int32             `json:"RedundancyPercent,omitempty"`
 }
 
 type createFuotaTaskResponse struct {
@@ -32,19 +32,19 @@ type createFuotaTaskResponse struct {
 // fuotaTaskListEntry instead -- confirmed against types.FuotaTask, which
 // real AWS's ListFuotaTasksOutput uses and which carries only Arn/Id/Name.
 type fuotaTaskEntry struct {
-	LoRaWAN             map[string]any `json:"LoRaWAN,omitempty"`
-	Arn                 string         `json:"Arn"`
-	ID                  string         `json:"Id"`
-	Name                string         `json:"Name"`
-	Description         string         `json:"Description,omitempty"`
-	FirmwareUpdateImage string         `json:"FirmwareUpdateImage,omitempty"`
-	FirmwareUpdateRole  string         `json:"FirmwareUpdateRole,omitempty"`
-	Descriptor          string         `json:"Descriptor,omitempty"`
-	Status              string         `json:"Status,omitempty"`
-	CreatedAt           float64        `json:"CreatedAt,omitempty"`
-	FragmentIntervalMS  int32          `json:"FragmentIntervalMS,omitempty"`
-	FragmentSizeBytes   int32          `json:"FragmentSizeBytes,omitempty"`
-	RedundancyPercent   int32          `json:"RedundancyPercent,omitempty"`
+	LoRaWAN             *LoRaWANFuotaTaskGetInfo `json:"LoRaWAN,omitempty"`
+	Arn                 string                   `json:"Arn"`
+	ID                  string                   `json:"Id"`
+	Name                string                   `json:"Name"`
+	Description         string                   `json:"Description,omitempty"`
+	FirmwareUpdateImage string                   `json:"FirmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string                   `json:"FirmwareUpdateRole,omitempty"`
+	Descriptor          string                   `json:"Descriptor,omitempty"`
+	Status              string                   `json:"Status,omitempty"`
+	CreatedAt           float64                  `json:"CreatedAt,omitempty"`
+	FragmentIntervalMS  int32                    `json:"FragmentIntervalMS,omitempty"`
+	FragmentSizeBytes   int32                    `json:"FragmentSizeBytes,omitempty"`
+	RedundancyPercent   int32                    `json:"RedundancyPercent,omitempty"`
 }
 
 type fuotaTaskListEntry struct {
@@ -109,7 +109,7 @@ func fuotaTaskEntryFrom(ft *FuotaTask) fuotaTaskEntry {
 		FragmentIntervalMS:  ft.FragmentIntervalMS,
 		FragmentSizeBytes:   ft.FragmentSizeBytes,
 		RedundancyPercent:   ft.RedundancyPercent,
-		LoRaWAN:             ft.LoRaWAN,
+		LoRaWAN:             loRaWANFuotaTaskGetInfoFrom(ft.LoRaWAN),
 	}
 	if !ft.CreatedAt.IsZero() {
 		entry.CreatedAt = awstime.Epoch(ft.CreatedAt)
@@ -187,14 +187,17 @@ func (h *Handler) associateWirelessDeviceWithFuotaTask(c *echo.Context, fuotaTas
 
 func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		LoRaWAN     *LoRaWANFuotaTask `json:"LoRaWAN,omitempty"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	if err := h.Backend.UpdateFuotaTask(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+	if err := h.Backend.UpdateFuotaTask(
+		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, req.LoRaWAN,
+	); err != nil {
 		return handleError(c, err)
 	}
 

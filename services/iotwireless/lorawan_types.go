@@ -431,3 +431,286 @@ func mergeSidewalkDeviceUpdate(existing *SidewalkDevice, update *SidewalkUpdateW
 
 	return result
 }
+
+// LoRaWANServiceProfile mirrors types.LoRaWANServiceProfile -- the
+// CreateServiceProfile request shape (types.go:1161).
+type LoRaWANServiceProfile struct {
+	DrMax           *int32 `json:"DrMax,omitempty"`
+	DrMin           *int32 `json:"DrMin,omitempty"`
+	NbTransMax      *int32 `json:"NbTransMax,omitempty"`
+	NbTransMin      *int32 `json:"NbTransMin,omitempty"`
+	TxPowerIndexMax *int32 `json:"TxPowerIndexMax,omitempty"`
+	TxPowerIndexMin *int32 `json:"TxPowerIndexMin,omitempty"`
+	AddGwMetadata   bool   `json:"AddGwMetadata,omitempty"`
+	PrAllowed       bool   `json:"PrAllowed,omitempty"`
+	RaAllowed       bool   `json:"RaAllowed,omitempty"`
+}
+
+// LoRaWANGetServiceProfileInfo mirrors types.LoRaWANGetServiceProfileInfo --
+// the GetServiceProfile response shape (types.go:933), wider than
+// LoRaWANServiceProfile: ChannelMask, DevStatusReqFreq, DlBucketSize,
+// DlRate, DlRatePolicy, HrAllowed, MinGwDiversity, NwkGeoLoc, TargetPer,
+// UlBucketSize, UlRate and UlRatePolicy are AWS-computed and only ever
+// appear on Get, never on Create.
+type LoRaWANGetServiceProfileInfo struct {
+	ChannelMask            *string `json:"ChannelMask,omitempty"`
+	DevStatusReqFreq       *int32  `json:"DevStatusReqFreq,omitempty"`
+	DlBucketSize           *int32  `json:"DlBucketSize,omitempty"`
+	DlRate                 *int32  `json:"DlRate,omitempty"`
+	DlRatePolicy           *string `json:"DlRatePolicy,omitempty"`
+	MinGwDiversity         *int32  `json:"MinGwDiversity,omitempty"`
+	NbTransMax             *int32  `json:"NbTransMax,omitempty"`
+	NbTransMin             *int32  `json:"NbTransMin,omitempty"`
+	TxPowerIndexMax        *int32  `json:"TxPowerIndexMax,omitempty"`
+	TxPowerIndexMin        *int32  `json:"TxPowerIndexMin,omitempty"`
+	UlBucketSize           *int32  `json:"UlBucketSize,omitempty"`
+	UlRate                 *int32  `json:"UlRate,omitempty"`
+	UlRatePolicy           *string `json:"UlRatePolicy,omitempty"`
+	DrMax                  int32   `json:"DrMax,omitempty"`
+	DrMin                  int32   `json:"DrMin,omitempty"`
+	TargetPer              int32   `json:"TargetPer,omitempty"`
+	AddGwMetadata          bool    `json:"AddGwMetadata,omitempty"`
+	HrAllowed              bool    `json:"HrAllowed,omitempty"`
+	NwkGeoLoc              bool    `json:"NwkGeoLoc,omitempty"`
+	PrAllowed              bool    `json:"PrAllowed,omitempty"`
+	RaAllowed              bool    `json:"RaAllowed,omitempty"`
+	ReportDevStatusBattery bool    `json:"ReportDevStatusBattery,omitempty"`
+	ReportDevStatusMargin  bool    `json:"ReportDevStatusMargin,omitempty"`
+}
+
+// copyLoRaWANServiceProfile returns a shallow copy of l, or nil for nil input.
+func copyLoRaWANServiceProfile(l *LoRaWANServiceProfile) *LoRaWANServiceProfile {
+	if l == nil {
+		return nil
+	}
+
+	cp := *l
+
+	return &cp
+}
+
+// loRaWANGetServiceProfileInfoFrom converts the stored create-shape
+// LoRaWANServiceProfile into the wider GetServiceProfile response shape.
+// Get-only fields (ChannelMask, DevStatusReqFreq, ...) are AWS-computed and
+// left unset rather than fabricated.
+func loRaWANGetServiceProfileInfoFrom(l *LoRaWANServiceProfile) *LoRaWANGetServiceProfileInfo {
+	if l == nil {
+		return nil
+	}
+
+	info := &LoRaWANGetServiceProfileInfo{
+		AddGwMetadata:   l.AddGwMetadata,
+		PrAllowed:       l.PrAllowed,
+		RaAllowed:       l.RaAllowed,
+		NbTransMax:      l.NbTransMax,
+		NbTransMin:      l.NbTransMin,
+		TxPowerIndexMax: l.TxPowerIndexMax,
+		TxPowerIndexMin: l.TxPowerIndexMin,
+	}
+
+	if l.DrMax != nil {
+		info.DrMax = *l.DrMax
+	}
+
+	if l.DrMin != nil {
+		info.DrMin = *l.DrMin
+	}
+
+	return info
+}
+
+// LoRaWANDeviceProfile mirrors types.LoRaWANDeviceProfile -- shared
+// verbatim by CreateDeviceProfile's request and GetDeviceProfile's response
+// (types.go:780), unlike ServiceProfile/FuotaTask/MulticastGroup which each
+// have a narrower create shape and a wider get shape.
+type LoRaWANDeviceProfile struct {
+	PingSlotDr             *int32  `json:"PingSlotDr,omitempty"`
+	PingSlotPeriod         *int32  `json:"PingSlotPeriod,omitempty"`
+	RegParamsRevision      *string `json:"RegParamsRevision,omitempty"`
+	PingSlotFreq           *int32  `json:"PingSlotFreq,omitempty"`
+	ClassBTimeout          *int32  `json:"ClassBTimeout,omitempty"`
+	ClassCTimeout          *int32  `json:"ClassCTimeout,omitempty"`
+	MaxDutyCycle           *int32  `json:"MaxDutyCycle,omitempty"`
+	MaxEirp                *int32  `json:"MaxEirp,omitempty"`
+	MacVersion             *string `json:"MacVersion,omitempty"`
+	SupportsJoin           *bool   `json:"SupportsJoin,omitempty"`
+	RfRegion               *string `json:"RfRegion,omitempty"`
+	RxDataRate2            *int32  `json:"RxDataRate2,omitempty"`
+	RxDelay1               *int32  `json:"RxDelay1,omitempty"`
+	RxDrOffset1            *int32  `json:"RxDrOffset1,omitempty"`
+	RxFreq2                *int32  `json:"RxFreq2,omitempty"`
+	FactoryPresetFreqsList []int32 `json:"FactoryPresetFreqsList,omitempty"`
+	Supports32BitFCnt      bool    `json:"Supports32BitFCnt,omitempty"`
+	SupportsClassB         bool    `json:"SupportsClassB,omitempty"`
+	SupportsClassC         bool    `json:"SupportsClassC,omitempty"`
+}
+
+// copyLoRaWANDeviceProfile returns a shallow copy of l, or nil for nil input.
+func copyLoRaWANDeviceProfile(l *LoRaWANDeviceProfile) *LoRaWANDeviceProfile {
+	if l == nil {
+		return nil
+	}
+
+	cp := *l
+
+	return &cp
+}
+
+// SidewalkCreateDeviceProfile mirrors types.SidewalkCreateDeviceProfile --
+// the CreateDeviceProfile request shape (types.go:1715). It carries no
+// fields at all: unlike SidewalkCreateWirelessDevice, a Sidewalk device
+// profile has no client-configurable settings, so this struct's only
+// purpose is to distinguish "Sidewalk key present" from "absent" on decode.
+type SidewalkCreateDeviceProfile struct{}
+
+// SidewalkGetDeviceProfile mirrors types.SidewalkGetDeviceProfile -- the
+// GetDeviceProfile response shape (types.go:1796). Its fields are
+// AWS-assigned at provisioning time; this backend never fabricates them, so
+// they stay unset even when the profile is a Sidewalk profile.
+type SidewalkGetDeviceProfile struct {
+	ApplicationServerPublicKey *string                  `json:"ApplicationServerPublicKey,omitempty"`
+	QualificationStatus        *bool                    `json:"QualificationStatus,omitempty"`
+	DakCertificateMetadata     []DakCertificateMetadata `json:"DakCertificateMetadata,omitempty"`
+}
+
+// DakCertificateMetadata mirrors types.DakCertificateMetadata (types.go:238).
+type DakCertificateMetadata struct {
+	CertificateID       *string `json:"CertificateId,omitempty"`
+	ApID                *string `json:"ApId,omitempty"`
+	DeviceTypeID        *string `json:"DeviceTypeId,omitempty"`
+	MaxAllowedSignature *int32  `json:"MaxAllowedSignature,omitempty"`
+	FactorySupport      *bool   `json:"FactorySupport,omitempty"`
+}
+
+// copySidewalkGetDeviceProfile returns a shallow copy of s, or nil for nil input.
+func copySidewalkGetDeviceProfile(s *SidewalkGetDeviceProfile) *SidewalkGetDeviceProfile {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+
+	return &cp
+}
+
+// sidewalkGetDeviceProfileFromCreate converts a CreateDeviceProfile
+// request's SidewalkCreateDeviceProfile marker into the stored
+// SidewalkGetDeviceProfile representation. present distinguishes an empty
+// `"Sidewalk":{}` request object (a Sidewalk profile with no settings) from
+// no Sidewalk key at all (a LoRaWAN-only profile), a distinction a nil
+// *SidewalkCreateDeviceProfile alone cannot carry once decoded.
+func sidewalkGetDeviceProfileFromCreate(present bool) *SidewalkGetDeviceProfile {
+	if !present {
+		return nil
+	}
+
+	return &SidewalkGetDeviceProfile{}
+}
+
+// LoRaWANFuotaTask mirrors types.LoRaWANFuotaTask -- shared by
+// CreateFuotaTask's and UpdateFuotaTask's request (types.go:844).
+type LoRaWANFuotaTask struct {
+	RfRegion string `json:"RfRegion,omitempty"`
+}
+
+// LoRaWANFuotaTaskGetInfo mirrors types.LoRaWANFuotaTaskGetInfo -- the
+// GetFuotaTask response shape (types.go:853). StartTime is an ISO8601
+// string on the wire (smithytime.FormatDateTime/ParseDateTime,
+// deserializers.go:19509) set only from StartFuotaTaskInput.LoRaWAN; this
+// backend does not capture that separate input, so StartTime is always
+// left unset rather than fabricated.
+type LoRaWANFuotaTaskGetInfo struct {
+	RfRegion  *string `json:"RfRegion,omitempty"`
+	StartTime *string `json:"StartTime,omitempty"`
+}
+
+// copyLoRaWANFuotaTask returns a shallow copy of l, or nil for nil input.
+func copyLoRaWANFuotaTask(l *LoRaWANFuotaTask) *LoRaWANFuotaTask {
+	if l == nil {
+		return nil
+	}
+
+	cp := *l
+
+	return &cp
+}
+
+// loRaWANFuotaTaskGetInfoFrom converts the stored create/update-shape
+// LoRaWANFuotaTask into the GetFuotaTask response shape.
+func loRaWANFuotaTaskGetInfoFrom(l *LoRaWANFuotaTask) *LoRaWANFuotaTaskGetInfo {
+	if l == nil {
+		return nil
+	}
+
+	info := &LoRaWANFuotaTaskGetInfo{}
+	if l.RfRegion != "" {
+		info.RfRegion = &l.RfRegion
+	}
+
+	return info
+}
+
+// DefaultSessionParametersMulticast mirrors
+// types.DefaultSessionParametersMulticast (types.go:263).
+type DefaultSessionParametersMulticast struct {
+	DlDr   *int32 `json:"DlDr,omitempty"`
+	DlFreq *int32 `json:"DlFreq,omitempty"`
+}
+
+// ParticipatingGatewaysMulticast mirrors types.ParticipatingGatewaysMulticast
+// (types.go:1515).
+type ParticipatingGatewaysMulticast struct {
+	TransmissionInterval *int32   `json:"TransmissionInterval,omitempty"`
+	GatewayList          []string `json:"GatewayList,omitempty"`
+}
+
+// LoRaWANMulticast mirrors types.LoRaWANMulticast -- shared by
+// CreateMulticastGroup's and UpdateMulticastGroup's request (types.go:1043).
+type LoRaWANMulticast struct {
+	DefaultSessionParameters *DefaultSessionParametersMulticast `json:"DefaultSessionParameters,omitempty"`
+	ParticipatingGateways    *ParticipatingGatewaysMulticast    `json:"ParticipatingGateways,omitempty"`
+	DlClass                  string                             `json:"DlClass,omitempty"`
+	RfRegion                 string                             `json:"RfRegion,omitempty"`
+}
+
+// LoRaWANMulticastGet mirrors types.LoRaWANMulticastGet -- the
+// GetMulticastGroup response shape (types.go:1064): same fields as
+// LoRaWANMulticast plus NumberOfDevicesInGroup/NumberOfDevicesRequested.
+type LoRaWANMulticastGet struct {
+	DefaultSessionParameters *DefaultSessionParametersMulticast `json:"DefaultSessionParameters,omitempty"`
+	ParticipatingGateways    *ParticipatingGatewaysMulticast    `json:"ParticipatingGateways,omitempty"`
+	NumberOfDevicesInGroup   *int32                             `json:"NumberOfDevicesInGroup,omitempty"`
+	NumberOfDevicesRequested *int32                             `json:"NumberOfDevicesRequested,omitempty"`
+	DlClass                  string                             `json:"DlClass,omitempty"`
+	RfRegion                 string                             `json:"RfRegion,omitempty"`
+}
+
+// copyLoRaWANMulticast returns a shallow copy of l, or nil for nil input.
+func copyLoRaWANMulticast(l *LoRaWANMulticast) *LoRaWANMulticast {
+	if l == nil {
+		return nil
+	}
+
+	cp := *l
+
+	return &cp
+}
+
+// loRaWANMulticastGetFrom converts the stored create/update-shape
+// LoRaWANMulticast plus the real device-association count into the
+// GetMulticastGroup response shape. NumberOfDevicesRequested is left
+// unset: this backend has no separate "requested" count distinct from the
+// actual association set built by StartBulkAssociateWirelessDeviceWithMulticastGroup.
+func loRaWANMulticastGetFrom(l *LoRaWANMulticast, devicesInGroup int32) *LoRaWANMulticastGet {
+	if l == nil {
+		return nil
+	}
+
+	return &LoRaWANMulticastGet{
+		DefaultSessionParameters: l.DefaultSessionParameters,
+		ParticipatingGateways:    l.ParticipatingGateways,
+		DlClass:                  l.DlClass,
+		RfRegion:                 l.RfRegion,
+		NumberOfDevicesInGroup:   &devicesInGroup,
+	}
+}

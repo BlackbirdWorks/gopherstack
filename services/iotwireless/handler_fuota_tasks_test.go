@@ -10,6 +10,50 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestHandler_FuotaTask_LoRaWANRoundTrip verifies the LoRaWANFuotaTask
+// (types.go:844) request field echoes correctly through GetFuotaTask's
+// LoRaWANFuotaTaskGetInfo (types.go:853) response shape, and that Update
+// replaces it wholesale (api_op_UpdateFuotaTask.go:64 uses the same
+// LoRaWANFuotaTask type as create, not a merge-style narrower shape).
+func TestHandler_FuotaTask_LoRaWANRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/fuota-tasks",
+		`{"Name":"ft-rt","FirmwareUpdateImage":"s3://bucket/fw.bin",`+
+			`"FirmwareUpdateRole":"arn:aws:iam::000000000000:role/fuota-role",`+
+			`"LoRaWAN":{"RfRegion":"US915"}}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	id, _ := createResp["Id"].(string)
+	require.NotEmpty(t, id)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/fuota-tasks/"+id, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	loRaWAN, ok := getResp["LoRaWAN"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "US915", loRaWAN["RfRegion"])
+	_, hasStartTime := loRaWAN["StartTime"]
+	assert.False(t, hasStartTime, "StartTime is never fabricated when unset")
+
+	rec = doIoTWRequest(t, h, http.MethodPatch, "/fuota-tasks/"+id,
+		`{"LoRaWAN":{"RfRegion":"EU868"}}`)
+	require.Equal(t, http.StatusNoContent, rec.Code)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/fuota-tasks/"+id, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	loRaWAN, ok = getResp["LoRaWAN"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "EU868", loRaWAN["RfRegion"])
+}
+
 func TestHandler_CreateFuotaTask(t *testing.T) {
 	t.Parallel()
 

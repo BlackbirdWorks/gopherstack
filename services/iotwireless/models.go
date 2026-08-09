@@ -57,13 +57,13 @@ type WirelessGateway struct {
 type ServiceProfile struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	Tags      map[string]string `json:"tags,omitempty"`
-	// LoRaWAN holds the LoRaWANServiceProfile configuration object supplied
-	// at creation time, echoed back verbatim on Get -- see the identical
-	// comment on WirelessDevice.LoRaWAN above.
-	LoRaWAN map[string]any `json:"loRaWAN,omitempty"`
-	Name    string         `json:"name"`
-	ID      string         `json:"id"`
-	ARN     string         `json:"arn"`
+	// LoRaWAN holds the create-shape LoRaWANServiceProfile; GetServiceProfile
+	// converts it to the wider LoRaWANGetServiceProfileInfo via
+	// loRaWANGetServiceProfileInfoFrom (lorawan_types.go).
+	LoRaWAN *LoRaWANServiceProfile `json:"loRaWAN,omitempty"`
+	Name    string                 `json:"name"`
+	ID      string                 `json:"id"`
+	ARN     string                 `json:"arn"`
 	// AccountID and Region exist purely for store.Table's keyFn; see the
 	// identical comment on WirelessDevice above.
 	AccountID string `json:"-"`
@@ -90,15 +90,15 @@ type Destination struct {
 type DeviceProfile struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	Tags      map[string]string `json:"tags,omitempty"`
-	// LoRaWAN and Sidewalk hold the LoRaWANDeviceProfile /
-	// SidewalkGetDeviceProfile configuration objects supplied at creation
-	// time, echoed back verbatim on Get -- see the identical comment on
-	// WirelessDevice.LoRaWAN above.
-	LoRaWAN  map[string]any `json:"loRaWAN,omitempty"`
-	Sidewalk map[string]any `json:"sidewalk,omitempty"`
-	Name     string         `json:"name"`
-	ID       string         `json:"id"`
-	ARN      string         `json:"arn"`
+	// LoRaWAN uses the types.LoRaWANDeviceProfile shape shared verbatim by
+	// Create and Get. Sidewalk is stored as the richer SidewalkGetDeviceProfile
+	// (get) shape; CreateDeviceProfile's SidewalkCreateDeviceProfile request
+	// (no fields of its own) is converted via sidewalkGetDeviceProfileFromCreate.
+	LoRaWAN  *LoRaWANDeviceProfile     `json:"loRaWAN,omitempty"`
+	Sidewalk *SidewalkGetDeviceProfile `json:"sidewalk,omitempty"`
+	Name     string                    `json:"name"`
+	ID       string                    `json:"id"`
+	ARN      string                    `json:"arn"`
 	// AccountID and Region exist purely for store.Table's keyFn; see the
 	// identical comment on WirelessDevice above.
 	AccountID string `json:"-"`
@@ -109,16 +109,16 @@ type DeviceProfile struct {
 type FuotaTask struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	Tags      map[string]string `json:"tags,omitempty"`
-	// LoRaWAN holds the LoRaWANFuotaTask configuration object supplied at
-	// creation time, echoed back verbatim on Get -- see the identical
-	// comment on WirelessDevice.LoRaWAN above.
-	LoRaWAN             map[string]any `json:"loRaWAN,omitempty"`
-	Name                string         `json:"name"`
-	ID                  string         `json:"id"`
-	ARN                 string         `json:"arn"`
-	Description         string         `json:"description,omitempty"`
-	FirmwareUpdateImage string         `json:"firmwareUpdateImage,omitempty"`
-	FirmwareUpdateRole  string         `json:"firmwareUpdateRole,omitempty"`
+	// LoRaWAN holds the create/update-shape LoRaWANFuotaTask; GetFuotaTask
+	// converts it to LoRaWANFuotaTaskGetInfo via loRaWANFuotaTaskGetInfoFrom
+	// (lorawan_types.go).
+	LoRaWAN             *LoRaWANFuotaTask `json:"loRaWAN,omitempty"`
+	Name                string            `json:"name"`
+	ID                  string            `json:"id"`
+	ARN                 string            `json:"arn"`
+	Description         string            `json:"description,omitempty"`
+	FirmwareUpdateImage string            `json:"firmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string            `json:"firmwareUpdateRole,omitempty"`
 	// Descriptor is the base64-encoded firmware metadata blob.
 	Descriptor string `json:"descriptor,omitempty"`
 	// Status tracks the FUOTA task lifecycle (Pending, FuotaSession_Waiting,
@@ -140,15 +140,15 @@ type FuotaTask struct {
 type MulticastGroup struct {
 	CreatedAt time.Time         `json:"createdAt"`
 	Tags      map[string]string `json:"tags,omitempty"`
-	// LoRaWAN holds the LoRaWANMulticast configuration object supplied at
-	// creation time, echoed back verbatim on Get -- see the identical
-	// comment on WirelessDevice.LoRaWAN above.
-	LoRaWAN     map[string]any `json:"loRaWAN,omitempty"`
-	Name        string         `json:"name"`
-	ID          string         `json:"id"`
-	ARN         string         `json:"arn"`
-	Description string         `json:"description,omitempty"`
-	Status      string         `json:"status"`
+	// LoRaWAN holds the create/update-shape LoRaWANMulticast; GetMulticastGroup
+	// converts it to LoRaWANMulticastGet via loRaWANMulticastGetFrom
+	// (lorawan_types.go), adding the real device-association count.
+	LoRaWAN     *LoRaWANMulticast `json:"loRaWAN,omitempty"`
+	Name        string            `json:"name"`
+	ID          string            `json:"id"`
+	ARN         string            `json:"arn"`
+	Description string            `json:"description,omitempty"`
+	Status      string            `json:"status"`
 	// AccountID and Region exist purely for store.Table's keyFn; see the
 	// identical comment on WirelessDevice above.
 	AccountID string `json:"-"`

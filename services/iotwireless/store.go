@@ -139,24 +139,6 @@ func newTagsCopy(tags map[string]string) map[string]string {
 	return cp
 }
 
-// copyAnyMap returns a shallow copy of an opaque JSON-object field still
-// stored as map[string]any (ServiceProfile/DeviceProfile/FuotaTask/
-// MulticastGroup's LoRaWAN/Sidewalk; see lorawan_types.go for the fields
-// that have real Go types instead), or nil for nil input. A shallow
-// top-level copy is enough to prevent callers from mutating the backend's
-// stored map through a returned reference, matching the isolation newTagsCopy
-// provides for Tags.
-func copyAnyMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-
-	cp := make(map[string]any, len(m))
-	maps.Copy(cp, m)
-
-	return cp
-}
-
 // storeResourceTagsLocked initialises the resource tag entry for the given ARN.
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) storeResourceTagsLocked(arn string, tags map[string]string) {

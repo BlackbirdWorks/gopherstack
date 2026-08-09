@@ -26,7 +26,7 @@ type StorageBackend interface {
 
 	CreateServiceProfile(
 		accountID, region, name string,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANServiceProfile,
 		tags map[string]string,
 	) (*ServiceProfile, error)
 	GetServiceProfile(accountID, region, id string) (*ServiceProfile, error)
@@ -43,7 +43,8 @@ type StorageBackend interface {
 
 	CreateDeviceProfile(
 		accountID, region, name string,
-		loRaWAN, sidewalk map[string]any,
+		loRaWAN *LoRaWANDeviceProfile,
+		sidewalk *SidewalkCreateDeviceProfile,
 		tags map[string]string,
 	) (*DeviceProfile, error)
 	GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error)
@@ -53,13 +54,13 @@ type StorageBackend interface {
 	CreateFuotaTask(
 		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole, descriptor string,
 		fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANFuotaTask,
 		tags map[string]string,
 	) (*FuotaTask, error)
 	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
 	ListFuotaTasks(accountID, region string) []*FuotaTask
 	DeleteFuotaTask(accountID, region, id string) error
-	UpdateFuotaTask(accountID, region, id, name, description string) error
+	UpdateFuotaTask(accountID, region, id, name, description string, loRaWAN *LoRaWANFuotaTask) error
 
 	UpdateWirelessGateway(
 		accountID, region, id, name, description string,
@@ -70,13 +71,13 @@ type StorageBackend interface {
 
 	CreateMulticastGroup(
 		accountID, region, name, description string,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANMulticast,
 		tags map[string]string,
 	) (*MulticastGroup, error)
 	GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error)
 	ListMulticastGroups(accountID, region string) []*MulticastGroup
 	DeleteMulticastGroup(accountID, region, id string) error
-	UpdateMulticastGroup(accountID, region, id, name, description string) error
+	UpdateMulticastGroup(accountID, region, id, name, description string, loRaWAN *LoRaWANMulticast) error
 
 	CreateNetworkAnalyzerConfig(
 		accountID, region, name, description string,

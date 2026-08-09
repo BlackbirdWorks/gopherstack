@@ -95,30 +95,72 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 		t.Parallel()
 
 		bk := iotwireless.NewInMemoryBackend()
+		macVersion := "1.0.3"
 
 		dp, err := bk.CreateDeviceProfile(
 			testAccountID, testRegion, "dp-1",
-			map[string]any{"MacVersion": "1.0.3"}, map[string]any{"Model": "sidewalk-model"}, nil,
+			&iotwireless.LoRaWANDeviceProfile{MacVersion: &macVersion},
+			&iotwireless.SidewalkCreateDeviceProfile{},
+			nil,
 		)
 		require.NoError(t, err)
 
 		got, err := bk.GetDeviceProfile(testAccountID, testRegion, dp.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "1.0.3", got.LoRaWAN["MacVersion"])
-		assert.Equal(t, "sidewalk-model", got.Sidewalk["Model"])
+		require.NotNil(t, got.LoRaWAN)
+		assert.Equal(t, "1.0.3", *got.LoRaWAN.MacVersion)
+		// SidewalkCreateDeviceProfile carries no fields of its own (real AWS
+		// wire shape, types.go:1715); its presence alone marks the profile
+		// as Sidewalk, so Get must return a non-nil-but-empty object, not a
+		// fabricated field.
+		require.NotNil(t, got.Sidewalk)
+		assert.Nil(t, got.Sidewalk.ApplicationServerPublicKey)
+
+		// GetDeviceProfile's returned LoRaWAN must be independent of the
+		// backend's stored one.
+		mutated := "mutated"
+		got.LoRaWAN.MacVersion = &mutated
+		got2, err := bk.GetDeviceProfile(testAccountID, testRegion, dp.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "1.0.3", *got2.LoRaWAN.MacVersion)
+	})
+
+	t.Run("device_profile_lorawan_only", func(t *testing.T) {
+		t.Parallel()
+
+		bk := iotwireless.NewInMemoryBackend()
+
+		dp, err := bk.CreateDeviceProfile(testAccountID, testRegion, "dp-2", nil, nil, nil)
+		require.NoError(t, err)
+
+		got, err := bk.GetDeviceProfile(testAccountID, testRegion, dp.ID)
+		require.NoError(t, err)
+		assert.Nil(t, got.Sidewalk, "no Sidewalk key in the request must leave Sidewalk nil, not an empty object")
 	})
 
 	t.Run("service_profile", func(t *testing.T) {
 		t.Parallel()
 
 		bk := iotwireless.NewInMemoryBackend()
+		drMax := int32(15)
 
-		sp, err := bk.CreateServiceProfile(testAccountID, testRegion, "sp-1", map[string]any{"UlRate": float64(1)}, nil)
+		sp, err := bk.CreateServiceProfile(
+			testAccountID, testRegion, "sp-1",
+			&iotwireless.LoRaWANServiceProfile{DrMax: &drMax, AddGwMetadata: true},
+			nil,
+		)
 		require.NoError(t, err)
 
 		got, err := bk.GetServiceProfile(testAccountID, testRegion, sp.ID)
 		require.NoError(t, err)
-		assert.InDelta(t, float64(1), got.LoRaWAN["UlRate"], 0.001)
+		require.NotNil(t, got.LoRaWAN)
+		// InMemoryBackend stores the create-shape LoRaWANServiceProfile
+		// (types.go:1161) as-is; the wider LoRaWANGetServiceProfileInfo
+		// response shape (types.go:933) is built by the HTTP handler layer
+		// (see TestHandler_ServiceProfile_LoRaWANGetShape) via
+		// loRaWANGetServiceProfileInfoFrom.
+		assert.Equal(t, int32(15), *got.LoRaWAN.DrMax)
+		assert.True(t, got.LoRaWAN.AddGwMetadata)
 	})
 
 	t.Run("multicast_group", func(t *testing.T) {
@@ -127,14 +169,29 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 		bk := iotwireless.NewInMemoryBackend()
 
 		mg, err := bk.CreateMulticastGroup(
-			testAccountID, testRegion, "mg-1", "", map[string]any{"RfRegion": "EU868"}, nil,
+			testAccountID, testRegion, "mg-1", "",
+			&iotwireless.LoRaWANMulticast{RfRegion: "EU868"},
+			nil,
 		)
 		require.NoError(t, err)
 
 		got, err := bk.GetMulticastGroup(testAccountID, testRegion, mg.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "EU868", got.LoRaWAN["RfRegion"])
+		require.NotNil(t, got.LoRaWAN)
+		assert.Equal(t, "EU868", got.LoRaWAN.RfRegion)
 		assert.False(t, got.CreatedAt.IsZero(), "CreatedAt must be populated")
+
+		// UpdateMulticastGroup's LoRaWAN uses the same LoRaWANMulticast
+		// shape as create (api_op_UpdateMulticastGroup.go:39) and replaces
+		// the stored value wholesale.
+		require.NoError(t, bk.UpdateMulticastGroup(
+			testAccountID, testRegion, mg.ID, "", "",
+			&iotwireless.LoRaWANMulticast{RfRegion: "US915"},
+		))
+
+		updated, err := bk.GetMulticastGroup(testAccountID, testRegion, mg.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "US915", updated.LoRaWAN.RfRegion)
 	})
 
 	t.Run("fuota_task", func(t *testing.T) {
@@ -145,7 +202,7 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 		ft, err := bk.CreateFuotaTask(
 			testAccountID, testRegion, "ft-1", "", "s3://img", "role-arn", "ZGVzYw==",
 			1000, 128, 50,
-			map[string]any{"RfRegion": "US915"},
+			&iotwireless.LoRaWANFuotaTask{RfRegion: "US915"},
 			nil,
 		)
 		require.NoError(t, err)
@@ -153,7 +210,8 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 
 		got, err := bk.GetFuotaTask(testAccountID, testRegion, ft.ID)
 		require.NoError(t, err)
-		assert.Equal(t, "US915", got.LoRaWAN["RfRegion"])
+		require.NotNil(t, got.LoRaWAN)
+		assert.Equal(t, "US915", got.LoRaWAN.RfRegion)
 		assert.Equal(t, "ZGVzYw==", got.Descriptor)
 		assert.Equal(t, int32(1000), got.FragmentIntervalMS)
 		assert.Equal(t, int32(128), got.FragmentSizeBytes)
@@ -167,5 +225,17 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "FuotaSession_Waiting", started.Status)
 		assert.Equal(t, "role-arn", started.FirmwareUpdateRole, "FirmwareUpdateRole must survive StartFuotaTask")
+
+		// UpdateFuotaTask's LoRaWAN uses the same LoRaWANFuotaTask shape as
+		// create/update (api_op_UpdateFuotaTask.go:64) and replaces the
+		// stored value wholesale.
+		require.NoError(t, bk.UpdateFuotaTask(
+			testAccountID, testRegion, ft.ID, "", "",
+			&iotwireless.LoRaWANFuotaTask{RfRegion: "EU868"},
+		))
+
+		updated, err := bk.GetFuotaTask(testAccountID, testRegion, ft.ID)
+		require.NoError(t, err)
+		assert.Equal(t, "EU868", updated.LoRaWAN.RfRegion)
 	})
 }

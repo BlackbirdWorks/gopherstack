@@ -675,7 +675,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
 | [IoT Core](services/iot/README.md) | A | 74 | clean |
 | [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 5 gaps; 1 deferred |
-| [IoT Wireless](services/iotwireless/README.md) | A | 12 | 2 gaps |
+| [IoT Wireless](services/iotwireless/README.md) | A | 12 | 3 gaps |
 
 ### Migration & Transfer
 
