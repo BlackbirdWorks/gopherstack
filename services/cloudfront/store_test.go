@@ -244,7 +244,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 			name: "create_anycast_ip_list_empty_name",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateAnycastIPList("", 5)
+				_, err := b.CreateAnycastIPList("", 5, nil)
 				require.Error(t, err)
 			},
 		},
@@ -276,7 +276,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 			name: "create_anycast_ip_list_success",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				list, err := b.CreateAnycastIPList("my-list", 5)
+				list, err := b.CreateAnycastIPList("my-list", 5, nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, list.ID)
 				assert.NotEmpty(t, list.ARN)

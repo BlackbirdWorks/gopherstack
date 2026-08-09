@@ -53,15 +53,28 @@ type Invalidation struct {
 
 // AnycastIPList represents a CloudFront Anycast IP list.
 type AnycastIPList struct {
-	Tags          map[string]string `json:"tags,omitempty"`
-	ID            string            `json:"id"`
-	ARN           string            `json:"arn"`
-	Name          string            `json:"name"`
-	Status        string            `json:"status"`
-	ETag          string            `json:"eTag"`
-	IPAddressType string            `json:"ipAddressType,omitempty"`
-	AnycastIPs    []string          `json:"anycastIps,omitempty"`
-	IPCount       int32             `json:"ipCount"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	IPAddressType    string            `json:"ipAddressType,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	AnycastIPs       []string          `json:"anycastIps,omitempty"`
+	IpamCidrConfigs  []IpamCidrConfig  `json:"ipamCidrConfigs,omitempty"`
+	IPCount          int32             `json:"ipCount"`
+}
+
+// IpamCidrConfig is a member of Create/UpdateAnycastIpListInput and the AnycastIpList
+// output's IpamConfig.IpamCidrConfigs (cloudfront@v1.67.4 types/types.go:3732-3752).
+// gopherstack stores it verbatim and echoes it back; it does not validate IpamPoolARN
+// against a real IPAM pool or allocate AnycastIP from one -- that is a separate feature.
+type IpamCidrConfig struct {
+	Cidr        string `json:"cidr,omitempty"`
+	IpamPoolARN string `json:"ipamPoolArn,omitempty"`
+	AnycastIP   string `json:"anycastIp,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 // CachePolicyHeadersConfig specifies which headers the policy forwards and caches.

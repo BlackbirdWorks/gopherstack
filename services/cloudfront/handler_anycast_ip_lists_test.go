@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
@@ -23,16 +24,16 @@ func TestAnycastIPList_NameUniqueness(t *testing.T) {
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
-	first, err := b.CreateAnycastIPList("dup-name", 3)
+	first, err := b.CreateAnycastIPList("dup-name", 3, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAnycastIPList("dup-name", 5)
+	_, err = b.CreateAnycastIPList("dup-name", 5, nil)
 	require.Error(t, err)
 
 	require.NoError(t, b.DeleteAnycastIPList(first.ID))
 
 	// Name is free again after delete.
-	_, err = b.CreateAnycastIPList("dup-name", 5)
+	_, err = b.CreateAnycastIPList("dup-name", 5, nil)
 	require.NoError(t, err)
 }
 
@@ -45,13 +46,13 @@ func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 
-	list, err := b.CreateAnycastIPList("ips-list", 4)
+	list, err := b.CreateAnycastIPList("ips-list", 4, nil)
 	require.NoError(t, err)
 	assert.Len(t, list.AnycastIPs, 4)
 	assert.NotEmpty(t, list.ETag)
 
 	oldETag := list.ETag
-	updated, err := b.UpdateAnycastIPList(list.ID, "dualstack")
+	updated, err := b.UpdateAnycastIPList(list.ID, "dualstack", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "dualstack", updated.IPAddressType)
 	assert.Len(t, updated.AnycastIPs, 4)
@@ -59,12 +60,12 @@ func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	assert.NotEqual(t, oldETag, updated.ETag)
 
 	// An empty IpAddressType (unset) leaves the current type, IPs, and count unchanged.
-	unchanged, err := b.UpdateAnycastIPList(list.ID, "")
+	unchanged, err := b.UpdateAnycastIPList(list.ID, "", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "dualstack", unchanged.IPAddressType)
 	assert.Len(t, unchanged.AnycastIPs, 4)
 
-	_, err = b.UpdateAnycastIPList(list.ID, "bogus")
+	_, err = b.UpdateAnycastIPList(list.ID, "bogus", nil)
 	require.Error(t, err)
 }
 
@@ -139,7 +140,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-	list, err := b.CreateAnycastIPList("persist-list", 3)
+	list, err := b.CreateAnycastIPList("persist-list", 3, nil)
 	require.NoError(t, err)
 
 	h := cloudfront.NewHandler(b)
@@ -157,7 +158,7 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 
 	// The name-uniqueness index survived restore: creating a second list with the same name
 	// still fails.
-	_, err = b2.CreateAnycastIPList("persist-list", 5)
+	_, err = b2.CreateAnycastIPList("persist-list", 5, nil)
 	require.Error(t, err)
 }
 
@@ -216,6 +217,118 @@ func TestUpdateAnycastIPList_RealClient(t *testing.T) {
 			tt.check(t, client, aws.ToString(created.AnycastIpList.Id))
 		})
 	}
+}
+
+// TestAnycastIPList_LastModifiedTime_RealClient verifies LastModifiedTime is populated on
+// AnycastIpList (Create/Get) and AnycastIpListSummary (List) -- both required members of the
+// real output that gopherstack never set (cloudfront@v1.67.4 types/types.go:188-190, 271-274).
+func TestAnycastIPList_LastModifiedTime_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	before := time.Now().Add(-time.Minute)
+
+	created, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+		Name:    aws.String("lmt-list"),
+		IpCount: aws.Int32(3),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.AnycastIpList.LastModifiedTime)
+	assert.True(t, created.AnycastIpList.LastModifiedTime.After(before))
+
+	got, err := client.GetAnycastIpList(t.Context(), &cfsdk.GetAnycastIpListInput{
+		Id: created.AnycastIpList.Id,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got.AnycastIpList.LastModifiedTime)
+
+	listed, err := client.ListAnycastIpLists(t.Context(), &cfsdk.ListAnycastIpListsInput{})
+	require.NoError(t, err)
+	require.Len(t, listed.AnycastIpLists.Items, 1)
+	assert.NotNil(t, listed.AnycastIpLists.Items[0].LastModifiedTime)
+}
+
+// TestListAnycastIPLists_Pagination_RealClient verifies MaxItems/IsTruncated/NextMarker/Marker
+// paging over ListAnycastIpLists, previously absent (cloudfront@v1.67.4 types/types.go:214-249,
+// AnycastIpListCollection).
+func TestListAnycastIPLists_Pagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	for i := range 3 {
+		_, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+			Name:    aws.String(fmt.Sprintf("page-list-%d", i)),
+			IpCount: aws.Int32(3),
+		})
+		require.NoError(t, err)
+	}
+
+	first, err := client.ListAnycastIpLists(t.Context(), &cfsdk.ListAnycastIpListsInput{
+		MaxItems: aws.Int32(2),
+	})
+	require.NoError(t, err)
+	assert.Len(t, first.AnycastIpLists.Items, 2)
+	assert.True(t, aws.ToBool(first.AnycastIpLists.IsTruncated))
+	require.NotEmpty(t, aws.ToString(first.AnycastIpLists.NextMarker))
+
+	second, err := client.ListAnycastIpLists(t.Context(), &cfsdk.ListAnycastIpListsInput{
+		Marker: first.AnycastIpLists.NextMarker,
+	})
+	require.NoError(t, err)
+	assert.Len(t, second.AnycastIpLists.Items, 1)
+	assert.False(t, aws.ToBool(second.AnycastIpLists.IsTruncated))
+}
+
+// TestAnycastIPList_IpamCidrConfigs_RealClient verifies IpamCidrConfigs on
+// CreateAnycastIpListInput and UpdateAnycastIpListInput round-trips through the stored
+// AnycastIpList.IpamConfig verbatim -- gopherstack stores it as given rather than emulating
+// IPAM pool allocation (cloudfront@v1.67.4 types/types.go:3732-3771).
+func TestAnycastIPList_IpamCidrConfigs_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	created, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+		Name:    aws.String("ipam-list"),
+		IpCount: aws.Int32(2),
+		IpamCidrConfigs: []types.IpamCidrConfig{
+			{
+				Cidr:        aws.String("10.0.0.0/24"),
+				IpamPoolArn: aws.String("arn:aws:ec2::123456789012:ipam-pool/ipam-pool-0123"),
+				AnycastIp:   aws.String("15.1.2.3"),
+				Status:      types.IpamCidrStatusProvisioned,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, created.AnycastIpList.IpamConfig)
+	require.Len(t, created.AnycastIpList.IpamConfig.IpamCidrConfigs, 1)
+
+	got := created.AnycastIpList.IpamConfig.IpamCidrConfigs[0]
+	assert.Equal(t, "10.0.0.0/24", aws.ToString(got.Cidr))
+	assert.Equal(t, "arn:aws:ec2::123456789012:ipam-pool/ipam-pool-0123", aws.ToString(got.IpamPoolArn))
+	assert.Equal(t, "15.1.2.3", aws.ToString(got.AnycastIp))
+	assert.Equal(t, types.IpamCidrStatusProvisioned, got.Status)
+	assert.Equal(t, int32(1), aws.ToInt32(created.AnycastIpList.IpamConfig.Quantity))
+
+	updated, err := client.UpdateAnycastIpList(t.Context(), &cfsdk.UpdateAnycastIpListInput{
+		Id:      created.AnycastIpList.Id,
+		IfMatch: created.ETag,
+		IpamCidrConfigs: []types.IpamCidrConfig{
+			{
+				Cidr:        aws.String("10.0.1.0/24"),
+				IpamPoolArn: aws.String("arn:aws:ec2::123456789012:ipam-pool/ipam-pool-0456"),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, updated.AnycastIpList.IpamConfig.IpamCidrConfigs, 1)
+	assert.Equal(t, "10.0.1.0/24", aws.ToString(updated.AnycastIpList.IpamConfig.IpamCidrConfigs[0].Cidr))
 }
 
 // ---------------------------------------------------------------------------

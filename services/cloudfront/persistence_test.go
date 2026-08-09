@@ -242,7 +242,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create new resource types.
-	_, err = b.CreateAnycastIPList("persist-anycast-list", 3)
+	_, err = b.CreateAnycastIPList("persist-anycast-list", 3, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateCachePolicy("persist-cache-policy", "comment", 86400, 31536000, 0)

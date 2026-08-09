@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -32,9 +33,10 @@ func generateAnycastIPs(id string, ipCount int32) []string {
 }
 
 // CreateAnycastIPList creates a new Anycast IP list. Name must be unique among existing anycast
-// IP lists. tags, if provided (first element only), seeds the list's tags.
+// IP lists. ipamCidrConfigs is stored verbatim (see IpamCidrConfig doc). tags, if provided
+// (first element only), seeds the list's tags.
 func (b *InMemoryBackend) CreateAnycastIPList(
-	name string, ipCount int32, tags ...map[string]string,
+	name string, ipCount int32, ipamCidrConfigs []IpamCidrConfig, tags ...map[string]string,
 ) (*AnycastIPList, error) {
 	b.mu.Lock("CreateAnycastIpList")
 	defer b.mu.Unlock()
@@ -59,14 +61,16 @@ func (b *InMemoryBackend) CreateAnycastIPList(
 
 	id := generateID()
 	list := &AnycastIPList{
-		ID:         id,
-		ARN:        b.anycastIPListARN(id),
-		Name:       name,
-		Status:     statusDeployed,
-		ETag:       uuid.NewString(),
-		IPCount:    ipCount,
-		AnycastIPs: generateAnycastIPs(id, ipCount),
-		Tags:       make(map[string]string),
+		ID:               id,
+		ARN:              b.anycastIPListARN(id),
+		Name:             name,
+		Status:           statusDeployed,
+		ETag:             uuid.NewString(),
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
+		IPCount:          ipCount,
+		AnycastIPs:       generateAnycastIPs(id, ipCount),
+		IpamCidrConfigs:  append([]IpamCidrConfig(nil), ipamCidrConfigs...),
+		Tags:             make(map[string]string),
 	}
 	if len(tags) > 0 {
 		maps.Copy(list.Tags, tags[0])
@@ -82,6 +86,7 @@ func (b *InMemoryBackend) CreateAnycastIPList(
 func (b *InMemoryBackend) copyAnycastIPList(list *AnycastIPList) *AnycastIPList {
 	cp := *list
 	cp.AnycastIPs = append([]string(nil), list.AnycastIPs...)
+	cp.IpamCidrConfigs = append([]IpamCidrConfig(nil), list.IpamCidrConfigs...)
 	if list.Tags != nil {
 		cp.Tags = make(map[string]string, len(list.Tags))
 		maps.Copy(cp.Tags, list.Tags)
@@ -126,10 +131,13 @@ func isValidAnycastIPAddressType(ipAddressType string) bool {
 	}
 }
 
-// UpdateAnycastIPList updates the IpAddressType of an existing Anycast IP list. IpCount is not
-// a member of UpdateAnycastIpListInput (cloudfront@v1.67.4 api_op_UpdateAnycastIpList.go:28-56)
-// -- a real client can never change the IP count via this operation, so it is left untouched.
-func (b *InMemoryBackend) UpdateAnycastIPList(id, ipAddressType string) (*AnycastIPList, error) {
+// UpdateAnycastIPList updates the IpAddressType and/or IpamCidrConfigs of an existing Anycast
+// IP list. IpCount is not a member of UpdateAnycastIpListInput (cloudfront@v1.67.4
+// api_op_UpdateAnycastIpList.go:28-56) -- a real client can never change the IP count via this
+// operation, so it is left untouched. A nil ipamCidrConfigs leaves the stored configs unchanged.
+func (b *InMemoryBackend) UpdateAnycastIPList(
+	id, ipAddressType string, ipamCidrConfigs []IpamCidrConfig,
+) (*AnycastIPList, error) {
 	b.mu.Lock("UpdateAnycastIPList")
 	defer b.mu.Unlock()
 
@@ -143,6 +151,10 @@ func (b *InMemoryBackend) UpdateAnycastIPList(id, ipAddressType string) (*Anycas
 	if ipAddressType != "" {
 		list.IPAddressType = ipAddressType
 	}
+	if ipamCidrConfigs != nil {
+		list.IpamCidrConfigs = append([]IpamCidrConfig(nil), ipamCidrConfigs...)
+	}
+	list.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	list.ETag = uuid.NewString()
 
 	return b.copyAnycastIPList(list), nil

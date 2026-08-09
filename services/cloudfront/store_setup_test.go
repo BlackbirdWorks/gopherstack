@@ -38,7 +38,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// anycastIPLists
-	anycast, err := orig.CreateAnycastIPList("my-anycast-list", 3)
+	anycast, err := orig.CreateAnycastIPList("my-anycast-list", 3, nil)
 	require.NoError(t, err)
 
 	// cachePolicies
