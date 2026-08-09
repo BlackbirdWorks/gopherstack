@@ -26,6 +26,17 @@ const rtTestRegion = "us-east-1"
 func newTestHandlerAndClient(t *testing.T) *cwsdk.Client {
 	t.Helper()
 
+	client, _ := newTestHandlerAndClientWithBackend(t)
+
+	return client
+}
+
+// newTestHandlerAndClientWithBackend is newTestHandlerAndClient plus the
+// backend it wraps, for tests that need to wire fakes (SNS/Lambda) or read
+// backend state directly instead of only through SDK responses.
+func newTestHandlerAndClientWithBackend(t *testing.T) (*cwsdk.Client, *cloudwatch.InMemoryBackend) {
+	t.Helper()
+
 	backend := cloudwatch.NewInMemoryBackend()
 	h := cloudwatch.NewHandler(backend)
 
@@ -46,7 +57,9 @@ func newTestHandlerAndClient(t *testing.T) *cwsdk.Client {
 	)
 	require.NoError(t, err)
 
-	return cwsdk.NewFromConfig(cfg, func(o *cwsdk.Options) {
+	client := cwsdk.NewFromConfig(cfg, func(o *cwsdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
 	})
+
+	return client, backend
 }

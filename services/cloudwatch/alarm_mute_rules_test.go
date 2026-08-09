@@ -52,6 +52,36 @@ func TestBackend_PutAlarmMuteRule_Validation(t *testing.T) {
 			Name:     "r",
 			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)"},
 		}},
+		{name: "malformed duration", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "1 hour"},
+		}},
+		{name: "duration below one minute", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "PT30S"},
+		}},
+		{name: "duration above fifteen days", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "P16D"},
+		}},
+		{name: "six field cron rejected", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * ? *)", Duration: "PT1H"},
+		}},
+		{name: "at expression with seconds rejected", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "at(2030-05-10T14:00:00)", Duration: "PT1H"},
+		}},
+		{name: "unrecognised expression style", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "rate(5 minutes)", Duration: "PT1H"},
+		}},
+		{name: "unknown timezone", rule: cloudwatch.AlarmMuteRule{
+			Name: "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{
+				Expression: "cron(0 2 * * *)", Duration: "PT1H", Timezone: "Not/A_Zone",
+			},
+		}},
 	}
 
 	for _, tc := range tests {
