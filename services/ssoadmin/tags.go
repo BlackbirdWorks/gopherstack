@@ -160,3 +160,83 @@ func (b *InMemoryBackend) ListTagsForResource(instanceArn, resourceArn string) (
 
 	return nil, ErrInstanceNotFound
 }
+
+// TaggedEntry pairs a taggable SSO Admin resource ARN with its tag set
+// (instance, permission set, application, trusted token issuer -- the four
+// kinds sso-admin's own TaggableResourceArn pattern documents, botocore
+// 1.43.56 sso-admin/2020-07-20/service-2.json.gz), for cross-service tagging
+// discovery (see cli.go's wireTaggingSSOAdmin).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every taggable resource that carries at least one tag.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0,
+		b.instances.Len()+b.permissionSets.Len()+b.applications.Len()+b.trustedTokenIssuers.Len())
+
+	for _, inst := range b.instances.All() {
+		if len(inst.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: inst.InstanceArn, Tags: maps.Clone(inst.Tags)})
+	}
+
+	for _, ps := range b.permissionSets.All() {
+		if len(ps.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: ps.PermissionSetArn, Tags: maps.Clone(ps.Tags)})
+	}
+
+	for _, app := range b.applications.All() {
+		if len(app.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: app.ApplicationArn, Tags: maps.Clone(app.Tags)})
+	}
+
+	for _, tti := range b.trustedTokenIssuers.All() {
+		if len(tti.Tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: tti.TrustedTokenIssuerArn, Tags: maps.Clone(tti.Tags)})
+	}
+
+	return out
+}
+
+// InstanceArnForResource resolves the owning instance ARN for a taggable
+// resource ARN, bridging cross-service tagging calls (which pass only a
+// resourceArn) to TagResource/UntagResource/ListTagsForResource's dual
+// (instanceArn, resourceArn) key.
+func (b *InMemoryBackend) InstanceArnForResource(resourceArn string) (string, bool) {
+	b.mu.RLock("InstanceArnForResource")
+	defer b.mu.RUnlock()
+
+	if b.instances.Has(resourceArn) {
+		return resourceArn, true
+	}
+
+	if ps, ok := b.permissionSets.Get(resourceArn); ok {
+		return ps.InstanceArn, true
+	}
+
+	if app, ok := b.applications.Get(resourceArn); ok {
+		return app.InstanceArn, true
+	}
+
+	if tti, ok := b.trustedTokenIssuers.Get(resourceArn); ok {
+		return tti.InstanceArn, true
+	}
+
+	return "", false
+}

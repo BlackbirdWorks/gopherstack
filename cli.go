@@ -5703,7 +5703,7 @@ func registerTaggingService(
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0,
 // gopherstack-8kco, gopherstack-pdqm): of the ~90 gopherstack services with native tagging
-// support, this wires 95 (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue,
+// support, this wires 97 (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue,
 // ecr, kinesis, stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds,
 // elasticache, redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
 // outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail, dax,
@@ -5715,15 +5715,18 @@ func registerTaggingService(
 // shield, transcribe, verifiedpermissions, waf, securityhub, apprunner,
 // route53resolver, timestreamwrite, s3tables, s3, s3control, workmail, pinpoint,
 // applicationautoscaling, codeartifact, cleanrooms, appmesh, personalize, sesv2,
-// xray, awsconfig, scheduler, appsync, emrserverless). s3control is wired only for the
-// resource kinds taggable through its generic TagResource/UntagResource/ListTagsForResource
-// ops (access points, Object Lambda access points, multi-region access points, access
-// grants) -- see wireTaggingS3Control's doc comment for why batch job tags, Storage Lens
-// configuration tags, and Outposts bucket tags (each a separate real store behind its own
-// dedicated AWS op) are out of scope. emrserverless is wired only for applications and job
-// runs -- see wireTaggingEmrServerless's doc comment for why sessions are out of scope. The
-// rest remain unwired -- see PARITY.md's gaps section for the honest remaining list and why a
-// few (notably codebuild, whose real API has no TagResource/CreateTags-style mutation call at
+// xray, awsconfig, scheduler, appsync, emrserverless, acm, ssoadmin). s3control is wired
+// only for the resource kinds taggable through its generic TagResource/UntagResource/
+// ListTagsForResource ops (access points, Object Lambda access points, multi-region access
+// points, access grants) -- see wireTaggingS3Control's doc comment for why batch job tags,
+// Storage Lens configuration tags, and Outposts bucket tags (each a separate real store
+// behind its own dedicated AWS op) are out of scope. emrserverless is wired only for
+// applications and job runs -- see wireTaggingEmrServerless's doc comment for why sessions
+// are out of scope. acm additionally covers acme-endpoint, acme-external-account-binding,
+// and acme-domain-validation resources alongside certificates -- see wireTaggingACM's doc
+// comment for why acme-account is excluded. The rest remain unwired -- see PARITY.md's gaps
+// section for the honest remaining list and why a few (notably codebuild, whose real API has
+// no TagResource/CreateTags-style mutation call at
 // all -- tags are set only via CreateProject/UpdateProject/CreateFleet/UpdateFleet/
 // CreateReportGroup request bodies; and forecast, whose only resource-creation path is an
 // unexported backend method reachable solely through its own JSON operation dispatch) need
@@ -5951,7 +5954,7 @@ func wireResourceGroupsTaggingSweep5(
 }
 
 // wireResourceGroupsTaggingSweep6 wires this sweep's services (gopherstack-pdqm):
-// AppSync and EMR Serverless. Split out (rather than folded into
+// AppSync, EMR Serverless, ACM, and SSO Admin. Split out (rather than folded into
 // wireResourceGroupsTaggingSweep5) to keep every group under this repo's funlen limit.
 func wireResourceGroupsTaggingSweep6(
 	bk resourcegroupstaggingapibackend.StorageBackend,
@@ -5959,6 +5962,8 @@ func wireResourceGroupsTaggingSweep6(
 ) {
 	wireTaggingAppSync(bk, byName["AppSync"])
 	wireTaggingEmrServerless(bk, byName["EmrServerless"])
+	wireTaggingACM(bk, byName["ACM"])
+	wireTaggingSSOAdmin(bk, byName["SsoAdmin"])
 }
 
 func wireTaggingDDB(
@@ -8760,6 +8765,86 @@ func emrServerlessResourceType(resourceARN string) string {
 // emrServerlessFlatResourceSegmentCount is the minimum "/"-delimited segment count
 // ("applications", "{id}") of a flat, non-nested EMR Serverless resource ARN.
 const emrServerlessFlatResourceSegmentCount = 2
+
+// wireTaggingACM wires the ACM backend into the Resource Groups Tagging API, covering
+// every resource kind its own generic TagResource/UntagResource/ListTagsForResource ops
+// accept (see acm.Handler.resolveTaggableResourceArn's doc comment): certificate,
+// acme-endpoint, acme-external-account-binding, acme-domain-validation. acme-account is
+// excluded -- it has no Tags field and no create-via-API path (botocore 1.43.56,
+// acm/2015-12-08/service-2.json.gz has no CreateAcmeAccount operation), matching real ACM.
+// Certificate, acme-endpoint, and its two nested kinds all share the "acm" ARN service
+// token; nestedResourceType tells the flat kinds (certificate/{id}, acme-endpoint/{id})
+// apart from the two nested under an owning endpoint (acme-endpoint/{epId}/acme-.../{id}).
+func wireTaggingACM(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*acmbackend.Handler)
+	if !ok {
+		return
+	}
+
+	wireTaggingCtxARNResources(
+		bk, "acm",
+		func(arnStr string) string { return nestedResourceType(arnStr, "acm") },
+		func() []taggedARNEntry {
+			items := h.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		h.TagResource,
+		h.UntagResource,
+	)
+}
+
+// wireTaggingSSOAdmin wires the SSO Admin backend into the Resource Groups Tagging API,
+// covering the four resource kinds its own TaggableResourceArn pattern documents
+// (botocore 1.43.56, sso-admin/2020-07-20/service-2.json.gz): instance, permission set,
+// application, trusted token issuer. SSO Admin's own TagResource/UntagResource are keyed
+// by (instanceArn, resourceArn), not the bare resourceArn the tagging aggregator deals
+// in, so the tag/untag closures below call InstanceArnForResource first to bridge the two.
+func wireTaggingSSOAdmin(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*ssoadminbackend.Handler)
+	if !ok {
+		return
+	}
+
+	ssoBk, ok := h.Backend.(*ssoadminbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "sso",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "sso") },
+		func() []taggedARNEntry {
+			items := ssoBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		func(arnStr string, newTags map[string]string) error {
+			instanceArn, found := ssoBk.InstanceArnForResource(arnStr)
+			if !found {
+				return ssoadminbackend.ErrInstanceNotFound
+			}
+
+			return ssoBk.TagResource(instanceArn, arnStr, newTags)
+		},
+		func(arnStr string, keys []string) error {
+			instanceArn, found := ssoBk.InstanceArnForResource(arnStr)
+			if !found {
+				return ssoadminbackend.ErrInstanceNotFound
+			}
+
+			return ssoBk.UntagResource(instanceArn, arnStr, keys)
+		},
+	)
+}
 
 // wireTaggingWorkMail wires the WorkMail backend into the Resource Groups Tagging API.
 // Organizations are flat ("organization/{id}") but users, groups, and resources nest

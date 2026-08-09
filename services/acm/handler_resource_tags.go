@@ -131,3 +131,56 @@ func (h *Handler) jsonUntagResource(ctx context.Context, body []byte) (any, erro
 
 	return &untagResourceOutput{}, nil
 }
+
+// TaggedEntry pairs a taggable ACM resource ARN with its tag set, for
+// cross-service tagging discovery (see cli.go's wireTaggingACM).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every taggable ACM resource that carries at least
+// one tag -- certificate, acme-endpoint, acme-external-account-binding, and
+// acme-domain-validation all share this same h.tags-backed store (see
+// resolveTaggableResourceArn's doc comment).
+func (h *Handler) TaggedResources() []TaggedEntry {
+	h.tagsMu.RLock("TaggedResources")
+	entries := h.tags.All()
+	h.tagsMu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(entries))
+
+	for _, e := range entries {
+		if e.Tags == nil || e.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: e.ResourceID, Tags: e.Tags.Clone()})
+	}
+
+	return out
+}
+
+// TagResource is the generic cross-service tagging entry point for any
+// taggable ACM resource (see resolveTaggableResourceArn), used by cli.go's
+// wireTaggingACM.
+func (h *Handler) TagResource(ctx context.Context, resourceArn string, newTags map[string]string) error {
+	if err := h.resolveTaggableResourceArn(ctx, resourceArn); err != nil {
+		return err
+	}
+
+	return h.setTags(resourceArn, newTags)
+}
+
+// UntagResource is the generic cross-service untagging entry point for any
+// taggable ACM resource (see resolveTaggableResourceArn), used by cli.go's
+// wireTaggingACM.
+func (h *Handler) UntagResource(ctx context.Context, resourceArn string, tagKeys []string) error {
+	if err := h.resolveTaggableResourceArn(ctx, resourceArn); err != nil {
+		return err
+	}
+
+	h.removeTags(resourceArn, tagKeys)
+
+	return nil
+}
