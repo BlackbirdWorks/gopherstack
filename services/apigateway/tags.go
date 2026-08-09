@@ -252,3 +252,80 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 	return nil
 }
+
+// TaggedEntry pairs a taggable API Gateway resource ARN with its tag set, for
+// cross-service tagging discovery (see cli.go's wireTaggingAPIGateway).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// apigwTaggingARNRegion is the region segment used when this package builds ARNs
+// for cross-service tagging discovery. resolveTaggableARN discards everything
+// before "::", so the value here is never matched against -- mirrors the
+// hardcoded "us-east-1" RejectDomainNameAccessAssociation already uses for the
+// same reason (domain_names.go).
+const apigwTaggingARNRegion = "us-east-1"
+
+// TaggedResources returns every taggable API Gateway resource that carries at
+// least one tag, across all seven kinds resolveTaggableARN accepts.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0,
+		b.restApis.Len()+b.stages.Len()+b.apiKeys.Len()+b.domainNames.Len()+
+			b.usagePlans.Len()+b.vpcLinks.Len()+b.clientCertificates.Len())
+
+	for _, api := range b.restApis.All() {
+		out = appendTaggedEntry(out, api.Tags, apigwRestAPIArn(api.ID))
+	}
+
+	for _, stage := range b.stages.All() {
+		out = appendTaggedEntry(out, stage.Tags, apigwStageArn(stage.RestAPIID, stage.StageName))
+	}
+
+	for _, k := range b.apiKeys.All() {
+		out = appendTaggedEntry(out, k.Tags, apigwResourceArn(apiGWSegAPIKeys, k.ID))
+	}
+
+	for _, dn := range b.domainNames.All() {
+		out = appendTaggedEntry(out, dn.Tags, apigwResourceArn(apiGWSegDomainNames, dn.DomainNameValue))
+	}
+
+	for _, p := range b.usagePlans.All() {
+		out = appendTaggedEntry(out, p.Tags, apigwResourceArn(apiGWSegUsagePlans, p.ID))
+	}
+
+	for _, l := range b.vpcLinks.All() {
+		out = appendTaggedEntry(out, l.Tags, apigwResourceArn(apiGWSegVpcLinks, l.ID))
+	}
+
+	for _, c := range b.clientCertificates.All() {
+		out = appendTaggedEntry(out, c.Tags, apigwResourceArn(apiGWSegClientCerts, c.ClientCertificateID))
+	}
+
+	return out
+}
+
+// appendTaggedEntry appends a TaggedEntry for arn to out, skipping resources
+// with no tags (a nil *tags.Tags or an empty one).
+func appendTaggedEntry(out []TaggedEntry, t *tags.Tags, arn string) []TaggedEntry {
+	if t == nil || t.Len() == 0 {
+		return out
+	}
+
+	return append(out, TaggedEntry{ARN: arn, Tags: t.Clone()})
+}
+
+func apigwResourceArn(kind, id string) string {
+	return "arn:aws:apigateway:" + apigwTaggingARNRegion + "::/" + kind + "/" + id
+}
+
+func apigwRestAPIArn(apiID string) string {
+	return apigwResourceArn(apiGWSegRestAPIs, apiID)
+}
+
+func apigwStageArn(apiID, stageName string) string {
+	return apigwRestAPIArn(apiID) + "/" + apiGWSegStages + "/" + stageName
+}

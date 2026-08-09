@@ -5703,7 +5703,7 @@ func registerTaggingService(
 //
 // Coverage note (bd: gopherstack-3xne, gopherstack-7rsk, gopherstack-no6n, gopherstack-91e0,
 // gopherstack-8kco, gopherstack-pdqm): of the ~90 gopherstack services with native tagging
-// support, this wires 97 (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue,
+// support, this wires 99 (dynamodb, sqs, sns, lambda, kms, secretsmanager, ecs, athena, glue,
 // ecr, kinesis, stepfunctions, cloudfront, eks, batch, wafv2, backup, efs, docdb, neptune, rds,
 // elasticache, redshift, sagemaker, firehose, opensearch, cloudwatchlogs, mq, emr, grafana,
 // outposts, resiliencehub, directconnect, mgn, networkmanager, lightsail, dax,
@@ -5715,7 +5715,8 @@ func registerTaggingService(
 // shield, transcribe, verifiedpermissions, waf, securityhub, apprunner,
 // route53resolver, timestreamwrite, s3tables, s3, s3control, workmail, pinpoint,
 // applicationautoscaling, codeartifact, cleanrooms, appmesh, personalize, sesv2,
-// xray, awsconfig, scheduler, appsync, emrserverless, acm, ssoadmin). s3control is wired
+// xray, awsconfig, scheduler, appsync, emrserverless, acm, ssoadmin, apigateway,
+// organizations). s3control is wired
 // only for the resource kinds taggable through its generic TagResource/UntagResource/
 // ListTagsForResource ops (access points, Object Lambda access points, multi-region access
 // points, access grants) -- see wireTaggingS3Control's doc comment for why batch job tags,
@@ -5724,7 +5725,9 @@ func registerTaggingService(
 // applications and job runs -- see wireTaggingEmrServerless's doc comment for why sessions
 // are out of scope. acm additionally covers acme-endpoint, acme-external-account-binding,
 // and acme-domain-validation resources alongside certificates -- see wireTaggingACM's doc
-// comment for why acme-account is excluded. The rest remain unwired -- see PARITY.md's gaps
+// comment for why acme-account is excluded. organizations is wired only for account, root,
+// OU, and policy -- see wireTaggingOrganizations's doc comment for why the organization
+// resource itself is excluded. The rest remain unwired -- see PARITY.md's gaps
 // section for the honest remaining list and why a few (notably codebuild, whose real API has
 // no TagResource/CreateTags-style mutation call at
 // all -- tags are set only via CreateProject/UpdateProject/CreateFleet/UpdateFleet/
@@ -5954,8 +5957,9 @@ func wireResourceGroupsTaggingSweep5(
 }
 
 // wireResourceGroupsTaggingSweep6 wires this sweep's services (gopherstack-pdqm):
-// AppSync, EMR Serverless, ACM, and SSO Admin. Split out (rather than folded into
-// wireResourceGroupsTaggingSweep5) to keep every group under this repo's funlen limit.
+// AppSync, EMR Serverless, ACM, SSO Admin, API Gateway, and Organizations. Split
+// out (rather than folded into wireResourceGroupsTaggingSweep5) to keep every
+// group under this repo's funlen limit.
 func wireResourceGroupsTaggingSweep6(
 	bk resourcegroupstaggingapibackend.StorageBackend,
 	byName map[string]service.Registerable,
@@ -5964,6 +5968,8 @@ func wireResourceGroupsTaggingSweep6(
 	wireTaggingEmrServerless(bk, byName["EmrServerless"])
 	wireTaggingACM(bk, byName["ACM"])
 	wireTaggingSSOAdmin(bk, byName["SsoAdmin"])
+	wireTaggingAPIGateway(bk, byName["APIGateway"])
+	wireTaggingOrganizations(bk, byName["Organizations"])
 }
 
 func wireTaggingDDB(
@@ -8843,6 +8849,118 @@ func wireTaggingSSOAdmin(bk resourcegroupstaggingapibackend.StorageBackend, reg 
 
 			return ssoBk.UntagResource(instanceArn, arnStr, keys)
 		},
+	)
+}
+
+// apigwStageARNSegs is the "/"-delimited segment count of a nested API Gateway
+// stage ARN's resource path ("restapis/{id}/stages/{name}"), the only nested
+// kind among API Gateway's seven taggable resources (see
+// services/apigateway/tags.go's resolveTaggableARN).
+const apigwStageARNSegs = 4
+
+// apigatewayResourceType derives the resource-type string for an API Gateway
+// ARN. API Gateway ARNs carry no account segment and their resource portion is
+// a leading-slash path ("/restapis/{id}[/stages/{name}]"), which is exactly
+// what GetResources documents each resource type as embedding -- so neither
+// resourceTypeFromARN (its first "/"-or-":" split would read the leading slash
+// itself as the type) nor nestedResourceType fits; this mirrors
+// resolveTaggableARN's own "::" + "/" parsing instead.
+func apigatewayResourceType(resourceARN string) string {
+	_, path, ok := strings.Cut(resourceARN, "::")
+	if !ok {
+		return "apigateway"
+	}
+
+	segs := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(segs) == 0 || segs[0] == "" {
+		return "apigateway"
+	}
+
+	if len(segs) >= apigwStageARNSegs && segs[0] == "restapis" && segs[2] == "stages" {
+		return "apigateway:restapis/stages"
+	}
+
+	return "apigateway:" + segs[0]
+}
+
+// wireTaggingAPIGateway wires the API Gateway backend into the Resource Groups
+// Tagging API, covering all seven resource kinds its own generic
+// TagResource/UntagResource/GetResourceTags ops accept (RestApi, Stage, ApiKey,
+// DomainName, UsagePlan, VpcLink, ClientCertificate -- confirmed against the
+// AWS-documented taggable resource list at
+// https://docs.aws.amazon.com/apigateway/latest/developerguide/
+// apigateway-tagging-supported-resources.html, and against botocore 1.43.56
+// apigateway/2015-07-09/service-2.json.gz's RestApi/Stage/ApiKey/DomainName/
+// UsagePlan/VpcLink/ClientCertificate shapes, all of which carry a tags
+// member). Stages nest under their owning REST API's ARN
+// ("/restapis/{id}/stages/{name}"), hence apigatewayResourceType rather than a
+// plain first-segment split.
+func wireTaggingAPIGateway(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*apigwbackend.Handler)
+	if !ok {
+		return
+	}
+
+	apigwBk, ok := h.Backend.(*apigwbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "apigateway",
+		apigatewayResourceType,
+		func() []taggedARNEntry {
+			items := apigwBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		apigwBk.TagResource,
+		apigwBk.UntagResource,
+	)
+}
+
+// wireTaggingOrganizations wires the Organizations backend into the Resource
+// Groups Tagging API, covering the four resource kinds real TagResource
+// documents (account, root, organizational unit, policy -- see the AWS
+// Organizations API reference for TagResource: its ResourceId pattern has no
+// branch for an organization ID). The organization resource itself is
+// deliberately excluded even though gopherstack's own local TagResource
+// permits tagging it (services/organizations/store.go's
+// resourceExistsLocked treats b.org.ID as valid) -- real AWS Organizations has
+// no way to tag the organization resource. Organizations' own tag store is
+// keyed by an internal resourceID, not an ARN (services/organizations/
+// tags.go), so TagResourceByARN/UntagResourceByARN/TaggedResources bridge the
+// two; every stored resource already carries its own ARN precomputed at
+// creation time, so no new ARN-building logic was needed here.
+func wireTaggingOrganizations(bk resourcegroupstaggingapibackend.StorageBackend, reg service.Registerable) {
+	h, ok := reg.(*organizationsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	orgBk, ok := h.Backend.(*organizationsbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	wireTaggingARNResources(
+		bk, "organizations",
+		func(arnStr string) string { return resourceTypeFromARN(arnStr, "organizations") },
+		func() []taggedARNEntry {
+			items := orgBk.TaggedResources()
+			out := make([]taggedARNEntry, 0, len(items))
+			for _, item := range items {
+				out = append(out, taggedARNEntry{ARN: item.ARN, Tags: item.Tags})
+			}
+
+			return out
+		},
+		orgBk.TagResourceByARN,
+		orgBk.UntagResourceByARN,
 	)
 }
 
