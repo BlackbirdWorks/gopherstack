@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"net/url"
 
 	"github.com/google/uuid"
@@ -369,6 +370,22 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 	)
 }
 
+// unsupportedAccountFilterType returns the requested
+// DeploymentTargets.AccountFilterType value if it's one this backend doesn't
+// implement, or "" if the request should proceed. Only NONE (the union of
+// Accounts and resolved OrganizationalUnitIds, this backend's only supported
+// mode) passes; INTERSECTION/DIFFERENCE/UNION are rejected explicitly rather
+// than silently computed as NONE (botocore cloudformation service-2.json
+// AccountFilterType enum, botocore 1.43.56).
+func unsupportedAccountFilterType(form url.Values) string {
+	switch ft := form.Get("DeploymentTargets.AccountFilterType"); ft {
+	case "", valueNone:
+		return ""
+	default:
+		return ft
+	}
+}
+
 // stackInstancesOp is CreateStackInstances or DeleteStackInstances -- same
 // request shape (accounts/OU targets/regions in, an operation ID out).
 type stackInstancesOp func(
@@ -384,6 +401,10 @@ func (h *Handler) handleStackInstancesOp(
 	name := form.Get("StackSetName")
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
+	}
+	if ft := unsupportedAccountFilterType(form); ft != "" {
+		return h.xmlError(c, "ValidationError",
+			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
@@ -427,6 +448,10 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	name := form.Get("StackSetName")
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
+	}
+	if ft := unsupportedAccountFilterType(form); ft != "" {
+		return h.xmlError(c, "ValidationError",
+			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
 	}
 	accounts := parseMemberList(form, "Accounts.")
 	ouIDs := parseMemberList(form, "DeploymentTargets.OrganizationalUnitIds.")
