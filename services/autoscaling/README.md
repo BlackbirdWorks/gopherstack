@@ -8,20 +8,18 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 66 (66 ok) |
-| Known gaps | 3 |
+| Known gaps | 1 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- Multiple lifecycle hooks of the *same* transition on one group: this simulation gates on a single (deterministic, lowest-named) hook per transition per group, matching the common case; AWS supports N hooks per transition each independently gating the same instance. Documented simplification, see Notes
-- ABANDON on a launch hook terminates the pending instance but does not attempt an automatic relaunch to restore DesiredCapacity (real AWS does retry); documented simplification, see Notes
 - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
 
 ### Deferred
 
-- InstanceRequirements-based MixedInstancesPolicy overrides (attribute-based instance selection) - only InstanceType-based overrides are parsed/returned. Re-confirmed this pass: types.InstanceRequirements has 25 fields (VCpuCount, MemoryMiB, CpuManufacturers, AcceleratorCount/Manufacturers/Names/TotalMemoryMiB/Types, BareMetal, BaselineEbsBandwidthMbps, BaselinePerformanceFactors, BurstablePerformance, ExcludedInstanceTypes, InstanceGenerations, LocalStorage/LocalStorageTypes, MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, MemoryGiBPerVCpu, NetworkBandwidthGbps, NetworkInterfaceCount, OnDemandMaxPricePercentageOverLowestPrice, RequireHibernateSupport, SpotMaxPricePercentageOverLowestPrice, TotalLocalStorageGB) - a genuinely large, separate feature (attribute-based instance-type selection), not a quick wire fix; deliberately not attempted this pass. No bd id filed yet.
-- PredictiveScalingConfiguration (Put/Describe are not in GetSupportedOperations at all - predictive scaling policy *configuration* management, as opposed to GetPredictiveScalingForecast, was out of scope for this pass; confirmed the SDK op list has no separate op for this, it rides inside PutScalingPolicy's PolicyType=PredictiveScaling with a nested config this handler does not parse)
+- InstanceRequirements.BaselinePerformanceFactors (the one field of InstanceRequirements's 25 not modelled - see Notes for the other 24, fixed this pass). It nests a CPU-instance-family reference list (CpuPerformanceFactorRequest.References []PerformanceFactorReferenceRequest) that has no analogue elsewhere in this handler; deliberately not attempted this pass. No bd id filed yet.
+- PredictiveScalingConfiguration.MetricSpecifications[].Customized{Capacity,Load,Scaling}MetricSpecification (the CloudWatch MetricDataQuery/math-expression variant of a predictive scaling metric spec - see Notes for the predefined-metric variants, fixed this pass). Deliberately not attempted this pass: MetricDataQuery is a full CloudWatch metric-math sub-language shared with GetMetricData, out of scope for a PutScalingPolicy fix. No bd id filed yet.
 
 ## More
 

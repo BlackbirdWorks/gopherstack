@@ -7,23 +7,18 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 67 (65 ok, 2 partial) |
+| Operations audited | 67 (66 ok, 1 partial) |
 | Feature families | 12 (12 ok) |
 | Known gaps | 4 |
-| Deferred items | 2 |
+| Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h
 - SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)
-- BatchDescribeTypeConfigurations never populates the real output's Errors/UnprocessedTypeConfigurations fields — every requested identifier is always reported as resolved (bd: gopherstack-e5h)
-- StackSets deployment-target math (ListStackSetAutoDeploymentTargets/ImportStacksToStackSet) uses a synthetic per-account-as-OU placeholder rather than real Organizations OU-hierarchy simulation — deliberate, code-commented simplification (bd: gopherstack-e5h)
-
-### Deferred
-
-- StackSets SERVICE_MANAGED/OU-based auto-deployment semantics beyond the synthetic per-account-as-OU placeholder — real Organizations-hierarchy simulation is a materially larger feature than a spot-fix; DetectStackSetDrift's per-instance accuracy was fixed this pass (bd: gopherstack-e5h)
-- Stack Refactor business-logic depth: ExecuteStackRefactor is a pure status-flip (verified this pass) and does NOT actually move StackResource entries between the stacks named in StackDefinitions/ResourceMappings; ListStackRefactorActions' MOVE-only action modeling and real resource-mapping semantics are unimplemented. Wire/error shape for all 5 ops is correct (see families: stack_refactor) — this is a genuine missing feature, not a bug, and a full implementation (parsing ResourceMapping definitions, migrating resource state across b.resources[stackID] maps, updating both stacks' templates) was judged too large to safely rush in this pass (bd: gopherstack-e5h)
+- StackSets DeploymentTargets.AccountFilterType (INTERSECTION/DIFFERENCE) and AccountsUrl are not implemented — only the default NONE/union-of-OUs case; rejected explicitly rather than silently mis-computed (bd: gopherstack-g7b5)
+- ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work
 
 ## More
 
