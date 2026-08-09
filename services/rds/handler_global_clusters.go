@@ -46,7 +46,7 @@ type xmlGlobalCluster struct {
 }
 
 type xmlGlobalClusterList struct {
-	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalClusterMember"`
 }
 
 type describeGlobalClustersResponse struct {

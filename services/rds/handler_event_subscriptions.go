@@ -41,7 +41,7 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 }
 
 type xmlSourceIDList struct {
-	Members []string `xml:"member"`
+	Members []string `xml:"SourceId"`
 }
 
 type xmlEventCategoryList struct {
@@ -90,22 +90,10 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
-	var sourceIDs []string
-	for i := 1; ; i++ {
-		id := vals.Get("SourceIds.member." + strconv.Itoa(i))
-		if id == "" {
-			break
-		}
-		sourceIDs = append(sourceIDs, id)
-	}
-	var eventCategories []string
-	for i := 1; ; i++ {
-		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
-		if cat == "" {
-			break
-		}
-		eventCategories = append(eventCategories, cat)
-	}
+	// rds@v1.124.1 serializers.go: SourceIds/EventCategories serialize as
+	// "SourceId"/"EventCategory", not the smithy default "member".
+	sourceIDs := parseMultiValueParam(vals, "SourceIds.SourceId")
+	eventCategories := parseMultiValueParam(vals, "EventCategories.EventCategory")
 	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories)
 	if err != nil {
 		return nil, err
@@ -153,28 +141,15 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
-	var sourceIDs []string
-	for i := 1; ; i++ {
-		id := vals.Get("SourceIds.member." + strconv.Itoa(i))
-		if id == "" {
-			break
-		}
-		sourceIDs = append(sourceIDs, id)
-	}
-	var eventCategories []string
-	for i := 1; ; i++ {
-		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
-		if cat == "" {
-			break
-		}
-		eventCategories = append(eventCategories, cat)
-	}
+	// ModifyEventSubscriptionInput has no SourceIds member (rds@v1.124.1
+	// serializers.go) -- only EventCategories, serialized as "EventCategory".
+	eventCategories := parseMultiValueParam(vals, "EventCategories.EventCategory")
 	var enabled *bool
 	if v := vals.Get("Enabled"); v != "" {
 		b := strings.EqualFold(v, "true")
 		enabled = &b
 	}
-	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories, enabled)
+	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, nil, eventCategories, enabled)
 	if err != nil {
 		return nil, err
 	}

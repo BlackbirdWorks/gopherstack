@@ -93,11 +93,10 @@ type xmlServerlessV2PlatformVersionInfo struct {
 }
 
 // xmlServerlessV2VersionList wraps the ServerlessV2PlatformVersionInfo member list.
-// Named shorter than the real member name (ServerlessV2PlatformVersionInfo) purely to
-// keep the response struct's tag column under this repo's line-length limit; the XML
-// tags on both types carry the exact real wire names regardless of Go identifier length.
+// The list item element is the smithy default "member", not the shape name
+// (rds@v1.124.1 deserializers.go: awsAwsquery_deserializeDocumentServerlessV2PlatformVersionList).
 type xmlServerlessV2VersionList struct {
-	Members []xmlServerlessV2PlatformVersionInfo `xml:"ServerlessV2PlatformVersionInfo"`
+	Members []xmlServerlessV2PlatformVersionInfo `xml:"member"`
 }
 
 type describeServerlessV2PlatformVersionsResponse struct {

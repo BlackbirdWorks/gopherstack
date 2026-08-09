@@ -361,7 +361,7 @@ type xmlUserAuthConfig struct {
 }
 
 type xmlUserAuthConfigList struct {
-	Members []xmlUserAuthConfig `xml:"UserAuthConfig"`
+	Members []xmlUserAuthConfig `xml:"member"`
 }
 
 type xmlConnectionPoolConfig struct {

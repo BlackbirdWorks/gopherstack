@@ -90,7 +90,7 @@ func (h *Handler) handleSwitchoverBlueGreenDeployment(vals url.Values) (any, err
 }
 
 type xmlBlueGreenDeploymentList struct {
-	Members []xmlBlueGreenDeployment `xml:"BlueGreenDeployment"`
+	Members []xmlBlueGreenDeployment `xml:"member"`
 }
 
 type describeBlueGreenDeploymentsResponse struct {
