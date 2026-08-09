@@ -70,6 +70,7 @@ func (h *Handler) handleDeleteAggregationAuthorization(
 type putAggregationAuthorizationInput struct {
 	AuthorizedAccountID string `json:"AuthorizedAccountId"`
 	AuthorizedAwsRegion string `json:"AuthorizedAwsRegion"`
+	Tags                []Tag  `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handlePutAggregationAuthorization(
@@ -78,6 +79,7 @@ func (h *Handler) handlePutAggregationAuthorization(
 	return &emptyOutput{}, h.Backend.PutAggregationAuthorization(
 		in.AuthorizedAccountID,
 		in.AuthorizedAwsRegion,
+		in.Tags,
 	)
 }
 
@@ -136,6 +138,7 @@ type putConfigurationAggregatorInput struct {
 	OrganizationAggregationSource *OrganizationAggregationSource `json:"OrganizationAggregationSource,omitempty"`
 	ConfigurationAggregatorName   string                         `json:"ConfigurationAggregatorName"`
 	AccountAggregationSources     []AccountAggregationSource     `json:"AccountAggregationSources,omitempty"`
+	Tags                          []Tag                          `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handlePutConfigurationAggregator(
@@ -145,6 +148,7 @@ func (h *Handler) handlePutConfigurationAggregator(
 		in.ConfigurationAggregatorName,
 		in.AccountAggregationSources,
 		in.OrganizationAggregationSource,
+		in.Tags,
 	)
 }
 

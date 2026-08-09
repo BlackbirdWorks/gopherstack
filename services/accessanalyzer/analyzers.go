@@ -60,6 +60,10 @@ func (b *InMemoryBackend) CreateAnalyzer(
 
 	b.analyzers.Put(a)
 
+	if len(tags) > 0 {
+		b.tags[a.Arn] = cloneTags(tags)
+	}
+
 	return copyAnalyzer(a), nil
 }
 

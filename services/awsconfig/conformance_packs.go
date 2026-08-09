@@ -32,6 +32,7 @@ const conformancePackStateComplete = "COMPLETE"
 // (cascade), matching AWS's conformance-pack-update semantics.
 func (b *InMemoryBackend) PutConformancePack(
 	name, deliveryS3Bucket, deliveryS3KeyPrefix, templateBody, templateS3URI, templateSSMDocumentName string,
+	tags []Tag,
 ) error {
 	if name == "" {
 		return fmt.Errorf("%w: ConformancePackName is required", ErrValidation)
@@ -75,6 +76,7 @@ func (b *InMemoryBackend) PutConformancePack(
 		DeliveryS3Bucket:    deliveryS3Bucket,
 		DeliveryS3KeyPrefix: deliveryS3KeyPrefix,
 	})
+	b.setResourceTagsLocked(arn, tags)
 
 	return nil
 }

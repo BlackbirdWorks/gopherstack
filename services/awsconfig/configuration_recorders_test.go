@@ -465,7 +465,7 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		_, _, err := b.PutServiceLinkedConfigurationRecorder("")
+		_, _, err := b.PutServiceLinkedConfigurationRecorder("", nil)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, awsconfig.ErrValidation)
 	})
@@ -474,7 +474,7 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		name, arn, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		name, arn, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "AWSConfigurationRecorderForGuardduty", name)
 		assert.Contains(t, arn, "config-recorder/"+name)
@@ -488,9 +488,9 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		name1, arn1, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		name1, arn1, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com", nil)
 		require.NoError(t, err)
-		name2, arn2, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		name2, arn2, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com", nil)
 		require.NoError(t, err)
 
 		assert.Equal(t, name1, name2)
@@ -511,7 +511,7 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com", nil)
 		require.NoError(t, err)
 
 		delName, delArn, err := b.DeleteServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
@@ -525,7 +525,7 @@ func TestAWSConfigBackend_ServiceLinkedConfigurationRecorder(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com")
+		name, _, err := b.PutServiceLinkedConfigurationRecorder("guardduty.amazonaws.com", nil)
 		require.NoError(t, err)
 
 		snap := b.Snapshot(t.Context())

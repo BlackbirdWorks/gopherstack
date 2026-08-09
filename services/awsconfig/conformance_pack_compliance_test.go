@@ -35,7 +35,7 @@ func newCompliancePackBackend(t *testing.T) *awsconfig.InMemoryBackend {
 	t.Helper()
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", conformancePackComplianceTestTemplate, "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", conformancePackComplianceTestTemplate, "", "", nil))
 	require.NoError(t, b.PutResourceConfig("AWS::EC2::Volume", "vol-bad", `{"Encrypted":false}`))
 	require.NoError(t, b.StartConfigRulesEvaluation())
 
@@ -146,7 +146,7 @@ func TestAWSConfigBackend_ListConformancePackComplianceScores_Full(t *testing.T)
 		t.Parallel()
 
 		b := newCompliancePackBackend(t)
-		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", ""))
+		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", "", nil))
 
 		scores := b.ListConformancePackComplianceScores(nil)
 		require.Len(t, scores, 2)
@@ -166,7 +166,7 @@ func TestAWSConfigBackend_ListConformancePackComplianceScores_Full(t *testing.T)
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", ""))
+		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", "", nil))
 
 		scores := b.ListConformancePackComplianceScores([]string{"empty-pack"})
 		require.Len(t, scores, 1)
@@ -191,7 +191,7 @@ func TestAWSConfigBackend_DescribeAggregateComplianceByConformancePacks_Full(t *
 		t.Parallel()
 
 		b := newCompliancePackBackend(t)
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 
 		out, err := b.DescribeAggregateComplianceByConformancePacks("agg1", "123456789012", "us-east-1")
 		require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestAWSConfigBackend_GetAggregateConformancePackComplianceSummary_Full(t *t
 		t.Parallel()
 
 		b := newCompliancePackBackend(t)
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 
 		out, err := b.GetAggregateConformancePackComplianceSummary("agg1", "")
 		require.NoError(t, err)

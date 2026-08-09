@@ -83,6 +83,7 @@ type putConformancePackInput struct {
 	DeliveryS3KeyPrefix        string                                        `json:"DeliveryS3KeyPrefix,omitempty"`
 	TemplateBody               string                                        `json:"TemplateBody,omitempty"`
 	TemplateS3Uri              string                                        `json:"TemplateS3Uri,omitempty"`
+	Tags                       []Tag                                         `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handlePutConformancePack(
@@ -100,6 +101,7 @@ func (h *Handler) handlePutConformancePack(
 		in.TemplateBody,
 		in.TemplateS3Uri,
 		ssmDocName,
+		in.Tags,
 	)
 }
 

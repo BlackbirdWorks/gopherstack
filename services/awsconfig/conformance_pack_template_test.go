@@ -33,7 +33,7 @@ func TestPutConformancePack_TemplateBody_DeploysConfigRules(t *testing.T) {
 	}`
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", template, "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", template, "", "", nil))
 
 	rules, err := b.DescribeConfigRules([]string{"s3-versioning-enabled"})
 	require.NoError(t, err)
@@ -65,7 +65,7 @@ func TestPutConformancePack_TemplateBody_DerivesNameFromLogicalID(t *testing.T) 
 	}`
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("mypack", "", "", template, "", ""))
+	require.NoError(t, b.PutConformancePack("mypack", "", "", template, "", "", nil))
 
 	rules, err := b.DescribeConfigRules([]string{"mypack-MyRule"})
 	require.NoError(t, err)
@@ -80,7 +80,7 @@ func TestPutConformancePack_TemplateBody_Unparsable(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", "not: valid: json: at: all", "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", "not: valid: json: at: all", "", "", nil))
 
 	rules, err := b.DescribeConfigRules(nil)
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ Resources:
 `
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", template, "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", template, "", "", nil))
 
 	rules, err := b.DescribeConfigRules([]string{"s3-versioning-enabled-yaml"})
 	require.NoError(t, err)
@@ -152,7 +152,7 @@ func TestPutConformancePack_MultipleTemplateSourcesRejected(t *testing.T) {
 			t.Parallel()
 
 			b := awsconfig.NewInMemoryBackend()
-			err := b.PutConformancePack("pack1", "", "", tt.templateBody, tt.templateS3URI, tt.ssmDocName)
+			err := b.PutConformancePack("pack1", "", "", tt.templateBody, tt.templateS3URI, tt.ssmDocName, nil)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, awsconfig.ErrValidation)
 		})
@@ -167,7 +167,7 @@ func TestPutConformancePack_TemplateS3Uri_AcceptedButDeploysNoRules(t *testing.T
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", "", "s3://bucket/template.yaml", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", "", "s3://bucket/template.yaml", "", nil))
 
 	rules, err := b.DescribeConfigRules(nil)
 	require.NoError(t, err)
@@ -186,14 +186,14 @@ func TestPutConformancePack_TemplateBody_UpdateReplacesRuleSet(t *testing.T) {
 		"Properties":{"ConfigRuleName":"rule-b","Source":{"Owner":"AWS","SourceIdentifier":"ENCRYPTED_VOLUMES"}}}}}`
 
 	b := awsconfig.NewInMemoryBackend()
-	require.NoError(t, b.PutConformancePack("pack1", "", "", v1, "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", v1, "", "", nil))
 
 	rules, err := b.DescribeConfigRules(nil)
 	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	assert.Equal(t, "rule-a", rules[0].ConfigRuleName)
 
-	require.NoError(t, b.PutConformancePack("pack1", "", "", v2, "", ""))
+	require.NoError(t, b.PutConformancePack("pack1", "", "", v2, "", "", nil))
 
 	rules, err = b.DescribeConfigRules(nil)
 	require.NoError(t, err)

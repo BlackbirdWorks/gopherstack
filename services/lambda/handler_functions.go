@@ -324,6 +324,7 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 	return c.JSON(http.StatusOK, &GetFunctionOutput{
 		Configuration: fn,
 		Code:          buildCodeLocation(fn),
+		Tags:          fn.Tags,
 	})
 }
 

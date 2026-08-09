@@ -15,7 +15,7 @@ func TestAggregationAuthorizationARN(t *testing.T) {
 	t.Parallel()
 
 	b := newTestAWSConfigHandler(t).Backend
-	require.NoError(t, b.PutAggregationAuthorization("999999999999", "eu-west-1"))
+	require.NoError(t, b.PutAggregationAuthorization("999999999999", "eu-west-1", nil))
 
 	auths := b.DescribeAggregationAuthorizations()
 	require.Len(t, auths, 1)
@@ -58,7 +58,7 @@ func TestAWSConfigHandler_DeleteAggregationAuthorization(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutAggregationAuthorization("123456789012", "us-east-1"))
+				require.NoError(t, h.Backend.PutAggregationAuthorization("123456789012", "us-east-1", nil))
 			},
 			body: map[string]any{
 				"AuthorizedAccountId": "123456789012",
@@ -106,7 +106,7 @@ func TestAWSConfigHandler_DeleteConfigurationAggregator(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConfigurationAggregator("my-aggregator", nil, nil))
+				require.NoError(t, h.Backend.PutConfigurationAggregator("my-aggregator", nil, nil, nil))
 			},
 			body:     map[string]any{"ConfigurationAggregatorName": "my-aggregator"},
 			wantCode: http.StatusOK,
@@ -141,7 +141,7 @@ func TestAWSConfigHandler_DescribeConfigurationAggregatorSourcesStatus(t *testin
 	h := newTestAWSConfigHandler(t)
 	require.NoError(t, h.Backend.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
 		{AccountIDs: []string{"111111111111"}, AwsRegions: []string{"us-east-1"}},
-	}, nil))
+	}, nil, nil))
 
 	rec := doAWSConfigRequest(t, h, "DescribeConfigurationAggregatorSourcesStatus", map[string]any{
 		"ConfigurationAggregatorName": "agg1",
@@ -161,7 +161,7 @@ func TestAWSConfigHandler_PendingAggregationRequests(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
-	require.NoError(t, h.Backend.PutAggregationAuthorization("111111111111", "us-east-1"))
+	require.NoError(t, h.Backend.PutAggregationAuthorization("111111111111", "us-east-1", nil))
 
 	describeRec := doAWSConfigRequest(t, h, "DescribePendingAggregationRequests", map[string]any{})
 	require.Equal(t, http.StatusOK, describeRec.Code)

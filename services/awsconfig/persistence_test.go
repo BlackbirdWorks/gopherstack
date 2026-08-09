@@ -52,7 +52,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "stored_query_round_trip",
 			setup: func(b *awsconfig.InMemoryBackend) string {
-				require.NoError(t, b.PutStoredQuery("query-1"))
+				_, err := b.PutStoredQuery("query-1", "", "", nil)
+				require.NoError(t, err)
 
 				return "query-1"
 			},
@@ -353,10 +354,10 @@ func TestInMemoryBackend_Snapshot_AllMaps(t *testing.T) {
 	b := awsconfig.NewInMemoryBackend()
 	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r", nil))
 	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
-	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
+	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1", nil))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
-	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", ""))
+	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
 
@@ -403,13 +404,14 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 
 	require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::000:role/r", nil))
 	require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
-	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
+	require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1", nil))
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule-x"}))
-	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil))
-	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", ""))
+	require.NoError(t, b.PutConfigurationAggregator("agg-1", nil, nil, nil))
+	require.NoError(t, b.PutConformancePack("pack-1", "", "", "", "", "", nil))
 	require.NoError(t, b.PutOrganizationConfigRule("org-rule-1"))
 	require.NoError(t, b.PutOrganizationConformancePack("org-pack-1"))
-	require.NoError(t, b.PutStoredQuery("query-1"))
+	_, err := b.PutStoredQuery("query-1", "", "", nil)
+	require.NoError(t, err)
 	require.NoError(t, b.PutRetentionConfiguration("retention-1", 30))
 	require.NoError(t, b.PutRemediationConfigurations([]awsconfig.RemediationConfiguration{
 		{ConfigRuleName: "rule-rem", TargetType: "SSM_DOCUMENT", TargetID: "doc-1"},

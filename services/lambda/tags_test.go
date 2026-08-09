@@ -64,6 +64,33 @@ func TestTags_TagAndListAndUntag(t *testing.T) {
 	assert.True(t, hasTeam)
 }
 
+// TestGetFunction_ReturnsTopLevelTags verifies GetFunctionOutput carries a
+// top-level Tags field sibling to Configuration, per the real GetFunction
+// response shape (botocore lambda/2015-03-31 GetFunctionResponse: Configuration,
+// Code, Tags, TagsError, Concurrency). Clients such as terraform-provider-aws
+// read tags from this field, not from Configuration.Tags (which AWS doesn't send).
+func TestGetFunction_ReturnsTopLevelTags(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newInMemoryHandler(t)
+
+	body := `{"FunctionName":"tagged-get-fn","PackageType":"Image","Code":{"ImageUri":"x"},` +
+		`"Role":"arn:aws:iam:::role/r","Tags":{"env":"prod"}}`
+	createRec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+	require.Equal(t, http.StatusCreated, createRec.Code)
+
+	getRec := callInMemoryHandler(t, h, http.MethodGet,
+		"/2015-03-31/functions/tagged-get-fn", "")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&out))
+
+	rawTags, ok := out["Tags"].(map[string]any)
+	require.True(t, ok, "GetFunctionOutput must have a top-level Tags field, got: %v", out["Tags"])
+	assert.Equal(t, "prod", rawTags["env"])
+}
+
 func TestTags_CreateFunctionWithTags(t *testing.T) {
 	t.Parallel()
 

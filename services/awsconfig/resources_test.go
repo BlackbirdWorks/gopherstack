@@ -229,7 +229,7 @@ func TestAWSConfigBackend_ListAggregateDiscoveredResources(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 		require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "bucket1", "{}"))
 
 		out, err := b.ListAggregateDiscoveredResources("agg1", "AWS::S3::Bucket", "", "", "")
@@ -244,7 +244,7 @@ func TestAWSConfigBackend_ListAggregateDiscoveredResources(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 		require.NoError(t, b.PutResourceConfig("AWS::S3::Bucket", "bucket1", "{}"))
 
 		out, err := b.ListAggregateDiscoveredResources("agg1", "AWS::S3::Bucket", "999999999999", "", "")

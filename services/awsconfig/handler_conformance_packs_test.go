@@ -106,7 +106,7 @@ func TestAWSConfigHandler_DeleteConformancePack(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, h *awsconfig.Handler) {
 				t.Helper()
-				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", "", "", "", ""))
+				require.NoError(t, h.Backend.PutConformancePack("my-pack", "", "", "", "", "", nil))
 			},
 			body:     map[string]any{"ConformancePackName": "my-pack"},
 			wantCode: http.StatusOK,
@@ -186,7 +186,7 @@ func TestAWSConfigHandler_ListConformancePackComplianceScores(t *testing.T) {
 	t.Parallel()
 
 	h := newTestAWSConfigHandler(t)
-	require.NoError(t, h.Backend.PutConformancePack("pack1", "", "", "", "", ""))
+	require.NoError(t, h.Backend.PutConformancePack("pack1", "", "", "", "", "", nil))
 
 	rec := doAWSConfigRequest(t, h, "ListConformancePackComplianceScores", map[string]any{
 		"Filters": map[string]any{"ConformancePackNames": []string{"pack1"}},
