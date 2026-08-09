@@ -108,7 +108,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 
 	// trustStores
 	ts, err := orig.CreateTrustStore(
-		"my-trust-store", "c", cloudfront.TrustStoreCertificateBundle{S3Bucket: "b", S3Key: "k"},
+		"my-trust-store", "c", cloudfront.TrustStoreCertificateBundle{S3Bucket: "b", S3Key: "k"}, nil,
 	)
 	require.NoError(t, err)
 

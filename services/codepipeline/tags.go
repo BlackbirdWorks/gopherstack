@@ -9,9 +9,9 @@ import (
 )
 
 // resolveResourceARN looks up a resource by ARN within the given region, returning
-// its type ("pipeline" or "webhook") and name. The ARN's region segment is used
-// when present so callers cannot resolve resources outside their region. Returns
-// ErrNotFound if unknown. Callers must hold b.mu.
+// its type ("pipeline", "webhook", or "actiontype") and name. The ARN's region
+// segment is used when present so callers cannot resolve resources outside
+// their region. Returns ErrNotFound if unknown. Callers must hold b.mu.
 func (b *InMemoryBackend) resolveResourceARN(region, resourceARN string) (string, string, error) {
 	if matches := b.pipelinesByARN.Get(regionKey(region, resourceARN)); len(matches) > 0 {
 		return kindPipeline, matches[0].Declaration.Name, nil
@@ -21,12 +21,25 @@ func (b *InMemoryBackend) resolveResourceARN(region, resourceARN string) (string
 		return kindWebhook, matches[0].Name, nil
 	}
 
+	if matches := b.customActionTypesByARN.Get(regionKey(region, resourceARN)); len(matches) > 0 {
+		key := customActionTypeKey{
+			Category: matches[0].Category,
+			Provider: matches[0].Provider,
+			Version:  matches[0].Version,
+		}
+
+		return kindActionType, key.String(), nil
+	}
+
 	return "", "", ErrNotFound
 }
 
 // ListTagsForResource returns the sorted tags for a pipeline by ARN.
 // Returns ResourceNotFoundException when the ARN refers to a non-pipeline resource.
-func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) ([]Tag, error) {
+func (b *InMemoryBackend) ListTagsForResource(
+	ctx context.Context,
+	resourceARN string,
+) ([]Tag, error) {
 	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
@@ -46,6 +59,10 @@ func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN s
 		wh, _ := b.webhooks.Get(regionKey(region, name))
 
 		return tagsToSortedSlice(wh.Tags), nil
+	case kindActionType:
+		cat, _ := b.customActionTypes.Get(regionKey(region, name))
+
+		return tagsToSortedSlice(cat.Tags), nil
 	default:
 		return nil, fmt.Errorf("%w: ARN %q", ErrResourceNotFound, resourceARN)
 	}
@@ -82,6 +99,15 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 		for _, t := range tags {
 			wh.Tags[t.Key] = t.Value
 		}
+	case kindActionType:
+		cat, _ := b.customActionTypes.Get(regionKey(region, name))
+		if cat.Tags == nil {
+			cat.Tags = make(map[string]string)
+		}
+
+		for _, t := range tags {
+			cat.Tags[t.Key] = t.Value
+		}
 	default:
 		return fmt.Errorf("%w: ARN %q is not a taggable resource", ErrResourceNotFound, resourceARN)
 	}
@@ -90,7 +116,11 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 }
 
 // UntagResource removes tags from a pipeline by ARN.
-func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string, tagKeys []string) error {
+func (b *InMemoryBackend) UntagResource(
+	ctx context.Context,
+	resourceARN string,
+	tagKeys []string,
+) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
@@ -111,6 +141,11 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 		wh, _ := b.webhooks.Get(regionKey(region, name))
 		for _, k := range tagKeys {
 			delete(wh.Tags, k)
+		}
+	case kindActionType:
+		cat, _ := b.customActionTypes.Get(regionKey(region, name))
+		for _, k := range tagKeys {
+			delete(cat.Tags, k)
 		}
 	default:
 		return fmt.Errorf("%w: ARN %q is not a taggable resource", ErrResourceNotFound, resourceARN)
@@ -133,7 +168,8 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 
 	pipelines := b.pipelines.All()
 	webhooks := b.webhooks.All()
-	out := make([]TaggedEntry, 0, len(pipelines)+len(webhooks))
+	actionTypes := b.customActionTypes.All()
+	out := make([]TaggedEntry, 0, len(pipelines)+len(webhooks)+len(actionTypes))
 
 	for _, p := range pipelines {
 		if len(p.Tags) == 0 {
@@ -153,6 +189,16 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 		cp := make(map[string]string, len(wh.Tags))
 		maps.Copy(cp, wh.Tags)
 		out = append(out, TaggedEntry{ARN: wh.ARN, Tags: cp})
+	}
+
+	for _, cat := range actionTypes {
+		if len(cat.Tags) == 0 {
+			continue
+		}
+
+		cp := make(map[string]string, len(cat.Tags))
+		maps.Copy(cp, cat.Tags)
+		out = append(out, TaggedEntry{ARN: cat.arn, Tags: cp})
 	}
 
 	return out

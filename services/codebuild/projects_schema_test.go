@@ -571,22 +571,32 @@ func TestHandler_UpdateProject_Tags(t *testing.T) {
 					"image":       "aws/codebuild/standard:7.0",
 					"computeType": "BUILD_GENERAL1_SMALL",
 				},
-				"tags": tt.initialTags,
+				"tags": tagPairs(tt.initialTags),
 			})
 
 			updateRec := doRequest(t, h, "UpdateProject", map[string]any{
 				"name": "tag-update-" + tt.name,
-				"tags": tt.updateTags,
+				"tags": tagPairs(tt.updateTags),
 			})
 			require.Equal(t, http.StatusOK, updateRec.Code)
 
 			var out struct {
 				Project struct {
-					Tags map[string]string `json:"tags"`
+					Tags []struct {
+						Key   string `json:"key"`
+						Value string `json:"value"`
+					} `json:"tags"`
 				} `json:"project"`
 			}
 			require.NoError(t, json.NewDecoder(updateRec.Body).Decode(&out))
-			assert.Equal(t, tt.wantFinalVal, out.Project.Tags[tt.wantFinalTag])
+
+			var gotVal string
+			for _, tag := range out.Project.Tags {
+				if tag.Key == tt.wantFinalTag {
+					gotVal = tag.Value
+				}
+			}
+			assert.Equal(t, tt.wantFinalVal, gotVal)
 		})
 	}
 }

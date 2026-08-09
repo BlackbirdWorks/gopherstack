@@ -135,4 +135,81 @@ func TestCreateOps_TagsRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		requireTags(t, client, out.VpcOrigin.Arn)
 	})
+
+	t.Run("createtruststore", func(t *testing.T) {
+		t.Parallel()
+
+		h := cloudfront.NewHandler(
+			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
+		)
+		client := newTestCloudFrontClient(t, h)
+
+		out, err := client.CreateTrustStore(t.Context(), &cfsdk.CreateTrustStoreInput{
+			Name: aws.String("tagged-trust-store"),
+			CaCertificatesBundleSource: &types.CaCertificatesBundleSourceMemberCaCertificatesBundleS3Location{
+				Value: types.CaCertificatesBundleS3Location{
+					Bucket: aws.String("bucket"),
+					Key:    aws.String("bundle.pem"),
+					Region: aws.String("us-east-1"),
+				},
+			},
+			Tags: tags,
+		})
+		require.NoError(t, err)
+		requireTags(t, client, out.TrustStore.Arn)
+	})
+
+	t.Run("createanycastiplist", func(t *testing.T) {
+		t.Parallel()
+
+		h := cloudfront.NewHandler(
+			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
+		)
+		client := newTestCloudFrontClient(t, h)
+
+		out, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+			Name:    aws.String("tagged-anycast-list"),
+			IpCount: aws.Int32(1),
+			Tags:    tags,
+		})
+		require.NoError(t, err)
+		requireTags(t, client, out.AnycastIpList.Arn)
+	})
+
+	t.Run("createconnectiongroup", func(t *testing.T) {
+		t.Parallel()
+
+		h := cloudfront.NewHandler(
+			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
+		)
+		client := newTestCloudFrontClient(t, h)
+
+		out, err := client.CreateConnectionGroup(t.Context(), &cfsdk.CreateConnectionGroupInput{
+			Name: aws.String("tagged-connection-group"),
+			Tags: tags,
+		})
+		require.NoError(t, err)
+		requireTags(t, client, out.ConnectionGroup.Arn)
+	})
+
+	t.Run("createconnectionfunction", func(t *testing.T) {
+		t.Parallel()
+
+		h := cloudfront.NewHandler(
+			cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1"),
+		)
+		client := newTestCloudFrontClient(t, h)
+
+		out, err := client.CreateConnectionFunction(t.Context(), &cfsdk.CreateConnectionFunctionInput{
+			Name:                   aws.String("tagged-connection-fn"),
+			ConnectionFunctionCode: []byte("function handler(event) { return event.request; }"),
+			ConnectionFunctionConfig: &types.FunctionConfig{
+				Comment: aws.String("test"),
+				Runtime: types.FunctionRuntimeCloudfrontJs20,
+			},
+			Tags: tags,
+		})
+		require.NoError(t, err)
+		requireTags(t, client, out.ConnectionFunctionSummary.ConnectionFunctionArn)
+	})
 }

@@ -158,6 +158,7 @@ type UpdateFleetOptions struct {
 	ProxyConfiguration   *ProxyConfiguration
 	VpcConfig            *VpcConfig
 	ScalingConfiguration *ScalingConfiguration
+	Tags                 map[string]string
 	ComputeType          string
 	EnvironmentType      string
 	OverflowBehavior     string
@@ -212,6 +213,12 @@ func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32, opts Up
 
 	if opts.ScalingConfiguration != nil {
 		f.ScalingConfiguration = outputScalingConfiguration(opts.ScalingConfiguration, baseCapacity)
+	}
+
+	if opts.Tags != nil {
+		tagsCopy := make(map[string]string, len(opts.Tags))
+		maps.Copy(tagsCopy, opts.Tags)
+		f.Tags = tagsCopy
 	}
 
 	f.LastModified = float64(time.Now().Unix())

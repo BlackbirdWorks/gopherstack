@@ -26,7 +26,7 @@ func TestPersistenceRoundTrip_ExtendedFields(t *testing.T) {
 		{
 			name: "trust_store_survives_restore",
 			setup: func(b *cloudfront.InMemoryBackend) {
-				_, err := b.CreateTrustStore("my-store", "comment", cloudfront.TrustStoreCertificateBundle{})
+				_, err := b.CreateTrustStore("my-store", "comment", cloudfront.TrustStoreCertificateBundle{}, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudfront.InMemoryBackend) {

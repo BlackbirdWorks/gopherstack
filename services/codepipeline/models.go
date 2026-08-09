@@ -121,17 +121,26 @@ type ActionTypeUrls struct {
 // strings, then pointers/maps), not declaration/grouping order -- see the doc
 // comments below for which real API shape each field belongs to.
 type CustomActionType struct {
-	Settings                *ActionTypeSettings    `json:"settings,omitempty"`
-	Urls                    *ActionTypeUrls        `json:"urls,omitempty"`
-	Permissions             *ActionTypePermissions `json:"permissions,omitempty"`
-	Executor                *ActionTypeExecutor    `json:"executor,omitempty"`
-	Tags                    map[string]string      `json:"-"`
-	Description             string                 `json:"description,omitempty"`
-	Owner                   string                 `json:"owner"`
-	Provider                string                 `json:"provider"`
-	Version                 string                 `json:"version"`
-	Category                string                 `json:"category"`
-	region                  string
+	Settings    *ActionTypeSettings    `json:"settings,omitempty"`
+	Urls        *ActionTypeUrls        `json:"urls,omitempty"`
+	Permissions *ActionTypePermissions `json:"permissions,omitempty"`
+	Executor    *ActionTypeExecutor    `json:"executor,omitempty"`
+	// Tags is never marshaled into a real wire response (every handler that
+	// returns a CustomActionType builds its own response struct instead --
+	// see customActionTypeResponse/actionTypeDeclarationResponse) but IS
+	// marshaled by persistence.go's DTO Value, so this must stay visible to
+	// json.Marshal or a Snapshot/Restore cycle silently drops the tags.
+	Tags        map[string]string `json:"tags,omitempty"`
+	Description string            `json:"description,omitempty"`
+	Owner       string            `json:"owner"`
+	Provider    string            `json:"provider"`
+	Version     string            `json:"version"`
+	Category    string            `json:"category"`
+	region      string
+	// arn caches this action type's ARN for the byARN index (store_setup.go)
+	// -- the real ActionType response has no Arn field to derive one from
+	// later, so it is computed once at creation (see buildActionTypeARN).
+	arn                     string
 	ConfigurationProperties []ActionConfigurationProperty `json:"configurationProperties,omitempty"`
 	Properties              []ActionTypeProperty          `json:"properties,omitempty"`
 	OutputArtifactDetails   ArtifactDetails               `json:"outputArtifactDetails"`
@@ -174,7 +183,11 @@ type WebhookAuthConfig struct {
 
 // Webhook represents a CodePipeline webhook with full AWS-parity fields.
 type Webhook struct {
-	Tags map[string]string `json:"-"`
+	// Tags is never marshaled into a real wire response (ListWebhooks/
+	// PutWebhook build their own webhookListEntry view instead) but IS
+	// marshaled by persistence.go's DTO Value, so this must stay visible to
+	// json.Marshal or a Snapshot/Restore cycle silently drops the tags.
+	Tags map[string]string `json:"tags,omitempty"`
 	// region is the AWS region this webhook belongs to; the outer half of the
 	// composite "region|id" key used by the backend's flat store.Table[Webhook]
 	// (see regionKey in store.go). Unexported so it never appears in wire

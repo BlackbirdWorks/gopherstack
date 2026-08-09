@@ -175,7 +175,11 @@ func (b *InMemoryBackend) DeleteReportGroup(arnStr string) error {
 }
 
 // UpdateReportGroup updates the export config of a report group.
-func (b *InMemoryBackend) UpdateReportGroup(arnStr string, exportConfig *ReportExportConfig) (*ReportGroup, error) {
+func (b *InMemoryBackend) UpdateReportGroup(
+	arnStr string,
+	exportConfig *ReportExportConfig,
+	tags map[string]string,
+) (*ReportGroup, error) {
 	b.mu.Lock("UpdateReportGroup")
 	defer b.mu.Unlock()
 
@@ -187,6 +191,12 @@ func (b *InMemoryBackend) UpdateReportGroup(arnStr string, exportConfig *ReportE
 	rg := matches[0]
 	if exportConfig != nil {
 		rg.ExportConfig = *exportConfig
+	}
+
+	if tags != nil {
+		tagsCopy := make(map[string]string, len(tags))
+		maps.Copy(tagsCopy, tags)
+		rg.Tags = tagsCopy
 	}
 
 	rg.LastModified = float64(time.Now().Unix())

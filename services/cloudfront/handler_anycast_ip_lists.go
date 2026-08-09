@@ -10,10 +10,16 @@ import (
 )
 
 type anycastIPListRequestXML struct {
-	XMLName xml.Name `xml:"AnycastIPListRequest"`
+	// Root element is CreateAnycastIpListRequest, not AnycastIPListRequest --
+	// verified against cloudfront@v1.67.4 serializers.go
+	// (awsRestxml_serializeOpCreateAnycastIpList's StartElement.Local).
+	XMLName xml.Name `xml:"CreateAnycastIpListRequest"`
 	Name    string   `xml:"Name"`
 	Tags    []tagXML `xml:"Tags>Items>Tag"`
-	IPCount int32    `xml:"IPCount"`
+	// Wire element is IpCount, not IPCount (cloudfront@v1.67.4 serializers.go
+	// awsRestxml_serializeOpDocumentCreateAnycastIpListInput) -- encoding/xml
+	// unmarshal matches element names case-sensitively on the request path.
+	IPCount int32 `xml:"IpCount"`
 }
 
 func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {

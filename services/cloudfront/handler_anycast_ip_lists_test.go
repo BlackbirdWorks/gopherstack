@@ -64,8 +64,15 @@ func TestAnycastIPList_IfMatchEnforcement(t *testing.T) {
 	h := newTestHandler(t)
 	const prefix = "/2020-05-31/"
 
-	createRec := doXML(t, h, http.MethodPost, prefix+"anycast-ip-list",
-		[]byte(`<AnycastIPListRequest><Name>etag-list</Name><IPCount>3</IPCount></AnycastIPListRequest>`))
+	createRec := doXML(
+		t,
+		h,
+		http.MethodPost,
+		prefix+"anycast-ip-list",
+		[]byte(
+			`<CreateAnycastIpListRequest><Name>etag-list</Name><IpCount>3</IpCount></CreateAnycastIpListRequest>`,
+		),
+	)
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	id := extractXMLID(t, createRec.Body.String())
 	etag := createRec.Header().Get("ETag")
@@ -101,9 +108,9 @@ func TestAnycastIPList_Tags(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	createRec := doXML(t, h, http.MethodPost, prefix+"anycast-ip-list",
-		[]byte(`<AnycastIPListRequest><Name>tagged-list</Name><IPCount>2</IPCount>`+
+		[]byte(`<CreateAnycastIpListRequest><Name>tagged-list</Name><IpCount>2</IpCount>`+
 			`<Tags><Items><Tag><Key>env</Key><Value>prod</Value></Tag></Items></Tags>`+
-			`</AnycastIPListRequest>`))
+			`</CreateAnycastIpListRequest>`))
 	require.Equal(t, http.StatusCreated, createRec.Code)
 	id := extractXMLID(t, createRec.Body.String())
 	arn := fmt.Sprintf("arn:aws:cloudfront::123456789012:anycast-ip-list/%s", id)
@@ -154,7 +161,7 @@ func TestAnycastIPList_CRUD(t *testing.T) {
 	const prefix = "/2020-05-31/"
 
 	// Create via existing handler
-	createBody := `<AnycastIPListRequest><Name>my-list</Name><IPCount>5</IPCount></AnycastIPListRequest>`
+	createBody := `<CreateAnycastIpListRequest><Name>my-list</Name><IpCount>5</IpCount></CreateAnycastIpListRequest>`
 	out := cfOK(t, h, http.MethodPost, prefix+"anycast-ip-list", createBody)
 	id := extractXMLID(t, out)
 	if id == "" {
@@ -194,7 +201,7 @@ func TestCreateAnycastIPList(t *testing.T) {
 		{
 			name: "create_anycast_ip_list_success",
 			body: []byte(
-				`<AnycastIPListRequest><Name>my-anycast-list</Name><IPCount>5</IPCount></AnycastIPListRequest>`,
+				`<CreateAnycastIpListRequest><Name>my-anycast-list</Name><IpCount>5</IpCount></CreateAnycastIpListRequest>`,
 			),
 			wantStatus: http.StatusCreated,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
@@ -206,8 +213,10 @@ func TestCreateAnycastIPList(t *testing.T) {
 			},
 		},
 		{
-			name:       "create_anycast_ip_list_empty_name",
-			body:       []byte(`<AnycastIPListRequest><Name></Name><IPCount>5</IPCount></AnycastIPListRequest>`),
+			name: "create_anycast_ip_list_empty_name",
+			body: []byte(
+				`<CreateAnycastIpListRequest><Name></Name><IpCount>5</IpCount></CreateAnycastIpListRequest>`,
+			),
 			wantStatus: http.StatusBadRequest,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
@@ -248,17 +257,19 @@ func TestAnycastIPList_IPCountValidation(t *testing.T) {
 	}{
 		{
 			name:       "zero_count",
-			body:       `<AnycastIPListRequest><Name>test-list</Name><IPCount>0</IPCount></AnycastIPListRequest>`,
+			body:       `<CreateAnycastIpListRequest><Name>test-list</Name><IpCount>0</IpCount></CreateAnycastIpListRequest>`,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "negative_count",
-			body:       `<AnycastIPListRequest><Name>test-list-neg</Name><IPCount>-5</IPCount></AnycastIPListRequest>`,
+			name: "negative_count",
+			body: `<CreateAnycastIpListRequest><Name>test-list-neg</Name>` +
+				`<IpCount>-5</IpCount></CreateAnycastIpListRequest>`,
 			wantStatus: http.StatusBadRequest,
 		},
 		{
-			name:       "valid_count",
-			body:       `<AnycastIPListRequest><Name>test-list-valid</Name><IPCount>10</IPCount></AnycastIPListRequest>`,
+			name: "valid_count",
+			body: `<CreateAnycastIpListRequest><Name>test-list-valid</Name>` +
+				`<IpCount>10</IpCount></CreateAnycastIpListRequest>`,
 			wantStatus: http.StatusCreated,
 		},
 	}

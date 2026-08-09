@@ -47,6 +47,17 @@ func doRequest(t *testing.T, h *codebuild.Handler, action string, body any) *htt
 	return rec
 }
 
+// tagPairs converts a tag map into CodeBuild's wire shape: a JSON array of
+// {"key":...,"value":...} objects (codebuild@v1.72.4 serializers.go:4655).
+func tagPairs(m map[string]string) []map[string]string {
+	pairs := make([]map[string]string, 0, len(m))
+	for k, v := range m {
+		pairs = append(pairs, map[string]string{"key": k, "value": v})
+	}
+
+	return pairs
+}
+
 // createTestProject creates a minimal project named name via the handler.
 func createTestProject(t *testing.T, h *codebuild.Handler, name string) {
 	t.Helper()

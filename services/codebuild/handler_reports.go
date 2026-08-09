@@ -6,7 +6,7 @@ import (
 )
 
 type createReportGroupInput struct {
-	Tags         map[string]string  `json:"tags"`
+	Tags         wireTags           `json:"tags"`
 	ExportConfig ReportExportConfig `json:"exportConfig"`
 	Name         string             `json:"name"`
 	Type         string             `json:"type"`
@@ -304,6 +304,7 @@ func (h *Handler) handleListSharedReportGroups(
 
 type updateReportGroupInput struct {
 	ExportConfig *ReportExportConfig `json:"exportConfig,omitempty"`
+	Tags         wireTags            `json:"tags,omitempty"`
 	Arn          string              `json:"arn"`
 }
 
@@ -319,7 +320,7 @@ func (h *Handler) handleUpdateReportGroup(
 		return nil, fmt.Errorf("%w: arn is required", errInvalidRequest)
 	}
 
-	rg, err := h.Backend.UpdateReportGroup(in.Arn, in.ExportConfig)
+	rg, err := h.Backend.UpdateReportGroup(in.Arn, in.ExportConfig, in.Tags)
 	if err != nil {
 		return nil, err
 	}

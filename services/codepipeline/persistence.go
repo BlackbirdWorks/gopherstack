@@ -346,6 +346,7 @@ func (b *InMemoryBackend) restoreResourceTables(tables map[string]json.RawMessag
 		}
 
 		d.Value.region = d.Region
+		d.Value.arn = b.buildActionTypeARN(d.Region, d.Value)
 		cats = append(cats, d.Value)
 	}
 

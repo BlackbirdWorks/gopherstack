@@ -28,7 +28,8 @@ type connectionFunctionRequestXML struct {
 	Comment                  string                      `xml:"Comment"`
 	// ConnectionFunctionCode is base64-encoded on the wire (matching real CloudFront); see
 	// decodeConnectionFunctionCode.
-	ConnectionFunctionCode string `xml:"ConnectionFunctionCode"`
+	ConnectionFunctionCode string   `xml:"ConnectionFunctionCode"`
+	Tags                   []tagXML `xml:"Tags>Items>Tag"`
 }
 
 // updateConnectionFunctionRequestXML models an UpdateConnectionFunctionRequest body.
@@ -100,9 +101,14 @@ func (h *Handler) handleCreateConnectionFunction(c *echo.Context) error {
 		comment = req.ConnectionFunctionConfig.Comment
 	}
 
+	tags := make(map[string]string, len(req.Tags))
+	for _, tag := range req.Tags {
+		tags[tag.Key] = tag.Value
+	}
+
 	code := decodeConnectionFunctionCode(req.ConnectionFunctionCode)
 	fn, createErr := h.Backend.CreateConnectionFunctionWithCode(
-		req.Name, comment, req.ConnectionFunctionConfig.Runtime, code, nil,
+		req.Name, comment, req.ConnectionFunctionConfig.Runtime, code, tags,
 	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
