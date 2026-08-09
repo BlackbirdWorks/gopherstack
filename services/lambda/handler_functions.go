@@ -286,6 +286,13 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", createErr.Error())
 	}
 
+	// h.tags is a separate store from fn.Tags (see handler_tags.go); TaggedFunctions,
+	// used by the Resource Groups Tagging API, reads only h.tags, so tags supplied at
+	// creation must be mirrored here or they're invisible to cross-service tag listing.
+	if len(input.Tags) > 0 {
+		h.setTags(fn.FunctionArn, input.Tags)
+	}
+
 	// When Publish: true, immediately publish version 1 so that the caller can
 	// reference aws_lambda_function.this.version (used by provisioned concurrency etc.).
 	// Return a response copy with the numbered version; the stored live fn keeps "$LATEST".

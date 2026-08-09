@@ -244,7 +244,7 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 
 	items := make([]subnetItem, 0, len(subnets))
 	for _, s := range subnets {
-		items = append(items, toSubnetItem(s))
+		items = append(items, toSubnetItem(s, h.Backend.TagsForResource(s.ID)))
 	}
 
 	return &describeSubnetsResponse{
@@ -274,7 +274,7 @@ func (h *Handler) handleCreateSubnet(vals url.Values, reqID string) (any, error)
 	return &createSubnetResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Subnet:    toSubnetItem(s),
+		Subnet:    toSubnetItem(s, h.Backend.TagsForResource(s.ID)),
 	}, nil
 }
 
@@ -295,7 +295,7 @@ func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error)
 	}, nil
 }
 
-func toSubnetItem(s *Subnet) subnetItem {
+func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
 	return subnetItem{
 		SubnetID:         s.ID,
 		VPCID:            s.VPCID,
@@ -303,16 +303,18 @@ func toSubnetItem(s *Subnet) subnetItem {
 		AvailabilityZone: s.AvailabilityZone,
 		OutpostArn:       s.OutpostArn,
 		State:            stateAvailable,
+		TagSet:           tagItemsFromMap(tags),
 	}
 }
 
 type subnetItem struct {
-	SubnetID         string `xml:"subnetId"`
-	VPCID            string `xml:"vpcId"`
-	CIDRBlock        string `xml:"cidrBlock"`
-	AvailabilityZone string `xml:"availabilityZone"`
-	OutpostArn       string `xml:"outpostArn,omitempty"`
-	State            string `xml:"state"`
+	SubnetID         string          `xml:"subnetId"`
+	VPCID            string          `xml:"vpcId"`
+	CIDRBlock        string          `xml:"cidrBlock"`
+	AvailabilityZone string          `xml:"availabilityZone"`
+	OutpostArn       string          `xml:"outpostArn,omitempty"`
+	State            string          `xml:"state"`
+	TagSet           []simpleTagItem `xml:"tagSet>item"`
 }
 
 type subnetItemSet struct {

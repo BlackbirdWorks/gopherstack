@@ -502,5 +502,76 @@ func TestEC2Handler_TagSpecification(t *testing.T) {
 	}
 }
 
+// TestEC2Handler_TagSpecification_ReflectedInResourceDescribe verifies tags
+// applied via TagSpecification at creation appear in the resource's own
+// tagSet field (DescribeVolumes/DescribeSubnets/DescribeSecurityGroups),
+// not just via the generic cross-resource DescribeTags API. CreateVolume,
+// DescribeVolumes, DescribeSubnets, and DescribeSecurityGroups previously
+// never encoded tagSet at all (see aws-sdk-go-v2 ec2 v1.319.1 types.go's
+// Volume/Subnet/SecurityGroup, which all carry a Tags []Tag field), so a
+// real client reading tags off these resources directly would see none.
+func TestEC2Handler_TagSpecification_ReflectedInResourceDescribe(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		createBody   string
+		describeBody string
+		wantTagKey   string
+		wantTagValue string
+	}{
+		{
+			name: "create_volume_with_tag_specification",
+			createBody: "Action=CreateVolume&Version=2016-11-15" +
+				"&AvailabilityZone=us-east-1a&Size=10" +
+				"&TagSpecification.1.ResourceType=volume" +
+				"&TagSpecification.1.Tag.1.Key=Name" +
+				"&TagSpecification.1.Tag.1.Value=my-volume",
+			describeBody: "Action=DescribeVolumes&Version=2016-11-15",
+			wantTagKey:   "Name",
+			wantTagValue: "my-volume",
+		},
+		{
+			name: "create_subnet_with_tag_specification",
+			createBody: "Action=CreateSubnet&Version=2016-11-15" +
+				"&VpcId=vpc-default&CidrBlock=172.31.40.0/24" +
+				"&TagSpecification.1.ResourceType=subnet" +
+				"&TagSpecification.1.Tag.1.Key=Name" +
+				"&TagSpecification.1.Tag.1.Value=my-subnet",
+			describeBody: "Action=DescribeSubnets&Version=2016-11-15",
+			wantTagKey:   "Name",
+			wantTagValue: "my-subnet",
+		},
+		{
+			name: "create_security_group_with_tag_specification",
+			createBody: "Action=CreateSecurityGroup&Version=2016-11-15" +
+				"&GroupName=describe-tagged-sg&GroupDescription=test" +
+				"&TagSpecification.1.ResourceType=security-group" +
+				"&TagSpecification.1.Tag.1.Key=Env" +
+				"&TagSpecification.1.Tag.1.Value=staging",
+			describeBody: "Action=DescribeSecurityGroups&Version=2016-11-15",
+			wantTagKey:   "Env",
+			wantTagValue: "staging",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			createRec := postForm(t, h, tt.createBody)
+			require.Equal(t, http.StatusOK, createRec.Code)
+			assert.Contains(t, createRec.Body.String(), "<key>"+tt.wantTagKey+"</key>",
+				"create response should echo the tagSet")
+
+			describeRec := postForm(t, h, tt.describeBody)
+			require.Equal(t, http.StatusOK, describeRec.Code)
+			assert.Contains(t, describeRec.Body.String(), "<value>"+tt.wantTagValue+"</value>",
+				"describe response should include the tagSet")
+		})
+	}
+}
+
 // extractXMLValue extracts the text content of the first occurrence of the given XML element.
 // Returns the element text, or an empty string if the element is not found.

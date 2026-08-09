@@ -453,7 +453,7 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 
 	items := make([]sgItem, 0, len(groups))
 	for _, sg := range groups {
-		items = append(items, toSGItem(sg))
+		items = append(items, toSGItem(sg, h.Backend.TagsForResource(sg.ID)))
 	}
 
 	return &describeSecurityGroupsResponse{
@@ -473,7 +473,8 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
-	if tags := parseTagSpecification(vals, "security-group"); len(tags) > 0 {
+	tags := parseTagSpecification(vals, "security-group")
+	if len(tags) > 0 {
 		if err = h.Backend.CreateTags([]string{sg.ID}, tags); err != nil {
 			return nil, err
 		}
@@ -484,6 +485,7 @@ func (h *Handler) handleCreateSecurityGroup(vals url.Values, reqID string) (any,
 		RequestID: reqID,
 		GroupID:   sg.ID,
 		Return:    true,
+		TagSet:    tagItemsFromMap(tags),
 	}, nil
 }
 
@@ -525,20 +527,22 @@ func (h *Handler) handleRevokeSecurityGroupEgress(vals url.Values, reqID string)
 	}, nil
 }
 
-func toSGItem(sg *SecurityGroup) sgItem {
+func toSGItem(sg *SecurityGroup, tags map[string]string) sgItem {
 	return sgItem{
 		GroupID:          sg.ID,
 		GroupName:        sg.Name,
 		GroupDescription: sg.Description,
 		VPCID:            sg.VPCID,
+		TagSet:           tagItemsFromMap(tags),
 	}
 }
 
 type sgItem struct {
-	GroupID          string `xml:"groupId"`
-	GroupName        string `xml:"groupName"`
-	GroupDescription string `xml:"groupDescription"`
-	VPCID            string `xml:"vpcId,omitempty"`
+	GroupID          string          `xml:"groupId"`
+	GroupName        string          `xml:"groupName"`
+	GroupDescription string          `xml:"groupDescription"`
+	VPCID            string          `xml:"vpcId,omitempty"`
+	TagSet           []simpleTagItem `xml:"tagSet>item"`
 }
 
 type sgItemSet struct {
@@ -553,11 +557,12 @@ type describeSecurityGroupsResponse struct {
 }
 
 type createSecurityGroupResponse struct {
-	XMLName   xml.Name `xml:"CreateSecurityGroupResponse"`
-	Xmlns     string   `xml:"xmlns,attr"`
-	RequestID string   `xml:"requestId"`
-	GroupID   string   `xml:"groupId"`
-	Return    bool     `xml:"return"`
+	XMLName   xml.Name        `xml:"CreateSecurityGroupResponse"`
+	Xmlns     string          `xml:"xmlns,attr"`
+	RequestID string          `xml:"requestId"`
+	GroupID   string          `xml:"groupId"`
+	TagSet    []simpleTagItem `xml:"tagSet>item"`
+	Return    bool            `xml:"return"`
 }
 
 type deleteSecurityGroupResponse struct {

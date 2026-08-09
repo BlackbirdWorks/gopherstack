@@ -442,6 +442,7 @@ type volumeItem struct {
 	CreateTime string          `xml:"createTime"`
 	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
 	SnapshotID string          `xml:"snapshotId,omitempty"`
+	TagSet     []simpleTagItem `xml:"tagSet>item"`
 	Size       int             `xml:"size"`
 	Iops       int             `xml:"iops,omitempty"`
 	Throughput int             `xml:"throughput,omitempty"`
@@ -468,20 +469,21 @@ type describeVolumesResponse struct {
 }
 
 type createVolumeResponse struct {
-	XMLName    xml.Name `xml:"CreateVolumeResponse"`
-	Xmlns      string   `xml:"xmlns,attr"`
-	RequestID  string   `xml:"requestId"`
-	VolumeID   string   `xml:"volumeId"`
-	AZ         string   `xml:"availabilityZone"`
-	VolumeType string   `xml:"volumeType"`
-	State      string   `xml:"status"`
-	CreateTime string   `xml:"createTime"`
-	KmsKeyID   string   `xml:"kmsKeyId,omitempty"`
-	SnapshotID string   `xml:"snapshotId,omitempty"`
-	Size       int      `xml:"size"`
-	Iops       int      `xml:"iops,omitempty"`
-	Throughput int      `xml:"throughput,omitempty"`
-	Encrypted  bool     `xml:"encrypted"`
+	XMLName    xml.Name        `xml:"CreateVolumeResponse"`
+	Xmlns      string          `xml:"xmlns,attr"`
+	RequestID  string          `xml:"requestId"`
+	VolumeID   string          `xml:"volumeId"`
+	AZ         string          `xml:"availabilityZone"`
+	VolumeType string          `xml:"volumeType"`
+	State      string          `xml:"status"`
+	CreateTime string          `xml:"createTime"`
+	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
+	SnapshotID string          `xml:"snapshotId,omitempty"`
+	TagSet     []simpleTagItem `xml:"tagSet>item"`
+	Size       int             `xml:"size"`
+	Iops       int             `xml:"iops,omitempty"`
+	Throughput int             `xml:"throughput,omitempty"`
+	Encrypted  bool            `xml:"encrypted"`
 }
 
 type deleteVolumeResponse struct {
@@ -512,7 +514,7 @@ type detachVolumeResponse struct {
 	State      string   `xml:"status"`
 }
 
-func toVolumeItem(vol *Volume) volumeItem {
+func toVolumeItem(vol *Volume, tags map[string]string) volumeItem {
 	item := volumeItem{
 		VolumeID:   vol.ID,
 		Size:       vol.Size,
@@ -525,6 +527,7 @@ func toVolumeItem(vol *Volume) volumeItem {
 		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
+		TagSet:     tagItemsFromMap(tags),
 	}
 
 	if vol.Attachment != nil {
@@ -682,6 +685,12 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "volume"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{vol.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	// Apply encryption if requested (gap 13).
 	if encryptedStr == ec2BooleanTrue {
 		if encErr := h.Backend.SetVolumeEncryption(vol.ID, true, kmsKeyID); encErr != nil {
@@ -719,6 +728,7 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		SnapshotID: vol.SnapshotID,
 		Iops:       vol.Iops,
 		Throughput: vol.Throughput,
+		TagSet:     tagItemsFromMap(h.Backend.TagsForResource(vol.ID)),
 	}, nil
 }
 
@@ -731,7 +741,7 @@ func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, err
 
 	items := make([]volumeItem, 0, len(vols))
 	for _, vol := range vols {
-		items = append(items, toVolumeItem(vol))
+		items = append(items, toVolumeItem(vol, h.Backend.TagsForResource(vol.ID)))
 	}
 
 	return &describeVolumesResponse{

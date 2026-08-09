@@ -1,6 +1,7 @@
 package lambda_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
@@ -77,4 +78,53 @@ func TestTags_CreateFunctionWithTags(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&fn))
 	// Tags may be in the function config or accessible separately
 	_ = fn
+}
+
+// TestTaggedFunctions_CreationTags verifies tags supplied at CreateFunction
+// reach TaggedFunctions, the ARN-keyed store the Resource Groups Tagging API
+// GetResources listing consults (wireTaggingLambda in cli.go). CreateFunction
+// previously only wrote fn.Tags, a separate store, so newly-tagged functions
+// were invisible to cross-service tag listing until an explicit TagResource call.
+func TestTaggedFunctions_CreationTags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tags    map[string]string
+		name    string
+		fnName  string
+		wantLen int
+	}{
+		{
+			name:    "tags at creation are listed",
+			fnName:  "created-with-tags",
+			tags:    map[string]string{"project": "myapp"},
+			wantLen: 1,
+		},
+		{
+			name:    "no tags at creation yields empty tag map",
+			fnName:  "created-without-tags",
+			tags:    nil,
+			wantLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newInMemoryHandler(t)
+
+			tagsJSON, err := json.Marshal(tt.tags)
+			require.NoError(t, err)
+
+			body := `{"FunctionName":"` + tt.fnName + `","PackageType":"Image","Code":{"ImageUri":"x"},` +
+				`"Role":"arn:aws:iam:::role/r","Tags":` + string(tagsJSON) + `}`
+			rec := callInMemoryHandler(t, h, http.MethodPost, "/2015-03-31/functions", body)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			entries := h.TaggedFunctions(context.Background())
+			require.Len(t, entries, tt.wantLen)
+			assert.Equal(t, tt.tags, entries[0].Tags)
+		})
+	}
 }
