@@ -75,10 +75,30 @@ func matchCoreIoTPath(path string) bool {
 	return matchCoreIoTPathPrimary(path) || matchCoreIoTPathSecondary(path)
 }
 
+// isThingShadowPath reports whether path is iotdataplane's real Get/Update/
+// DeleteThingShadow shape: "/things/{thingName}/shadow", optionally followed
+// by "/name/{shadowName}" (the named-shadow path variant; the query-string
+// variant leaves the path exactly at "/shadow" since URL.Path excludes the
+// query). Mirrors services/iotdataplane's isShadowPath.
+func isThingShadowPath(path string) bool {
+	after, ok := strings.CutPrefix(path, "/things/")
+	if !ok {
+		return false
+	}
+
+	idx := strings.Index(after, "/shadow")
+	if idx <= 0 {
+		return false
+	}
+
+	rest := after[idx+len("/shadow"):]
+
+	return rest == "" || strings.HasPrefix(rest, "/name/")
+}
+
 func matchCoreIoTPathPrimary(path string) bool {
 	return strings.HasPrefix(path, "/things/") ||
 		path == pathThings ||
-		strings.HasPrefix(path, "/api/things/shadow/") ||
 		strings.HasPrefix(path, "/rules/") ||
 		path == "/rules" ||
 		strings.HasPrefix(path, "/target-policies/") ||

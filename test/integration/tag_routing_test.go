@@ -27,8 +27,11 @@ import (
 	grafanasdk "github.com/aws/aws-sdk-go-v2/service/grafana"
 	grafanatypes "github.com/aws/aws-sdk-go-v2/service/grafana/types"
 	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
+	kafkasdk "github.com/aws/aws-sdk-go-v2/service/kafka"
 	managedblockchainsdk "github.com/aws/aws-sdk-go-v2/service/managedblockchain"
 	managedblockchaintypes "github.com/aws/aws-sdk-go-v2/service/managedblockchain/types"
+	mqsdk "github.com/aws/aws-sdk-go-v2/service/mq"
+	mqtypes "github.com/aws/aws-sdk-go-v2/service/mq/types"
 	networkmanagersdk "github.com/aws/aws-sdk-go-v2/service/networkmanager"
 	nmtypes "github.com/aws/aws-sdk-go-v2/service/networkmanager/types"
 	networkmonitorsdk "github.com/aws/aws-sdk-go-v2/service/networkmonitor"
@@ -1166,4 +1169,126 @@ func TestIntegration_ConnectionsRouting_CrossServiceIsolation(t *testing.T) {
 	assert.Equal(t, connectionID, aws.ToString(outOut.ConnectionId))
 	require.NotNil(t, outOut.ConnectionDetails)
 	assert.Equal(t, clientKey, aws.ToString(outOut.ConnectionDetails.ClientPublicKey))
+}
+
+// createMQRoutingClient returns an Amazon MQ client pointed at the shared
+// test container. mq_test.go's own client helper lives behind a
+// "//go:build integration" tag and is not visible to this file's default
+// (untagged) build.
+func createMQRoutingClient(t *testing.T) *mqsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return mqsdk.NewFromConfig(cfg, func(o *mqsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
+// TestIntegration_ConfigurationsRouting_CrossServiceIsolation exercises the
+// real AWS "/v1/configurations" wire path for both Kafka (MSK) and MQ in one
+// test binary run against the shared multi-service router -- Kafka's
+// RouteMatcher claimed that path with a bare strings.HasPrefix and no SigV4
+// scope, so it silently swallowed every MQ CreateConfiguration/
+// DescribeConfiguration/ListConfigurations request too: Kafka and MQ both
+// register at the same MatchPriority, and Kafka registers first in cli.go,
+// so the router always tried Kafka's matcher before MQ's own (gopherstack-61i8).
+// Each service's own test suite passing in isolation hid this the same way
+// it hid the appsync/batch tags collision -- see
+// TestIntegration_TagRouting_CrossServiceIsolation. Fixed by scoping Kafka's
+// claim with pkgs/httputils.ScopedPrefixMatch instead of raising either
+// service's MatchPriority.
+func TestIntegration_ConfigurationsRouting_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+
+	mqClient := createMQRoutingClient(t)
+	mqName := "integ-routing-mq-" + uuid.NewString()[:8]
+
+	mqCreateOut, mqCreateErr := mqClient.CreateConfiguration(ctx, &mqsdk.CreateConfigurationInput{
+		Name:       aws.String(mqName),
+		EngineType: mqtypes.EngineTypeActivemq,
+	})
+	require.NoError(t, mqCreateErr, "mq CreateConfiguration should succeed")
+	mqConfigID := aws.ToString(mqCreateOut.Id)
+
+	mqDescOut, mqDescErr := mqClient.DescribeConfiguration(ctx, &mqsdk.DescribeConfigurationInput{
+		ConfigurationId: aws.String(mqConfigID),
+	})
+	require.NoError(t, mqDescErr, "mq DescribeConfiguration should succeed")
+	assert.Equal(t, mqName, aws.ToString(mqDescOut.Name))
+	assert.Equal(t, mqtypes.EngineTypeActivemq, mqDescOut.EngineType)
+
+	kafkaClient := createKafkaSDKClient(t)
+	kafkaName := "integ-routing-kafka-" + uuid.NewString()[:8]
+
+	kafkaCreateOut, kafkaCreateErr := kafkaClient.CreateConfiguration(ctx, &kafkasdk.CreateConfigurationInput{
+		Name:             aws.String(kafkaName),
+		KafkaVersions:    []string{"3.5.1"},
+		ServerProperties: []byte("auto.create.topics.enable=true"),
+	})
+	require.NoError(t, kafkaCreateErr, "kafka CreateConfiguration should succeed")
+	kafkaArn := aws.ToString(kafkaCreateOut.Arn)
+
+	kafkaDescOut, kafkaDescErr := kafkaClient.DescribeConfiguration(ctx, &kafkasdk.DescribeConfigurationInput{
+		Arn: aws.String(kafkaArn),
+	})
+	require.NoError(t, kafkaDescErr, "kafka DescribeConfiguration should succeed")
+	assert.Equal(t, kafkaName, aws.ToString(kafkaDescOut.Name))
+}
+
+// seedIoTDataPlaneNamedShadow writes a named shadow via iotdataplane's real
+// UpdateThingShadow wire path so ListNamedShadowsForThing below has
+// something to find.
+func seedIoTDataPlaneNamedShadow(ctx context.Context, t *testing.T, thingName, shadowName string) {
+	t.Helper()
+
+	client := createIoTDataPlaneClient(t)
+
+	_, err := client.UpdateThingShadow(ctx, &iotdataplanesdk.UpdateThingShadowInput{
+		ThingName:  aws.String(thingName),
+		ShadowName: aws.String(shadowName),
+		Payload:    []byte(`{"state":{"reported":{"env":"integ"}}}`),
+	})
+	require.NoError(t, err, "iotdataplane UpdateThingShadow should succeed")
+}
+
+// TestIntegration_ShadowListRouting_CrossServiceIsolation exercises the real
+// AWS "/api/things/shadow/ListNamedShadowsForThing/{thingName}" wire path,
+// which belongs exclusively to iotdataplane (it signs as "iotdata"; the real
+// IoT control-plane SDK has no such operation at all). IoT's own RouteMatcher
+// claimed that same prefix with a bare strings.HasPrefix at a higher
+// MatchPriority than iotdataplane, and iot even has its own duplicate
+// handler for it backed by a completely separate backend store -- so every
+// real iotdataplane ListNamedShadowsForThing request was silently answered
+// out of iot's (always-empty, for this thing) shadow store instead of
+// iotdataplane's (gopherstack-61i8). Fixed by scoping iot's claim with a
+// SigV4 check mirroring its existing "/policies" guard, instead of touching
+// either service's MatchPriority.
+func TestIntegration_ShadowListRouting_CrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	ctx := t.Context()
+
+	thingName := "integ-routing-thing-" + uuid.NewString()[:8]
+	shadowName := "integ-routing-shadow"
+	seedIoTDataPlaneNamedShadow(ctx, t, thingName, shadowName)
+
+	client := createIoTDataPlaneClient(t)
+
+	listOut, listErr := client.ListNamedShadowsForThing(ctx, &iotdataplanesdk.ListNamedShadowsForThingInput{
+		ThingName: aws.String(thingName),
+	})
+	require.NoError(t, listErr, "iotdataplane ListNamedShadowsForThing should succeed")
+	assert.Contains(t, listOut.Results, shadowName)
 }

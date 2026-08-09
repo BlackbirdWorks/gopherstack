@@ -171,10 +171,29 @@ func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations()
 // ChaosRegions returns all regions this ECR instance handles.
 func (h *Handler) ChaosRegions() []string { return []string{config.DefaultRegion} }
 
-// isRegistryPath returns true when path is exactly "/v2" or starts with "/v2/".
-// This prevents false matches against unrelated paths like "/v20180820/..." (S3Control).
+// isRegistryPath reports whether path is a real Docker Registry v2 HTTP API
+// route: the "/v2/" base ping, "/v2/_catalog", or "/v2/{name}/..." under a
+// repository name ending in manifests/blobs/tags-list (per
+// github.com/distribution/distribution/v3/registry/api/v2/descriptors.go). A
+// bare "/v2/" prefix is also ApiGatewayV2's real wire path shape ("/v2/apis",
+// "/v2/tags", ...); requiring one of these markers keeps ECR's registry
+// dispatch (used only when the local registry is enabled) from swallowing
+// that traffic (see gopherstack-61i8). It also still rejects unrelated paths
+// like "/v20180820/..." (S3Control), since those never reach the v2Prefix
+// cut below.
 func isRegistryPath(path string) bool {
-	return path == v2Root || strings.HasPrefix(path, v2Prefix)
+	if path == v2Root || path == v2Prefix || path == v2Prefix+"_catalog" {
+		return true
+	}
+
+	rest, ok := strings.CutPrefix(path, v2Prefix)
+	if !ok {
+		return false
+	}
+
+	return strings.Contains(rest, "/manifests/") ||
+		strings.Contains(rest, "/blobs/") ||
+		strings.HasSuffix(rest, "/tags/list")
 }
 
 // RouteMatcher returns a function that matches ECR requests.

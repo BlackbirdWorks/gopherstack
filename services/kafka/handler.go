@@ -240,9 +240,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		p := c.Request().URL.Path
 
+		// "/v1/configurations" is also MQ's real CreateConfiguration/
+		// ListConfigurations wire path; scope by SigV4 so a correctly-signed MQ
+		// request isn't swallowed here (see gopherstack-61i8).
+		if strings.HasPrefix(p, "/v1/configurations") {
+			return httputils.ScopedPrefixMatch(c.Request(), p, "/v1/configurations", "kafka")
+		}
+
 		return strings.HasPrefix(p, "/v1/clusters") ||
 			strings.HasPrefix(p, "/api/v2/clusters") ||
-			strings.HasPrefix(p, "/v1/configurations") ||
 			strings.HasPrefix(p, "/v1/operations/") ||
 			strings.HasPrefix(p, "/api/v2/operations/") ||
 			strings.HasPrefix(p, "/replication/v1/replicators") ||
