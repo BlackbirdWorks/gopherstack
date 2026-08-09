@@ -301,7 +301,9 @@ func (h *Handler) handleCreateDynamicThingGroup(c *echo.Context) error {
 		// []types.Tag on the wire, not a map (serializers.go:2625, aws-sdk-go-v2/service/iot@v1.77.4).
 		Tags []tags.KV `json:"tags,omitempty"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	tg, err := h.Backend.CreateDynamicThingGroup(&CreateThingGroupInput{
 		ThingGroupName: name,
 		Description:    req.Description,
@@ -335,7 +337,9 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 		QueryString string `json:"queryString"`
 		Description string `json:"description"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	version, err := h.Backend.UpdateDynamicThingGroup(&UpdateThingGroupInput{
 		ThingGroupName: name,
 		Description:    req.Description,

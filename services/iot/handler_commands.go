@@ -66,7 +66,9 @@ func (h *Handler) handleCreateCommand(c *echo.Context) error {
 		Namespace   string         `json:"namespace"`
 		Tags        []tags.KV      `json:"tags"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	cmd, err := h.Backend.CreateCommand(
 		id, req.DisplayName, req.Description, req.Namespace, req.Payload, tags.MapFromKV(req.Tags),
 	)
@@ -97,7 +99,9 @@ func (h *Handler) handleUpdateCommand(c *echo.Context) error {
 		Description string `json:"description"`
 		Deprecated  bool   `json:"deprecated"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdateCommand(id, req.DisplayName, req.Description, req.Deprecated); err != nil {
 		return respondErr(c, err)
 	}

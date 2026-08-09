@@ -476,7 +476,9 @@ func (h *Handler) handleUpdateCACertificate(c *echo.Context) error {
 	var req struct {
 		NewStatus string `json:"newStatus"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	if err := h.Backend.UpdateCACertificate(id, req.NewStatus); err != nil {
 		return respondErr(c, err)
 	}

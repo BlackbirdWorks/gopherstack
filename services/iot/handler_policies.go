@@ -454,7 +454,9 @@ func (h *Handler) handleGetEffectivePolicies(c *echo.Context) error {
 		ThingName string `json:"thingName"`
 		Principal string `json:"principal"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	policies := h.Backend.GetEffectivePolicies(req.ThingName, req.Principal)
 	out := make([]map[string]any, len(policies))
 	for i, p := range policies {

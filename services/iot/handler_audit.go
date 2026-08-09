@@ -75,7 +75,9 @@ func (h *Handler) handleStartOnDemandAuditTask(c *echo.Context) error {
 	var req struct {
 		TargetCheckNames []string `json:"targetCheckNames"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	taskID, err := h.Backend.StartOnDemandAuditTask(req.TargetCheckNames)
 	if err != nil {
 		return respondErr(c, err)

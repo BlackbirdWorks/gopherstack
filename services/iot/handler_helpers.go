@@ -13,7 +13,11 @@ import (
 
 func readBody(c *echo.Context, dst any) error {
 	if err := json.NewDecoder(c.Request().Body).Decode(dst); err != nil && !errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()})
+		if jsonErr := c.JSON(http.StatusBadRequest, map[string]string{keyError: err.Error()}); jsonErr != nil {
+			return jsonErr
+		}
+
+		return err
 	}
 
 	return nil

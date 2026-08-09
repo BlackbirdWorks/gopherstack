@@ -270,7 +270,9 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	var req struct {
 		Comment string `json:"comment"`
 	}
-	_ = readBody(c, &req)
+	if err := readBody(c, &req); err != nil {
+		return err
+	}
 	job, err := h.Backend.CancelJob(jobID, req.Comment)
 	if err != nil {
 		return respondErr(c, err)
