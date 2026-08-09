@@ -14,10 +14,11 @@ func TestHandler_ClusterSchedulerConfigLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create
+	// Create: sagemaker@v1.263.2 serializers.go:39786 keys the name "Name", not
+	// "ClusterSchedulerConfigName".
 	rec := doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", map[string]any{
-		"ClusterSchedulerConfigName": "my-config",
-		"ClusterArn":                 "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
+		"Name":       "my-config",
+		"ClusterArn": "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -81,7 +82,7 @@ func TestHandler_ClusterSchedulerConfig_Duplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	body := map[string]any{"ClusterSchedulerConfigName": "dup-config"}
+	body := map[string]any{"Name": "dup-config"}
 	doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", body)
 
 	rec := doSageMakerRequest(t, h, "CreateClusterSchedulerConfig", body)
@@ -97,10 +98,11 @@ func TestHandler_ComputeQuotaLifecycle(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create
+	// Create: sagemaker@v1.263.2 serializers.go:39923 keys the name "Name", not
+	// "ComputeQuotaName".
 	rec := doSageMakerRequest(t, h, "CreateComputeQuota", map[string]any{
-		"ComputeQuotaName": "my-quota",
-		"ClusterArn":       "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
+		"Name":       "my-quota",
+		"ClusterArn": "arn:aws:sagemaker:us-east-1:000000000000:cluster/my-cluster",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -168,7 +170,7 @@ func TestHandler_ComputeQuota_Duplicate(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	body := map[string]any{"ComputeQuotaName": "dup-quota"}
+	body := map[string]any{"Name": "dup-quota"}
 	doSageMakerRequest(t, h, "CreateComputeQuota", body)
 
 	rec := doSageMakerRequest(t, h, "CreateComputeQuota", body)
@@ -182,7 +184,7 @@ func TestHandler_ListComputeQuotas_Pagination(t *testing.T) {
 
 	for i := range 3 {
 		doSageMakerRequest(t, h, "CreateComputeQuota", map[string]any{
-			"ComputeQuotaName": "quota-" + string(rune('a'+i)),
+			"Name": "quota-" + string(rune('a'+i)),
 		})
 	}
 

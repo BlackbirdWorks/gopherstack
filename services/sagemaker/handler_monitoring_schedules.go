@@ -12,8 +12,8 @@ import (
 
 func (h *Handler) handleCreateMonitoringSchedule(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                   map[string]string `json:"Tags"`
-		MonitoringScheduleName string            `json:"MonitoringScheduleName"`
+		MonitoringScheduleName string      `json:"MonitoringScheduleName"`
+		Tags                   []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -24,7 +24,7 @@ func (h *Handler) handleCreateMonitoringSchedule(ctx context.Context, body []byt
 		return nil, fmt.Errorf("%w: MonitoringScheduleName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateMonitoringSchedule(ctx, req.MonitoringScheduleName, req.Tags)
+	result, err := h.Backend.CreateMonitoringSchedule(ctx, req.MonitoringScheduleName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

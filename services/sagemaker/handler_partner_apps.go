@@ -12,13 +12,13 @@ import (
 
 func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags              map[string]string `json:"Tags"`
-		Name              string            `json:"Name"`
-		Type              string            `json:"Type"`
-		ExecutionRoleArn  string            `json:"ExecutionRoleArn,omitempty"`
-		AuthType          string            `json:"AuthType,omitempty"`
-		Tier              string            `json:"Tier,omitempty"`
-		ApplicationConfig json.RawMessage   `json:"ApplicationConfig,omitempty"`
+		Tags              []tagObject     `json:"Tags"`
+		Name              string          `json:"Name"`
+		Type              string          `json:"Type"`
+		ExecutionRoleArn  string          `json:"ExecutionRoleArn,omitempty"`
+		AuthType          string          `json:"AuthType,omitempty"`
+		Tier              string          `json:"Tier,omitempty"`
+		ApplicationConfig json.RawMessage `json:"ApplicationConfig,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -36,7 +36,7 @@ func (h *Handler) handleCreatePartnerApp(ctx context.Context, body []byte) ([]by
 		AuthType:          req.AuthType,
 		Tier:              req.Tier,
 		ApplicationConfig: req.ApplicationConfig,
-		Tags:              req.Tags,
+		Tags:              fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err

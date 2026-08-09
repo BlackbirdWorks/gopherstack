@@ -12,9 +12,9 @@ import (
 
 func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		ProjectName        string            `json:"ProjectName"`
-		ProjectDescription string            `json:"ProjectDescription"`
+		ProjectName        string      `json:"ProjectName"`
+		ProjectDescription string      `json:"ProjectDescription"`
+		Tags               []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -25,7 +25,7 @@ func (h *Handler) handleCreateProject(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: ProjectName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateProject(ctx, req.ProjectName, req.ProjectDescription, req.Tags)
+	result, err := h.Backend.CreateProject(ctx, req.ProjectName, req.ProjectDescription, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

@@ -55,9 +55,12 @@ func parseJobDefRequest(body []byte, jobInputKey string) (jobDefRequest, error) 
 				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 			}
 		case keyTagsField:
-			if err := json.Unmarshal(v, &req.Tags); err != nil {
+			var tags []tagObject
+			if err := json.Unmarshal(v, &tags); err != nil {
 				return jobDefRequest{}, fmt.Errorf("%w: %w", errInvalidRequest, err)
 			}
+
+			req.Tags = fromTagObjects(tags)
 		default:
 			req.Config[k] = v
 		}

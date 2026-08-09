@@ -12,12 +12,12 @@ import (
 
 func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                 map[string]string `json:"Tags,omitempty"`
-		EdgePackagingJobName string            `json:"EdgePackagingJobName"`
-		ModelName            string            `json:"ModelName,omitempty"`
-		ModelVersion         string            `json:"ModelVersion,omitempty"`
-		RoleArn              string            `json:"RoleArn,omitempty"`
-		CompilationJobName   string            `json:"CompilationJobName,omitempty"`
+		EdgePackagingJobName string      `json:"EdgePackagingJobName"`
+		ModelName            string      `json:"ModelName,omitempty"`
+		ModelVersion         string      `json:"ModelVersion,omitempty"`
+		RoleArn              string      `json:"RoleArn,omitempty"`
+		CompilationJobName   string      `json:"CompilationJobName,omitempty"`
+		Tags                 []tagObject `json:"Tags,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -34,7 +34,7 @@ func (h *Handler) handleCreateEdgePackagingJob(ctx context.Context, body []byte)
 		ModelVersion:         req.ModelVersion,
 		RoleArn:              req.RoleArn,
 		CompilationJobName:   req.CompilationJobName,
-		Tags:                 req.Tags,
+		Tags:                 fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err

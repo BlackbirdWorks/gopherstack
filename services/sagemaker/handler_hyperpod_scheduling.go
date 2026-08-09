@@ -11,9 +11,9 @@ import (
 
 func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                       map[string]string `json:"Tags"`
-		ClusterSchedulerConfigName string            `json:"ClusterSchedulerConfigName"`
-		ClusterArn                 string            `json:"ClusterArn"`
+		ClusterSchedulerConfigName string      `json:"Name"`
+		ClusterArn                 string      `json:"ClusterArn"`
+		Tags                       []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -23,7 +23,7 @@ func (h *Handler) handleCreateClusterSchedulerConfig(ctx context.Context, body [
 	c, err := h.Backend.CreateClusterSchedulerConfig(ctx, CreateClusterSchedulerConfigOptions{
 		ClusterSchedulerConfigName: req.ClusterSchedulerConfigName,
 		ClusterArn:                 req.ClusterArn,
-		Tags:                       req.Tags,
+		Tags:                       fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -122,9 +122,9 @@ func (h *Handler) handleDeleteClusterSchedulerConfig(ctx context.Context, body [
 
 func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags             map[string]string `json:"Tags"`
-		ComputeQuotaName string            `json:"ComputeQuotaName"`
-		ClusterArn       string            `json:"ClusterArn"`
+		ComputeQuotaName string      `json:"Name"`
+		ClusterArn       string      `json:"ClusterArn"`
+		Tags             []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -134,7 +134,7 @@ func (h *Handler) handleCreateComputeQuota(ctx context.Context, body []byte) ([]
 	q, err := h.Backend.CreateComputeQuota(ctx, CreateComputeQuotaOptions{
 		ComputeQuotaName: req.ComputeQuotaName,
 		ClusterArn:       req.ClusterArn,
-		Tags:             req.Tags,
+		Tags:             fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err

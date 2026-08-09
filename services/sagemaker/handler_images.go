@@ -12,10 +12,10 @@ import (
 
 func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags        map[string]string `json:"Tags"`
-		ImageName   string            `json:"ImageName"`
-		Description string            `json:"Description"`
-		RoleArn     string            `json:"RoleArn"`
+		ImageName   string      `json:"ImageName"`
+		Description string      `json:"Description"`
+		RoleArn     string      `json:"RoleArn"`
+		Tags        []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -26,7 +26,7 @@ func (h *Handler) handleCreateImage(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: ImageName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateImage(ctx, req.ImageName, req.Description, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateImage(ctx, req.ImageName, req.Description, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

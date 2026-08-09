@@ -12,12 +12,12 @@ import (
 
 func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string        `json:"Tags"`
 		InputConfig        *CompilationInputConfig  `json:"InputConfig"`
 		OutputConfig       *CompilationOutputConfig `json:"OutputConfig"`
 		StoppingCondition  *StoppingCondition       `json:"StoppingCondition"`
 		CompilationJobName string                   `json:"CompilationJobName"`
 		RoleArn            string                   `json:"RoleArn"`
+		Tags               []tagObject              `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -28,7 +28,7 @@ func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: CompilationJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateCompilationJob(ctx, req.CompilationJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateCompilationJob(ctx, req.CompilationJobName, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

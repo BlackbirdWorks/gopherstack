@@ -12,7 +12,7 @@ import (
 
 func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string       `json:"Tags"`
+		Tags               []tagObject             `json:"Tags"`
 		OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig"`
 		AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective"`
 		AutoMLJobName      string                  `json:"AutoMLJobName"`
@@ -28,7 +28,7 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

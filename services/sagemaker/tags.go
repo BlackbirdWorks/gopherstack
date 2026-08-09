@@ -205,8 +205,23 @@ func directTagLookups() []tagLookup {
 }
 
 // statefulTagLookups covers resource kinds with no ARN index, resolved by
-// scanning each region's store.Table and comparing the stored ARN field.
+// scanning each region's store.Table and comparing the stored ARN field. Split
+// across three parts (statefulTagLookupsPart1/2/3) solely to stay within
+// funlen regardless of registry size (see gopherstack-qyon) -- analogous to
+// findTagMapIndexedExtraLocked's split for the same reason.
 func statefulTagLookups() []tagLookup {
+	out := statefulTagLookupsPart1()
+	out = append(out, statefulTagLookupsPart2()...)
+
+	return append(out, statefulTagLookupsPart3()...)
+}
+
+// Part1/2/3 read as duplicates of each other to the dupl linter -- they are a
+// registration table, so repeating the same one-entry-per-kind shape is the
+// point, not accidental copy-paste.
+//
+//nolint:dupl // registration table, not copy-paste -- see comment above.
+func statefulTagLookupsPart1() []tagLookup {
 	return []tagLookup{
 		scanTagLookup(
 			(*InMemoryBackend).domainsStoreRO,
@@ -237,6 +252,187 @@ func statefulTagLookups() []tagLookup {
 			(*InMemoryBackend).trialComponentsStoreRO,
 			func(v *TrialComponent) string { return v.TrialComponentArn },
 			func(v *TrialComponent) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).appsStoreRO,
+			func(v *App) string { return v.AppArn },
+			func(v *App) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).appImageConfigsStoreRO,
+			func(v *AppImageConfig) string { return v.AppImageConfigArn },
+			func(v *AppImageConfig) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).autoMLJobsStoreRO,
+			func(v *AutoMLJob) string { return v.AutoMLJobArn },
+			func(v *AutoMLJob) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).clusterSchedulerConfigsStoreRO,
+			func(v *ClusterSchedulerConfig) string { return v.ClusterSchedulerConfigArn },
+			func(v *ClusterSchedulerConfig) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).codeRepositoriesStoreRO,
+			func(v *CodeRepository) string { return v.CodeRepositoryArn },
+			func(v *CodeRepository) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).compilationJobsStoreRO,
+			func(v *CompilationJob) string { return v.CompilationJobArn },
+			func(v *CompilationJob) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).computeQuotasStoreRO,
+			func(v *ComputeQuota) string { return v.ComputeQuotaArn },
+			func(v *ComputeQuota) *map[string]string { return &v.Tags },
+		),
+	}
+}
+
+//nolint:dupl // see statefulTagLookupsPart1.
+func statefulTagLookupsPart2() []tagLookup {
+	return []tagLookup{
+		scanTagLookup(
+			(*InMemoryBackend).dataQualityJobDefsStoreRO,
+			func(v *JobDefinition) string { return v.JobDefinitionArn },
+			func(v *JobDefinition) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).modelBiasJobDefsStoreRO,
+			func(v *JobDefinition) string { return v.JobDefinitionArn },
+			func(v *JobDefinition) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).modelQualityJobDefsStoreRO,
+			func(v *JobDefinition) string { return v.JobDefinitionArn },
+			func(v *JobDefinition) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).modelExplainJobDefsStoreRO,
+			func(v *JobDefinition) string { return v.JobDefinitionArn },
+			func(v *JobDefinition) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).deviceFleetsStoreRO,
+			func(v *DeviceFleet) string { return v.DeviceFleetArn },
+			func(v *DeviceFleet) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).edgeDeploymentPlansStoreRO,
+			func(v *EdgeDeploymentPlan) string { return v.EdgeDeploymentPlanArn },
+			func(v *EdgeDeploymentPlan) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).edgePackagingJobsStoreRO,
+			func(v *EdgePackagingJob) string { return v.EdgePackagingJobArn },
+			func(v *EdgePackagingJob) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).flowDefinitionsStoreRO,
+			func(v *FlowDefinition) string { return v.FlowDefinitionArn },
+			func(v *FlowDefinition) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).hubsStoreRO,
+			func(v *Hub) string { return v.HubArn },
+			func(v *Hub) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).hubContentsStoreRO,
+			func(v *HubContent) string { return v.HubContentArn },
+			func(v *HubContent) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).humanTaskUisStoreRO,
+			func(v *HumanTaskUI) string { return v.HumanTaskUIArn },
+			func(v *HumanTaskUI) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).smImagesStoreRO,
+			func(v *SMImage) string { return v.ImageArn },
+			func(v *SMImage) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).inferenceComponentsStoreRO,
+			func(v *InferenceComponent) string { return v.InferenceComponentArn },
+			func(v *InferenceComponent) *map[string]string { return &v.Tags },
+		),
+	}
+}
+
+func statefulTagLookupsPart3() []tagLookup {
+	return []tagLookup{
+		scanTagLookup(
+			(*InMemoryBackend).inferenceExperimentsStoreRO,
+			func(v *InferenceExperiment) string { return v.Arn },
+			func(v *InferenceExperiment) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).inferenceRecommendationsJobsStoreRO,
+			func(v *InferenceRecommendationsJob) string { return v.JobArn },
+			func(v *InferenceRecommendationsJob) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).mlflowAppsStoreRO,
+			func(v *MlflowApp) string { return v.Arn },
+			func(v *MlflowApp) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).mlflowTrackingServersStoreRO,
+			func(v *MlflowTrackingServer) string { return v.TrackingServerArn },
+			func(v *MlflowTrackingServer) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).modelCardsStoreRO,
+			func(v *ModelCard) string { return v.ModelCardArn },
+			func(v *ModelCard) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).monitoringSchedulesStoreRO,
+			func(v *MonitoringSchedule) string { return v.MonitoringScheduleArn },
+			func(v *MonitoringSchedule) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).notebookLifecycleConfigsStoreRO,
+			func(v *NotebookInstanceLifecycleConfig) string { return v.ARN },
+			func(v *NotebookInstanceLifecycleConfig) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).optimizationJobsStoreRO,
+			func(v *OptimizationJob) string { return v.OptimizationJobArn },
+			func(v *OptimizationJob) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).partnerAppsStoreRO,
+			func(v *PartnerApp) string { return v.Arn },
+			func(v *PartnerApp) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).projectsStoreRO,
+			func(v *Project) string { return v.ProjectArn },
+			func(v *Project) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).spacesStoreRO,
+			func(v *Space) string { return v.SpaceArn },
+			func(v *Space) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).studioLifecycleConfigsStoreRO,
+			func(v *StudioLifecycleConfig) string { return v.StudioLifecycleConfigArn },
+			func(v *StudioLifecycleConfig) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).trainingPlansStoreRO,
+			func(v *TrainingPlan) string { return v.TrainingPlanArn },
+			func(v *TrainingPlan) *map[string]string { return &v.Tags },
+		),
+		scanTagLookup(
+			(*InMemoryBackend).userProfilesStoreRO,
+			func(v *UserProfile) string { return v.UserProfileArn },
+			func(v *UserProfile) *map[string]string { return &v.Tags },
 		),
 	}
 }
