@@ -53,14 +53,15 @@ type Invalidation struct {
 
 // AnycastIPList represents a CloudFront Anycast IP list.
 type AnycastIPList struct {
-	Tags       map[string]string `json:"tags,omitempty"`
-	ID         string            `json:"id"`
-	ARN        string            `json:"arn"`
-	Name       string            `json:"name"`
-	Status     string            `json:"status"`
-	ETag       string            `json:"eTag"`
-	AnycastIPs []string          `json:"anycastIps,omitempty"`
-	IPCount    int32             `json:"ipCount"`
+	Tags          map[string]string `json:"tags,omitempty"`
+	ID            string            `json:"id"`
+	ARN           string            `json:"arn"`
+	Name          string            `json:"name"`
+	Status        string            `json:"status"`
+	ETag          string            `json:"eTag"`
+	IPAddressType string            `json:"ipAddressType,omitempty"`
+	AnycastIPs    []string          `json:"anycastIps,omitempty"`
+	IPCount       int32             `json:"ipCount"`
 }
 
 // CachePolicyHeadersConfig specifies which headers the policy forwards and caches.

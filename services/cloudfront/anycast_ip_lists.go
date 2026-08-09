@@ -115,9 +115,21 @@ func (b *InMemoryBackend) ListAnycastIPLists() []*AnycastIPList {
 	return out
 }
 
-// UpdateAnycastIPList updates the IP count of an existing Anycast IP list, regenerating its
-// AnycastIPs to match the new count (a no-op when ipCount is <= 0, meaning "leave unchanged").
-func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*AnycastIPList, error) {
+// isValidAnycastIPAddressType reports whether ipAddressType is one of the values
+// UpdateAnycastIpListInput accepts, or empty (unset) (cloudfront@v1.67.4 types/enums.go:427-434).
+func isValidAnycastIPAddressType(ipAddressType string) bool {
+	switch ipAddressType {
+	case "", "ipv4", "ipv6", "dualstack":
+		return true
+	default:
+		return false
+	}
+}
+
+// UpdateAnycastIPList updates the IpAddressType of an existing Anycast IP list. IpCount is not
+// a member of UpdateAnycastIpListInput (cloudfront@v1.67.4 api_op_UpdateAnycastIpList.go:28-56)
+// -- a real client can never change the IP count via this operation, so it is left untouched.
+func (b *InMemoryBackend) UpdateAnycastIPList(id, ipAddressType string) (*AnycastIPList, error) {
 	b.mu.Lock("UpdateAnycastIPList")
 	defer b.mu.Unlock()
 
@@ -125,14 +137,11 @@ func (b *InMemoryBackend) UpdateAnycastIPList(id string, ipCount int32) (*Anycas
 	if !ok {
 		return nil, ErrAnycastIPListNotFound
 	}
-	if ipCount > maxAnycastIPCount {
-		return nil, fmt.Errorf(
-			"%w: IpCount must not exceed %d", ErrValidation, maxAnycastIPCount,
-		)
+	if !isValidAnycastIPAddressType(ipAddressType) {
+		return nil, fmt.Errorf("%w: IpAddressType must be one of ipv4, ipv6, dualstack", ErrValidation)
 	}
-	if ipCount > 0 {
-		list.IPCount = ipCount
-		list.AnycastIPs = generateAnycastIPs(id, ipCount)
+	if ipAddressType != "" {
+		list.IPAddressType = ipAddressType
 	}
 	list.ETag = uuid.NewString()
 

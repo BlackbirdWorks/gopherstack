@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	cfsdk "github.com/aws/aws-sdk-go-v2/service/cloudfront"
+	"github.com/aws/aws-sdk-go-v2/service/cloudfront/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,8 +36,10 @@ func TestAnycastIPList_NameUniqueness(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestAnycastIPList_GeneratedIPs verifies AnycastIPs is populated with IPCount
-// entries on create, and regenerated to match a new count on update.
+// TestAnycastIPList_GeneratedIPs verifies AnycastIPs is populated with IPCount entries on
+// create, and that UpdateAnycastIPList -- which real clients can only use to change
+// IpAddressType, never IpCount (cloudfront@v1.67.4 api_op_UpdateAnycastIpList.go:28-56 has no
+// IpCount member) -- leaves the count and generated IPs untouched.
 func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	t.Parallel()
 
@@ -46,15 +51,21 @@ func TestAnycastIPList_GeneratedIPs(t *testing.T) {
 	assert.NotEmpty(t, list.ETag)
 
 	oldETag := list.ETag
-	updated, err := b.UpdateAnycastIPList(list.ID, 7)
+	updated, err := b.UpdateAnycastIPList(list.ID, "dualstack")
 	require.NoError(t, err)
-	assert.Len(t, updated.AnycastIPs, 7)
+	assert.Equal(t, "dualstack", updated.IPAddressType)
+	assert.Len(t, updated.AnycastIPs, 4)
+	assert.Equal(t, int32(4), updated.IPCount)
 	assert.NotEqual(t, oldETag, updated.ETag)
 
-	// A no-op update (ipCount <= 0) leaves the IPs and count unchanged.
-	unchanged, err := b.UpdateAnycastIPList(list.ID, 0)
+	// An empty IpAddressType (unset) leaves the current type, IPs, and count unchanged.
+	unchanged, err := b.UpdateAnycastIPList(list.ID, "")
 	require.NoError(t, err)
-	assert.Len(t, unchanged.AnycastIPs, 7)
+	assert.Equal(t, "dualstack", unchanged.IPAddressType)
+	assert.Len(t, unchanged.AnycastIPs, 4)
+
+	_, err = b.UpdateAnycastIPList(list.ID, "bogus")
+	require.Error(t, err)
 }
 
 // TestAnycastIPList_IfMatchEnforcement mirrors the trust store If-Match test:
@@ -79,14 +90,15 @@ func TestAnycastIPList_IfMatchEnforcement(t *testing.T) {
 	require.NotEmpty(t, etag)
 
 	badUpdate := doXMLWithHeaders(t, h, http.MethodPut, prefix+"anycast-ip-list/"+id,
-		[]byte(`<AnycastIpListConfig><IpCount>9</IpCount></AnycastIpListConfig>`),
+		[]byte(`<UpdateAnycastIpListRequest><IpAddressType>ipv6</IpAddressType></UpdateAnycastIpListRequest>`),
 		map[string]string{"If-Match": "bogus-etag"})
 	assert.Equal(t, http.StatusPreconditionFailed, badUpdate.Code)
 
 	goodUpdate := doXMLWithHeaders(t, h, http.MethodPut, prefix+"anycast-ip-list/"+id,
-		[]byte(`<AnycastIpListConfig><IpCount>9</IpCount></AnycastIpListConfig>`),
+		[]byte(`<UpdateAnycastIpListRequest><IpAddressType>ipv6</IpAddressType></UpdateAnycastIpListRequest>`),
 		map[string]string{"If-Match": etag})
 	require.Equal(t, http.StatusOK, goodUpdate.Code)
+	assert.Contains(t, goodUpdate.Body.String(), "<IpAddressType>ipv6</IpAddressType>")
 	newETag := goodUpdate.Header().Get("ETag")
 	assert.NotEmpty(t, newETag)
 	assert.NotEqual(t, etag, newETag)
@@ -149,6 +161,63 @@ func TestAnycastIPList_PersistenceRoundTrip(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestUpdateAnycastIPList_RealClient drives UpdateAnycastIpList through a real
+// aws-sdk-go-v2 client (cloudfront@v1.67.4's UpdateAnycastIpListInput has no
+// IpCount member at all -- api_op_UpdateAnycastIpList.go:28-56 -- so a real
+// client can never send one; the only settable field is IpAddressType).
+func TestUpdateAnycastIPList_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		check func(*testing.T, *cfsdk.Client, string)
+		name  string
+	}{
+		{
+			name: "ip_count_survives_update",
+			check: func(t *testing.T, client *cfsdk.Client, id string) {
+				t.Helper()
+				got, err := client.GetAnycastIpList(t.Context(), &cfsdk.GetAnycastIpListInput{Id: aws.String(id)})
+				require.NoError(t, err)
+				assert.Equal(t, int32(4), aws.ToInt32(got.AnycastIpList.IpCount))
+				assert.Len(t, got.AnycastIpList.AnycastIps, 4)
+			},
+		},
+		{
+			name: "ip_address_type_applied",
+			check: func(t *testing.T, client *cfsdk.Client, id string) {
+				t.Helper()
+				got, err := client.GetAnycastIpList(t.Context(), &cfsdk.GetAnycastIpListInput{Id: aws.String(id)})
+				require.NoError(t, err)
+				assert.Equal(t, types.IpAddressTypeDualStack, got.AnycastIpList.IpAddressType)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			client := newTestCloudFrontClient(t, h)
+
+			created, err := client.CreateAnycastIpList(t.Context(), &cfsdk.CreateAnycastIpListInput{
+				Name:    aws.String("real-client-" + tt.name),
+				IpCount: aws.Int32(4),
+			})
+			require.NoError(t, err)
+
+			_, err = client.UpdateAnycastIpList(t.Context(), &cfsdk.UpdateAnycastIpListInput{
+				Id:            created.AnycastIpList.Id,
+				IfMatch:       created.ETag,
+				IpAddressType: types.IpAddressTypeDualStack,
+			})
+			require.NoError(t, err)
+
+			tt.check(t, client, aws.ToString(created.AnycastIpList.Id))
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ContinuousDeploymentPolicy
 // ---------------------------------------------------------------------------
@@ -181,8 +250,11 @@ func TestAnycastIPList_CRUD(t *testing.T) {
 	}
 
 	// Update
-	cfOK(t, h, http.MethodPut, prefix+"anycast-ip-list/"+id,
-		`<AnycastIpListConfig><IPCount>10</IPCount></AnycastIpListConfig>`)
+	updateOut := cfOK(t, h, http.MethodPut, prefix+"anycast-ip-list/"+id,
+		`<UpdateAnycastIpListRequest><IpAddressType>dualstack</IpAddressType></UpdateAnycastIpListRequest>`)
+	if !strings.Contains(updateOut, "<IpAddressType>dualstack</IpAddressType>") {
+		t.Errorf("update missing IpAddressType: %s", updateOut)
+	}
 
 	// Delete
 	cfOK(t, h, http.MethodDelete, prefix+"anycast-ip-list/"+id, "")

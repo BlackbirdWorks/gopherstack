@@ -55,7 +55,9 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 
 	var ips strings.Builder
 	for _, ip := range list.AnycastIPs {
-		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
+		// Wire element is AnycastIp, not IpAddress (cloudfront@v1.67.4 deserializers.go:34541,
+		// awsRestxml_deserializeDocumentAnycastIps).
+		fmt.Fprintf(&ips, `<AnycastIp>%s</AnycastIp>`, ip)
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -78,15 +80,20 @@ func (h *Handler) handleCreateAnycastIPList(c *echo.Context) error {
 func anycastIPListXML(ns string, list *AnycastIPList) string {
 	var ips strings.Builder
 	for _, ip := range list.AnycastIPs {
-		fmt.Fprintf(&ips, `<IpAddress>%s</IpAddress>`, ip)
+		fmt.Fprintf(&ips, `<AnycastIp>%s</AnycastIp>`, ip)
+	}
+
+	var ipAddressType string
+	if list.IPAddressType != "" {
+		ipAddressType = fmt.Sprintf(`<IpAddressType>%s</IpAddressType>`, list.IPAddressType)
 	}
 
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<AnycastIpList xmlns="%s">`+
-		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Status>%s</Status><IpCount>%d</IpCount>`+
+		`<Id>%s</Id><ARN>%s</ARN><Name>%s</Name><Status>%s</Status><IpCount>%d</IpCount>%s`+
 		`<AnycastIps>%s</AnycastIps>`+
 		`</AnycastIpList>`,
-		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ips.String())
+		ns, list.ID, list.ARN, list.Name, list.Status, list.IPCount, ipAddressType, ips.String())
 }
 
 // anycastIPListPreconditionFailedXML is the shared If-Match error body for anycast IP list
@@ -112,8 +119,10 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	type ailSummary struct {
 		XMLName xml.Name `xml:"AnycastIpListSummary"`
 		ID      string   `xml:"Id"`
+		ARN     string   `xml:"Arn"`
 		Name    string   `xml:"Name"`
 		Status  string   `xml:"Status"`
+		IPCount int32    `xml:"IpCount"`
 	}
 	type ailList struct {
 		XMLName  xml.Name     `xml:"AnycastIpLists"`
@@ -123,7 +132,9 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 	}
 	summaries := make([]ailSummary, 0, len(items))
 	for _, ail := range items {
-		summaries = append(summaries, ailSummary{ID: ail.ID, Name: ail.Name, Status: ail.Status})
+		summaries = append(summaries, ailSummary{
+			ID: ail.ID, ARN: ail.ARN, Name: ail.Name, Status: ail.Status, IPCount: ail.IPCount,
+		})
 	}
 	list := ailList{XMLNS: cfNS, Quantity: len(summaries), Items: summaries}
 	out, xmlErr := xml.Marshal(list)
@@ -144,19 +155,31 @@ func (h *Handler) handleUpdateAnycastIPList(c *echo.Context, id string) error {
 		return xmlResp(c, http.StatusPreconditionFailed, anycastIPListPreconditionFailedXML())
 	}
 
+	// Root element is UpdateAnycastIpListRequest, and the only settable body field is
+	// IpAddressType -- cloudfront@v1.67.4 serializers.go:12012-12082 (there is no IpCount
+	// member; IpamCidrConfigs is not modeled here).
 	var req struct {
-		XMLName xml.Name `xml:"AnycastIpListConfig"`
-		IPCount int32    `xml:"IpCount"`
+		XMLName       xml.Name `xml:"UpdateAnycastIpListRequest"`
+		IPAddressType string   `xml:"IpAddressType"`
 	}
-	body, _ := readBody(c)
+	body, err := readBody(c)
+	if err != nil {
+		return xmlResp(c, http.StatusBadRequest, cfErrorXML("MalformedXML", "failed to read body"))
+	}
 
 	if qErr := validateQuantities(body); qErr != nil {
 		return h.handleError(c, qErr)
 	}
 	if len(body) > 0 {
-		_ = xml.Unmarshal(body, &req)
+		if xmlErr := xml.Unmarshal(body, &req); xmlErr != nil {
+			return xmlResp(
+				c,
+				http.StatusBadRequest,
+				cfErrorXML("MalformedXML", "invalid UpdateAnycastIpListRequest XML"),
+			)
+		}
 	}
-	list, updateErr := h.Backend.UpdateAnycastIPList(id, req.IPCount)
+	list, updateErr := h.Backend.UpdateAnycastIPList(id, req.IPAddressType)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}
