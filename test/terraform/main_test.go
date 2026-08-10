@@ -184,13 +184,13 @@ func TestMain(m *testing.M) {
 	// (e.g. from CI or `go build`), otherwise fall back to the full
 	// multi-stage Dockerfile that compiles from source.
 	dockerfile := "Dockerfile"
-	binPath := "../../bin/gopherstack"
+	binPath := "../../bin/gopherstack-linux"
 
 	// If we are on Mac, we MUST build a Linux binary for the container.
 	if runtime.GOOS == "darwin" {
 		logger.Info("running on Darwin, building Linux binary for container tests...")
 		// Use relative path but run from the directory containing go.mod to ensure embed works.
-		cmd := exec.Command("go", "build", "-trimpath", "-o", "bin/gopherstack", ".")
+		cmd := exec.Command("go", "build", "-trimpath", "-o", "bin/gopherstack-linux", ".")
 		cmd.Dir = "../../"
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOTOOLCHAIN=local")
 		if out, err := cmd.CombinedOutput(); err != nil {
