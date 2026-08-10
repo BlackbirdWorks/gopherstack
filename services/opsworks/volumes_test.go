@@ -180,3 +180,17 @@ func TestVolumes(t *testing.T) {
 		})
 	}
 }
+
+// TestRegisterVolumeValidation verifies RegisterVolume rejects a missing
+// StackId with ValidationException rather than falling through to the
+// stack-lookup's ResourceNotFoundException. StackId is "This member is
+// required" on the real RegisterVolumeInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_RegisterVolume.go).
+func TestRegisterVolumeValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTarget(t, h, "RegisterVolume", map[string]any{"Ec2VolumeId": "vol-1234"})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}

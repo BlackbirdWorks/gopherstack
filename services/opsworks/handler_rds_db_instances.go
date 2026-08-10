@@ -85,6 +85,13 @@ func (h *Handler) handleUpdateRdsDBInstance(_ context.Context, body []byte) (any
 	return map[string]any{}, nil
 }
 
+// rdsDBInstancePasswordFiltered is what real OpsWorks Stacks returns in
+// place of the actual DbPassword (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's types.go RdsDbInstance.DbPassword
+// doc comment: "OpsWorks Stacks returns *****FILTERED***** instead of the
+// actual value.").
+const rdsDBInstancePasswordFiltered = "*****FILTERED*****"
+
 func rdsDBInstancesToJSON(rdbs []*RdsDBInstance) []map[string]any {
 	result := make([]map[string]any, 0, len(rdbs))
 	for _, r := range rdbs {
@@ -92,6 +99,7 @@ func rdsDBInstancesToJSON(rdbs []*RdsDBInstance) []map[string]any {
 			"RdsDbInstanceArn":     r.RdsDBInstanceArn,
 			"DbInstanceIdentifier": r.DBInstanceIdentifier,
 			"DbUser":               r.DBUser,
+			"DbPassword":           rdsDBInstancePasswordFiltered,
 			keyStackID:             r.StackID,
 			fieldRegion:            r.Region,
 			"Address":              r.Address,

@@ -40,6 +40,14 @@ func newPersistenceTestBackend(t *testing.T) (*opsworks.InMemoryBackend, persist
 		"stack1", "us-east-1",
 		"arn:aws:iam::000000000000:instance-profile/p",
 		"arn:aws:iam::000000000000:role/r",
+		opsworks.CreateStackOptions{
+			VpcID:      "vpc-123",
+			Attributes: map[string]string{"Color": "blue"},
+			ConfigurationManager: &opsworks.StackConfigurationManager{
+				Name: "Chef", Version: "12",
+			},
+			ChefConfiguration: &opsworks.ChefConfiguration{ManageBerkshelf: true, BerkshelfVersion: "5.1"},
+		},
 	)
 	require.NoError(t, err)
 
@@ -130,6 +138,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stacks, 1)
 	assert.Equal(t, "stack1", stacks[0].Name)
+	assert.Equal(t, "vpc-123", stacks[0].VpcID)
+	assert.Equal(t, map[string]string{"Color": "blue"}, stacks[0].Attributes)
+	require.NotNil(t, stacks[0].ConfigurationManager)
+	assert.Equal(t, "Chef", stacks[0].ConfigurationManager.Name)
+	assert.Equal(t, "12", stacks[0].ConfigurationManager.Version)
+	require.NotNil(t, stacks[0].ChefConfiguration)
+	assert.True(t, stacks[0].ChefConfiguration.ManageBerkshelf)
+	assert.Equal(t, "5.1", stacks[0].ChefConfiguration.BerkshelfVersion)
 
 	// layers table + layersByStack index.
 	layers, err := fresh.DescribeLayers(ids.stackID, nil)

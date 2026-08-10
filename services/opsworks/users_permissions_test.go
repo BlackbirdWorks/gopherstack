@@ -182,6 +182,53 @@ func TestPermissions(t *testing.T) {
 	}
 }
 
+// TestSetPermissionValidation verifies SetPermission rejects a missing
+// IamUserArn or StackId with ValidationException rather than either
+// silently accepting an empty IamUserArn or falling through to the
+// stack-lookup's ResourceNotFoundException. IamUserArn and StackId are
+// both "This member is required" on the real SetPermissionInput (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_SetPermission.go).
+func TestSetPermissionValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing IamUserArn", body: map[string]any{"StackId": "some-stack"}},
+		{name: "missing StackId", body: map[string]any{"IamUserArn": "arn:aws:iam::000000000000:user/x"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doTarget(t, h, "SetPermission", tt.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
+		})
+	}
+}
+
+// TestSetPermissionLevelValidation verifies SetPermission rejects a Level
+// outside the real API's documented closed set (deny/show/deploy/manage/
+// iam_only -- confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_SetPermission.go doc comment). A previous pass accepted any string.
+func TestSetPermissionLevelValidation(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	stackID := createTestStack(t, h)
+	rec := doTarget(t, h, "SetPermission", map[string]any{
+		"StackId":    stackID,
+		"IamUserArn": "arn:aws:iam::000000000000:user/x",
+		"Level":      "superadmin",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
 // TestGrantAccess verifies GrantAccess returns temporary credentials.
 func TestGrantAccess(t *testing.T) {
 	t.Parallel()

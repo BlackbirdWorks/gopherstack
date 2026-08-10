@@ -534,7 +534,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Amazon MQ](services/mq/README.md) | A | 25 | 4 gaps; 1 deferred |
+| [Amazon MQ](services/mq/README.md) | A | 25 | 2 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 2 gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
@@ -565,7 +565,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps; 5 deferred |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 4 gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
-| [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 4 gaps; 1 deferred |
+| [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
 | [OpenSearch](services/opensearch/README.md) | A | 14 | 1 gap; 1 deferred |
 | [QuickSight](services/quicksight/README.md) | A | 73 | 1 gap |
 
@@ -617,7 +617,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
-| [OpsWorks](services/opsworks/README.md) | B | 32 | 4 gaps; 2 deferred |
+| [OpsWorks](services/opsworks/README.md) | B | 32 | 4 gaps; 1 deferred |
 | [Organizations](services/organizations/README.md) | A | 63 | 4 gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |

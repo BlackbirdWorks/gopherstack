@@ -9,20 +9,48 @@ import (
 // handleCreateStack handles CreateStack requests.
 func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		Name                      string `json:"Name"`
-		Region                    string `json:"Region"`
-		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
-		ServiceRoleArn            string `json:"ServiceRoleArn"`
+		ConfigurationManager *struct {
+			Name    string `json:"Name"`
+			Version string `json:"Version"`
+		} `json:"ConfigurationManager"`
+		ChefConfiguration *struct {
+			BerkshelfVersion string `json:"BerkshelfVersion"`
+			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
+		} `json:"ChefConfiguration"`
+		Attributes                map[string]string `json:"Attributes"`
+		Name                      string            `json:"Name"`
+		Region                    string            `json:"Region"`
+		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
+		ServiceRoleArn            string            `json:"ServiceRoleArn"`
+		VpcID                     string            `json:"VpcId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	opts := CreateStackOptions{
+		Attributes: req.Attributes,
+		VpcID:      req.VpcID,
+	}
+	if req.ConfigurationManager != nil {
+		opts.ConfigurationManager = &StackConfigurationManager{
+			Name:    req.ConfigurationManager.Name,
+			Version: req.ConfigurationManager.Version,
+		}
+	}
+	if req.ChefConfiguration != nil {
+		opts.ChefConfiguration = &ChefConfiguration{
+			BerkshelfVersion: req.ChefConfiguration.BerkshelfVersion,
+			ManageBerkshelf:  req.ChefConfiguration.ManageBerkshelf,
+		}
+	}
+
 	stack, err := h.Backend.CreateStack(
 		req.Name, req.Region,
 		req.DefaultInstanceProfileArn,
 		req.ServiceRoleArn,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -200,7 +228,7 @@ func (h *Handler) handleDescribeStackProvisioningParameters(_ context.Context, b
 func stacksToJSON(stacks []*Stack) []map[string]any {
 	result := make([]map[string]any, 0, len(stacks))
 	for _, s := range stacks {
-		result = append(result, map[string]any{
+		entry := map[string]any{
 			keyStackID:                  s.StackID,
 			keyArn:                      s.Arn,
 			keyName:                     s.Name,
@@ -208,7 +236,22 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 			"DefaultInstanceProfileArn": s.DefaultInstanceProfileArn,
 			"ServiceRoleArn":            s.ServiceRoleArn,
 			keyCreatedAt:                formatOpsWorksTime(s.CreatedAt),
-		})
+			"Attributes":                s.Attributes,
+			"VpcId":                     s.VpcID,
+		}
+		if s.ConfigurationManager != nil {
+			entry["ConfigurationManager"] = map[string]any{
+				"Name":    s.ConfigurationManager.Name,
+				"Version": s.ConfigurationManager.Version,
+			}
+		}
+		if s.ChefConfiguration != nil {
+			entry["ChefConfiguration"] = map[string]any{
+				"ManageBerkshelf":  s.ChefConfiguration.ManageBerkshelf,
+				"BerkshelfVersion": s.ChefConfiguration.BerkshelfVersion,
+			}
+		}
+		result = append(result, entry)
 	}
 
 	return result

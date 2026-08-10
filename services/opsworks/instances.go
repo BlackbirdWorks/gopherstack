@@ -47,8 +47,15 @@ func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) 
 	return i.toInstance(), nil
 }
 
-// RegisterInstance registers an on-premises instance with a stack.
+// RegisterInstance registers an on-premises instance with a stack. StackId
+// is "This member is required" on the real RegisterInstanceInput (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_RegisterInstance.go); Hostname is not.
 func (b *InMemoryBackend) RegisterInstance(stackID, hostname string) (string, error) {
+	if stackID == "" {
+		return "", ErrValidation
+	}
+
 	b.mu.Lock("RegisterInstance")
 	defer b.mu.Unlock()
 
@@ -94,7 +101,12 @@ func (b *InMemoryBackend) DeregisterInstance(instanceID string) error {
 // layer must exist and belong to the same stack as the instance -- AWS
 // does not document cross-stack assignment as valid, and this backend
 // previously accepted any layer ID (even one from an unrelated stack, or
-// one that didn't exist at all) without checking.
+// one that didn't exist at all) without checking. AssignInstance's doc
+// comment (aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignInstance.go)
+// also documents "You cannot use this action with instances that were
+// created with OpsWorks Stacks" -- i.e. it only applies to RegisterInstance'd
+// instances, never CreateInstance'd ones; storedInstance.Registered (set
+// only by RegisterInstance) is what this backend already tracks that on.
 func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) error {
 	b.mu.Lock("AssignInstance")
 	defer b.mu.Unlock()
@@ -102,6 +114,10 @@ func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) e
 	i, ok := b.instances.Get(instanceID)
 	if !ok {
 		return ErrInstanceNotFound
+	}
+
+	if !i.Registered {
+		return ErrValidation
 	}
 
 	if len(layerIDs) == 0 {
