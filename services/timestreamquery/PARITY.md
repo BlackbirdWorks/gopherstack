@@ -1,22 +1,24 @@
 ---
 service: timestreamquery
-sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.36.16
+sdk_module: aws-sdk-go-v2/service/timestreamquery@v1.39.4
 last_audit_commit: a98a164d
-last_audit_date: 2026-07-24
-overall: A            # this pass: deleted an invented LastUpdatedTime field, added the documented
-                       # TCU (multiple-of-4, 4-1000) validation, modeled QueryCompute.ProvisionedCapacity
-                       # .NotificationConfiguration end-to-end (parse/apply/respond/persist), and fixed
-                       # marshalColumnInfos dropping the ColumnInfo.Type nested union (Array/Row/
-                       # TimeSeriesMeasureValueColumnInfo) down to ScalarType only.
+last_audit_date: 2026-08-10
+overall: A            # this pass: CreateScheduledQuery.KmsKeyId was accepted nowhere and returned
+                       # nowhere (a silent-drop, not just "no encryption layer") -- now stored and
+                       # echoed on DescribeScheduledQuery. Fixed LastRunSummary.RunStatus/
+                       # ScheduledQueryListEntry.LastRunStatus always claiming AUTO_TRIGGER_SUCCESS
+                       # even though this emulator has no scheduler -- every run is produced by an
+                       # explicit (manual) ExecuteScheduledQuery call, so the claim contradicted the
+                       # only mechanism that ever populates it; now MANUAL_TRIGGER_SUCCESS.
 ops:
   Query: {wire: fixed, errors: ok, state: ok, persist: ok, note: "deterministic mock rows/columns inferred from SQL projection (documented; no real Timestream Write data source exists to query against). ClientToken TTL fixed 8h->4h to match documented window. marshalColumnInfos (shared with PrepareQuery) previously hand-picked only Type.ScalarType out of ColumnInfo, silently dropping ArrayColumnInfo/RowColumnInfo/TimeSeriesMeasureValueColumnInfo whenever set; now passes the full ColumnType struct through so the nested union marshals correctly (types.Type)."}
   CancelQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was non-idempotent: 2nd CancelQuery on the same QueryId 404'd (ValidationException) instead of succeeding per documented idempotent-cancel contract. Now marks Cancelled in place instead of deleting."}
   PrepareQuery: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "disguised no-op: ValidateOnly=true (the ONLY mode real Timestream documents as supported) returned an EMPTY Columns/Parameters list, discarding the inferred result for the one mode real clients use. Now returns the same inferred Columns/Parameters regardless of ValidateOnly. Shares the marshalColumnInfos nested-union fix noted under Query."}
   DescribeEndpoints: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreateScheduledQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken was parsed by the SDK request but never read by the handler/backend, so an SDK-auto-retried create (aws-sdk-go-v2 auto-generates ClientToken via idempotency-token-autofill middleware) hit ConflictException instead of replaying the original success. Now caches ClientToken->Arn for 8h and replays."}
+  CreateScheduledQuery: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ClientToken was parsed by the SDK request but never read by the handler/backend, so an SDK-auto-retried create (aws-sdk-go-v2 auto-generates ClientToken via idempotency-token-autofill middleware) hit ConflictException instead of replaying the original success. Now caches ClientToken->Arn for 8h and replays. Also: KmsKeyId (types.go:659) was accepted nowhere on the request and returned nowhere on ScheduledQueryDescription (types.go:659, same field name) -- a silent-drop, not just missing encryption. Now parsed, stored, and echoed back on DescribeScheduledQuery (still no actual at-rest encryption -- see gaps)."}
   DeleteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeScheduledQuery: {wire: fixed, errors: ok, state: ok, persist: ok, note: "LastRunSummary.ExecutionStats used the misspelled wire field ExecutionTimeInMillisecs; real field is ExecutionTimeInMillis (no trailing ecs) per awsAwsjson10_deserializeDocumentExecutionStats."}
-  ExecuteScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
+  ExecuteScheduledQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "documented as running a scheduled query manually (api_op_ExecuteScheduledQuery.go: 'You can use this API to run a scheduled query manually'). This emulator has no scheduler goroutine, so ExecuteScheduledQuery is the ONLY code path that ever populates a run -- yet LastRunSummary.RunStatus and ScheduledQueryListEntry.LastRunStatus always claimed AUTO_TRIGGER_SUCCESS, asserting an automatic trigger that never happened. Fixed to MANUAL_TRIGGER_SUCCESS."}
   ListScheduledQueries: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateScheduledQuery: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeAccountSettings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "DELETED an invented LastUpdatedTime field: neither DescribeAccountSettingsOutput nor UpdateAccountSettingsOutput (real SDK) defines one. Now also surfaces QueryCompute.ProvisionedCapacity.NotificationConfiguration when set (see UpdateAccountSettings)."}
@@ -25,8 +27,8 @@ families:
   tags: {status: deferred, note: "TagResource/UntagResource/ListTagsForResource are in GetSupportedOperations() and have working handlers/backend methods (own ARN-keyed tag map), but RouteMatcher intentionally excludes them (writeServiceTagOps) so production traffic is routed to the TimestreamWrite handler's unified cross-resource tag store instead. Verified TimestreamWrite's TagResource treats ResourceARN as an opaque key (no resource-type-specific lookup), so scheduled-query ARNs tag correctly there. This package's own tag handlers are dead code in production, reachable only via direct unit tests / Handler() bypassing RouteMatcher -- confirmed intentional, not a routing bug."}
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
 gaps:
-  - "CreateScheduledQueryInput.KmsKeyId (customer-managed KMS key for at-rest encryption of the scheduled-query resource) is not modeled at all -- accepted nowhere, returned nowhere. Scoped out: this emulator has no at-rest encryption layer to attach it to, and no observable behavior depends on it. (bd: file follow-up if a KMS-integration test ever needs it)"
-  - "ScheduledQueryDescription.RecentlyFailedRuns (up to 5 most recent failed runs) and ScheduledQueryRunSummary.QueryInsightsResponse are not modeled -- this emulator's ExecuteScheduledQuery always succeeds (see ExecuteScheduledQuery), so there is no failure path to populate RecentlyFailedRuns from, and no scheduled-query-run-level QueryInsights simulation exists. Both are optional response fields; omitting them is wire-safe (omitempty). (bd: file follow-up if failure simulation is ever added)"
+  - "CreateScheduledQueryInput.KmsKeyId is now stored and echoed on DescribeScheduledQuery (fixed this pass -- see CreateScheduledQuery note), but this emulator still has no at-rest encryption layer, so setting it has no observable effect on how results/error reports are protected. Honestly scoped: 'we do not encrypt', not 'we lose the setting'."
+  - "ScheduledQueryDescription.RecentlyFailedRuns (up to 5 most recent failed runs) and ScheduledQueryRunSummary.QueryInsightsResponse are not modeled -- this emulator's ExecuteScheduledQuery always succeeds (see ExecuteScheduledQuery), so there is no failure path to populate RecentlyFailedRuns from, and no scheduled-query-run-level QueryInsights simulation exists. Both are optional response fields; omitting them is wire-safe (omitempty). Enum check: types.ScheduledQueryRunStatus has 4 documented values (enums.go:229-232) -- AUTO_TRIGGER_SUCCESS, AUTO_TRIGGER_FAILURE, MANUAL_TRIGGER_SUCCESS, MANUAL_TRIGGER_FAILURE. This package declares 3 as unexported consts (scheduled_queries.go) but is missing MANUAL_TRIGGER_FAILURE outright, and none of the *_FAILURE values are ever assigned (RunStatus is backend-generated output only, never client-supplied, so there is no exhaustiveness requirement over it) -- consistent with 'no failure path', not a separate drop. (bd: file follow-up if failure simulation is ever added)"
 deferred:
   - "Query/CancelQuery against genuinely long-running or multi-page real query execution semantics -- this emulator's Query is synchronous and instantaneous (matches the mock-data-source design already documented in QueryWithOptions), so QueryExecutionException (a real error type for query engine failures) is never returned. Acceptable per the documented deterministic-mock design; revisit only if a real backing data source is added."
 leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are self-contained caches with their own mutex, reset on Reset()/version-mismatch Restore(); queries table is bounded by maxRetainedQueries (10000) with arbitrary eviction, cancelled or not. No goroutines/tickers in this package -- nothing to ctx-parent or drain on Shutdown."}
@@ -36,8 +38,12 @@ leaks: {status: clean, note: "clientTokens/scheduledQueryTokens/pageStore are se
 
 Protocol: awsjson1.0 (single POST endpoint, `X-Amz-Target: Timestream_20181101.<Op>`,
 `Content-Type: application/x-amz-json-1.0`). Verified directly against
-`aws-sdk-go-v2/service/timestreamquery@v1.36.16`'s serializers.go/deserializers.go/types
-package (vendored under `~/go/pkg/mod`), not against this package's own output.
+`aws-sdk-go-v2/service/timestreamquery@v1.39.4`'s serializers.go/deserializers.go/types
+package (vendored under `~/go/pkg/mod`), not against this package's own output. The
+`go.mod` pin was found stale at v1.36.16 in this pass and corrected to v1.39.4; `diff -r`
+against the v1.36.16 module cache shows the version bump touched only client/middleware
+plumbing (retry, tracing, clock-skew option) — `types/types.go` and `types/enums.go` are
+byte-identical, so no prior wire claim in this file needed re-verification.
 
 Real bugs fixed this pass (all under `services/timestreamquery/`):
 
@@ -152,6 +158,38 @@ Real bugs fixed in the 2026-07-24 pass (all under `services/timestreamquery/`):
    optional field, unset for array-element columns per the API doc). Covered by the new
    `column_info_marshal_test.go` (`TestMarshalColumnInfos_PreservesNestedUnion`,
    `TestMarshalColumnInfos_OmitsEmptyName`).
+
+Real bugs fixed in the 2026-08-10 pass (gopherstack-kpi6, all under `services/timestreamquery/`):
+
+10. **`CreateScheduledQueryInput.KmsKeyId` silently dropped** (`handler_scheduled_queries.go`,
+    `scheduled_queries.go`, `models.go`): real `CreateScheduledQueryInput.KmsKeyId` and
+    `types.ScheduledQueryDescription.KmsKeyId` (`aws-sdk-go-v2/service/timestreamquery@v1.39.4`
+    `api_op_CreateScheduledQuery.go:100` / `types/types.go:659`) were previously not modeled
+    at all: the field was accepted nowhere on create and returned nowhere on describe. This
+    is the silent-drop class, not merely "no encryption layer" — a client configuring a KMS
+    key had no way to confirm it took. Fixed: `KmsKeyID` added to `ScheduledQuery`, parsed
+    from the request, stored, and echoed on `DescribeScheduledQuery` (`KmsKeyId,omitempty`,
+    matching the real optional field). This emulator still performs no actual at-rest
+    encryption — that half of the gap is honestly scoped, not fixed (see `gaps`). Persists
+    across Snapshot/Restore for free via the existing generic `store.Table[ScheduledQuery]`
+    JSON round trip (`store.go`/`store_setup.go`) — covered by
+    `TestInMemoryBackend_SnapshotRestore_FullState`.
+11. **`LastRunSummary.RunStatus`/`ScheduledQueryListEntry.LastRunStatus` always claimed
+    `AUTO_TRIGGER_SUCCESS`** (`scheduled_queries.go`, `buildLastRunSummary` /
+    `buildScheduledQueryListEntry`): real `ExecuteScheduledQuery` is documented "You can use
+    this API to run a scheduled query manually" (`api_op_ExecuteScheduledQuery.go:16`), and
+    this emulator has no scheduler goroutine (verified: no ticker/cron/background trigger
+    anywhere in this package) — `ExecuteScheduledQuery` is the *only* code path that ever
+    populates `LastRunTime`. Every run in this emulator is therefore manually triggered, yet
+    the response always asserted an automatic one: a state claim contradicted by the only
+    mechanism that could have produced it (the same class of bug as an op jumping to a
+    terminal state it never did the work for). Fixed to `MANUAL_TRIGGER_SUCCESS`. Enum
+    completeness checked separately: `types.ScheduledQueryRunStatus` has 4 documented values
+    (`enums.go:229-232`); this package's unexported consts cover 3 (missing
+    `MANUAL_TRIGGER_FAILURE`), and the `*_FAILURE` values are never assigned by any code
+    path — consistent with the documented "no failure simulation" gap, not a further drop,
+    since `RunStatus` is backend-generated output only and never parsed back from a request.
+    Covered by `TestExecuteScheduledQuery_RunStatusIsManual`.
 
 Traps for the next auditor:
 

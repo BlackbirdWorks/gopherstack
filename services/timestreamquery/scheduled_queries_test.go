@@ -210,7 +210,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 
 	first, err := backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "retry-token-1", nil,
+		"", "", "", "", "retry-token-1", "", nil,
 	)
 	require.NoError(t, err)
 
@@ -220,7 +220,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// erroring.
 	second, err := backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 2", "rate(2 hours)", "arn:aws:iam::123456789012:role/other",
-		"", "", "", "", "retry-token-1", nil,
+		"", "", "", "", "retry-token-1", "", nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, first.Arn, second.Arn)
@@ -230,7 +230,7 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// A different ClientToken for the same Name is a genuine conflict.
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "idempotent-sq", "SELECT 3", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "different-token", nil,
+		"", "", "", "", "different-token", "", nil,
 	)
 	require.Error(t, err)
 
@@ -238,13 +238,13 @@ func TestInMemoryBackend_CreateScheduledQuery_ClientTokenIdempotent(t *testing.T
 	// normal "already exists" conflict path.
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "no-token-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "", nil,
+		"", "", "", "", "", "", nil,
 	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateScheduledQuery(
 		t.Context(), "no-token-sq", "SELECT 1", "rate(1 hour)", "arn:aws:iam::123456789012:role/r",
-		"", "", "", "", "", nil,
+		"", "", "", "", "", "", nil,
 	)
 	require.Error(t, err)
 }
@@ -522,7 +522,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range validExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", nil,
+			t.Context(), "valid-"+expr[:4], "SELECT 1", expr, "arn", "", "", "", "", "", "", nil,
 		)
 		require.NoError(t, err, "valid expr %q should be accepted", expr)
 		_ = backend.DeleteScheduledQuery(
@@ -533,7 +533,7 @@ func TestValidateScheduleExpression(t *testing.T) {
 
 	for _, expr := range invalidExprs {
 		_, err := backend.CreateScheduledQuery(
-			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", "", nil,
+			t.Context(), "inv", "SELECT 1", expr, "arn", "", "", "", "", "", "", nil,
 		)
 		require.Error(t, err, "invalid expr %q should be rejected", expr)
 	}
@@ -1193,4 +1193,148 @@ func TestScheduledQuery_AddInternal(t *testing.T) {
 	result, err := backend.DescribeScheduledQuery(t.Context(), sq.Arn)
 	require.NoError(t, err)
 	assert.Equal(t, "seeded-query", result.Name)
+}
+
+// TestCreateScheduledQuery_KmsKeyId verifies KmsKeyId (real
+// CreateScheduledQueryInput.KmsKeyId / ScheduledQueryDescription.KmsKeyId per
+// timestreamquery@v1.39.4's api_op_CreateScheduledQuery.go and types/types.go)
+// is accepted on create and echoed back on describe rather than silently
+// dropped.
+func TestCreateScheduledQuery_KmsKeyId(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantKmsKey any
+		name       string
+		kmsKeyID   string
+	}{
+		{
+			name:       "kms key id round trips through describe",
+			kmsKeyID:   "arn:aws:kms:us-east-1:123456789012:key/test-key",
+			wantKmsKey: "arn:aws:kms:us-east-1:123456789012:key/test-key",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := newTestHandler()
+
+			createBody := map[string]any{
+				"Name":                           "kms-sq-" + tt.name,
+				"QueryString":                    "SELECT 1",
+				"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
+				"KmsKeyId":                       tt.kmsKeyID,
+				"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+				"NotificationConfiguration": map[string]any{
+					"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123456789012:topic"},
+				},
+				"ErrorReportConfiguration": map[string]any{
+					"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+				},
+			}
+
+			rec := doRequest(t, h, "CreateScheduledQuery", createBody)
+			require.Equal(t, http.StatusOK, rec.Code)
+			arn, _ := parseResponse(t, rec)["Arn"].(string)
+			require.NotEmpty(t, arn)
+
+			descRec := doRequest(t, h, "DescribeScheduledQuery", map[string]any{"ScheduledQueryArn": arn})
+			require.Equal(t, http.StatusOK, descRec.Code)
+			sq, ok := parseResponse(t, descRec)["ScheduledQuery"].(map[string]any)
+			require.True(t, ok)
+
+			assert.Equal(t, tt.wantKmsKey, sq["KmsKeyId"], "KmsKeyId must be echoed back on describe, not dropped")
+		})
+	}
+}
+
+// TestCreateScheduledQuery_KmsKeyIdOmittedWhenAbsent verifies that a
+// scheduled query created without a KmsKeyId omits the field on describe
+// (wire-safe: ScheduledQueryDescription.KmsKeyId is optional).
+func TestCreateScheduledQuery_KmsKeyIdOmittedWhenAbsent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createBody := map[string]any{
+		"Name":                           "no-kms-sq",
+		"QueryString":                    "SELECT 1",
+		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
+		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123456789012:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
+	}
+
+	rec := doRequest(t, h, "CreateScheduledQuery", createBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+	arn, _ := parseResponse(t, rec)["Arn"].(string)
+	require.NotEmpty(t, arn)
+
+	descRec := doRequest(t, h, "DescribeScheduledQuery", map[string]any{"ScheduledQueryArn": arn})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	sq, ok := parseResponse(t, descRec)["ScheduledQuery"].(map[string]any)
+	require.True(t, ok)
+
+	_, present := sq["KmsKeyId"]
+	assert.False(t, present, "KmsKeyId must be omitted, not emitted empty, when never configured")
+}
+
+// TestExecuteScheduledQuery_RunStatusIsManual verifies that a run produced by
+// ExecuteScheduledQuery reports MANUAL_TRIGGER_SUCCESS, not
+// AUTO_TRIGGER_SUCCESS. Real AWS's ExecuteScheduledQuery is documented "You
+// can use this API to run a scheduled query manually"
+// (timestreamquery@v1.39.4 api_op_ExecuteScheduledQuery.go), and this
+// emulator has no automatic scheduler -- ExecuteScheduledQuery is the only
+// code path that ever populates a run, so claiming AUTO_TRIGGER_SUCCESS
+// asserts a background trigger that never happened.
+func TestExecuteScheduledQuery_RunStatusIsManual(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	createBody := map[string]any{
+		"Name":                           "manual-run-sq",
+		"QueryString":                    "SELECT 1",
+		"ScheduledQueryExecutionRoleArn": "arn:aws:iam::123456789012:role/r",
+		"ScheduleConfiguration":          map[string]any{"ScheduleExpression": "rate(1 hour)"},
+		"NotificationConfiguration": map[string]any{
+			"SnsConfiguration": map[string]any{"TopicArn": "arn:aws:sns:us-east-1:123456789012:topic"},
+		},
+		"ErrorReportConfiguration": map[string]any{
+			"S3Configuration": map[string]any{"BucketName": "my-errors-bucket"},
+		},
+	}
+	rec := doRequest(t, h, "CreateScheduledQuery", createBody)
+	require.Equal(t, http.StatusOK, rec.Code)
+	arn, _ := parseResponse(t, rec)["Arn"].(string)
+	require.NotEmpty(t, arn)
+
+	execRec := doRequest(t, h, "ExecuteScheduledQuery", map[string]any{
+		"ScheduledQueryArn": arn,
+		"InvocationTime":    1715000000.0,
+	})
+	require.Equal(t, http.StatusOK, execRec.Code)
+
+	descRec := doRequest(t, h, "DescribeScheduledQuery", map[string]any{"ScheduledQueryArn": arn})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	sq, ok := parseResponse(t, descRec)["ScheduledQuery"].(map[string]any)
+	require.True(t, ok)
+
+	lastRun, ok := sq["LastRunSummary"].(map[string]any)
+	require.True(t, ok, "LastRunSummary must be present after execution")
+	assert.Equal(t, "MANUAL_TRIGGER_SUCCESS", lastRun["RunStatus"])
+
+	listRec := doRequest(t, h, "ListScheduledQueries", map[string]any{})
+	require.Equal(t, http.StatusOK, listRec.Code)
+	items, ok := parseResponse(t, listRec)["ScheduledQueries"].([]any)
+	require.True(t, ok)
+	require.Len(t, items, 1)
+	item, ok := items[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "MANUAL_TRIGGER_SUCCESS", item["LastRunStatus"])
 }

@@ -13,7 +13,7 @@ type StorageBackend interface {
 	CreateScheduledQuery(
 		ctx context.Context,
 		name, queryString, scheduleExpression, executionRoleArn,
-		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken string,
+		notificationTopicArn, errorReportS3BucketName, targetDatabase, targetTable, clientToken, kmsKeyID string,
 		tags map[string]string,
 	) (*ScheduledQuery, error)
 	DescribeScheduledQuery(ctx context.Context, arnStr string) (*ScheduledQuery, error)
