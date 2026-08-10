@@ -250,6 +250,55 @@ func TestListGroupResources_FilterByResourceType(t *testing.T) {
 	}
 }
 
+// TestGroupResources_RejectsQueryBasedGroup verifies Group/UngroupResources reject a
+// group that has a ResourceQuery: the real API works only with static
+// membership groups, never groups auto-populated by a tag or CloudFormation
+// query (AWS docs: GroupResources "You can only use this operation with"
+// AWS::EC2::HostManagement/CapacityReservationPool/ApplicationGroup groups;
+// UngroupResources "doesn't work with any resource groups that are
+// automatically populated by tag-based or CloudFormation stack-based
+// queries").
+func TestGroupResources_RejectsQueryBasedGroup(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		call func(b *resourcegroups.InMemoryBackend) error
+		name string
+	}{
+		{
+			name: "group",
+			call: func(b *resourcegroups.InMemoryBackend) error {
+				_, err := b.GroupResources(context.Background(), "query-group", []string{"arn:aws:s3:::b1"})
+
+				return err
+			},
+		},
+		{
+			name: "ungroup",
+			call: func(b *resourcegroups.InMemoryBackend) error {
+				_, err := b.UngroupResources(context.Background(), "query-group", []string{"arn:aws:s3:::b1"})
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := resourcegroups.NewInMemoryBackend("000000000000", "us-east-1")
+			_, err := b.CreateGroup(context.Background(), "query-group", "",
+				&resourcegroups.ResourceQuery{Type: "TAG_FILTERS_1_0", Query: `{}`}, nil, nil)
+			require.NoError(t, err)
+
+			opErr := tt.call(b)
+			require.Error(t, opErr)
+			assert.ErrorIs(t, opErr, resourcegroups.ErrValidation)
+		})
+	}
+}
+
 // TestListGroupingStatuses_Pagination verifies NextToken pagination.
 func TestListGroupingStatuses_Pagination(t *testing.T) {
 	t.Parallel()
