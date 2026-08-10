@@ -7408,11 +7408,7 @@ func wireTaggingMQ(bk resourcegroupstaggingapibackend.StorageBackend, mqReg serv
 			return out
 		},
 		mqBk.CreateTags,
-		func(arnStr string, keys []string) error {
-			mqBk.DeleteTags(arnStr, keys)
-
-			return nil
-		},
+		mqBk.DeleteTags,
 	)
 }
 

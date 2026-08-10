@@ -47,6 +47,55 @@ func TestTagsLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 }
 
+func TestTags_UnknownARN_Returns404(t *testing.T) {
+	t.Parallel()
+
+	bogusARN := "arn:aws:mq:us-east-1:123456789012:broker:does-not-exist"
+
+	tests := []struct {
+		do   func(t *testing.T, h *mq.Handler) *httptest.ResponseRecorder
+		name string
+	}{
+		{
+			name: "createtags",
+			do: func(t *testing.T, h *mq.Handler) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, http.MethodPost, "/v1/tags/"+bogusARN, map[string]any{
+					"tags": map[string]string{"env": "test"},
+				})
+			},
+		},
+		{
+			name: "listtags",
+			do: func(t *testing.T, h *mq.Handler) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, http.MethodGet, "/v1/tags/"+bogusARN, nil)
+			},
+		},
+		{
+			name: "deletetags",
+			do: func(t *testing.T, h *mq.Handler) *httptest.ResponseRecorder {
+				t.Helper()
+
+				return doRequest(t, h, http.MethodDelete, "/v1/tags/"+bogusARN+"?tagKeys=env", nil)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := tt.do(t, h)
+			require.Equal(t, http.StatusNotFound, rec.Code, "body: %s", rec.Body.String())
+			assert.Equal(t, "NotFoundException", parseResponse(t, rec)["__type"])
+		})
+	}
+}
+
 func TestCreateTags_OnConfiguration(t *testing.T) {
 	t.Parallel()
 

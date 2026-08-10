@@ -13,12 +13,12 @@ import (
 // mw1.micro entirely, incorrectly rejecting a real, valid class name.
 func validEnvironmentClasses() map[string]struct{} {
 	return map[string]struct{}{
-		"mw1.micro":   {},
-		"mw1.small":   {},
-		"mw1.medium":  {},
-		"mw1.large":   {},
-		"mw1.xlarge":  {},
-		"mw1.2xlarge": {},
+		environmentClassMicro: {},
+		"mw1.small":           {},
+		"mw1.medium":          {},
+		"mw1.large":           {},
+		"mw1.xlarge":          {},
+		"mw1.2xlarge":         {},
 	}
 }
 
@@ -309,7 +309,7 @@ func validateCreateSizing(req *createEnvironmentRequest) error {
 	}
 
 	if req.MaxWebservers != 0 || req.MinWebservers != 0 {
-		if err := validateWebservers(req.MinWebservers, req.MaxWebservers); err != nil {
+		if err := validateWebserversForClass(req.EnvironmentClass, req.MinWebservers, req.MaxWebservers); err != nil {
 			return err
 		}
 	}
@@ -321,6 +321,28 @@ func validateCreateSizing(req *createEnvironmentRequest) error {
 	}
 
 	return nil
+}
+
+// validateWebserversForClass enforces AWS's mw1.micro-specific webserver bounds:
+// "For environments larger than mw1.micro, accepts values from 2 to 5. Defaults
+// to 2 for all environment sizes except mw1.micro, which defaults to 1" (confirmed
+// via aws-sdk-go-v2/service/mwaa@v1.43.4/types/types.go's MaxWebservers/MinWebservers
+// doc comments, identical text in botocore's mwaa/2020-07-01/service-2.json). Since
+// the 2-5 range is explicitly scoped to classes larger than mw1.micro, mw1.micro
+// itself only accepts an explicit value of 1.
+func validateWebserversForClass(envClass string, minVal, maxVal int32) error {
+	if envClass == environmentClassMicro {
+		if (minVal != 0 && minVal != microWebservers) || (maxVal != 0 && maxVal != microWebservers) {
+			return fmt.Errorf(
+				"%w: mw1.micro only supports MaxWebservers/MinWebservers of %d",
+				ErrInvalidParameter, microWebservers,
+			)
+		}
+
+		return nil
+	}
+
+	return validateWebservers(minVal, maxVal)
 }
 
 // validateS3PathVersionPair enforces that an S3 object version is provided whenever

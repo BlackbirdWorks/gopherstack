@@ -93,6 +93,22 @@ func validateDeploymentModeForEngine(mode, engineType string) error {
 	}
 }
 
+// validateAuthenticationStrategy checks strategy against
+// aws-sdk-go-v2/service/mq/types.AuthenticationStrategy's enum values
+// (types/enums.go: SIMPLE, LDAP, CONFIG_MANAGED). An empty string means
+// "not specified" and is allowed.
+func validateAuthenticationStrategy(strategy string) error {
+	switch strategy {
+	case "", "SIMPLE", "LDAP", "CONFIG_MANAGED":
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: authenticationStrategy must be SIMPLE, LDAP, or CONFIG_MANAGED, got %q",
+			ErrValidation, strategy,
+		)
+	}
+}
+
 // CreateBroker creates a new Amazon MQ broker (compatibility wrapper).
 func (b *InMemoryBackend) CreateBroker(
 	name, deploymentMode, engineType, engineVersion, hostInstanceType string,
@@ -128,6 +144,12 @@ func (b *InMemoryBackend) CreateBrokerWithOptions(
 
 	if err := validateTagsMap(tags); err != nil {
 		return nil, err
+	}
+
+	if opts != nil {
+		if err := validateAuthenticationStrategy(opts.AuthenticationStrategy); err != nil {
+			return nil, err
+		}
 	}
 
 	b.mu.Lock("CreateBroker")
@@ -571,6 +593,12 @@ func (b *InMemoryBackend) UpdateBrokerWithOptions(
 	securityGroups []string,
 	opts *UpdateBrokerOptions,
 ) (*Broker, error) {
+	if opts != nil {
+		if err := validateAuthenticationStrategy(opts.AuthenticationStrategy); err != nil {
+			return nil, err
+		}
+	}
+
 	b.mu.Lock("UpdateBroker")
 	defer b.mu.Unlock()
 

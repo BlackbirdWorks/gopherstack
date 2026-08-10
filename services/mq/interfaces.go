@@ -40,9 +40,9 @@ type StorageBackend interface {
 	DescribeSharedResources(brokerID string) ([]SharedResource, error)
 
 	// User operations
-	CreateUser(brokerID, username, password string, groups []string, console bool) error
+	CreateUser(brokerID, username, password string, groups []string, console, replicationUser bool) error
 	DescribeUser(brokerID, username string) (*User, error)
-	UpdateUser(brokerID, username, password string, groups []string, console *bool) error
+	UpdateUser(brokerID, username, password string, groups []string, console, replicationUser *bool) error
 	DeleteUser(brokerID, username string) error
 	ListUsers(brokerID string) ([]UserSummary, error)
 
@@ -65,9 +65,9 @@ type StorageBackend interface {
 	DescribeBrokerInstanceOptions(engineType, hostInstanceType, storageType string) []BrokerInstanceOption
 
 	// Tag operations
-	ListTags(resourceARN string) map[string]string
+	ListTags(resourceARN string) (map[string]string, error)
 	CreateTags(resourceARN string, tags map[string]string) error
-	DeleteTags(resourceARN string, tagKeys []string)
+	DeleteTags(resourceARN string, tagKeys []string) error
 
 	// Lifecycle
 	Reset()

@@ -85,11 +85,12 @@ type SharedResourceError struct {
 // LdapServerMetadata.ServiceAccountPassword, a restored user's password is
 // always blank and must be reset via UpdateUser.
 type User struct {
-	Pending  *UserPendingChanges `json:"pending,omitempty"`
-	Username string              `json:"username"`
-	Password string              `json:"-"`
-	Groups   []string            `json:"groups,omitempty"`
-	Console  bool                `json:"consoleAccess"`
+	Pending         *UserPendingChanges `json:"pending,omitempty"`
+	Username        string              `json:"username"`
+	Password        string              `json:"-"`
+	Groups          []string            `json:"groups,omitempty"`
+	Console         bool                `json:"consoleAccess"`
+	ReplicationUser bool                `json:"replicationUser,omitempty"`
 }
 
 // UserPendingChanges mirrors aws-sdk-go-v2/service/mq/types.UserPendingChanges:

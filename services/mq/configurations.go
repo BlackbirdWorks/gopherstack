@@ -241,7 +241,11 @@ func (b *InMemoryBackend) copyConfiguration(c *Configuration) *Configuration {
 	return &cp
 }
 
-// DeleteConfiguration removes a configuration by ID.
+// DeleteConfiguration removes a configuration by ID. Real Amazon MQ rejects
+// this with ConflictException while a broker still references the
+// configuration (confirmed from the pinned SDK: DeleteConfiguration is the
+// only Delete* op in aws-sdk-go-v2/service/mq/deserializers.go whose error
+// list includes ConflictException; DeleteBroker/DeleteUser do not).
 func (b *InMemoryBackend) DeleteConfiguration(configID string) error {
 	b.mu.Lock("DeleteConfiguration")
 	defer b.mu.Unlock()
@@ -251,8 +255,37 @@ func (b *InMemoryBackend) DeleteConfiguration(configID string) error {
 		return fmt.Errorf("%w: configuration %s not found", ErrNotFound, configID)
 	}
 
+	if b.configurationReferencedLocked(cfg.ID) {
+		return fmt.Errorf("%w: configuration %s is still associated with a broker", ErrInUse, cfg.ID)
+	}
+
 	b.configurations.Delete(configID)
 	delete(b.tags, cfg.Arn)
 
 	return nil
+}
+
+// configurationReferencedLocked reports whether any broker's current or
+// pending configuration points at configID. Caller must hold b.mu.
+func (b *InMemoryBackend) configurationReferencedLocked(configID string) bool {
+	referenced := false
+
+	b.brokers.Range(func(br *Broker) bool {
+		if br.Configurations == nil {
+			return true
+		}
+
+		current := br.Configurations.Current
+		pending := br.Configurations.Pending
+
+		if (current != nil && current.ID == configID) || (pending != nil && pending.ID == configID) {
+			referenced = true
+
+			return false
+		}
+
+		return true
+	})
+
+	return referenced
 }

@@ -8,7 +8,12 @@ import (
 )
 
 func (h *Handler) handleListTags(c *echo.Context, resourceARN string) error {
-	return c.JSON(http.StatusOK, map[string]any{"tags": tagsOrEmpty(h.Backend.ListTags(resourceARN))})
+	tags, err := h.Backend.ListTags(resourceARN)
+	if err != nil {
+		return h.writeError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"tags": tagsOrEmpty(tags)})
 }
 
 type createTagsInput struct {
@@ -30,7 +35,9 @@ func (h *Handler) handleCreateTags(c *echo.Context, resourceARN string, body []b
 
 func (h *Handler) handleDeleteTags(c *echo.Context, resourceARN string) error {
 	tagKeys := c.Request().URL.Query()["tagKeys"]
-	h.Backend.DeleteTags(resourceARN, tagKeys)
+	if err := h.Backend.DeleteTags(resourceARN, tagKeys); err != nil {
+		return h.writeError(c, err)
+	}
 
 	return c.NoContent(http.StatusNoContent)
 }

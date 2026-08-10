@@ -2585,7 +2585,10 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 				wireTaggingMQ(bk, mqbackend.NewHandler(mqBk))
 
 				return broker.BrokerArn, func() map[string]string {
-					return mqBk.ListTags(broker.BrokerArn)
+					tags, tagsErr := mqBk.ListTags(broker.BrokerArn)
+					require.NoError(t, tagsErr)
+
+					return tags
 				}
 			},
 		},

@@ -450,7 +450,7 @@ func TestCreateUser_UsernameValidation_Backend(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			err = b.CreateUser(br.BrokerID, tt.username, "ValidPass12!!", nil, false)
+			err = b.CreateUser(br.BrokerID, tt.username, "ValidPass12!!", nil, false, false)
 			if tt.wantErr {
 				assert.Error(t, err, "username=%q should be rejected", tt.username)
 			} else {
@@ -484,7 +484,7 @@ func TestCreateUser_ActiveMQMaxUsers(t *testing.T) {
 
 			// Seed users up to tt.count-1 via backend to avoid HTTP overhead.
 			for i := range tt.count - 1 {
-				err := b.CreateUser(bid, fmt.Sprintf("user%04d", i), "ValidPass12!!", nil, false)
+				err := b.CreateUser(bid, fmt.Sprintf("user%04d", i), "ValidPass12!!", nil, false, false)
 				require.NoError(t, err)
 			}
 
@@ -663,7 +663,7 @@ func TestCreateUser_PasswordValidation_Backend(t *testing.T) {
 			t.Parallel()
 
 			username := tt.name + "-user"
-			createErr := b.CreateUser(br.BrokerID, username, tt.password, nil, false)
+			createErr := b.CreateUser(br.BrokerID, username, tt.password, nil, false, false)
 
 			if tt.wantErr {
 				require.Error(t, createErr)
@@ -818,6 +818,37 @@ func TestUpdateUser_PendingChangeUntilReboot(t *testing.T) {
 	assert.Equal(t, []any{"new"}, groups)
 	_, hasPending := settledOut["pending"]
 	assert.False(t, hasPending, "pending must clear after reboot")
+}
+
+// TestDescribeUser_ReplicationUser verifies replicationUser (CreateUserInput.
+// ReplicationUser / UpdateUserInput.ReplicationUser / DescribeUserOutput.
+// ReplicationUser in aws-sdk-go-v2/service/mq@v1.39.4) is accepted on create
+// and update and echoed back by DescribeUser, instead of being silently
+// dropped (gopherstack-7wz5).
+func TestDescribeUser_ReplicationUser(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	brokerID := createTestBroker(t, h, "crdr-broker", mq.EngineTypeActiveMQ)
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/users/crdruser", map[string]any{
+		"password":        "password1234",
+		"replicationUser": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/crdruser", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, true, parseResponse(t, rec)["replicationUser"], "replicationUser must be echoed after create")
+
+	rec = doRequest(t, h, http.MethodPut, "/v1/brokers/"+brokerID+"/users/crdruser", map[string]any{
+		"replicationUser": false,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/v1/brokers/"+brokerID+"/users/crdruser", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, false, parseResponse(t, rec)["replicationUser"], "replicationUser must update")
 }
 
 func TestListUsers_Pagination(t *testing.T) {

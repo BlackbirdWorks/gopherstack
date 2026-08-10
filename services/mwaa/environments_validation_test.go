@@ -1265,6 +1265,35 @@ func TestWorkers_Update_NewMaxBelowExistingMin(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestWorkers_Update_RejectedRequestDoesNotMutate verifies that when the
+// worker-bounds check rejects an UpdateEnvironment call, none of the other
+// fields in the same request are applied. env is the live stored pointer,
+// not a copy, so validating before mutating (rather than after) is required
+// to avoid silently persisting a rejected request's other fields.
+func TestWorkers_Update_RejectedRequestDoesNotMutate(t *testing.T) {
+	t.Parallel()
+
+	b := mwaa.NewInMemoryBackend(testRegion, testAccountID)
+	req := newCreateReq()
+	req.MaxWorkers = 5
+	req.MinWorkers = 1
+	_, err := b.CreateEnvironment(context.Background(), "wk-reject-no-mutate", req)
+	require.NoError(t, err)
+	_, _ = b.GetEnvironment(context.Background(), "wk-reject-no-mutate") // promote CREATING → AVAILABLE
+
+	_, err = b.UpdateEnvironment(context.Background(), "wk-reject-no-mutate", &mwaa.ExportedUpdateEnvironmentRequest{
+		DagS3Path:  "dags/should-not-apply/",
+		MinWorkers: 10, // > existing MaxWorkers=5: rejected
+	})
+	require.Error(t, err)
+
+	env, err := b.GetEnvironment(context.Background(), "wk-reject-no-mutate")
+	require.NoError(t, err)
+	assert.NotEqual(t, "dags/should-not-apply/", env.DagS3Path)
+	assert.Equal(t, int32(5), env.MaxWorkers)
+	assert.Equal(t, int32(1), env.MinWorkers)
+}
+
 func TestWorkers_Update_BothSetValidRange(t *testing.T) {
 	t.Parallel()
 

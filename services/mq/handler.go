@@ -454,7 +454,7 @@ func (h *Handler) writeError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, ErrNotFound):
 		return c.JSON(http.StatusNotFound, errorResponse("NotFoundException", err.Error()))
-	case errors.Is(err, ErrAlreadyExists):
+	case errors.Is(err, ErrAlreadyExists), errors.Is(err, ErrInUse):
 		return c.JSON(http.StatusConflict, errorResponse("ConflictException", err.Error()))
 	case errors.Is(err, ErrValidation):
 		return c.JSON(http.StatusBadRequest, errorResponse("BadRequestException", err.Error()))

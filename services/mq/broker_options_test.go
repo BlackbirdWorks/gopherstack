@@ -290,6 +290,40 @@ func TestAuthStrategy_Simple_CreateBroker(t *testing.T) {
 	assert.Equal(t, "SIMPLE", out["authenticationStrategy"])
 }
 
+// TestAuthStrategy_InvalidValue_Rejected verifies CreateBroker/UpdateBroker
+// reject an authenticationStrategy outside aws-sdk-go-v2/service/mq/types.
+// AuthenticationStrategy's enum values (types/enums.go: SIMPLE, LDAP,
+// CONFIG_MANAGED) instead of silently accepting it (gopherstack-7wz5 sweep).
+func TestAuthStrategy_InvalidValue_Rejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("createbroker", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+			"brokerName":             "auth-invalid-broker",
+			"engineType":             mq.EngineTypeActiveMQ,
+			"authenticationStrategy": "BOGUS",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+		assert.Equal(t, "BadRequestException", parseResponse(t, rec)["__type"])
+	})
+
+	t.Run("updatebroker", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		brokerID := createTestBroker(t, h, "auth-invalid-update-broker", mq.EngineTypeActiveMQ)
+
+		rec := doRequest(t, h, http.MethodPut, "/v1/brokers/"+brokerID, map[string]any{
+			"authenticationStrategy": "BOGUS",
+		})
+		assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+		assert.Equal(t, "BadRequestException", parseResponse(t, rec)["__type"])
+	})
+}
+
 func TestAuthStrategy_LDAP_CreateBroker(t *testing.T) {
 	t.Parallel()
 
