@@ -681,15 +681,7 @@ func (h *Handler) dispatchPositionOps(c *echo.Context, op, resource string) (boo
 	case opGetResourcePosition:
 		return true, h.getResourcePosition(c, resource)
 	case opUpdateResourcePosition:
-		var req map[string]any
-
-		body := readStubBody(c)
-		_ = json.Unmarshal(body, &req)
-		_ = h.Backend.UpdatePosition(resource, req)
-
-		c.Response().WriteHeader(http.StatusNoContent)
-
-		return true, nil
+		return true, h.updateResourcePosition(c, resource)
 	}
 
 	return false, nil

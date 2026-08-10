@@ -30,8 +30,8 @@ func TestHandler_Position(t *testing.T) {
 		"Accuracy must be absent when no position data exists",
 	)
 
-	// Update position
-	rec = doIoTWRequest(t, h, http.MethodPut, "/positions/resource-123",
+	// Update position (PATCH, not PUT -- iotwireless@v1.59.4 serializers.go:8927).
+	rec = doIoTWRequest(t, h, http.MethodPatch, "/positions/resource-123",
 		`{"Position":[47.6,-122.3,100.0]}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -129,9 +129,10 @@ func TestHandler_ResourcePosition_UpdateAndGet(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 
-			// Update resource position.
-			rec := doIoTWRequest(t, h, http.MethodPut, "/resource-positions/"+tt.resourceID,
-				`{"GeoJsonPayload":"eyJ0eXBlIjoiUG9pbnQifQ=="}`)
+			// Update resource position (PATCH, not PUT -- iotwireless@v1.59.4
+			// serializers.go:9159).
+			rec := doIoTWRequest(t, h, http.MethodPatch, "/resource-positions/"+tt.resourceID,
+				`{"type":"Point"}`)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 
 			// Get resource position.

@@ -196,7 +196,8 @@ func parsePositionsPath(method, id string, hasID bool) (string, string) {
 	switch method {
 	case http.MethodGet:
 		return opGetPosition, id
-	case http.MethodPut:
+	// iotwireless@v1.59.4 serializers.go:8924 binds UpdatePosition PATCH, not PUT.
+	case http.MethodPatch:
 		return opUpdatePosition, id
 	}
 
@@ -212,7 +213,8 @@ func parseResourcePositionsPath(method, id string, hasID bool) (string, string) 
 	switch method {
 	case http.MethodGet:
 		return opGetResourcePosition, id
-	case http.MethodPut:
+	// iotwireless@v1.59.4 serializers.go:9156 binds UpdateResourcePosition PATCH, not PUT.
+	case http.MethodPatch:
 		return opUpdateResourcePosition, id
 	}
 
@@ -303,7 +305,8 @@ func parseEventConfigsResourceTypesPath(method string) (string, string) {
 	switch method {
 	case http.MethodGet:
 		return opGetEventConfigurationByResourceTypes, ""
-	case http.MethodPost:
+	// iotwireless@v1.59.4 serializers.go:8143 binds this PATCH, not POST.
+	case http.MethodPatch:
 		return opUpdateEventConfigurationByResourceTypes, ""
 	}
 

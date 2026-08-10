@@ -37,10 +37,6 @@ type getPositionEstimateResponse struct {
 	GeoJSONPayload []byte `json:"GeoJsonPayload"`
 }
 
-type getResourcePositionResponse struct {
-	GeoJSONPayload []byte `json:"GeoJsonPayload"`
-}
-
 type positionConfigurationItemResponse struct {
 	Solvers            map[string]any `json:"Solvers,omitempty"`
 	ResourceIdentifier string         `json:"ResourceIdentifier,omitempty"`
@@ -165,21 +161,38 @@ func (h *Handler) getPositionEstimate(c *echo.Context) error {
 }
 
 // getResourcePosition echoes back the raw GeoJSON payload most recently
-// submitted via UpdateResourcePosition for this resource.
+// submitted via UpdateResourcePosition for this resource. GeoJsonPayload is
+// an httpPayload member (iotwireless@v1.59.4 deserializers.go:7941 assigns
+// the whole response body to it), so the body itself must be the raw bytes,
+// never a JSON envelope.
 func (h *Handler) getResourcePosition(c *echo.Context, id string) error {
 	pos := h.Backend.GetPosition(id)
 
 	raw, ok := pos["GeoJsonPayload"].(string)
 	if !ok || raw == "" {
-		return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+		return c.Blob(http.StatusOK, "application/octet-stream", nil)
 	}
 
 	decoded, err := base64.StdEncoding.DecodeString(raw)
 	if err != nil {
-		return writeJSON(c, http.StatusOK, getResourcePositionResponse{})
+		return c.Blob(http.StatusOK, "application/octet-stream", nil)
 	}
 
-	return writeJSON(c, http.StatusOK, getResourcePositionResponse{GeoJSONPayload: decoded})
+	return c.Blob(http.StatusOK, "application/octet-stream", decoded)
+}
+
+// updateResourcePosition stores the raw GeoJSON payload for a resource.
+// GeoJsonPayload is an httpPayload member (serializers.go:9182 streams
+// input.GeoJsonPayload as the whole request body), so the request body is
+// the payload itself, not a JSON-wrapped field.
+func (h *Handler) updateResourcePosition(c *echo.Context, id string) error {
+	body := readStubBody(c)
+
+	_ = h.Backend.UpdatePosition(id, map[string]any{
+		"GeoJsonPayload": base64.StdEncoding.EncodeToString(body),
+	})
+
+	return stubNoContent(c)
 }
 
 // geoJSONPointPayload builds a GeoJSON Point Feature payload for the given

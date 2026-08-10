@@ -22,8 +22,9 @@ func TestHandler_EventConfigurations(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &defaultResp))
 	assert.NotContains(t, defaultResp, "DeviceRegistrationState")
 
-	// Update event config by resource types
-	rec = doIoTWRequest(t, h, http.MethodPost, "/event-configurations-resource-types",
+	// Update event config by resource types (PATCH, not POST -- iotwireless@v1.59.4
+	// serializers.go:8146).
+	rec = doIoTWRequest(t, h, http.MethodPatch, "/event-configurations-resource-types",
 		`{"DeviceRegistrationState":{"Sidewalk":{"AmazonIdEventTopic":"Enabled"}}}`)
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -99,7 +100,7 @@ func TestHandler_EventConfigurations_StatusOnly(t *testing.T) {
 	assert.True(t, rec.Code >= 200 && rec.Code < 300)
 
 	// UpdateEventConfigurationByResourceTypes.
-	rec = doIoTWRequest(t, h, http.MethodPost, "/event-configurations-resource-types",
+	rec = doIoTWRequest(t, h, http.MethodPatch, "/event-configurations-resource-types",
 		`{"DeviceRegistrationState":{"Sidewalk":{"AmazonIdEventTopic":"Enabled"}}}`)
 	assert.True(t, rec.Code >= 200 && rec.Code < 300)
 
@@ -113,8 +114,8 @@ func TestHandler_EventConfigurationByResourceTypes(t *testing.T) {
 
 	h := newTestHandlerHTTP()
 
-	// Update global event config (POST /event-configurations-resource-types).
-	rec := doIoTWRequest(t, h, http.MethodPost, "/event-configurations-resource-types",
+	// Update global event config (PATCH /event-configurations-resource-types).
+	rec := doIoTWRequest(t, h, http.MethodPatch, "/event-configurations-resource-types",
 		`{"DeviceRegistrationState":{"Sidewalk":{"AmazonIdEventTopic":"Enabled"}}}`)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
