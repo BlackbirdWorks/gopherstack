@@ -311,6 +311,18 @@ func (b *InMemoryBackend) DeleteRegistry(name string) error {
 	return nil
 }
 
+// isValidCompatibilityMode reports whether mode is one of the schema
+// Compatibility enum values AWS defines (aws-sdk-go-v2/service/glue@v1.152.0
+// types/enums.go:328-337).
+func isValidCompatibilityMode(mode string) bool {
+	switch strings.ToUpper(mode) {
+	case "NONE", "DISABLED", "BACKWARD", "BACKWARD_ALL", "FORWARD", "FORWARD_ALL", "FULL", "FULL_ALL":
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateSchema creates a new schema in the given registry.
 func (b *InMemoryBackend) CreateSchema(
 	registryName, schemaName, dataFormat, compatibility, description string,
@@ -321,6 +333,10 @@ func (b *InMemoryBackend) CreateSchema(
 
 	if schemaName == "" {
 		return nil, ErrValidation
+	}
+
+	if compatibility != "" && !isValidCompatibilityMode(compatibility) {
+		return nil, fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
 	}
 
 	key := schemaKey(registryName, schemaName)
@@ -407,6 +423,10 @@ func (b *InMemoryBackend) UpdateSchema(
 	}
 
 	if compatibility != "" {
+		if !isValidCompatibilityMode(compatibility) {
+			return fmt.Errorf("%w: invalid Compatibility %q", ErrValidation, compatibility)
+		}
+
 		s.Compatibility = compatibility
 	}
 
@@ -447,6 +467,14 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 	s, ok := b.schemas.Get(schemaKey(registryName, schemaName))
 	if !ok {
 		return nil, ErrNotFound
+	}
+
+	// DISABLED locks a schema to its first version (aws-sdk-go-v2/service/glue@v1.152.0
+	// api_op_CreateSchema.go:14-18: "restricts any additional schema versions from
+	// being added after the first schema version"); the first version is always
+	// accepted regardless of mode (api_op_RegisterSchemaVersion.go:17-18).
+	if strings.EqualFold(s.Compatibility, "DISABLED") && s.LatestSchemaVersion > 0 {
+		return nil, fmt.Errorf("%w: schema compatibility is DISABLED, no additional versions permitted", ErrValidation)
 	}
 
 	// RegisterSchemaVersion must reject a malformed definition the same way
