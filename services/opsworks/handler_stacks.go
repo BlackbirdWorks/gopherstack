@@ -207,7 +207,7 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 			fieldRegion:                 s.Region,
 			"DefaultInstanceProfileArn": s.DefaultInstanceProfileArn,
 			"ServiceRoleArn":            s.ServiceRoleArn,
-			keyCreatedAt:                s.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:                formatOpsWorksTime(s.CreatedAt),
 		})
 	}
 

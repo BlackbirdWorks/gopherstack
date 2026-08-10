@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -292,6 +293,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 
 		return c.JSON(http.StatusInternalServerError, errResp("ServiceException", err.Error()))
 	}
+}
+
+// formatOpsWorksTime renders t the way real OpsWorks does: a UTC ISO8601
+// string with a numeric "+00:00" offset, never "Z" (e.g.
+// "2013-08-01T22:53:42+00:00" -- aws-cli 2.4.18 opsworks describe-stacks
+// doc example). "-07:00" is Go's reference token for a numeric offset that
+// always renders, unlike "Z07:00" which collapses to a literal "Z" at zero
+// offset.
+func formatOpsWorksTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02T15:04:05-07:00")
 }
 
 func errResp(code, message string) map[string]string {

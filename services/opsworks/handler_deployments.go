@@ -55,7 +55,7 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 	for _, d := range deployments {
 		completedAt := ""
 		if !d.CompletedAt.IsZero() && d.CompletedAt != d.CreatedAt {
-			completedAt = d.CompletedAt.Format("2006-01-02T15:04:05+00:00")
+			completedAt = formatOpsWorksTime(d.CompletedAt)
 		}
 
 		result = append(result, map[string]any{
@@ -65,7 +65,7 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 			"Command":       map[string]any{keyName: d.Command},
 			keyStatus:       d.Status,
 			"Duration":      d.Duration,
-			keyCreatedAt:    d.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:    formatOpsWorksTime(d.CreatedAt),
 			"CompletedAt":   completedAt,
 		})
 	}

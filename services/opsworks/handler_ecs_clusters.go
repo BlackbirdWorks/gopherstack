@@ -73,7 +73,7 @@ func ecsClustersToJSON(clusters []*EcsCluster) []map[string]any {
 			"EcsClusterArn":  e.EcsClusterArn,
 			"EcsClusterName": e.EcsClusterName,
 			keyStackID:       e.StackID,
-			"RegisteredAt":   e.RegisteredAt.Format("2006-01-02T15:04:05+00:00"),
+			"RegisteredAt":   formatOpsWorksTime(e.RegisteredAt),
 		})
 	}
 

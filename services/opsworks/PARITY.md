@@ -88,13 +88,37 @@ prefix and dispatch looks the trimmed name up in `h.ops` (built once at
 dispatch-table keys are asserted equal by `sdk_completeness_test.go` — keep
 both lists in sync when adding an op.
 
-**Timestamps**: `CreatedAt`/`CompletedAt`/etc. are formatted as
-`"2006-01-02T15:04:05+00:00"` ISO8601 strings (via `time.Time.Format`), not
-epoch-seconds numbers. This is correct for OpsWorks — confirmed against the
-real SDK's `types.Stack.CreatedAt *string` (and equivalent fields across
-Layer/Instance/App/Deployment/Command/EcsCluster) — unlike some other JSON-1.1
-services in this repo that use `pkgs/awstime.Epoch`. Do not "fix" this to
-epoch format; that would be the actual bug.
+**Timestamps**: `CreatedAt`/`CompletedAt`/etc. are ISO8601 strings, not
+epoch-seconds numbers — confirmed against the real SDK's
+`types.Stack.CreatedAt *string` (and equivalent fields across
+Layer/Instance/App/Deployment/Command/EcsCluster), unlike some other
+JSON-1.1 services in this repo that use `pkgs/awstime.Epoch`. Do not "fix"
+this to epoch format; that would be the actual bug.
+
+The Go SDK types this field as a bare `*string` (no smithy timestamp shape,
+no client-side format enforcement), so the exact character format is
+whatever the real server emits — confirmed via the AWS CLI's own doc
+examples (`aws-cli 2.4.18` opsworks `describe-stacks`/`describe-apps`/
+`describe-instances` reference pages): always UTC, always a literal
+`"+00:00"` suffix, e.g. `"2013-08-01T22:53:42+00:00"` — never `"Z"`.
+
+(gopherstack-c29a, 2026-08-10) The previous fix here formatted with the Go
+layout string `"2006-01-02T15:04:05+00:00"`, which is NOT a Go reference
+layout — `-0700`/`-07:00`/`Z0700`/`Z07:00` are the only recognized offset
+tokens, so `+00:00` was emitted as literal text regardless of the input
+`time.Time`'s actual zone/offset, and the H:M:S digits were never converted
+to UTC either. A `time.Time` in any non-UTC zone printed its own local
+wall-clock digits with a falsely-claimed `+00:00` suffix. Fixed via
+`formatOpsWorksTime` (handler.go): `t.UTC().Format("2006-01-02T15:04:05-07:00")`
+— `.UTC()` normalizes the clock digits, and `-07:00` (not `Z07:00`) is the
+Go reference token that renders a numeric offset unconditionally, matching
+the real API's `+00:00`-not-`Z` convention at zero offset. This is a
+wire-shape fix, not a persistence-format change: the persisted snapshot
+serializes the underlying `time.Time` struct fields directly via
+`encoding/json`'s default `MarshalJSON` (RFC3339Nano), never through this
+function, which only touches the outgoing API response — so
+`opsworksSnapshotVersion` did not need bumping and old snapshots still
+restore.
 
 **SDK availability**: `github.com/aws/aws-sdk-go-v2/service/opsworks@v1.31.0`
 genuinely exists (AWS still generates deprecated-service SDK clients). It is

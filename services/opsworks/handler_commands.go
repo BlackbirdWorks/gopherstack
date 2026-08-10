@@ -40,9 +40,9 @@ func commandsToJSON(commands []*Command) []map[string]any {
 			keyStatus:        c.Status,
 			"ExitCode":       c.ExitCode,
 			"LogUrl":         c.LogURL,
-			keyCreatedAt:     c.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
-			"AcknowledgedAt": c.AcknowledgedAt.Format("2006-01-02T15:04:05+00:00"),
-			"CompletedAt":    c.CompletedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:     formatOpsWorksTime(c.CreatedAt),
+			"AcknowledgedAt": formatOpsWorksTime(c.AcknowledgedAt),
+			"CompletedAt":    formatOpsWorksTime(c.CompletedAt),
 		})
 	}
 
