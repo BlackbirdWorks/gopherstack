@@ -63,9 +63,9 @@ func (h *Handler) handleDeleteProject(_ context.Context, req *deleteProjectReq) 
 	return &deleteProjectResp{Status: "DELETING"}, nil
 }
 
-type describeProjectsReq struct { //nolint:govet // existing issue.
-	ProjectArns []string `json:"ProjectArns"`
+type describeProjectsReq struct {
 	NextToken   string   `json:"NextToken"`
+	ProjectArns []string `json:"ProjectArns"`
 	MaxResults  int32    `json:"MaxResults"`
 }
 

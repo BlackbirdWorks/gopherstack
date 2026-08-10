@@ -92,7 +92,9 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 	livenessSessionID, err := b.CreateFaceLivenessSession()
 	require.NoError(t, err)
 
-	asyncJobID, err := b.StartAsyncJob("PersonTracking", "coll1")
+	asyncJobID, err := b.StartAsyncJob(rekognition.StartAsyncJobParams{
+		JobType: "PersonTracking", CollectionID: "coll1",
+	})
 	require.NoError(t, err)
 
 	mediaJobID, err := b.StartMediaAnalysisJob("job1")
@@ -356,6 +358,120 @@ func TestSnapshotRestore_PreservesAllState(t *testing.T) {
 	// Verify tags survive on collection.
 	rec = doRequest(t, h2, "DescribeCollection", map[string]any{"CollectionId": "snap-coll"})
 	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields round-trips the
+// additive fields (omitempty, no snapshot version bump needed) landed
+// alongside this test: storedProjectVersion's
+// FeatureConfigContentModConfidenceThresh/MaxInferenceUnits/
+// SourceProjectVersionARN, and storedAsyncJob's JobTag/VideoS3*/SegmentTypes.
+func TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields(t *testing.T) {
+	t.Parallel()
+
+	backend := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+	h := rekognition.NewHandler(backend)
+
+	rec := doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "persist-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var projResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &projResp))
+	projectARN := projResp["ProjectArn"].(string)
+
+	rec = doRequest(t, h, "CreateProjectVersion", map[string]any{
+		"ProjectArn":   projectARN,
+		"VersionName":  "v1",
+		"OutputConfig": map[string]any{"S3Bucket": "my-bucket"},
+		"FeatureConfig": map[string]any{
+			"ContentModeration": map[string]any{"ConfidenceThreshold": 42.0},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var verResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &verResp))
+	versionARN := verResp["ProjectVersionArn"].(string)
+
+	rec = doRequest(t, h, "StartProjectVersion", map[string]any{
+		"ProjectVersionArn": versionARN,
+		"MinInferenceUnits": 1,
+		"MaxInferenceUnits": 3,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "CreateProject", map[string]any{"ProjectName": "persist-dst-proj"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var dstProjResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dstProjResp))
+	dstProjectARN := dstProjResp["ProjectArn"].(string)
+
+	rec = doRequest(t, h, "CopyProjectVersion", map[string]any{
+		"SourceProjectVersionArn": versionARN,
+		"DestinationProjectArn":   dstProjectARN,
+		"VersionName":             "v1-copy",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "StartSegmentDetection", map[string]any{
+		"Video": map[string]any{
+			"S3Object": map[string]any{"Bucket": "video-bucket", "Name": "clip.mp4", "Version": "v9"},
+		},
+		"JobTag":       "persist-tag",
+		"SegmentTypes": []string{"SHOT"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var startResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &startResp))
+	jobID := startResp["JobId"].(string)
+
+	snap := backend.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	backend2 := rekognition.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, backend2.Restore(t.Context(), snap))
+	h2 := rekognition.NewHandler(backend2)
+
+	rec = doRequest(t, h2, "DescribeProjectVersions", map[string]any{"ProjectArn": projectARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var descResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	versions := descResp["ProjectVersionDescriptions"].([]any)
+	require.Len(t, versions, 1)
+	desc := versions[0].(map[string]any)
+	assert.InDelta(t, 3, desc["MaxInferenceUnits"], 0.001)
+
+	featureConfig, _ := desc["FeatureConfig"].(map[string]any)
+	require.NotNil(t, featureConfig)
+	contentMod, _ := featureConfig["ContentModeration"].(map[string]any)
+	require.NotNil(t, contentMod)
+	assert.InDelta(t, 42.0, contentMod["ConfidenceThreshold"], 0.001)
+
+	rec = doRequest(t, h2, "DescribeProjectVersions", map[string]any{"ProjectArn": dstProjectARN})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
+	dstVersions := descResp["ProjectVersionDescriptions"].([]any)
+	require.Len(t, dstVersions, 1)
+	assert.Equal(t, versionARN, dstVersions[0].(map[string]any)["SourceProjectVersionArn"])
+
+	rec = doRequest(t, h2, "GetSegmentDetection", map[string]any{"JobId": jobID})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	assert.Equal(t, "persist-tag", getResp["JobTag"])
+
+	video, _ := getResp["Video"].(map[string]any)
+	require.NotNil(t, video)
+	s3Object, _ := video["S3Object"].(map[string]any)
+	assert.Equal(t, "video-bucket", s3Object["Bucket"])
+
+	selected, _ := getResp["SelectedSegmentTypes"].([]any)
+	require.Len(t, selected, 1)
+	assert.Equal(t, "SHOT", selected[0].(map[string]any)["Type"])
 }
 
 func TestSnapshotRestore_TagsSurvive(t *testing.T) {

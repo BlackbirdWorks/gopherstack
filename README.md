@@ -650,7 +650,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Forecast](services/forecast/README.md) | A | 20 | 3 gaps |
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
-| [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 2 deferred |
+| [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 54 | 13 gaps; 6 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | clean |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |

@@ -302,9 +302,9 @@ type faceDetailEntry struct {
 	Confidence float64 `json:"Confidence"`
 }
 
-type detectFacesResp struct { //nolint:govet // existing issue.
-	FaceDetails           []faceDetailEntry `json:"FaceDetails"`
+type detectFacesResp struct {
 	OrientationCorrection string            `json:"OrientationCorrection"`
+	FaceDetails           []faceDetailEntry `json:"FaceDetails"`
 }
 
 func (h *Handler) handleDetectFaces(_ context.Context, _ *detectFacesReq) (*detectFacesResp, error) {
@@ -324,9 +324,17 @@ type startFaceDetectionReq struct {
 }
 
 func (h *Handler) handleStartFaceDetection(
-	_ context.Context, _ *startFaceDetectionReq,
+	_ context.Context, req *startFaceDetectionReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("face_detection", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "face_detection",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +350,7 @@ type getFaceDetectionResp struct {
 func (h *Handler) handleGetFaceDetection(
 	_ context.Context, req *getJobReq,
 ) (*getFaceDetectionResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +372,16 @@ type startFaceSearchReq struct {
 func (h *Handler) handleStartFaceSearch(
 	_ context.Context, req *startFaceSearchReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("face_search", req.CollectionId)
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "face_search",
+		CollectionID:   req.CollectionId,
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +397,7 @@ type getFaceSearchResp struct {
 func (h *Handler) handleGetFaceSearch(
 	_ context.Context, req *getJobReq,
 ) (*getFaceSearchResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}
