@@ -225,9 +225,9 @@ type StorageBackend interface {
 
 	// Schema operations.
 	CreateSchema(
-		registryName, schemaName, dataFormat, compatibility, description string,
+		registryName, schemaName, dataFormat, compatibility, description, schemaDefinition string,
 		tags map[string]string,
-	) (*Schema, error)
+	) (*Schema, *SchemaVersion, error)
 	DescribeSchema(registryName, schemaName string) (*Schema, error)
 	ListSchemas(registryName string) []*Schema
 	UpdateSchema(registryName, schemaName, compatibility, description string) error
