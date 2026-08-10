@@ -409,6 +409,7 @@ func (b *InMemoryBackend) GetJobRun(jobName, runID string) (*JobRun, error) {
 		if run.ID == runID {
 			cp := *run
 			cp.Arguments = maps.Clone(run.Arguments)
+			cp.WorkflowRunID = "" // internal-only; real JobRun has no such field
 
 			return &cp, nil
 		}
@@ -433,6 +434,7 @@ func (b *InMemoryBackend) GetJobRuns(jobName string) ([]*JobRun, error) {
 	for _, run := range src {
 		cp := *run
 		cp.Arguments = maps.Clone(run.Arguments)
+		cp.WorkflowRunID = "" // internal-only; real JobRun has no such field
 		out = append(out, &cp)
 	}
 

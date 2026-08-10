@@ -29,7 +29,7 @@
 
 ### Deferred
 
-- workflows: Graph and LastRun are now real (gopherstack-dol3, see workflows op note); BlueprintDetails/WorkflowRunStatistics/WorkflowRun.Graph remain unmodeled -- would need job/crawler runs correlated to the workflow run that triggered them, which this backend does not track anywhere (see workflows op note for the full reasoning)
+- workflows: Graph, LastRun and WorkflowRunStatistics are now real (gopherstack-dol3/gopherstack-vcor, see workflows op note); BlueprintDetails and WorkflowRun.Graph's per-node run details (JobDetails.JobRuns/CrawlerDetails.Crawls) remain unmodeled -- the job/crawler-run-to-workflow-run link they'd need now exists (gopherstack-vcor), but converting it into per-node run lists is separate work not done this pass; also, this backend never evaluates conditional (predicate-gated) triggers, so only a workflow's entry trigger ever links actions to a run
 - schema registry: compatibility-mode enforcement (BACKWARD/FORWARD/FULL) and full AVRO/JSON/PROTOBUF grammar validation depth (would need real schema-parsing libraries; no new go.mod deps permitted) -- sized this pass (gopherstack-dol3), see 'DQDL and schema-compatibility sizing' note below; not started
 - data quality rulesets: DQDL syntax / rule-type validation (would need a real DQDL parser) -- sized this pass (gopherstack-dol3), see 'DQDL and schema-compatibility sizing' note below; not started
 - ML transforms: EvaluationMetrics (FindMatchesMetrics) — no real ML evaluation is ever run, so there is no real metric to report (re-confirmed gopherstack-dol3, still correctly absent)

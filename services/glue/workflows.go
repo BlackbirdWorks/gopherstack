@@ -126,8 +126,12 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 
 // GetWorkflow retrieves a Glue workflow by name. LastRun is always populated
 // from real run history; Graph is populated only when includeGraph is set,
-// matching GetWorkflowInput.IncludeGraph (api_op_GetWorkflow.go).
+// matching GetWorkflowInput.IncludeGraph (api_op_GetWorkflow.go). Advances due
+// lifecycle transitions first -- see GetWorkflowRun -- since LastRun.Statistics
+// depends on job/crawler run state.
 func (b *InMemoryBackend) GetWorkflow(name string, includeGraph bool) (*Workflow, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetWorkflow")
 	defer b.mu.RUnlock()
 
@@ -146,6 +150,7 @@ func (b *InMemoryBackend) decorateWorkflowLocked(w *Workflow, includeGraph bool)
 
 	if runs := b.workflowRuns[w.Name]; len(runs) > 0 {
 		last := *runs[len(runs)-1]
+		last.Statistics = b.computeWorkflowRunStatisticsLocked(last.RunID)
 		cp.LastRun = &last
 	}
 
@@ -173,6 +178,8 @@ func (b *InMemoryBackend) GetWorkflows() []string {
 // BatchGetWorkflows retrieves multiple workflows by name. See GetWorkflow for
 // the LastRun/Graph population rules.
 func (b *InMemoryBackend) BatchGetWorkflows(names []string, includeGraph bool) ([]*Workflow, []string) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("BatchGetWorkflows")
 	defer b.mu.RUnlock()
 
@@ -226,52 +233,109 @@ func (b *InMemoryBackend) DeleteWorkflow(name string) error {
 	return nil
 }
 
-// StartWorkflowRun creates a new workflow run record.
-func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
-	b.mu.Lock("StartWorkflowRun")
-	defer b.mu.Unlock()
+// entryTriggerFire is a workflow entry-point trigger's name and a clone of its
+// actions, captured under b.mu so it can be fired after the lock is released.
+type entryTriggerFire struct {
+	triggerName string
+	actions     []TriggerAction
+}
 
-	w, ok := b.workflows.Get(name)
-	if !ok {
-		return nil, ErrNotFound
+// entryTriggersLocked returns the workflow's entry-point triggers: those with
+// WorkflowName == name and no Predicate. AWS docs call this a workflow's "start
+// trigger" (workflows_overview.html: "each workflow has a start trigger"),
+// fired when StartWorkflowRun is called; predicate-gated (conditional)
+// triggers fire later, from other actions completing -- a chain this backend
+// does not evaluate (see StartWorkflowRun). Caller must hold b.mu.
+func (b *InMemoryBackend) entryTriggersLocked(name string) []entryTriggerFire {
+	var fires []entryTriggerFire
+
+	for _, t := range b.triggers.All() {
+		if t.WorkflowName == name && t.Predicate == nil {
+			fires = append(fires, entryTriggerFire{
+				triggerName: t.Name,
+				actions:     append([]TriggerAction(nil), t.Actions...),
+			})
+		}
 	}
 
-	if w.MaxConcurrentRuns > 0 {
-		active := 0
-		for _, r := range b.workflowRuns[name] {
-			if r.Status == stateRunning || r.Status == stateStopping {
-				active++
+	return fires
+}
+
+// StartWorkflowRun creates a new workflow run record and fires the workflow's
+// entry-point trigger(s), stamping the new run's ID onto the job runs/crawls
+// they start (see fireTriggerActions). Downstream conditional triggers within
+// the workflow are never evaluated by this backend (no predicate-evaluation
+// engine exists), so only the entry trigger's own actions are ever linked to
+// a workflow run -- WorkflowRunStatistics reflects exactly that real subset,
+// not the full DAG.
+func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
+	var fires []entryTriggerFire
+
+	run, err := func() (*WorkflowRun, error) {
+		b.mu.Lock("StartWorkflowRun")
+		defer b.mu.Unlock()
+
+		w, ok := b.workflows.Get(name)
+		if !ok {
+			return nil, ErrNotFound
+		}
+
+		if w.MaxConcurrentRuns > 0 {
+			active := 0
+			for _, r := range b.workflowRuns[name] {
+				if r.Status == stateRunning || r.Status == stateStopping {
+					active++
+				}
+			}
+			if active >= w.MaxConcurrentRuns {
+				return nil, ErrConcurrentRunsExceeded
 			}
 		}
-		if active >= w.MaxConcurrentRuns {
-			return nil, ErrConcurrentRunsExceeded
+
+		runID := fmt.Sprintf(
+			"wr_%d_%04d",
+			time.Now().UnixNano(),
+			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
+		)
+		run := &WorkflowRun{
+			WorkflowName: name,
+			RunID:        runID,
+			Status:       stateRunning,
+			StartedOn:    float64(time.Now().Unix()),
 		}
+		b.workflowRuns[name] = append(b.workflowRuns[name], run)
+
+		fires = b.entryTriggersLocked(name)
+
+		return run, nil
+	}()
+	if err != nil {
+		return nil, err
 	}
 
-	runID := fmt.Sprintf(
-		"wr_%d_%04d",
-		time.Now().UnixNano(),
-		mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
-	)
-	run := &WorkflowRun{
-		WorkflowName: name,
-		RunID:        runID,
-		Status:       stateRunning,
-		StartedOn:    float64(time.Now().Unix()),
+	// Fire outside the lock: StartJobRun/StartCrawler take the same coarse
+	// backend lock, and it is not reentrant.
+	for _, f := range fires {
+		b.fireTriggerActions(f.actions, f.triggerName, run.RunID)
 	}
-	b.workflowRuns[name] = append(b.workflowRuns[name], run)
 
 	return run, nil
 }
 
 // GetWorkflowRun retrieves a specific workflow run by workflow name and run ID.
+// Statistics depends on job/crawler run state, so this advances due lifecycle
+// transitions first -- same as GetJobRun/GetCrawler -- rather than reporting
+// stale STARTING/RUNNING states that would already read differently elsewhere.
 func (b *InMemoryBackend) GetWorkflowRun(workflowName, runID string) (*WorkflowRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetWorkflowRun")
 	defer b.mu.RUnlock()
 
 	for _, run := range b.workflowRuns[workflowName] {
 		if run.RunID == runID {
 			cp := *run
+			cp.Statistics = b.computeWorkflowRunStatisticsLocked(runID)
 
 			return &cp, nil
 		}
@@ -280,8 +344,11 @@ func (b *InMemoryBackend) GetWorkflowRun(workflowName, runID string) (*WorkflowR
 	return nil, ErrNotFound
 }
 
-// GetWorkflowRuns returns all runs for a workflow.
+// GetWorkflowRuns returns all runs for a workflow. See GetWorkflowRun for why
+// it advances lifecycle transitions before computing Statistics.
 func (b *InMemoryBackend) GetWorkflowRuns(workflowName string) ([]*WorkflowRun, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetWorkflowRuns")
 	defer b.mu.RUnlock()
 
@@ -293,8 +360,79 @@ func (b *InMemoryBackend) GetWorkflowRuns(workflowName string) ([]*WorkflowRun, 
 	out := make([]*WorkflowRun, 0, len(src))
 	for _, run := range src {
 		cp := *run
+		cp.Statistics = b.computeWorkflowRunStatisticsLocked(run.RunID)
 		out = append(out, &cp)
 	}
 
 	return out, nil
+}
+
+// computeWorkflowRunStatisticsLocked tallies the job runs and crawls stamped
+// with this workflow run's ID into WorkflowRunStatistics's outcome buckets.
+// ErroredActions and WaitingActions count job runs only -- the SDK's own doc
+// comments for those two fields say "count of job runs in the ERROR/WAITING
+// state" (aws-sdk-go-v2/service/glue@v1.152.0 types.go:13224-13225), unlike
+// the other fields' generic "Actions" wording -- so crawls never contribute to
+// them. Caller must hold b.mu.
+func (b *InMemoryBackend) computeWorkflowRunStatisticsLocked(runID string) *WorkflowRunStatistics {
+	stats := &WorkflowRunStatistics{}
+
+	for _, runs := range b.jobRuns {
+		for _, r := range runs {
+			if r.WorkflowRunID != runID {
+				continue
+			}
+
+			stats.TotalActions++
+			tallyJobRunAction(stats, r.JobRunState)
+		}
+	}
+
+	for _, hist := range b.crawlHistory {
+		for _, e := range hist {
+			if e.WorkflowRunID != runID {
+				continue
+			}
+
+			stats.TotalActions++
+			tallyCrawlAction(stats, e.State)
+		}
+	}
+
+	return stats
+}
+
+// tallyJobRunAction buckets a single job run's state into stats. States this
+// backend never produces (see reconciler.go) simply never increment a bucket.
+func tallyJobRunAction(stats *WorkflowRunStatistics, state string) {
+	switch state {
+	case stateSucceeded:
+		stats.SucceededActions++
+	case stateFailed:
+		stats.FailedActions++
+	case stateStopped:
+		stats.StoppedActions++
+	case stateRunning:
+		stats.RunningActions++
+	case stateTimeout:
+		stats.TimeoutActions++
+	case stateError:
+		stats.ErroredActions++
+	case stateWaiting:
+		stats.WaitingActions++
+	}
+}
+
+// tallyCrawlAction buckets a single crawl's state into stats, using the exact
+// three values finishCrawlHistoryLocked/StartCrawler ever set on
+// CrawlHistoryEntry.State (RUNNING/COMPLETED/STOPPED -- see crawlers.go).
+func tallyCrawlAction(stats *WorkflowRunStatistics, state string) {
+	switch state {
+	case stateCompleted:
+		stats.SucceededActions++
+	case stateStopped:
+		stats.StoppedActions++
+	case stateRunning:
+		stats.RunningActions++
+	}
 }

@@ -80,6 +80,16 @@ const stateStopped = "STOPPED"
 
 const stateSucceeded = "SUCCEEDED"
 
+const stateFailed = "FAILED"
+
+const stateTimeout = "TIMEOUT"
+
+const stateError = "ERROR"
+
+const stateWaiting = "WAITING"
+
+const stateCompleted = "COMPLETED"
+
 const reconcilerTickDivisor = 5
 
 const stateAvailable = "AVAILABLE"
