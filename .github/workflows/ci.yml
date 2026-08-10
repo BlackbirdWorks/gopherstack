@@ -253,13 +253,13 @@ jobs:
           mkdir -p dashboard/static/spa
           touch dashboard/static/spa/.keep
           CGO_ENABLED=0 GOOS=linux go build -tags 'netgo osusergo static_build' -trimpath \
-            -ldflags="-w -s" -o bin/gopherstack .
+            -ldflags="-w -s" -o bin/gopherstack-linux .
 
       - name: Upload binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: gopherstack-binary
-          path: bin/gopherstack
+          path: bin/gopherstack-linux
           retention-days: 1
 
   integration-tests:
@@ -299,7 +299,7 @@ jobs:
           path: bin/
 
       - name: Make binary executable
-        run: chmod +x bin/gopherstack
+        run: chmod +x bin/gopherstack-linux
 
       - name: Compute test pattern for chunk
         id: tests
@@ -317,7 +317,7 @@ jobs:
 
       - name: Run Integration Tests (chunk ${{ matrix.chunk }})
         run: |
-          echo "bin/gopherstack exists: $(test -f bin/gopherstack && echo yes || echo no)"
+          echo "bin/gopherstack-linux exists: $(test -f bin/gopherstack-linux && echo yes || echo no)"
           go tool gotestsum --format standard-verbose -- \
             -race -shuffle on -timeout 10m -v \
             -run '${{ steps.tests.outputs.pattern }}' \
@@ -381,7 +381,7 @@ jobs:
           path: bin/
 
       - name: Make binary executable
-        run: chmod +x bin/gopherstack
+        run: chmod +x bin/gopherstack-linux
 
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2
@@ -412,7 +412,7 @@ jobs:
       - name: Run OpenTofu Tests (chunk ${{ matrix.chunk }})
         run: |
           echo "tofu version: $(tofu version)"
-          echo "bin/gopherstack exists: $(test -f bin/gopherstack && echo yes || echo no)"
+          echo "bin/gopherstack-linux exists: $(test -f bin/gopherstack-linux && echo yes || echo no)"
           go tool gotestsum --format standard-verbose -- \
             -race -parallel 8 -timeout 15m \
             -run '${{ steps.tests.outputs.pattern }}' \

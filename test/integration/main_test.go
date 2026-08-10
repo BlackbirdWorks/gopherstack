@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"debug/elf"
 	"errors"
 	"flag"
 	"fmt"
@@ -125,6 +126,49 @@ var ErrDockerPanic = errors.New("docker check panicked")
 // ErrResetFailed is returned when the reset endpoint returns an unexpected status.
 var ErrResetFailed = errors.New("reset endpoint returned unexpected status")
 
+// ErrBinaryNotStatic is returned when preBuiltLinuxBinary exists but is not a
+// statically-linked linux binary, so Dockerfile.test's `FROM scratch` image
+// cannot run it. Turns the "No such container" mystery from gopherstack-gooq
+// into a clear error at build time instead.
+var ErrBinaryNotStatic = errors.New("not a statically-linked linux binary; run `make build-linux`")
+
+// preBuiltLinuxBinary is where `make build-linux` writes its static binary,
+// deliberately distinct from `make build`'s bin/gopherstack (gopherstack-gooq).
+const preBuiltLinuxBinary = "../../bin/gopherstack-linux"
+
+// dockerfileFor picks Dockerfile.test when a pre-built binary exists at
+// preBuiltLinuxBinary, verifying it is actually static first.
+func dockerfileFor() (string, error) {
+	if _, statErr := os.Stat(preBuiltLinuxBinary); statErr == nil {
+		if err := requireStaticELF(preBuiltLinuxBinary); err != nil {
+			return "", fmt.Errorf("%s: %w", preBuiltLinuxBinary, err)
+		}
+
+		return "Dockerfile.test", nil
+	}
+
+	return "Dockerfile", nil
+}
+
+// requireStaticELF rejects a binary that isn't ELF at all (e.g. a macOS
+// `make build` artifact) or that carries a PT_INTERP segment, meaning it's
+// dynamically linked against libc and won't run in a `FROM scratch` image.
+func requireStaticELF(path string) error {
+	f, err := elf.Open(path)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBinaryNotStatic, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	for _, prog := range f.Progs {
+		if prog.Type == elf.PT_INTERP {
+			return ErrBinaryNotStatic
+		}
+	}
+
+	return nil
+}
+
 func TestMain(m *testing.M) {
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -167,9 +211,13 @@ func TestMain(m *testing.M) {
 
 	ctx := context.Background()
 
-	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
-		dockerfile = "Dockerfile.test"
+	dockerfile, err := dockerfileFor()
+	if err != nil {
+		logger.Error("pre-built binary unusable for Dockerfile.test", "error", err)
+		os.Exit(1)
+	}
+
+	if dockerfile == "Dockerfile.test" {
 		logger.Info("using pre-built binary via Dockerfile.test")
 	} else {
 		logger.Info("no pre-built binary found, building from source via Dockerfile")

@@ -1,6 +1,8 @@
-# Lightweight test image — expects a pre-built static binary at bin/gopherstack.
+# Lightweight test image — expects a pre-built static binary at bin/gopherstack-linux
+# (from `make build-linux`; this is a separate path from `make build`'s bin/gopherstack
+# so the two targets can't clobber each other — see gopherstack-gooq).
 FROM scratch
-COPY bin/gopherstack /root/gopherstack
+COPY bin/gopherstack-linux /root/gopherstack
 EXPOSE 8000
 EXPOSE 1883
 CMD ["/root/gopherstack"]

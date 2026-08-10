@@ -28,10 +28,8 @@ func startPersistenceContainer(t *testing.T, dataDir string) (testcontainers.Con
 
 	ctx := t.Context()
 
-	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
-		dockerfile = "Dockerfile.test"
-	}
+	dockerfile, err := dockerfileFor()
+	require.NoError(t, err)
 
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{

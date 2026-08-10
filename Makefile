@@ -35,13 +35,19 @@ ui-build: ui-install
 	mkdir -p dashboard/static/spa
 	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
 	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build
+	@# Embedded so a browser repro / server log can show what SPA is actually
+	@# running instead of silently serving a stale go:embed artifact (gopherstack-0rkc).
+	echo "{\"builtAt\":\"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"commit\":\"$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\"}" > dashboard/static/spa/build-stamp.json
 	touch dashboard/static/spa/.keep
 
+# Distinct output path from `build`: both used to write bin/gopherstack, so
+# running `make build` (dynamic) while integration tests were mid-flight
+# silently replaced the static binary Dockerfile.test's `FROM scratch` needs.
 build-linux:
 	CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
-		-o bin/$(BINARY_NAME) .
+		-o bin/$(BINARY_NAME)-linux .
 
 install-deps:
 	@echo "Checking for golangci-lint..."
