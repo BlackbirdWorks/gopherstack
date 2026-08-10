@@ -21,8 +21,8 @@ type StateMachine struct {
 // ItemBatcher configures batching for a Map state's Distributed Map.
 // MaxItemsPerBatch/MaxInputBytesPerBatch are mutually exclusive with their
 // *Path siblings, which are reference paths resolved against the Map
-// state's own input -- same resolution as ToleratedFailureCountPath (AWS
-// docs: input-output-itembatcher.html).
+// state's pre-Parameters input -- same resolution as ToleratedFailureCountPath
+// (AWS docs: input-output-itembatcher.html).
 type ItemBatcher struct {
 	MaxItemsPerBatchPath      string `json:"MaxItemsPerBatchPath,omitempty"`
 	MaxInputBytesPerBatchPath string `json:"MaxInputBytesPerBatchPath,omitempty"`
@@ -48,7 +48,7 @@ type ItemReader struct {
 // CSVHeaders: explicit headers when CSVHeaderLocation == "GIVEN".
 // MaxItems: optional cap on number of items returned (0 = unlimited).
 // MaxItemsPath is MaxItems' reference-path sibling, mutually exclusive with
-// it and resolved against the Map state's own input (AWS docs:
+// it and resolved against the Map state's pre-Parameters input (AWS docs:
 // input-output-itemreader.html).
 type ReaderConfig struct {
 	InputType         string   `json:"InputType,omitempty"`
@@ -99,8 +99,9 @@ type State struct {
 	ToleratedFailureCount          *int     `json:"ToleratedFailureCount,omitempty"`
 	ToleratedFailurePercentage     *float64 `json:"ToleratedFailurePercentage,omitempty"`
 	// MaxConcurrencyPath is MaxConcurrency's reference-path sibling, resolved
-	// against the Map state's own input the same way as ToleratedFailureCountPath
-	// (AWS docs: state-map-distributed.html#map-state-distributed-additional-fields).
+	// against the Map state's pre-Parameters input the same way as
+	// ToleratedFailureCountPath (AWS docs:
+	// state-map-distributed.html#map-state-distributed-additional-fields).
 	MaxConcurrencyPath string `json:"MaxConcurrencyPath,omitempty"`
 	InputPath          string `json:"InputPath,omitempty"`
 	OutputPath         string `json:"OutputPath,omitempty"`
@@ -115,7 +116,8 @@ type State struct {
 	Resource           string `json:"Resource,omitempty"`
 	// TimeoutSecondsPath/HeartbeatSecondsPath are TimeoutSeconds/HeartbeatSeconds's
 	// reference-path siblings, mutually exclusive with them and resolved against
-	// the Task state's own input (AWS docs: amazon-states-language-task-state.html).
+	// the Task state's pre-Parameters input (AWS docs:
+	// amazon-states-language-task-state.html, GlueJobTask example).
 	TimeoutSecondsPath   string          `json:"TimeoutSecondsPath,omitempty"`
 	HeartbeatSecondsPath string          `json:"HeartbeatSecondsPath,omitempty"`
 	Retry                []Retrier       `json:"Retry,omitempty"`

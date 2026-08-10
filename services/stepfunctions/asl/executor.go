@@ -537,7 +537,7 @@ func (e *Executor) runStates(
 		var result any
 		var nextState string
 
-		nextState, result, err = e.executeState(ctx, executionARN, current, state, taskInput)
+		nextState, result, err = e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
 		if err != nil {
 			return nil, err
 		}
@@ -596,11 +596,16 @@ func (e *Executor) applyStateOutputTransforms(
 }
 
 // executeState executes a single state and returns (nextStateName, output, error).
+// pathInput is the state's input after InputPath but before Parameters; Task
+// and Map thread it separately from input (the post-Parameters payload) so
+// their *Path fields (TimeoutSecondsPath, ItemsPath, MaxConcurrencyPath, ...)
+// resolve against the pre-Parameters value, per the ASL spec (see
+// resolveTaskTimeoutSeconds and resolveMapItems).
 func (e *Executor) executeState(
 	ctx context.Context,
 	executionARN, stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
 	switch state.Type {
 	case "Pass":
@@ -614,11 +619,11 @@ func (e *Executor) executeState(
 	case "Choice":
 		return e.executeChoice(state, input)
 	case "Task":
-		return e.executeTask(ctx, executionARN, stateName, state, input)
+		return e.executeTask(ctx, executionARN, stateName, state, pathInput, input)
 	case "Parallel":
 		return e.executeParallel(ctx, executionARN, stateName, state, input)
 	case "Map":
-		return e.executeMap(ctx, executionARN, stateName, state, input)
+		return e.executeMap(ctx, executionARN, stateName, state, pathInput, input)
 	default:
 		return "", nil, fmt.Errorf(
 			"%w: %q in state %q",
@@ -785,14 +790,14 @@ func (e *Executor) executeTask(
 	ctx context.Context,
 	executionARN, stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
-	timeoutSeconds, err := e.resolveTaskTimeoutSeconds(state, input)
+	timeoutSeconds, err := e.resolveTaskTimeoutSeconds(state, pathInput)
 	if err != nil {
 		return "", nil, err
 	}
 
-	heartbeatSeconds, err := e.resolveTaskHeartbeatSeconds(state, input)
+	heartbeatSeconds, err := e.resolveTaskHeartbeatSeconds(state, pathInput)
 	if err != nil {
 		return "", nil, err
 	}
@@ -1616,12 +1621,19 @@ const jitterStrategyFull = "FULL"
 // Parallel, Map supports Retry/Catch on the Map state itself (in addition to
 // per-iteration failures counted against ToleratedFailure*); a retry re-runs
 // every item from scratch, matching AWS Map/Distributed-Map semantics.
+// pathInput is the pre-Parameters input (see executeState); every *Path
+// field (ItemsPath, ItemBatcher's and ReaderConfig's *Path siblings,
+// MaxConcurrencyPath, ToleratedFailure*Path) resolves against it, matching
+// the ASL Map State spec section, which resolves ItemsPath/ItemReader
+// against "the effective input" (post-InputPath, pre-Parameters) -- the
+// state's own Parameters field is the deprecated ItemSelector alias applied
+// per item, not to this scope.
 func (e *Executor) executeMap(
 	ctx context.Context,
 	executionARN string,
 	stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
 	iterator, iterErr := e.getMapIterator(state)
 	if iterErr != nil {
@@ -1630,7 +1642,7 @@ func (e *Executor) executeMap(
 
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
-			items, err := e.resolveMapItems(ctx, state, input)
+			items, err := e.resolveMapItems(ctx, state, pathInput)
 			if err != nil {
 				return nil, err
 			}
@@ -1645,7 +1657,7 @@ func (e *Executor) executeMap(
 			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
 			if state.ItemBatcher != nil {
 				maxItemsPerBatch, maxInputBytesPerBatch, batcherErr := e.resolveItemBatcherLimits(
-					state.ItemBatcher, input,
+					state.ItemBatcher, pathInput,
 				)
 				if batcherErr != nil {
 					return nil, batcherErr
@@ -1658,10 +1670,10 @@ func (e *Executor) executeMap(
 					return nil, wrapErr
 				}
 
-				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, batched)
+				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, batched)
 			}
 
-			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, items)
+			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, items)
 		},
 	)
 }
@@ -1726,8 +1738,8 @@ var ErrMaxInputBytesPerBatchPathNotNumber = errors.New(
 )
 
 // resolveItemBatcherLimits resolves ItemBatcher's MaxItemsPerBatch(Path) and
-// MaxInputBytesPerBatch(Path) against the Map state's own input, the same
-// way resolveToleratedFailureCount resolves ToleratedFailureCountPath.
+// MaxInputBytesPerBatch(Path) against the Map state's pre-Parameters input,
+// the same way resolveToleratedFailureCount resolves ToleratedFailureCountPath.
 func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) (int, int, error) {
 	maxItems := batcher.MaxItemsPerBatch
 
@@ -1940,7 +1952,7 @@ func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any)
 var ErrMaxItemsPathNotNumber = errors.New("MaxItemsPath: value is not a number")
 
 // truncateReaderItems applies ReaderConfig's MaxItems(Path) cap, resolving
-// MaxItemsPath against the Map state's own input the same way
+// MaxItemsPath against the Map state's pre-Parameters input the same way
 // resolveToleratedFailureCount resolves ToleratedFailureCountPath.
 func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput any) ([]any, error) {
 	if cfg == nil {
@@ -2302,8 +2314,8 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 var ErrMaxConcurrencyPathNotNumber = errors.New("MaxConcurrencyPath: value is not a number")
 
 // resolveMaxConcurrency resolves MaxConcurrency(Path) against the Map
-// state's own input, the same way resolveToleratedFailureCount resolves
-// ToleratedFailureCountPath.
+// state's pre-Parameters input, the same way resolveToleratedFailureCount
+// resolves ToleratedFailureCountPath.
 func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error) {
 	if state.MaxConcurrencyPath == "" {
 		return state.MaxConcurrency, nil
@@ -2331,10 +2343,13 @@ var ErrTimeoutSecondsPathNotNumber = errors.New("TimeoutSecondsPath: value is no
 var ErrHeartbeatSecondsPathNotNumber = errors.New("HeartbeatSecondsPath: value is not a number")
 
 // resolveTaskTimeoutSeconds resolves TimeoutSeconds(Path) against the Task
-// state's own input, the same way resolveMaxConcurrency resolves
-// MaxConcurrencyPath. Retries reuse this same input (ASL never re-evaluates
-// a Task's input between retry attempts), so resolving once before the
-// retry loop gives the same value every attempt.
+// state's pre-Parameters input (input after InputPath, before Parameters is
+// applied) -- AWS docs amazon-states-language-task-state.html's GlueJobTask
+// example pairs a Parameters block that replaces the whole payload with a
+// TimeoutSecondsPath that still reads the pre-Parameters field. Retries
+// reuse this same input (ASL never re-evaluates a Task's input between
+// retry attempts), so resolving once before the retry loop gives the same
+// value every attempt.
 func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, error) {
 	if state.TimeoutSecondsPath == "" {
 		return state.TimeoutSeconds, nil
