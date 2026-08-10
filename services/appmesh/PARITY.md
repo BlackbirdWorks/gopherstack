@@ -5,46 +5,46 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appmesh
-sdk_module: aws-sdk-go-v2/service/appmesh@v1.36.2
+sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
 last_audit_commit: 40f05928
-last_audit_date: 2026-07-23
+last_audit_date: 2026-08-10
 overall: A            # genuine fixes found: the primary response-wrapping bug affected every
                        # Create/Describe/Update/Delete op in the service (28 handler call sites).
 ops:
-  CreateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key"}
+  CreateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; spec now structurally validated (egressFilter.type, serviceDiscovery.ipPreference enums)"}
   DescribeMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key"}
-  UpdateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; version increments"}
-  DeleteMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; in-use check blocks delete while children exist"}
+  UpdateMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; version increments; spec now structurally validated"}
+  DeleteMesh: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under mesh key; in-use check blocks delete while children exist; status now DELETED not ACTIVE"}
   ListMeshes: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: limit query param now honored (was hardcoded to 100)"}
   CreateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
   DescribeVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
   UpdateVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
-  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key"}
+  DeleteVirtualNode: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualNode key; status now DELETED not ACTIVE"}
   ListVirtualNodes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key"}
+  CreateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; spec now structurally validated (listeners[].portMapping.port/protocol)"}
   DescribeVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key"}
-  UpdateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key"}
-  DeleteVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; blocks delete while routes exist"}
+  UpdateVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; spec now structurally validated"}
+  DeleteVirtualRouter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualRouter key; blocks delete while routes exist; status now DELETED not ACTIVE"}
   ListVirtualRouters: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
   DescribeRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
   UpdateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
-  DeleteRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key"}
+  DeleteRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under route key; status now DELETED not ACTIVE"}
   ListRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key"}
+  CreateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; spec now structurally validated (provider union: exactly one of virtualNode/virtualRouter)"}
   DescribeVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key"}
-  UpdateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key"}
-  DeleteVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key"}
+  UpdateVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; spec now structurally validated"}
+  DeleteVirtualService: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualService key; status now DELETED not ACTIVE"}
   ListVirtualServices: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
   DescribeVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
   UpdateVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key"}
-  DeleteVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key; blocks delete while gateway routes exist"}
+  DeleteVirtualGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under virtualGateway key; blocks delete while gateway routes exist; status now DELETED not ACTIVE"}
   ListVirtualGateways: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
   DescribeGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
   UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
-  DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key"}
+  DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: response now wrapped under gatewayRoute key; status now DELETED not ACTIVE"}
   ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn+tags in JSON body — verified against real serializer"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn+tagKeys in JSON body"}
@@ -57,10 +57,9 @@ families:
   virtualgateway_and_gatewayroute_crud: {status: ok, note: "gateway route paths correctly use singular /virtualGateway/{name}/gatewayRoutes"}
   tags: {status: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "meshOwner query param (cross-account shared mesh access) is accepted on Describe/Delete/Create/List paths by real AWS but never read by gopherstack's handlers; this backend has no cross-account model at all. Low priority: shared meshes are an advanced, rarely-emulated feature. Confirmed on this pass: botocore's service-2.json models meshOwner as a plain querystring AccountId param on every sub-resource op (Create/Describe/Update/Delete/List for VirtualNode/VirtualRouter/Route/VirtualService/VirtualGateway/GatewayRoute) with no special validation beyond the 12-digit AccountId shape — implementing it for real would require a second-account resource-visibility model this backend doesn't have anywhere, not a small fix."
-  - "Spec bodies (MeshSpec/VirtualNodeSpec/VirtualRouterSpec/RouteSpec/VirtualServiceSpec/VirtualGatewaySpec/GatewayRouteSpec) are stored and echoed back as opaque json.RawMessage with no schema validation against the real shapes (listeners/serviceDiscovery/backends/tls/healthChecks/connectionPools/outlierDetection/httpRoute-http2Route-grpcRoute-tcpRoute match+action+retry+timeout/etc.). This is wire-compatible by construction (whatever the client sends round-trips unchanged, matching the real shape's field names since gopherstack never re-encodes it), but a client sending a structurally invalid spec (wrong type for a field, unknown nested shape) is accepted rather than rejected with BadRequestException. Full structural validation of ~7 deeply-nested spec shapes was judged out of scope for this pass given the passthrough already satisfies wire-shape correctness for well-formed requests."
-  - "DeleteMesh/DeleteVirtualNode/etc. return the resource with its status left at ACTIVE; real AWS App Mesh's terminal status semantics on delete (whether the returned object flips to a DELETED/INACTIVE MeshStatusCode) were not confirmed against a live account and were left unchanged rather than guessed."
-deferred: []              # nothing consciously left un-audited this pass (see Notes: CloudTrail capture confirmed generic/complete)
+  - "meshOwner query param (cross-account shared mesh access) is accepted on Describe/Delete/Create/List paths by real AWS but never read at all by gopherstack's handlers (no `c.QueryParam(\"meshOwner\")` call anywhere in the package — confirmed by direct grep this pass, so this is a structural absence, not a silently-dropped read). This backend has no cross-account model at all: MeshOwner/ResourceOwner are always set to the calling account's own accountID (store.go newMeta). Low priority: shared meshes are an advanced, rarely-emulated feature. Confirmed again this pass: aws-sdk-go-v2/service/appmesh@v1.38.4's DescribeMeshInput/DeleteMeshInput/etc. model meshOwner as a plain querystring AccountId param on every sub-resource op with no special validation beyond the 12-digit AccountId shape — implementing it for real would require a second-account resource-visibility model this backend doesn't have anywhere, not a small fix. Not adjacent-fixable."
+  - "RouteSpec/VirtualNodeSpec/VirtualGatewaySpec/GatewayRouteSpec remain opaque json.RawMessage with no structural validation. Sized this pass by reading every reachable sub-shape in aws-sdk-go-v2/service/appmesh@v1.38.4/types/types.go (199 type declarations total): VirtualNodeSpec fans out through Listener (PortMapping, VirtualNodeConnectionPool union, HealthCheckPolicy, OutlierDetection, ListenerTimeout union, ListenerTls with ACM/File/SDS certificate variants and validation-context variants), Backends (VirtualServiceBackend with ClientPolicy/TLS), BackendDefaults, Logging (AccessLog file/stream variants), and ServiceDiscovery (DNS/AWSCloudMap variants). RouteSpec fans out through GrpcRoute/HttpRoute/Http2Route/TcpRoute, each with its own Action(WeightedTargets)/Match(headers/metadata/path/query variants)/RetryPolicy/Timeout. VirtualGatewaySpec and GatewayRouteSpec mirror the same listener/matcher depth. This is 4-5+ levels deep with multiple smithy union types per branch — too large to model to full field depth in one pass per the no-stub/model-faithfully-or-leave-it rule. Left as wire-compatible passthrough (whatever the client sends round-trips unchanged)."
+deferred: []              # nothing consciously left un-audited this pass
 leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (matches pkgs-catalog.md convention); no goroutines, timers, or janitors in this service"}
 ---
 
@@ -202,3 +201,84 @@ enforcement layer or account-quota model to source them from; fabricating arbitr
 quota numbers would be inventing behavior, not fixing a diffed gap. `TooManyTagsException`
 above is different: it has one universally-documented, unambiguous limit (50) actually
 enforced by real AWS, matching the existing codebase-wide precedent.
+
+## 2026-08-10 sweep
+
+Three follow-up items from the 2026-07-23 sweep's `gaps` list were re-examined.
+
+**SDK pin check.** `sdk_module` recorded `v1.36.2`; `go.mod` pins `v1.38.4`, so the
+manifest was stale. Diffed the two module-cache trees
+(`aws-sdk-go-v2/service/appmesh@v1.36.2` vs `@v1.38.4`): every changed file differs only
+in client middleware plumbing (retry/logging/span/user-agent stack wiring,
+`newServiceMetadataMiddleware` signature) — `types/enums.go` and the wire-shape-relevant
+parts of `types/types.go` are byte-identical between the two versions. No prior claim in
+this file rested on the drift; `sdk_module` corrected to `v1.38.4`.
+
+1. **DeleteMesh/etc. leaving status ACTIVE (fixed — was a genuine wire gap, not
+   "unconfirmed").** Fetched the live AWS App Mesh API reference
+   (docs.aws.amazon.com/app-mesh/latest/APIReference/API_DeleteMesh.html), which documents
+   a full example response with `"status": {"status": "DELETED"}`. Cross-checked against
+   `aws-sdk-go-v2/service/appmesh@v1.38.4/types/enums.go`: every one of the seven
+   `*StatusCode` enums (`MeshStatusCode`, `VirtualNodeStatusCode`,
+   `VirtualRouterStatusCode`, `RouteStatusCode`, `VirtualServiceStatusCode`,
+   `VirtualGatewayStatusCode`, `GatewayRouteStatusCode`) declares a `DELETED` member, so
+   the enum value is present in the pinned SDK, not merely reachable via some other path.
+   Applying the contradiction test: a resource reporting `ACTIVE` after a *successful*
+   delete is a stronger false claim than a resource merely never leaving its starting
+   state, and grep confirmed `Status` was set to `"ACTIVE"` at creation and never touched
+   again anywhere in the package (including every `Delete*` backend method). Fixed all
+   seven `Delete*` backend methods (`meshes.go`, `virtual_nodes.go`, `virtual_routers.go`,
+   `virtual_services.go`, `virtual_gateways.go`) to set the resource's `Status` to the new
+   `statusDeleted = "DELETED"` constant (`store.go`) after removing it from its table, right
+   before returning it in the response. Covered by table-driven
+   `TestBackend_DeleteReturnsTerminalStatus` (`delete_status_test.go`, one subtest per
+   resource type) and `TestAppMesh_DeleteMeshWireStatus` (HTTP-level wire check). Verified
+   both tests failed against the pre-fix code (asserted `"DELETED"`, got `"ACTIVE"`)
+   before the fix landed.
+
+2. **meshOwner query param (confirmed still a genuine gap, not a silent drop).** Grepped
+   the whole package for `QueryParam` — only `resourceArn`, `nextToken`, and `limit` are
+   ever read; there is no `c.QueryParam("meshOwner")` call anywhere. So this is not "read,
+   validated, and discarded" (there is no read site to drop the value at all) — it is a
+   structural absence: the backend has no second-account resource-visibility model
+   anywhere (`MeshOwner`/`ResourceOwner` are always the calling account's own accountID).
+   Confirmed against the current SDK pin that `meshOwner` is still modeled identically
+   (plain querystring `AccountId` param, no extra validation). Left unfixed — implementing
+   it for real means building cross-account visibility, not wiring an unread field.
+
+3. **Spec structural validation, sized and partially fixed.** Read every type reachable
+   from each of the seven spec shapes in `aws-sdk-go-v2/service/appmesh@v1.38.4/types/types.go`
+   (199 total type declarations in the file). Three specs are genuinely shallow:
+   - `MeshSpec` — two optional fields, `egressFilter.type` (enum `ALLOW_ALL`/`DROP_ALL`)
+     and `serviceDiscovery.ipPreference` (enum, one of four `IPv4_ONLY`/`IPv4_PREFERRED`/
+     `IPv6_ONLY`/`IPv6_PREFERRED` values) — 2 levels deep, no unions.
+   - `VirtualRouterSpec` — one field, `listeners[].portMapping.{port,protocol}`, where
+     `port` is required and must be 1-65535 (confirmed via
+     docs.aws.amazon.com/app-mesh/latest/APIReference/API_PortMapping.html — "Valid Range:
+     Minimum value of 1. Maximum value of 65535") and `protocol` is a required enum
+     (`http`/`tcp`/`http2`/`grpc`) — 2 levels deep, no unions.
+   - `VirtualServiceSpec` — one field, `provider`, a smithy union (exactly one of
+     `virtualNode`/`virtualRouter` may be set, each requiring its name field) — 2 levels
+     deep, one union.
+
+   These three now get real structural validation (`spec_validate.go`, wired into
+   `CreateMesh`/`UpdateMesh`, `CreateVirtualRouter`/`UpdateVirtualRouter`,
+   `CreateVirtualService`/`UpdateVirtualService`): wrong JSON types, invalid enum members,
+   out-of-range ports, and malformed unions are now rejected with `BadRequestException`
+   (`awserr.ErrInvalidParameter`) instead of silently accepted. Unrecognized top-level
+   fields are still tolerated (matches real AWS's forward-compatible deserialization —
+   this is deliberate, not an oversight). Covered by table-driven
+   `TestBackend_MeshSpecValidation`, `TestBackend_VirtualRouterSpecValidation`,
+   `TestBackend_VirtualServiceSpecValidation` (`spec_validate_test.go`); all wantErr cases
+   verified to pass with no error against the pre-fix code before the validators were
+   added.
+
+   **Stopped here.** `VirtualNodeSpec`, `RouteSpec`, `VirtualGatewaySpec`, and
+   `GatewayRouteSpec` remain opaque `json.RawMessage` passthrough — each fans out 4-5+
+   levels deep through multiple smithy union types (listener connection-pool/timeout
+   variants, TLS certificate-source and validation-context variants, HTTP/gRPC/TCP
+   route match+action+retry+timeout shapes, access-log file/stream variants, service
+   discovery DNS/AWS Cloud Map variants). Modeling these to full field depth is real,
+   multi-day work, not a same-pass fix; per the no-stub/model-faithfully-or-leave-it rule
+   they were left alone rather than partially modeled. See `gaps` above for the full
+   type-by-type breakdown.

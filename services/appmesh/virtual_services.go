@@ -13,11 +13,15 @@ func (b *InMemoryBackend) virtualServiceARN(meshName, name string) string {
 	return arn.Build("appmesh", b.region, b.accountID, fmt.Sprintf("mesh/%s/virtualService/%s", meshName, name))
 }
 
+//nolint:dupl // create pattern (incl. spec validation call) is structurally identical across resource types
 func (b *InMemoryBackend) CreateVirtualService(
 	meshName, name string, spec json.RawMessage, tags map[string]string,
 ) (*VirtualService, error) {
 	b.mu.Lock("CreateVirtualService")
 	defer b.mu.Unlock()
+	if err := validateVirtualServiceSpec(spec); err != nil {
+		return nil, err
+	}
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
@@ -58,6 +62,9 @@ func (b *InMemoryBackend) DescribeVirtualService(meshName, name string) (*Virtua
 func (b *InMemoryBackend) UpdateVirtualService(meshName, name string, spec json.RawMessage) (*VirtualService, error) {
 	b.mu.Lock("UpdateVirtualService")
 	defer b.mu.Unlock()
+	if err := validateVirtualServiceSpec(spec); err != nil {
+		return nil, err
+	}
 	if !b.meshes.Has(meshName) {
 		return nil, ErrMeshNotFound
 	}
@@ -85,6 +92,7 @@ func (b *InMemoryBackend) DeleteVirtualService(meshName, name string) (*VirtualS
 	}
 	b.virtualSvcs.Delete(key)
 	delete(b.tags, vs.Meta.Arn)
+	vs.Status = statusDeleted
 
 	return vs, nil
 }

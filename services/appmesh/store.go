@@ -98,6 +98,13 @@ func newMeta(arn, accountID string) ResourceMeta {
 
 const statusActive = "ACTIVE"
 
+// statusDeleted matches the terminal status real App Mesh returns from a
+// successful Delete* call — confirmed against the documented DeleteMesh
+// response (docs.aws.amazon.com/app-mesh/latest/APIReference/API_DeleteMesh.html:
+// `"status": {"status": "DELETED"}`) and the DELETED enum member on every
+// *StatusCode type in aws-sdk-go-v2/service/appmesh@v1.38.4/types/enums.go.
+const statusDeleted = "DELETED"
+
 // normalizeSpec returns a non-nil JSON object if spec is nil or empty.
 func normalizeSpec(spec json.RawMessage) json.RawMessage {
 	if len(spec) == 0 {

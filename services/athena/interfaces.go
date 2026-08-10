@@ -31,7 +31,7 @@ type StorageBackend interface {
 		name, catalogType, description, connectionType string,
 		params map[string]string,
 	) error
-	DeleteDataCatalog(name string) (*DataCatalog, error)
+	DeleteDataCatalog(name string, deleteCatalogOnly bool) (*DataCatalog, error)
 
 	// Query Executions
 	StartQueryExecution(

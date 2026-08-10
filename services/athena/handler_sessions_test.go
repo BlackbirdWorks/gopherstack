@@ -218,6 +218,11 @@ func TestHandler_ListSessions(t *testing.T) {
 			body:       `{"WorkGroup":"other","StateFilter":"BUSY"}`,
 			wantStatus: http.StatusOK,
 		},
+		{
+			name:       "invalid_state_filter",
+			body:       `{"WorkGroup":"primary","StateFilter":"NEVER"}`,
+			wantStatus: http.StatusBadRequest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -433,8 +438,13 @@ func TestHandler_ListExecutors(t *testing.T) {
 		},
 		{
 			name:        "filtered_out",
-			stateFilter: "NEVER",
+			stateFilter: "TERMINATING",
 			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "invalid_state_filter",
+			stateFilter: "NEVER",
+			wantStatus:  http.StatusBadRequest,
 		},
 		{
 			name:       "validation_no_session",

@@ -287,6 +287,11 @@ func TestHandler_ListCalculationExecutions(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
+			name:       "invalid_state_filter",
+			useSession: true,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "validation_no_session",
 			body:       `{}`,
 			wantStatus: http.StatusBadRequest,
@@ -309,9 +314,12 @@ func TestHandler_ListCalculationExecutions(t *testing.T) {
 				sid := startSession(t, h)
 				startCalc(t, h, sid)
 
-				if tt.name == "filter" {
+				switch tt.name {
+				case "filter":
+					body = `{"SessionId":"` + sid + `","StateFilter":"FAILED"}`
+				case "invalid_state_filter":
 					body = `{"SessionId":"` + sid + `","StateFilter":"NEVER"}`
-				} else {
+				default:
 					body = `{"SessionId":"` + sid + `"}`
 				}
 			}
