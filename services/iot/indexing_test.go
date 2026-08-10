@@ -274,7 +274,7 @@ func TestBackend_SearchIndex_ThingGroups(t *testing.T) {
 // TestBackend_SearchIndex_ThingGroupWireShape covers SearchIndex's
 // ThingGroupDocument shape: "parentGroupNames" is the full ancestor chain
 // as a list, not a single "parentGroupName" string, and
-// "thingGroupDescription" is present (aws-sdk-go-v2/service/iot@v1.76.0's
+// "thingGroupDescription" is present (aws-sdk-go-v2/service/iot@v1.77.4's
 // awsRestjson1_deserializeDocumentThingGroupDocument).
 func TestBackend_SearchIndex_ThingGroupWireShape(t *testing.T) {
 	t.Parallel()

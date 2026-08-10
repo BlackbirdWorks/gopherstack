@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: kinesisanalyticsv2
-sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.36.22
+sdk_module: aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4
 last_audit_commit: 1c4ee34e
 last_audit_date: 2026-07-23
 overall: A            # every previously-documented gap either fixed or narrowed to a

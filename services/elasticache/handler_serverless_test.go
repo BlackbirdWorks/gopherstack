@@ -39,7 +39,7 @@ func TestHandler_DescribeServerlessCache_UserGroupId(t *testing.T) {
 // MajorEngineVersion/SecurityGroupIds/SnapshotRetentionLimit/SubnetIds/
 // UserGroupId from every response despite the domain model already storing
 // all of them -- confirmed against
-// aws-sdk-go-v2/service/elasticache@v1.51.11's
+// aws-sdk-go-v2/service/elasticache@v1.56.4's
 // awsAwsquery_deserializeDocumentServerlessCache. Unlike
 // TestHandler_DescribeServerlessCache_UserGroupId (which only asserts
 // against the Go-level backend struct and would not have caught this), this

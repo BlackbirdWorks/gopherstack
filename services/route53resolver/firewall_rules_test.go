@@ -680,7 +680,7 @@ func TestFirewallRuleCRUD(t *testing.T) {
 // DnsThreatProtection rule by its system-generated FirewallThreatProtectionId
 // instead of a domain list (verified against CreateFirewallRuleInput's doc
 // comment and api_op_{Update,Delete}FirewallRule.go in
-// aws-sdk-go-v2/service/route53resolver@v1.48.0).
+// aws-sdk-go-v2/service/route53resolver@v1.48.4).
 func TestFirewallRule_DnsThreatProtection(t *testing.T) {
 	t.Parallel()
 

@@ -56,7 +56,7 @@ type describeLocationFsxWindowsInput struct {
 
 // describeLocationFsxWindowsOutput intentionally has no FsxFilesystemArn or
 // Subdirectory field: the real DescribeLocationFsxWindowsOutput has neither
-// -- confirmed against aws-sdk-go-v2 v1.59.2: CmkSecretConfig, CreationTime,
+// -- confirmed against aws-sdk-go-v2 v1.61.4: CmkSecretConfig, CreationTime,
 // CustomSecretConfig, Domain, LocationArn, LocationUri, ManagedSecretConfig,
 // SecurityGroupArns, User.
 type describeLocationFsxWindowsOutput struct {

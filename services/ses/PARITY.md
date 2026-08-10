@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ses
-sdk_module: aws-sdk-go-v2/service/ses@v1.34.20   # version audited against (query-XML, 2010-12-01)
+sdk_module: aws-sdk-go-v2/service/ses@v1.37.4   # version audited against (query-XML, 2010-12-01)
 last_audit_commit: a40e7cc1                      # NOT updated this pass -- git commands were off-limits
 last_audit_date: 2026-07-23
 overall: A            # this pass: independent field-diff against the SDK found 3 real wire/behavior bugs

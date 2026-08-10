@@ -1,6 +1,6 @@
 ---
 service: codebuild
-sdk_module: aws-sdk-go-v2/service/codebuild@v1.68.11   # version audited against
+sdk_module: aws-sdk-go-v2/service/codebuild@v1.72.4   # version audited against
 last_audit_commit: 0627d5d3                             # HEAD when the PRIOR manifest was written;
                                                           # this pass ran under the "no git" constraint
                                                           # and could not read/update this hash

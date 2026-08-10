@@ -1,6 +1,6 @@
 ---
 service: appconfigdata
-sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.23.20   # version audited against
+sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
 last_audit_commit: 128350087c039303f08b6d8113ec9f9ac4cbc4b9
 last_audit_date: 2026-07-24
 overall: A            # both ops field-diffed clean against the real SDK + botocore service-2.json; only remaining item is a documented cross-service wiring gap

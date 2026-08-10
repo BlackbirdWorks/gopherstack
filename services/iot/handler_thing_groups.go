@@ -161,7 +161,7 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 
 	// rootToParentThingGroups is only present (per real AWS behavior) when
 	// the group actually has ancestors -- verified against
-	// aws-sdk-go-v2/service/iot@v1.76.0's ThingGroupMetadata; a root-level
+	// aws-sdk-go-v2/service/iot@v1.77.4's ThingGroupMetadata; a root-level
 	// group has no ParentGroupName and an empty ancestor chain.
 	if roots := h.Backend.RootToParentThingGroups(thingGroupName); len(roots) > 0 {
 		metadata["rootToParentThingGroups"] = roots

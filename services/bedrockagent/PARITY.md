@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
-sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.0   # version audited against
+sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.4   # version audited against
 last_audit_commit: d2851f3db666dbb499891c5ede8af1534c00ddf0
 last_audit_date: 2026-08-07
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing

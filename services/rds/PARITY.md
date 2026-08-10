@@ -4,7 +4,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
-sdk_module: aws-sdk-go-v2/service/rds@v1.123.0
+sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
 last_audit_commit: PENDING_COMMIT  # working tree not committed by this pass (git use was out of
                                     # scope); set to the actual commit hash when this diff lands.
 last_audit_date: 2026-07-25
@@ -218,6 +218,7 @@ families:
   db_security_groups: {status: ok, note: "re-verified this pass (EC2-Classic legacy) — CreateDBSecurityGroupOutput/AuthorizeDBSecurityGroupIngressOutput/RevokeDBSecurityGroupIngressOutput all nest under <DBSecurityGroup> in the real SDK, matches gopherstack; no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   activity_streams: {status: ok, note: "de-deferred this pass: field-diffed Start/Stop/ModifyActivityStream against aws-sdk-go-v2's StartActivityStreamOutput/StopActivityStreamOutput/ModifyActivityStreamOutput. Start/Stop already matched (flat KinesisStreamName/KmsKeyId/Status/Mode/ApplyImmediately fields, correct — these ops were never affected by the shard-group/integration nesting bug class since their outputs were always flat in gopherstack). ModifyActivityStream had a real disguised-stub bug: it emitted an invented <AuditPolicy> element that does not exist on the real output (the real field is PolicyStatus, of type ActivityStreamPolicyStatus) and omitted the real KinesisStreamName/Mode members — FIXED, see Notes. Also fixed: cluster-not-found on all three ops returned InvalidParameterValue instead of the correct DBClusterNotFoundFault. Test coverage was previously zero for this family; added activity_stream_test.go (lifecycle, not-found, and backend-error-path tests)."}
 gaps:
+  - "NEW since v1.123.0 (found by gopherstack-u8my's pin-correction pass, not fixed): DBInstance/DBInstanceAutomatedBackup gained StorageOperationPercentProgress/StorageOperationStatus (Initializing/Optimizing progress reporting for an in-progress storage scaling op). Not modeled -- but the real fields only appear at all while a storage operation is actively in progress, and this backend applies storage modifications synchronously (no async storage-scaling state machine exists), so there is never a real in-progress state to report; same structural category as other transient-progress fields this file already treats as correctly omittable rather than a stub. (needs bd issue if a future pass wants a cosmetic 'briefly show Optimizing' simulation)"
   - GetPerformanceInsightsMetrics does not correspond to a real operation name/shape on
     either the RDS SDK client or the Performance Insights ("pi") SDK client (real op:
     GetResourceMetrics, different client, different endpoint/protocol). Kept wired since

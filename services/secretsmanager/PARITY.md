@@ -1,6 +1,6 @@
 ---
 service: secretsmanager
-sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.43.0
+sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.44.4
 last_audit_commit: b72533e7a
 last_audit_date: 2026-08-07
 overall: A            # parity-3 sweep: field-diffed RotateSecret/DescribeSecret/SecretListEntry/

@@ -1,6 +1,6 @@
 ---
 service: apprunner
-sdk_module: aws-sdk-go-v2/service/apprunner@v1.40.2
+sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
 last_audit_commit: pending (agent instructed not to run git; set at commit time)
 last_audit_date: 2026-07-23
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit

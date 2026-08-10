@@ -140,7 +140,7 @@ const builtInVoicesCap = 106
 // represented here with its real Gender/LanguageCode/SupportedEngines.
 //
 // Three voices documented on that page (Patrick, Alba, Raúl) are NOT part of
-// the VoiceId enum in the pinned aws-sdk-go-v2/service/polly@v1.57.5 module
+// the VoiceId enum in the pinned aws-sdk-go-v2/service/polly@v1.60.4 module
 // (a newer, unreleased-at-pin-time AWS addition) and are intentionally
 // omitted -- adding them would let this backend accept a VoiceId no real
 // client built against this SDK version could ever send or receive.

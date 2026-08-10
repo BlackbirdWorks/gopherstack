@@ -175,7 +175,7 @@ func TestTypeRegistry_DeregisterNotFound(t *testing.T) {
 
 // TestTypeRegistry_SetTypeDefaultVersionNotFound locks in a parity fix:
 // SetTypeDefaultVersion models TypeNotFoundException (verified against
-// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// aws-sdk-go-v2/service/cloudformation@v1.76.1's
 // awsAwsquery_deserializeOpErrorSetTypeDefaultVersion), but previously silently
 // no-op'd for an unknown Arn instead of returning that error -- a disguised
 // stub (looks real, but the not-found branch was unreachable).

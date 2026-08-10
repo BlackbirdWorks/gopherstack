@@ -1,6 +1,6 @@
 ---
 service: route53resolver
-sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.0
+sdk_module: aws-sdk-go-v2/service/route53resolver@v1.48.4
 last_audit_commit: 22d69640
 last_audit_date: 2026-07-30
 overall: A            # new: BatchCreate/Update/DeleteFirewallRule + ListFirewallRuleTypes (SDK bump

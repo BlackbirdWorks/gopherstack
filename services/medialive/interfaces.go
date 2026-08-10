@@ -418,7 +418,7 @@ func (s ChannelAnywhereSettings) hasAnywhereSettings() bool {
 // --- Channel extended settings (gopherstack-jb9i) ---
 //
 // CreateChannelInput/UpdateChannelInput have 17 top-level members (verified
-// against aws-sdk-go-v2/service/medialive@v1.97.2's api_op_CreateChannel.go/
+// against aws-sdk-go-v2/service/medialive@v1.101.4's api_op_CreateChannel.go/
 // api_op_UpdateChannel.go); before this fix gopherstack modeled 5
 // (name/channelClass/roleArn/tags/anywhereSettings). The 12 added here are
 // CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/

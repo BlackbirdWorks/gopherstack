@@ -1,6 +1,6 @@
 ---
 service: appsync
-sdk_module: aws-sdk-go-v2/service/appsync@v1.55.0
+sdk_module: aws-sdk-go-v2/service/appsync@v1.56.4
 last_audit_commit: 198990e82
 last_audit_date: 2026-08-07
 overall: A            # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real

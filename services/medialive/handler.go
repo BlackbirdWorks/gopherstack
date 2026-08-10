@@ -17,7 +17,7 @@ import (
 // deserializer expects for __timestampIso8601 shapes (SignalMap/
 // CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)
 // createdAt/modifiedAt) -- confirmed against
-// aws-sdk-go-v2/service/medialive@v1.97.2's deserializers.go, which parses
+// aws-sdk-go-v2/service/medialive@v1.101.4's deserializers.go, which parses
 // these fields with smithytime.ParseDateTime (an ISO8601/RFC3339 string),
 // NOT smithytime.ParseEpochSeconds. A zero time.Time renders as "" so a
 // resource that hasn't recorded a timestamp yet doesn't emit a bogus

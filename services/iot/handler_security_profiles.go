@@ -40,7 +40,7 @@ func (h *Handler) handleDetachSecurityProfile(c *echo.Context) error {
 // /security-profiles/{name}/targets. securityProfileTargets is
 // []SecurityProfileTarget{arn} — key is "arn", not "securityProfileTargetArn"
 // (types.SecurityProfileTarget, awsRestjson1_deserializeDocumentSecurityProfileTarget,
-// v1.76.0). Paginates via maxResults/nextToken.
+// v1.77.4). Paginates via maxResults/nextToken.
 func (h *Handler) handleListTargetsForSecurityProfile(c *echo.Context) error {
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/security-profiles/")
 	profileName := strings.TrimSuffix(trimmed, "/targets")
@@ -65,7 +65,7 @@ func (h *Handler) handleListTargetsForSecurityProfile(c *echo.Context) error {
 // /security-profiles-for-target. securityProfileTargetMappings is
 // []SecurityProfileTargetMapping{securityProfileIdentifier:{name,arn},
 // target:{arn}} (types.SecurityProfileTargetMapping,
-// awsRestjson1_deserializeDocumentSecurityProfileTargetMapping, v1.76.0).
+// awsRestjson1_deserializeDocumentSecurityProfileTargetMapping, v1.77.4).
 // Paginates via maxResults/nextToken.
 func (h *Handler) handleListSecurityProfilesForTarget(c *echo.Context) error {
 	targetARN := c.Request().URL.Query().Get("securityProfileTargetArn")
@@ -166,7 +166,7 @@ func (h *Handler) handleDescribeSecurityProfile(c *echo.Context) error {
 // securityProfileIdentifiers is []SecurityProfileIdentifier{name, arn} —
 // the shortened key names, not "securityProfileName"/"securityProfileArn"
 // (types.SecurityProfileIdentifier,
-// awsRestjson1_deserializeDocumentSecurityProfileIdentifier, v1.76.0).
+// awsRestjson1_deserializeDocumentSecurityProfileIdentifier, v1.77.4).
 // Paginates via maxResults/nextToken.
 func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 	profiles := h.Backend.ListSecurityProfiles()
@@ -192,7 +192,7 @@ func (h *Handler) handleListSecurityProfiles(c *echo.Context) error {
 // handleUpdateSecurityProfile handles PATCH /security-profiles/{name}.
 // Parses the full types.UpdateSecurityProfileInput field set
 // (behaviors/alertTargets/additionalMetricsToRetain(V2)/metricsExportConfig/delete*
-// flags, v1.76.0); expectedVersion is a QUERY parameter, not a body field
+// flags, v1.77.4); expectedVersion is a QUERY parameter, not a body field
 // (awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput). Returns
 // the full updated SecurityProfile, matching UpdateSecurityProfileOutput.
 func (h *Handler) handleUpdateSecurityProfile(c *echo.Context) error {

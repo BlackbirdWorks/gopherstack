@@ -3,7 +3,7 @@ package ssm
 // Cloud connector operations: Systems Manager Cloud Connectors establish a
 // connection between Systems Manager and a third-party cloud environment
 // (currently Microsoft Azure only). Wire shapes verified against
-// aws-sdk-go-v2/service/ssm@v1.71.0's serializers.go/deserializers.go:
+// aws-sdk-go-v2/service/ssm@v1.73.4's serializers.go/deserializers.go:
 //   - CreatedAt/UpdatedAt are epoch-seconds JSON numbers (DateTime shape),
 //     NOT ISO8601 strings -- matches the rest of this package's UnixTimeFloat
 //     convention (see Activation).

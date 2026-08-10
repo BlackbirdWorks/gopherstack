@@ -1,5 +1,5 @@
 service: databrew
-sdk_module: aws-sdk-go-v2/service/databrew@v1.40.0
+sdk_module: aws-sdk-go-v2/service/databrew@v1.42.4
 last_audit_commit: 782e2a93
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-23: genuine fixes found across recipe version history, job/dataset field gaps, and an invented UpdateProject field

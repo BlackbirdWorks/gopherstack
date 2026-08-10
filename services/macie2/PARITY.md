@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
-sdk_module: aws-sdk-go-v2/service/macie2@v1.51.4
+sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
 last_audit_commit: 82c8a1c8
 last_audit_date: 2026-07-23
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain

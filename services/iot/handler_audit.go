@@ -134,7 +134,7 @@ func resolveAuditSuppressionOps(path, method string) string {
 	// ListAuditFindings is POST /audit/findings (its filter fields --
 	// checkName/taskId/startTime/endTime/listSuppressedFindings/
 	// resourceIdentifier -- are carried in a JSON body, not query params),
-	// confirmed against aws-sdk-go-v2/service/iot@v1.76.0's serializers.go
+	// confirmed against aws-sdk-go-v2/service/iot@v1.77.4's serializers.go
 	// http bindings. Previously matched on GET, which no real client ever
 	// sends -- a genuine, previously-undiscovered routing bug that made this
 	// op unreachable by a real SDK client. Fixed this pass; see PARITY.md.

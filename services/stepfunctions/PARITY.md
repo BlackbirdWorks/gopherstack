@@ -1,6 +1,6 @@
 ---
 service: stepfunctions
-sdk_module: aws-sdk-go-v2/service/sfn@v1.40.8
+sdk_module: aws-sdk-go-v2/service/sfn@v1.45.4
 last_audit_commit: HEAD
 last_audit_date: 2026-07-23
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This

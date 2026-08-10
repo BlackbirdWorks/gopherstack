@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elb
-sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.33.21   # version audited against
+sdk_module: aws-sdk-go-v2/service/elasticloadbalancing@v1.36.4   # version audited against
 last_audit_commit: c9c03908                       # HEAD when this audit began (working tree, pre-commit)
 last_audit_date: 2026-07-24
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op

@@ -9,7 +9,7 @@ package kms_test
 // the provider's post-apply poll never converges -- a perpetual-drift / apply-timeout bug.
 //
 // The real aws-sdk-go-v2 ReplicateKeyInput carries a Policy field (confirmed against
-// aws-sdk-go-v2/service/kms@v1.54.0's api_op_ReplicateKey.go): "The key policy is not a
+// aws-sdk-go-v2/service/kms@v1.55.4's api_op_ReplicateKey.go): "The key policy is not a
 // shared property of multi-Region keys... KMS does not synchronize this property", so the
 // replica must get its own independently-stored policy rather than inheriting the
 // primary's.

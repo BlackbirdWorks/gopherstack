@@ -1,6 +1,6 @@
 ---
 service: sts
-sdk_module: aws-sdk-go-v2/service/sts@v1.44.0   # version audited against (pinned in go.mod)
+sdk_module: aws-sdk-go-v2/service/sts@v1.45.4   # version audited against (pinned in go.mod)
 last_audit_commit: 2d47b51d4                    # HEAD before this pass's changes
 last_audit_date: 2026-07-29
 overall: A                # OutboundWebIdentityFederationDisabledException genuinely wired

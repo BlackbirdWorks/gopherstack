@@ -65,7 +65,7 @@ func TestJobExecutions(t *testing.T) {
 // TestDescribeJob_WireShape verifies DescribeJob's response matches real AWS
 // IoT: documentSource is a top-level field (not nested inside "job"), and
 // the nested "job" object has no "document"/"documentSource"/"tags" fields
-// at all -- aws-sdk-go-v2/service/iot/types.Job (v1.76.0) has none of the
+// at all -- aws-sdk-go-v2/service/iot/types.Job (v1.77.4) has none of the
 // three. A previous version of this backend echoed all three back inside
 // "job", which real AWS never does (document is only retrievable via
 // GetJobDocument).
@@ -170,7 +170,7 @@ func TestJobExecution(t *testing.T) {
 // TestJobExecution_RoutingAndStateGuards covers: DescribeJobExecution/
 // CancelJobExecution/DeleteJobExecution route under
 // /things/{thingName}/jobs/{jobId}[...], not /jobs/{jobId}/things/{thingName}[...]
-// (aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings); and
+// (aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings); and
 // CancelJobExecution/DeleteJobExecution reject a non-terminal execution
 // without force=true (InvalidStateTransitionException) or a mismatched
 // expectedVersion (VersionConflictException).

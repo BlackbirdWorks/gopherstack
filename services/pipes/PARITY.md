@@ -1,6 +1,6 @@
 ---
 service: pipes
-sdk_module: aws-sdk-go-v2/service/pipes@v1.23.18
+sdk_module: aws-sdk-go-v2/service/pipes@v1.26.4
 last_audit_commit: 5d5b2188
 last_audit_date: 2026-07-24
 overall: A            # both execution gaps closed for real (runner.go source pollers + cli.go target/DLQ wiring); the only remaining gap is a proven genuine impossibility (no in-repo Kafka/AMQP broker)

@@ -1,6 +1,6 @@
 ---
 service: apigatewayv2
-sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.33.7
+sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: efc42cbc4
 last_audit_date: 2026-07-23
 overall: A            # re-audit pass (parity-3 campaign). The previously recorded

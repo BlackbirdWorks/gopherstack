@@ -1,6 +1,6 @@
 ---
 service: kinesisanalytics
-sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.30.21
+sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4
 last_audit_commit: 6e7056ac
 last_audit_date: 2026-07-24
 overall: A            # real fixes found: deleted three gopherstack-invented surfaces

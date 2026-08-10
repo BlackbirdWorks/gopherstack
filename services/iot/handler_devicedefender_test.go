@@ -520,7 +520,7 @@ func TestDeviceDefender_AuditFindingRelatedResources(t *testing.T) {
 
 // TestDeviceDefender_AuditFinding_WireFieldsAndFilters covers AuditFinding's
 // isSuppressed/reasonForNonComplianceCode/reasonForNonCompliance/taskStartTime
-// wire fields (types.AuditFinding, v1.76.0) and ListAuditFindings'
+// wire fields (types.AuditFinding, v1.77.4) and ListAuditFindings'
 // checkName/taskId/listSuppressedFindings filters via the real POST
 // /audit/findings route.
 func TestDeviceDefender_AuditFinding_WireFieldsAndFilters(t *testing.T) {

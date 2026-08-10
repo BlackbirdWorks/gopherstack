@@ -1,6 +1,6 @@
 ---
 service: cloudformation
-sdk_module: aws-sdk-go-v2/service/cloudformation@v1.71.7
+sdk_module: aws-sdk-go-v2/service/cloudformation@v1.76.1
 last_audit_commit: 514ddad6
 last_audit_date: 2026-07-23
 overall: A            # This pass closed out all 4 documented gaps and independently re-verified/acted

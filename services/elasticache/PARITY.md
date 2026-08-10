@@ -1,6 +1,6 @@
 ---
 service: elasticache
-sdk_module: aws-sdk-go-v2/service/elasticache@v1.51.11
+sdk_module: aws-sdk-go-v2/service/elasticache@v1.56.4
 last_audit_commit: 95db4e412
 last_audit_date: 2026-08-10
 overall: A            # gopherstack-nojq: wired UserGroup.ServerlessCaches (real
@@ -145,7 +145,8 @@ families:
   service_updates_and_events: {status: ok, note: "DescribeEvents wire shape (Event/Events/Marker) verified against api-2.json exactly"}
   tags: {status: ok, note: "Add/Remove/List via ARN; ErrResourceNotFound correctly surfaces as InvalidARN (matches AWS's own tag-op behavior for a resource ARN that doesn't resolve)"}
   timestamps: {status: ok, note: "RFC3339 ISO8601 strings used throughout -- CORRECT for this query/XML protocol; do NOT flag as an epoch-seconds bug (awstime.Epoch is for json/rest-json protocols only, not applicable here)"}
-gaps: []
+gaps:
+  - "(2026-08-10, sdk_module pin correction v1.51.11 -> v1.56.4) The SDK bump added fields this backend does not model: ServerlessCache gained NetworkType and StorageEncryptionType (now 19 real fields, not the 13 the 2026-07-25 'every wired field' claim below was field-diffed against); ReplicationGroup gained Durability/EffectiveDurability/StorageEncryptionType; Snapshot gained Durability. None of these four fields appear anywhere in this service's Go files. Not fixed this pass (pin-correction only, no behavior changes) -- flagging so the 'ServerlessCache is fully wired' and 'ReplicationGroup field-diffed' notes below aren't read as still-exhaustive."
   # Both gaps found 2026-07-25 are fixed as of the 2026-07-25 pass #2:
   #  - ServerlessCache.CacheUsageLimits: full DataStorage{Unit,Maximum,Minimum}/
   #    ECPUPerSecond{Maximum,Minimum} modeling, request parsing (query-protocol

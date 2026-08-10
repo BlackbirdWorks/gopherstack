@@ -1,5 +1,5 @@
 service: medialive
-sdk_module: aws-sdk-go-v2/service/medialive@v1.97.2   # version audited against
+sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
 last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119
 last_audit_date: 2026-07-25
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
@@ -58,7 +58,7 @@ families:
     status: ok
     note: >
       Exhaustively diffed all 123 routed ops' (method, path) pairs against
-      aws-sdk-go-v2/service/medialive@v1.97.2's serializers.go (every
+      aws-sdk-go-v2/service/medialive@v1.101.4's serializers.go (every
       awsRestjson1_serializeOp*.HandleSerialize's httpbinding.SplitURI call +
       request.Method). classifyPath's op set matches the SDK's op set exactly
       (123/123), and every path-template + HTTP-method pair matches exactly,
@@ -104,7 +104,7 @@ families:
       SWEEP 6 (gopherstack-jb9i): closed the remaining 12-of-17
       CreateChannelInput/UpdateChannelInput member gap sweep 5 left OUT OF
       SCOPE. Every member below was field-diffed against
-      aws-sdk-go-v2/service/medialive@v1.97.2's serializers.go/
+      aws-sdk-go-v2/service/medialive@v1.101.4's serializers.go/
       deserializers.go/types.go and is now wired into Create/UpdateChannel
       request parsing and Describe/Create/Update/Delete/Start/Stop/List
       output (each nested object omitted entirely when unset, same
@@ -749,7 +749,7 @@ CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)'s
 createdAt/modifiedAt, and ChannelAlert/ClusterAlert/MultiplexAlert's
 setTimestamp/clearedTimestamp, and ListVersions' expirationDate are all
 `__timestampIso8601`, deserialized via `smithytime.ParseDateTime` (grepped
-directly in aws-sdk-go-v2/service/medialive@v1.97.2's deserializers.go for
+directly in aws-sdk-go-v2/service/medialive@v1.101.4's deserializers.go for
 every shape touched this pass) -- an ISO8601/RFC3339 string, NOT epoch
 seconds (`pkgs/awstime.Epoch` does NOT apply here; that helper is for
 services using the unixTimestamp wire form, which medialive's restjson1
@@ -800,15 +800,17 @@ body IS treated as "change it to empty", only a fully-omitted key preserves
 the existing value. This mirrors each field's real Update*Input doc comment
 ("include this parameter only if you want to change it").
 
-**SDK version drift (found by gopherstack-sthr, not otherwise corrected this
-pass)**: `sdk_module` above and every `v1.97.2` citation elsewhere in this
-service's doc comments reflect the version audited as of sweep 6; go.mod now
-pins `v1.101.4` (4 minor versions ahead). gopherstack-sthr's
+**SDK version drift (found by gopherstack-sthr, closed by gopherstack-u8my's
+pin-correction pass)**: `sdk_module` above and every `v1.97.2` citation
+elsewhere in this file previously reflected the version audited as of sweep
+6, while go.mod pinned `v1.101.4` (4 minor versions ahead). gopherstack-sthr's
 AvailConfiguration/ColorCorrectionSettings/MotionGraphicsConfiguration/
-NielsenConfiguration addition (handler_channels_encoder.go) was verified
-against the pinned v1.101.4, spot-checked against v1.97.2's `EncoderSettings`
-member list showing no field removals in that range -- but the rest of this
-service's wire-shape citations were not re-verified against v1.101.4 this
-pass. A future full audit sweep should re-diff against the currently pinned
-version and update `sdk_module`/`last_audit_commit`/`last_audit_date`
-accordingly rather than assuming v1.97.2 still matches.
+NielsenConfiguration addition (handler_channels_encoder.go) was already
+verified against the pinned v1.101.4. This pass re-verified the remaining
+citations (RouteMatcher's 123/123 op+path diff, the Channel top-level member
+field-diff, and the ISO8601-vs-epoch timestamp grep) directly against
+v1.101.4: `serializers.go` has zero `SplitURI`/method diffs, `types/errors.go`
+is byte-identical, and `deserializers.go` has zero diffs touching any of the
+timestamp shapes named above between v1.97.2 and v1.101.4 -- op count is
+123/123 in both. All citations now correctly read v1.101.4, and `sdk_module`
+above is corrected to match.

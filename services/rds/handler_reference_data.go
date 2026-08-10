@@ -107,7 +107,7 @@ type describeServerlessV2PlatformVersionsResponse struct {
 }
 
 // handleDescribeServerlessV2PlatformVersions handles DescribeServerlessV2PlatformVersions.
-// Field names verified against aws-sdk-go-v2/service/rds@v1.123.0's
+// Field names verified against aws-sdk-go-v2/service/rds@v1.124.1's
 // api_op_DescribeServerlessV2PlatformVersions.go (request members: DefaultOnly, Engine,
 // Filters, IncludeAll, Marker, MaxRecords, ServerlessV2PlatformVersion; response
 // members: Marker, ServerlessV2PlatformVersions). Filters isn't supported by this action

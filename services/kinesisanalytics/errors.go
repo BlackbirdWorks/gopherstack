@@ -26,7 +26,7 @@ var (
 	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	// ErrUnableToDetectSchema is returned by DiscoverInputSchema when no sample data can be
 	// obtained from the requested source. Real AWS has no ResourceNotFoundException on this op
-	// (verified: aws-sdk-go-v2/service/kinesisanalytics@v1.30.21 deserializers.go
+	// (verified: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4 deserializers.go
 	// awsAwsjson11_deserializeOpErrorDiscoverInputSchema only switches on InvalidArgumentException,
 	// ResourceProvisionedThroughputExceededException, ServiceUnavailableException, and
 	// UnableToDetectSchemaException) -- a source that doesn't exist or has no data surfaces here.

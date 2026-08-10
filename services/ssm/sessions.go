@@ -34,7 +34,7 @@ func (b *InMemoryBackend) accessRequestsStore(region string) *store.Table[Access
 // sessionStateMatchesFilter reports whether a session's real Status
 // (Connected/Connecting/Disconnected/Terminated/Terminating/Failed) belongs
 // to the coarse State bucket ("Active"/"History") DescribeSessions filters
-// on. Per aws-sdk-go-v2/service/ssm@v1.71.0's types.SessionState enum, State
+// on. Per aws-sdk-go-v2/service/ssm@v1.73.4's types.SessionState enum, State
 // only ever takes those two values — it is NOT the same enum as
 // types.SessionStatus, so a naive `session.Status == input.State` comparison
 // (the previous implementation) could never match a real client's request.

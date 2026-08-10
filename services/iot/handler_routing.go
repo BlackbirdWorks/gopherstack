@@ -268,7 +268,7 @@ func resolveThingsPathOperation(path, method string) string {
 		return opListJobExecutionsForThing
 	// DescribeJobExecution/CancelJobExecution/DeleteJobExecution use
 	// /things/{thingName}/jobs/{jobId}[...] -- confirmed against
-	// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings
+	// aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings
 	// (SplitURI("/things/{thingName}/jobs/{jobId}[/cancel|/executionNumber/{executionNumber}]")).
 	// Must come before the generic thing routing default below, which would
 	// otherwise silently swallow these as unmatched thing sub-resource paths.

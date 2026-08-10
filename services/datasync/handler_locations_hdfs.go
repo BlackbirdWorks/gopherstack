@@ -96,7 +96,7 @@ type hdfsQopConfigOutput struct {
 
 // describeLocationHdfsOutput intentionally has no Subdirectory field: the
 // real DescribeLocationHdfsOutput doesn't have one (confirmed against
-// aws-sdk-go-v2 v1.59.2).
+// aws-sdk-go-v2 v1.61.4).
 type describeLocationHdfsOutput struct {
 	QopConfiguration   *hdfsQopConfigOutput `json:"QopConfiguration,omitempty"`
 	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`

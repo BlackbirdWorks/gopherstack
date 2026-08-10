@@ -63,7 +63,7 @@ type describeLocationSmbInput struct {
 
 // describeLocationSmbOutput intentionally has no ServerHostname or
 // Subdirectory field: the real DescribeLocationSmbOutput has neither
-// (confirmed against aws-sdk-go-v2 v1.59.2: host/path are folded into
+// (confirmed against aws-sdk-go-v2 v1.61.4: host/path are folded into
 // LocationUri only). It does have AuthenticationType, unlike gopherstack's
 // prior shape.
 type describeLocationSmbOutput struct {

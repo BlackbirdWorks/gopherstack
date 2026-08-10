@@ -54,7 +54,7 @@ type describeLocationFsxOpenZfsInput struct {
 
 // describeLocationFsxOpenZfsOutput intentionally has no FsxFilesystemArn or
 // Subdirectory field: the real DescribeLocationFsxOpenZfsOutput has neither
-// -- confirmed against aws-sdk-go-v2 v1.59.2: CreationTime, LocationArn,
+// -- confirmed against aws-sdk-go-v2 v1.61.4: CreationTime, LocationArn,
 // LocationUri, Protocol, SecurityGroupArns only.
 type describeLocationFsxOpenZfsOutput struct {
 	Protocol          *fsxProtocolOutput `json:"Protocol,omitempty"`

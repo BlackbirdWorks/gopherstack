@@ -1,7 +1,7 @@
 ---
 service: opensearch
-sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.0
-sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.2]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
+sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
+sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
 last_audit_commit: acb2e23f9
 last_audit_date: 2026-07-30
 overall: A            # RAISED from A- (parity-5, this pass). The two gaps that previously held the grade

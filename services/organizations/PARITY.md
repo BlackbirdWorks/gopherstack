@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: organizations
-sdk_module: aws-sdk-go-v2/service/organizations@v1.50.4
+sdk_module: aws-sdk-go-v2/service/organizations@v1.53.5
 last_audit_commit: 012f98aa
 last_audit_date: 2026-07-23
 overall: A            # this pass: closed the 2 previously-deferred validation gaps (policy content
@@ -88,6 +88,7 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "AWS auto-creates and attaches a default 'FullAWSAccess' SCP to the root when the SERVICE_CONTROL_POLICY policy type is enabled (or org created with ALL features); this backend does not fabricate that default policy, so ListPolicies/ListPoliciesForTarget won't show it. Deep AWS behavior detail, not flagged as broken since no client mutation is silently dropped -- documented here for the next auditor (no bd issue filed yet)"
   - "Policy content size limits are modeled at AWS's DEFAULT per-type quota only (e.g. SCP/RCP 5120 chars); this backend does not model the service-quota-increase path (SCP up to 10240/20480 via a quota request) since there is no quota-management API call being emulated here. A client that successfully requested a real quota increase would see this backend reject documents AWS would accept. CHATBOT_POLICY/SECURITYHUB_POLICY default to the same 10000-char ceiling as BACKUP/TAG/DECLARATIVE_POLICY_EC2 as a best-effort value -- not found in the current orgs_reference_limits.md doc snapshot, so not independently verified (no bd issue filed yet)."
   - "Tag key/value length limits (AWS also caps individual tag key/value string lengths, not just the 50-tags-per-resource count) are not validated -- only count, duplicate-key, and reserved-prefix are enforced this pass (no bd issue filed yet)"
+  - "NEW since v1.50.4 (found by gopherstack-u8my's pin-correction pass, not fixed): Account gained a Paths []string field (the account's location paths in the org hierarchy) and OrganizationalUnit gained a Path *string field (its own location path). gopherstack does not compute or populate either on DescribeAccount/ListAccounts/DescribeOrganizationalUnit/UpdateOrganizationalUnit/ListOrganizationalUnitsForParent -- silently omitted from responses. (needs bd issue)"
 deferred: []               # both previously-deferred items (policy content validation, tag validation)
                             # were implemented and field-diffed this pass -- see CreatePolicy/UpdatePolicy/
                             # TagResource notes above and the residual-limitation gaps listed above.

@@ -14,7 +14,7 @@ import (
 //
 // DnsThreatProtection and FirewallDomainListID are mutually exclusive match
 // sources (verified against CreateFirewallRuleInput's doc comment in
-// aws-sdk-go-v2/service/route53resolver@v1.48.0: "they are mutually
+// aws-sdk-go-v2/service/route53resolver@v1.48.4: "they are mutually
 // exclusive"); a rule created via DnsThreatProtection has no domain list and
 // is identified on the wire by a system-generated FirewallThreatProtectionID
 // instead (see FirewallRule.FirewallThreatProtectionID). The FirewallRuleType
@@ -109,7 +109,7 @@ func validateFirewallDomainRedirectionAction(value string) error {
 
 // validateConfidenceThreshold validates ConfidenceThreshold against its
 // closed enum (LOW/MEDIUM/HIGH -- types.ConfidenceThreshold in
-// aws-sdk-go-v2/service/route53resolver@v1.48.0) whenever a value is
+// aws-sdk-go-v2/service/route53resolver@v1.48.4) whenever a value is
 // supplied; an empty value is allowed here (see
 // validateFirewallRuleConfidenceThreshold for the create-time
 // required-when-DnsThreatProtection check).

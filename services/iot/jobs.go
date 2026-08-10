@@ -203,7 +203,7 @@ type JobProcessDetails struct {
 //
 // Tags, Document, and DocumentSource are internal-only (json:"-"): real
 // AWS IoT's Job shape (types.Job, awsRestjson1_deserializeDocumentJob,
-// v1.76.0) has none of these three — tags are a separate ListTagsForResource
+// v1.77.4) has none of these three — tags are a separate ListTagsForResource
 // concept, the job document is only returned via GetJobDocument, and
 // documentSource is a top-level DescribeJobOutput field. They're kept here
 // purely as backend storage and must never leak into a JSON response that
@@ -248,7 +248,7 @@ type JobExecutionStatusDetails struct {
 //
 // ThingName is internal-only storage used for lookups (jobExecKey,
 // ListJobExecutionsForThing) — real AWS's JobExecution wire shape has only
-// "thingArn" (awsRestjson1_deserializeDocumentJobExecution, v1.76.0). Wire
+// "thingArn" (awsRestjson1_deserializeDocumentJobExecution, v1.77.4). Wire
 // builders (handler_jobs.go) must compute ThingArn via
 // [InMemoryBackend.ThingARN] rather than serializing this struct directly;
 // ThingName keeps a normal json tag so Snapshot/Restore still round-trips it.
@@ -750,7 +750,7 @@ func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool
 // JobTemplate represents an IoT job template.
 //
 // Tags is internal-only (json:"-"): DescribeJobTemplateOutput
-// (awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput, v1.76.0)
+// (awsRestjson1_deserializeOpDocumentDescribeJobTemplateOutput, v1.77.4)
 // has no "tags" field — tags are a separate ListTagsForResource concept.
 //
 // MaintenanceWindows is a TOP-LEVEL field here, unlike Job's

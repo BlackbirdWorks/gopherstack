@@ -41,7 +41,7 @@ func (h *Handler) handleAssociateTargetsWithJob(c *echo.Context) error {
 
 // jobExecutionSummaryWire is the real wire shape of types.JobExecutionSummary
 // (confirmed against awsRestjson1_deserializeDocumentJobExecutionSummary in
-// aws-sdk-go-v2/service/iot@v1.76.0), nested inside both
+// aws-sdk-go-v2/service/iot@v1.77.4), nested inside both
 // JobExecutionSummaryForJob and JobExecutionSummaryForThing below.
 type jobExecutionSummaryWire struct {
 	Status          JobExecutionStatus `json:"status,omitempty"`
@@ -117,7 +117,7 @@ func resolveJobOps(path, method string) string {
 // DescribeJobExecution/CancelJobExecution/DeleteJobExecution do NOT live
 // here: real AWS IoT paths them under /things/{thingName}/jobs/{jobId}[...],
 // not /jobs/{jobId}/things/{thingName} — see resolveThingJobExecutionOps in
-// handler_routing.go (aws-sdk-go-v2/service/iot@v1.76.0's serializers.go
+// handler_routing.go (aws-sdk-go-v2/service/iot@v1.77.4's serializers.go
 // http bindings).
 //
 // GetJobDocument's real path is /jobs/{jobId}/job-document, not
@@ -215,7 +215,7 @@ func (h *Handler) handleDescribeJob(c *echo.Context) error {
 	// Real DescribeJobOutput duplicates documentSource at the top level in
 	// addition to inside the nested "job" object (verified against
 	// awsRestjson1_deserializeOpDocumentDescribeJobOutput in
-	// aws-sdk-go-v2/service/iot@v1.76.0).
+	// aws-sdk-go-v2/service/iot@v1.77.4).
 	return c.JSON(http.StatusOK, map[string]any{
 		"job":            job,
 		"documentSource": job.DocumentSource,
@@ -388,7 +388,7 @@ func (h *Handler) handleDeleteJobExecution(c *echo.Context) error {
 
 // parseThingJobPath extracts thingName and jobId from the real AWS path
 // shape /things/{thingName}/jobs/{jobId}[/...] (confirmed against
-// aws-sdk-go-v2/service/iot@v1.76.0's serializers.go http bindings for
+// aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings for
 // DescribeJobExecution/CancelJobExecution/DeleteJobExecution -- NOT
 // /jobs/{jobId}/things/{thingName}, which no real client ever sends).
 func parseThingJobPath(path string) (string, string) {

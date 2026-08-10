@@ -325,7 +325,7 @@ type ViolationEventOccurrenceRange struct {
 
 // MitigationActionRef is the shape of a mitigation action as embedded in
 // DetectMitigationActionsTaskSummary.actionsDefinition (types.MitigationAction,
-// confirmed against v1.76.0) -- a narrower shape than
+// confirmed against v1.77.4) -- a narrower shape than
 // DescribeMitigationActionOutput's own top-level fields: just
 // id/name/roleArn/actionParams, with no arn, actionType, or timestamps.
 type MitigationActionRef struct {
@@ -338,7 +338,7 @@ type MitigationActionRef struct {
 // DetectMitigationTask represents a task started by StartDetectMitigationActionsTask.
 //
 // Actions is internal-only storage (json:"-"): real AWS's
-// DetectMitigationActionsTaskSummary (v1.76.0) has no "actions" field — the
+// DetectMitigationActionsTaskSummary (v1.77.4) has no "actions" field — the
 // wire field is "actionsDefinition", a list of full MitigationAction
 // objects. Wire builders resolve Actions via
 // [InMemoryBackend.MitigationActionRefs] instead of serializing this struct
@@ -403,7 +403,7 @@ func (b *InMemoryBackend) MitigationActionRefs(names []string) []MitigationActio
 //
 // Wire keys are "executionStartDate"/"executionEndDate", not
 // "executionStartTime"/"executionEndTime" — types.DetectMitigationActionExecution,
-// awsRestjson1_deserializeDocumentDetectMitigationActionExecution (v1.76.0).
+// awsRestjson1_deserializeDocumentDetectMitigationActionExecution (v1.77.4).
 type DetectMitigationActionExecution struct {
 	TaskID             string  `json:"taskId"`
 	ViolationID        string  `json:"violationId"`
@@ -629,7 +629,7 @@ type ViolationEventAdditionalInfo struct {
 //
 // LastViolationTime tracks "most recent detection of this ongoing
 // violation", distinct from ViolationStartTime — both real per
-// types.ActiveViolation (v1.76.0).
+// types.ActiveViolation (v1.77.4).
 //
 // Suppressed is internal-only (json:"-"): real AWS has no such field on
 // ActiveViolation; listSuppressedAlerts really filters on the

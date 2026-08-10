@@ -710,7 +710,7 @@ func TestConcurrent_CreateGrant_And_ListGrants(t *testing.T) {
 }
 
 // TestCreateGrant_GrantTokens_AcceptedAsNoOp verifies that CreateGrantInput.GrantTokens
-// (aws-sdk-go-v2/service/kms@v1.54.0 api_op_CreateGrant.go: authorizes the CreateGrant
+// (aws-sdk-go-v2/service/kms@v1.55.4 api_op_CreateGrant.go: authorizes the CreateGrant
 // call itself via an existing, not-yet-eventually-consistent grant) is accepted on the
 // wire without error. There is no IAM/authorization layer anywhere in this mock, so the
 // field cannot have any behavioral effect -- same documented scope boundary as
@@ -731,7 +731,7 @@ func TestCreateGrant_GrantTokens_AcceptedAsNoOp(t *testing.T) {
 }
 
 // TestGrantConstraint_SourceArn_RoundTrips verifies that GrantConstraints.SourceArn
-// (aws-sdk-go-v2/service/kms@v1.54.0 types.GrantConstraints.SourceArn) survives a
+// (aws-sdk-go-v2/service/kms@v1.55.4 types.GrantConstraints.SourceArn) survives a
 // CreateGrant -> ListGrants -> ListRetirableGrants round trip. This mock has no
 // cross-service request-context plumbing to carry a "made on behalf of" resource
 // ARN through crypto calls, so the constraint is intentionally NOT enforced (see
@@ -760,7 +760,7 @@ func TestGrantConstraint_SourceArn_RoundTrips(t *testing.T) {
 }
 
 // TestCreateGrant_IssuingAccount_Populated verifies that a created grant reports
-// the backend's account ID as IssuingAccount (aws-sdk-go-v2/service/kms@v1.54.0
+// the backend's account ID as IssuingAccount (aws-sdk-go-v2/service/kms@v1.55.4
 // types.GrantListEntry.IssuingAccount), matching real AWS's "account under which
 // the grant was issued" semantics.
 func TestCreateGrant_IssuingAccount_Populated(t *testing.T) {
@@ -783,7 +783,7 @@ func TestCreateGrant_IssuingAccount_Populated(t *testing.T) {
 
 // TestCreateGrant_ServicePrincipals covers the real CreateGrantInput's
 // GranteeServicePrincipal/RetiringServicePrincipal fields and the validation
-// rules documented on them in aws-sdk-go-v2/service/kms@v1.54.0's
+// rules documented on them in aws-sdk-go-v2/service/kms@v1.55.4's
 // api_op_CreateGrant.go: exactly one of GranteePrincipal/GranteeServicePrincipal
 // is required; RetiringPrincipal and RetiringServicePrincipal are mutually
 // exclusive; and GranteeServicePrincipal additionally requires a SourceArn

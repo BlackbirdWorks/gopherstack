@@ -336,7 +336,7 @@ type PolicyVersionIdentifier struct {
 }
 
 // ResourceIdentifier identifies the noncompliant resource behind an audit
-// finding (types.ResourceIdentifier, v1.76.0's ten discriminator fields).
+// finding (types.ResourceIdentifier, v1.77.4's ten discriminator fields).
 // Real AWS populates only the field(s) relevant to the check that produced
 // the finding, e.g. DEVICE_CERTIFICATE_EXPIRING_CHECK sets
 // deviceCertificateId. A fully-typed struct (vs. a freeform map) is what

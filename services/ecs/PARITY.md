@@ -1,6 +1,6 @@
 ---
 service: ecs
-sdk_module: aws-sdk-go-v2/service/ecs@v1.89.0
+sdk_module: aws-sdk-go-v2/service/ecs@v1.90.0
 last_audit_commit: HEAD                           # see git log for this pass's commit
 last_audit_date: 2026-07-31
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op

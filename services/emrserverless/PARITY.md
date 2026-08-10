@@ -1,6 +1,6 @@
 ---
 service: emrserverless
-sdk_module: aws-sdk-go-v2/service/emrserverless@v1.40.2
+sdk_module: aws-sdk-go-v2/service/emrserverless@v1.44.4
 last_audit_commit: b0d0cfe0
 last_audit_date: 2026-07-24
 overall: A

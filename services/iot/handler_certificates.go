@@ -214,7 +214,7 @@ func certificateTransferData(cert *Certificate) map[string]any {
 }
 
 // certificateDescriptionFields builds the full CertificateDescription wire
-// shape returned by DescribeCertificate (aws-sdk-go-v2/service/iot@v1.76.0).
+// shape returned by DescribeCertificate (aws-sdk-go-v2/service/iot@v1.77.4).
 // creationDate/lastModifiedDate must be epoch-second JSON numbers, not
 // RFC3339 strings — the real restjson1 deserializer requires numbers.
 func certificateDescriptionFields(cert *Certificate) map[string]any {

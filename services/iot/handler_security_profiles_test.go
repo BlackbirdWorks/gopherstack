@@ -114,7 +114,7 @@ func TestSecurityProfile(t *testing.T) {
 // security_profiles gap closure: CreateSecurityProfile previously silently
 // dropped Behaviors/AlertTargets/AdditionalMetricsToRetain(V2)/
 // MetricsExportConfig entirely (types.CreateSecurityProfileInput field-diff,
-// v1.76.0). Also covers UpdateSecurityProfile's ExpectedVersion optimistic
+// v1.77.4). Also covers UpdateSecurityProfile's ExpectedVersion optimistic
 // lock and DeleteX-flag-vs-field mutual exclusion, both previously
 // unmodeled (UpdateSecurityProfile only ever accepted a description).
 func TestSecurityProfile_FullFieldsAndUpdateSemantics(t *testing.T) {

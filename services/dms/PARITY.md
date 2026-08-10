@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dms
-sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.61.8
+sdk_module: aws-sdk-go-v2/service/databasemigrationservice@v1.66.4
 last_audit_commit: d13e2307f4f1086d83076beb50c1303761fa8369
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-23 pass: closed all 4 gaps + all 3 deferred

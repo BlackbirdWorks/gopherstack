@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
-sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.0
+sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
 last_audit_commit: 2cff93209
 last_audit_date: 2026-07-25
 overall: A            # this pass (parity-4, SDK bump 1.78.2 -> 1.85.0): implemented the one new op family

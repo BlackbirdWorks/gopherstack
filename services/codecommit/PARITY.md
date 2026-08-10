@@ -1,6 +1,6 @@
 ---
 service: codecommit
-sdk_module: aws-sdk-go-v2/service/codecommit@v1.33.10
+sdk_module: aws-sdk-go-v2/service/codecommit@v1.36.4
 last_audit_commit: 1d7169f66
 last_audit_date: 2026-08-07
 overall: A            # this pass: MergeBranchesBySquash/ByThreeWay now real distinct backend

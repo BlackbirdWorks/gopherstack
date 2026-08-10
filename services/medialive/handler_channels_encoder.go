@@ -9,11 +9,14 @@ package medialive
 // AudioDescription, VideoDescription, CaptionDescription, OutputGroup,
 // EncoderOutput, EncoderSettings) for exactly what is and is not modeled,
 // and why. The pre-gopherstack-sthr shapes below were verified against
-// v1.97.2 and not re-verified this pass; the AvailConfiguration/
+// v1.97.2; the gopherstack-u8my pin-correction pass confirmed types.go has
+// no diff touching TimecodeConfig/AvailBlanking/BlackoutSlate/
+// FeatureActivations/GlobalConfiguration/ThumbnailConfiguration/
+// VideoDescriptions/CaptionDescriptions/OutputGroups between v1.97.2 and the
+// currently pinned v1.101.4, so they remain accurate. The AvailConfiguration/
 // ColorCorrectionSettings/MotionGraphicsConfiguration/NielsenConfiguration
-// section (gopherstack-sthr) was verified against v1.101.4, this repo's
-// currently pinned version (go.mod) -- go.mod had already drifted ahead of
-// PARITY.md's audited version before this pass; see PARITY.md's Notes.
+// section (gopherstack-sthr) was verified against v1.101.4 directly. See
+// PARITY.md's Notes.
 
 // -- InputLocation --
 

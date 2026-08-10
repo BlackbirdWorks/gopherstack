@@ -55,7 +55,7 @@ type describeLocationObjectStorageInput struct {
 // describeLocationObjectStorageOutput intentionally has no ServerHostname,
 // BucketName, or Subdirectory field: the real
 // DescribeLocationObjectStorageOutput has none of them -- confirmed against
-// aws-sdk-go-v2 v1.59.2: AccessKey, AgentArns, CmkSecretConfig, CreationTime,
+// aws-sdk-go-v2 v1.61.4: AccessKey, AgentArns, CmkSecretConfig, CreationTime,
 // CustomSecretConfig, LocationArn, LocationUri, ManagedSecretConfig,
 // ServerCertificate, ServerPort, ServerProtocol (host/bucket/path are folded
 // into LocationUri).

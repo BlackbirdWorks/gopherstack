@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: iotdataplane
-sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.0   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
+sdk_module: aws-sdk-go-v2/service/iotdataplane@v1.35.4   # bumped from v1.32.20; +3 new ops (device connection/messaging introspection)
 last_audit_commit: 058bf0373   # HEAD when this manifest was written (parity-4 branch, pre-commit of this pass)
 last_audit_date: 2026-07-25
 overall: A            # restored from A-: ListSubscriptions now reports real per-client subscriptions and SendDirectMessage now truly addresses one client, both read/written through a new MQTTPublisher.ClientSubscriptions/SendToClient boundary implemented in services/iot/broker.go off mochi-mqtt's real cl.State.Subscriptions/cl.WritePacket -- see gaps for the one remaining honest divergence (fallback broadcast when the broker has no live session for a gopherstack-admin-tracked clientId)

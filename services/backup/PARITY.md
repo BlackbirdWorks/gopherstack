@@ -1,6 +1,6 @@
 ---
 service: backup
-sdk_module: aws-sdk-go-v2/service/backup@v1.59.0
+sdk_module: aws-sdk-go-v2/service/backup@v1.59.4
 last_audit_commit: 621eeacb
 last_audit_date: 2026-07-25
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes)

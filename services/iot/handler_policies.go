@@ -345,7 +345,7 @@ func (h *Handler) handleGetPolicyVersion(c *echo.Context) error {
 		"generationId":      pv.GenerationID,
 		// GetPolicyVersionOutput's date field is "creationDate", unlike the
 		// ListPolicyVersions summary shape's "createDate" a few lines up --
-		// verified against v1.76.0's
+		// verified against v1.77.4's
 		// awsRestjson1_deserializeOpDocumentGetPolicyVersionOutput. Policy
 		// versions are immutable once created, so lastModifiedDate equals
 		// creationDate.

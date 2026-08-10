@@ -503,10 +503,10 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 49 | 3 gaps |
+| [RDS](services/rds/README.md) | A | 49 | 4 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 2 gaps |
 | [Redshift](services/redshift/README.md) | A | 5 | clean |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 8 gaps; 1 deferred |
@@ -596,7 +596,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 6 | clean |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
-| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 2 gaps |
+| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 3 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 2 gaps; 1 deferred |
@@ -618,11 +618,11 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
 | [OpsWorks](services/opsworks/README.md) | B | 32 | 4 gaps; 1 deferred |
-| [Organizations](services/organizations/README.md) | A | 63 | 4 gaps |
+| [Organizations](services/organizations/README.md) | A | 63 | 5 gaps |
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 9 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 74 | 3 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 74 | 4 gaps |
 
 ### Developer Tools
 
@@ -652,21 +652,21 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 54 | 13 gaps; 6 deferred |
-| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | clean |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |
+| [Transcribe](services/transcribe/README.md) | A | 43 | 3 gaps |
 | [Translate](services/translate/README.md) | A | 19 | 3 gaps |
 
 ### Media
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 1 gap; 1 deferred |
+| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 4 gaps |
 | [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 deferred |
 | [MediaStore](services/mediastore/README.md) | A | 21 | clean |
 | [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 4 gaps; 1 deferred |
-| [MediaTailor](services/mediatailor/README.md) | A | 48 | clean |
+| [MediaTailor](services/mediatailor/README.md) | A | 48 | 2 gaps |
 
 ### IoT
 
@@ -683,7 +683,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 6 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 94 | clean |
-| [Transfer Family](services/transfer/README.md) | A | — | 15 families |
+| [Transfer Family](services/transfer/README.md) | A | — | 15 families; 1 gap |
 
 ### Other
 

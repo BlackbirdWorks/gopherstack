@@ -320,7 +320,7 @@ func toImportJobOutput(j *ImportJob) *importJobOutput {
 // sub-object (types.SuppressionAttributes, not a bare array), and a nested
 // "PricingAttributes" sub-object (types.PricingAttributes). Field-diffed
 // against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/
-// types.PricingAttributes (aws-sdk-go-v2/service/sesv2 v1.66.0). Fields real
+// types.PricingAttributes (aws-sdk-go-v2/service/sesv2 v1.66.4). Fields real
 // SES v2 documents that gopherstack has no data source for --
 // EnforcementStatus, ProductionAccessEnabled, SendQuota -- are omitted
 // (they're all pointer/optional in the real shape) rather than fabricated;

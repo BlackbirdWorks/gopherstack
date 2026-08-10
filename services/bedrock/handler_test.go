@@ -540,7 +540,7 @@ func TestHandler_RealSDKWireShapeRouteMatcher(t *testing.T) { //nolint:parallelt
 		// BatchDeleteAdvancedPromptOptimizationJob: singular
 		// "advanced-prompt-optimization-job", not the plural
 		// "advanced-prompt-optimization-jobs" every other op in this family uses
-		// (verified against aws-sdk-go-v2/service/bedrock@v1.66.0's serializers.go).
+		// (verified against aws-sdk-go-v2/service/bedrock@v1.66.4's serializers.go).
 		{
 			"BatchDeleteAdvancedPromptOptimizationJob", http.MethodPost,
 			"/advanced-prompt-optimization-job/batch-delete",

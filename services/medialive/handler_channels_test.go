@@ -399,7 +399,7 @@ func minimalValidEncoderSettings() *types.EncoderSettings {
 // TestChannel_ExtendedFieldsSDKRoundTrip proves gopherstack-jb9i's fix for
 // medialive/gopherstack-jb9i: CreateChannelInput/UpdateChannelInput have 17
 // real top-level members (verified against
-// aws-sdk-go-v2/service/medialive@v1.97.2's api_op_CreateChannel.go), and
+// aws-sdk-go-v2/service/medialive@v1.101.4's api_op_CreateChannel.go), and
 // before this fix gopherstack modeled only 5. Every case below drives a real
 // SDK client through the actual router path (see newTestChannelClient) and
 // asserts on the SDK's OWN decoded response type, not a hand-rolled JSON

@@ -340,7 +340,7 @@ func TestDescribeThingGroup_IncludesParentGroupName(t *testing.T) {
 
 // TestDescribeThingGroup_RootToParentThingGroups covers ThingGroupMetadata's
 // "rootToParentThingGroups" field (root-first list of {groupName, groupArn}
-// ancestors; awsRestjson1_deserializeDocumentThingGroupMetadata, v1.76.0). A
+// ancestors; awsRestjson1_deserializeDocumentThingGroupMetadata, v1.77.4). A
 // root-level group has no ancestors, so real AWS omits the field entirely
 // rather than sending an empty list.
 func TestDescribeThingGroup_RootToParentThingGroups(t *testing.T) {

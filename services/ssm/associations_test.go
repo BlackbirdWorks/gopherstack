@@ -286,7 +286,7 @@ func TestCreateAssociation_Success(t *testing.T) {
 		{
 			// Locks in the previously-missing CreateAssociationInput fields
 			// (bd gopherstack-ouvq), confirmed present in aws-sdk-go-v2
-			// v1.71.0's api_op_CreateAssociation.go.
+			// v1.73.4's api_op_CreateAssociation.go.
 			name: "round_trips_extended_fields",
 			body: `{
 				"Name": "MyDoc",

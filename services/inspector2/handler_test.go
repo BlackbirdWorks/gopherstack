@@ -235,7 +235,7 @@ func paritySeedFinding(
 // TestHandlerSupportedOperationsCount pins the total number of operations the
 // handler advertises (13 core ops in handler.go + 68 extended ops in
 // handler_routing.go, the latter now including the 6 connector/connector
-// scan configuration ops added for the SDK's inspector2@v1.53.0 bump), so an
+// scan configuration ops added for the SDK's inspector2@v1.54.1 bump), so an
 // accidental drop while splitting files would fail loudly.
 func TestHandlerSupportedOperationsCount(t *testing.T) {
 	t.Parallel()

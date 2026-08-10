@@ -87,7 +87,7 @@ func (b *InMemoryBackend) ListSecurityProfilesForTarget(targetARN string) []stri
 // Tags is internal-storage-only (json:"-"): real DescribeSecurityProfileOutput
 // and UpdateSecurityProfileOutput have no "tags" field at all
 // (awsRestjson1_deserializeOpDocumentDescribeSecurityProfileOutput/
-// UpdateSecurityProfileOutput, v1.76.0) — tags attached at creation are only
+// UpdateSecurityProfileOutput, v1.77.4) — tags attached at creation are only
 // retrievable via the separate ListTagsForResource op, so surfacing it here
 // would be the same "invented field" bug class fixed for Job/JobTemplate's
 // leaked "tags" elsewhere in this service.
@@ -279,7 +279,7 @@ func (b *InMemoryBackend) SecurityProfileARN(name string) string {
 
 // CreateSecurityProfileInput holds input for CreateSecurityProfile.
 //
-// Field-diffed against types.CreateSecurityProfileInput (v1.76.0): Behaviors/
+// Field-diffed against types.CreateSecurityProfileInput (v1.77.4): Behaviors/
 // AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
 // MetricsExportConfig are now modeled and wired through to the stored
 // SecurityProfile (previously silently dropped -- see SecurityProfile's own
@@ -355,7 +355,7 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 }
 
 // UpdateSecurityProfileInput holds input for UpdateSecurityProfile
-// (types.UpdateSecurityProfileInput, v1.76.0). Each DeleteX flag clears the
+// (types.UpdateSecurityProfileInput, v1.77.4). Each DeleteX flag clears the
 // corresponding field; supplying both a DeleteX flag and a non-nil value
 // for that same field in one call is invalid per real AWS, enforced in
 // applySecurityProfileUpdate.

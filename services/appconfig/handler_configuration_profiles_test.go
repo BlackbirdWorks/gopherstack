@@ -315,7 +315,7 @@ func seedExperimentDefinitionHTTP(t *testing.T, h *appconfig.Handler) (string, s
 // GetExperimentDefinition/ListExperimentDefinitions/
 // UpdateExperimentDefinition/DeleteExperimentDefinition through the real
 // router path, asserting the REST-JSON wire shapes field-diffed against
-// aws-sdk-go-v2/service/appconfig@v1.48.0's Create/Get/List/Update/
+// aws-sdk-go-v2/service/appconfig@v1.48.4's Create/Get/List/Update/
 // DeleteExperimentDefinitionOutput.
 func TestHandler_ExperimentDefinition_CRUD(t *testing.T) {
 	t.Parallel()

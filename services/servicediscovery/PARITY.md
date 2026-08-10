@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: servicediscovery
-sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.39.24   # version audited against
+sdk_module: aws-sdk-go-v2/service/servicediscovery@v1.43.4   # version audited against
 last_audit_commit: 6bf60b6f                       # HEAD when the PRIOR pass wrote this manifest; this pass's commit was not yet cut when the manifest was updated (see re-audit protocol)
 last_audit_date: 2026-07-23
 overall: A            # real bugs found and fixed this pass

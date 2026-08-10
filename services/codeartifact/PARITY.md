@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeartifact
-sdk_module: aws-sdk-go-v2/service/codeartifact@v1.38.19   # version audited against
+sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
 last_audit_commit: 1d7169f66
 last_audit_date: 2026-08-07
 overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run

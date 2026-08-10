@@ -1,7 +1,7 @@
 ---
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: datasync
-sdk_module: aws-sdk-go-v2/service/datasync@v1.59.2
+sdk_module: aws-sdk-go-v2/service/datasync@v1.61.4
 last_audit_commit: 8379d347
 last_audit_date: 2026-07-23
 overall: A            # systemic field-diff sweep: 20+ genuine wire-shape bugs found & fixed

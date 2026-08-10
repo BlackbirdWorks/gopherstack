@@ -1,6 +1,6 @@
 ---
 service: efs
-sdk_module: aws-sdk-go-v2/service/efs@v1.41.12   # version audited against
+sdk_module: aws-sdk-go-v2/service/efs@v1.44.4   # version audited against
 last_audit_commit: d59548b925a89fc0b11453a8877e95ae59073158
 last_audit_date: 2026-07-23
 overall: A            # cross-cutting pagination data-loss bug fixed + 4 gaps closed for real

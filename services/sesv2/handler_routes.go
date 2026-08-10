@@ -677,7 +677,7 @@ func parseTenantPath(method string, segments []string) (string, string) {
 // PutTenantSuppressionAttributes. Note the top-level segment is the
 // *singular* "tenant" -- a distinct path from the rest of the tenant family,
 // which all live under the plural "tenants" (see parseTenantPath). Confirmed
-// against aws-sdk-go-v2/service/sesv2 v1.66.0 serializers.go
+// against aws-sdk-go-v2/service/sesv2 v1.66.4 serializers.go
 // (awsRestjson1_serializeOpPutTenantSuppressionAttributes's
 // httpbinding.SplitURI("/v2/email/tenant/suppression")) -- this service has a
 // history of invented paths, so don't assume it's under "tenants" without

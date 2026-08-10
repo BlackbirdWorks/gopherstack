@@ -14,7 +14,7 @@ import (
 // engineSettingsFields lists every engine-specific settings block accepted by
 // real CreateEndpoint/ModifyEndpoint (CreateEndpointInput/ModifyEndpointInput,
 // api_op_CreateEndpoint.go:37, api_op_ModifyEndpoint.go:37,
-// databasemigrationservice@v1.61.8) that this emulator does not model: no real
+// databasemigrationservice@v1.66.4) that this emulator does not model: no real
 // database or broker connections exist for them to configure, and the ~300
 // fields across these 19 structs are too large to model faithfully in one
 // pass. Rather than silently drop them like encoding/json would with unknown

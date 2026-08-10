@@ -1,5 +1,5 @@
 service: workspaces
-sdk_module: aws-sdk-go-v2/service/workspaces@v1.68.3
+sdk_module: aws-sdk-go-v2/service/workspaces@v1.73.1
 last_audit_commit: 1b07910674fd
 last_audit_date: 2026-07-23
 overall: A            # all previously-listed gaps/deferred items closed for real this pass;
@@ -50,7 +50,7 @@ families:
   Account: {status: ok, note: "DescribeAccount/ModifyAccount/ModifyEndpointEncryptionMode read/write storedAccountConfig; DescribeAccountModifications now has a real, persisted modification history (see ops table) instead of an always-empty stub."}
   ConnectClientAddIn: {status: ok}
   ClientBranding: {status: ok}
-  ClientProperties: {status: ok}
+  ClientProperties: {status: partial, note: "gopherstack-u8my: NEW since v1.68.3, not fixed -- ClientProperties gained ClientExperiencePolicy (*string: FORCE_CLASSIC/FORCE_UI_2026/USER_CHOICE). ModifyClientProperties(resourceID, reconnectEnabled string) only threads ReconnectEnabled; ClientExperiencePolicy is silently dropped (needs bd issue)."}
   DirectoryModifyOps: {status: ok, note: "ModifyCertificateBasedAuthProperties/ModifySamlProperties/ModifySelfservicePermissions/ModifyStreamingProperties/ModifyWorkspaceAccessProperties/ModifyWorkspaceCreationProperties all write storedDirSettings.Properties map"}
   AccountLinks: {status: ok, note: "Create/Accept/Reject/Delete/Get/List all mutate storedAccountLink.Status"}
   Applications: {status: ok, note: "Associate/Disassociate/Deploy/DescribeAssociations/DescribeApplicationAssociations/DescribeApplications"}

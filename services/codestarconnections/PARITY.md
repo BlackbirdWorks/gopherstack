@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codestarconnections
-sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.35.15   # version audited against
+sdk_module: aws-sdk-go-v2/service/codestarconnections@v1.38.4   # version audited against
 last_audit_commit: 1d7169f66                       # HEAD when this manifest was written
 last_audit_date: 2026-08-07
 overall: A            # zero-gap field-diff pass against botocore's authoritative per-op error lists

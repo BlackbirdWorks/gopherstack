@@ -68,7 +68,7 @@ const (
 	blockResponseOVERRIDE = "OVERRIDE"
 
 	// DnsThreatProtection values (types.DnsThreatProtection in
-	// aws-sdk-go-v2/service/route53resolver@v1.48.0): the DNS Firewall
+	// aws-sdk-go-v2/service/route53resolver@v1.48.4): the DNS Firewall
 	// Advanced built-in threat detectors a rule can match on instead of a
 	// domain list.
 	dnsThreatProtectionDGA           = "DGA"
@@ -220,7 +220,7 @@ type FirewallDomainList struct {
 // DnsThreatProtection/FirewallThreatProtectionID/FirewallDomainRedirectionAction
 // back the DNS Firewall Advanced match source (verified against
 // types.FirewallRule/CreateFirewallRuleInput/UpdateFirewallRuleInput/
-// DeleteFirewallRuleInput in aws-sdk-go-v2/service/route53resolver@v1.48.0).
+// DeleteFirewallRuleInput in aws-sdk-go-v2/service/route53resolver@v1.48.4).
 // A rule matches EITHER a domain list (FirewallDomainListID, the original
 // path) OR a DnsThreatProtection detector (DGA/DNS_TUNNELING/DICTIONARY_DGA)
 // -- the two are mutually exclusive, matching the real API's documented

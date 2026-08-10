@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
-sdk_module: aws-sdk-go-v2/service/lakeformation@v1.47.3
+sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
 last_audit_commit: 4691484d9
 last_audit_date: 2026-07-24
 overall: A            # ListPermissions wire-shape bug + missing Resource union members fixed
@@ -74,9 +74,9 @@ ops:
   GetDataLakeSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "ExternalDataFilteringAllowList field added (was entirely missing from DataLakeSettings)"}
   PutDataLakeSettings: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  route_matcher: {status: ok, note: "unchanged this pass -- isLakeFormationPath's 61 literal paths still verified byte-for-byte against serializers.go from the prior audit; no new ops added upstream at v1.47.3."}
+  route_matcher: {status: ok, note: "unchanged this pass -- isLakeFormationPath's 61 literal paths still verified byte-for-byte against serializers.go from the prior audit; no new ops added upstream (61 ops, serializers.go byte-identical, from v1.47.3 through the now-current v1.50.4 pin)."}
   resource_union: {status: ok, note: "Resource previously only carried Catalog/Database/Table/TableWithColumns/DataLocation. Added DataCellsFilter/LFTag(LFTagKeyResource)/LFTagExpression/LFTagPolicy(LFTagPolicyResource) -- all real types.Resource union members. GrantPermissions/RevokePermissions/ListPermissions now work end-to-end against every kind (resourceToKey/copyResource/permissionMatchesResource/permissionMatchesResourceType all extended); see handler_permissions_resource_kinds_test.go for coverage of all 6 previously-partial/deferred kinds plus TableWildcard and CatalogResource.Id."}
-  permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 15-member enum exactly."}
+  permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
 gaps:
   - "FIXED (gopherstack-kbnu): PrincipalResourcePermissions.LastUpdatedBy is now populated by GrantPermissions/RevokePermissions/BatchGrantPermissions/BatchRevokePermissions with a synthetic caller ARN derived from awsmeta.Account(ctx) (callerPrincipalARN, credentials.go -- same identity GetDataLakePrincipal reports). Interface signatures gained a ctx context.Context first parameter; all callers updated."
   - "PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare, RAM resource-share info) is still never populated. Re-checked this pass: gopherstack DOES have a standalone services/ram package (resource shares, principals, permissions), but there is no cross-service wiring between it and lakeformation anywhere in the codebase (no service in this repo reaches into another service's InMemoryBackend directly -- checked s3<->kms as a second data point, same finding). Populating this would require introducing a new cross-service backend-injection pattern, which is out of scope for a single-service follow-up. Correctly omitted rather than fabricated."
@@ -110,11 +110,16 @@ Freeform: AWS-behavior specifics worth remembering.
   `aws-sdk-go-v2/service/lakeformation@v1.50.4`) -- a disguised stub, since no code path
   had ever populated it.
 
-  Note: this repo's actual pinned SDK is `aws-sdk-go-v2/service/lakeformation@v1.50.4`
-  (`go.mod`/`go.sum`), not the `v1.47.3` recorded in this file's `sdk_module:` header from
-  the last full audit -- all new citations in this pass are against `v1.50.4`. Left
-  `sdk_module:`/`last_audit_commit:` unchanged since this was a targeted follow-up, not a
-  full 61-op re-audit; a future full audit should re-pin both.
+  Note: this pass's citations were already checked against the repo's actual pinned SDK,
+  `aws-sdk-go-v2/service/lakeformation@v1.50.4` (`go.mod`/`go.sum`), even though the
+  `sdk_module:` header above still read the stale `v1.47.3` from the last full audit --
+  fixed by the gopherstack-u8my pin sweep (header now reads v1.50.4). Diffed v1.47.3 against
+  v1.50.4: `types/enums.go`, `types/errors.go`, `serializers.go`, `deserializers.go`, and
+  `validators.go` are byte-identical; `types/types.go` gained only a doc-comment addition
+  (`DataLakeSettings.Parameters`' `SET_SOURCE_IDENTITY` key). No wire-shape claim in this
+  file changed as a result. Separately, re-verifying `permission_enum`'s member count while
+  re-pinning found the note itself wrong (fixed above: 16 members, not 15) -- unrelated to
+  the version bump, since `enums.go` didn't change between the two pins.
 
 - **`ListPermissions` request shape was wire-broken** (this pass's headline fix):
   gopherstack's `listPermissionsInput` had a flat `ResourceArn string` field, but the real
@@ -166,7 +171,7 @@ Freeform: AWS-behavior specifics worth remembering.
   (opt-ins are a separate `CreateLakeFormationOptIn` *operation*, not a grantable
   permission). Deleted all three per the no-invented-values rule. Also added the real
   `"CREATE_LF_TAG_EXPRESSION"` value, which was missing entirely. Verified against
-  `types.Permission.Values()` in `enums.go` (15 members) -- gopherstack's list now matches
+  `types.Permission.Values()` in `enums.go` (16 members) -- gopherstack's list now matches
   exactly.
 
 - **`RegisterResource`/`UpdateResource` dropped 5 real `ResourceInfo` fields on the floor**:

@@ -1,7 +1,7 @@
 package workmail_test
 
 // Regression tests for parity-4 bug fixes (audit against
-// aws-sdk-go-v2/service/workmail@v1.37.2):
+// aws-sdk-go-v2/service/workmail@v1.39.4):
 //
 //   - CreateOrganization.Domains is a list of Domain objects
 //     ({"DomainName":...,"HostedZoneId":...}), not a list of bare strings --

@@ -1,6 +1,6 @@
 ---
 service: apigateway
-sdk_module: aws-sdk-go-v2/service/apigateway@v1.38.6
+sdk_module: aws-sdk-go-v2/service/apigateway@v1.42.4
 last_audit_commit: 01f7563b
 last_audit_date: 2026-07-23
 overall: A            # closed all 5 documented gaps + 3 deferred items from the 2026-07-11 sweep: RestApi.{ApiStatus,ApiStatusMessage,DisableExecuteApiEndpoint,EndpointAccessMode}, Stage.DocumentationVersion, ApiKey.StageKeys (Create + PATCH /stages), UsagePlan per-route throttle PATCH, Stage canarySettings.stageVariableOverrides PATCH, MethodSetting.{CacheDataEncrypted,UnauthorizedCacheControlHeaderStrategy} + their PATCH paths, and 2 concrete instances of the top-level-scalar-PATCH-remove gap (RestApi./description, Authorizer./identitySource). Found+fixed 2 new bugs while doing so (see Notes): a multi-op-per-request PATCH clobbering bug in the 3 resolvers this sweep touches, and UpdateUsagePlan returning an unprotected pointer into backend state. Found+documented (not fixed, out of assigned scope) a pre-existing UpdateDomainName PATCH gap.

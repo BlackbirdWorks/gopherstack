@@ -29,7 +29,7 @@ type describeUserGroupsResultXML struct {
 // for the reverse of a ServerlessCache's UserGroupId (see
 // userGroupServerlessCacheIDsLocked); both list wrappers use the generic
 // "member" locationName, verified against
-// aws-sdk-go-v2/service/elasticache@v1.51.11/deserializers.go's
+// aws-sdk-go-v2/service/elasticache@v1.56.4/deserializers.go's
 // awsAwsquery_deserializeDocumentUGServerlessCacheIdList.
 type userGroupXML struct {
 	ARN         string `xml:"ARN"`

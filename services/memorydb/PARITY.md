@@ -1,6 +1,6 @@
 ---
 service: memorydb
-sdk_module: aws-sdk-go-v2/service/memorydb@v1.33.12
+sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
 last_audit_commit: 437393d5
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-31: pkgs/sdkcheck reverse check found ExportSnapshot wrongly advertised/documented as a real SDK op (it isn't -- MemoryDB has no export-to-S3 API at all; see its ops-block note). Corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since MemoryDB dispatches purely by X-Amz-Target and no real client can send this target.

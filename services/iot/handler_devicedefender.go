@@ -173,7 +173,7 @@ func (h *Handler) handleDescribeAuditMitigationActionsTask(c *echo.Context) erro
 }
 
 // handleListAuditMitigationActionsTasks builds
-// types.AuditMitigationActionsTaskMetadata's wire shape (v1.76.0):
+// types.AuditMitigationActionsTaskMetadata's wire shape (v1.77.4):
 // {taskId, taskStatus, startTime} only — a narrower summary than
 // DescribeAuditMitigationActionsTaskOutput's, unlike the detect-mitigation
 // side below. No "endTime" key; not present on the real type.
@@ -253,7 +253,7 @@ func (h *Handler) handleStartDetectMitigationActionsTask(c *echo.Context) error 
 }
 
 // detectMitigationTaskSummaryWire builds the real
-// DetectMitigationActionsTaskSummary wire shape (aws-sdk-go-v2/service/iot/types@v1.76.0).
+// DetectMitigationActionsTaskSummary wire shape (aws-sdk-go-v2/service/iot/types@v1.77.4).
 // Shared by DescribeDetectMitigationActionsTask and
 // ListDetectMitigationActionsTasks, which use the same rich element type —
 // unlike the audit-mitigation side's narrower list summary — so must NOT be
@@ -287,7 +287,7 @@ func (h *Handler) handleDescribeDetectMitigationActionsTask(c *echo.Context) err
 // handleListDetectMitigationActionsTasks: real AWS's
 // ListDetectMitigationActionsTasksOutput.Tasks is
 // []types.DetectMitigationActionsTaskSummary, the same rich type
-// DescribeDetectMitigationActionsTask returns (v1.76.0), not a narrower
+// DescribeDetectMitigationActionsTask returns (v1.77.4), not a narrower
 // list-only summary — hence sharing detectMitigationTaskSummaryWire.
 func (h *Handler) handleListDetectMitigationActionsTasks(c *echo.Context) error {
 	startTime := parseIoTEpochQueryParam(c, "startTime")

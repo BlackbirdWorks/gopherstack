@@ -241,7 +241,7 @@ type stackSetManagedExecutionXML struct {
 }
 
 // ssXML is the full DescribeStackSetResult.StackSet wire shape, field-diffed
-// against aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// against aws-sdk-go-v2/service/cloudformation@v1.76.1's
 // awsAwsquery_deserializeDocumentStackSet.
 type ssXML struct {
 	AutoDeployment        *stackSetAutoDeploymentXML   `xml:"AutoDeployment,omitempty"`

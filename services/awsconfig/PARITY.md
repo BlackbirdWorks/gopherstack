@@ -1,6 +1,6 @@
 ---
 service: awsconfig
-sdk_module: aws-sdk-go-v2/service/configservice@v1.68.0
+sdk_module: aws-sdk-go-v2/service/configservice@v1.68.4
 last_audit_commit: 198990e82
 last_audit_date: 2026-08-07
 overall: A            # this pass: implemented the 5 ops the SDK bump (v1.61.2 -> v1.68.0)

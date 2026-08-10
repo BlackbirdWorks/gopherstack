@@ -1,6 +1,6 @@
 ---
 service: cloudfront
-sdk_module: aws-sdk-go-v2/service/cloudfront@v1.60.2
+sdk_module: aws-sdk-go-v2/service/cloudfront@v1.67.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.2]  # KeyValueStore data-plane ops (GetKey/PutKey/DeleteKey/ListKeys/UpdateKeys); see key_value_stores family
 last_audit_commit: PENDING (worked in the parity-3 campaign worktree; not committed by this agent)
 last_audit_date: 2026-07-23

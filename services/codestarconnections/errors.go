@@ -42,7 +42,7 @@ var (
 	// this case (confirmed against aws-sdk-go-v2's per-op error deserializers).
 	ErrResourceAlreadyExists = awserr.New("ResourceAlreadyExistsException", awserr.ErrAlreadyExists)
 	// ErrValidation is returned when input validation fails. The real
-	// aws-sdk-go-v2/service/codestarconnections@v1.35.15 types/errors.go has
+	// aws-sdk-go-v2/service/codestarconnections@v1.38.4 types/errors.go has
 	// no ValidationException type at all (its modeled exception set is
 	// AccessDeniedException/ConcurrentModificationException/
 	// ConditionalCheckFailedException/ConflictException/

@@ -73,7 +73,7 @@ type lifecyclePolicyPreviewView struct {
 // StartLifecyclePolicyPreview. Confirmed by direct diff of
 // StartLifecyclePolicyPreviewOutput /
 // awsAwsjson11_deserializeOpDocumentStartLifecyclePolicyPreviewOutput in
-// aws-sdk-go-v2/service/ecr@v1.59.0: unlike GetLifecyclePolicyPreview,
+// aws-sdk-go-v2/service/ecr@v1.60.4: unlike GetLifecyclePolicyPreview,
 // Start's response does NOT include previewResults/summary/nextToken --
 // Start only kicks off the (synchronously, in gopherstack) computed preview;
 // results must be retrieved separately via GetLifecyclePolicyPreview. The

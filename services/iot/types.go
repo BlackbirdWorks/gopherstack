@@ -265,7 +265,7 @@ type ThingType struct {
 // GroupNameAndARN pairs a thing group's name and ARN. Used by
 // DescribeThingGroup's thingGroupMetadata.rootToParentThingGroups (real
 // types.GroupNameAndArn -- verified field names groupName/groupArn against
-// aws-sdk-go-v2/service/iot@v1.76.0's deserializer).
+// aws-sdk-go-v2/service/iot@v1.77.4's deserializer).
 type GroupNameAndARN struct {
 	GroupName string `json:"groupName,omitempty"`
 	GroupARN  string `json:"groupArn,omitempty"`
@@ -560,7 +560,7 @@ type SearchIndexThingResult struct {
 // SearchIndexThingGroupResult is a ThingGroup document returned by
 // SearchIndex. "parentGroupNames" is a list of every ancestor group name up
 // to the root, not just the direct parent (types.ThingGroupDocument,
-// awsRestjson1_deserializeDocumentThingGroupDocument, v1.76.0).
+// awsRestjson1_deserializeDocumentThingGroupDocument, v1.77.4).
 type SearchIndexThingGroupResult struct {
 	Attributes            map[string]string `json:"attributes"`
 	ThingGroupName        string            `json:"thingGroupName"`

@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudtrail
-sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.55.7   # version audited against
+sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
 last_audit_commit: UNKNOWN_SEE_GIT_LOG   # this pass ran without git access; set on next commit
 last_audit_date: 2026-07-23
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op

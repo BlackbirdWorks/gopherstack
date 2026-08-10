@@ -2,7 +2,7 @@ package mgn
 
 // Wire request/response shapes for the restjson1 protocol. Field names are the
 // Go SDK's own exported field name with only its first rune lowercased (e.g.
-// "applicationID" keeps ID capitalized), per aws-sdk-go-v2/service/mgn@v1.48.3's
+// "applicationID" keeps ID capitalized), per aws-sdk-go-v2/service/mgn@v1.48.4's
 // serializers.go/deserializers.go -- see PARITY.md. *string "DateTime"-suffixed
 // members wire as bare RFC3339 strings; real smithy *time.Time fields (Network
 // Migration's CreatedAt/UpdatedAt/EndedAt) are epoch-seconds via pkgs/awstime.Epoch.

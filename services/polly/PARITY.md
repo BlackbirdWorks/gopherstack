@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: polly
-sdk_module: aws-sdk-go-v2/service/polly@v1.57.5   # version audited against
+sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
 last_audit_commit: b0d0cfe0                       # HEAD when this manifest was written
 last_audit_date: 2026-07-23
 overall: A            # zero gaps remaining: all 8 gaps and 5 deferred items from the prior pass fixed

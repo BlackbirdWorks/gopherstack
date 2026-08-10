@@ -339,7 +339,7 @@ func TestBackendOps_RegisterTaskWithMaintenanceWindow(t *testing.T) {
 
 // TestRegisterTaskWithMaintenanceWindow_TargetsRoundTrip locks in the fix for
 // a real gap: RegisterTaskWithMaintenanceWindowInput.Targets (confirmed
-// against aws-sdk-go-v2/service/ssm@v1.71.0's api_op_RegisterTaskWithMaintenanceWindow.go
+// against aws-sdk-go-v2/service/ssm@v1.73.4's api_op_RegisterTaskWithMaintenanceWindow.go
 // -- "the targets (either managed nodes or maintenance window targets)")
 // was previously accepted by the wire shape but silently discarded, so a
 // registered task could never record which nodes/window-targets it applies

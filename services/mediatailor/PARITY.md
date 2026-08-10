@@ -5,14 +5,14 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediatailor
-sdk_module: aws-sdk-go-v2/service/mediatailor@v1.59.2   # version audited against
+sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
 last_audit_commit: a874b0df                              # HEAD when this manifest was written
 last_audit_date: 2026-07-23
 overall: A            # all 4 prior gaps + 3 prior deferred items closed for real this pass; 3 new completeness bugs found+fixed
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration"}
+  PutPlaybackConfiguration: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration. gopherstack-u8my: extractExtraConfig's key list is a fixed enumeration, not a generic pass-through of unrecognized keys -- the SDK gained two new PlaybackConfiguration sub-configs (AdsPersonalizationConcurrency, AdsPersonalizationTimeouts) since this note's v1.59.2 pin, both silently dropped by a real PutPlaybackConfiguration call today. See gaps."}
   GetPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent per real API; now cascades to delete every attached prefetch schedule (fixed ghost-row leak, see Notes #7)"}
   ListPlaybackConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "query params PascalCase MaxResults/NextToken - correct"}
@@ -62,7 +62,9 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent, tagKeys query param confirmed correct"}
 families:
   routing: {status: ok, note: "all 47 routed ops' HTTP method+path unchanged this pass and still verified against aws-sdk-go-v2 serializers.go/botocore service-2.json from the prior audit"}
-gaps: []          # every gap from the prior manifest is now fixed for real (field-diffed against the SDK, not reclassified on say-so) - see ops[*].note above for what changed
+gaps:
+  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration gained AdsPersonalizationConcurrency (EnableVodVastParallelization/MaxConcurrentAdsRequests) and AdsPersonalizationTimeouts (AdsRequestTimeoutMilliseconds and 4 sibling fields) input sub-configs. extractExtraConfig's pass-through key list (handler_helpers.go) is a fixed 14-key enumeration predating these fields, so PutPlaybackConfiguration silently drops both -- breaks the round-trip-fidelity claim Notes #6 makes for 'every optional sub-config'. Same treatment as the other 14 (decoded-JSON pass-through) would close it; just needs the two keys added to extractExtraConfig's list. (needs bd issue)"
+  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration/HlsConfiguration/SessionInitializationEndpoint responses gained dual-stack (IPv4+IPv6) URL fields -- DualStackManifestEndpointPrefix, DualStackSessionInitializationEndpointPrefix, DualStackPlaybackEndpointPrefix, and GetHlsManifestConfiguration's DualStackPlaybackUrl -- alongside the existing single-stack Prefix/Url fields. These are server-generated response fields (like their single-stack counterparts) that gopherstack's Get/Describe/List handlers do not populate. (needs bd issue)"
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
   - "SourceLocation AccessConfiguration, DefaultSegmentDeliveryConfiguration, and SegmentDeliveryConfigurations (real DescribeSourceLocation/CreateSourceLocation fields) are not modeled at all - newly found by field-diffing this pass, not in the prior manifest's gaps/deferred. Not fixed this pass due to time budget; same pass-through-JSON treatment as PutPlaybackConfiguration's extras (see Notes #6) would close it. (needs bd issue)"
