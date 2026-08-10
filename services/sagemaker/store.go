@@ -135,9 +135,14 @@ type InMemoryBackend struct {
 	lifecycleCtx    context.Context
 	lifecycleCancel context.CancelFunc
 	mu              *lockmetrics.RWMutex
-	accountID       string
-	region          string
-	wg              sync.WaitGroup
+	// s3 is the wired S3 backend CreatePipeline/UpdatePipeline read a
+	// PipelineDefinitionS3Location's object from (see SetS3Backend). Not part
+	// of persisted state -- it's a cross-service dependency wired at startup,
+	// not resource data.
+	s3        S3Accessor
+	accountID string
+	region    string
+	wg        sync.WaitGroup
 }
 
 // ---------------------------------------------------------------------------

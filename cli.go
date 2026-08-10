@@ -3145,8 +3145,9 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 }
 
 // wireStorageAndSecretsIntegrations wires Firehose delivery, DynamoDB→S3
-// import/export, MGN→S3 import, SecretsManager's Lambda rotation invoker
-// and KMS encryption, and IoT rule action dispatch.
+// import/export, MGN→S3 import, SageMaker→S3 pipeline definitions,
+// SecretsManager's Lambda rotation invoker and KMS encryption, and IoT rule
+// action dispatch.
 func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire Firehose → S3 and Lambda for actual record delivery and transformation.
 	wireFirehoseDelivery(byName["Firehose"], byName["S3"], byName["Lambda"])
@@ -3158,6 +3159,10 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire MGN → S3 so StartImport reads its caller-supplied S3 object and
 	// actually creates SourceServers.
 	wireMGNS3(byName["MGN"], byName["S3"])
+
+	// Wire SageMaker → S3 so CreatePipeline/UpdatePipeline can fetch a
+	// PipelineDefinitionS3Location's object as the real pipeline definition.
+	wireSageMakerS3(byName["SageMaker"], byName["S3"])
 
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
@@ -10793,6 +10798,29 @@ func wireMGNS3(mgnReg, s3Reg service.Registerable) {
 	}
 
 	mgnH.Backend.SetS3Backend(s3Bk)
+}
+
+// wireSageMakerS3 connects the SageMaker backend to the S3 backend so
+// CreatePipeline/UpdatePipeline can fetch a PipelineDefinitionS3Location's
+// object and use it as the real pipeline definition instead of failing the
+// request outright.
+func wireSageMakerS3(smReg, s3Reg service.Registerable) {
+	smH, ok := smReg.(*sagemakerbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk || smH.Backend == nil {
+		return
+	}
+
+	smH.Backend.SetS3Backend(s3Bk)
 }
 
 // cfnLightsailStackAdapter adapts the CloudFormation backend's real

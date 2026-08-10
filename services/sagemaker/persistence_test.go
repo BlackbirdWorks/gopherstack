@@ -194,6 +194,45 @@ func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
 	assert.InDelta(t, 25, tsc["InstanceMemoryAllocationPercentage"], 0)
 }
 
+// TestPersistenceRoundtrip_PipelineDefinitionFromS3 confirms a pipeline
+// created from a PipelineDefinitionS3Location (gopherstack-i359, s3pipeline.go)
+// carries its fetched PipelineDefinition through Snapshot/Restore like any
+// other pipeline field -- Pipeline has no hand-maintained persisted DTO (see
+// persistence.go's persistedCluster doc comment for the one type that does),
+// so this also guards against one being added later that forgets the field.
+func TestPersistenceRoundtrip_PipelineDefinitionFromS3(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	s3 := newMockPipelineS3()
+	s3.put("persist-bucket", "defs/pipeline.json", `{"Version":"2020-12-01","Steps":[{"Name":"Step1"}]}`)
+	h.Backend.SetS3Backend(s3)
+
+	rec := doSageMakerRequest(t, h, "CreatePipeline", map[string]any{
+		"PipelineName": "persist-s3-pipeline",
+		"RoleArn":      "arn:aws:iam::000000000000:role/Role",
+		"PipelineDefinitionS3Location": map[string]any{
+			"Bucket":    "persist-bucket",
+			"ObjectKey": "defs/pipeline.json",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	snap := h.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	h2 := newTestHandler(t)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec = doSageMakerRequest(t, h2, "DescribePipeline", map[string]any{"PipelineName": "persist-s3-pipeline"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.JSONEq(t, `{"Version":"2020-12-01","Steps":[{"Name":"Step1"}]}`, resp["PipelineDefinition"].(string))
+}
+
 func TestBackend_Persistence_SnapshotRestore(t *testing.T) {
 	t.Parallel()
 

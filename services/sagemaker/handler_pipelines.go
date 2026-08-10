@@ -14,21 +14,15 @@ import (
 
 // pipelineDefinitionS3Location mirrors types.PipelineDefinitionS3Location
 // (api_op_CreatePipeline.go:59, api_op_UpdatePipeline.go:43, types/types.go:17313,
-// sagemaker@v1.263.2) — accepted only so a client that sends it gets an explicit
-// rejection, not a silently-dropped field. See errPipelineDefinitionS3LocationMsg.
+// sagemaker@v1.263.2). CreatePipeline/UpdatePipeline fetch the real object
+// through h.Backend's wired S3Accessor (see s3pipeline.go); an unreadable
+// object (no S3 backend wired, missing bucket/key) fails with ErrValidation
+// rather than fabricating a definition.
 type pipelineDefinitionS3Location struct {
 	Bucket    string `json:"Bucket"`
 	ObjectKey string `json:"ObjectKey"`
 	VersionID string `json:"VersionId,omitempty"`
 }
-
-// errPipelineDefinitionS3LocationMsg explains why CreatePipeline/UpdatePipeline
-// reject PipelineDefinitionS3Location instead of accepting-and-dropping it:
-// honoring it needs a real cross-service S3 GetObject call (registry-wired the
-// way cli.go wires StepFunctions/AppConfig integrations), which is out of
-// scope here — the emulator has no fabricated-definition fallback to offer.
-const errPipelineDefinitionS3LocationMsg = "PipelineDefinitionS3Location is not supported; " +
-	"provide PipelineDefinition directly"
 
 func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
@@ -232,13 +226,20 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	if req.PipelineDefinitionS3Location != nil {
-		return nil, fmt.Errorf("%w: %s", ErrValidation, errPipelineDefinitionS3LocationMsg)
+	definition := req.PipelineDefinition
+
+	if loc := req.PipelineDefinitionS3Location; loc != nil {
+		fetched, err := h.Backend.readPipelineDefinitionFromS3(ctx, loc.Bucket, loc.ObjectKey, loc.VersionID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		definition = fetched
 	}
 
 	p, err := h.Backend.CreatePipelineFull(ctx, CreatePipelineOptions{
 		PipelineName:             req.PipelineName,
-		PipelineDefinition:       req.PipelineDefinition,
+		PipelineDefinition:       definition,
 		PipelineDisplayName:      req.PipelineDisplayName,
 		PipelineDescription:      req.PipelineDescription,
 		RoleArn:                  req.RoleArn,
@@ -273,14 +274,21 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	if req.PipelineDefinitionS3Location != nil {
-		return nil, fmt.Errorf("%w: %s", ErrValidation, errPipelineDefinitionS3LocationMsg)
+	definition := req.PipelineDefinition
+
+	if loc := req.PipelineDefinitionS3Location; loc != nil {
+		fetched, err := h.Backend.readPipelineDefinitionFromS3(ctx, loc.Bucket, loc.ObjectKey, loc.VersionID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		definition = fetched
 	}
 
 	p, err := h.Backend.UpdatePipelineFull(
 		ctx,
 		req.PipelineName,
-		req.PipelineDefinition,
+		definition,
 		req.PipelineDisplayName,
 		req.PipelineDescription,
 		req.RoleArn,
