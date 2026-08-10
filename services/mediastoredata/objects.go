@@ -40,6 +40,12 @@ func (b *InMemoryBackend) PutObject(
 		return nil, fmt.Errorf("%w: %q", ErrInvalidStorageClass, storageClass)
 	}
 
+	if uploadAvailability == "" {
+		uploadAvailability = "STANDARD"
+	} else if !isValidUploadAvailability(uploadAvailability) {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidUploadAvailability, uploadAvailability)
+	}
+
 	b.mu.Lock("PutObject")
 	defer b.mu.Unlock()
 

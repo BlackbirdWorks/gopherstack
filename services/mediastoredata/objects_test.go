@@ -288,10 +288,17 @@ func TestInMemoryBackend_UploadAvailability(t *testing.T) {
 	tests := []struct {
 		name               string
 		uploadAvailability string
+		want               string
+		wantErr            bool
 	}{
-		{name: "STANDARD_stored_and_returned", uploadAvailability: "STANDARD"},
-		{name: "STREAMING_stored_and_returned", uploadAvailability: "STREAMING"},
-		{name: "empty_stored_and_returned", uploadAvailability: ""},
+		{name: "standard_stored_and_returned", uploadAvailability: "STANDARD", want: "STANDARD"},
+		{name: "streaming_stored_and_returned", uploadAvailability: "STREAMING", want: "STREAMING"},
+		// UploadAvailability defaults to "standard" when omitted (types.UploadAvailability
+		// doc comment in aws-sdk-go-v2/service/mediastoredata/api_op_PutObject.go:81:
+		// "The default value for this header is standard"), matching the same
+		// empty->TEMPORAL default already applied to StorageClass just above.
+		{name: "empty_defaults_to_standard", uploadAvailability: "", want: "STANDARD"},
+		{name: "invalid_value_rejected", uploadAvailability: "BOGUS", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -303,11 +310,18 @@ func TestInMemoryBackend_UploadAvailability(t *testing.T) {
 				context.Background(),
 				"/avail/file.mp4", []byte("data"), "video/mp4", "", "TEMPORAL", tt.uploadAvailability,
 			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				require.ErrorIs(t, err, mediastoredata.ErrInvalidUploadAvailability)
+
+				return
+			}
 			require.NoError(t, err)
 
 			obj, err := b.GetObject(context.Background(), "/avail/file.mp4")
 			require.NoError(t, err)
-			assert.Equal(t, tt.uploadAvailability, obj.UploadAvailability)
+			assert.Equal(t, tt.want, obj.UploadAvailability)
 		})
 	}
 }
