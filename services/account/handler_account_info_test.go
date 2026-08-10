@@ -197,6 +197,31 @@ func TestHandler_PrimaryEmail_StartMissingFields(t *testing.T) {
 	}
 }
 
+func TestHandler_PrimaryEmail_StartConflictsOnCurrentEmail(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	getRec := doRequest(t, h, "/getPrimaryEmail", map[string]any{"AccountId": "000000000000"})
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+	currentEmail, ok := getOut["PrimaryEmail"].(string)
+	require.True(t, ok)
+
+	rec := doRequest(t, h, "/startPrimaryEmailUpdate", map[string]any{
+		"AccountId":    "000000000000",
+		"PrimaryEmail": currentEmail,
+	})
+	require.Equal(t, http.StatusConflict, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&out))
+	assert.Equal(t, "ConflictException", out["__type"])
+	assert.Equal(t, "ConflictException", rec.Header().Get("X-Amzn-Errortype"))
+}
+
 func TestHandler_GetPrimaryEmailUpdateStatus(t *testing.T) {
 	t.Parallel()
 

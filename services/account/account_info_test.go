@@ -80,6 +80,24 @@ func TestBackend_GetPrimaryEmailUpdateStatus(t *testing.T) {
 	}
 }
 
+// TestBackend_StartPrimaryEmailUpdate_ConflictsOnCurrentEmail verifies
+// StartPrimaryEmailUpdate rejects a "new" email that's already in use --
+// the only email this single-account backend can know is in use is its own
+// current primaryEmail (types.ConflictException's documented trigger).
+func TestBackend_StartPrimaryEmailUpdate_ConflictsOnCurrentEmail(t *testing.T) {
+	t.Parallel()
+
+	b := account.NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.StartPrimaryEmailUpdate(b.GetPrimaryEmail())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ConflictException")
+
+	status, _, statusErr := b.GetPrimaryEmailUpdateStatus()
+	require.Error(t, statusErr, "a rejected request must not start a pending update")
+	assert.Empty(t, status)
+}
+
 // TestBackend_GetGovCloudAccountInformation_NeverLinked verifies this
 // standalone (non-organization-member) backend never has a linked GovCloud
 // account -- there is no operation anywhere in this service that could link

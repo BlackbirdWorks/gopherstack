@@ -33,4 +33,11 @@ var (
 	// AccountId-targeting gap in PARITY.md -- so no account it simulates ever
 	// has a linked GovCloud pair, and this error always fires.
 	errGovCloudNotLinked = errors.New("ResourceNotFoundException: GovCloud Account ID not found for Standard Account")
+	// errPrimaryEmailInUse is StartPrimaryEmailUpdate's documented
+	// ConflictException trigger ("if you try to change an account's root
+	// user email to an email address which is already in use" --
+	// types.ConflictException doc comment in the pinned SDK's
+	// types/errors.go). This single-account backend only ever knows of one
+	// email in use: its own current primaryEmail.
+	errPrimaryEmailInUse = errors.New("ConflictException: primary email address is already in use")
 )

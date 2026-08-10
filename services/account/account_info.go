@@ -28,9 +28,15 @@ func (b *InMemoryBackend) GetPrimaryEmail() string {
 
 // StartPrimaryEmailUpdate initiates a primary email change.
 // Returns a fixed simulation OTP that the caller must pass to AcceptPrimaryEmailUpdate.
+// Rejects a target email already in use by this account (ConflictException;
+// see errPrimaryEmailInUse).
 func (b *InMemoryBackend) StartPrimaryEmailUpdate(email string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if email == b.primaryEmail {
+		return "", errPrimaryEmailInUse
+	}
 
 	b.pendingEmail = email
 	b.pendingOTP = simOTP

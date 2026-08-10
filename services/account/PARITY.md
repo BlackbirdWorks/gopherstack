@@ -12,7 +12,7 @@ sdk_module: aws-sdk-go-v2/service/account@v1.35.4 (now a real go.mod/go.sum
   SDK-completeness coverage and no test/integration/account_test.go, unlike
   every other service in the repo.)
 last_audit_commit: fca4a71a1
-last_audit_date: 2026-08-07
+last_audit_date: 2026-08-10
 overall: A            # sdk_completeness_test.go added and green (16/16 real ops
                        # covered), GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation
                        # implemented for real, and a genuine cross-service routing bug
@@ -32,7 +32,7 @@ ops:
   EnableRegion: {wire: ok, errors: fixed, state: ok, persist: ok, note: "same bug/fix as GetRegionOptStatus: modeled errors are AccessDenied/Conflict/InternalServer/TooManyRequests/Validation, no ResourceNotFound. transitions straight to terminal ENABLED rather than through a transient ENABLING window -- see gaps."}
   DisableRegion: {wire: ok, errors: fixed, state: ok, persist: ok, note: "same bug/fix as GetRegionOptStatus/EnableRegion. Same immediate-terminal-state simplification as EnableRegion (DISABLING) -- see gaps."}
   GetPrimaryEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "AccountId required, re-confirmed against validators.go's validateOpGetPrimaryEmailInput"}
-  StartPrimaryEmailUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "AccountId/PrimaryEmail required, re-confirmed against validators.go"}
+  StartPrimaryEmailUpdate: {wire: ok, errors: fixed, state: ok, persist: ok, note: "AccountId/PrimaryEmail required, re-confirmed against validators.go. BUG FIXED: now returns ConflictException when PrimaryEmail equals the account's current primaryEmail -- types.ConflictException's doc comment (types/errors.go) names 'change an account's root user email to an email address which is already in use' as a trigger, and deserializers.go's awsRestjson1_deserializeOpErrorStartPrimaryEmailUpdate models ConflictException for this op; the one email this single-account backend can ever know is 'already in use' is its own current primaryEmail. Cross-account email collision remains unmodeled -- see gaps."}
   AcceptPrimaryEmailUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "AccountId/Otp/PrimaryEmail required, re-confirmed against validators.go and serializers.go's exact wire field names (AccountId/Otp/PrimaryEmail)"}
   GetAccountInformation: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed real op (exists in aws-sdk-go-v2/service/account@v1.34.0, added after the aws-sdk-go v1 classic SDK's July-2024 feature freeze, which is why the v1 SDK vendored in this repo's module cache doesn't have it). Flat response confirmed via serializer (no wrapper). AccountCreatedDate confirmed ISO8601 (smithytime.ParseDateTime in deserializers.go), not epoch -- RFC3339 in account_info.go is correct."}
   PutAccountName: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-confirmed real op, AccountId optional/AccountName required per validators.go"}
@@ -42,11 +42,11 @@ ops:
 families:
   routing: {status: ok, note: "full rewrite -- see bugs below"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "AccountId targeting of org member accounts is not modeled: GetAlternateContact/PutAlternateContact/DeleteAlternateContact/GetContactInformation/PutContactInformation/ListRegions/GetRegionOptStatus/EnableRegion/DisableRegion/GetAccountInformation/PutAccountName/GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation accept an optional AccountId/StandardAccountId (as AWS's wire contract requires) but operate on the single InMemoryBackend regardless of its value -- there is no per-member-account backend. GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate validate AccountId is present (matching AWS's required-field contract) but likewise don't scope by it. Consistent with this service having always been a single-account backend; true multi-account modeling is a larger cross-service (Organizations-integration) project. GetGovCloudAccountInformation's always-ResourceNotFoundException behavior is a direct consequence: services/organizations already models a GovCloudAccountID linked at CreateGovCloudAccount time, but wiring account<->organizations the way grafana<->networkmanager already cross-link would require touching cli.go, out of this pass's scope."
-  - "EnableRegion/DisableRegion transition directly to the terminal state (ENABLED/DISABLED) instead of an async ENABLING/DISABLING window that a client would poll GetRegionOptStatus to observe. Real AWS takes minutes-to-hours; gopherstack completes immediately. This also means the documented ConflictException (\"enable while DISABLING\") can never actually fire here -- the window doesn't exist to race into. Not fixed: adding real async state to a Snapshot/Restore-backed backend risks non-deterministic tests and races under -race for a benefit (exercising a transient status) most callers/waiters don't depend on. Revisit if a bd issue specifically needs the transient states simulated."
+  - "AccountId targeting of org member accounts is not modeled: GetAlternateContact/PutAlternateContact/DeleteAlternateContact/GetContactInformation/PutContactInformation/ListRegions/GetRegionOptStatus/EnableRegion/DisableRegion/GetAccountInformation/PutAccountName/GetPrimaryEmailUpdateStatus/GetGovCloudAccountInformation accept an optional AccountId/StandardAccountId (as AWS's wire contract requires) but operate on the single InMemoryBackend regardless of its value -- there is no per-member-account backend. GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate validate AccountId is present (matching AWS's required-field contract) but likewise don't scope by it. Consistent with this service having always been a single-account backend; true multi-account modeling is a larger cross-service (Organizations-integration) project. GetGovCloudAccountInformation's always-ResourceNotFoundException behavior is a direct consequence: services/organizations already models a GovCloudAccountID linked at CreateGovCloudAccount time, but wiring account<->organizations the way grafana<->networkmanager already cross-link would require touching cli.go, out of this pass's scope. Re-verified 2026-08-10: this is NOT a silent-drop bug -- handler.go decodes AccountId/StandardAccountId into every request struct (e.g. handleGetContactInformation's req.AccountID, handleGetGovCloudAccountInformation's req.StandardAccountID) and enforces it as required exactly where validators.go's validateOpGetPrimaryEmailInput/validateOpStartPrimaryEmailUpdateInput/validateOpAcceptPrimaryEmailUpdateInput require it (GetPrimaryEmail/StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate only) -- the field is read and validated, just not used for routing. Genuinely blocked on a multi-account backend model (per-member-account state), not a lookup gopherstack already has the data for; services/organizations models Email per member account but wiring account<->organizations would mean editing cli.go, excluded from this pass."
+  - "EnableRegion/DisableRegion transition directly to the terminal state (ENABLED/DISABLED) instead of an async ENABLING/DISABLING window that a client would poll GetRegionOptStatus to observe. Real AWS takes minutes-to-hours; gopherstack completes immediately. This also means the documented ConflictException (\"enable while DISABLING\") can never actually fire here -- the window doesn't exist to race into. Not fixed: adding real async state to a Snapshot/Restore-backed backend risks non-deterministic tests and races under -race for a benefit (exercising a transient status) most callers/waiters don't depend on. Revisit if a bd issue specifically needs the transient states simulated. Re-verified 2026-08-10: this is a legitimate simplification, not a wire gap -- RegionOptStatusEnabling/RegionOptStatusDisabling ARE present in gopherstack's own enum (regions.go) and match the pinned SDK's types.RegionOptStatus.Values() (types/enums.go:110-117) exactly; nothing was missing from the source. No response field contradicts the simplification either: EnableRegionOutput/DisableRegionOutput (api_op_EnableRegion.go/api_op_DisableRegion.go) carry no fields at all besides ResultMetadata, and GetRegionOptStatusOutput (api_op_GetRegionOptStatus.go:62-75) is just {RegionName, RegionOptStatus} with no PendingChange/ETA field a caller could catch out of sync."
   - "AcceptPrimaryEmailUpdate's real AcceptPrimaryEmailUpdateOutput reports Status ACCEPTED immediately, then asynchronously transitions to COMPLETED once the change actually propagates. This simulator does not model that async completion tail -- ACCEPTED is the terminal status GetPrimaryEmailUpdateStatus reports here, matching the EnableRegion/DisableRegion async-window gap above. PrimaryEmailUpdateStatusCompleted/Failed are modeled (matching the real enum) but never produced."
-  - "AccessDeniedException/TooManyRequestsException are wired into writeBackendError's classification table (so a backend error carrying that AWS exception name in its message would map to the correct HTTP status/code) but nothing in this backend's logic currently generates either -- there is no auth/permission model or throttle simulation in this service. Dead-but-correct code path; not a bug, just unexercised. ResourceUnavailableException (GetGovCloudAccountInformation's modeled error set) is the same: wired to 424, never produced."
-  - "ConflictException's documented 'email address already in use' trigger (StartPrimaryEmailUpdate/AcceptPrimaryEmailUpdate) is not simulated -- consistent with the AccountId/single-backend gap above: there is no second account to collide with."
+  - "AccessDeniedException/TooManyRequestsException are wired into writeBackendError's classification table (so a backend error carrying that AWS exception name in its message would map to the correct HTTP status/code) but nothing in this backend's logic currently generates either -- there is no auth/permission model or throttle simulation in this service. Dead-but-correct code path; not a bug, just unexercised. ResourceUnavailableException (GetGovCloudAccountInformation's modeled error set) is the same: wired to 424, never produced. Re-verified 2026-08-10: this is legitimate and repo-consistent -- gopherstack has no per-request IAM policy evaluation or request-rate throttling in this service (nor is one specific to Account Management alone), so there is no real signal to trigger AccessDenied/TooManyRequests from. Not fabricating a synthetic rate-limit/permission model to force these to fire."
+  - "ConflictException's documented 'email address already in use' trigger is now simulated for the case this single-account backend can actually detect: StartPrimaryEmailUpdate rejects a target PrimaryEmail equal to the account's own current primaryEmail (2026-08-10 fix). The genuinely cross-account collision (targeting a *different* AWS account's email) remains unmodeled -- consistent with the AccountId/single-backend gap above: there is no second account's email to compare against. AcceptPrimaryEmailUpdate also models ConflictException (deserializers.go's awsRestjson1_deserializeOpErrorAcceptPrimaryEmailUpdate) but has no independent trigger to simulate: any self-collision is already caught at StartPrimaryEmailUpdate time, before a pending update (and its OTP) would exist to Accept."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - none (every routed op audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse sync.RWMutex guards all backend state; re-confirmed every lock path defer-releases and DeleteAlternateContact leaves no ghost map/table row"}
@@ -209,3 +209,54 @@ its payload under a matching key (`GetContactInformation` → `{"ContactInformat
 `GetAlternateContact` → `{"AlternateContact": ...}`). This looks like an inconsistency but
 is correct per the AWS API reference's documented response syntax — don't "fix" it to match
 the other ops' wrapper convention.
+
+**2026-08-10 pass (gopherstack-sobi)**: re-audited the four items this service's FOLLOW-UP
+issue recorded as needing further look. `sdk_module` pin (`account@v1.35.4`) re-checked
+against `go.mod` — still current, not stale, so no prior claim in this file rested on a wrong
+SDK version.
+
+- **AccountId multi-account/member targeting**: re-confirmed NOT a silent-drop bug —
+  `handler.go` decodes `AccountId`/`StandardAccountId` into every request struct and enforces
+  it as required exactly where the pinned SDK's `validators.go` requires it
+  (`GetPrimaryEmail`/`StartPrimaryEmailUpdate`/`AcceptPrimaryEmailUpdate` only). The field is
+  read and validated, just never used to route to different backend state. Genuinely blocked
+  on a multi-account backend model (per-member-account state), which is a different, larger
+  problem than a lookup gopherstack already has data for — not fixed, left as documented gap.
+- **EnableRegion/DisableRegion ENABLING/DISABLING async window**: re-confirmed legitimate, not
+  a false claim. Both enum values are present in gopherstack's own `RegionOptStatus`
+  (`regions.go`) and match the pinned SDK's `types.RegionOptStatus.Values()`
+  (`types/enums.go:99-117`) exactly — no missing enum value. No response field contradicts the
+  instant-completion simplification either: `EnableRegionOutput`/`DisableRegionOutput`
+  (`api_op_EnableRegion.go`/`api_op_DisableRegion.go`) carry no fields besides
+  `ResultMetadata`, and `GetRegionOptStatusOutput` (`api_op_GetRegionOptStatus.go:62-75`) is
+  just `{RegionName, RegionOptStatus}` — no `PendingChange`/ETA field a caller could observe
+  as inconsistent. Not fixed, per this file's existing rationale (async state risks
+  nondeterministic tests under `-race` for a benefit most callers don't depend on).
+- **ConflictException email-already-in-use (BUG FIXED)**: the backend genuinely holds enough
+  state to detect one real case of this — `StartPrimaryEmailUpdate` now rejects a target
+  `PrimaryEmail` equal to the account's own current `primaryEmail` with `ConflictException`
+  (`errPrimaryEmailInUse` in `errors.go`), matching `types.ConflictException`'s doc comment
+  (pinned SDK's `types/errors.go`) and `deserializers.go`'s
+  `awsRestjson1_deserializeOpErrorStartPrimaryEmailUpdate`, which both confirm ConflictException
+  is a modeled error for this op with exactly this trigger. Verified test-first: added
+  `TestBackend_StartPrimaryEmailUpdate_ConflictsOnCurrentEmail` (`account_info_test.go`),
+  confirmed it failed against the pre-fix backend (`update succeeded, want error`), then added
+  the check and confirmed it passes; added a matching handler-level 409 test
+  (`TestHandler_PrimaryEmail_StartConflictsOnCurrentEmail`,
+  `handler_account_info_test.go`). The broader cross-account collision (targeting a different
+  AWS account's email) remains unmodeled — no second account's email exists in this
+  single-account backend to compare against.
+- **AccessDenied/TooManyRequests never generated**: re-confirmed legitimate — this service has
+  no per-request IAM policy evaluation or throttle simulation (nor does any comparable
+  gopherstack service model one per-op), so there is no real signal to trigger either from.
+  Left as documented dead-but-correct wiring; not fabricating a synthetic rate-limit model.
+
+Adjacent sweep (enum values no client would recognize, required response fields never
+serialized, config accepted-then-discarded) found nothing further: every enum in `models.go`
+(`RegionOptStatus`, `ContactType`, `State`, `PrimaryEmailUpdateStatus`) matches the pinned
+SDK's `types/enums.go` values exactly, and every response struct's fields
+(`GetAccountInformationOutput`, `GetGovCloudAccountInformationOutput`, `ListRegionsOutput`,
+`GetContactInformationOutput`, `GetAlternateContactOutput`, `StartPrimaryEmailUpdateOutput`,
+`AcceptPrimaryEmailUpdateOutput`, `GetPrimaryEmailUpdateStatusOutput`,
+`GetPrimaryEmailOutput`) were re-checked field-by-field against the pinned SDK's
+`api_op_*.go` files with none missing.
