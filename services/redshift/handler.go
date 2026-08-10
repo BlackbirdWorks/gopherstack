@@ -34,7 +34,12 @@ const (
 	opGetResourcePolicy             = "GetResourcePolicy"
 	opPutResourcePolicy             = "PutResourcePolicy"
 	opDeleteResourcePolicy          = "DeleteResourcePolicy"
-	opUnknown                       = "Unknown"
+	// opCreateEndpointAccess/opDeleteEndpointAccess are shared with
+	// handler_serverless.go: classic Redshift and Redshift Serverless both
+	// define real, distinct operations with these exact names.
+	opCreateEndpointAccess = "CreateEndpointAccess"
+	opDeleteEndpointAccess = "DeleteEndpointAccess"
+	opUnknown              = "Unknown"
 )
 
 const (
@@ -211,7 +216,7 @@ func supportedOpsGroup2() []string {
 		"UpdatePartnerStatus",
 		// Completeness pass — previously notImplemented
 		opCreateCustomDomainAssociation,
-		"CreateEndpointAccess",
+		opCreateEndpointAccess,
 		"CreateHsmClientCertificate",
 		"CreateHsmConfiguration",
 		"CreateIntegration",
@@ -219,7 +224,7 @@ func supportedOpsGroup2() []string {
 		"CreateRedshiftIdcApplication",
 		opCreateScheduledAction,
 		opDeleteCustomDomainAssociation,
-		"DeleteEndpointAccess",
+		opDeleteEndpointAccess,
 		"DeleteHsmClientCertificate",
 		"DeleteHsmConfiguration",
 		"DeleteIntegration",
@@ -467,7 +472,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 	return map[string]redshiftActionFn{
 		opCreateCustomDomainAssociation:    h.handleCreateCustomDomainAssociation,
-		"CreateEndpointAccess":             h.handleCreateEndpointAccess,
+		opCreateEndpointAccess:             h.handleCreateEndpointAccess,
 		"CreateHsmClientCertificate":       h.handleCreateHsmClientCertificate,
 		"CreateHsmConfiguration":           h.handleCreateHsmConfiguration,
 		"CreateIntegration":                h.handleCreateIntegration,
@@ -475,7 +480,7 @@ func (h *Handler) buildOpsGroup3() map[string]redshiftActionFn {
 		"CreateRedshiftIdcApplication":     h.handleCreateIdcApplication,
 		opCreateScheduledAction:            h.handleCreateScheduledAction,
 		opDeleteCustomDomainAssociation:    h.handleDeleteCustomDomainAssociation,
-		"DeleteEndpointAccess":             h.handleDeleteEndpointAccess,
+		opDeleteEndpointAccess:             h.handleDeleteEndpointAccess,
 		"DeleteHsmClientCertificate":       h.handleDeleteHsmClientCertificate,
 		"DeleteHsmConfiguration":           h.handleDeleteHsmConfiguration,
 		"DeleteIntegration":                h.handleDeleteIntegration,

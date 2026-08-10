@@ -82,6 +82,7 @@ type InMemoryBackend struct {
 	slSnapshotCopyConfig   *store.Table[ServerlessSnapshotCopyConfiguration]
 	slRecoveryPoints       *store.Table[RecoveryPoint]
 	slTableRestoreStatuses *store.Table[ServerlessTableRestoreStatus]
+	slEndpointAccesses     *store.Table[ServerlessEndpointAccess]
 	endpointAccesses       *store.Table[EndpointAccess]
 	// clusterTransitions holds in-flight lifecycle state, intentionally never
 	// persisted (see Restore) and keyed externally by cluster ID.
@@ -99,6 +100,7 @@ type InMemoryBackend struct {
 	slSnapshotCopyConfigIdx sortedStringIndex
 	slRecoveryPointIdx      sortedStringIndex
 	slTableRestoreStatusIdx sortedStringIndex
+	slEndpointAccessIdx     sortedStringIndex
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
 	reconcileInterval       time.Duration

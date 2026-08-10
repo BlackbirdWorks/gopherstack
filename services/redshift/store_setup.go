@@ -105,6 +105,8 @@ func slTableRestoreStatusesKeyFn(v *ServerlessTableRestoreStatus) string {
 	return v.TableRestoreRequestID
 }
 
+func slEndpointAccessesKeyFn(v *ServerlessEndpointAccess) string { return v.EndpointName }
+
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
@@ -233,6 +235,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.slTableRestoreStatuses = store.Register(
 			b.registry, "slTableRestoreStatuses", store.New(slTableRestoreStatusesKeyFn),
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.slEndpointAccesses = store.Register(b.registry, "slEndpointAccesses", store.New(slEndpointAccessesKeyFn))
 	},
 }
 

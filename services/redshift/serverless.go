@@ -51,6 +51,12 @@ var (
 	// ErrTableRestoreSLNotFound is returned when a serverless table restore
 	// request does not exist.
 	ErrTableRestoreSLNotFound = errors.New("ResourceNotFoundException")
+	// ErrEndpointAccessSLNotFound is returned when a serverless VPC endpoint
+	// does not exist.
+	ErrEndpointAccessSLNotFound = errors.New("ResourceNotFoundException")
+	// ErrEndpointAccessSLAlreadyExists is returned when a serverless VPC
+	// endpoint name is already in use.
+	ErrEndpointAccessSLAlreadyExists = errors.New("ConflictException")
 )
 
 // ---------------------------------------------------------------------------
@@ -300,6 +306,52 @@ type ServerlessTableRestoreStatus struct {
 	WorkgroupName         string    `json:"workgroupName,omitempty"`
 	ProgressInMegaBytes   int64     `json:"progressInMegaBytes,omitempty"`
 	TotalDataInMegaBytes  int64     `json:"totalDataInMegaBytes,omitempty"`
+}
+
+// ServerlessEndpointAccess is a Redshift Serverless managed VPC endpoint
+// (the "EndpointAccess" shape in service-2.json), distinct from classic
+// Redshift's cluster-keyed EndpointAccess in models.go (endpoint_access.go)
+// -- this one is workgroup-keyed JSON with SubnetIDs (individual subnet
+// IDs) rather than a SubnetGroupName. VpcEndpoint (the nested
+// vpcEndpointId/vpcId/networkInterfaces object) is deliberately unmodeled,
+// the same judgment call families.EndpointAccess already made for classic
+// Redshift: real types.VpcEndpoint.NetworkInterfaces needs
+// AvailabilityZone/PrivateIpAddress/NetworkInterfaceId/SubnetId per ENI,
+// none of which this backend tracks anywhere, and vpcId/vpcEndpointId would
+// have to be fabricated with no real ENI allocation behind them -- left
+// absent rather than invented. VpcSecurityGroupIDs is tagged json:"-" and
+// expanded into the real vpcSecurityGroups>{status,vpcSecurityGroupId} list
+// at the response boundary (see slEndpointAccessWire); OwnerAccount is a
+// real request/List-filter field the EndpointAccess response shape itself
+// never echoes (confirmed absent from its members).
+type ServerlessEndpointAccess struct {
+	EndpointCreateTime  time.Time `json:"endpointCreateTime"`
+	Address             string    `json:"address,omitempty"`
+	EndpointArn         string    `json:"endpointArn"`
+	EndpointName        string    `json:"endpointName"`
+	EndpointStatus      string    `json:"endpointStatus"`
+	OwnerAccount        string    `json:"-"`
+	WorkgroupName       string    `json:"workgroupName"`
+	SubnetIDs           []string  `json:"subnetIds,omitempty"`
+	VpcSecurityGroupIDs []string  `json:"-"`
+	Port                int       `json:"port,omitempty"`
+}
+
+// ManagedWorkgroupListItem represents a Glue Data Catalog-managed Redshift
+// Serverless workgroup (the "ManagedWorkgroupListItem" shape in
+// service-2.json) -- auto-provisioned when a query runs against data shared
+// through Lake Formation / Glue federation, confirmed by ListManagedWorkgroupsRequest's
+// sourceArn filter being a Glue database/catalog ARN
+// ("^arn:aws[a-z-]*:glue:..." in the SourceArn shape's pattern). This
+// backend has no Glue Data Catalog or Lake Formation integration anywhere,
+// so there is never a real managed workgroup to list -- see
+// ListManagedWorkgroupsSL.
+type ManagedWorkgroupListItem struct {
+	CreationDate         time.Time `json:"creationDate"`
+	ManagedWorkgroupID   string    `json:"managedWorkgroupId,omitempty"`
+	ManagedWorkgroupName string    `json:"managedWorkgroupName,omitempty"`
+	SourceArn            string    `json:"sourceArn,omitempty"`
+	Status               string    `json:"status,omitempty"`
 }
 
 // slResourceTagSet holds the tags attached to a taggable Redshift Serverless

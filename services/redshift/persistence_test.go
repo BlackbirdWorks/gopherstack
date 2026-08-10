@@ -291,6 +291,9 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	scc, err := b.CreateSnapshotCopyConfigurationSL("rt-namespace", "us-west-2", "", 7)
 	require.NoError(t, err)
 
+	_, err = b.CreateEndpointAccessSL("rt-slendpoint", "rt-workgroup", "", []string{"subnet-1"}, nil)
+	require.NoError(t, err)
+
 	_, err = b.CreateServerlessUsageLimit(
 		"arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/rt-workgroup",
 		"ComputeCapacity", "daily", "log", 100,
@@ -419,6 +422,12 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	tableRestoreList, _ := fresh.ListTableRestoreStatusSL("rt-namespace", "", 0, "")
 	require.Len(t, tableRestoreList, 1, "sorted index must survive the round trip, not just the underlying table")
+
+	_, err = fresh.GetEndpointAccessSL("rt-slendpoint")
+	require.NoError(t, err)
+
+	endpointList, _ := fresh.ListEndpointAccessSL("rt-workgroup", "", 0, "")
+	require.Len(t, endpointList, 1, "sorted index must survive the round trip, not just the underlying table")
 
 	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
 	// survived the round trip with the rt-cluster entry intact.

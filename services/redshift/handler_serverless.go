@@ -94,6 +94,14 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"RestoreTableFromRecoveryPoint",
 		"GetTableRestoreStatus",
 		"ListTableRestoreStatus",
+		opCreateEndpointAccess,
+		"GetEndpointAccess",
+		"ListEndpointAccess",
+		"UpdateEndpointAccess",
+		opDeleteEndpointAccess,
+		"ListManagedWorkgroups",
+		"RestoreFromSnapshot",
+		"ConvertRecoveryPointToSnapshot",
 	}
 }
 
@@ -122,6 +130,7 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slSnapshotCopyConfig.Reset()
 	h.Backend.slRecoveryPoints.Reset()
 	h.Backend.slTableRestoreStatuses.Reset()
+	h.Backend.slEndpointAccesses.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -258,6 +267,17 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 	"RestoreTableFromRecoveryPoint": (*ServerlessHandler).handleRestoreTableFromRecoveryPoint,
 	"GetTableRestoreStatus":         (*ServerlessHandler).handleGetTableRestoreStatus,
 	"ListTableRestoreStatus":        (*ServerlessHandler).handleListTableRestoreStatus,
+
+	opCreateEndpointAccess: (*ServerlessHandler).handleCreateEndpointAccessSL,
+	"GetEndpointAccess":    (*ServerlessHandler).handleGetEndpointAccessSL,
+	"ListEndpointAccess":   (*ServerlessHandler).handleListEndpointAccessSL,
+	"UpdateEndpointAccess": (*ServerlessHandler).handleUpdateEndpointAccessSL,
+	opDeleteEndpointAccess: (*ServerlessHandler).handleDeleteEndpointAccessSL,
+
+	"ListManagedWorkgroups": (*ServerlessHandler).handleListManagedWorkgroups,
+
+	"RestoreFromSnapshot":            (*ServerlessHandler).handleRestoreFromSnapshot,
+	"ConvertRecoveryPointToSnapshot": (*ServerlessHandler).handleConvertRecoveryPointToSnapshot,
 }
 
 // ---------------------------------------------------------------------------
@@ -975,6 +995,7 @@ const (
 	slRespSnapshotCopyConfig = "snapshotCopyConfiguration"
 	slRespRecoveryPoint      = "recoveryPoint"
 	slRespTableRestoreStatus = "tableRestoreStatus"
+	slRespEndpoint           = "endpoint"
 )
 
 func slErrorResponse(code, msg string) map[string]any {
@@ -1006,12 +1027,14 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrResourcePolicySLNotFound),
 		errors.Is(err, ErrSnapshotCopyConfigSLNotFound),
 		errors.Is(err, ErrRecoveryPointNotFound),
-		errors.Is(err, ErrTableRestoreSLNotFound):
+		errors.Is(err, ErrTableRestoreSLNotFound),
+		errors.Is(err, ErrEndpointAccessSLNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
 		errors.Is(err, ErrServerlessConflict),
-		errors.Is(err, ErrCustomDomainSLConflict):
+		errors.Is(err, ErrCustomDomainSLConflict),
+		errors.Is(err, ErrEndpointAccessSLAlreadyExists):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ConflictException", err.Error()))
 	default:
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))

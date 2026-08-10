@@ -76,6 +76,8 @@ func (b *InMemoryBackend) GetCustomDomainAssociationSL(
 // ListCustomDomainAssociationsSL returns associations, optionally filtered by
 // customDomainName or customDomainCertificateArn (both optional filters on
 // ListCustomDomainAssociationsRequest).
+//
+//nolint:dupl // pagination pattern is structurally identical across serverless resource types
 func (b *InMemoryBackend) ListCustomDomainAssociationsSL(
 	customDomainName, customDomainCertificateArn string,
 	maxResults int,
