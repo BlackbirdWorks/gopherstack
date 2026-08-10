@@ -117,6 +117,13 @@ const (
 
 	// path sub-segment constants.
 	pathSubSession = "session"
+	// singular forms bound by the Associate* PUT ops; iotwireless@v1.59.4
+	// serializers.go:140 (/fuota-tasks/{Id}/multicast-group) and :234
+	// (/fuota-tasks/{Id}/wireless-device), :328
+	// (/multicast-groups/{Id}/wireless-device) — the DELETE/GET variants
+	// use the plural pathBase* constants instead.
+	pathSubMulticastGroup = "multicast-group"
+	pathSubWirelessDevice = "wireless-device"
 )
 
 const (

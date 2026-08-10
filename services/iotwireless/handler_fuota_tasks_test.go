@@ -255,7 +255,9 @@ func TestHandler_AssociateMulticastGroupWithFuotaTask(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 			body := `{"MulticastGroupId":"` + tt.multicastGroupID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/multicast-groups", body)
+			// AssociateMulticastGroupWithFuotaTask PUTs the singular path;
+			// iotwireless@v1.59.4 serializers.go:140.
+			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/multicast-group", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -284,7 +286,9 @@ func TestHandler_AssociateWirelessDeviceWithFuotaTask(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
-			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/wireless-devices", body)
+			// AssociateWirelessDeviceWithFuotaTask PUTs the singular path;
+			// iotwireless@v1.59.4 serializers.go:234.
+			rec := doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+tt.fuotaTaskID+"/wireless-device", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -317,8 +321,9 @@ func TestHandler_ListMulticastGroupsByFuotaTask(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mgResp))
 	mgID := mgResp["Id"].(string)
 
-	// Associate multicast group with FUOTA task
-	rec = doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+ftID+"/multicast-groups",
+	// Associate multicast group with FUOTA task; AssociateMulticastGroupWithFuotaTask
+	// PUTs the singular path (iotwireless@v1.59.4 serializers.go:140).
+	rec = doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+ftID+"/multicast-group",
 		fmt.Sprintf(`{"MulticastGroupId":%q}`, mgID))
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -433,8 +438,9 @@ func TestHandler_DisassociateWirelessDeviceFromFuotaTask(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp))
 	devID := devResp["Id"].(string)
 
-	// Associate device with FUOTA task
-	rec = doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+ftID+"/wireless-devices",
+	// Associate device with FUOTA task; AssociateWirelessDeviceWithFuotaTask
+	// PUTs the singular path (iotwireless@v1.59.4 serializers.go:234).
+	rec = doIoTWRequest(t, h, http.MethodPut, "/fuota-tasks/"+ftID+"/wireless-device",
 		fmt.Sprintf(`{"WirelessDeviceId":%q}`, devID))
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 

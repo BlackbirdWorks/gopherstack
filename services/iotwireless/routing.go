@@ -578,13 +578,13 @@ func parseFuotaTaskPath(method, id, subPath string, hasID bool) (string, string)
 // parseFuotaTaskSubPath routes sub-paths of a FUOTA task resource.
 func parseFuotaTaskSubPath(method, id, subPath string) string {
 	switch {
-	case subPath == pathBaseMulticastGroups && method == http.MethodPut:
+	case subPath == pathSubMulticastGroup && method == http.MethodPut:
 		return opAssociateMulticastGroupWithFuotaTask
 	case subPath == pathBaseMulticastGroups && method == http.MethodGet:
 		return opListMulticastGroupsByFuotaTask
 	case strings.HasPrefix(subPath, "multicast-groups/") && method == http.MethodDelete:
 		return opDisassociateMulticastGroupFromFuotaTask
-	case subPath == pathBaseWirelessDevices && method == http.MethodPut:
+	case subPath == pathSubWirelessDevice && method == http.MethodPut:
 		return opAssociateWirelessDeviceWithFuotaTask
 	case strings.HasPrefix(subPath, "wireless-devices/") && method == http.MethodDelete:
 		return opDisassociateWirelessDeviceFromFuotaTask
@@ -643,7 +643,7 @@ func parseMulticastGroupSubPath(method, subPath string) string {
 // parseMulticastWirelessDeviceSubPath routes wireless device association sub-paths.
 func parseMulticastWirelessDeviceSubPath(method, subPath string) string {
 	switch {
-	case subPath == pathBaseWirelessDevices && method == http.MethodPut:
+	case subPath == pathSubWirelessDevice && method == http.MethodPut:
 		return opAssociateWirelessDeviceWithMulticastGroup
 	case strings.HasPrefix(subPath, "wireless-devices/") && method == http.MethodDelete:
 		return opDisassociateWirelessDeviceFromMulticastGroup

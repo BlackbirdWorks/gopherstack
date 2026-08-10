@@ -33,8 +33,10 @@ func TestHandler_AssociateWirelessDeviceWithMulticastGroup(t *testing.T) {
 
 			h := newTestHandlerHTTP()
 			body := `{"WirelessDeviceId":"` + tt.wirelessDeviceID + `"}`
+			// AssociateWirelessDeviceWithMulticastGroup PUTs the singular path;
+			// iotwireless@v1.59.4 serializers.go:328.
 			rec := doIoTWRequest(t, h, http.MethodPut,
-				"/multicast-groups/"+tt.multicastGroupID+"/wireless-devices", body)
+				"/multicast-groups/"+tt.multicastGroupID+"/wireless-device", body)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -82,7 +84,9 @@ func TestHandler_MulticastGroup_LoRaWANRoundTrip(t *testing.T) {
 	assert.InDelta(t, float64(30), gateways["TransmissionInterval"], 0.001)
 
 	// Associate a device, then confirm NumberOfDevicesInGroup reflects it.
-	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+id+"/wireless-devices",
+	// AssociateWirelessDeviceWithMulticastGroup PUTs the singular path
+	// (iotwireless@v1.59.4 serializers.go:328).
+	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+id+"/wireless-device",
 		`{"WirelessDeviceId":"dev-rt-1"}`)
 	require.Equal(t, http.StatusNoContent, rec.Code)
 
@@ -252,8 +256,9 @@ func TestHandler_DisassociateWirelessDeviceFromMulticastGroup(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &devResp))
 	devID := devResp["Id"].(string)
 
-	// Associate device with multicast group
-	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+mgID+"/wireless-devices",
+	// Associate device with multicast group; AssociateWirelessDeviceWithMulticastGroup
+	// PUTs the singular path (iotwireless@v1.59.4 serializers.go:328).
+	rec = doIoTWRequest(t, h, http.MethodPut, "/multicast-groups/"+mgID+"/wireless-device",
 		fmt.Sprintf(`{"WirelessDeviceId":%q}`, devID))
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
