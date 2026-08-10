@@ -24,18 +24,23 @@ const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 // archiveData remain plain maps because their values are slice/string-typed
 // (not *T) with no identity field of their own to key a Table by.
 type InMemoryBackend struct {
-	registry                *store.Registry
-	vaults                  *store.Table[Vault]
-	vaultsByAccountRegion   *store.Index[Vault]
+	// s3 is the (optional) wired S3 backend a completed Select job's real
+	// OutputLocation output is written to -- see select_output.go. Nil until
+	// SetS3Backend is called (cli.go's wireGlacierS3); nil is a valid, silently
+	// degraded state (no S3 write-back, matching pre-wiring behavior).
+	s3                      S3Accessor
+	multipartUploadsByVault *store.Index[MultipartUpload]
+	multipartParts          map[uploadKey][]MultipartPart
 	jobs                    *store.Table[Job]
 	jobsByVault             *store.Index[Job]
 	multipartUploads        *store.Table[MultipartUpload]
-	multipartUploadsByVault *store.Index[MultipartUpload]
+	registry                *store.Registry
 	vaultLocks              *store.Table[VaultLock]
-	multipartParts          map[uploadKey][]MultipartPart
+	vaultsByAccountRegion   *store.Index[Vault]
 	provisionedCapacity     map[string][]*ProvisionedCapacity
 	dataRetrievalPolicies   map[string]string
 	archiveData             map[string][]byte
+	vaults                  *store.Table[Vault]
 	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
 	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
 	// AWS, which does not make archive/inventory output available immediately.

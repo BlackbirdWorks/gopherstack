@@ -3247,6 +3247,11 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// PipelineDefinitionS3Location's object as the real pipeline definition.
 	wireSageMakerS3(byName["SageMaker"], byName["S3"])
 
+	// Wire Glacier → S3 so a completed Select job writes its real
+	// OutputLocation output (job.txt/results/result_manifest.txt) instead of
+	// only serving results via GetJobOutput.
+	wireGlacierS3(byName["Glacier"], byName["S3"])
+
 	// Wire Lambda invoker → SecretsManager rotation.
 	wireSecretsManagerLambda(byName["SecretsManager"], byName["Lambda"])
 
@@ -10904,6 +10909,34 @@ func wireSageMakerS3(smReg, s3Reg service.Registerable) {
 	}
 
 	smH.Backend.SetS3Backend(s3Bk)
+}
+
+// wireGlacierS3 connects the Glacier backend to the S3 backend so a completed
+// Select job writes its real OutputLocation output (job.txt/results/
+// result_manifest.txt, see services/glacier/select_output.go) instead of only
+// serving results via GetJobOutput.
+func wireGlacierS3(glacierReg, s3Reg service.Registerable) {
+	glH, ok := glacierReg.(*glacierbackend.Handler)
+	if !ok {
+		return
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, bkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	glBk, glBkOk := glH.Backend.(*glacierbackend.InMemoryBackend)
+	if !glBkOk {
+		return
+	}
+
+	glBk.SetS3Backend(s3Bk)
 }
 
 // cfnLightsailStackAdapter adapts the CloudFormation backend's real

@@ -16,9 +16,7 @@ var ErrSelectExpression = errors.New("select expression")
 type selectQuery struct {
 	where     [][]selectPredicate // OR of AND-groups (disjunctive normal form)
 	columns   []selectQueryColumn
-	limit     int
 	selectAll bool
-	hasLimit  bool
 }
 
 // selectQueryColumn is a single projected column reference.
@@ -141,11 +139,13 @@ func (p *selectSQLParser) parse() (*selectQuery, error) {
 	}
 
 	if p.peekKeyword("LIMIT") {
-		p.next()
-
-		if err := p.parseLimit(q); err != nil {
-			return nil, err
-		}
+		// Real S3 Glacier Select's SELECT command documents LIMIT as
+		// "(Amazon S3 Select only)": "S3 Glacier Select does not support the
+		// LIMIT clause" (doc_source/s3-glacier-select-sql-reference-select.md,
+		// awsdocs/amazon-glacier-developer-guide). Rejecting it here matches that
+		// real 400 parse-error behavior rather than silently accepting a
+		// Glacier-Select-only superset.
+		return nil, fmt.Errorf("%w: LIMIT is not supported by S3 Glacier Select", ErrSelectExpression)
 	}
 
 	return q, nil
@@ -160,23 +160,6 @@ func (p *selectSQLParser) parseFromClause() error {
 	if t, ok := p.peek(); ok && t.typ == sqlTokIdent && !isSelectSQLKeyword(t.val) {
 		p.next()
 	}
-
-	return nil
-}
-
-func (p *selectSQLParser) parseLimit(q *selectQuery) error {
-	nt, ok := p.next()
-	if !ok || nt.typ != sqlTokNumber {
-		return fmt.Errorf("%w: expected number after LIMIT", ErrSelectExpression)
-	}
-
-	n, err := strconv.Atoi(nt.val)
-	if err != nil || n < 0 {
-		return fmt.Errorf("%w: invalid LIMIT value %q", ErrSelectExpression, nt.val)
-	}
-
-	q.hasLimit = true
-	q.limit = n
 
 	return nil
 }
