@@ -47,49 +47,33 @@ type SecretVersion struct {
 
 // Secret represents a stored secret including all versions.
 type Secret struct {
-	// region is the AWS region this secret belongs to. It is the outer half of
-	// the composite key ("region|Name") used by the backend's flat
-	// store.Table[Secret] (see store_setup.go), which replaces the old
-	// map[string]map[string]*Secret nesting (outer key = region). Unexported
-	// so it never appears in Secrets Manager wire responses -- those are
-	// always built by hand (secretToListEntry, DescribeSecret, etc.), never by
-	// marshaling Secret directly -- but persistence.go must carry it through
-	// the secretSnapshot DTO explicitly since json.Marshal never sees
-	// unexported fields.
-	region string
-	// Tags is a map of key/value tag pairs.
-	Tags *tags.Tags `json:"Tags,omitempty"`
-	// DeletedDate is set when the secret is deleted; nil means active.
-	DeletedDate *float64 `json:"DeletedDate,omitempty"`
-	// ScheduledDeletionDate is the Unix timestamp when the janitor will permanently
-	// purge this secret. Set at soft-delete time from the actual RecoveryWindowInDays.
-	ScheduledDeletionDate *float64 `json:"ScheduledDeletionDate,omitempty"`
-	// Versions holds all versions keyed by VersionId.
-	Versions map[string]*SecretVersion `json:"-"`
-	// LastChangedDate is the Unix timestamp of the most recent value change.
-	LastChangedDate *float64 `json:"-"`
-	// LastRotatedDate is the Unix timestamp of the most recent successful rotation.
-	LastRotatedDate *float64 `json:"-"`
-	// LastAccessedDate is the Unix timestamp of the most recent GetSecretValue call.
-	LastAccessedDate *float64 `json:"-"`
-	// CreatedDate is the Unix timestamp when this secret was created.
-	CreatedDate *float64 `json:"-"`
-	// ARN is the full ARN of the secret.
-	ARN string `json:"ARN"`
-	// Name is the human-readable name of the secret.
-	Name string `json:"Name"`
-	// Description is an optional human-readable description.
-	Description string `json:"Description,omitempty"`
-	// KmsKeyID is the ARN or alias of the KMS key used to encrypt the secret.
-	KmsKeyID string `json:"-"`
-	// RotationLambdaARN is the ARN of the Lambda used for rotation.
-	RotationLambdaARN string `json:"-"`
-	// RotationRules configures automatic secret rotation schedules.
-	RotationRules *RotationRulesType `json:"-"`
-	// CurrentVersionId is the VersionId with the AWSCURRENT label.
-	CurrentVersionID string `json:"-"`
-	// RotationEnabled is true after RotateSecret has been called at least once.
-	RotationEnabled bool `json:"-"`
+	RotationRules                  *RotationRulesType        `json:"-"`
+	Tags                           *tags.Tags                `json:"Tags,omitempty"`
+	DeletedDate                    *float64                  `json:"DeletedDate,omitempty"`
+	ScheduledDeletionDate          *float64                  `json:"ScheduledDeletionDate,omitempty"`
+	Versions                       map[string]*SecretVersion `json:"-"`
+	LastChangedDate                *float64                  `json:"-"`
+	LastRotatedDate                *float64                  `json:"-"`
+	LastAccessedDate               *float64                  `json:"-"`
+	CreatedDate                    *float64                  `json:"-"`
+	Name                           string                    `json:"Name"`
+	region                         string
+	Description                    string                               `json:"Description,omitempty"`
+	KmsKeyID                       string                               `json:"-"`
+	RotationLambdaARN              string                               `json:"-"`
+	ARN                            string                               `json:"ARN"`
+	CurrentVersionID               string                               `json:"-"`
+	Type                           string                               `json:"-"`
+	ExternalSecretRotationRoleArn  string                               `json:"-"`
+	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"-"`
+	RotationEnabled                bool                                 `json:"-"`
+}
+
+// ExternalSecretRotationMetadataItem is a key/value pair of managed
+// external secret rotation metadata, specified by the third-party partner.
+type ExternalSecretRotationMetadataItem struct {
+	Key   string `json:"Key,omitempty"`
+	Value string `json:"Value,omitempty"`
 }
 
 // RotationRulesType configures automatic secret rotation scheduling.
@@ -110,6 +94,7 @@ type CreateSecretInput struct {
 	ClientRequestToken string          `json:"ClientRequestToken,omitempty"`
 	KmsKeyID           string          `json:"KmsKeyId,omitempty"`
 	Region             string          `json:"-"`
+	Type               string          `json:"Type,omitempty"`
 	SecretBinary       []byte          `json:"SecretBinary,omitempty"`
 	Tags               []Tag           `json:"Tags,omitempty"`
 	AddReplicaRegions  []ReplicaRegion `json:"AddReplicaRegions,omitempty"`
@@ -211,21 +196,24 @@ type DeleteSecretOutput struct {
 
 // SecretListEntry is a brief secret descriptor used in ListSecrets.
 type SecretListEntry struct {
-	SecretVersionsToStages map[string][]string `json:"SecretVersionsToStages,omitempty"`
-	LastChangedDate        *float64            `json:"LastChangedDate,omitempty"`
-	LastAccessedDate       *float64            `json:"LastAccessedDate,omitempty"`
-	LastRotatedDate        *float64            `json:"LastRotatedDate,omitempty"`
-	CreatedDate            *float64            `json:"CreatedDate,omitempty"`
-	NextRotationDate       *float64            `json:"NextRotationDate,omitempty"`
-	DeletedDate            *float64            `json:"DeletedDate,omitempty"`
-	RotationRules          *RotationRulesType  `json:"RotationRules,omitempty"`
-	ARN                    string              `json:"ARN"`
-	Name                   string              `json:"Name"`
-	Description            string              `json:"Description,omitempty"`
-	KmsKeyID               string              `json:"KmsKeyId,omitempty"`
-	RotationLambdaARN      string              `json:"RotationLambdaARN,omitempty"`
-	Tags                   []Tag               `json:"Tags,omitempty"`
-	RotationEnabled        bool                `json:"RotationEnabled,omitempty"`
+	SecretVersionsToStages         map[string][]string                  `json:"SecretVersionsToStages,omitempty"`
+	LastChangedDate                *float64                             `json:"LastChangedDate,omitempty"`
+	LastAccessedDate               *float64                             `json:"LastAccessedDate,omitempty"`
+	LastRotatedDate                *float64                             `json:"LastRotatedDate,omitempty"`
+	CreatedDate                    *float64                             `json:"CreatedDate,omitempty"`
+	NextRotationDate               *float64                             `json:"NextRotationDate,omitempty"`
+	DeletedDate                    *float64                             `json:"DeletedDate,omitempty"`
+	RotationRules                  *RotationRulesType                   `json:"RotationRules,omitempty"`
+	ARN                            string                               `json:"ARN"`
+	Name                           string                               `json:"Name"`
+	Description                    string                               `json:"Description,omitempty"`
+	KmsKeyID                       string                               `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN              string                               `json:"RotationLambdaARN,omitempty"`
+	Type                           string                               `json:"Type,omitempty"`
+	ExternalSecretRotationRoleArn  string                               `json:"ExternalSecretRotationRoleArn,omitempty"`
+	Tags                           []Tag                                `json:"Tags,omitempty"`
+	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"ExternalSecretRotationMetadata,omitempty"`
+	RotationEnabled                bool                                 `json:"RotationEnabled,omitempty"`
 }
 
 // ListSecretsInput is the request payload for ListSecrets.
@@ -266,23 +254,26 @@ type DescribeSecretInput struct {
 
 // DescribeSecretOutput is the response payload for DescribeSecret.
 type DescribeSecretOutput struct {
-	Tags               []Tag                   `json:"Tags,omitempty"`
-	DeletedDate        *float64                `json:"DeletedDate,omitempty"`
-	CreatedDate        *float64                `json:"CreatedDate,omitempty"`
-	LastChangedDate    *float64                `json:"LastChangedDate,omitempty"`
-	LastRotatedDate    *float64                `json:"LastRotatedDate,omitempty"`
-	LastAccessedDate   *float64                `json:"LastAccessedDate,omitempty"`
-	NextRotationDate   *float64                `json:"NextRotationDate,omitempty"`
-	VersionIDsToStages map[string][]string     `json:"VersionIdsToStages,omitempty"`
-	ARN                string                  `json:"ARN"`
-	Name               string                  `json:"Name"`
-	Description        string                  `json:"Description,omitempty"`
-	KmsKeyID           string                  `json:"KmsKeyId,omitempty"`
-	RotationLambdaARN  string                  `json:"RotationLambdaARN,omitempty"`
-	PrimaryRegion      string                  `json:"PrimaryRegion,omitempty"`
-	RotationRules      *RotationRulesType      `json:"RotationRules,omitempty"`
-	ReplicationStatus  []ReplicationStatusType `json:"ReplicationStatus,omitempty"`
-	RotationEnabled    bool                    `json:"RotationEnabled"`
+	RotationRules                  *RotationRulesType                   `json:"RotationRules,omitempty"`
+	DeletedDate                    *float64                             `json:"DeletedDate,omitempty"`
+	CreatedDate                    *float64                             `json:"CreatedDate,omitempty"`
+	LastChangedDate                *float64                             `json:"LastChangedDate,omitempty"`
+	LastRotatedDate                *float64                             `json:"LastRotatedDate,omitempty"`
+	LastAccessedDate               *float64                             `json:"LastAccessedDate,omitempty"`
+	NextRotationDate               *float64                             `json:"NextRotationDate,omitempty"`
+	VersionIDsToStages             map[string][]string                  `json:"VersionIdsToStages,omitempty"`
+	Description                    string                               `json:"Description,omitempty"`
+	Name                           string                               `json:"Name"`
+	KmsKeyID                       string                               `json:"KmsKeyId,omitempty"`
+	RotationLambdaARN              string                               `json:"RotationLambdaARN,omitempty"`
+	PrimaryRegion                  string                               `json:"PrimaryRegion,omitempty"`
+	ARN                            string                               `json:"ARN"`
+	Type                           string                               `json:"Type,omitempty"`
+	ExternalSecretRotationRoleArn  string                               `json:"ExternalSecretRotationRoleArn,omitempty"`
+	Tags                           []Tag                                `json:"Tags,omitempty"`
+	ReplicationStatus              []ReplicationStatusType              `json:"ReplicationStatus,omitempty"`
+	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"ExternalSecretRotationMetadata,omitempty"`
+	RotationEnabled                bool                                 `json:"RotationEnabled"`
 }
 
 // UpdateSecretInput is the request payload for UpdateSecret.
@@ -292,6 +283,7 @@ type UpdateSecretInput struct {
 	KmsKeyID           string `json:"KmsKeyId,omitempty"`
 	SecretString       string `json:"SecretString,omitempty"`
 	ClientRequestToken string `json:"ClientRequestToken,omitempty"`
+	Type               string `json:"Type,omitempty"`
 	SecretBinary       []byte `json:"SecretBinary,omitempty"`
 }
 
@@ -338,6 +330,11 @@ type RotateSecretInput struct {
 	RotationRules      *RotationRulesType `json:"RotationRules,omitempty"`
 	RotateImmediately  *bool              `json:"RotateImmediately,omitempty"`
 	ClientRequestToken string             `json:"ClientRequestToken,omitempty"`
+	// ExternalSecretRotationRoleArn is the role Secrets Manager assumes to rotate
+	// a managed external secret.
+	ExternalSecretRotationRoleArn string `json:"ExternalSecretRotationRoleArn,omitempty"`
+	// ExternalSecretRotationMetadata is partner-specified rotation metadata.
+	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"ExternalSecretRotationMetadata,omitempty"`
 }
 
 // RotateSecretOutput is the response payload for RotateSecret.

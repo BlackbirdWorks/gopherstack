@@ -306,7 +306,10 @@ func TestGetSecretValue_VersionMismatchAfterRotation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "rot-mismatch"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "rot-mismatch",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-mismatch"})

@@ -162,7 +162,8 @@ func TestDescribeSecret_NextRotationDateFromCron(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-		SecretID: "cron-next-date",
+		SecretID:          "cron-next-date",
+		RotationLambdaARN: testLambdaARN,
 		RotationRules: &secretsmanager.RotationRulesType{
 			ScheduleExpression: "cron(0 0 * * ? *)",
 		},

@@ -20,6 +20,7 @@ import (
 // depending on the real KMS backend (that round trip is covered separately by
 // the root-package wiring test against a real kms.InMemoryBackend).
 type fakeKMSEncryptor struct {
+	encryptErr   error
 	keyIDs       []string
 	mu           sync.Mutex
 	encryptCalls int
@@ -36,6 +37,10 @@ func (f *fakeKMSEncryptor) Encrypt(_ context.Context, keyID string, plaintext []
 
 	f.encryptCalls++
 	f.keyIDs = append(f.keyIDs, keyID)
+
+	if f.encryptErr != nil {
+		return nil, f.encryptErr
+	}
 
 	return []byte(fakeCiphertextPrefix + base64.StdEncoding.EncodeToString(plaintext)), nil
 }
@@ -190,11 +195,12 @@ func TestKMSEncryptor_PutSecretValue_NewVersionEncrypted(t *testing.T) {
 	assert.Equal(t, "v1", previous.SecretString, "the superseded AWSPREVIOUS version must still decrypt correctly")
 }
 
-// TestKMSEncryptor_RotateSecret_NoLambda_CarriesValueForward proves that
-// RotateSecret without a rotation Lambda configured carries the sealed value
-// forward into the new AWSPENDING/AWSCURRENT version without needing to
-// re-encrypt it, and that it still decrypts correctly afterwards.
-func TestKMSEncryptor_RotateSecret_NoLambda_CarriesValueForward(t *testing.T) {
+// TestKMSEncryptor_RotateSecret_NoLambda_RejectsAndLeavesValueUnchanged proves
+// that RotateSecret on a secret with no rotation Lambda ARN ever configured
+// (gopherstack-9wuh) is rejected -- real AWS requires a rotation strategy,
+// see ErrRotationStrategyRequired -- and, crucially, that the rejected call
+// neither re-encrypts nor otherwise disturbs the existing sealed version.
+func TestKMSEncryptor_RotateSecret_NoLambda_RejectsAndLeavesValueUnchanged(t *testing.T) {
 	t.Parallel()
 
 	b := sm.NewInMemoryBackend()
@@ -208,14 +214,14 @@ func TestKMSEncryptor_RotateSecret_NoLambda_CarriesValueForward(t *testing.T) {
 	callsBeforeRotate := fake.encryptCalls
 
 	_, err = b.RotateSecret(ctx, &sm.RotateSecretInput{SecretID: "rotate-me"})
-	require.NoError(t, err)
+	require.ErrorIs(t, err, sm.ErrRotationStrategyRequired)
 
 	assert.Equal(t, callsBeforeRotate, fake.encryptCalls,
-		"rotation without a Lambda ARN must carry the ciphertext forward, not re-encrypt")
+		"a rejected rotation must not touch the KMS encryptor at all")
 
 	out, err := b.GetSecretValue(ctx, &sm.GetSecretValueInput{SecretID: "rotate-me"})
 	require.NoError(t, err)
-	assert.Equal(t, "stable-value", out.SecretString)
+	assert.Equal(t, "stable-value", out.SecretString, "rejected rotation must leave the current value unchanged")
 }
 
 // TestKMSEncryptor_BatchGetSecretValue_Decrypts proves BatchGetSecretValue

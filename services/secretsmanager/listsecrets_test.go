@@ -182,7 +182,8 @@ func TestListSecrets_NextRotationDate(t *testing.T) {
 				t.Helper()
 
 				_, err := b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-					SecretID: secretName,
+					SecretID:          secretName,
+					RotationLambdaARN: testLambdaARN,
 					RotationRules: &secretsmanager.RotationRulesType{
 						AutomaticallyAfterDays: ptr64(30),
 					},
@@ -558,15 +559,20 @@ func TestListSecrets_Filters(t *testing.T) {
 // NOTE: the "owning-service" filter key was previously named "owned-by-me" in this
 // test suite, which is not a real AWS FilterNameStringType value (the real key is
 // "owning-service" — see aws-sdk-go-v2/service/secretsmanager/types.FilterNameStringType).
-// Renamed to match the real wire key; behaviour (always-pass) is preserved because
-// this mock never models AWS-service-owned secrets (e.g. RDS-managed rotation
-// secrets), so every secret is equally "not owned by a service" and the filter is a
-// no-op here.
+// It is a prefix match against DescribeSecretOutput.OwningService, which no
+// CreateSecret/UpdateSecret input field can ever set in real AWS either (only AWS
+// itself sets it, for service-linked secrets like RDS-managed rotation, which this
+// mock does not model) -- so every secret has an empty OwningService and a
+// non-empty filter value must match none of them, same as it would against a real
+// AWS secret with no owning service.
 // ---------------------------------------------------------------------------
 
-// TestListSecrets_FilterOwningServicePassesAll verifies that "owning-service" always
-// returns all secrets in this mock (no secret is ever AWS-service-owned).
-func TestListSecrets_FilterOwningServicePassesAll(t *testing.T) {
+// TestListSecrets_FilterOwningServiceMatchesNone verifies that "owning-service"
+// matches no secrets in this mock, since OwningService is never set (gopherstack-9wuh:
+// this previously asserted the wrong always-pass behavior, which would make a real
+// client's "find secrets owned by rds.amazonaws.com" filter wrongly return every
+// user-created secret).
+func TestListSecrets_FilterOwningServiceMatchesNone(t *testing.T) {
 	t.Parallel()
 
 	b := secretsmanager.NewInMemoryBackend()
@@ -580,11 +586,12 @@ func TestListSecrets_FilterOwningServicePassesAll(t *testing.T) {
 		Filters: []secretsmanager.SecretFilter{{Key: "owning-service", Values: []string{"rds"}}},
 	})
 	require.NoError(t, err)
-	assert.Len(t, out.SecretList, 3, "owning-service must pass all secrets in single-account mock")
+	assert.Empty(t, out.SecretList, "owning-service must match nothing: no secret has an owning service")
 }
 
 // TestListSecrets_FilterOwningServiceWithOtherFilters verifies owning-service can be
-// combined with other filters (AND semantics across distinct filter keys).
+// combined with other filters (AND semantics across distinct filter keys), and that
+// a non-matching owning-service filter excludes secrets that would otherwise match.
 func TestListSecrets_FilterOwningServiceWithOtherFilters(t *testing.T) {
 	t.Parallel()
 
@@ -607,8 +614,7 @@ func TestListSecrets_FilterOwningServiceWithOtherFilters(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Len(t, out.SecretList, 1)
-	assert.Equal(t, "alpha-secret", out.SecretList[0].Name)
+	assert.Empty(t, out.SecretList, "owning-service=rds must exclude alpha-secret, which has no owning service")
 }
 
 // TestListSecrets_OwningServiceHTTP verifies the owning-service filter via HTTP.
@@ -630,7 +636,7 @@ func TestListSecrets_OwningServiceHTTP(t *testing.T) {
 
 	var out secretsmanager.ListSecretsOutput
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Len(t, out.SecretList, 2)
+	assert.Empty(t, out.SecretList, "owning-service=rds must match neither om-1 nor om-2")
 }
 
 // TestListSecrets_FilterByPrimaryRegion verifies that the "primary-region" filter
@@ -677,7 +683,8 @@ func TestListSecrets_IncludesRotationRules(t *testing.T) {
 				require.NoError(t, err)
 				days := int64(30)
 				_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-					SecretID: "ls-rot",
+					SecretID:          "ls-rot",
+					RotationLambdaARN: testLambdaARN,
 					RotationRules: &secretsmanager.RotationRulesType{
 						AutomaticallyAfterDays: &days,
 					},
@@ -723,7 +730,8 @@ func TestListSecrets_IncludesRotationRules(t *testing.T) {
 				require.NoError(t, err)
 				days := int64(7)
 				_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
-					SecretID: "ls-http-rot",
+					SecretID:          "ls-http-rot",
+					RotationLambdaARN: testLambdaARN,
 					RotationRules: &secretsmanager.RotationRulesType{
 						AutomaticallyAfterDays: &days,
 					},
@@ -1008,7 +1016,8 @@ func TestListSecrets_EntryHasCreatedAndRotatedDate(t *testing.T) {
 		`{"Name":"datechecks","SecretString":"v"}`)
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	rec = doR1Request(t, h, "secretsmanager.RotateSecret", `{"SecretId":"datechecks"}`)
+	rotateBody := fmt.Sprintf(`{"SecretId":"datechecks","RotationLambdaARN":%q}`, testLambdaARN)
+	rec = doR1Request(t, h, "secretsmanager.RotateSecret", rotateBody)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doR1Request(t, h, "secretsmanager.ListSecrets", `{}`)

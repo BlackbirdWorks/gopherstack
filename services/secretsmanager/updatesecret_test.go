@@ -319,3 +319,39 @@ func TestUpdateSecret_BackendScenarios(t *testing.T) {
 		require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 	})
 }
+
+// TestUpdateSecret_FailedValueUpdate_LeavesDescriptionAndKmsKeyIDUnchanged verifies
+// that when a same-call value update fails (here, a KMS encryption error), the
+// Description and KmsKeyId changes requested in the same UpdateSecret call are not
+// left applied -- a "state mutated before validation" bug (parity-principles.md)
+// where a rejected request had already written its fields and the caller got an
+// error but the change stood anyway.
+func TestUpdateSecret_FailedValueUpdate_LeavesDescriptionAndKmsKeyIDUnchanged(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	fake := &fakeKMSEncryptor{}
+	b.SetKMSEncryptor(fake)
+
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "atomic-update",
+		SecretString: "v1",
+		KmsKeyID:     "alias/original-key",
+	})
+	require.NoError(t, err)
+
+	fake.encryptErr = assert.AnError
+
+	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
+		SecretID:     "atomic-update",
+		Description:  "should not apply",
+		KmsKeyID:     "alias/new-key",
+		SecretString: "v2",
+	})
+	require.Error(t, err)
+
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "atomic-update"})
+	require.NoError(t, err)
+	assert.Empty(t, desc.Description, "a rejected UpdateSecret must not apply Description")
+	assert.Equal(t, "alias/original-key", desc.KmsKeyID, "a rejected UpdateSecret must not apply KmsKeyId")
+}

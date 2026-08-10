@@ -138,6 +138,7 @@ func (b *InMemoryBackend) CreateSecret(ctx context.Context, input *CreateSecretI
 		Name:        input.Name,
 		Description: input.Description,
 		KmsKeyID:    input.KmsKeyID,
+		Type:        input.Type,
 		Versions:    make(map[string]*SecretVersion),
 	}
 
@@ -486,13 +487,13 @@ func secretMatchesFilter(s *Secret, f SecretFilter) bool {
 		// the filter always passes (no cross-region replication routing needed).
 		return true
 	case "owning-service":
-		// Real AWS FilterNameStringType key (this mock previously special-cased a
-		// fabricated "owned-by-me" key that no real SDK client ever sends). Every
-		// secret in this mock is user-created, never owned by an AWS-managed
-		// integration (e.g. RDS-managed rotation secrets), so this behaves like the
-		// permissive default below and always passes — consistent with the
-		// single-account/region simplifications used for primary-region above.
-		return true
+		// No secret in this mock ever has an owning service (no CreateSecret/
+		// UpdateSecret input field sets DescribeSecretOutput.OwningService — it
+		// is only ever set by AWS itself for service-linked secrets, e.g.
+		// RDS-managed rotation, which this mock does not model). A real
+		// "owning-service" prefix filter therefore matches nothing here, same
+		// as it would against any AWS secret with no owning service.
+		return anyMatchPrefix(f.Values, "")
 	default:
 		return true
 	}
@@ -567,22 +568,25 @@ func (b *InMemoryBackend) DescribeSecret(
 	}
 
 	out := &DescribeSecretOutput{
-		ARN:                secret.ARN,
-		Name:               secret.Name,
-		Description:        secret.Description,
-		KmsKeyID:           secret.KmsKeyID,
-		RotationLambdaARN:  secret.RotationLambdaARN,
-		RotationRules:      cloneRotationRules(secret.RotationRules),
-		Tags:               tagsToSlice(secret.Tags),
-		CreatedDate:        secret.CreatedDate,
-		DeletedDate:        secret.DeletedDate,
-		LastChangedDate:    secret.LastChangedDate,
-		LastRotatedDate:    secret.LastRotatedDate,
-		LastAccessedDate:   secret.LastAccessedDate,
-		VersionIDsToStages: versionIDsToStages,
-		RotationEnabled:    secret.RotationEnabled,
-		ReplicationStatus:  b.replicationConfigsStoreRO(region)[name],
-		PrimaryRegion:      region,
+		ARN:                            secret.ARN,
+		Name:                           secret.Name,
+		Description:                    secret.Description,
+		KmsKeyID:                       secret.KmsKeyID,
+		RotationLambdaARN:              secret.RotationLambdaARN,
+		RotationRules:                  cloneRotationRules(secret.RotationRules),
+		Tags:                           tagsToSlice(secret.Tags),
+		CreatedDate:                    secret.CreatedDate,
+		DeletedDate:                    secret.DeletedDate,
+		LastChangedDate:                secret.LastChangedDate,
+		LastRotatedDate:                secret.LastRotatedDate,
+		LastAccessedDate:               secret.LastAccessedDate,
+		VersionIDsToStages:             versionIDsToStages,
+		RotationEnabled:                secret.RotationEnabled,
+		ReplicationStatus:              b.replicationConfigsStoreRO(region)[name],
+		PrimaryRegion:                  region,
+		Type:                           secret.Type,
+		ExternalSecretRotationRoleArn:  secret.ExternalSecretRotationRoleArn,
+		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(secret.ExternalSecretRotationMetadata),
 	}
 
 	// Compute NextRotationDate from the last rotation base + interval.
@@ -613,10 +617,12 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 		return nil, fmt.Errorf("%w: secret %s is deleted", ErrSecretDeleted, input.SecretID)
 	}
 
-	if input.Description != "" {
-		secret.Description = input.Description
-	}
-
+	// KmsKeyID is applied before updateSecretVersion because sealVersion reads
+	// secret.KmsKeyID to pick the encryption key for a value change in the same
+	// call, but rolled back on failure so a rejected request leaves it
+	// untouched (matches the parity-principles "state mutated before
+	// validation" bug class).
+	oldKmsKeyID := secret.KmsKeyID
 	if input.KmsKeyID != "" {
 		secret.KmsKeyID = input.KmsKeyID
 	}
@@ -628,8 +634,18 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 
 		versionID, err = b.updateSecretVersion(ctx, region, secret, input)
 		if err != nil {
+			secret.KmsKeyID = oldKmsKeyID
+
 			return nil, err
 		}
+	}
+
+	if input.Description != "" {
+		secret.Description = input.Description
+	}
+
+	if input.Type != "" {
+		secret.Type = input.Type
 	}
 
 	return &UpdateSecretOutput{
@@ -754,20 +770,23 @@ func secretToListEntry(s *Secret) SecretListEntry {
 	}
 
 	return SecretListEntry{
-		ARN:                    s.ARN,
-		Name:                   s.Name,
-		Description:            s.Description,
-		KmsKeyID:               s.KmsKeyID,
-		RotationLambdaARN:      s.RotationLambdaARN,
-		RotationRules:          cloneRotationRules(s.RotationRules),
-		RotationEnabled:        s.RotationEnabled,
-		DeletedDate:            s.DeletedDate,
-		LastChangedDate:        s.LastChangedDate,
-		LastAccessedDate:       s.LastAccessedDate,
-		LastRotatedDate:        s.LastRotatedDate,
-		CreatedDate:            s.CreatedDate,
-		NextRotationDate:       computeNextRotationDate(s),
-		Tags:                   tagsToSlice(s.Tags),
-		SecretVersionsToStages: versionStages,
+		ARN:                            s.ARN,
+		Name:                           s.Name,
+		Description:                    s.Description,
+		KmsKeyID:                       s.KmsKeyID,
+		RotationLambdaARN:              s.RotationLambdaARN,
+		RotationRules:                  cloneRotationRules(s.RotationRules),
+		RotationEnabled:                s.RotationEnabled,
+		DeletedDate:                    s.DeletedDate,
+		LastChangedDate:                s.LastChangedDate,
+		LastAccessedDate:               s.LastAccessedDate,
+		LastRotatedDate:                s.LastRotatedDate,
+		CreatedDate:                    s.CreatedDate,
+		NextRotationDate:               computeNextRotationDate(s),
+		Tags:                           tagsToSlice(s.Tags),
+		SecretVersionsToStages:         versionStages,
+		Type:                           s.Type,
+		ExternalSecretRotationRoleArn:  s.ExternalSecretRotationRoleArn,
+		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(s.ExternalSecretRotationMetadata),
 	}
 }

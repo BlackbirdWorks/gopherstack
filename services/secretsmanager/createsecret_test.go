@@ -988,3 +988,96 @@ func TestCreateSecret_CreateDescribeRoundtrip(t *testing.T) {
 	assert.False(t, desc.RotationEnabled)
 	assert.Contains(t, desc.ARN, "secret:roundtrip/secret-")
 }
+
+// TestCreateSecret_TypeAcceptedAndEchoed verifies that CreateSecret's Type field
+// (aws-sdk-go-v2/service/secretsmanager@v1.44.4 api_op_CreateSecret.go's
+// CreateSecretInput.Type, "the exact string that identifies the partner that
+// holds the external secret") is stored and echoed back by DescribeSecret and
+// ListSecrets (gopherstack-9wuh: previously accepted on the wire then silently
+// dropped, since gopherstack's CreateSecretInput/DescribeSecretOutput carried no
+// Type field at all).
+func TestCreateSecret_TypeAcceptedAndEchoed(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "mes-secret",
+		SecretString: "v",
+		Type:         "SomePartner",
+	})
+	require.NoError(t, err)
+
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "mes-secret"})
+	require.NoError(t, err)
+	assert.Equal(t, "SomePartner", desc.Type)
+
+	list, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{})
+	require.NoError(t, err)
+	require.Len(t, list.SecretList, 1)
+	assert.Equal(t, "SomePartner", list.SecretList[0].Type)
+}
+
+// TestUpdateSecret_TypeAcceptedAndEchoed verifies UpdateSecret's Type field
+// (api_op_UpdateSecret.go's UpdateSecretInput.Type, the same wire field as
+// CreateSecret's) is stored and echoed, mirroring how Description/KmsKeyId are
+// already handled.
+func TestUpdateSecret_TypeAcceptedAndEchoed(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "mes-update",
+		SecretString: "v",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
+		SecretID: "mes-update",
+		Type:     "AnotherPartner",
+	})
+	require.NoError(t, err)
+
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "mes-update"})
+	require.NoError(t, err)
+	assert.Equal(t, "AnotherPartner", desc.Type)
+}
+
+// TestRotateSecret_ExternalSecretRotationFieldsAcceptedAndEchoed verifies
+// RotateSecret's ExternalSecretRotationRoleArn and ExternalSecretRotationMetadata
+// fields (api_op_RotateSecret.go's RotateSecretInput, "the metadata needed to
+// successfully rotate a managed external secret") are stored and echoed by
+// DescribeSecret and ListSecrets (gopherstack-9wuh).
+func TestRotateSecret_ExternalSecretRotationFieldsAcceptedAndEchoed(t *testing.T) {
+	t.Parallel()
+
+	b := secretsmanager.NewInMemoryBackend()
+	_, err := b.CreateSecret(context.Background(), &secretsmanager.CreateSecretInput{
+		Name:         "mes-rotate",
+		SecretString: "v",
+	})
+	require.NoError(t, err)
+
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:                      "mes-rotate",
+		RotationLambdaARN:             testLambdaARN,
+		ExternalSecretRotationRoleArn: "arn:aws:iam::000000000000:role/mes-rotator",
+		ExternalSecretRotationMetadata: []secretsmanager.ExternalSecretRotationMetadataItem{
+			{Key: "partnerAccountId", Value: "12345"},
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "mes-rotate"})
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/mes-rotator", desc.ExternalSecretRotationRoleArn)
+	require.Len(t, desc.ExternalSecretRotationMetadata, 1)
+	assert.Equal(t, "partnerAccountId", desc.ExternalSecretRotationMetadata[0].Key)
+	assert.Equal(t, "12345", desc.ExternalSecretRotationMetadata[0].Value)
+
+	list, err := b.ListSecrets(context.Background(), &secretsmanager.ListSecretsInput{})
+	require.NoError(t, err)
+	require.Len(t, list.SecretList, 1)
+	assert.Equal(t, "arn:aws:iam::000000000000:role/mes-rotator", list.SecretList[0].ExternalSecretRotationRoleArn)
+	require.Len(t, list.SecretList[0].ExternalSecretRotationMetadata, 1)
+	assert.Equal(t, "partnerAccountId", list.SecretList[0].ExternalSecretRotationMetadata[0].Key)
+}
