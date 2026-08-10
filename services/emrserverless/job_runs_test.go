@@ -341,3 +341,39 @@ func TestSortedListJobRuns(t *testing.T) {
 	assert.Equal(t, "mmm-run", runs[1].JobRunID)
 	assert.Equal(t, "zzz-run", runs[2].JobRunID)
 }
+
+// --- JobRunState enum matches the real SDK ---
+
+// TestJobRunStateConstants_MatchSDK guards against gopherstack's JobRunState
+// constants silently drifting from types.JobRunState.Values() in
+// aws-sdk-go-v2/service/emrserverless@v1.44.4 (types/enums.go:76-84): a
+// client deserialising a job run this backend did not create (e.g. seeded
+// via AddJobRunInternal, or in a future lifecycle-simulation pass) must not
+// hit a state gopherstack has no constant for.
+func TestJobRunStateConstants_MatchSDK(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"submitted", emrserverless.JobRunStateSubmitted, "SUBMITTED"},
+		{"pending", emrserverless.JobRunStatePending, "PENDING"},
+		{"scheduled", emrserverless.JobRunStateScheduled, "SCHEDULED"},
+		{"running", emrserverless.JobRunStateRunning, "RUNNING"},
+		{"success", emrserverless.JobRunStateSuccess, "SUCCESS"},
+		{"failed", emrserverless.JobRunStateFailed, "FAILED"},
+		{"cancelling", emrserverless.JobRunStateCancelling, "CANCELLING"},
+		{"cancelled", emrserverless.JobRunStateCancelled, "CANCELLED"},
+		{"queued", emrserverless.JobRunStateQueued, "QUEUED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.got)
+		})
+	}
+}
