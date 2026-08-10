@@ -466,3 +466,38 @@ func TestElasticsearchHandler_Packages_Lifecycle(t *testing.T) {
 	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/packages/describe", nil)
 	assert.Empty(t, readJSONBody(t, resp)["PackageDetailsList"])
 }
+
+// TestElasticsearchHandler_Package_Timestamps verifies CreatedAt/LastUpdatedAt
+// are set on CreatePackage and that LastUpdatedAt advances (never regresses)
+// on UpdatePackage, matching types.PackageDetails. ErrorDetails is never
+// present: this backend has no COPYING/COPY_FAILED state machine.
+func TestElasticsearchHandler_Package_Timestamps(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	resp := doRequest(t, h, http.MethodPost, "/2015-01-01/packages", map[string]any{
+		"PackageName":   "timestamped-pkg",
+		"PackageType":   "TXT-DICTIONARY",
+		"PackageSource": map[string]any{"S3BucketName": "b", "S3Key": "k"},
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	created := readJSONBody(t, resp)["PackageDetails"].(map[string]any)
+	packageID := created["PackageID"].(string)
+	createdAt, ok := created["CreatedAt"].(float64)
+	require.True(t, ok, "CreatedAt must be a JSON number")
+	require.Positive(t, createdAt)
+	lastUpdatedAt, ok := created["LastUpdatedAt"].(float64)
+	require.True(t, ok, "LastUpdatedAt must be a JSON number")
+	assert.InEpsilon(t, createdAt, lastUpdatedAt, 0)
+	assert.NotContains(t, created, "ErrorDetails")
+
+	resp = doRequest(t, h, http.MethodPost, "/2015-01-01/packages/update", map[string]any{
+		"PackageID": packageID, "PackageDescription": "changed",
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	updated := readJSONBody(t, resp)["PackageDetails"].(map[string]any)
+	assert.InEpsilon(t, createdAt, updated["CreatedAt"], 0)
+	assert.GreaterOrEqual(t, updated["LastUpdatedAt"], lastUpdatedAt)
+}

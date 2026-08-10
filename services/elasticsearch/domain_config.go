@@ -106,6 +106,11 @@ func applyDomainConfigUpdateExtended(d *Domain, cfg UpdateConfig) bool {
 		changed = true
 	}
 
+	if cfg.DeploymentStrategyOptions != nil {
+		d.DeploymentStrategyOptions = cloneDeploymentStrategyOptions(cfg.DeploymentStrategyOptions)
+		changed = true
+	}
+
 	if cfg.LogPublishingOptions != nil {
 		d.LogPublishingOptions = cloneLogPublishingOptions(cfg.LogPublishingOptions)
 		changed = true

@@ -5,20 +5,20 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticsearch
-sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.39.1
+sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
 last_audit_commit: 59ab8f6a
-last_audit_date: 2026-07-24
-overall: A            # field-diff pass: CreateElasticsearchDomain field gaps closed, CreatePackage PackageSource gap closed, one invented field deleted
+last_audit_date: 2026-08-10
+overall: A            # follow-up pass (gopherstack-toz8): SAMLOptions/MaintenanceSchedules/DeploymentStrategyOptions/Package timestamps closed; VPCOptions VPCId/AvailabilityZones and Processing remain documented gaps -- see Notes
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions/TagList, previously entirely unmodeled -- see Notes"}
+  CreateElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass added AdvancedSecurityOptions.SAMLOptions, AutoTuneOptions.MaintenanceSchedules, and DeploymentStrategyOptions -- previously accepted-but-dropped or entirely unmodeled; see Notes"}
   DescribeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeElasticsearchDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "route bug fixed this pass -- was served at the wrong path; see Notes"}
-  UpdateElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions"}
-  DescribeElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added per-field OptionStatus CreationDate/UpdateDate/UpdateVersion/PendingDeletion -- previously only State was modeled; see Notes"}
+  UpdateElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass added AdvancedSecurityOptions.SAMLOptions, AutoTuneOptions.MaintenanceSchedules, and DeploymentStrategyOptions; see Notes"}
+  DescribeElasticsearchDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10 pass fixed AutoTuneOptions.Options/Status to use their real distinct shapes (types.AutoTuneOptions/types.AutoTuneStatus, not the DomainStatus response's AutoTuneOptionsOutput/generic OptionStatus) and added MaintenanceSchedules + DeploymentStrategyOptions; see Notes"}
   CancelDomainConfigChange: {wire: ok, errors: ok, state: ok, persist: ok, note: "synchronous backend, so this is correctly a no-op read-back"}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -35,9 +35,9 @@ ops:
   ListElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListElasticsearchInstanceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeElasticsearchInstanceTypeLimits: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CreatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added required PackageSource (S3BucketName/S3Key) validation; also deleted invented ZIP-PLUGIN package type -- see Notes"}
-  DescribePackages: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added required PackageSource (S3BucketName/S3Key) validation; also deleted invented ZIP-PLUGIN package type -- see Notes. 2026-08-10: added CreatedAt/LastUpdatedAt"}
+  DescribePackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10: response now includes CreatedAt/LastUpdatedAt; ErrorDetails always omitted (no COPY_FAILED state modeled)"}
+  UpdatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10: LastUpdatedAt now advances on update"}
   DeletePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   DissociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -65,36 +65,126 @@ ops:
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: ok, state: ok, persist: ok}
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "Domains never transition through a Processing/creating state -- CreateElasticsearchDomain \
-     returns Processing=false / DomainProcessingStatus=Active immediately. This is a deliberate \
-     simplification (no artificial async delay) rather than a stub; flagging so a future \
-     auditor doesn't mistake the always-Active state for a bug in the other direction."
-  - "AdvancedSecurityOptions.SAMLOptions and AutoTuneOptions.MaintenanceSchedules are accepted \
-     on the wire (parsed as json.RawMessage so unmarshal doesn't reject them) but not modeled \
-     or persisted -- SAML SSO and maintenance-window scheduling have no backend state machine. \
-     MasterUserOptions (master username/password/ARN) is intentionally never persisted or \
-     echoed back either, matching real AWS's own behavior of never returning credentials on \
-     any Describe/Create/Update response; the only gap is that this backend also can't act on \
-     internal-user-database auth using those credentials. Not filed as a bd issue this pass \
-     (no observed consumer exercises SAML or credential-checked internal auth against this \
-     emulator)."
+     returns Processing=false / DomainProcessingStatus=Active immediately, and Endpoint is \
+     populated synchronously too, so every field a real client would poll on (Processing, \
+     DomainProcessingStatus, Endpoint, and DescribeElasticsearchDomainConfig's per-field \
+     OptionStatus.State) is self-consistently 'already done'. Re-verified 2026-08-10 \
+     (gopherstack-toz8): checked whether any client-visible action (Create, \
+     UpdateElasticsearchDomainConfig, Delete) should visibly flip Processing to true -- this \
+     backend applies all three synchronously with no async work to represent, so there is \
+     nothing for a transient Processing=true to model faithfully; a fake timed delay would be \
+     invented state, not parity. Confirmed deliberate simplification, not a stub -- SDK callers \
+     that poll DescribeElasticsearchDomain waiting for Processing==false succeed immediately \
+     instead of spinning. Separately (not in scope this pass): ElasticsearchDomainStatus.Created/ \
+     Deleted (types.go:958-966) are not modeled at all, unlike Processing/DomainProcessingStatus \
+     which are (see toDomainStatusJSON)."
   - "VPCOptions.VPCId and .AvailabilityZones are never populated on Describe/domain-status \
      responses -- deriving them would require a cross-service EC2 subnet/VPC lookup this \
      backend does not perform (SubnetIds/SecurityGroupIds are correctly modeled and echoed). \
-     Matches services/opensearch's identical, already-accepted simplification."
-  - "CreatePackageInput.DeploymentStrategyOptions (on CreateElasticsearchDomain) is not \
-     modeled at all -- not in the explicit field list this pass targeted and no observed \
-     consumer depends on it."
-  - "Package.CreatedAt/LastUpdatedAt/ErrorDetails (types.PackageDetails) are not modeled -- \
-     packages are always AVAILABLE synchronously in this backend (no COPYING/COPY_FAILED \
-     state machine), so there is no natural timestamp/error-detail source. Not filed as a bd \
-     issue this pass (low traffic op)."
+     Matches services/opensearch's identical, already-accepted simplification. Needs cli.go \
+     wiring to close: this service has no reference to any EC2 backend today (grep confirms no \
+     ec2 import in services/elasticsearch), so VPCId/AvailabilityZones would need either (a) an \
+     EC2 lookup interface (mirroring how services/elasticsearch already takes a DNSRegistrar \
+     interface, store_setup.go) that cli.go wires to the real services/ec2 backend when both \
+     services are registered, or (b) a shared pkgs/ helper cli.go injects both backends into. \
+     Either way the wiring decision belongs in cli.go, which this pass does not touch."
+  - "AutoTuneOptions.RollbackOnDisable (types.AutoTuneOptions, Update-only -- it is not a \
+     member of the Create-only types.AutoTuneOptionsInput) is not modeled. Not filed as a bd \
+     issue this pass: this backend has no rollback state machine to act on it, and it is a \
+     narrower field than the two this pass targeted (SAMLOptions/MaintenanceSchedules)."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above
-leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well."}
+leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well. 2026-08-10: extended the same deep-clone treatment to AdvancedSecurityOptions.SAMLOptions (and its Idp pointer) and AutoTuneOptions.MaintenanceSchedules (and each element's Duration pointer), which would otherwise have reintroduced the identical aliasing bug for the newly-added nested pointers/slices."}
 ---
 
 ## Notes
 
 Protocol: **restjson1**. Base path prefix `/2015-01-01/`.
+
+### 2026-08-10 pass (gopherstack-toz8 follow-up): SAMLOptions, MaintenanceSchedules, DeploymentStrategyOptions, Package timestamps
+
+Five items were bundled in this follow-up issue; ranked by real-client likelihood and
+implemented to full depth where feasible, per parity-principles.md rule 1 (no
+half-modeled fields) and this campaign's standing "model faithfully or leave and say
+why" rule:
+
+1. **`AdvancedSecurityOptions.SAMLOptions` + `AutoTuneOptions.MaintenanceSchedules`**
+   (highest priority -- this is the exact "accepted but silently dropped" bug class
+   this campaign targets). Both were previously parsed as `json.RawMessage` purely to
+   avoid rejecting the request, then discarded. Now fully modeled:
+   - `models.go`: added `SAMLIdp`, `SAMLOptions`, `Duration`, `AutoTuneMaintenanceSchedule`
+     types, and `SAMLOptions`/`MaintenanceSchedules` fields on `AdvancedSecurityOptions`/
+     `AutoTuneOptions`. Field names/requiredness verified against
+     `aws-sdk-go-v2/service/elasticsearchservice@v1.45.4`: `validateSAMLIdp`
+     (validators.go:1091-1107, both `EntityId`/`MetadataContent` required whenever `Idp`
+     is present) and the `SAMLOptionsInput`/`SAMLOptionsOutput`/`AutoTuneMaintenanceSchedule`/
+     `Duration` struct declarations in types.go (all plain structs, none are smithy
+     unions). `SAMLOptionsOutput` has no `MasterUserName`/`MasterBackendRole` members, so
+     (like the pre-existing `MasterUserOptions` treatment) those two are stored but never
+     echoed back, matching real AWS.
+   - **Found and fixed a second, deeper bug while wiring this in**: the
+     `DescribeElasticsearchDomainConfig`/`UpdateElasticsearchDomainConfig` response's
+     `DomainConfig.AutoTuneOptions` field was using the *DomainStatus* response's shape
+     (`types.AutoTuneOptionsOutput` -- `State`/`ErrorMessage` only) for its `Options`
+     member, and the generic `elasticsearchConfigStatus`/`OptionStatus` shape for its
+     `Status` member. Neither is correct: per the pinned SDK,
+     `AutoTuneOptionsStatus.Options` is `*types.AutoTuneOptions`
+     (`DesiredState`/`MaintenanceSchedules`/`RollbackOnDisable`, types.go:283-300) and
+     `AutoTuneOptionsStatus.Status` is `*types.AutoTuneStatus` (types.go:344-371) --
+     the *only* DomainConfig field with a non-generic Status shape, confirmed against
+     `awsRestjson1_deserializeDocumentAutoTuneOptionsStatus`/`...AutoTuneStatus`
+     (deserializers.go:9590-9700). `MaintenanceSchedules` could not be bolted onto the
+     old (wrong) shape without perpetuating that bug, so `handler_domain_config.go` now
+     has dedicated `domainConfigAutoTuneOptionsJSON`/`autoTuneStatusJSON`/
+     `autoTuneConfigValue` types and `toDomainConfigAutoTuneOptionsJSON`/
+     `autoTuneConfigStatus` builders. `AutoTuneStatus.State` (`ENABLED`/`DISABLED`,
+     `AutoTuneState` enum) maps directly from `DesiredState` -- no
+     `ENABLE_IN_PROGRESS`/`DISABLE_IN_PROGRESS` transition window, the same synchronous
+     simplification already applied elsewhere in this service. The DomainStatus
+     response's own `AutoTuneOptions` (`toAutoTuneOptionsJSON`) was already correct and
+     is untouched. A pre-existing unit test
+     (`TestElasticsearchHandler_UpdateDomainConfig_SecurityFields`) asserted the old
+     (wrong) shape's `State` field inside `Options` and was corrected to assert
+     `DesiredState` in `Options` and `State` in `Status` separately -- textbook case of
+     parity-principles.md rule 3 ("unit tests are not parity proof").
+   - `AutoTuneOptions.RollbackOnDisable` (Update-only, no Create equivalent) is
+     deliberately NOT modeled -- see gaps.
+2. **`DeploymentStrategyOptions`**: real, simple field (`types.DeploymentStrategyOptions`
+   has one required member, `DeploymentStrategy`, enum `Default`/`CapacityOptimized` --
+   types/enums.go:130-136), present on `CreateElasticsearchDomainInput`,
+   `UpdateElasticsearchDomainConfigInput`, `ElasticsearchDomainStatus` (flat, not
+   Status-wrapped), and `ElasticsearchDomainConfig` (Status-wrapped with the generic
+   `OptionStatus`, confirmed types.go:861-862/550-561). Added end-to-end with request
+   validation and defaults to `"Default"` on the DomainConfig response when unset,
+   matching the enum's default value.
+3. **`Package.CreatedAt`/`LastUpdatedAt`/`ErrorDetails`**: `CreatedAt`/`LastUpdatedAt`
+   are now set at `CreatePackage` and `LastUpdatedAt` advances on `UpdatePackage`
+   (epoch-seconds via `pkgs/awstime.Epoch`, matching restjson1). `ErrorDetails`
+   (`types.ErrorDetails{ErrorMessage, ErrorType}`) is modeled as a real type but is
+   always `nil` in practice: this backend has no `COPYING`/`COPY_FAILED` state machine
+   (packages transition straight to `AVAILABLE`), so there is no natural source for it
+   -- documented as structural, not left silently absent.
+4. **`VPCOptions.VPCId`/`.AvailabilityZones`**: confirmed still blocked on an EC2
+   lookup this service has no access to (no `ec2` import anywhere in
+   `services/elasticsearch`) -- see gaps for the specific `cli.go` wiring this would
+   need. Not implemented this pass per the exclusion on editing `cli.go`.
+5. **Domains never reach `Processing`**: investigated what real AWS does (no
+   `elasticsearchservice` waiter exists in the pinned SDK -- confirmed no
+   `waiters.go` in the module -- so real clients like Terraform's
+   `aws_elasticsearch_domain` hand-roll polling against `DescribeElasticsearchDomain`,
+   checking `Processing`/`Endpoint`). Checked whether `Endpoint`,
+   `DomainProcessingStatus`, and `DescribeElasticsearchDomainConfig`'s per-field
+   `OptionStatus.State` are all self-consistently "instantly ready" together with
+   `Processing` (they are: `Endpoint` is set synchronously in `CreateDomain`,
+   `OptionStatus.State` is always `"Active"`) -- so there is no field a poll loop would
+   see as "done" while `Processing` still lied about it. Verdict: legitimate emulator
+   simplification, not a stub; see gaps for the full reasoning and the separate,
+   out-of-scope `Created`/`Deleted` field gap this surfaced.
+
+Round-trip persistence coverage added: `persistence_test.go`'s
+`domain_advanced_options_preserved` case now also exercises SAMLOptions/
+MaintenanceSchedules/DeploymentStrategyOptions, and `package_and_association_preserved`
+asserts Package CreatedAt/LastUpdatedAt survive Snapshot/Restore. No snapshot version
+bump: every new field is `omitempty`/`omitzero`, additive-only.
 
 ### 2026-07-24 pass: CreateElasticsearchDomain field-coverage gaps closed
 

@@ -12,19 +12,20 @@ import (
 
 // updateDomainConfigRequest is the request body for UpdateElasticsearchDomainConfig.
 type updateDomainConfigRequest struct {
-	ClusterConfig           *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
-	EBSOptions              *domainEBSOptions                   `json:"EBSOptions"`
-	SnapshotOptions         *domainSnapshotOptions              `json:"SnapshotOptions"`
-	EncryptionAtRest        *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryption    *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOpts      *domainEndpointOptions              `json:"DomainEndpointOptions"`
-	VPCOptions              *vpcOptionsRequestJSON              `json:"VPCOptions"`
-	CognitoOptions          *cognitoOptionsJSON                 `json:"CognitoOptions"`
-	AdvancedSecurityOptions *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions         *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
-	LogPublishingOptions    map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
-	AdvancedOptions         map[string]string                   `json:"AdvancedOptions"`
-	AccessPolicies          *string                             `json:"AccessPolicies"`
+	ClusterConfig             *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
+	EBSOptions                *domainEBSOptions                   `json:"EBSOptions"`
+	SnapshotOptions           *domainSnapshotOptions              `json:"SnapshotOptions"`
+	EncryptionAtRest          *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption      *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts        *domainEndpointOptions              `json:"DomainEndpointOptions"`
+	VPCOptions                *vpcOptionsRequestJSON              `json:"VPCOptions"`
+	CognitoOptions            *cognitoOptionsJSON                 `json:"CognitoOptions"`
+	AdvancedSecurityOptions   *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
+	AutoTuneOptions           *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
+	DeploymentStrategyOptions *deploymentStrategyOptionsJSON      `json:"DeploymentStrategyOptions"`
+	LogPublishingOptions      map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
+	AdvancedOptions           map[string]string                   `json:"AdvancedOptions"`
+	AccessPolicies            *string                             `json:"AccessPolicies"`
 }
 
 func (h *Handler) handleUpdateDomainConfig(w http.ResponseWriter, r *http.Request, name string) {
@@ -141,6 +142,15 @@ func applyOptionalSecurityUpdateFields(upd *UpdateConfig, req *updateDomainConfi
 		upd.AutoTuneOptions = atOpts
 	}
 
+	if req.DeploymentStrategyOptions != nil {
+		dsOpts, err := deploymentStrategyOptionsFromRequest(req.DeploymentStrategyOptions)
+		if err != nil {
+			return err
+		}
+
+		upd.DeploymentStrategyOptions = dsOpts
+	}
+
 	return nil
 }
 
@@ -230,8 +240,12 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 	out.DomainConfig.AdvancedSecurityOptions = elasticsearchConfigValue{
 		Options: toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions), Status: status,
 	}
-	out.DomainConfig.AutoTuneOptions = elasticsearchConfigValue{
-		Options: toAutoTuneOptionsJSON(d.AutoTuneOptions), Status: status,
+	out.DomainConfig.AutoTuneOptions = autoTuneConfigValue{
+		Options: toDomainConfigAutoTuneOptionsJSON(d.AutoTuneOptions),
+		Status:  autoTuneConfigStatus(d),
+	}
+	out.DomainConfig.DeploymentStrategyOptions = elasticsearchConfigValue{
+		Options: toDomainConfigDeploymentStrategyOptionsJSON(d.DeploymentStrategyOptions), Status: status,
 	}
 	out.DomainConfig.LogPublishingOptions = elasticsearchConfigValue{
 		Options: toLogPublishingOptionsJSON(d.LogPublishingOptions), Status: status,
@@ -240,6 +254,86 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 	if v := toVPCDerivedInfoJSON(d.VPCOptions); v != nil {
 		out.DomainConfig.VPCOptions = &elasticsearchConfigValue{Options: v, Status: status}
 	}
+}
+
+// toDomainConfigAutoTuneOptionsJSON converts a backend AutoTuneOptions to the
+// DomainConfig response's Options shape (types.AutoTuneOptions --
+// DesiredState/MaintenanceSchedules/RollbackOnDisable), which is DIFFERENT
+// from the DomainStatus response's shape (types.AutoTuneOptionsOutput, see
+// toAutoTuneOptionsJSON in handler_domains.go). RollbackOnDisable is not
+// modeled: it only applies to UpdateElasticsearchDomainConfig (not Create)
+// and this backend has no rollback state machine to act on it.
+func toDomainConfigAutoTuneOptionsJSON(a *AutoTuneOptions) domainConfigAutoTuneOptionsJSON {
+	if a == nil {
+		return domainConfigAutoTuneOptionsJSON{DesiredState: autoTuneStateDisabled}
+	}
+
+	desired := a.DesiredState
+	if desired == "" {
+		desired = autoTuneStateDisabled
+	}
+
+	return domainConfigAutoTuneOptionsJSON{
+		DesiredState:         desired,
+		MaintenanceSchedules: toMaintenanceSchedulesJSON(a.MaintenanceSchedules),
+	}
+}
+
+// toMaintenanceSchedulesJSON converts backend maintenance schedules to their
+// wire representation.
+func toMaintenanceSchedulesJSON(schedules []AutoTuneMaintenanceSchedule) []autoTuneMaintenanceScheduleJSON {
+	if schedules == nil {
+		return nil
+	}
+
+	out := make([]autoTuneMaintenanceScheduleJSON, len(schedules))
+	for i, s := range schedules {
+		out[i] = autoTuneMaintenanceScheduleJSON{CronExpressionForRecurrence: s.CronExpressionForRecurrence}
+		if !s.StartAt.IsZero() {
+			out[i].StartAt = awstime.Epoch(s.StartAt)
+		}
+
+		if s.Duration != nil {
+			out[i].Duration = &durationJSON{Unit: s.Duration.Unit, Value: s.Duration.Value}
+		}
+	}
+
+	return out
+}
+
+// autoTuneConfigStatus builds AutoTuneOptionsStatus.Status (types.AutoTuneStatus),
+// which -- unlike every other DomainConfig field -- is NOT the generic
+// OptionStatus shape (confirmed against deserializers.go:9631-9700 in the
+// pinned SDK; State uses the AutoTuneState enum, e.g. ENABLED/DISABLED, not
+// OptionState's Active/Processing/...). This backend has no
+// ENABLE_IN_PROGRESS/DISABLE_IN_PROGRESS transition window (Auto-Tune
+// changes apply synchronously, matching the Processing/DomainProcessingStatus
+// simplification elsewhere in this service), so State maps directly from
+// DesiredState.
+func autoTuneConfigStatus(d *Domain) autoTuneStatusJSON {
+	state := autoTuneStateDisabled
+	if d.AutoTuneOptions != nil && d.AutoTuneOptions.DesiredState == autoTuneStateEnabled {
+		state = autoTuneStateEnabled
+	}
+
+	return autoTuneStatusJSON{
+		State:         state,
+		CreationDate:  awstime.Epoch(d.CreatedAt),
+		UpdateDate:    awstime.Epoch(d.ConfigUpdatedAt),
+		UpdateVersion: d.ConfigVersion,
+	}
+}
+
+// toDomainConfigDeploymentStrategyOptionsJSON converts a backend
+// DeploymentStrategyOptions to its DomainConfig wire representation,
+// defaulting to "Default" when the domain never set one (matching
+// types.DeploymentStrategy's Default value).
+func toDomainConfigDeploymentStrategyOptionsJSON(d *DeploymentStrategyOptions) deploymentStrategyOptionsJSON {
+	if d == nil {
+		return deploymentStrategyOptionsJSON{DeploymentStrategy: "Default"}
+	}
+
+	return deploymentStrategyOptionsJSON{DeploymentStrategy: d.DeploymentStrategy}
 }
 
 // domainConfigStatus builds the OptionStatus (CreationDate/UpdateDate/
@@ -289,6 +383,33 @@ type elasticsearchConfigValue struct {
 	Status  elasticsearchConfigStatus `json:"Status"`
 }
 
+// autoTuneStatusJSON mirrors types.AutoTuneStatus -- see autoTuneConfigStatus's
+// doc comment for why this differs from the generic elasticsearchConfigStatus.
+type autoTuneStatusJSON struct {
+	State           string  `json:"State"`
+	ErrorMessage    string  `json:"ErrorMessage,omitempty"`
+	CreationDate    float64 `json:"CreationDate"`
+	UpdateDate      float64 `json:"UpdateDate"`
+	UpdateVersion   int     `json:"UpdateVersion"`
+	PendingDeletion bool    `json:"PendingDeletion"`
+}
+
+// domainConfigAutoTuneOptionsJSON mirrors types.AutoTuneOptions (the Options
+// member of AutoTuneOptionsStatus) -- see toDomainConfigAutoTuneOptionsJSON's
+// doc comment for why this differs from the DomainStatus response's shape.
+type domainConfigAutoTuneOptionsJSON struct {
+	DesiredState         string                            `json:"DesiredState,omitempty"`
+	MaintenanceSchedules []autoTuneMaintenanceScheduleJSON `json:"MaintenanceSchedules,omitempty"`
+}
+
+// autoTuneConfigValue is the AutoTuneOptions member of DomainConfig -- it
+// cannot reuse elasticsearchConfigValue because both its Options and Status
+// shapes differ from every other DomainConfig field's.
+type autoTuneConfigValue struct {
+	Options domainConfigAutoTuneOptionsJSON `json:"Options"`
+	Status  autoTuneStatusJSON              `json:"Status"`
+}
+
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct { //nolint:govet // fieldalignment: readability over micro-optimization
 	ElasticsearchVersion        elasticsearchConfigValue  `json:"ElasticsearchVersion"`
@@ -302,7 +423,8 @@ type domainConfigFields struct { //nolint:govet // fieldalignment: readability o
 	DomainEndpointOptions       elasticsearchConfigValue  `json:"DomainEndpointOptions"`
 	CognitoOptions              elasticsearchConfigValue  `json:"CognitoOptions"`
 	AdvancedSecurityOptions     elasticsearchConfigValue  `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions             elasticsearchConfigValue  `json:"AutoTuneOptions"`
+	AutoTuneOptions             autoTuneConfigValue       `json:"AutoTuneOptions"`
+	DeploymentStrategyOptions   elasticsearchConfigValue  `json:"DeploymentStrategyOptions"`
 	LogPublishingOptions        elasticsearchConfigValue  `json:"LogPublishingOptions"`
 	VPCOptions                  *elasticsearchConfigValue `json:"VPCOptions,omitempty"`
 }

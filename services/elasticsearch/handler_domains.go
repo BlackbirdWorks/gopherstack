@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
@@ -105,59 +106,117 @@ type masterUserOptionsJSON struct {
 	MasterUserPassword string `json:"MasterUserPassword,omitempty"`
 }
 
+// samlIdpJSON is the JSON representation of a SAML Identity Provider
+// (types.SAMLIdp -- shared by request and response).
+type samlIdpJSON struct {
+	EntityID        string `json:"EntityId"`
+	MetadataContent string `json:"MetadataContent"`
+}
+
+// samlOptionsRequestJSON is the request-shape SAML options
+// (types.SAMLOptionsInput). MasterBackendRole/MasterUserName are
+// credential-adjacent and, like MasterUserOptions, are never echoed back.
+type samlOptionsRequestJSON struct {
+	Idp                   *samlIdpJSON `json:"Idp,omitempty"`
+	MasterBackendRole     string       `json:"MasterBackendRole,omitempty"`
+	MasterUserName        string       `json:"MasterUserName,omitempty"`
+	RolesKey              string       `json:"RolesKey,omitempty"`
+	SubjectKey            string       `json:"SubjectKey,omitempty"`
+	SessionTimeoutMinutes int32        `json:"SessionTimeoutMinutes,omitempty"`
+	Enabled               bool         `json:"Enabled"`
+}
+
+// samlOptionsJSON is the response-shape SAML options
+// (types.SAMLOptionsOutput). It has no Master* members -- confirmed against
+// the pinned SDK's types.go:1580-1594.
+type samlOptionsJSON struct {
+	Idp                   *samlIdpJSON `json:"Idp,omitempty"`
+	RolesKey              string       `json:"RolesKey,omitempty"`
+	SubjectKey            string       `json:"SubjectKey,omitempty"`
+	SessionTimeoutMinutes int32        `json:"SessionTimeoutMinutes,omitempty"`
+	Enabled               bool         `json:"Enabled"`
+}
+
 // advancedSecurityOptionsRequestJSON is the request-shape advanced security
-// options (types.AdvancedSecurityOptionsInput). SAMLOptions is accepted but
-// not modeled further (see PARITY.md gaps).
+// options (types.AdvancedSecurityOptionsInput).
 type advancedSecurityOptionsRequestJSON struct {
-	MasterUserOptions           *masterUserOptionsJSON `json:"MasterUserOptions,omitempty"`
-	SAMLOptions                 json.RawMessage        `json:"SAMLOptions,omitempty"`
-	Enabled                     bool                   `json:"Enabled"`
-	InternalUserDatabaseEnabled bool                   `json:"InternalUserDatabaseEnabled,omitempty"`
-	AnonymousAuthEnabled        bool                   `json:"AnonymousAuthEnabled,omitempty"`
+	MasterUserOptions           *masterUserOptionsJSON  `json:"MasterUserOptions,omitempty"`
+	SAMLOptions                 *samlOptionsRequestJSON `json:"SAMLOptions,omitempty"`
+	Enabled                     bool                    `json:"Enabled"`
+	InternalUserDatabaseEnabled bool                    `json:"InternalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool                    `json:"AnonymousAuthEnabled,omitempty"`
 }
 
 // advancedSecurityOptionsJSON is the response-shape advanced security
-// options (types.AdvancedSecurityOptions). AnonymousAuthDisableDate and
-// SAMLOptions are not modeled (see PARITY.md gaps).
+// options (types.AdvancedSecurityOptions -- used on both the DomainStatus
+// and DomainConfig responses, unlike AutoTuneOptions). AnonymousAuthDisableDate
+// is not modeled (see PARITY.md gaps).
 type advancedSecurityOptionsJSON struct {
-	Enabled                     bool `json:"Enabled"`
-	InternalUserDatabaseEnabled bool `json:"InternalUserDatabaseEnabled,omitempty"`
-	AnonymousAuthEnabled        bool `json:"AnonymousAuthEnabled,omitempty"`
+	SAMLOptions                 *samlOptionsJSON `json:"SAMLOptions,omitempty"`
+	Enabled                     bool             `json:"Enabled"`
+	InternalUserDatabaseEnabled bool             `json:"InternalUserDatabaseEnabled,omitempty"`
+	AnonymousAuthEnabled        bool             `json:"AnonymousAuthEnabled,omitempty"`
+}
+
+// durationJSON is the JSON representation of a maintenance-schedule
+// duration (types.Duration).
+type durationJSON struct {
+	Unit  string `json:"Unit,omitempty"`
+	Value int64  `json:"Value,omitempty"`
+}
+
+// autoTuneMaintenanceScheduleJSON is one recurring Auto-Tune maintenance
+// window (types.AutoTuneMaintenanceSchedule). StartAt is epoch-seconds,
+// matching restjson1's unixTimestamp wire format.
+type autoTuneMaintenanceScheduleJSON struct {
+	Duration                    *durationJSON `json:"Duration,omitempty"`
+	CronExpressionForRecurrence string        `json:"CronExpressionForRecurrence,omitempty"`
+	StartAt                     float64       `json:"StartAt,omitempty"`
 }
 
 // autoTuneOptionsRequestJSON is the request-shape Auto-Tune options
-// (types.AutoTuneOptionsInput). MaintenanceSchedules is accepted but not
-// modeled further (see PARITY.md gaps).
+// (types.AutoTuneOptionsInput).
 type autoTuneOptionsRequestJSON struct {
-	DesiredState         string          `json:"DesiredState,omitempty"`
-	MaintenanceSchedules json.RawMessage `json:"MaintenanceSchedules,omitempty"`
+	DesiredState         string                            `json:"DesiredState,omitempty"`
+	MaintenanceSchedules []autoTuneMaintenanceScheduleJSON `json:"MaintenanceSchedules,omitempty"`
 }
 
-// autoTuneOptionsJSON is the response-shape Auto-Tune options
-// (types.AutoTuneOptionsOutput).
+// autoTuneOptionsJSON is the DomainStatus response-shape Auto-Tune options
+// (types.AutoTuneOptionsOutput -- State/ErrorMessage only). This is a
+// DIFFERENT shape from the DomainConfig response's AutoTuneOptions.Options
+// (types.AutoTuneOptions, see domainConfigAutoTuneOptionsJSON in
+// handler_domain_config.go) -- confirmed against
+// api_op_DescribeElasticsearchDomain.go's ElasticsearchDomainStatus.AutoTuneOptions
+// field type vs. ElasticsearchDomainConfig.AutoTuneOptions's in types.go:944/848.
 type autoTuneOptionsJSON struct {
 	State        string `json:"State,omitempty"`
 	ErrorMessage string `json:"ErrorMessage,omitempty"`
 }
 
+// deploymentStrategyOptionsJSON mirrors types.DeploymentStrategyOptions.
+type deploymentStrategyOptionsJSON struct {
+	DeploymentStrategy string `json:"DeploymentStrategy,omitempty"`
+}
+
 // domainJSON is the JSON request body for CreateElasticsearchDomain.
 type domainJSON struct { //nolint:govet // fieldalignment: readability over micro-optimization
-	ClusterConfig           *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
-	EBSOptions              *domainEBSOptions                   `json:"EBSOptions"`
-	SnapshotOptions         *domainSnapshotOptions              `json:"SnapshotOptions"`
-	EncryptionAtRest        *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryption    *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOpts      *domainEndpointOptions              `json:"DomainEndpointOptions"`
-	VPCOptions              *vpcOptionsRequestJSON              `json:"VPCOptions"`
-	CognitoOptions          *cognitoOptionsJSON                 `json:"CognitoOptions"`
-	AdvancedSecurityOptions *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
-	AutoTuneOptions         *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
-	LogPublishingOptions    map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
-	AdvancedOptions         map[string]string                   `json:"AdvancedOptions"`
-	TagList                 []domainTagJSON                     `json:"TagList"`
-	DomainName              string                              `json:"DomainName"`
-	ElasticsearchVersion    string                              `json:"ElasticsearchVersion"`
-	AccessPolicies          string                              `json:"AccessPolicies"`
+	ClusterConfig             *domainClusterConfig                `json:"ElasticsearchClusterConfig"`
+	EBSOptions                *domainEBSOptions                   `json:"EBSOptions"`
+	SnapshotOptions           *domainSnapshotOptions              `json:"SnapshotOptions"`
+	EncryptionAtRest          *domainEncryptionAtRestOptions      `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryption      *domainNodeToNodeEncryptionOptions  `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOpts        *domainEndpointOptions              `json:"DomainEndpointOptions"`
+	VPCOptions                *vpcOptionsRequestJSON              `json:"VPCOptions"`
+	CognitoOptions            *cognitoOptionsJSON                 `json:"CognitoOptions"`
+	AdvancedSecurityOptions   *advancedSecurityOptionsRequestJSON `json:"AdvancedSecurityOptions"`
+	AutoTuneOptions           *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions"`
+	DeploymentStrategyOptions *deploymentStrategyOptionsJSON      `json:"DeploymentStrategyOptions"`
+	LogPublishingOptions      map[string]logPublishingOptionJSON  `json:"LogPublishingOptions"`
+	AdvancedOptions           map[string]string                   `json:"AdvancedOptions"`
+	TagList                   []domainTagJSON                     `json:"TagList"`
+	DomainName                string                              `json:"DomainName"`
+	ElasticsearchVersion      string                              `json:"ElasticsearchVersion"`
+	AccessPolicies            string                              `json:"AccessPolicies"`
 }
 
 // domainTagJSON is one element of CreateElasticsearchDomainInput.TagList
@@ -178,6 +237,7 @@ type domainStatusJSON struct { //nolint:govet // fieldalignment: readability ove
 	DomainEndpointOptions       domainEndpointOptions              `json:"DomainEndpointOptions"`
 	AdvancedSecurityOptions     advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions"`
 	AutoTuneOptions             autoTuneOptionsJSON                `json:"AutoTuneOptions"`
+	DeploymentStrategyOptions   *deploymentStrategyOptionsJSON     `json:"DeploymentStrategyOptions,omitempty"`
 	VPCOptions                  *vpcDerivedInfoJSON                `json:"VPCOptions,omitempty"`
 	LogPublishingOptions        map[string]logPublishingOptionJSON `json:"LogPublishingOptions"`
 	AdvancedOptions             map[string]string                  `json:"AdvancedOptions"`
@@ -349,9 +409,10 @@ func createDomainInputFromRequest(req *domainJSON) CreateDomainInput {
 }
 
 // applyOptionalSecurityCreateFields validates and applies req's
-// CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions onto inp, factored
-// out of handleCreateDomain to keep its cognitive complexity low. Mirrors
-// applyOptionalSecurityUpdateFields in handler_domain_config.go.
+// CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/DeploymentStrategyOptions
+// onto inp, factored out of handleCreateDomain to keep its cognitive
+// complexity low. Mirrors applyOptionalSecurityUpdateFields in
+// handler_domain_config.go.
 func applyOptionalSecurityCreateFields(inp *CreateDomainInput, req *domainJSON) error {
 	if req.CognitoOptions != nil {
 		cogOpts, err := cognitoOptionsFromRequest(req.CognitoOptions)
@@ -378,6 +439,15 @@ func applyOptionalSecurityCreateFields(inp *CreateDomainInput, req *domainJSON) 
 		}
 
 		inp.AutoTuneOptions = atOpts
+	}
+
+	if req.DeploymentStrategyOptions != nil {
+		dsOpts, err := deploymentStrategyOptionsFromRequest(req.DeploymentStrategyOptions)
+		if err != nil {
+			return err
+		}
+
+		inp.DeploymentStrategyOptions = dsOpts
 	}
 
 	return nil
@@ -610,6 +680,38 @@ func tagListToMap(list []domainTagJSON) map[string]string {
 	return out
 }
 
+// samlOptionsFromRequest validates and converts a request SAMLOptions
+// struct. Real AWS's client-side validator (validateSAMLIdp,
+// aws-sdk-go-v2/service/elasticsearchservice@v1.45.4's validators.go:1091-1107)
+// requires both EntityId and MetadataContent whenever Idp is present; this
+// backend additionally requires Idp itself when SAML is Enabled, matching
+// the Cognito/AdvancedSecurityOptions "required fields when Enabled" pattern
+// already established in this file.
+func samlOptionsFromRequest(req *samlOptionsRequestJSON) (*SAMLOptions, error) {
+	if req.Enabled && req.Idp == nil {
+		return nil, fmt.Errorf("%w: SAMLOptions.Idp is required when Enabled is true", ErrValidation)
+	}
+
+	out := &SAMLOptions{
+		Enabled:               req.Enabled,
+		MasterBackendRole:     req.MasterBackendRole,
+		MasterUserName:        req.MasterUserName,
+		RolesKey:              req.RolesKey,
+		SubjectKey:            req.SubjectKey,
+		SessionTimeoutMinutes: req.SessionTimeoutMinutes,
+	}
+
+	if req.Idp != nil {
+		if req.Idp.EntityID == "" || req.Idp.MetadataContent == "" {
+			return nil, fmt.Errorf("%w: SAMLOptions.Idp.EntityId and MetadataContent are required", ErrValidation)
+		}
+
+		out.Idp = &SAMLIdp{EntityID: req.Idp.EntityID, MetadataContent: req.Idp.MetadataContent}
+	}
+
+	return out, nil
+}
+
 // advancedSecurityOptionsFromRequest validates and converts a request
 // AdvancedSecurityOptions struct. Real AWS requires MasterUserOptions (or an
 // already-configured internal user database) when both Enabled and
@@ -621,18 +723,64 @@ func advancedSecurityOptionsFromRequest(req *advancedSecurityOptionsRequestJSON)
 		)
 	}
 
-	return &AdvancedSecurityOptions{
+	out := &AdvancedSecurityOptions{
 		Enabled:                     req.Enabled,
 		InternalUserDatabaseEnabled: req.InternalUserDatabaseEnabled,
 		AnonymousAuthEnabled:        req.AnonymousAuthEnabled,
-	}, nil
+	}
+
+	if req.SAMLOptions != nil {
+		samlOpts, err := samlOptionsFromRequest(req.SAMLOptions)
+		if err != nil {
+			return nil, err
+		}
+
+		out.SAMLOptions = samlOpts
+	}
+
+	return out, nil
 }
 
 // validAutoTuneDesiredStates is the set of values accepted for
 // AutoTuneOptions.DesiredState (types.AutoTuneDesiredState).
 var validAutoTuneDesiredStates = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
-	"ENABLED":  true,
-	"DISABLED": true,
+	autoTuneStateEnabled:  true,
+	autoTuneStateDisabled: true,
+}
+
+// validTimeUnits is the set of values accepted for Duration.Unit
+// (types.TimeUnit's only enum value).
+var validTimeUnits = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"HOURS": true,
+}
+
+// maintenanceSchedulesFromRequest validates and converts request maintenance
+// schedules into backend AutoTuneMaintenanceSchedule values.
+func maintenanceSchedulesFromRequest(req []autoTuneMaintenanceScheduleJSON) ([]AutoTuneMaintenanceSchedule, error) {
+	if req == nil {
+		return nil, nil
+	}
+
+	out := make([]AutoTuneMaintenanceSchedule, len(req))
+	for i, s := range req {
+		out[i] = AutoTuneMaintenanceSchedule{CronExpressionForRecurrence: s.CronExpressionForRecurrence}
+		if s.StartAt != 0 {
+			out[i].StartAt = time.Unix(int64(s.StartAt), 0).UTC()
+		}
+
+		if s.Duration != nil {
+			if s.Duration.Unit != "" && !validTimeUnits[s.Duration.Unit] {
+				return nil, fmt.Errorf(
+					"%w: AutoTuneMaintenanceSchedule.Duration.Unit must be HOURS, got %q",
+					ErrValidation, s.Duration.Unit,
+				)
+			}
+
+			out[i].Duration = &Duration{Unit: s.Duration.Unit, Value: s.Duration.Value}
+		}
+	}
+
+	return out, nil
 }
 
 // autoTuneOptionsFromRequest validates and converts a request AutoTuneOptions struct.
@@ -642,7 +790,33 @@ func autoTuneOptionsFromRequest(req *autoTuneOptionsRequestJSON) (*AutoTuneOptio
 			ErrValidation, req.DesiredState)
 	}
 
-	return &AutoTuneOptions{DesiredState: req.DesiredState}, nil
+	schedules, err := maintenanceSchedulesFromRequest(req.MaintenanceSchedules)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AutoTuneOptions{DesiredState: req.DesiredState, MaintenanceSchedules: schedules}, nil
+}
+
+// validDeploymentStrategies is the set of values accepted for
+// DeploymentStrategyOptions.DeploymentStrategy (types.DeploymentStrategy).
+var validDeploymentStrategies = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"Default":           true,
+	"CapacityOptimized": true,
+}
+
+// deploymentStrategyOptionsFromRequest validates and converts a request
+// DeploymentStrategyOptions struct. DeploymentStrategy is a required member
+// of types.DeploymentStrategyOptions -- confirmed against validators.go:1044-1055.
+func deploymentStrategyOptionsFromRequest(req *deploymentStrategyOptionsJSON) (*DeploymentStrategyOptions, error) {
+	if !validDeploymentStrategies[req.DeploymentStrategy] {
+		return nil, fmt.Errorf(
+			"%w: DeploymentStrategyOptions.DeploymentStrategy must be Default or CapacityOptimized, got %q",
+			ErrValidation, req.DeploymentStrategy,
+		)
+	}
+
+	return &DeploymentStrategyOptions{DeploymentStrategy: req.DeploymentStrategy}, nil
 }
 
 // toCognitoOptionsJSON converts a backend CognitoOptions to its JSON
@@ -672,7 +846,30 @@ func toAdvancedSecurityOptionsJSON(a *AdvancedSecurityOptions) advancedSecurityO
 		Enabled:                     a.Enabled,
 		InternalUserDatabaseEnabled: a.InternalUserDatabaseEnabled,
 		AnonymousAuthEnabled:        a.AnonymousAuthEnabled,
+		SAMLOptions:                 toSAMLOptionsJSON(a.SAMLOptions),
 	}
+}
+
+// toSAMLOptionsJSON converts a backend SAMLOptions to its response shape
+// (types.SAMLOptionsOutput), dropping the credential-adjacent
+// MasterUserName/MasterBackendRole fields real AWS never echoes back.
+func toSAMLOptionsJSON(s *SAMLOptions) *samlOptionsJSON {
+	if s == nil {
+		return nil
+	}
+
+	out := &samlOptionsJSON{
+		Enabled:               s.Enabled,
+		RolesKey:              s.RolesKey,
+		SubjectKey:            s.SubjectKey,
+		SessionTimeoutMinutes: s.SessionTimeoutMinutes,
+	}
+
+	if s.Idp != nil {
+		out.Idp = &samlIdpJSON{EntityID: s.Idp.EntityID, MetadataContent: s.Idp.MetadataContent}
+	}
+
+	return out
 }
 
 // toAutoTuneOptionsJSON converts a backend AutoTuneOptions to its response
@@ -684,10 +881,20 @@ func toAdvancedSecurityOptionsJSON(a *AdvancedSecurityOptions) advancedSecurityO
 // real AWS's default.
 func toAutoTuneOptionsJSON(a *AutoTuneOptions) autoTuneOptionsJSON {
 	if a == nil || a.DesiredState == "" {
-		return autoTuneOptionsJSON{State: "DISABLED"}
+		return autoTuneOptionsJSON{State: autoTuneStateDisabled}
 	}
 
 	return autoTuneOptionsJSON{State: a.DesiredState}
+}
+
+// toDeploymentStrategyOptionsJSON converts a backend DeploymentStrategyOptions
+// to its JSON representation, or nil if the domain never set one.
+func toDeploymentStrategyOptionsJSON(d *DeploymentStrategyOptions) *deploymentStrategyOptionsJSON {
+	if d == nil {
+		return nil
+	}
+
+	return &deploymentStrategyOptionsJSON{DeploymentStrategy: d.DeploymentStrategy}
 }
 
 // toVPCDerivedInfoJSON converts a backend VPCOptions to the response-shape
@@ -745,6 +952,7 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		CognitoOptions:             toCognitoOptionsJSON(d.CognitoOptions),
 		AdvancedSecurityOptions:    toAdvancedSecurityOptionsJSON(d.AdvancedSecurityOptions),
 		AutoTuneOptions:            toAutoTuneOptionsJSON(d.AutoTuneOptions),
+		DeploymentStrategyOptions:  toDeploymentStrategyOptionsJSON(d.DeploymentStrategyOptions),
 		VPCOptions:                 toVPCDerivedInfoJSON(d.VPCOptions),
 		LogPublishingOptions:       toLogPublishingOptionsJSON(d.LogPublishingOptions),
 		SnapshotOptions: domainSnapshotOptions{

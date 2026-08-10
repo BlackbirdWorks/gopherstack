@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 )
 
 // CreatePackage creates a new Elasticsearch package (e.g., a dictionary file).
@@ -40,6 +41,7 @@ func (b *InMemoryBackend) CreatePackage(
 	}
 
 	id := fmt.Sprintf("F%010d", b.nextIDLocked())
+	now := time.Now()
 	pkg := &Package{
 		ID:            id,
 		Name:          name,
@@ -47,6 +49,8 @@ func (b *InMemoryBackend) CreatePackage(
 		Description:   description,
 		Status:        "AVAILABLE",
 		PackageSource: source,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
 		region:        region,
 	}
 	b.packagePut(pkg)
@@ -222,6 +226,7 @@ func (b *InMemoryBackend) UpdatePackage(ctx context.Context, packageID, descript
 	}
 
 	pkg.Description = description
+	pkg.LastUpdatedAt = time.Now()
 	cp := *pkg
 
 	return &cp, nil
