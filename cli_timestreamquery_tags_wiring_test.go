@@ -50,7 +50,7 @@ func TestInitializeServices_TimestreamQueryTagsWiring(t *testing.T) {
 		"wiring-test-query", "SELECT 1", "rate(1 hour)",
 		"arn:aws:iam::000000000000:role/tsq-role",
 		"arn:aws:sns:us-east-1:000000000000:tsq-topic",
-		"tsq-error-bucket", "", "", "",
+		"tsq-error-bucket", "", "", "", "",
 		map[string]string{"stage": "prod"},
 	)
 	require.NoError(t, err)
