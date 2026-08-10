@@ -2,6 +2,7 @@ package mediapackage
 
 import (
 	"maps"
+	"slices"
 )
 
 type storedIngestEndpoint struct {
@@ -49,11 +50,11 @@ func (c *storedChannel) toChannel() *Channel {
 }
 
 type storedOriginEndpoint struct {
-	Authorization          map[string]any    `json:"authorization,omitempty"`
+	Authorization          *Authorization    `json:"authorization,omitempty"`
+	MssPackage             *MssPackage       `json:"mssPackage,omitempty"`
 	CmafPackage            map[string]any    `json:"cmafPackage,omitempty"`
 	DashPackage            map[string]any    `json:"dashPackage,omitempty"`
 	HlsPackage             map[string]any    `json:"hlsPackage,omitempty"`
-	MssPackage             map[string]any    `json:"mssPackage,omitempty"`
 	Tags                   map[string]string `json:"tags"`
 	ARN                    string            `json:"arn"`
 	ChannelID              string            `json:"channelId"`
@@ -88,18 +89,18 @@ func (e *storedOriginEndpoint) toOriginEndpoint() *OriginEndpoint {
 		TimeDelaySeconds:       e.TimeDelaySeconds,
 		Whitelist:              whitelist,
 		Tags:                   tags,
-		Authorization:          copyAnyMap(e.Authorization),
+		Authorization:          copyAuthorization(e.Authorization),
 		CmafPackage:            copyAnyMap(e.CmafPackage),
 		DashPackage:            copyAnyMap(e.DashPackage),
 		HlsPackage:             copyAnyMap(e.HlsPackage),
-		MssPackage:             copyAnyMap(e.MssPackage),
+		MssPackage:             copyMssPackage(e.MssPackage),
 	}
 }
 
 // copyAnyMap returns a shallow copy of m, or nil if m is empty. Used for the
-// opaque packaging-protocol blocks (Authorization/CmafPackage/DashPackage/
-// HlsPackage/MssPackage) so callers of toOriginEndpoint cannot mutate the
-// backend's stored copy through the returned value.
+// opaque packaging-protocol blocks (CmafPackage/DashPackage/HlsPackage) so
+// callers of toOriginEndpoint cannot mutate the backend's stored copy
+// through the returned value.
 func copyAnyMap(m map[string]any) map[string]any {
 	if len(m) == 0 {
 		return nil
@@ -109,6 +110,51 @@ func copyAnyMap(m map[string]any) map[string]any {
 	maps.Copy(out, m)
 
 	return out
+}
+
+func copyAuthorization(a *Authorization) *Authorization {
+	if a == nil {
+		return nil
+	}
+
+	cp := *a
+
+	return &cp
+}
+
+func copySpekeKeyProvider(s *SpekeKeyProvider) *SpekeKeyProvider {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+	cp.SystemIDs = slices.Clone(s.SystemIDs)
+
+	if s.EncryptionContractConfiguration != nil {
+		ecc := *s.EncryptionContractConfiguration
+		cp.EncryptionContractConfiguration = &ecc
+	}
+
+	return &cp
+}
+
+func copyMssPackage(m *MssPackage) *MssPackage {
+	if m == nil {
+		return nil
+	}
+
+	cp := *m
+
+	if m.Encryption != nil {
+		cp.Encryption = &MssEncryption{SpekeKeyProvider: copySpekeKeyProvider(m.Encryption.SpekeKeyProvider)}
+	}
+
+	if m.StreamSelection != nil {
+		ss := *m.StreamSelection
+		cp.StreamSelection = &ss
+	}
+
+	return &cp
 }
 
 type storedS3Destination struct {

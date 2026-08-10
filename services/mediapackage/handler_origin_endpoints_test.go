@@ -308,3 +308,69 @@ func TestHandler_OriginEndpoint_PackagingConfigRoundTrip(t *testing.T) {
 	listed := endpoints[0].(map[string]any)
 	assert.Contains(t, listed, "hlsPackage")
 }
+
+// TestHandler_OriginEndpoint_Authorization_RequiredFields verifies a
+// partially-populated authorization block is rejected with 422 over the
+// wire, not silently accepted with a missing secret.
+func TestHandler_OriginEndpoint_Authorization_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	channelID := createTestChannel(t, h)
+
+	code, resp := doRequestJSON(t, h, http.MethodPost, "/origin_endpoints", map[string]any{
+		"channelId": channelID,
+		"id":        "ep-bad-auth",
+		"authorization": map[string]any{
+			"cdnIdentifierSecret": "arn:aws:secretsmanager:1",
+		},
+	})
+	require.Equal(t, http.StatusUnprocessableEntity, code)
+	assert.Contains(t, resp["Message"], "SecretsRoleArn")
+}
+
+// TestHandler_OriginEndpoint_MssPackage_FullDepthRoundTrip verifies the
+// nested SPEKE/StreamSelection fields inside mssPackage survive a Create
+// then Describe over the wire.
+func TestHandler_OriginEndpoint_MssPackage_FullDepthRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	channelID := createTestChannel(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/origin_endpoints", map[string]any{
+		"channelId": channelID,
+		"id":        "ep-mss",
+		"mssPackage": map[string]any{
+			"manifestWindowSeconds": float64(60),
+			"streamSelection": map[string]any{
+				"streamOrder":           "ORIGINAL",
+				"maxVideoBitsPerSecond": float64(5000000),
+				"minVideoBitsPerSecond": float64(100000),
+			},
+			"encryption": map[string]any{
+				"spekeKeyProvider": map[string]any{
+					"resourceId": "r1",
+					"roleArn":    "arn:aws:iam:1",
+					"url":        "https://speke.example.com",
+					"systemIds":  []any{"81376844-f976-481e-a695-0e6108b45a58"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	rec = doRequest(t, h, http.MethodGet, "/origin_endpoints/ep-mss", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var described map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &described))
+
+	mss, ok := described["mssPackage"].(map[string]any)
+	require.True(t, ok)
+	assert.InEpsilon(t, float64(60), mss["manifestWindowSeconds"], 0)
+
+	speke := mss["encryption"].(map[string]any)["spekeKeyProvider"].(map[string]any)
+	assert.Equal(t, "r1", speke["resourceId"])
+	assert.Equal(t, []any{"81376844-f976-481e-a695-0e6108b45a58"}, speke["systemIds"])
+}

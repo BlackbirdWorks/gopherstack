@@ -9,11 +9,11 @@ import (
 // --- origin endpoint output helper ---
 
 type originEndpointOutput struct {
-	Authorization          map[string]any `json:"authorization,omitempty"`
+	Authorization          *Authorization `json:"authorization,omitempty"`
+	MssPackage             *MssPackage    `json:"mssPackage,omitempty"`
 	CmafPackage            map[string]any `json:"cmafPackage,omitempty"`
 	DashPackage            map[string]any `json:"dashPackage,omitempty"`
 	HlsPackage             map[string]any `json:"hlsPackage,omitempty"`
-	MssPackage             map[string]any `json:"mssPackage,omitempty"`
 	Tags                   map[string]any `json:"tags"`
 	Arn                    string         `json:"arn"`
 	ChannelID              string         `json:"channelId"`
@@ -93,18 +93,113 @@ func (h *Handler) handleCreateOriginEndpoint(c *echo.Context, body map[string]an
 	return c.JSON(http.StatusCreated, toOriginEndpointOutput(ep))
 }
 
-// packagingConfigFromBody extracts the opaque CDN-authorization and
-// per-protocol packaging blocks from a CreateOriginEndpoint/
-// UpdateOriginEndpoint request body. Each block is passed through verbatim
-// (see PackagingConfig).
+// packagingConfigFromBody extracts the CDN-authorization and per-protocol
+// packaging blocks from a CreateOriginEndpoint/UpdateOriginEndpoint request
+// body. Authorization and MssPackage are parsed to their full typed shape;
+// CmafPackage/DashPackage/HlsPackage remain an opaque passthrough (see
+// PackagingConfig for why).
 func packagingConfigFromBody(body map[string]any) PackagingConfig {
 	return PackagingConfig{
-		Authorization: mapFromBody(body, "authorization"),
+		Authorization: authorizationFromBody(body),
 		CmafPackage:   mapFromBody(body, "cmafPackage"),
 		DashPackage:   mapFromBody(body, "dashPackage"),
 		HlsPackage:    mapFromBody(body, "hlsPackage"),
-		MssPackage:    mapFromBody(body, "mssPackage"),
+		MssPackage:    mssPackageFromBody(body),
 	}
+}
+
+func authorizationFromBody(body map[string]any) *Authorization {
+	raw := mapFromBody(body, "authorization")
+	if raw == nil {
+		return nil
+	}
+
+	cdn, _ := raw["cdnIdentifierSecret"].(string)
+	role, _ := raw["secretsRoleArn"].(string)
+
+	return &Authorization{CdnIdentifierSecret: cdn, SecretsRoleArn: role}
+}
+
+func mssPackageFromBody(body map[string]any) *MssPackage {
+	raw := mapFromBody(body, "mssPackage")
+	if raw == nil {
+		return nil
+	}
+
+	return &MssPackage{
+		Encryption:             mssEncryptionFromMap(raw),
+		StreamSelection:        streamSelectionFromMap(raw),
+		ManifestWindowSeconds:  intFromMap(raw, "manifestWindowSeconds"),
+		SegmentDurationSeconds: intFromMap(raw, "segmentDurationSeconds"),
+	}
+}
+
+func mssEncryptionFromMap(m map[string]any) *MssEncryption {
+	raw, ok := m["encryption"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return &MssEncryption{SpekeKeyProvider: spekeKeyProviderFromMap(raw)}
+}
+
+func spekeKeyProviderFromMap(m map[string]any) *SpekeKeyProvider {
+	raw, ok := m["spekeKeyProvider"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	resourceID, _ := raw["resourceId"].(string)
+	roleArn, _ := raw["roleArn"].(string)
+	url, _ := raw["url"].(string)
+	certArn, _ := raw["certificateArn"].(string)
+
+	return &SpekeKeyProvider{
+		ResourceID:                      resourceID,
+		RoleArn:                         roleArn,
+		URL:                             url,
+		CertificateArn:                  certArn,
+		SystemIDs:                       stringsFromBody(raw, "systemIds"),
+		EncryptionContractConfiguration: encryptionContractConfigFromMap(raw),
+	}
+}
+
+func encryptionContractConfigFromMap(m map[string]any) *EncryptionContractConfiguration {
+	raw, ok := m["encryptionContractConfiguration"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	audio, _ := raw["presetSpeke20Audio"].(string)
+	video, _ := raw["presetSpeke20Video"].(string)
+
+	return &EncryptionContractConfiguration{PresetSpeke20Audio: audio, PresetSpeke20Video: video}
+}
+
+func streamSelectionFromMap(m map[string]any) *StreamSelection {
+	raw, ok := m["streamSelection"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	order, _ := raw["streamOrder"].(string)
+
+	return &StreamSelection{
+		StreamOrder:           order,
+		MaxVideoBitsPerSecond: intFromMap(raw, "maxVideoBitsPerSecond"),
+		MinVideoBitsPerSecond: intFromMap(raw, "minVideoBitsPerSecond"),
+	}
+}
+
+func intFromMap(m map[string]any, key string) int {
+	switch n := m[key].(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	}
+
+	return 0
 }
 
 func (h *Handler) handleDescribeOriginEndpoint(c *echo.Context, id string) error {

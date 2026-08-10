@@ -663,7 +663,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [MediaConvert](services/mediaconvert/README.md) | A | 34 | 1 gap; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 4 gaps |
-| [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 gap; 1 deferred |
+| [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 deferred |
 | [MediaStore](services/mediastore/README.md) | A | 21 | clean |
 | [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 4 gaps; 1 deferred |
 | [MediaTailor](services/mediatailor/README.md) | A | 48 | clean |

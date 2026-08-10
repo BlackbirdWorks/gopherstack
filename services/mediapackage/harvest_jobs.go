@@ -79,7 +79,7 @@ func (b *InMemoryBackend) CreateHarvestJob(
 			RoleArn:     s3Dest.RoleArn,
 		},
 		StartTime: startTime,
-		Status:    harvestJobStatusSucceeded,
+		Status:    harvestJobStatusInProgress,
 	}
 
 	b.harvestJobs.Put(job)

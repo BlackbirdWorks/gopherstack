@@ -11,7 +11,11 @@ const (
 
 	originationAllow = "ALLOW"
 
-	harvestJobStatusSucceeded = "SUCCEEDED"
+	// harvestJobStatusInProgress is the status CreateHarvestJob sets and this
+	// backend never transitions away from -- see harvest_jobs.go. types.Status
+	// also defines SUCCEEDED and FAILED (aws-sdk-go-v2/service/mediapackage@
+	// v1.42.4, types/enums.go:302-317), neither ever set by this backend.
+	harvestJobStatusInProgress = "IN_PROGRESS"
 
 	resourceTypeChannel        = "channels"
 	resourceTypeOriginEndpoint = "origin_endpoints"
