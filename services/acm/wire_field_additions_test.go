@@ -400,3 +400,81 @@ func TestACMHandler_RequestCertificate_ManagedBy(t *testing.T) {
 		})
 	}
 }
+
+// Test_SDKRoundTrip_RequestCertificate_ValidationMethod proves each real
+// ValidationMethod value (types.ValidationMethod, enums.go:751-763, v1.43.4)
+// starts the certificate in the right initial status and populates the
+// right DomainValidation union member: DNS -> ResourceRecord, EMAIL ->
+// ValidationEmails, HTTP -> HttpRedirect (types.DomainValidation.HttpRedirect
+// doc: "This field exists only when ... the validation method is HTTP",
+// types.go:1053-1056). Before this fix, HTTP fell into buildInitialDVOList's
+// default branch (certificates.go), which issues the certificate immediately
+// and stamps a DNS-shaped ResourceRecord onto a DomainValidation claiming
+// ValidationMethod=HTTP.
+func Test_SDKRoundTrip_RequestCertificate_ValidationMethod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		verify func(t *testing.T, dv types.DomainValidation)
+		method types.ValidationMethod
+		name   string
+	}{
+		{
+			name:   "dns",
+			method: types.ValidationMethodDns,
+			verify: func(t *testing.T, dv types.DomainValidation) {
+				t.Helper()
+				require.NotNil(t, dv.ResourceRecord)
+				assert.Nil(t, dv.HttpRedirect)
+			},
+		},
+		{
+			name:   "email",
+			method: types.ValidationMethodEmail,
+			verify: func(t *testing.T, dv types.DomainValidation) {
+				t.Helper()
+				require.NotEmpty(t, dv.ValidationEmails)
+				assert.Nil(t, dv.HttpRedirect)
+			},
+		},
+		{
+			name:   "http",
+			method: types.ValidationMethodHttp,
+			verify: func(t *testing.T, dv types.DomainValidation) {
+				t.Helper()
+				require.NotNil(t, dv.HttpRedirect)
+				assert.NotEmpty(t, *dv.HttpRedirect.RedirectFrom)
+				assert.NotEmpty(t, *dv.HttpRedirect.RedirectTo)
+				assert.Nil(t, dv.ResourceRecord)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := acm.NewInMemoryBackend("000000000000", wireTestRegion)
+			h := acm.NewHandler(backend)
+			client := newTestACMClient(t, h)
+
+			domain := "validation-" + string(tt.method) + ".example.com"
+
+			created, err := client.RequestCertificate(t.Context(), &acmsdk.RequestCertificateInput{
+				DomainName:       aws.String(domain),
+				ValidationMethod: tt.method,
+			})
+			require.NoError(t, err)
+
+			described, err := client.DescribeCertificate(t.Context(), &acmsdk.DescribeCertificateInput{
+				CertificateArn: created.CertificateArn,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, described.Certificate)
+			assert.Equal(t, types.CertificateStatusPendingValidation, described.Certificate.Status,
+				"a real domain-validation method must not issue synchronously")
+			require.Len(t, described.Certificate.DomainValidationOptions, 1)
+			tt.verify(t, described.Certificate.DomainValidationOptions[0])
+		})
+	}
+}

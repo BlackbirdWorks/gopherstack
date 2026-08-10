@@ -261,42 +261,42 @@ func generateKey(keyAlgorithm string) (any, any, string, error) {
 	const rsa4096 = 4096
 
 	switch keyAlgorithm {
-	case "RSA_1024":
+	case keyAlgorithmRSA1024:
 		// RSA_1024 is a valid KeyAlgorithm enum value on the wire (imported
 		// certificates only) but is rejected here as a client input error
 		// (ValidationException/400), not surfaced as an unwrapped internal
 		// error (which would previously escape handleOpError's known-error
 		// switch and be reported as a 500 InternalFailure).
 		return nil, nil, "", fmt.Errorf("%w: %w", ErrInvalidParameter, errWeakKey)
-	case "RSA_2048":
+	case keyAlgorithmRSA2048:
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa2048)
 		if rsaErr != nil {
 			return nil, nil, "", rsaErr
 		}
 
 		return privRSA, &privRSA.PublicKey, sigAlgoSHA256WithRSA, nil
-	case "RSA_3072":
+	case keyAlgorithmRSA3072:
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa3072)
 		if rsaErr != nil {
 			return nil, nil, "", rsaErr
 		}
 
 		return privRSA, &privRSA.PublicKey, sigAlgoSHA256WithRSA, nil
-	case "RSA_4096":
+	case keyAlgorithmRSA4096:
 		privRSA, rsaErr := rsa.GenerateKey(cryptorand.Reader, rsa4096)
 		if rsaErr != nil {
 			return nil, nil, "", rsaErr
 		}
 
 		return privRSA, &privRSA.PublicKey, sigAlgoSHA256WithRSA, nil
-	case "EC_secp384r1":
+	case keyAlgorithmECSecp384r1:
 		privEC, ecErr := ecdsa.GenerateKey(elliptic.P384(), cryptorand.Reader)
 		if ecErr != nil {
 			return nil, nil, "", ecErr
 		}
 
 		return privEC, &privEC.PublicKey, "SHA384WITHECDSA", nil
-	case "EC_prime256v1", "":
+	case keyAlgorithmEC, "":
 		privEC, ecErr := ecdsa.GenerateKey(elliptic.P256(), cryptorand.Reader)
 		if ecErr != nil {
 			return nil, nil, "", ecErr

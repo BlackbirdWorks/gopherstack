@@ -17,7 +17,7 @@ import (
 // SDK).
 //
 //nolint:gochecknoglobals // read-only enum value list initialized once at startup
-var validPublicKeyAlgorithms = []string{"RSA_2048", "EC_prime256v1", "EC_secp384r1"}
+var validPublicKeyAlgorithms = []string{keyAlgorithmRSA2048, keyAlgorithmEC, keyAlgorithmECSecp384r1}
 
 // AcmeEndpoint is a managed ACME server (RFC 8555) endpoint. It is the root
 // of the ACME resource family: external account bindings (acme_eab.go),

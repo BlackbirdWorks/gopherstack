@@ -35,6 +35,7 @@ type requestCertificateOutput struct {
 
 type domainValidationOption struct {
 	ResourceRecord   *resourceRecord `json:"ResourceRecord,omitempty"`
+	HTTPRedirect     *httpRedirect   `json:"HttpRedirect,omitempty"`
 	DomainName       string          `json:"DomainName"`
 	ValidationDomain string          `json:"ValidationDomain"`
 	ValidationStatus string          `json:"ValidationStatus"`
@@ -46,6 +47,13 @@ type resourceRecord struct {
 	Name  string `json:"Name"`
 	Type  string `json:"Type"`
 	Value string `json:"Value"`
+}
+
+// httpRedirect is the wire shape of types.HttpRedirect
+// (aws-sdk-go-v2/service/acm/types/types.go:1316-1327, v1.43.4).
+type httpRedirect struct {
+	RedirectFrom string `json:"RedirectFrom,omitempty"`
+	RedirectTo   string `json:"RedirectTo,omitempty"`
 }
 
 // renewalSummaryDetail is the wire format for the RenewalSummary field in DescribeCertificate.
@@ -352,6 +360,13 @@ func buildDomainValidationOptionList(dvos []DomainValidationOption) []domainVali
 				Name:  dvo.ResourceRecord.Name,
 				Type:  dvo.ResourceRecord.Type,
 				Value: dvo.ResourceRecord.Value,
+			}
+		}
+
+		if dvo.HTTPRedirect != nil {
+			opt.HTTPRedirect = &httpRedirect{
+				RedirectFrom: dvo.HTTPRedirect.RedirectFrom,
+				RedirectTo:   dvo.HTTPRedirect.RedirectTo,
 			}
 		}
 

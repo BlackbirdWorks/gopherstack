@@ -573,7 +573,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [ACM](services/acm/README.md) | A | 38 | 5 gaps; 3 deferred |
+| [ACM](services/acm/README.md) | A | 38 | 6 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 2 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 63 | 4 gaps; 1 structural gap; 4 deferred |
