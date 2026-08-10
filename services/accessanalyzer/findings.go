@@ -258,13 +258,19 @@ func (b *InMemoryBackend) GenerateFindingRecommendation(analyzerArn, findingID s
 	b.mu.Lock("GenerateFindingRecommendation")
 	defer b.mu.Unlock()
 
+	f, ok := b.findings.Get(findingID)
+	if !ok || f.AnalyzerArn != analyzerArn {
+		return ErrFindingNotFound
+	}
+
 	now := time.Now().UTC()
 	completed := now
 
 	rec := &FindingRecommendation{
 		ID:                 findingID,
 		AnalyzerArn:        analyzerArn,
-		RecommendationType: "UNUSED_PERMISSION",
+		ResourceArn:        f.ResourceArn,
+		RecommendationType: RecommendationTypeUnusedPermission,
 		Status:             "SUCCEEDED",
 		StartedAt:          now,
 		CompletedAt:        &completed,

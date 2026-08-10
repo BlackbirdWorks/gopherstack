@@ -84,7 +84,7 @@ func (h *Handler) handleListAnalyzedResources(body []byte) (any, int, error) {
 		// AnalyzedResourceSummary: resourceArn/resourceOwnerAccount/
 		// resourceType are all required members.
 		list = append(list, map[string]any{
-			"resourceArn":        ar.ResourceArn,
+			keyResourceArn:       ar.ResourceArn,
 			keyResourceType:      ar.ResourceType,
 			keyResourceOwnerAcct: accountID,
 		})

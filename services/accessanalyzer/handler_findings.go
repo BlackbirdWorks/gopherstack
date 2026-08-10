@@ -291,10 +291,19 @@ func (h *Handler) handleGetFindingRecommendation(path, query string) (any, int, 
 		return nil, 0, err
 	}
 
-	return map[string]any{
-		"recommendedSteps": []any{}, "recommendationType": rec.RecommendationType,
-		keyStatus: rec.Status,
-	}, http.StatusOK, nil
+	resp := map[string]any{
+		"recommendedSteps":   []any{},
+		"recommendationType": rec.RecommendationType,
+		keyResourceArn:       rec.ResourceArn,
+		"startedAt":          rec.StartedAt.Format(time.RFC3339),
+		keyStatus:            rec.Status,
+	}
+
+	if rec.CompletedAt != nil {
+		resp["completedAt"] = rec.CompletedAt.Format(time.RFC3339)
+	}
+
+	return resp, http.StatusOK, nil
 }
 
 // ---- URL path parsing ----

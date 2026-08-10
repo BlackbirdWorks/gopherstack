@@ -3,6 +3,7 @@ package accessanalyzer_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,7 +106,17 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.TagResource(analyzer.Arn, map[string]string{"team": "platform"}))
 
-	pg, err := original.StartPolicyGeneration("arn:aws:iam::111122223333:role/example")
+	pg, err := original.StartPolicyGeneration(
+		"arn:aws:iam::111122223333:role/example",
+		&accessanalyzer.PolicyGenerationCloudTrailDetails{
+			AccessRole: "arn:aws:iam::111122223333:role/access",
+			StartTime:  time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			EndTime:    time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC),
+			Trails: []accessanalyzer.PolicyGenerationTrail{
+				{CloudTrailArn: "arn:aws:cloudtrail:us-west-2:111122223333:trail/MyTrail"},
+			},
+		},
+	)
 	require.NoError(t, err)
 
 	ap, err := original.CreateAccessPreview(analyzer.Arn)
@@ -163,6 +174,15 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotPG, err := fresh.GetPolicyGeneration(pg.JobID)
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:iam::111122223333:role/example", gotPG.PrincipalArn)
+	// CloudTrailDetails round-trips too (added this pass, so StartPolicyGeneration
+	// no longer silently drops it).
+	require.NotNil(t, gotPG.CloudTrailDetails)
+	assert.Equal(t, "arn:aws:iam::111122223333:role/access", gotPG.CloudTrailDetails.AccessRole)
+	require.Len(t, gotPG.CloudTrailDetails.Trails, 1)
+	assert.Equal(t,
+		"arn:aws:cloudtrail:us-west-2:111122223333:trail/MyTrail",
+		gotPG.CloudTrailDetails.Trails[0].CloudTrailArn,
+	)
 
 	// accessPreviews table (not persisted pre-refactor).
 	gotAP, err := fresh.GetAccessPreview(ap.ID)
@@ -177,7 +197,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// findingRecommendations table (not persisted pre-refactor).
 	gotRec, err := fresh.GetFindingRecommendation(analyzer.Arn, finding.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "UNUSED_PERMISSION", gotRec.RecommendationType)
+	assert.Equal(t, accessanalyzer.RecommendationTypeUnusedPermission, gotRec.RecommendationType)
+	// ResourceArn round-trips too (added this pass).
+	assert.Equal(t, "arn:aws:s3:::bucket-1", gotRec.ResourceArn)
 
 	// DeleteAnalyzer must still cascade-delete the restored archiveRules/findings
 	// groups via their rebuilt byAnalyzer indexes.

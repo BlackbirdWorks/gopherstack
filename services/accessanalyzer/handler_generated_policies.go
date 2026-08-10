@@ -16,6 +16,22 @@ const (
 	pathGeneration = "generation"
 )
 
+// wireTrail is the request-body shape of types.Trail (types/types.go:2357).
+type wireTrail struct {
+	CloudTrailArn string   `json:"cloudTrailArn"`
+	AllRegions    *bool    `json:"allRegions"`
+	Regions       []string `json:"regions"`
+}
+
+// wireCloudTrailDetails is the request-body shape of types.CloudTrailDetails
+// (types/types.go:493, v1.51.4).
+type wireCloudTrailDetails struct {
+	AccessRole string      `json:"accessRole"`
+	StartTime  string      `json:"startTime"`
+	EndTime    string      `json:"endTime"`
+	Trails     []wireTrail `json:"trails"`
+}
+
 // dispatchGeneratedPolicyOps routes policy generation job operations.
 func (h *Handler) dispatchGeneratedPolicyOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
@@ -44,6 +60,7 @@ func (h *Handler) dispatchGeneratedPolicyOps(op, path, query string, body []byte
 
 func (h *Handler) handleStartPolicyGeneration(body []byte) (any, int, error) {
 	var req struct {
+		CloudTrailDetails       *wireCloudTrailDetails `json:"cloudTrailDetails"`
 		PolicyGenerationDetails struct {
 			PrincipalArn string `json:"principalArn"`
 		} `json:"policyGenerationDetails"`
@@ -53,12 +70,59 @@ func (h *Handler) handleStartPolicyGeneration(body []byte) (any, int, error) {
 		return nil, 0, ErrValidation
 	}
 
-	pg, err := h.Backend.StartPolicyGeneration(req.PolicyGenerationDetails.PrincipalArn)
+	pg, err := h.Backend.StartPolicyGeneration(
+		req.PolicyGenerationDetails.PrincipalArn, cloudTrailDetailsFromRequest(req.CloudTrailDetails),
+	)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	return map[string]string{"jobId": pg.JobID}, http.StatusOK, nil
+}
+
+// cloudTrailDetailsFromRequest converts the parsed wire body into the
+// backend's PolicyGenerationCloudTrailDetails, defaulting endTime to now
+// when absent (matches types.CloudTrailDetails.EndTime's documented
+// behavior: "If this is not included in the request, the default value is
+// the current time").
+func cloudTrailDetailsFromRequest(req *wireCloudTrailDetails) *PolicyGenerationCloudTrailDetails {
+	if req == nil {
+		return nil
+	}
+
+	endTime := parseWireTime(req.EndTime)
+	if endTime.IsZero() {
+		endTime = time.Now().UTC()
+	}
+
+	ctd := &PolicyGenerationCloudTrailDetails{
+		AccessRole: req.AccessRole,
+		StartTime:  parseWireTime(req.StartTime),
+		EndTime:    endTime,
+	}
+
+	for _, tr := range req.Trails {
+		ctd.Trails = append(ctd.Trails, PolicyGenerationTrail{
+			CloudTrailArn: tr.CloudTrailArn,
+			AllRegions:    tr.AllRegions,
+			Regions:       tr.Regions,
+		})
+	}
+
+	return ctd
+}
+
+func parseWireTime(s string) time.Time {
+	if s == "" {
+		return time.Time{}
+	}
+
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+
+	return t
 }
 
 func (h *Handler) handleGetGeneratedPolicy(path string) (any, int, error) {
@@ -69,15 +133,48 @@ func (h *Handler) handleGetGeneratedPolicy(path string) (any, int, error) {
 		return nil, 0, err
 	}
 
+	properties := map[string]any{
+		"principalArn": pg.PrincipalArn,
+	}
+
+	if pg.CloudTrailDetails != nil {
+		properties["cloudTrailProperties"] = cloudTrailPropertiesToJSON(pg.CloudTrailDetails)
+	}
+
 	return map[string]any{
 		"generatedPolicyResult": map[string]any{
 			"generatedPolicies": []any{},
-			"properties": map[string]any{
-				"principalArn": pg.PrincipalArn,
-			},
+			"properties":        properties,
 		},
 		"jobDetails": jobDetailsToJSON(pg),
 	}, http.StatusOK, nil
+}
+
+// cloudTrailPropertiesToJSON builds the types.CloudTrailProperties wire
+// shape (startTime/endTime/trailProperties -- no accessRole, unlike the
+// request-side types.CloudTrailDetails it's derived from).
+func cloudTrailPropertiesToJSON(ctd *PolicyGenerationCloudTrailDetails) map[string]any {
+	trails := make([]any, 0, len(ctd.Trails))
+
+	for _, tr := range ctd.Trails {
+		m := map[string]any{"cloudTrailArn": tr.CloudTrailArn}
+
+		if tr.AllRegions != nil {
+			m["allRegions"] = *tr.AllRegions
+		}
+
+		if tr.Regions != nil {
+			m["regions"] = tr.Regions
+		}
+
+		trails = append(trails, m)
+	}
+
+	return map[string]any{
+		"startTime":       ctd.StartTime.Format(time.RFC3339),
+		"endTime":         ctd.EndTime.Format(time.RFC3339),
+		"trailProperties": trails,
+	}
 }
 
 func (h *Handler) handleCancelPolicyGeneration(path string) (int, error) {
