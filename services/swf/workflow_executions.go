@@ -123,8 +123,10 @@ func (f ExecutionFilter) matchCloseRange(e *WorkflowExecution) bool {
 
 // CountOpenWorkflowExecutions counts RUNNING workflow executions in a domain, applying filters.
 func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter ExecutionFilter) int {
-	b.mu.RLock("CountOpenWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CountOpenWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	count := 0
 	for _, e := range b.executionsByDomain.Get(domain) {
@@ -138,8 +140,10 @@ func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter Exec
 
 // CountClosedWorkflowExecutions counts non-RUNNING workflow executions in a domain, applying filters.
 func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string, filter ExecutionFilter) int {
-	b.mu.RLock("CountClosedWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CountClosedWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	count := 0
 	for _, e := range b.executionsByDomain.Get(domain) {
@@ -422,6 +426,11 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	b.mu.Lock("StartWorkflowExecution")
 	defer b.mu.Unlock()
 
+	// A prior run under this workflowId may have timed out but not yet been
+	// swept; without this, its stale RUNNING status would falsely trip
+	// createExecutionLocked's already-open guard below.
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	if !b.domains.Has(input.Domain) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, input.Domain)
 	}
@@ -452,6 +461,8 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 	if err := validateChildPolicy(childPolicyOverride); err != nil {
 		return err
 	}
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
@@ -579,8 +590,10 @@ func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *Workfl
 func (b *InMemoryBackend) DescribeWorkflowExecution(
 	domain, workflowID, runID string,
 ) (*WorkflowExecution, error) {
-	b.mu.RLock("DescribeWorkflowExecution")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeWorkflowExecution")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
@@ -633,8 +646,10 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(
 	domain string,
 	filter ExecutionFilter,
 ) []WorkflowExecution {
-	b.mu.RLock("ListOpenWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListOpenWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	byDomain := b.executionsByDomain.Get(domain)
 	out := make([]WorkflowExecution, 0, len(byDomain))
@@ -653,8 +668,10 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 	domain string,
 	filter ExecutionFilter,
 ) []WorkflowExecution {
-	b.mu.RLock("ListClosedWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListClosedWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	byDomain := b.executionsByDomain.Get(domain)
 	out := make([]WorkflowExecution, 0, len(byDomain))
@@ -673,6 +690,8 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, runID string) error {
 	b.mu.Lock("RequestCancelWorkflowExecution")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {

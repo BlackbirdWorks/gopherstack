@@ -28,6 +28,8 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	b.mu.Lock("PollForDecisionTask")
 	defer b.mu.Unlock()
 
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	key := domain + ":" + taskList
 	queue := b.decisionQueues[key]
 	if len(queue) == 0 {
@@ -71,6 +73,8 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 ) error {
 	b.mu.Lock("RespondDecisionTaskCompleted")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeDecisionTasks.Get(taskToken)
 	if !ok {

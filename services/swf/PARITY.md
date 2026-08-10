@@ -2,7 +2,7 @@
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
 last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
-last_audit_date: 2026-08-07
+last_audit_date: 2026-08-10
 overall: A            # genuine fixes found this pass (see Notes)
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -22,39 +22,42 @@ ops:
   DeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   UndeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes"}
-  DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; ADDITIONALLY (gopherstack-jsi8, 2026-08-07): the wire's Execution.RunId (a real, required field per types.WorkflowExecution) was parsed off the request and then silently discarded -- the Go-level backend method took no runID parameter at all, so a client asking for a specific historical run always got whatever run currently occupied the domain+workflowId slot instead. Now threaded through end to end; see Notes"}
-  GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes"}
-  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution"}
-  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution"}
-  RequestCancelWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  SignalWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok}
-  CountOpenWorkflowExecutions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  CountClosedWorkflowExecutions: {wire: ok, errors: ok, state: ok, persist: n/a}
+  StartWorkflowExecution: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now sweeps expired executions first so a workflowId whose prior run has timed out (but not yet been observed) can be restarted instead of falsely hitting WorkflowExecutionAlreadyStartedFault -- see Notes: timeout enforcement (gopherstack-7gse)"}
+  TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions first, same as StartWorkflowExecution above -- see Notes: timeout enforcement"}
+  DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; ADDITIONALLY (gopherstack-jsi8, 2026-08-07): the wire's Execution.RunId (a real, required field per types.WorkflowExecution) was parsed off the request and then silently discarded -- the Go-level backend method took no runID parameter at all, so a client asking for a specific historical run always got whatever run currently occupied the domain+workflowId slot instead. Now threaded through end to end; see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions (EXECUTION_START_TO_CLOSE only) before resolving, so a RUNNING execution whose timeout has elapsed reads back as TIMED_OUT instead of staying RUNNING forever -- see Notes: timeout enforcement"}
+  GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes. Also sweeps expired executions first, same as DescribeWorkflowExecution (gopherstack-7gse)"}
+  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement"}
+  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above"}
+  RequestCancelWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency with the other execution-touching ops -- see Notes: timeout enforcement"}
+  SignalWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as RequestCancelWorkflowExecution"}
+  CountOpenWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse) so a timed-out execution is no longer counted as open -- see Notes: timeout enforcement"}
+  CountClosedWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse), same as CountOpenWorkflowExecutions above"}
   CountPendingActivityTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
   CountPendingDecisionTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
-  PollForActivityTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "activityQueues intentionally ephemeral, see Notes"}
-  PollForDecisionTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes"}
-  RecordActivityTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok}
-  RespondActivityTaskCanceled: {wire: ok, errors: ok, state: ok, persist: ok}
-  RespondActivityTaskCompleted: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now propagates ChildWorkflowExecutionCompleted to the parent execution, see Notes"}
-  RespondActivityTaskFailed: {wire: ok, errors: ok, state: ok, persist: ok}
-  RespondDecisionTaskCompleted: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ContinueAsNewWorkflowExecution/StartChildWorkflowExecution/SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution now perform real state mutation instead of recording an empty *Initiated event; decisionTaskCompletedEventId was missing from every decision-derived history event; StartTimer/CancelTimer now validate timerId state; see Notes"}
+  PollForActivityTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "activityQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency -- see Notes: timeout enforcement"}
+  PollForDecisionTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RecordActivityTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RespondActivityTaskCanceled: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RespondActivityTaskCompleted: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now propagates ChildWorkflowExecutionCompleted to the parent execution, see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RespondActivityTaskFailed: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
+  RespondDecisionTaskCompleted: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "ContinueAsNewWorkflowExecution/StartChildWorkflowExecution/SignalExternalWorkflowExecution/RequestCancelExternalWorkflowExecution now perform real state mutation instead of recording an empty *Initiated event; decisionTaskCompletedEventId was missing from every decision-derived history event; StartTimer/CancelTimer now validate timerId state; see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
+  timeout_enforcement: {status: partial, note: "gopherstack-7gse, 2026-08-10: EXECUTION_START_TO_CLOSE is now enforced -- see Notes for the full mechanism and citations. TaskStartToCloseTimeout (decision tasks) and every activity-task timeout kind (ScheduleToStart/ScheduleToClose/StartToClose/Heartbeat) remain accepted-and-ignored, same as before this pass -- see gaps. Do not read 'partial' as 'mostly enforced': exactly one timeout kind, out of five SWF defines, is enforced."}
   decision_processing: {status: ok, note: "all 12 SWF decision types now perform real state mutation and carry decisionTaskCompletedEventId + full wire attrs -- see Notes. Dispatch table decomposed into decisionHandlers() (decision_tasks.go) + decision_orchestration.go, removing the historical cyclop/funlen nolint on processDecisionLocked."}
   multi_run_history: {status: ok, note: "FIXED (gopherstack-jsi8, 2026-08-07): executions/history were keyed by domain+workflowId alone, so a second/later run of the same workflowId silently overwrote the first run's row and history -- confirmed against the real aws-sdk-go-v2/service/swf@v1.37.4 types.WorkflowExecution, where RunId is a required member alongside WorkflowId (not an optional disambiguator), and DescribeWorkflowExecutionInput/GetWorkflowExecutionHistoryInput's Execution field requires both. Re-keyed executions (store.Table) and history (map) to domain+workflowId+runId (workflowExecutionKeyFn/executionKey, store.go/store_setup.go); added an executionsByWorkflow store.Index grouping every run (open or closed) under domain+workflowId so the currently-open run (real AWS guarantees at most one) can still be found without a full-domain scan. New resolveExecutionLocked/openExecutionLocked helpers centralize 'find a run, optionally pinned to a runId' -- a non-empty runId is an exact lookup (works for ANY run, open or long-closed); an empty runId first tries the open run, then falls back to the most-recently-started run for that workflowId (a deliberate leniency beyond real AWS, which would error UnknownResource with no open run -- kept so callers that don't track runId, including this backend's own internal cross-execution decision handlers, keep working exactly as before for the still-common single-run-per-workflowId case). DescribeWorkflowExecution/GetWorkflowExecutionHistory both gained a runID parameter (the wire's Execution.RunId was already being parsed but silently discarded -- see their ops rows above); Terminate/RequestCancel/SignalWorkflowExecution's pre-existing runID parameters now actually disambiguate instead of being checked against a single shared row. Every appendHistoryEventLocked/enqueueDecisionTaskLocked call site across activity_tasks.go/decision_tasks.go/decision_orchestration.go/signals.go/workflow_executions.go now threads the specific run's runID through (~25 call sites) rather than resolving 'the' execution for a workflowId. propagateChildClosureLocked now does a direct domain+parentWorkflowId+parentRunId lookup instead of an ambiguous domain+workflowId one, so a parent that has since continued-as-new (a newer run under the same workflowId) no longer incorrectly receives a child-closure event meant for the run that actually started that child. Also fixed the closely-related 'LRU-eviction ghost queue rows' gopherstack-jsi8 finding: registerExecutionOrderLocked's eviction (at the pre-existing maxWorkflowExecutions=10_000 cap) previously deleted only the execution row and history, leaving any still-pending decisionQueues/activityQueues entry or activeDecisionTasks/activeActivityTasks record for that run behind as a ghost referencing data that no longer existed; new evictExecutionLocked purges all four. New tests: TestMultiRunHistory (multirun_test.go, 6 cases covering explicit-old-run/explicit-new-run/empty-run-id resolution, history isolation between runs, the already-open-run rejection, and the falls-back-to-most-recent behavior) and TestLRUEvictionPurgesPendingDecisionTasks (creates 10_000 executions, confirms the evicted run's pending decision task is gone from its task list and the evicted execution is truly not found -- verified this test fails without the evictExecutionLocked fix). One existing test (TestRespondDecisionTaskCompleted_ContinueAsNew) asserted the old run's WorkflowExecutionContinuedAsNew event appeared in the NEW run's history, which was only true because both runs shared one history blob under the old keying -- corrected to check each run's own history/DescribeWorkflowExecution independently, which is the actual point of this fix. Interface changes: Backend.DescribeWorkflowExecution and Backend.GetWorkflowExecutionHistory each gained a runID parameter; no external callers found via full-repo grep (cloudformation/dashboard/cli.go reference services/swf but not these methods directly)."}
 gaps:
   - "activityQueues/decisionQueues (FIFO pending-task lists) are intentionally NOT part of backendSnapshot (pre-existing, documented design choice in store.go/persistence.go -- order-sensitive plain maps). A restart loses in-flight pending tasks that haven't been polled yet, while their corresponding history events and active-task records DO survive. Not fixed this pass (would require reworking backendSnapshot's shape); flagged for awareness. (bd: TODO -- file follow-up)"
-  - "Child-policy cascade is now implemented for TerminateWorkflowExecution (this pass, see Notes): TERMINATE recursively terminates open children (cascading each child's own stored ChildPolicy to grandchildren in turn), REQUEST_CANCEL records WorkflowExecutionCancelRequested (cause CHILD_POLICY_APPLIED) on each open child and gives it a fresh decision task, and ABANDON is correctly a no-op. This closes the TerminateWorkflowExecution half of gopherstack-jsi8's child-policy finding. Real AWS's *other* child-policy trigger -- an execution auto-closing via WorkflowExecutionTimedOut when ExecutionStartToCloseTimeout/TaskStartToCloseTimeout expires -- is unreachable here because this backend has no timeout-enforcement mechanism at all (statusTimedOut is defined in models.go but nothing ever sets it; no background timer, no check on poll/describe). That is a separate, materially larger gap (a whole missing feature, not a cascade bug) that predates this pass, was not previously documented, and is out of scope for this fix; flagging it here since it was surfaced while auditing this exact mechanism. (bd: TODO -- file follow-up for timeout enforcement)"
+  - "Child-policy cascade is now implemented for TerminateWorkflowExecution (2026-07-31 pass, see Notes): TERMINATE recursively terminates open children (cascading each child's own stored ChildPolicy to grandchildren in turn), REQUEST_CANCEL records WorkflowExecutionCancelRequested (cause CHILD_POLICY_APPLIED) on each open child and gives it a fresh decision task, and ABANDON is correctly a no-op. That pass surfaced -- but explicitly left out of scope -- that real AWS's *other* child-policy trigger, an execution auto-closing via WorkflowExecutionTimedOut, was unreachable because this backend had no timeout-enforcement mechanism at all. THIS PASS (gopherstack-7gse, 2026-08-10) closes that: EXECUTION_START_TO_CLOSE is now enforced and reuses the exact same applyChildPolicyLocked cascade timeoutExecutionLocked calls -- see Notes: timeout enforcement. Both of real SWF's child-policy triggers are reachable now."
+  - "TaskStartToCloseTimeout (the decision task timeout) and every activity-task timeout kind SWF defines -- ScheduleToStartTimeout, ScheduleToCloseTimeout, StartToCloseTimeout, HeartbeatTimeout -- remain UNENFORCED: accepted on RegisterWorkflowType/RegisterActivityType/ScheduleActivityTask, stored, echoed back on Describe, and never acted on. This is deliberate scope discipline (gopherstack-7gse), not an oversight: real AWS's child policy is invoked only by TerminateWorkflowExecution or a WorkflowExecutionTimedOut EXECUTION_START_TO_CLOSE close (see Notes), never by a decision-task or activity-task timeout, so none of these five feed the mechanism this pass exists to fix. Implementing them needs a materially different shape too -- DecisionTaskTimedOut/ActivityTaskTimedOut close the *task*, not the execution, and a real decision-task timeout must re-enqueue a fresh decision task rather than close anything. Do not read the sweep added this pass as covering these; it only ever inspects WorkflowExecution.ExecutionStartToCloseTimeout. (bd: TODO -- file follow-up if these are ever wanted)"
+  - "StartTimer/CancelTimer decisions (TimerStarted/TimerCanceled events, WorkflowExecution.OpenTimerIDs) remain purely decision-driven with no autonomous TimerFired -- see leaks below. This predates gopherstack-7gse and is a different mechanism from ExecutionStartToCloseTimeout (a StartTimer decision's StartToFireTimeout is decider-chosen and per-timer, not the execution-wide deadline set at StartWorkflowExecution/RegisterWorkflowType), so this pass's sweep does not touch it. Left as a separate, pre-existing, still-undocumented-until-now gap."
   - "Complete/Fail/Cancel workflow-closing decisions do NOT cascade child policy onto their own open children, and this is correct, not a gap: real AWS's child policy is only ever invoked when a workflow execution is terminated (explicitly, via TerminateWorkflowExecution) or times out -- never on a normal Complete/Fail/Cancel close, where child executions are simply independent and keep running. Parent-closure IS still propagated to already-open children as history events in all four cases (ChildWorkflowExecutionCompleted/Failed/Canceled/Terminated, see Notes), so deciders learn of parent closure either way."
   - "ScheduleLambdaFunction decision type (Lambda activity tasks) is not implemented -- consistent with the pre-existing openLambdaFunctions deferral below; SWF Lambda task support as a whole is out of scope for this service."
 deferred:
   - "DescribeWorkflowExecution's openCounts.openLambdaFunctions (always 0) and the ScheduleLambdaFunction decision type -- SWF Lambda task support is out of scope for a JSON-wire-shape/state-mutation audit."
-leaks: {status: clean, note: "no goroutines/timers spawned by this service, including the new cross-execution decision handlers in decision_orchestration.go -- every SWF 'timer' is purely decision-driven state (OpenTimerIDs on WorkflowExecution, mutated only by StartTimer/CancelTimer decisions) with no autonomous firing, consistent with the pre-existing no-goroutine design. All state lives in InMemoryBackend maps/store.Tables guarded by lockmetrics.RWMutex; every lock path uses defer-release."}
+leaks: {status: clean, note: "no goroutines/timers spawned by this service, including the new cross-execution decision handlers in decision_orchestration.go and the gopherstack-7gse timeout sweep (timeout_sweep.go). Every SWF timer/timeout mechanism here is either purely decision-driven state with no autonomous firing (OpenTimerIDs on WorkflowExecution, mutated only by StartTimer/CancelTimer decisions -- see gaps) or, for EXECUTION_START_TO_CLOSE only, lazily swept: sweepTimedOutExecutionsLocked takes now as a parameter (never calls time.Now() itself) and is invoked with the real clock at the top of every backend op that reads or mutates execution state (Describe/GetHistory/List/Count/Poll/Respond/Terminate/RequestCancel/Signal/Start -- see the ops table), so a timed-out execution becomes visible on the next such call rather than at a real background tick. This keeps the pre-existing no-goroutine design intact and makes the sweep trivially unit-testable (pass an arbitrary now, no sleeping/synctest needed). All state lives in InMemoryBackend maps/store.Tables guarded by lockmetrics.RWMutex; every lock path uses defer-release. Several previously-RLock-only ops (DescribeWorkflowExecution, GetWorkflowExecutionHistory, ListOpen/ClosedWorkflowExecutions, CountOpen/ClosedWorkflowExecutions, RecordActivityTaskHeartbeat) were upgraded to Lock so the sweep -- which mutates state -- can run under them; this is a coarse-lock design (see pkgs-catalog.md), so the change is a straightforward RLock->Lock swap, not a new locking scheme."}
 ---
 
 ## Notes
@@ -65,6 +68,91 @@ SimpleWorkflowService.<Op>`) -- confirmed against the real
 `Content-Type: application/x-amz-json-1.0`). This is easy to mis-key as
 awsjson1.1 (the more common AWS JSON protocol) since SWF's dispatch shape
 looks identical otherwise.
+
+### Timeout enforcement (2026-08-10, gopherstack-7gse)
+
+**Real semantics, established before writing any code.** When a workflow
+execution's `ExecutionStartToCloseTimeout` elapses, real SWF closes the
+execution by recording a `WorkflowExecutionTimedOut` history event and
+setting `CloseStatus` to `TIMED_OUT`. Confirmed against
+`aws-sdk-go-v2/service/swf@v1.37.4`:
+
+- `types.WorkflowExecutionTimedOutEventAttributes`
+  (`types/types.go:3440-3463`) has exactly two members, both required:
+  `ChildPolicy` and `TimeoutType`. `types.WorkflowExecutionTimeoutType`
+  (`types/enums.go:689-694`) has exactly one defined value,
+  `START_TO_CLOSE` -- there is no other timeout type this event can carry.
+- `types.CloseStatus` (`types/enums.go:88-98`) defines
+  `CloseStatusTimedOut = "TIMED_OUT"` alongside `COMPLETED`/`FAILED`/
+  `CANCELED`/`TERMINATED`/`CONTINUED_AS_NEW` -- the same enum this backend's
+  pre-existing `statusTimedOut` constant (`models.go`) already targeted, it
+  was simply never assigned anywhere.
+- The deserializer's field-name switch
+  (`deserializers.go:9964-10010`,
+  `awsAwsjson10_deserializeDocumentWorkflowExecutionTimedOutEventAttributes`)
+  confirms the wire keys are `childPolicy` and `timeoutType` under the
+  `workflowExecutionTimedOutEventAttributes` attribute block, matching this
+  service's existing `eventAttrKey`/attribute-map convention exactly.
+
+The `WorkflowExecutionTimedOutEventAttributes.ChildPolicy` member existing at
+all is the confirmation that matters here: real SWF invokes the child policy
+on exactly two events, `TerminateWorkflowExecution` and an execution timing
+out (gopherstack-jsi8/2026-07-31's child-policy cascade pass established
+this and documented the second trigger as unreachable -- see the gaps entry
+above). `timeoutExecutionLocked` (`timeout_sweep.go`) therefore mirrors
+`terminateExecutionLocked` (`workflow_executions.go`) almost exactly:
+close the execution, append the closing history event, notify the parent
+via the existing `propagateChildClosureLocked` (with `ChildWorkflowExecutionTimedOut`,
+which real SWF also defines -- `types.ChildWorkflowExecutionTimedOutEventAttributes`,
+`types/types.go:608`), then cascade `exec.ChildPolicy` onto open children via
+the same `applyChildPolicyLocked` terminate already uses. Both of real SWF's
+child-policy triggers are reachable as of this pass.
+
+**Scope decision: EXECUTION_START_TO_CLOSE only, not the other four timeout
+kinds SWF defines.** The issue (gopherstack-7gse) sketched full support as a
+sweeper over open executions *and pending tasks*, plus `TimerStarted`/
+`TimerFired` history events and their decision types -- deliberately not
+attempted this pass. `TaskStartToCloseTimeout` (decision tasks) and every
+activity-task timeout (`ScheduleToStartTimeout`/`ScheduleToCloseTimeout`/
+`StartToCloseTimeout`/`HeartbeatTimeout`) remain accepted-and-ignored, same
+as before. This is not an oversight: none of those four feed the
+child-policy mechanism this pass exists to fix (only an execution closing
+does), and they need a materially different shape --
+`DecisionTaskTimedOut`/`ActivityTaskTimedOut` close the *task*, not the
+execution, and a real decision-task timeout re-enqueues a fresh decision
+task rather than closing anything. See the `gaps` entries above for the
+precise, unambiguous list of what remains unenforced -- **do not read
+"timeouts work now" as covering anything beyond EXECUTION_START_TO_CLOSE.**
+
+**Design: lazy sweep, no background goroutine, clock as a parameter.** This
+service has never spawned a goroutine (see `leaks` above), and a background
+ticker would have been a materially larger, riskier change than this issue's
+scope warrants. Instead, `sweepTimedOutExecutionsLocked(now time.Time)`
+(`timeout_sweep.go`) is a synchronous scan over `b.executions.All()`,
+closing any `RUNNING` execution whose `StartTimestamp + ExecutionStartToCloseTimeout`
+deadline is at or before `now`. It takes `now` as a parameter rather than
+calling `time.Now()` internally, and every call site
+(`Describe`/`GetHistory`/`List`/`Count`/`Poll`/`Respond`/`Terminate`/
+`RequestCancel`/`Signal`/`Start`) passes the real clock -- so a timed-out
+execution becomes visible on the next such call, not at the real
+wall-clock instant it expired. This makes the sweep itself trivially
+testable with a fabricated `now` (no sleeping, no `testing/synctest`
+needed -- see `timeout_sweep_whitebox_test.go`'s
+`TestSweepTimedOutExecutionsLocked_Evaluation`), and lets an end-to-end test
+prove the wiring by backdating `StartTimestamp` into the real past and
+calling a public method with no fabricated clock at all
+(`TestDescribeWorkflowExecution_SweepsOnRead`). Several ops that only ever
+needed `RLock` before now take `Lock`, since the sweep can mutate state;
+this is a plain `RLock`->`Lock` swap under the service's existing single
+coarse lock, not a new locking scheme (see `pkgs-catalog.md`'s locking
+rule).
+
+No snapshot version bump: `Status`/`CloseStatus`/`CloseTimestamp`/
+`ChildPolicy` are pre-existing, already-`omitempty` JSON fields on
+`WorkflowExecution` that already round-trip through the "clean"
+`executions` `store.Table` (see `store.go`). `TIMED_OUT` is simply a new
+*value* passing through those same fields, not a new field --
+`TestSnapshotRestore_TimedOutExecution` pins this.
 
 ### Real bugs fixed this pass (2026-08-07, gopherstack-jsi8)
 

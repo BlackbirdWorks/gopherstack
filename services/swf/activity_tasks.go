@@ -2,6 +2,7 @@ package swf
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -18,6 +19,8 @@ func (b *InMemoryBackend) CountPendingActivityTasks(domain, taskList string) int
 func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *ActivityTask {
 	b.mu.Lock("PollForActivityTask")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	key := domain + ":" + taskList
 	queue := b.activityQueues[key]
@@ -59,8 +62,10 @@ func (b *InMemoryBackend) PollForActivityTask(domain, taskList string) *Activity
 // RecordActivityTaskHeartbeat acknowledges a heartbeat for an activity task token.
 // Returns true if cancel has been requested for the workflow; always false in this emulator.
 func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, error) {
-	b.mu.RLock("RecordActivityTaskHeartbeat")
-	defer b.mu.RUnlock()
+	b.mu.Lock("RecordActivityTaskHeartbeat")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
@@ -79,6 +84,8 @@ func (b *InMemoryBackend) RecordActivityTaskHeartbeat(taskToken string) (bool, e
 func (b *InMemoryBackend) RespondActivityTaskCanceled(taskToken, details string) error {
 	b.mu.Lock("RespondActivityTaskCanceled")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
@@ -105,6 +112,8 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 	b.mu.Lock("RespondActivityTaskCompleted")
 	defer b.mu.Unlock()
 
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: task token %s not found", ErrNotFound, taskToken)
@@ -129,6 +138,8 @@ func (b *InMemoryBackend) RespondActivityTaskCompleted(taskToken, result string)
 func (b *InMemoryBackend) RespondActivityTaskFailed(taskToken, reason, details string) error {
 	b.mu.Lock("RespondActivityTaskFailed")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	rec, ok := b.activeActivityTasks.Get(taskToken)
 	if !ok {

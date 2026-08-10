@@ -1,6 +1,10 @@
 package swf
 
-import "github.com/blackbirdworks/gopherstack/pkgs/page"
+import (
+	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
 
 // GetWorkflowExecutionHistory returns history events for one specific run of
 // a workflow execution, supporting pagination and reverse ordering. runID is
@@ -13,8 +17,10 @@ func (b *InMemoryBackend) GetWorkflowExecutionHistory(
 	nextPageToken string,
 	reverseOrder bool,
 ) ([]HistoryEvent, string) {
-	b.mu.RLock("GetWorkflowExecutionHistory")
-	defer b.mu.RUnlock()
+	b.mu.Lock("GetWorkflowExecutionHistory")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {

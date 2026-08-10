@@ -1,6 +1,9 @@
 package swf
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // SignalWorkflowExecution sends a signal to a workflow execution, recording it in history.
 func (b *InMemoryBackend) SignalWorkflowExecution(
@@ -8,6 +11,8 @@ func (b *InMemoryBackend) SignalWorkflowExecution(
 ) error {
 	b.mu.Lock("SignalWorkflowExecution")
 	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {

@@ -544,7 +544,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 27 | 2 deferred |
 | [SQS](services/sqs/README.md) | A | 18 | 2 gaps; 3 deferred |
-| [SWF](services/swf/README.md) | A | 39 | 4 gaps; 1 deferred |
+| [SWF](services/swf/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [Step Functions](services/stepfunctions/README.md) | A | 28 | 6 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
 
