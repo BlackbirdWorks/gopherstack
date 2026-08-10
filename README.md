@@ -637,7 +637,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CodePipeline](services/codepipeline/README.md) | A | 19 | 8 gaps; 4 deferred |
 | [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
-| [X-Ray](services/xray/README.md) | A | 38 | 6 gaps; 1 deferred |
+| [X-Ray](services/xray/README.md) | A | 38 | 5 gaps; 1 deferred |
 
 ### Machine Learning
 

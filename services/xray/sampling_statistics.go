@@ -29,14 +29,32 @@ func (b *InMemoryBackend) GetSamplingStatisticSummaries() []SamplingStatisticSum
 // Rules that do not exist are returned in the unprocessed list.
 // Documents with an empty ClientID are returned in the unprocessed list.
 // Statistics from known rules are accumulated for GetSamplingStatisticSummaries.
+// boostDocs are validated against known rules (unknown rules go to the returned
+// unprocessedBoost list) but never produce a SamplingBoost: AWS does not publish
+// its boost-trigger algorithm (API_SamplingBoostStatisticsDocument.html describes
+// the inputs only qualitatively), and a fabricated boost rate is worse than an
+// absent one -- a client can read and act on it. SamplingTargetDocument.SamplingBoost
+// is therefore always left unset; see PARITY.md.
 func (b *InMemoryBackend) GetSamplingTargets(
 	docs []SamplingStatisticsDocument,
-) ([]SamplingTargetResult, []UnprocessedStatisticsResult) {
+	boostDocs []SamplingBoostStatisticsDocument,
+) ([]SamplingTargetResult, []UnprocessedStatisticsResult, []UnprocessedStatisticsResult) {
 	b.mu.Lock("GetSamplingTargets")
 	defer b.mu.Unlock()
 
 	targets := make([]SamplingTargetResult, 0, len(docs))
 	unprocessed := make([]UnprocessedStatisticsResult, 0)
+	unprocessedBoost := make([]UnprocessedStatisticsResult, 0)
+
+	for _, d := range boostDocs {
+		if _, ok := b.samplingRules.Get(d.RuleName); !ok {
+			unprocessedBoost = append(unprocessedBoost, UnprocessedStatisticsResult{
+				RuleName:  d.RuleName,
+				ErrorCode: "404",
+				Message:   "Rule not found",
+			})
+		}
+	}
 
 	for _, d := range docs {
 		if d.ClientID == "" {
@@ -84,7 +102,7 @@ func (b *InMemoryBackend) GetSamplingTargets(
 		})
 	}
 
-	return targets, unprocessed
+	return targets, unprocessed, unprocessedBoost
 }
 
 // LastRuleModification returns the timestamp of the last sampling rule modification.

@@ -117,14 +117,24 @@ type EncryptionConfig struct {
 
 // Insight represents an X-Ray insight.
 type Insight struct {
-	StartTime      time.Time `json:"startTime"`
-	EndTime        time.Time `json:"endTime,omitzero"`
-	LastUpdateTime time.Time `json:"lastUpdateTime"`
-	InsightID      string    `json:"insightId"`
-	GroupARN       string    `json:"groupARN"`
-	GroupName      string    `json:"groupName"`
-	State          string    `json:"state"`
-	Summary        string    `json:"summary"`
+	StartTime                     time.Time                `json:"startTime"`
+	EndTime                       time.Time                `json:"endTime,omitzero"`
+	LastUpdateTime                time.Time                `json:"lastUpdateTime"`
+	ClientRequestImpactStatistics *RequestImpactStatistics `json:"clientRequestImpactStatistics,omitempty"`
+	InsightID                     string                   `json:"insightId"`
+	GroupARN                      string                   `json:"groupARN"`
+	GroupName                     string                   `json:"groupName"`
+	State                         string                   `json:"state"`
+	Summary                       string                   `json:"summary"`
+	Categories                    []string                 `json:"categories,omitempty"`
+}
+
+// RequestImpactStatistics holds the ok/fault/total request counts for a
+// service over an insight's detection window.
+type RequestImpactStatistics struct {
+	OkCount    int64 `json:"okCount"`
+	FaultCount int64 `json:"faultCount"`
+	TotalCount int64 `json:"totalCount"`
 }
 
 // InsightEvent represents an event within an X-Ray insight.
@@ -209,7 +219,21 @@ type SamplingStatisticsDocument struct {
 	BorrowCount  int32
 }
 
+// SamplingBoostStatisticsDocument is a single boost-statistics document submitted
+// in GetSamplingTargets for rules using SamplingRateBoost.
+type SamplingBoostStatisticsDocument struct {
+	RuleName            string
+	ServiceName         string
+	TotalCount          int32
+	AnomalyCount        int32
+	SampledAnomalyCount int32
+}
+
 // SamplingTargetResult holds the per-document results of GetSamplingTargets.
+// It has no SamplingBoost field: AWS's boost-trigger algorithm is unpublished
+// (see GetSamplingTargets), so gopherstack never computes one. The wire view
+// (samplingTargetDocumentView.SamplingBoost) still declares the field for shape
+// completeness -- it is simply always omitted.
 type SamplingTargetResult struct {
 	ReservoirQuotaTTL time.Time
 	RuleName          string
@@ -242,7 +266,8 @@ type serviceNode struct {
 // serviceKey identifies a unique service node in the service graph.
 type serviceKey struct{ Name, Type string }
 
-// edgeKey identifies a directed edge between two service nodes.
+// edgeKey identifies a directed edge between two service nodes: From is the
+// caller, To is the downstream callee.
 type edgeKey struct{ From, To serviceKey }
 
 // GetTimeSeriesServiceStatistics returns per-period bucketed statistics.

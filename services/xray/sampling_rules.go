@@ -278,9 +278,10 @@ const (
 )
 
 const (
-	// maxSamplingRules is the maximum number of sampling rules per account
-	// (AWS default service quota for X-Ray sampling rules).
-	maxSamplingRules = 2000
+	// maxSamplingRules is the AWS default Service Quota "Custom sampling rules
+	// per region" (docs.aws.amazon.com/general/latest/gr/xray.html); previously
+	// wrongly assumed to be 2000.
+	maxSamplingRules = 25
 )
 
 const (

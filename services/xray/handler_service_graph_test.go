@@ -615,3 +615,63 @@ func TestGetTraceGraph_RequiresTraceIds(t *testing.T) {
 	rec := doXrayRequest(t, h, "/TraceGraph", map[string]any{})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestGetServiceGraph_EdgeStatisticsAndDirection(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	now := float64(time.Now().Unix())
+
+	segs := []string{
+		segJSON("1-edge-001", "r1", "", "frontend", now-5, now-4, false, false, false),
+		segJSON("1-edge-001", "c1", "r1", "backend", now-4, now-3, true, false, false),
+	}
+
+	putRec := doXrayRequest(t, h, "/TraceSegments", map[string]any{"TraceSegmentDocuments": segs})
+	require.Equal(t, http.StatusOK, putRec.Code)
+
+	rec := doXrayRequest(t, h, "/ServiceGraph", map[string]any{"StartTime": now - 10, "EndTime": now + 10})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	services, ok := resp["Services"].([]any)
+	require.True(t, ok)
+
+	var frontend, backend map[string]any
+
+	for _, s := range services {
+		svc, _ := s.(map[string]any)
+		switch svc["Name"] {
+		case "frontend":
+			frontend = svc
+		case "backend":
+			backend = svc
+		}
+	}
+
+	require.NotNil(t, frontend)
+	require.NotNil(t, backend)
+
+	frontendEdges, _ := frontend["Edges"].([]any)
+	require.NotEmpty(t, frontendEdges, "the caller (frontend) must list a downstream edge to backend")
+
+	edge, _ := frontendEdges[0].(map[string]any)
+	assert.EqualValues(t, backend["ReferenceId"], edge["ReferenceId"],
+		"frontend's edge must point at the downstream service (backend)")
+
+	backendEdges, _ := backend["Edges"].([]any)
+	assert.Empty(t, backendEdges, "the callee (backend) must not list an edge back up to its caller")
+
+	stats, ok := edge["SummaryStatistics"].(map[string]any)
+	require.True(t, ok, "edge must carry SummaryStatistics for the segment that traversed it")
+
+	faultStats, _ := stats["FaultStatistics"].(map[string]any)
+	require.NotNil(t, faultStats)
+	assert.EqualValues(t, 1, faultStats["TotalCount"],
+		"the fault on backend's segment must be reflected on the edge, not silently zero")
+	assert.EqualValues(t, 1, stats["TotalCount"])
+	assert.InDelta(t, now-4, edge["StartTime"], 0.001)
+	assert.InDelta(t, now-3, edge["EndTime"], 0.001)
+}

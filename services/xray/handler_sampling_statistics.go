@@ -57,16 +57,38 @@ type samplingStatisticsDocumentInput struct {
 	BorrowCount  int32  `json:"BorrowCount"`
 }
 
+type samplingBoostStatisticsDocumentInput struct {
+	RuleName            string `json:"RuleName"`
+	ServiceName         string `json:"ServiceName"`
+	TotalCount          int32  `json:"TotalCount"`
+	AnomalyCount        int32  `json:"AnomalyCount"`
+	SampledAnomalyCount int32  `json:"SampledAnomalyCount"`
+}
+
 type getSamplingTargetsInput struct {
-	SamplingStatisticsDocuments []samplingStatisticsDocumentInput `json:"SamplingStatisticsDocuments"`
+	SamplingStatisticsDocuments      []samplingStatisticsDocumentInput      `json:"SamplingStatisticsDocuments"`
+	SamplingBoostStatisticsDocuments []samplingBoostStatisticsDocumentInput `json:"SamplingBoostStatisticsDocuments"`
+}
+
+// samplingBoostView is the wire shape for SamplingTargetDocument.SamplingBoost.
+// It is declared but never populated in samplingTargetDocumentView: AWS's
+// boost-trigger algorithm is unpublished, so gopherstack does not compute a
+// boost rate (see GetSamplingTargets in sampling_statistics.go). A boost
+// document for a known rule is accepted (not reported in
+// UnprocessedBoostStatistics) but produces no observable SamplingBoost --
+// an honest "accepted, no engine behind it" gap, not a fabricated value.
+type samplingBoostView struct {
+	BoostRate    float64 `json:"BoostRate"`
+	BoostRateTTL float64 `json:"BoostRateTTL"`
 }
 
 type samplingTargetDocumentView struct {
-	RuleName          string  `json:"RuleName"`
-	ReservoirQuotaTTL float64 `json:"ReservoirQuotaTTL"`
-	FixedRate         float64 `json:"FixedRate"`
-	ReservoirQuota    int32   `json:"ReservoirQuota"`
-	Interval          int32   `json:"Interval"`
+	SamplingBoost     *samplingBoostView `json:"SamplingBoost,omitempty"` // always nil, see samplingBoostView doc
+	RuleName          string             `json:"RuleName"`
+	ReservoirQuotaTTL float64            `json:"ReservoirQuotaTTL"`
+	FixedRate         float64            `json:"FixedRate"`
+	ReservoirQuota    int32              `json:"ReservoirQuota"`
+	Interval          int32              `json:"Interval"`
 }
 
 type unprocessedStatisticsView struct {
@@ -88,7 +110,12 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 		docs = append(docs, SamplingStatisticsDocument(d))
 	}
 
-	targets, unprocessed := h.Backend.GetSamplingTargets(docs)
+	boostDocs := make([]SamplingBoostStatisticsDocument, 0, len(in.SamplingBoostStatisticsDocuments))
+	for _, d := range in.SamplingBoostStatisticsDocuments {
+		boostDocs = append(boostDocs, SamplingBoostStatisticsDocument(d))
+	}
+
+	targets, unprocessed, unprocessedBoost := h.Backend.GetSamplingTargets(docs, boostDocs)
 
 	targetViews := make([]samplingTargetDocumentView, 0, len(targets))
 	for _, t := range targets {
@@ -106,6 +133,11 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 		unprocessedViews = append(unprocessedViews, unprocessedStatisticsView(u))
 	}
 
+	unprocessedBoostViews := make([]unprocessedStatisticsView, 0, len(unprocessedBoost))
+	for _, u := range unprocessedBoost {
+		unprocessedBoostViews = append(unprocessedBoostViews, unprocessedStatisticsView(u))
+	}
+
 	lastMod := h.Backend.LastRuleModification()
 	var lastModTS float64
 
@@ -116,8 +148,9 @@ func (h *Handler) handleGetSamplingTargets(_ context.Context, body []byte) ([]by
 	}
 
 	return json.Marshal(map[string]any{
-		"SamplingTargetDocuments": targetViews,
-		"UnprocessedStatistics":   unprocessedViews,
-		"LastRuleModification":    lastModTS,
+		"SamplingTargetDocuments":    targetViews,
+		"UnprocessedStatistics":      unprocessedViews,
+		"UnprocessedBoostStatistics": unprocessedBoostViews,
+		"LastRuleModification":       lastModTS,
 	})
 }
