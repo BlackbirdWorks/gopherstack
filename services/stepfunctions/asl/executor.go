@@ -787,11 +787,14 @@ func (e *Executor) executeTask(
 	state *State,
 	input any,
 ) (string, any, error) {
-	// Enforce TimeoutSeconds by wrapping the context.
-	if state.TimeoutSeconds > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(state.TimeoutSeconds)*time.Second)
-		defer cancel()
+	timeoutSeconds, err := e.resolveTaskTimeoutSeconds(state, input)
+	if err != nil {
+		return "", nil, err
+	}
+
+	heartbeatSeconds, err := e.resolveTaskHeartbeatSeconds(state, input)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if e.history != nil {
@@ -803,7 +806,7 @@ func (e *Executor) executeTask(
 	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.invokeTaskAttempt(ctx, state, input, waitForTaskToken)
+		result, taskErr := e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, result)
 
@@ -838,14 +841,42 @@ func (e *Executor) executeTask(
 	}
 }
 
+// runTaskAttempt invokes a single Task attempt under its own TimeoutSeconds
+// deadline, freshly derived from ctx. AWS docs (amazon-states-language-task-state.html)
+// on TimeoutSeconds: "the timeout count begins when the start event is
+// executed, such as when TaskStarted ... events are logged" -- a new start
+// event is logged per retry attempt, so the deadline resets on every
+// attempt rather than being shared across the whole state including
+// retries. tryRetry (called by executeTask with the un-wrapped ctx) is
+// therefore not starved by a prior attempt's expired deadline.
+func (e *Executor) runTaskAttempt(
+	ctx context.Context,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	attemptCtx := ctx
+
+	if timeoutSeconds > 0 {
+		var cancel context.CancelFunc
+
+		attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+	}
+
+	return e.invokeTaskAttempt(attemptCtx, state, input, waitForTaskToken, heartbeatSeconds)
+}
+
 func (e *Executor) invokeTaskAttempt(
 	ctx context.Context,
 	state *State,
 	input any,
 	waitForTaskToken bool,
+	heartbeatSeconds int,
 ) (any, error) {
 	if !waitForTaskToken {
-		return e.invokeTask(ctx, state, input)
+		return e.invokeTask(ctx, state, input, heartbeatSeconds)
 	}
 
 	if e.callback == nil {
@@ -858,12 +889,12 @@ func (e *Executor) invokeTaskAttempt(
 	}
 
 	taskInput := injectTaskToken(input, taskToken)
-	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput)
+	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput, heartbeatSeconds)
 	if invokeErr != nil {
 		return nil, invokeErr
 	}
 
-	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, state.HeartbeatSeconds)
+	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, heartbeatSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -1084,9 +1115,9 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, errCode, cause stri
 }
 
 // invokeTask performs the actual task invocation.
-func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any, error) {
+func (e *Executor) invokeTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
 	if isActivityResource(state.Resource) {
-		return e.invokeActivityTask(ctx, state, input)
+		return e.invokeActivityTask(ctx, state, input, heartbeatSeconds)
 	}
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
@@ -1123,7 +1154,7 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 }
 
 // invokeActivityTask enqueues a task for an activity worker and waits for the result.
-func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input any) (any, error) {
+func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
 	if e.activity == nil {
 		return nil, ErrActivityNotConfigured
 	}
@@ -1132,7 +1163,7 @@ func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input a
 		ctx,
 		state.Resource,
 		marshalInput(input),
-		state.HeartbeatSeconds,
+		heartbeatSeconds,
 	)
 	if err != nil {
 		return nil, err
@@ -1620,7 +1651,12 @@ func (e *Executor) executeMap(
 					return nil, batcherErr
 				}
 
-				batched := batchItems(items, maxItemsPerBatch, maxInputBytesPerBatch)
+				rawBatches := batchItems(items, maxItemsPerBatch, maxInputBytesPerBatch)
+
+				batched, wrapErr := wrapItemBatcherBatches(rawBatches, state.ItemBatcher.BatchInput)
+				if wrapErr != nil {
+					return nil, wrapErr
+				}
 
 				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, batched)
 			}
@@ -1770,6 +1806,34 @@ func batchItems(items []any, maxItemsPerBatch, maxInputBytesPerBatch int) []any 
 	}
 
 	return batches
+}
+
+// wrapItemBatcherBatches converts raw item batches into the AWS Map
+// iteration-input shape for ItemBatcher: {"Items": [...]}, plus a
+// "BatchInput" field merged in when ItemBatcher.BatchInput is set (AWS docs:
+// input-output-itembatcher.html, "Batch input"). Previously each batch was
+// passed through as a bare array, which is not the shape AWS sends to child
+// executions.
+func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any, error) {
+	var decodedBatchInput any
+	if len(batchInput) > 0 {
+		if err := json.Unmarshal(batchInput, &decodedBatchInput); err != nil {
+			return nil, fmt.Errorf("ItemBatcher.BatchInput error: %w", err)
+		}
+	}
+
+	wrapped := make([]any, len(rawBatches))
+
+	for i, batch := range rawBatches {
+		entry := map[string]any{"Items": batch}
+		if len(batchInput) > 0 {
+			entry["BatchInput"] = decodedBatchInput
+		}
+
+		wrapped[i] = entry
+	}
+
+	return wrapped, nil
 }
 
 func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
@@ -2253,6 +2317,57 @@ func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error
 	f, ok := toFloat(val)
 	if !ok {
 		return 0, ErrMaxConcurrencyPathNotNumber
+	}
+
+	return int(f), nil
+}
+
+// ErrTimeoutSecondsPathNotNumber is returned when State.TimeoutSecondsPath
+// does not resolve to a number.
+var ErrTimeoutSecondsPathNotNumber = errors.New("TimeoutSecondsPath: value is not a number")
+
+// ErrHeartbeatSecondsPathNotNumber is returned when State.HeartbeatSecondsPath
+// does not resolve to a number.
+var ErrHeartbeatSecondsPathNotNumber = errors.New("HeartbeatSecondsPath: value is not a number")
+
+// resolveTaskTimeoutSeconds resolves TimeoutSeconds(Path) against the Task
+// state's own input, the same way resolveMaxConcurrency resolves
+// MaxConcurrencyPath. Retries reuse this same input (ASL never re-evaluates
+// a Task's input between retry attempts), so resolving once before the
+// retry loop gives the same value every attempt.
+func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, error) {
+	if state.TimeoutSecondsPath == "" {
+		return state.TimeoutSeconds, nil
+	}
+
+	val, err := applyPath(state.TimeoutSecondsPath, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("TimeoutSecondsPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrTimeoutSecondsPathNotNumber
+	}
+
+	return int(f), nil
+}
+
+// resolveTaskHeartbeatSeconds resolves HeartbeatSeconds(Path) against the
+// Task state's own input; see resolveTaskTimeoutSeconds.
+func (e *Executor) resolveTaskHeartbeatSeconds(state *State, input any) (int, error) {
+	if state.HeartbeatSecondsPath == "" {
+		return state.HeartbeatSeconds, nil
+	}
+
+	val, err := applyPath(state.HeartbeatSecondsPath, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("HeartbeatSecondsPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrHeartbeatSecondsPathNotNumber
 	}
 
 	return int(f), nil

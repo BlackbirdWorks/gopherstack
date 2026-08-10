@@ -26,6 +26,9 @@ type StateMachine struct {
 type ItemBatcher struct {
 	MaxItemsPerBatchPath      string `json:"MaxItemsPerBatchPath,omitempty"`
 	MaxInputBytesPerBatchPath string `json:"MaxInputBytesPerBatchPath,omitempty"`
+	// BatchInput is fixed JSON merged into every batch's iteration input
+	// alongside Items (AWS docs: input-output-itembatcher.html, "Batch input").
+	BatchInput json.RawMessage `json:"BatchInput,omitempty"`
 	// MaxItemsPerBatch is the maximum number of items per batch. Zero means no limit.
 	MaxItemsPerBatch int `json:"MaxItemsPerBatch,omitempty"`
 	// MaxInputBytesPerBatch is the max total JSON bytes per batch. Zero means no limit.
@@ -98,30 +101,35 @@ type State struct {
 	// MaxConcurrencyPath is MaxConcurrency's reference-path sibling, resolved
 	// against the Map state's own input the same way as ToleratedFailureCountPath
 	// (AWS docs: state-map-distributed.html#map-state-distributed-additional-fields).
-	MaxConcurrencyPath string          `json:"MaxConcurrencyPath,omitempty"`
-	InputPath          string          `json:"InputPath,omitempty"`
-	OutputPath         string          `json:"OutputPath,omitempty"`
-	ResultPath         string          `json:"ResultPath,omitempty"`
-	Type               string          `json:"Type"`
-	Error              string          `json:"Error,omitempty"`
-	Cause              string          `json:"Cause,omitempty"`
-	Comment            string          `json:"Comment,omitempty"`
-	Next               string          `json:"Next,omitempty"`
-	Default            string          `json:"Default,omitempty"`
-	Timestamp          string          `json:"Timestamp,omitempty"`
-	Resource           string          `json:"Resource,omitempty"`
-	Retry              []Retrier       `json:"Retry,omitempty"`
-	Catch              []Catcher       `json:"Catch,omitempty"`
-	Choices            []ChoiceRule    `json:"Choices,omitempty"`
-	Result             json.RawMessage `json:"Result,omitempty"`
-	Branches           []Branch        `json:"Branches,omitempty"`
-	Parameters         json.RawMessage `json:"Parameters,omitempty"`
-	ResultSelector     json.RawMessage `json:"ResultSelector,omitempty"`
-	TimeoutSeconds     int             `json:"TimeoutSeconds,omitempty"`
-	HeartbeatSeconds   int             `json:"HeartbeatSeconds,omitempty"`
-	Seconds            int             `json:"Seconds,omitempty"`
-	MaxConcurrency     int             `json:"MaxConcurrency,omitempty"`
-	End                bool            `json:"End,omitempty"`
+	MaxConcurrencyPath string `json:"MaxConcurrencyPath,omitempty"`
+	InputPath          string `json:"InputPath,omitempty"`
+	OutputPath         string `json:"OutputPath,omitempty"`
+	ResultPath         string `json:"ResultPath,omitempty"`
+	Type               string `json:"Type"`
+	Error              string `json:"Error,omitempty"`
+	Cause              string `json:"Cause,omitempty"`
+	Comment            string `json:"Comment,omitempty"`
+	Next               string `json:"Next,omitempty"`
+	Default            string `json:"Default,omitempty"`
+	Timestamp          string `json:"Timestamp,omitempty"`
+	Resource           string `json:"Resource,omitempty"`
+	// TimeoutSecondsPath/HeartbeatSecondsPath are TimeoutSeconds/HeartbeatSeconds's
+	// reference-path siblings, mutually exclusive with them and resolved against
+	// the Task state's own input (AWS docs: amazon-states-language-task-state.html).
+	TimeoutSecondsPath   string          `json:"TimeoutSecondsPath,omitempty"`
+	HeartbeatSecondsPath string          `json:"HeartbeatSecondsPath,omitempty"`
+	Retry                []Retrier       `json:"Retry,omitempty"`
+	Catch                []Catcher       `json:"Catch,omitempty"`
+	Choices              []ChoiceRule    `json:"Choices,omitempty"`
+	Result               json.RawMessage `json:"Result,omitempty"`
+	Branches             []Branch        `json:"Branches,omitempty"`
+	Parameters           json.RawMessage `json:"Parameters,omitempty"`
+	ResultSelector       json.RawMessage `json:"ResultSelector,omitempty"`
+	TimeoutSeconds       int             `json:"TimeoutSeconds,omitempty"`
+	HeartbeatSeconds     int             `json:"HeartbeatSeconds,omitempty"`
+	Seconds              int             `json:"Seconds,omitempty"`
+	MaxConcurrency       int             `json:"MaxConcurrency,omitempty"`
+	End                  bool            `json:"End,omitempty"`
 }
 
 // Retrier defines retry behavior for a Task state on error.
