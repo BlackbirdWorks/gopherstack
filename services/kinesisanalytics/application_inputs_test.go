@@ -452,20 +452,28 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input      map[string]any
-		name       string
-		wantStatus int
+		input       map[string]any
+		name        string
+		wantErrCode string
+		wantStatus  int
 	}{
 		{
-			name: "returns synthetic schema for streaming source",
+			// No Kinesis backend is wired in this handler, so DiscoverInputSchema cannot reach
+			// the streaming source and correctly reports UnableToDetectSchemaException instead
+			// of fabricating a "successful" schema (see TestDiscoverInputSchema_Kinesis* in
+			// discover_schema_test.go for the case where a reader IS wired).
+			name: "streaming source with no Kinesis backend wired reports unable to detect schema",
 			input: map[string]any{
 				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
 				"RoleARN":     "arn:aws:iam::000000000000:role/role",
 			},
-			wantStatus: http.StatusOK,
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "UnableToDetectSchemaException",
 		},
 		{
-			name: "returns synthetic schema for S3 source",
+			// No S3 backend is wired in this handler either (see
+			// TestDiscoverInputSchema_S3* in discover_schema_test.go for the wired case).
+			name: "S3 source with no S3 backend wired reports unable to detect schema",
 			input: map[string]any{
 				"S3Configuration": map[string]any{
 					"BucketARN": "arn:aws:s3:::bucket",
@@ -473,14 +481,16 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 					"RoleARN":   "arn:aws:iam::000000000000:role/role",
 				},
 			},
-			wantStatus: http.StatusOK,
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "UnableToDetectSchemaException",
 		},
 		{
 			// Real AWS rejects a request with no streaming source and no S3Configuration --
 			// there is nothing to discover a schema from.
-			name:       "empty request is rejected",
-			input:      map[string]any{},
-			wantStatus: http.StatusBadRequest,
+			name:        "empty request is rejected",
+			input:       map[string]any{},
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "InvalidArgumentException",
 		},
 		{
 			// ResourceARN without RoleARN can never authenticate against the streaming source.
@@ -488,7 +498,8 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 			input: map[string]any{
 				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/test",
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "InvalidArgumentException",
 		},
 		{
 			// S3Configuration with a missing required sub-field is rejected.
@@ -499,7 +510,8 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 					"RoleARN":   "arn:aws:iam::000000000000:role/role",
 				},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "InvalidArgumentException",
 		},
 		{
 			// Both a streaming source and an S3Configuration is over-specified and rejected.
@@ -513,7 +525,8 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 					"RoleARN":   "arn:aws:iam::000000000000:role/role",
 				},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus:  http.StatusBadRequest,
+			wantErrCode: "InvalidArgumentException",
 		},
 	}
 
@@ -525,12 +538,9 @@ func TestHandler_DiscoverInputSchema(t *testing.T) {
 			rec := doRequest(t, h, "DiscoverInputSchema", tt.input)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			if tt.wantStatus == http.StatusOK {
-				var resp map[string]any
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.Contains(t, resp, "InputSchema")
-				assert.Contains(t, resp, "ParsedInputRecords")
-			}
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantErrCode, resp["__type"])
 		})
 	}
 }

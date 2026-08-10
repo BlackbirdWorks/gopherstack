@@ -3266,6 +3266,12 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// deviceShadowEnrich activities to the real Lambda and IoT backends.
 	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"])
 
+	// Wire Kinesis Analytics' DiscoverInputSchema to the real Kinesis and S3 backends so it
+	// samples real records instead of returning UnableToDetectSchemaException for every
+	// well-formed request. Firehose delivery streams stay unreachable as a source (see
+	// services/kinesisanalytics/PARITY.md's known gaps).
+	wireKinesisAnalyticsCrossService(byName["KinesisAnalytics"], byName["Kinesis"], byName["S3"])
+
 	// Wire AppConfig → AppConfigData so a completed deployment's
 	// configuration becomes observable through GetLatestConfiguration polling.
 	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
@@ -11020,6 +11026,104 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerabl
 
 	iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
 	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
+}
+
+// kinesisAnalyticsStreamReaderAdapter adapts the Kinesis backend's real
+// ListShards/GetShardIterator/GetRecords (ctx+typed-struct shaped, see
+// services/kinesis/records.go and shards.go) to
+// kinesisanalyticsbackend.KinesisStreamReader's narrow (streamName string, limit int) shape
+// DiscoverInputSchema samples through (services/kinesisanalytics/discover_schema.go).
+type kinesisAnalyticsStreamReaderAdapter struct {
+	backend *kinesisbackend.InMemoryBackend
+}
+
+// kaTrimHorizonIteratorType is the only shard-iterator starting point DiscoverInputSchema's
+// sampling needs (it just wants some records, not a caller-specified position). Not
+// kinesisbackend.iteratorTypeTrimHorizon -- that constant is unexported (services/kinesis/
+// models.go:40).
+const kaTrimHorizonIteratorType = "TRIM_HORIZON"
+
+func (a *kinesisAnalyticsStreamReaderAdapter) ListShards(streamName string) ([]string, error) {
+	out, err := a.backend.ListShards(context.Background(), &kinesisbackend.ListShardsInput{StreamName: streamName})
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, len(out.Shards))
+	for i, s := range out.Shards {
+		ids[i] = s.ShardID
+	}
+
+	return ids, nil
+}
+
+func (a *kinesisAnalyticsStreamReaderAdapter) GetShardIterator(streamName, shardID string) (string, error) {
+	out, err := a.backend.GetShardIterator(context.Background(), &kinesisbackend.GetShardIteratorInput{
+		StreamName:        streamName,
+		ShardID:           shardID,
+		ShardIteratorType: kaTrimHorizonIteratorType,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return out.ShardIterator, nil
+}
+
+func (a *kinesisAnalyticsStreamReaderAdapter) GetRecords(
+	shardIterator string,
+	limit int,
+) ([][]byte, string, error) {
+	out, err := a.backend.GetRecords(context.Background(), &kinesisbackend.GetRecordsInput{
+		ShardIterator: shardIterator,
+		Limit:         limit,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	records := make([][]byte, len(out.Records))
+	for i, r := range out.Records {
+		records[i] = r.Data
+	}
+
+	return records, out.NextShardIterator, nil
+}
+
+// wireKinesisAnalyticsCrossService wires DiscoverInputSchema's real sampling
+// (services/kinesisanalytics/discover_schema.go) to the Kinesis and S3 backends.
+// s3backend.InMemoryBackend.GetObject satisfies kinesisanalyticsbackend.S3ObjectReader
+// directly (same real SDK types, no adapter -- the same no-adapter pairing as cloudwatch's
+// FirehosePutter/firehose.InMemoryBackend). Kinesis needs
+// kinesisAnalyticsStreamReaderAdapter to bridge onto KinesisStreamReader's narrow shape.
+func wireKinesisAnalyticsCrossService(kaReg, kinesisReg, s3Reg service.Registerable) {
+	kaH, ok := kaReg.(*kinesisanalyticsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kaBk, bkOk := kaH.Backend.(*kinesisanalyticsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if kinesisH, kOk := kinesisReg.(*kinesisbackend.Handler); kOk {
+		if kinesisBk, kbkOk := kinesisH.Backend.(*kinesisbackend.InMemoryBackend); kbkOk {
+			kaBk.SetKinesisStreamReader(&kinesisAnalyticsStreamReaderAdapter{backend: kinesisBk})
+		}
+	}
+
+	s3H, s3Ok := s3Reg.(*s3backend.S3Handler)
+	if !s3Ok {
+		return
+	}
+
+	s3Bk, s3BkOk := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !s3BkOk {
+		return
+	}
+
+	kaBk.SetS3ObjectReader(s3Bk)
 }
 
 // cfnLightsailStackAdapter adapts the CloudFormation backend's real

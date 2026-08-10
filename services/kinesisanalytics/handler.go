@@ -221,6 +221,9 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	case errors.Is(err, ErrConcurrentUpdate):
 		status = http.StatusBadRequest
 		code = "ConcurrentModificationException"
+	case errors.Is(err, ErrUnableToDetectSchema):
+		status = http.StatusBadRequest
+		code = "UnableToDetectSchemaException"
 	case errors.Is(err, ErrTooManyTags):
 		// Must precede the generic awserr.ErrConflict case below: AWS models tag-limit
 		// overflow on CreateApplication/TagResource as a distinct TooManyTagsException,

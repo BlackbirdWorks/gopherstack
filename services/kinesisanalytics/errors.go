@@ -24,4 +24,13 @@ var (
 	ErrTooManyTags = errors.New("TooManyTagsException: application tag limit exceeded")
 	// ErrResourceInUse is returned when the app is in an incompatible state for the requested operation.
 	ErrResourceInUse = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	// ErrUnableToDetectSchema is returned by DiscoverInputSchema when no sample data can be
+	// obtained from the requested source. Real AWS has no ResourceNotFoundException on this op
+	// (verified: aws-sdk-go-v2/service/kinesisanalytics@v1.30.21 deserializers.go
+	// awsAwsjson11_deserializeOpErrorDiscoverInputSchema only switches on InvalidArgumentException,
+	// ResourceProvisionedThroughputExceededException, ServiceUnavailableException, and
+	// UnableToDetectSchemaException) -- a source that doesn't exist or has no data surfaces here.
+	ErrUnableToDetectSchema = errors.New(
+		"UnableToDetectSchemaException: unable to sample data from the requested source",
+	)
 )

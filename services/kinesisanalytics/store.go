@@ -120,6 +120,11 @@ type StorageBackend interface {
 	) error
 	DeleteApplicationOutput(ctx context.Context, name string, versionID int64, outputID string) error
 	DeleteApplicationReferenceDataSource(ctx context.Context, name string, versionID int64, referenceID string) error
+	DiscoverInputSchema(
+		ctx context.Context,
+		resourceARN string,
+		s3cfg *s3ConfigurationInput,
+	) (schema *SourceSchema, raw []string, parsed [][]string, err error)
 }
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
@@ -137,6 +142,8 @@ type InMemoryBackend struct {
 	appsByARN     *store.Index[Application]
 	registry      *store.Registry
 	cancelFuncs   map[string]context.CancelFunc
+	kinesisReader KinesisStreamReader
+	s3Reader      S3ObjectReader
 	defaultRegion string
 	accountID     string
 	nextID        int64
@@ -210,3 +217,19 @@ func checkAndBumpVersion(app *Application, currentVersionID int64) error {
 
 // Region returns the default region for this backend.
 func (b *InMemoryBackend) Region() string { return b.defaultRegion }
+
+// SetKinesisStreamReader wires the Kinesis backend DiscoverInputSchema samples records from
+// when ResourceARN names a Kinesis stream. Not wired by cli.go today -- see README.
+func (b *InMemoryBackend) SetKinesisStreamReader(r KinesisStreamReader) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.kinesisReader = r
+}
+
+// SetS3ObjectReader wires the S3 backend DiscoverInputSchema samples object content from when
+// S3Configuration is set. Not wired by cli.go today -- see README.
+func (b *InMemoryBackend) SetS3ObjectReader(r S3ObjectReader) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.s3Reader = r
+}
