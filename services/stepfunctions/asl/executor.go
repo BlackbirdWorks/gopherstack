@@ -1613,7 +1613,14 @@ func (e *Executor) executeMap(
 
 			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
 			if state.ItemBatcher != nil {
-				batched := batchItems(items, state.ItemBatcher)
+				maxItemsPerBatch, maxInputBytesPerBatch, batcherErr := e.resolveItemBatcherLimits(
+					state.ItemBatcher, input,
+				)
+				if batcherErr != nil {
+					return nil, batcherErr
+				}
+
+				batched := batchItems(items, maxItemsPerBatch, maxInputBytesPerBatch)
 
 				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, batched)
 			}
@@ -1636,11 +1643,17 @@ func (e *Executor) runMapItemsAndFinalize(
 ) (any, error) {
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
-	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
+
+	maxConcurrency, err := e.resolveMaxConcurrency(state, mapInput)
+	if err != nil {
+		return nil, err
+	}
+
+	concurrency := resolveMapConcurrency(maxConcurrency, len(items))
 
 	var mapRunARN string
 	if e.mapRunNotifier != nil {
-		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, state.MaxConcurrency, len(items))
+		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, maxConcurrency, len(items))
 	}
 
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
@@ -1666,11 +1679,60 @@ func (e *Executor) runMapItemsAndFinalize(
 	return out, finalErr
 }
 
-// batchItems groups items into batches according to ItemBatcher configuration.
-// Each batch is returned as []any and becomes one iteration input.
-func batchItems(items []any, batcher *ItemBatcher) []any {
-	if batcher == nil ||
-		(batcher.MaxItemsPerBatch <= 0 && batcher.MaxInputBytesPerBatch <= 0) {
+// ErrMaxItemsPerBatchPathNotNumber is returned when ItemBatcher.MaxItemsPerBatchPath
+// does not resolve to a number.
+var ErrMaxItemsPerBatchPathNotNumber = errors.New("MaxItemsPerBatchPath: value is not a number")
+
+// ErrMaxInputBytesPerBatchPathNotNumber is returned when
+// ItemBatcher.MaxInputBytesPerBatchPath does not resolve to a number.
+var ErrMaxInputBytesPerBatchPathNotNumber = errors.New(
+	"MaxInputBytesPerBatchPath: value is not a number",
+)
+
+// resolveItemBatcherLimits resolves ItemBatcher's MaxItemsPerBatch(Path) and
+// MaxInputBytesPerBatch(Path) against the Map state's own input, the same
+// way resolveToleratedFailureCount resolves ToleratedFailureCountPath.
+func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) (int, int, error) {
+	maxItems := batcher.MaxItemsPerBatch
+
+	if batcher.MaxItemsPerBatchPath != "" {
+		val, err := applyPath(batcher.MaxItemsPerBatchPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, 0, fmt.Errorf("MaxItemsPerBatchPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, 0, ErrMaxItemsPerBatchPathNotNumber
+		}
+
+		maxItems = int(f)
+	}
+
+	maxBytes := batcher.MaxInputBytesPerBatch
+
+	if batcher.MaxInputBytesPerBatchPath != "" {
+		val, err := applyPath(batcher.MaxInputBytesPerBatchPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, 0, fmt.Errorf("MaxInputBytesPerBatchPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, 0, ErrMaxInputBytesPerBatchPathNotNumber
+		}
+
+		maxBytes = int(f)
+	}
+
+	return maxItems, maxBytes, nil
+}
+
+// batchItems groups items into batches of at most maxItemsPerBatch items and
+// maxInputBytesPerBatch bytes (either limit <= 0 means unlimited). Each batch
+// is returned as []any and becomes one iteration input.
+func batchItems(items []any, maxItemsPerBatch, maxInputBytesPerBatch int) []any {
+	if maxItemsPerBatch <= 0 && maxInputBytesPerBatch <= 0 {
 		result := make([]any, len(items))
 		for i, it := range items {
 			result[i] = []any{it}
@@ -1688,10 +1750,10 @@ func batchItems(items []any, batcher *ItemBatcher) []any {
 	for _, item := range items {
 		itemBytes := len(marshalInput(item))
 
-		itemsFull := batcher.MaxItemsPerBatch > 0 && len(current) >= batcher.MaxItemsPerBatch
-		bytesFull := batcher.MaxInputBytesPerBatch > 0 &&
+		itemsFull := maxItemsPerBatch > 0 && len(current) >= maxItemsPerBatch
+		bytesFull := maxInputBytesPerBatch > 0 &&
 			len(current) > 0 &&
-			currentBytes+itemBytes > batcher.MaxInputBytesPerBatch
+			currentBytes+itemBytes > maxInputBytesPerBatch
 
 		if itemsFull || bytesFull {
 			batches = append(batches, current)
@@ -1793,12 +1855,52 @@ var ErrItemReaderInvalidData = errors.New(
 
 func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any) ([]any, error) {
 	if state.ItemReader != nil {
-		return e.resolveItemsFromReader(ctx, state.ItemReader)
+		items, err := e.resolveItemsFromReader(ctx, state.ItemReader)
+		if err != nil {
+			return nil, err
+		}
+
+		return e.truncateReaderItems(items, state.ItemReader.ReaderConfig, input)
 	}
 
 	items, err := resolveItems(state.ItemsPath, input)
 	if err != nil {
 		return nil, fmt.Errorf("map ItemsPath error: %w", err)
+	}
+
+	return items, nil
+}
+
+// ErrMaxItemsPathNotNumber is returned when ReaderConfig.MaxItemsPath does
+// not resolve to a number.
+var ErrMaxItemsPathNotNumber = errors.New("MaxItemsPath: value is not a number")
+
+// truncateReaderItems applies ReaderConfig's MaxItems(Path) cap, resolving
+// MaxItemsPath against the Map state's own input the same way
+// resolveToleratedFailureCount resolves ToleratedFailureCountPath.
+func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput any) ([]any, error) {
+	if cfg == nil {
+		return items, nil
+	}
+
+	maxItems := cfg.MaxItems
+
+	if cfg.MaxItemsPath != "" {
+		val, err := applyPath(cfg.MaxItemsPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return nil, fmt.Errorf("MaxItemsPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return nil, ErrMaxItemsPathNotNumber
+		}
+
+		maxItems = int(f)
+	}
+
+	if maxItems > 0 && len(items) > maxItems {
+		items = items[:maxItems]
 	}
 
 	return items, nil
@@ -1819,17 +1921,7 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	items, err := decodeReaderItems(data, reader.ReaderConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 &&
-		len(items) > reader.ReaderConfig.MaxItems {
-		items = items[:reader.ReaderConfig.MaxItems]
-	}
-
-	return items, nil
+	return decodeReaderItems(data, reader.ReaderConfig)
 }
 
 // decodeReaderItems parses S3 object bytes into Map items based on the
@@ -2139,6 +2231,31 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 	}
 
 	return int(math.Floor(float64(totalCount) * pct / percentToFractionDivisor)), true, nil
+}
+
+// ErrMaxConcurrencyPathNotNumber is returned when State.MaxConcurrencyPath
+// does not resolve to a number.
+var ErrMaxConcurrencyPathNotNumber = errors.New("MaxConcurrencyPath: value is not a number")
+
+// resolveMaxConcurrency resolves MaxConcurrency(Path) against the Map
+// state's own input, the same way resolveToleratedFailureCount resolves
+// ToleratedFailureCountPath.
+func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error) {
+	if state.MaxConcurrencyPath == "" {
+		return state.MaxConcurrency, nil
+	}
+
+	val, err := applyPath(state.MaxConcurrencyPath, mapInput, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("MaxConcurrencyPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrMaxConcurrencyPathNotNumber
+	}
+
+	return int(f), nil
 }
 
 // resolveMapConcurrency determines the effective concurrency for a Map state.
