@@ -188,7 +188,10 @@ func (h *Handler) handleListSubscriptions(c *echo.Context) error {
 
 	out := make([]subscriptionSummaryResponse, 0, len(subs))
 	for _, s := range subs {
-		out = append(out, subscriptionSummaryResponse{TopicFilter: s.TopicFilter, Qos: int32(s.QoS)})
+		out = append(
+			out,
+			subscriptionSummaryResponse{TopicFilter: s.TopicFilter, Qos: int32(s.QoS)},
+		)
 	}
 
 	return c.JSON(http.StatusOK, listSubscriptionsResponse{Subscriptions: out})
@@ -201,43 +204,22 @@ type sendDirectMessageResponse struct {
 	TraceID string `json:"traceId"`
 }
 
-// validateSendDirectMessageParams validates the topic and optional MQTT5
-// query/header fields shared with Publish (see parseMQTT5PublishParams).
-// confirmation/timeout aren't validated here -- see handleSendDirectMessage.
-func validateSendDirectMessageParams(c *echo.Context, topic string) error {
-	if err := validateTopic(topic); err != nil {
-		return err
-	}
-
-	if err := validateResponseTopic(c.Request().URL.Query().Get("responseTopic")); err != nil {
-		return err
-	}
-
-	if err := validatePayloadFormatIndicator(c.Request().Header.Get(headerMQTTPayloadFormatIndicator)); err != nil {
-		return err
-	}
-
-	if _, err := decodeUserProperties(c.Request().Header.Get(headerMQTTUserProperties)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 // handleSendDirectMessage processes POST /connections/{clientId}/messages
 // requests. It validates the target clientId and topic, then delivers via
 // InMemoryBackend.SendDirectMessage -- which now addresses the target
 // client's live broker connection directly when the broker has one, falling
 // back to a topic broadcast only when it doesn't (see SendDirectMessage's doc
-// comment and PARITY.md gaps for exactly when that fallback applies). Of the
-// optional MQTT5 fields real SendDirectMessageInput carries (contentType/
-// correlationData/payloadFormatIndicator/responseTopic/userProperties), only
-// the always-present topic/payload actually reach the broker -- the rest are
-// parsed and validated (so malformed values are still rejected) but not
-// forwarded, mirroring Publish's identical, already-documented gap.
+// comment and PARITY.md gaps for exactly when that fallback applies).
+// SendDirectMessageInput shares its optional MQTT5 fields' wire locations
+// (contentType/correlationData/payloadFormatIndicator/responseTopic/
+// userProperties) with PublishInput -- confirmed identical query/header names
+// via awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput -- so
+// parseMQTT5PublishParams is reused here too, and every field now reaches
+// the broker as a real MQTT5 packet property, same as Publish.
 // confirmation/timeout (real AWS: wait for a QoS-1 PUBACK, 504 on timeout)
 // select QoS 0-vs-1 on the outgoing publish but never block or time out,
-// since neither MQTTPublisher.Publish nor SendToClient wait for an ack.
+// since neither MQTTPublisher.SendToClient nor PublishWithProperties wait
+// for an ack.
 func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
@@ -253,8 +235,13 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 		return h.handleError(c, fmt.Errorf("%w: topic is required", ErrValidation))
 	}
 
-	if err := validateSendDirectMessageParams(c, topic); err != nil {
+	if err := validateTopic(topic); err != nil {
 		return h.handleError(c, err)
+	}
+
+	mqtt5, mqtt5Err := parseMQTT5PublishParams(c)
+	if mqtt5Err != nil {
+		return h.handleError(c, mqtt5Err)
 	}
 
 	confirmation := parseRetainFlag(q.Get("confirmation"))
@@ -268,11 +255,23 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 
 	payload, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return h.handleError(c,
-			fmt.Errorf("%w: message payload exceeds %d bytes", ErrRequestTooLarge, maxPublishBodyBytes))
+		return h.handleError(
+			c,
+			fmt.Errorf(
+				"%w: message payload exceeds %d bytes",
+				ErrRequestTooLarge,
+				maxPublishBodyBytes,
+			),
+		)
 	}
 
-	if sendErr := h.Backend.SendDirectMessage(clientID, topic, payload, qos); sendErr != nil {
+	if sendErr := h.Backend.SendDirectMessage(
+		clientID,
+		topic,
+		payload,
+		qos,
+		mqtt5.toMQTT5Properties(),
+	); sendErr != nil {
 		switch {
 		case errors.Is(sendErr, ErrNoBroker):
 			log.Warn("iot data plane: no broker configured, direct message dropped",
@@ -283,7 +282,10 @@ func (h *Handler) handleSendDirectMessage(c *echo.Context) error {
 			log.Error("iot data plane send direct message failed",
 				"clientId", clientID, "topic", topic, "error", sendErr)
 
-			return c.JSON(http.StatusInternalServerError, map[string]string{keyError: sendErr.Error()})
+			return c.JSON(
+				http.StatusInternalServerError,
+				map[string]string{keyError: sendErr.Error()},
+			)
 		}
 	}
 

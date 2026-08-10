@@ -2,6 +2,7 @@ package iotdataplane
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
@@ -19,7 +20,8 @@ const (
 // validatePayloadFormatIndicator checks that v (the X-Amz-Mqtt5-Payload-Format-Indicator
 // header value) is empty or one of the real SDK's known enum values.
 func validatePayloadFormatIndicator(v string) error {
-	if v == "" || v == payloadFormatIndicatorUnspecifiedBytes || v == payloadFormatIndicatorUTF8Data {
+	if v == "" || v == payloadFormatIndicatorUnspecifiedBytes ||
+		v == payloadFormatIndicatorUTF8Data {
 		return nil
 	}
 
@@ -76,6 +78,61 @@ func decodeUserProperties(header string) ([]byte, error) {
 	return decoded, nil
 }
 
+// decodeCorrelationData base64-decodes the X-Amz-Mqtt5-Correlation-Data
+// header value, mirroring decodeUserProperties: PublishInput.CorrelationData
+// is documented as "The base64-encoded binary data used by the sender ...
+// correlationData is an HTTP header value in the API" (api_op_Publish.go),
+// so the header carries base64 text wrapping arbitrary binary MQTT5
+// correlation data. Returns nil, nil when header is empty (not supplied).
+func decodeCorrelationData(header string) ([]byte, error) {
+	if header == "" {
+		return nil, nil
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(header)
+	if err != nil {
+		return nil, fmt.Errorf("%w: correlationData header must be valid base64", ErrValidation)
+	}
+
+	return decoded, nil
+}
+
+// parseUserProperties parses a decoded userProperties JSON blob (an array of
+// single-key JSON objects, e.g. [{"deviceName":"alpha"},{"deviceCnt":"45"}],
+// per PublishInput.UserProperties's doc comment) into individual key/value
+// pairs for forwarding as real MQTT5 user properties. Returns nil, nil for
+// an empty/absent blob.
+func parseUserProperties(raw []byte) ([]MQTT5UserProperty, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var entries []map[string]string
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, fmt.Errorf(
+			"%w: userProperties must be a JSON array of single-key objects",
+			ErrValidation,
+		)
+	}
+
+	out := make([]MQTT5UserProperty, 0, len(entries))
+
+	for _, entry := range entries {
+		if len(entry) != 1 {
+			return nil, fmt.Errorf(
+				"%w: each userProperties entry must have exactly one key",
+				ErrValidation,
+			)
+		}
+
+		for k, v := range entry {
+			out = append(out, MQTT5UserProperty{Key: k, Value: v})
+		}
+	}
+
+	return out, nil
+}
+
 // validateTopic checks that a topic string conforms to MQTT publishing rules.
 // Wildcards (# or +) are forbidden, empty levels are rejected, and each segment
 // is validated for control characters. The reserved $aws/things/{name}/shadow/*
@@ -108,17 +165,28 @@ func validateTopic(topic string) error {
 	// Gate $aws/things/{name}/shadow/* to internal callers; external publish would
 	// spoof the shadow event topics reserved for the backend.
 	if strings.HasPrefix(topic, "$aws/things/") && len(segments) >= 4 && segments[3] == "shadow" {
-		return fmt.Errorf("%w: publishing to $aws/things/{name}/shadow/* is reserved for internal use", ErrValidation)
+		return fmt.Errorf(
+			"%w: publishing to $aws/things/{name}/shadow/* is reserved for internal use",
+			ErrValidation,
+		)
 	}
 
 	return nil
 }
 
-// Publish delivers a message to the given MQTT topic.
+// Publish delivers a message to the given MQTT topic, along with props (the
+// optional MQTT5 packet properties PublishInput accepts) so live MQTT5
+// subscribers receive them as real packet properties.
 // If no broker is configured the call returns ErrNoBroker.
 // The retain flag is forwarded to the broker so live subscribers receive RETAIN=1
 // and the broker maintains retention canonically.
-func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32, retain bool) error {
+func (b *InMemoryBackend) Publish(
+	topic string,
+	payload []byte,
+	qos int32,
+	retain bool,
+	props MQTT5Properties,
+) error {
 	b.mu.RLock("Publish")
 	broker := b.broker
 	b.mu.RUnlock()
@@ -133,5 +201,5 @@ func (b *InMemoryBackend) Publish(topic string, payload []byte, qos int32, retai
 		qosByte = 1
 	}
 
-	return broker.Publish(topic, payload, retain, qosByte)
+	return broker.PublishWithProperties(topic, payload, retain, qosByte, props)
 }
