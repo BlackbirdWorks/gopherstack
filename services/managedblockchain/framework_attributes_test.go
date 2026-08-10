@@ -229,12 +229,13 @@ func TestHandler_CreateMember_FrameworkConfigurationValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			networkID, _ := createTestNetwork(t, h)
+			invitationID := createTestInvitation(t, b, networkID, "test-net")
 
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"MemberConfiguration": tt.memberConfiguration})
+				map[string]any{"InvitationId": invitationID, "MemberConfiguration": tt.memberConfiguration})
 			assert.Equal(t, tt.wantStatus, rec.Code)
 		})
 	}
@@ -268,9 +269,10 @@ func TestHandler_CreateMember_FrameworkAttributesRoundTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
+			h, b := newTestHandlerWithBackend(t)
 
 			networkID, _ := createTestNetwork(t, h)
+			invitationID := createTestInvitation(t, b, networkID, "test-net")
 
 			memberConfig := testMemberConfiguration("fabric-member")
 			if tt.kmsKeyArn != "" {
@@ -278,7 +280,7 @@ func TestHandler_CreateMember_FrameworkAttributesRoundTrip(t *testing.T) {
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/networks/"+networkID+"/members",
-				map[string]any{"MemberConfiguration": memberConfig})
+				map[string]any{"InvitationId": invitationID, "MemberConfiguration": memberConfig})
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			var createResp struct {

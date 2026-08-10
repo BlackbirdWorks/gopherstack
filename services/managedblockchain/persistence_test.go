@@ -108,7 +108,10 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 					"", "admin", "")
 				require.NoError(t, err)
 
-				_, err = b.CreateMember(region, accountID, n.ID, "member2", "second member", "admin", "", nil)
+				inv := b.AddInvitationInternal(region, accountID, n.ID, "multi-member")
+
+				_, err = b.CreateMember(
+					region, accountID, n.ID, inv.InvitationID, "member2", "second member", "admin", "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
@@ -231,7 +234,9 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 					"vote-net", "", "", "", "founder", "", nil, nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
-				m2, err := b.CreateMember(region, accountID, n.ID, "second", "", "admin", "", nil)
+				inv := b.AddInvitationInternal(region, accountID, n.ID, "vote-net")
+
+				m2, err := b.CreateMember(region, accountID, n.ID, inv.InvitationID, "second", "", "admin", "", nil)
 				require.NoError(t, err)
 
 				proposal, err := b.CreateProposal(region, accountID, n.ID, m1.ID, "test proposal", nil, nil)
