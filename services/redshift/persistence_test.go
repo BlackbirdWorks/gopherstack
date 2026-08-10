@@ -271,6 +271,12 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	_, err = b.PutResourcePolicySL(ns.NamespaceArn, `{"Version":"2012-10-17"}`)
+	require.NoError(t, err)
+
+	scc, err := b.CreateSnapshotCopyConfigurationSL("rt-namespace", "us-west-2", "", 7)
+	require.NoError(t, err)
+
 	_, err = b.CreateServerlessUsageLimit(
 		"arn:aws:redshift-serverless:us-east-1:000000000000:workgroup/rt-workgroup",
 		"ComputeCapacity", "daily", "log", 100,
@@ -377,6 +383,14 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	assoc, err := fresh.GetCustomDomainAssociationSL("rt.example.com", "rt-workgroup")
 	require.NoError(t, err)
 	assert.Equal(t, "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", assoc.CustomDomainCertificateArn)
+
+	rp, err := fresh.GetResourcePolicySL(ns.NamespaceArn)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"Version":"2012-10-17"}`, rp.Policy)
+
+	sccList, _ := fresh.ListSnapshotCopyConfigurationsSL("rt-namespace", 0, "")
+	require.Len(t, sccList, 1)
+	assert.Equal(t, scc.SnapshotCopyConfigurationID, sccList[0].SnapshotCopyConfigurationID)
 
 	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
 	// survived the round trip with the rt-cluster entry intact.

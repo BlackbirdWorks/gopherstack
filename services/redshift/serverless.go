@@ -40,6 +40,12 @@ var (
 	// ErrCustomDomainSLConflict is returned when a custom domain name is
 	// already associated with a workgroup.
 	ErrCustomDomainSLConflict = errors.New("ConflictException")
+	// ErrResourcePolicySLNotFound is returned when no resource policy exists
+	// for the given resourceArn.
+	ErrResourcePolicySLNotFound = errors.New("ResourceNotFoundException")
+	// ErrSnapshotCopyConfigSLNotFound is returned when a serverless snapshot
+	// copy configuration does not exist.
+	ErrSnapshotCopyConfigSLNotFound = errors.New("ResourceNotFoundException")
 )
 
 // ---------------------------------------------------------------------------
@@ -221,6 +227,28 @@ type ServerlessCustomDomainAssociation struct {
 	CustomDomainCertificateArn        string     `json:"customDomainCertificateArn,omitempty"`
 	CustomDomainName                  string     `json:"customDomainName"`
 	WorkgroupName                     string     `json:"workgroupName"`
+}
+
+// ServerlessResourcePolicy is the resource policy attached to a Redshift
+// Serverless resource ARN, used to share snapshots across accounts
+// (confirmed against the "ResourcePolicy" shape in service-2.json).
+type ServerlessResourcePolicy struct {
+	ResourceArn string `json:"resourceArn"`
+	Policy      string `json:"policy"`
+}
+
+// ServerlessSnapshotCopyConfiguration configures cross-region snapshot
+// copying for a Redshift Serverless namespace (the "SnapshotCopyConfiguration"
+// shape in service-2.json). This backend does not perform real cross-region
+// replication -- like the rest of this service's snapshot handling, it only
+// tracks the configuration object itself.
+type ServerlessSnapshotCopyConfiguration struct {
+	SnapshotCopyConfigurationArn string `json:"snapshotCopyConfigurationArn"`
+	SnapshotCopyConfigurationID  string `json:"snapshotCopyConfigurationId"`
+	NamespaceName                string `json:"namespaceName"`
+	DestinationRegion            string `json:"destinationRegion"`
+	DestinationKmsKeyID          string `json:"destinationKmsKeyId,omitempty"`
+	SnapshotRetentionPeriod      int    `json:"snapshotRetentionPeriod,omitempty"`
 }
 
 // slResourceTagSet holds the tags attached to a taggable Redshift Serverless

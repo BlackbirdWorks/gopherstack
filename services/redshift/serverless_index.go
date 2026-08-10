@@ -65,6 +65,7 @@ func (b *InMemoryBackend) rebuildServerlessIndexes() {
 	b.slUsageLimitIdx.rebuildFromKeys(tableKeys(b.slUsageLimits, slUsageLimitsKeyFn))
 	b.slScheduledActionIdx.rebuildFromKeys(tableKeys(b.slScheduledActions, slScheduledActionsKeyFn))
 	b.slCustomDomainIdx.rebuildFromKeys(tableKeys(b.slCustomDomains, slCustomDomainsSLKeyFn))
+	b.slSnapshotCopyConfigIdx.rebuildFromKeys(tableKeys(b.slSnapshotCopyConfig, slSnapshotCopyConfigKeyFn))
 }
 
 // resetServerlessIndexes clears every serverless sorted index.
@@ -75,4 +76,5 @@ func (b *InMemoryBackend) resetServerlessIndexes() {
 	b.slUsageLimitIdx.reset()
 	b.slScheduledActionIdx.reset()
 	b.slCustomDomainIdx.reset()
+	b.slSnapshotCopyConfigIdx.reset()
 }

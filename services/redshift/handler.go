@@ -31,6 +31,9 @@ const (
 	opDeleteScheduledAction         = "DeleteScheduledAction"
 	opCreateCustomDomainAssociation = "CreateCustomDomainAssociation"
 	opDeleteCustomDomainAssociation = "DeleteCustomDomainAssociation"
+	opGetResourcePolicy             = "GetResourcePolicy"
+	opPutResourcePolicy             = "PutResourcePolicy"
+	opDeleteResourcePolicy          = "DeleteResourcePolicy"
 	opUnknown                       = "Unknown"
 )
 
@@ -128,7 +131,7 @@ func supportedOpsGroup1() []string {
 		"DeleteClusterSubnetGroup",
 		"DeleteEventSubscription",
 		"DeletePartner",
-		"DeleteResourcePolicy",
+		opDeleteResourcePolicy,
 		"DeleteSnapshotCopyGrant",
 		"DeleteSnapshotSchedule",
 		"DeleteTags",
@@ -179,7 +182,7 @@ func supportedOpsGroup2() []string {
 		"GetClusterCredentialsWithIAM",
 		"GetReservedNodeExchangeConfigurationOptions",
 		"GetReservedNodeExchangeOfferings",
-		"GetResourcePolicy",
+		opGetResourcePolicy,
 		"ModifyAuthenticationProfile",
 		"ModifyCluster",
 		"ModifyClusterIamRoles",
@@ -194,7 +197,7 @@ func supportedOpsGroup2() []string {
 		"ModifyUsageLimit",
 		"PauseCluster",
 		"PurchaseReservedNodeOffering",
-		"PutResourcePolicy",
+		opPutResourcePolicy,
 		"RebootCluster",
 		"RejectDataShare",
 		"ResetClusterParameterGroup",
@@ -375,7 +378,7 @@ func (h *Handler) buildOpsGroup1() map[string]redshiftActionFn {
 		"DeleteClusterSubnetGroup":             h.handleDeleteClusterSubnetGroup,
 		"DeleteEventSubscription":              h.handleDeleteEventSubscription,
 		"DeletePartner":                        h.handleDeletePartner,
-		"DeleteResourcePolicy":                 h.handleDeleteResourcePolicy,
+		opDeleteResourcePolicy:                 h.handleDeleteResourcePolicy,
 		"DeleteSnapshotCopyGrant":              h.handleDeleteSnapshotCopyGrant,
 		"DeleteSnapshotSchedule":               h.handleDeleteSnapshotSchedule,
 		"DeleteTags":                           h.handleDeleteTags,
@@ -426,7 +429,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"FailoverPrimaryCompute":                      h.handleFailoverPrimaryCompute,
 		"GetClusterCredentials":                       h.handleGetClusterCredentials,
 		"GetClusterCredentialsWithIAM":                h.handleGetClusterCredentialsWithIAM,
-		"GetResourcePolicy":                           h.handleGetResourcePolicy,
+		opGetResourcePolicy:                           h.handleGetResourcePolicy,
 		"GetReservedNodeExchangeConfigurationOptions": h.handleGetReservedNodeExchangeConfigurationOptions,
 		"GetReservedNodeExchangeOfferings":            h.handleGetReservedNodeExchangeOfferings,
 		"ModifyAuthenticationProfile":                 h.handleModifyAuthenticationProfile,
@@ -443,7 +446,7 @@ func (h *Handler) buildOpsGroup2() map[string]redshiftActionFn {
 		"ModifyUsageLimit":                            h.handleModifyUsageLimit,
 		"PauseCluster":                                h.handlePauseCluster,
 		"PurchaseReservedNodeOffering":                h.handlePurchaseReservedNodeOffering,
-		"PutResourcePolicy":                           h.handlePutResourcePolicy,
+		opPutResourcePolicy:                           h.handlePutResourcePolicy,
 		"RebootCluster":                               h.handleRebootCluster,
 		"RejectDataShare":                             h.handleRejectDataShare,
 		"ResetClusterParameterGroup":                  h.handleResetClusterParameterGroup,

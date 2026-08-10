@@ -80,6 +80,13 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"GetCustomDomainAssociation",
 		"ListCustomDomainAssociations",
 		"UpdateCustomDomainAssociation",
+		opGetResourcePolicy,
+		opPutResourcePolicy,
+		opDeleteResourcePolicy,
+		"CreateSnapshotCopyConfiguration",
+		"UpdateSnapshotCopyConfiguration",
+		"DeleteSnapshotCopyConfiguration",
+		"ListSnapshotCopyConfigurations",
 	}
 }
 
@@ -104,6 +111,8 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slScheduledActions.Reset()
 	h.Backend.slResourceTags.Reset()
 	h.Backend.slCustomDomains.Reset()
+	h.Backend.slResourcePolicies.Reset()
+	h.Backend.slSnapshotCopyConfig.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -222,6 +231,15 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 	"ListCustomDomainAssociations":  (*ServerlessHandler).handleListCustomDomainAssociations,
 	"UpdateCustomDomainAssociation": (*ServerlessHandler).handleUpdateCustomDomainAssociation,
 	opDeleteCustomDomainAssociation: (*ServerlessHandler).handleDeleteCustomDomainAssociation,
+
+	opGetResourcePolicy:    (*ServerlessHandler).handleGetResourcePolicySL,
+	opPutResourcePolicy:    (*ServerlessHandler).handlePutResourcePolicySL,
+	opDeleteResourcePolicy: (*ServerlessHandler).handleDeleteResourcePolicySL,
+
+	"CreateSnapshotCopyConfiguration": (*ServerlessHandler).handleCreateSnapshotCopyConfigurationSL,
+	"UpdateSnapshotCopyConfiguration": (*ServerlessHandler).handleUpdateSnapshotCopyConfigurationSL,
+	"DeleteSnapshotCopyConfiguration": (*ServerlessHandler).handleDeleteSnapshotCopyConfigurationSL,
+	"ListSnapshotCopyConfigurations":  (*ServerlessHandler).handleListSnapshotCopyConfigurationsSL,
 }
 
 // ---------------------------------------------------------------------------
@@ -931,11 +949,12 @@ func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, body []
 // ---------------------------------------------------------------------------
 
 const (
-	slRespNamespace       = "namespace"
-	slRespWorkgroup       = "workgroup"
-	slRespSnapshot        = "snapshot"
-	slRespUsageLimit      = "usageLimit"
-	slRespScheduledAction = "scheduledAction"
+	slRespNamespace          = "namespace"
+	slRespWorkgroup          = "workgroup"
+	slRespSnapshot           = "snapshot"
+	slRespUsageLimit         = "usageLimit"
+	slRespScheduledAction    = "scheduledAction"
+	slRespSnapshotCopyConfig = "snapshotCopyConfiguration"
 )
 
 func slErrorResponse(code, msg string) map[string]any {
@@ -963,7 +982,9 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrUsageLimitSLNotFound),
 		errors.Is(err, ErrScheduledActionSLNotFound),
 		errors.Is(err, ErrServerlessResourceNotFound),
-		errors.Is(err, ErrCustomDomainSLNotFound):
+		errors.Is(err, ErrCustomDomainSLNotFound),
+		errors.Is(err, ErrResourcePolicySLNotFound),
+		errors.Is(err, ErrSnapshotCopyConfigSLNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
