@@ -1649,7 +1649,7 @@ func (e *Executor) runMapItemsAndFinalize(
 
 	resultsWritten := 0
 	if finalErr == nil && state.ResultWriter != nil {
-		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, mapRunARN, items, results, errs)
+		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, stateName, mapRunARN, items, results, errs)
 	}
 
 	if e.mapRunNotifier != nil && mapRunARN != "" {

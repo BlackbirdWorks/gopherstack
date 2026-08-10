@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,9 +14,71 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	s3pkg "github.com/blackbirdworks/gopherstack/services/s3"
 	"github.com/blackbirdworks/gopherstack/services/stepfunctions"
 )
+
+// recordingHandler is a minimal slog.Handler that keeps every record it
+// receives, so tests can assert on warnings emitted by backend code without
+// asserting on stderr text.
+type recordingHandler struct {
+	records []slog.Record
+	mu      sync.Mutex
+}
+
+func (h *recordingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *recordingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r.Clone())
+
+	return nil
+}
+
+func (h *recordingHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *recordingHandler) WithGroup(_ string) slog.Handler      { return h }
+
+// findWarn returns the first WARN record whose message contains substr, or
+// nil if none was emitted.
+func (h *recordingHandler) findWarn(substr string) *slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for i := range h.records {
+		if h.records[i].Level == slog.LevelWarn && strings.Contains(h.records[i].Message, substr) {
+			rec := h.records[i]
+
+			return &rec
+		}
+	}
+
+	return nil
+}
+
+func recordAttrs(r *slog.Record) map[string]string {
+	out := make(map[string]string, r.NumAttrs())
+	r.Attrs(func(a slog.Attr) bool {
+		out[a.Key] = a.Value.String()
+
+		return true
+	})
+
+	return out
+}
+
+// newLoggingBackend returns a stepfunctions backend whose execution
+// goroutines log through a recordingHandler, so tests can inspect warnings
+// emitted during state execution.
+func newLoggingBackend(t *testing.T) (*stepfunctions.InMemoryBackend, *recordingHandler) {
+	t.Helper()
+
+	rh := &recordingHandler{}
+	ctx := logger.Save(context.Background(), slog.New(rh))
+
+	return stepfunctions.NewInMemoryBackendWithContext(ctx, "123456789012", "us-east-1"), rh
+}
 
 // resultWriterMapDef is a Map state over the whole input array with an
 // optional ResultWriter clause spliced in, mirroring mapIterStateDef in
@@ -220,6 +284,92 @@ func TestDistributedMapResultWriter(t *testing.T) {
 				var arr []float64
 				require.NoError(t, json.Unmarshal([]byte(d.Output), &arr))
 				assert.Equal(t, []float64{1, 2, 3}, arr)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.fn(t)
+		})
+	}
+}
+
+// TestDistributedMapResultWriterWarnLogs asserts on the actual warning
+// records exportMapResults emits when a configured ResultWriter degrades
+// silently in its effect (still SUCCEEDED, inline/default output) — checking
+// the log is the only way to tell that case apart from a real export.
+func TestDistributedMapResultWriterWarnLogs(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		fn   func(t *testing.T)
+		name string
+	}{
+		{
+			name: "unwired s3 writer warns with state and bucket",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				b, rh := newLoggingBackend(t)
+				// Deliberately never call b.SetS3ResultWriter.
+
+				def := resultWriterMapDef(
+					`"ResultWriter": {"Resource":"arn:aws:states:::s3:putObject",` +
+						`"Parameters":{"Bucket":"nowhere-bucket"}},`,
+				)
+
+				sm, err := b.CreateStateMachine(context.Background(), "rw-warn-sm", def, validRoleARN, "STANDARD")
+				require.NoError(t, err)
+
+				exec, err := b.StartExecution(sm.StateMachineArn, "rw-warn-exec", `[1,2,3]`)
+				require.NoError(t, err)
+
+				d := waitForTerminalExecution(t, b, exec.ExecutionArn)
+				require.Equal(t, "SUCCEEDED", d.Status, "cause=%s error=%s", d.Cause, d.Error)
+
+				rec := rh.findWarn("ResultWriter configured but export unavailable")
+				require.NotNil(t, rec, "expected a warn log for the unwired ResultWriter fallback")
+
+				attrs := recordAttrs(rec)
+				assert.Equal(t, "M", attrs["state"])
+				assert.Equal(t, "nowhere-bucket", attrs["bucket"])
+			},
+		},
+		{
+			name: "unsupported writerconfig warns with state and settings",
+			fn: func(t *testing.T) {
+				t.Helper()
+
+				const bucket = "wc-bucket"
+
+				s3Bk := newBucketBackedS3(t, bucket)
+				b, rh := newLoggingBackend(t)
+				b.SetS3ResultWriter(stepfunctions.NewS3ResultWriterIntegration(s3Bk))
+
+				def := resultWriterMapDef(
+					`"ResultWriter": {"Resource":"arn:aws:states:::s3:putObject",` +
+						`"Parameters":{"Bucket":"` + bucket + `"},` +
+						`"WriterConfig":{"Transformation":"COMPACT","OutputType":"JSONL"}},`,
+				)
+
+				sm, err := b.CreateStateMachine(context.Background(), "rw-wc-sm", def, validRoleARN, "STANDARD")
+				require.NoError(t, err)
+
+				exec, err := b.StartExecution(sm.StateMachineArn, "rw-wc-exec", `[1,2,3]`)
+				require.NoError(t, err)
+
+				d := waitForTerminalExecution(t, b, exec.ExecutionArn)
+				require.Equal(t, "SUCCEEDED", d.Status, "cause=%s error=%s", d.Cause, d.Error)
+
+				rec := rh.findWarn("ResultWriter WriterConfig not applied")
+				require.NotNil(t, rec, "expected a warn log for the unapplied WriterConfig")
+
+				attrs := recordAttrs(rec)
+				assert.Equal(t, "M", attrs["state"])
+				assert.Equal(t, "COMPACT", attrs["transformation"])
+				assert.Equal(t, "JSONL", attrs["outputType"])
 			},
 		},
 	}

@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
 // ResultWriterDetails points to a Distributed Map's exported result
@@ -72,12 +74,24 @@ const resultWriterFileIndex = 0
 // supported; WriterConfig's Transformation/OutputType are parsed but not
 // applied. When no S3Writer is wired, or Parameters.Bucket is unset,
 // results are returned inline unchanged instead of failing the Map state --
-// the computation already succeeded, only its export is unavailable.
+// the computation already succeeded, only its export is unavailable. Both
+// that fallback and an unapplied WriterConfig log a warning naming the
+// state, so the degradation is diagnosable instead of silent.
 func (e *Executor) exportMapResults(
-	ctx context.Context, state *State, mapRunARN string, items, results []any, errs []error,
+	ctx context.Context, state *State, stateName, mapRunARN string, items, results []any, errs []error,
 ) (any, int, error) {
+	if wc := state.ResultWriter.WriterConfig; wc != nil && writerConfigUnsupported(wc) {
+		logger.Load(ctx).WarnContext(ctx,
+			"stepfunctions: ResultWriter WriterConfig not applied, writing default JSON array result files",
+			"state", stateName, "transformation", wc.Transformation, "outputType", wc.OutputType)
+	}
+
 	bucket, _ := state.ResultWriter.Parameters["Bucket"].(string)
 	if e.s3w == nil || bucket == "" {
+		logger.Load(ctx).WarnContext(ctx,
+			"stepfunctions: ResultWriter configured but export unavailable, returning inline results",
+			"state", stateName, "bucket", bucket)
+
 		return results, 0, nil
 	}
 
@@ -112,6 +126,16 @@ func (e *Executor) exportMapResults(
 	}
 
 	return out, len(succeeded), nil
+}
+
+// writerConfigUnsupported reports whether wc requests a Transformation or
+// OutputType other than the defaults, neither of which exportMapResults
+// applies.
+func writerConfigUnsupported(wc *ResultWriterConfig) bool {
+	transform := wc.Transformation == "COMPACT" || wc.Transformation == "FLATTEN"
+	outputType := wc.OutputType == "JSONL"
+
+	return transform || outputType
 }
 
 // resultFolderKey builds the slash-terminated S3 key prefix holding one Map
