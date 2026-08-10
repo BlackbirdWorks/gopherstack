@@ -7,16 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 12 (12 ok) |
+| Operations audited | 15 (13 ok, 2 gap) |
 | Feature families | 12 (12 ok) |
-| Known gaps | 3 |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- FuotaTask.LoRaWAN.StartTime (types.LoRaWANFuotaTaskGetInfo, types.go:853) is always left unset. Real AWS populates it from a separate StartFuotaTaskInput.LoRaWAN (types.LoRaWANStartFuotaTask, types.go:1201) that this backend's StartFuotaTask handler doesn't parse -- out of scope for the LoRaWAN/Sidewalk typing pass (gopherstack-jvqt); the field is honestly modeled but never populated, not partially parsed.
-- UpdateFuotaTask doesn't accept Descriptor/FirmwareUpdateImage/FirmwareUpdateRole/FragmentIntervalMS/FragmentSizeBytes/RedundancyPercent even though UpdateFuotaTaskInput carries all of them (api_op_UpdateFuotaTask.go) -- only Name/Description/LoRaWAN are wired. Found while typing LoRaWAN (gopherstack-jvqt) but left alone as a separate, larger pre-existing gap; worth its own pass.
+- AssociateWirelessDeviceWithFuotaTask and AssociateMulticastGroupWithFuotaTask are unreachable by a real aws-sdk-go-v2 client. Real AWS binds both to a SINGULAR path segment (PUT /fuota-tasks/{Id}/wireless-device, PUT /fuota-tasks/{Id}/multicast-group -- confirmed via serializers.go SplitURI against aws-sdk-go-v2/service/iotwireless@v1.59.4), but services/iotwireless/routing.go's parseFuotaTaskSubPath matches only the PLURAL pathBaseWirelessDevices/pathBaseMulticastGroups constants ("wireless-devices"/"multicast-groups", which are the correct plural forms for the sibling Disassociate* and List* paths, just not these two). A real client's PUT falls through to parseCollectionPath, which has no PUT case, so ExtractOperation returns "" and the request is rejected as an unsupported operation. Found while auditing FUOTA task siblings for gopherstack-pgvj; not fixed there since it requires editing routing.go, out of that pass's scope -- worth its own bd issue.
 - ListWirelessDevices does not implement the DestinationName/DeviceProfileId/ServiceProfileId/FuotaTaskId/MulticastGroupId/WirelessDeviceType query-parameter filters that ListWirelessDevicesInput accepts — every call returns the full account/region device set (a completeness gap, not a wrong-data bug: each call's returned data is still accurate, just unfiltered). Note this is a real, reachable AWS filter capability (not the same class of gap as StartBulkAssociate's unfilterable QueryString, which has no structured representation at all) — worth a dedicated pass since ListFuotaTaskDeviceIDs/ListMulticastGroupDeviceIDs now exist and could back the FuotaTaskId/MulticastGroupId filters directly.
 
 ## More

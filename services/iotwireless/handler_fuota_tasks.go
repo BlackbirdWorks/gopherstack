@@ -3,6 +3,7 @@ package iotwireless
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -109,7 +110,7 @@ func fuotaTaskEntryFrom(ft *FuotaTask) fuotaTaskEntry {
 		FragmentIntervalMS:  ft.FragmentIntervalMS,
 		FragmentSizeBytes:   ft.FragmentSizeBytes,
 		RedundancyPercent:   ft.RedundancyPercent,
-		LoRaWAN:             loRaWANFuotaTaskGetInfoFrom(ft.LoRaWAN),
+		LoRaWAN:             loRaWANFuotaTaskGetInfoFrom(ft.LoRaWAN, ft.StartTime),
 	}
 	if !ft.CreatedAt.IsZero() {
 		entry.CreatedAt = awstime.Epoch(ft.CreatedAt)
@@ -187,16 +188,25 @@ func (h *Handler) associateWirelessDeviceWithFuotaTask(c *echo.Context, fuotaTas
 
 func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
 	var req struct {
-		LoRaWAN     *LoRaWANFuotaTask `json:"LoRaWAN,omitempty"`
-		Name        string            `json:"Name"`
-		Description string            `json:"Description"`
+		LoRaWAN             *LoRaWANFuotaTask `json:"LoRaWAN,omitempty"`
+		Name                string            `json:"Name"`
+		Description         string            `json:"Description"`
+		Descriptor          string            `json:"Descriptor,omitempty"`
+		FirmwareUpdateImage string            `json:"FirmwareUpdateImage,omitempty"`
+		FirmwareUpdateRole  string            `json:"FirmwareUpdateRole,omitempty"`
+		FragmentIntervalMS  int32             `json:"FragmentIntervalMS,omitempty"`
+		FragmentSizeBytes   int32             `json:"FragmentSizeBytes,omitempty"`
+		RedundancyPercent   int32             `json:"RedundancyPercent,omitempty"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
 	if err := h.Backend.UpdateFuotaTask(
-		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, req.LoRaWAN,
+		h.AccountID, h.DefaultRegion, id, req.Name, req.Description,
+		req.Descriptor, req.FirmwareUpdateImage, req.FirmwareUpdateRole,
+		req.FragmentIntervalMS, req.FragmentSizeBytes, req.RedundancyPercent,
+		req.LoRaWAN,
 	); err != nil {
 		return handleError(c, err)
 	}
@@ -207,7 +217,22 @@ func (h *Handler) updateFuotaTask(c *echo.Context, id string) error {
 }
 
 func (h *Handler) startFuotaTask(c *echo.Context, id string) error {
-	if err := h.Backend.StartFuotaTask(h.AccountID, h.DefaultRegion, id); err != nil {
+	var req struct {
+		LoRaWAN *LoRaWANStartFuotaTask `json:"LoRaWAN,omitempty"`
+	}
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	var startTime *time.Time
+
+	if req.LoRaWAN != nil && req.LoRaWAN.StartTime != nil {
+		if t, err := time.Parse(time.RFC3339, *req.LoRaWAN.StartTime); err == nil {
+			startTime = &t
+		}
+	}
+
+	if err := h.Backend.StartFuotaTask(h.AccountID, h.DefaultRegion, id, startTime); err != nil {
 		return handleError(c, err)
 	}
 

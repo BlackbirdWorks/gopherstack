@@ -3,6 +3,7 @@ package iotwireless_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -788,6 +789,9 @@ func TestInMemoryBackend_PersistenceRoundTrip_LoRaWANSidewalk(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	startTime := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	require.NoError(t, b.StartFuotaTask(testAccountID, testRegion, ft.ID, &startTime))
+
 	mg, err := b.CreateMulticastGroup(
 		testAccountID, testRegion, "mg-lorawan", "",
 		&iotwireless.LoRaWANMulticast{
@@ -820,6 +824,8 @@ func TestInMemoryBackend_PersistenceRoundTrip_LoRaWANSidewalk(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, gotFT.LoRaWAN)
 	assert.Equal(t, "US915", gotFT.LoRaWAN.RfRegion)
+	require.NotNil(t, gotFT.StartTime, "StartFuotaTask's StartTime must survive restore")
+	assert.True(t, startTime.Equal(*gotFT.StartTime))
 
 	gotMG, err := restored.GetMulticastGroup(testAccountID, testRegion, mg.ID)
 	require.NoError(t, err)

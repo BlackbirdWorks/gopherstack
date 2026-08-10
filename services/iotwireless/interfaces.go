@@ -60,7 +60,11 @@ type StorageBackend interface {
 	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
 	ListFuotaTasks(accountID, region string) []*FuotaTask
 	DeleteFuotaTask(accountID, region, id string) error
-	UpdateFuotaTask(accountID, region, id, name, description string, loRaWAN *LoRaWANFuotaTask) error
+	UpdateFuotaTask(
+		accountID, region, id, name, description, descriptor, firmwareUpdateImage, firmwareUpdateRole string,
+		fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
+		loRaWAN *LoRaWANFuotaTask,
+	) error
 
 	UpdateWirelessGateway(
 		accountID, region, id, name, description string,
@@ -122,7 +126,7 @@ type StorageBackend interface {
 	GetWirelessGatewayThingArn(gatewayID string) string
 
 	// Extended operations implemented across the various <family>.go files.
-	StartFuotaTask(accountID, region, id string) error
+	StartFuotaTask(accountID, region, id string, startTime *time.Time) error
 	DisassociateWirelessDeviceFromFuotaTask(fuotaTaskID, wirelessDeviceID string) error
 	ListMulticastGroupsByFuotaTask(accountID, region, fuotaTaskID string) []*MulticastGroup
 	DisassociateMulticastGroupFromFuotaTask(fuotaTaskID, multicastGroupID string) error

@@ -112,13 +112,16 @@ type FuotaTask struct {
 	// LoRaWAN holds the create/update-shape LoRaWANFuotaTask; GetFuotaTask
 	// converts it to LoRaWANFuotaTaskGetInfo via loRaWANFuotaTaskGetInfoFrom
 	// (lorawan_types.go).
-	LoRaWAN             *LoRaWANFuotaTask `json:"loRaWAN,omitempty"`
-	Name                string            `json:"name"`
-	ID                  string            `json:"id"`
-	ARN                 string            `json:"arn"`
-	Description         string            `json:"description,omitempty"`
-	FirmwareUpdateImage string            `json:"firmwareUpdateImage,omitempty"`
-	FirmwareUpdateRole  string            `json:"firmwareUpdateRole,omitempty"`
+	LoRaWAN *LoRaWANFuotaTask `json:"loRaWAN,omitempty"`
+	// StartTime is set by StartFuotaTask from StartFuotaTaskInput.LoRaWAN.StartTime
+	// (types.LoRaWANStartFuotaTask, types.go:1202); nil until then.
+	StartTime           *time.Time `json:"startTime,omitempty"`
+	Name                string     `json:"name"`
+	ID                  string     `json:"id"`
+	ARN                 string     `json:"arn"`
+	Description         string     `json:"description,omitempty"`
+	FirmwareUpdateImage string     `json:"firmwareUpdateImage,omitempty"`
+	FirmwareUpdateRole  string     `json:"firmwareUpdateRole,omitempty"`
 	// Descriptor is the base64-encoded firmware metadata blob.
 	Descriptor string `json:"descriptor,omitempty"`
 	// Status tracks the FUOTA task lifecycle (Pending, FuotaSession_Waiting,

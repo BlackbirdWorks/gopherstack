@@ -219,7 +219,7 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 
 		// StartFuotaTask must transition Status without corrupting
 		// FirmwareUpdateRole (a prior bug reused that field to fake status).
-		require.NoError(t, bk.StartFuotaTask(testAccountID, testRegion, ft.ID))
+		require.NoError(t, bk.StartFuotaTask(testAccountID, testRegion, ft.ID, nil))
 
 		started, err := bk.GetFuotaTask(testAccountID, testRegion, ft.ID)
 		require.NoError(t, err)
@@ -228,14 +228,24 @@ func TestInMemoryBackend_LoRaWANSidewalkConfig_RoundTrips(t *testing.T) {
 
 		// UpdateFuotaTask's LoRaWAN uses the same LoRaWANFuotaTask shape as
 		// create/update (api_op_UpdateFuotaTask.go:64) and replaces the
-		// stored value wholesale.
+		// stored value wholesale; Descriptor/FirmwareUpdateImage/
+		// FirmwareUpdateRole/fragment fields are also part of
+		// UpdateFuotaTaskInput (api_op_UpdateFuotaTask.go:28) and must apply too.
 		require.NoError(t, bk.UpdateFuotaTask(
 			testAccountID, testRegion, ft.ID, "", "",
+			"AQID", "s3://img2", "role-arn-2",
+			2000, 256, 75,
 			&iotwireless.LoRaWANFuotaTask{RfRegion: "EU868"},
 		))
 
 		updated, err := bk.GetFuotaTask(testAccountID, testRegion, ft.ID)
 		require.NoError(t, err)
 		assert.Equal(t, "EU868", updated.LoRaWAN.RfRegion)
+		assert.Equal(t, "AQID", updated.Descriptor)
+		assert.Equal(t, "s3://img2", updated.FirmwareUpdateImage)
+		assert.Equal(t, "role-arn-2", updated.FirmwareUpdateRole)
+		assert.Equal(t, int32(2000), updated.FragmentIntervalMS)
+		assert.Equal(t, int32(256), updated.FragmentSizeBytes)
+		assert.Equal(t, int32(75), updated.RedundancyPercent)
 	})
 }

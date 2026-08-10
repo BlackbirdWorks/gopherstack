@@ -1,5 +1,7 @@
 package iotwireless
 
+import "time"
+
 // Real AWS models LoRaWAN/Sidewalk configuration with a different shape per
 // call site rather than one merged type: types.LoRaWANDevice is shared by
 // CreateWirelessDevice/GetWirelessDevice (api_op_CreateWirelessDevice.go:56,
@@ -616,11 +618,17 @@ type LoRaWANFuotaTask struct {
 // LoRaWANFuotaTaskGetInfo mirrors types.LoRaWANFuotaTaskGetInfo -- the
 // GetFuotaTask response shape (types.go:853). StartTime is an ISO8601
 // string on the wire (smithytime.FormatDateTime/ParseDateTime,
-// deserializers.go:19509) set only from StartFuotaTaskInput.LoRaWAN; this
-// backend does not capture that separate input, so StartTime is always
-// left unset rather than fabricated.
+// deserializers.go:19509) set from StartFuotaTaskInput.LoRaWAN.StartTime,
+// captured by StartFuotaTask into FuotaTask.StartTime.
 type LoRaWANFuotaTaskGetInfo struct {
 	RfRegion  *string `json:"RfRegion,omitempty"`
+	StartTime *string `json:"StartTime,omitempty"`
+}
+
+// LoRaWANStartFuotaTask mirrors types.LoRaWANStartFuotaTask -- the
+// StartFuotaTask request shape (types.go:1202). It carries only StartTime;
+// unlike LoRaWANFuotaTask's RfRegion, there is nothing else to set.
+type LoRaWANStartFuotaTask struct {
 	StartTime *string `json:"StartTime,omitempty"`
 }
 
@@ -636,15 +644,22 @@ func copyLoRaWANFuotaTask(l *LoRaWANFuotaTask) *LoRaWANFuotaTask {
 }
 
 // loRaWANFuotaTaskGetInfoFrom converts the stored create/update-shape
-// LoRaWANFuotaTask into the GetFuotaTask response shape.
-func loRaWANFuotaTaskGetInfoFrom(l *LoRaWANFuotaTask) *LoRaWANFuotaTaskGetInfo {
-	if l == nil {
+// LoRaWANFuotaTask plus the StartTime captured by StartFuotaTask into the
+// GetFuotaTask response shape. Returns nil only when neither is set, since
+// AWS omits LoRaWAN entirely when there is nothing to report.
+func loRaWANFuotaTaskGetInfoFrom(l *LoRaWANFuotaTask, startTime *time.Time) *LoRaWANFuotaTaskGetInfo {
+	if l == nil && startTime == nil {
 		return nil
 	}
 
 	info := &LoRaWANFuotaTaskGetInfo{}
-	if l.RfRegion != "" {
+	if l != nil && l.RfRegion != "" {
 		info.RfRegion = &l.RfRegion
+	}
+
+	if startTime != nil {
+		s := startTime.UTC().Format(time.RFC3339)
+		info.StartTime = &s
 	}
 
 	return info
