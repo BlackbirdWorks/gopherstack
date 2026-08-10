@@ -292,6 +292,9 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrDuplicateTagKeys, "DuplicateTagKeys", http.StatusBadRequest},
 		{ErrInvalidScheme, "InvalidScheme", http.StatusBadRequest},
 		{ErrUnsupportedProtocol, "UnsupportedProtocol", http.StatusBadRequest},
+		{ErrInvalidSecurityGroup, "InvalidSecurityGroup", http.StatusBadRequest},
+		{ErrSubnetNotFound, "SubnetNotFound", http.StatusNotFound},
+		{ErrCertificateNotFound, "CertificateNotFound", http.StatusNotFound},
 		{awserr.ErrInvalidParameter, "ValidationError", http.StatusBadRequest},
 	}
 

@@ -25,6 +25,14 @@ func (b *InMemoryBackend) ApplySecurityGroupsToLoadBalancer(
 		)
 	}
 
+	if b.ec2Resolver != nil {
+		for _, sg := range securityGroups {
+			if !b.ec2Resolver.SecurityGroupExists(sg) {
+				return nil, fmt.Errorf("%w: %s", ErrInvalidSecurityGroup, sg)
+			}
+		}
+	}
+
 	cp := make([]string, len(securityGroups))
 	copy(cp, securityGroups)
 	sort.Strings(cp)

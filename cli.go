@@ -2879,6 +2879,12 @@ func wireComputeAndObservabilityIntegrations(appCtx *service.AppContext, byName 
 	// real EC2 Transit Gateway route-table state.
 	wireNetworkManagerEC2(byName["NetworkManager"], byName["EC2"])
 	wireNetworkManagerDirectConnect(byName["NetworkManager"], byName["DirectConnect"])
+
+	// Wire ELB (Classic) → EC2/ACM/IAM so ApplySecurityGroupsToLoadBalancer/
+	// AttachLoadBalancerToSubnets validate SecurityGroups/Subnets against
+	// real EC2 state, and HTTPS/SSL listeners validate SSLCertificateId
+	// against real ACM/IAM certificates, instead of accepting any string.
+	wireELBCrossService(byName["ELB"], byName["EC2"], byName["ACM"], byName["IAM"])
 }
 
 // directConnectEC2ResolverAdapter adapts the EC2 backend to the
@@ -3085,6 +3091,83 @@ func wireNetworkManagerDirectConnect(networkmanagerReg, directconnectReg service
 	networkmanagerH.Backend.SetDirectConnectResolver(
 		&networkManagerDirectConnectResolverAdapter{backend: directconnectH.Backend},
 	)
+}
+
+// elbEC2ResolverAdapter adapts the EC2 backend to the elb.EC2Resolver interface.
+type elbEC2ResolverAdapter struct {
+	backend ec2backend.Backend
+}
+
+func (a *elbEC2ResolverAdapter) SecurityGroupExists(id string) bool {
+	return len(a.backend.DescribeSecurityGroups([]string{id})) > 0
+}
+
+func (a *elbEC2ResolverAdapter) SubnetExists(id string) bool {
+	return len(a.backend.DescribeSubnets([]string{id})) > 0
+}
+
+// elbCertificateResolverAdapter adapts the ACM and IAM backends to the
+// elb.CertificateResolver interface. AWS accepts either an ACM or an IAM
+// server-certificate ARN for SSLCertificateId (see elb.CertificateResolver's
+// doc comment), so both are consulted; either backend may be nil if that
+// service isn't registered.
+type elbCertificateResolverAdapter struct {
+	acmBackend *acmbackend.InMemoryBackend
+	iamBackend *iambackend.InMemoryBackend
+}
+
+func (a *elbCertificateResolverAdapter) ResolveCertificate(ctx context.Context, certARN string) bool {
+	if a.acmBackend != nil {
+		if _, err := a.acmBackend.DescribeCertificate(ctx, certARN); err == nil {
+			return true
+		}
+	}
+
+	if a.iamBackend != nil {
+		certs, err := a.iamBackend.ListServerCertificates("")
+		if err == nil {
+			for _, c := range certs {
+				if c.Arn == certARN {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// wireELBCrossService wires the Classic ELB backend to EC2 (SecurityGroups/
+// Subnets existence) and ACM/IAM (SSLCertificateId existence) -- see
+// elb.EC2Resolver/elb.CertificateResolver's doc comments.
+func wireELBCrossService(elbReg, ec2Reg, acmReg, iamReg service.Registerable) {
+	elbH, ok := elbReg.(*elbbackend.Handler)
+	if !ok {
+		return
+	}
+
+	elbBk, bkOk := elbH.Backend.(*elbbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if ec2H, ec2Ok := ec2Reg.(*ec2backend.Handler); ec2Ok {
+		elbBk.SetEC2Resolver(&elbEC2ResolverAdapter{backend: ec2H.Backend})
+	}
+
+	var acmBk *acmbackend.InMemoryBackend
+	if acmH, acmOk := acmReg.(*acmbackend.Handler); acmOk {
+		acmBk = acmH.Backend
+	}
+
+	var iamBk *iambackend.InMemoryBackend
+	if iamH, iamOk := iamReg.(*iambackend.Handler); iamOk {
+		iamBk, _ = iamH.Backend.(*iambackend.InMemoryBackend)
+	}
+
+	if acmBk != nil || iamBk != nil {
+		elbBk.SetCertificateResolver(&elbCertificateResolverAdapter{acmBackend: acmBk, iamBackend: iamBk})
+	}
 }
 
 // wireCWLogsMetricEmitters wires CloudWatch Logs metric filters to emit

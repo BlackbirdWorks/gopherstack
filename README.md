@@ -524,7 +524,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 30 | 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
-| [ELB (Classic)](services/elb/README.md) | A | 29 | 3 gaps; 1 deferred |
+| [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 6 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 1 deferred |
 | [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 4 gaps; 1 deferred |

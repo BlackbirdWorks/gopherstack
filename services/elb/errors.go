@@ -59,4 +59,20 @@ var (
 	// ErrUnsupportedProtocol is returned when a listener specifies a protocol other than
 	// HTTP, HTTPS, TCP, or SSL (AWS: UnsupportedProtocolException).
 	ErrUnsupportedProtocol = awserr.New("UnsupportedProtocol", awserr.ErrInvalidParameter)
+
+	// ErrInvalidSecurityGroup is returned when a security group passed to
+	// ApplySecurityGroupsToLoadBalancer does not exist in the wired EC2 backend
+	// (AWS: InvalidSecurityGroupException / "InvalidSecurityGroup" -- "One or more of
+	// the specified security groups do not exist.").
+	ErrInvalidSecurityGroup = awserr.New("InvalidSecurityGroup", awserr.ErrInvalidParameter)
+
+	// ErrSubnetNotFound is returned when a subnet passed to AttachLoadBalancerToSubnets
+	// does not exist in the wired EC2 backend (AWS: SubnetNotFoundException /
+	// "SubnetNotFound" -- "One or more of the specified subnets do not exist.").
+	ErrSubnetNotFound = awserr.New("SubnetNotFound", awserr.ErrNotFound)
+
+	// ErrCertificateNotFound is returned when an SSLCertificateId does not resolve to a
+	// real ACM or IAM server certificate in the wired backends (AWS:
+	// CertificateNotFoundException / "CertificateNotFound").
+	ErrCertificateNotFound = awserr.New("CertificateNotFound", awserr.ErrNotFound)
 )
