@@ -1,8 +1,8 @@
 service: verifiedpermissions
-sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.0
-last_audit_commit: 9050476f8
-last_audit_date: 2026-07-25
-overall: A            # this pass: 4 new policy-store-alias ops implemented for real (SDK bump to v1.36.0 revealed them); no regressions in the prior pass's fixes
+sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
+last_audit_commit: 2eb5bdb71
+last_audit_date: 2026-08-10
+overall: A            # this pass: IsAuthorizedWithToken/BatchIsAuthorizedWithToken now compare the token's aud/client_id claim against the identity source's configured client IDs/audiences (real data comparison, not crypto -- closes an over-authorization gap); added the missing response "principal" field to both ops; fixed BatchIsAuthorizedWithToken's per-item "request" echo to drop the principal field it never has on the real SDK. sdk_module bumped v1.36.0 -> v1.36.4 (patch-only, no API changes -- diffed the two module-cache copies to confirm); no regressions in prior fixes
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -24,9 +24,9 @@ ops:
   PutSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   GetSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   IsAuthorized: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass, CRITICAL): buildCedarPolicySet only ever compiled STATIC policies into the evaluated Cedar PolicySet -- every TEMPLATE_LINKED policy was silently skipped during evaluation, meaning a template-linked permit policy could never actually ALLOW anything (the core value proposition of policy templates). Now every policy's effective statement is resolved (STATIC: its own statement; TEMPLATE_LINKED: the referenced template's statement with ?principal/?resource substituted) before compiling the policy set. Cedar evaluation itself remains the real cedar-go engine. Last pass's determiningPolicies/errors object-array fix carries forward correctly."}
-  IsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "IMPROVED: principalFromToken now matches the token's \"iss\" claim against each identity source's issuer (OIDC OpenIDIssuer, or the issuer AWS derives from a Cognito user pool ARN) and picks the matching source, falling back to the first source only when there's no iss claim or no match -- was previously always the first identity source regardless of the token's issuer. aud/client_id matching and JWT signature verification remain out of scope (documented simplification, not a wire-shape bug). Same TEMPLATE_LINKED evaluation fix as IsAuthorized applies here too."}
+  IsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): the response was missing the real SDK's \"principal\" field (IsAuthorizedWithTokenOutput.Principal, EntityIdentifier, optional) -- now echoed when a principal is resolved, omitted otherwise. FIXED (this pass, security-relevant): principalFromToken now also validates the token's aud/client_id claim against the matched identity source's configured client IDs/audiences (cognito-validation.html / oidc-validation.html) -- a token with a mismatched audience no longer resolves a principal from that source (fails closed to no-principal/DENY), closing a real over-authorization gap where a token minted for a different app but the same trusted issuer could previously be ALLOWed. A source with no client IDs/audiences configured keeps accepting any token (real AWS: validation is opt-in). JWT signature verification remains out of scope (needs the issuer's real signing keys); a malformed/unparseable token still fails closed to no-principal/DENY rather than erroring, matching the response schema's principal field being optional (not required), which implies graceful degradation rather than a dedicated exception. principalFromToken still matches the token's \"iss\" claim against each identity source's issuer (OIDC OpenIDIssuer, or the issuer AWS derives from a Cognito user pool ARN), falling back to the first source when there's no iss claim or no match. Same TEMPLATE_LINKED evaluation fix as IsAuthorized applies here too."}
   BatchIsAuthorized: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TEMPLATE_LINKED evaluation fix as IsAuthorized (shared buildCedarPolicySet)"}
-  BatchIsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "same TEMPLATE_LINKED evaluation + issuer-matching fixes"}
+  BatchIsAuthorizedWithToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): response was missing the real SDK's top-level \"principal\" field (BatchIsAuthorizedWithTokenOutput.Principal); also, each result's echoed \"request\" was wrongly including a \"principal\" field -- the real BatchIsAuthorizedWithTokenInputItem (unlike BatchIsAuthorizedInputItem) has no principal member, since the principal comes from the token and is echoed once at the top level instead. Same aud/client_id validation + issuer-matching + TEMPLATE_LINKED evaluation fixes as IsAuthorizedWithToken."}
   BatchGetPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "confirmed BatchGetPolicyOutputItem correctly has NO top-level effect/actions/principal/resource fields (unlike GetPolicy/ListPolicies) -- verified against the real SDK type, left as-is"}
   CreateIdentitySource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): CreateIdentitySourceOutput was echoing the full principalEntityType + configuration back -- the real output shape is minimal (identitySourceId/policyStoreId/timestamps only); those two fields don't exist on the real CreateIdentitySourceOutput type. ClientToken now wired to idempotency (was parsed but silently discarded before). Last pass: identityTokenOnly.clientIds + cognitoUserPoolConfiguration.issuer fixes carry forward."}
   GetIdentitySource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass -- the fuller identitySourceOutput shape (with principalEntityType + configuration) IS correct here, matching the real GetIdentitySourceOutput"}
@@ -41,7 +41,7 @@ ops:
   ListPolicyStoreAliases: {wire: ok, errors: ok, state: ok, persist: ok, note: "NEW. Supports the optional filter.policyStoreId narrowing and maxResults/nextToken pagination (shared listByPolicyStore helper, same pattern as ListPolicyTemplates/ListIdentitySources)."}
   DeletePolicyStoreAlias: {wire: ok, errors: partial, state: ok, persist: ok, note: "NEW. Idempotent on a missing aliasName (200, per real SDK doc). deletionMode SoftDelete (default) transitions the alias to PendingDeletion instead of removing it; HardDelete removes it immediately. errors=partial: the real SDK also declares InvalidStateException for this op, but its documented message (\"The policy store can't be deleted because deletion protection is enabled...\") is byte-for-byte identical to DeletePolicyStore's InvalidStateException text and references a deletionProtection field aliases don't have -- strong evidence of copy-pasted/auto-generated doc boilerplate rather than a real alias-specific trigger. Left unimplemented rather than guessing a fabricated trigger condition; see gaps."}
 gaps:                     # known divergences NOT fixed
-  - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken: principalFromToken matches the token's \"iss\" claim against configured identity sources (improved a prior pass) but does not additionally match \"aud\"/\"client_id\" against the source's configured client IDs/audiences, nor verify the JWT signature. Documented simplification of the identity-source-selection logic, not a wire-shape bug."
+  - "IsAuthorizedWithToken/BatchIsAuthorizedWithToken: JWT signature verification is not performed (needs the issuer's real signing keys -- genuinely out of scope for an in-memory mock). Tokens are trusted at face value once their claims parse; expiration is also not checked. aud/client_id-against-configured-client-IDs matching WAS implemented this pass (see ops notes above) since it's a plain data comparison against configuration this backend already stores, not cryptography."
   - "DeletePolicyStoreAlias: the real SDK declares an InvalidStateException, but its documented trigger text is (byte-for-byte) DeletePolicyStore's own \"deletion protection is enabled\" message, which does not apply to aliases (no deletionProtection field exists on PolicyStoreAlias). Treated as unreliable auto-generated API-reference boilerplate rather than implemented as a guessed condition; if AWS's real behavior differs (e.g. re-soft-deleting an already-PendingDeletion alias), this needs a follow-up once the actual trigger is confirmed."
   - "CreatePolicyStoreAlias's ServiceQuotaExceededException is declared as a possible error but no numeric per-account/region alias quota is documented anywhere in the API reference, so none is enforced -- consistent with how this service (and others in gopherstack) leaves undocumented-threshold quota exceptions unenforced rather than fabricating a number."
   - "resolvePolicyStoreID (alias-as-policyStoreId resolution, wired into every other policyStoreId-accepting op this pass) was independently verified against the AWS API reference for 6 ops spanning distinct categories -- GetPolicyStore, UpdatePolicyStore (implied by GetPolicyStore's identical doc text), IsAuthorized, CreatePolicy, DeletePolicy, PutSchema -- all carrying byte-identical documented wording. Applied by strong pattern consistency to the remaining ~15 policyStoreId-accepting ops (policy templates, identity sources, GetSchema, the Batch* evaluation ops) rather than independently doc-verified one-by-one; the two documented exceptions (CreatePolicyStoreAlias, DeletePolicyStore) are confirmed and excluded. Flagging this as an inference rather than a silently-assumed fact."
@@ -305,6 +305,64 @@ end-to-end (including template instantiation, after this pass's fix), and
 `Snapshot`/`Restore` round-trip all five tables (including the "dirty" schemas table via
 its DTO wrapper) correctly -- verified by existing `persistence_test.go` plus this
 pass's new tests exercising every fix end-to-end through the HTTP handler.
+
+### This pass (2026-08-10): aud/client_id validation implemented, missing `principal` response field, request-echo wire bug
+
+Follow-up on gopherstack-w3hm, which named `aud`/`client_id` matching and JWT signature
+verification as both "out of scope for a mock." Pushed on that framing rather than
+inheriting it:
+
+- **`aud`/`client_id` matching is a plain data comparison, not cryptography, and is now
+  implemented.** The client IDs/audiences are configuration this backend already stores
+  on the identity source (`IdentitySource.ClientIDs` for Cognito,
+  `OIDCTokenSelection.Audiences` for OIDC); the token is caller-supplied. Comparing one
+  against the other needs no signing key. Per real AWS's documented behavior
+  ([cognito-validation.html](https://docs.aws.amazon.com/verifiedpermissions/latest/userguide/cognito-validation.html),
+  [oidc-validation.html](https://docs.aws.amazon.com/verifiedpermissions/latest/userguide/oidc-validation.html)):
+  Cognito sources compare their configured client IDs against the ID token's `aud` claim
+  or the access token's `client_id` claim; OIDC sources compare against `aud` for ID
+  tokens, and `aud` (falling back to `cid`/`client_id` when `aud` is absent) for access
+  tokens. `matchIdentitySource`/`matchesConfiguredAudience`
+  (`handler_authorization.go`) implement this: a token whose claim doesn't match the
+  matched source's configured list no longer resolves a principal from that source
+  (fails closed to no-principal, i.e. DENY) instead of being silently accepted --
+  previously, a token minted for a *different* application but sharing the same trusted
+  issuer would still resolve a principal and could be ALLOWed by a permissive policy, an
+  over-authorization gap. A source with no client IDs/audiences configured keeps
+  accepting any token, matching AWS's "when you enter one or more values for Client
+  application validation" (i.e. validation is opt-in).
+- **JWT signature verification remains genuinely out of scope** -- it needs the actual
+  issuer's signing keys, which this in-memory mock has no way to obtain or verify
+  against. Confirmed this holds rather than assumed it: `IsAuthorizedWithToken`'s
+  declared error set (AccessDeniedException, InternalServerException,
+  ResourceNotFoundException, ThrottlingException, ValidationException -- no dedicated
+  "invalid token" exception) plus the response's `principal` field being *optional*
+  (not "This member is required," unlike `decision`/`determiningPolicies`/`errors`)
+  is concrete evidence that real AWS's own design tolerates a token that can't be
+  resolved to a principal: it evaluates with no principal (implicit DENY, since no
+  principal-scoped policy can match) and simply omits the field, rather than hard
+  erroring the whole request. A malformed/unparseable token (bad JWT shape, bad
+  base64, bad JSON) already took exactly this path in `principalFromToken` and still
+  does -- verified sane, not a bug, left as-is.
+- **Missing wire field, both ops (real bug, unrelated to crypto):**
+  `IsAuthorizedWithTokenOutput`/`BatchIsAuthorizedWithTokenOutput` both declare a
+  `principal` field (`EntityIdentifier`, "The identifier of the principal in the ID or
+  access token") that gopherstack's response never populated at all -- the exact
+  principal `principalFromToken` already resolves was computed but silently dropped
+  before it reached the wire. Now echoed (omitted when no principal resolves).
+- **`BatchIsAuthorizedWithToken` per-item `request` echo wire bug:** it was reusing
+  plain `BatchIsAuthorized`'s echo shape, which includes a `principal` field once the
+  internal `AuthorizationRequest.PrincipalEntityType` was set (from the token) -- but the real
+  SDK's `BatchIsAuthorizedWithTokenInputItem` (unlike plain `BatchIsAuthorizedInputItem`)
+  has no principal member at all; the principal comes from the token and is carried once
+  at the top level instead. Split into a dedicated
+  `batchIsAuthorizedWithTokenRequestEchoJSON` (`action`/`resource` only).
+
+`sdk_module` bumped `v1.36.0` -> `v1.36.4` (the actual `go.mod` pin; PARITY.md's header
+had gone stale). Diffed the two versions' extracted module-cache trees
+(`aws-sdk-go-v2/service/verifiedpermissions@v1.36.0` vs `@v1.36.4`): only
+`CHANGELOG.md`/`go.mod`/`go.sum`/`go_module_metadata.go` differ, no API/type changes --
+every wire claim in this file still holds against the pinned version.
 
 ### Prior pass (2026-07-13): six wire-shape/error-code bugs fixed
 
