@@ -9,7 +9,7 @@
 | --- | --- |
 | Operations audited | 63 (45 ok, 18 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | 2 |
+| Known gaps | 1 |
 | Structural gaps (can't be emulated) | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
@@ -17,7 +17,6 @@
 ### Known gaps
 
 - ImportResourcesToDraftAppVersion records real AppInputSource bookkeeping and transitions Pending->Success, but -- unlike ResolveAppVersionResources, closed this pass -- does not resolve the given SourceArns/EksSources against real backend state (EC2/RDS/DynamoDB/etc. by ARN service segment). The original audit flagged this as 'real, valuable work... a legitimate future improvement (not required for a first pass, but feasible and honest)', distinct language from what it used for the ResolveAppVersionResources cross-service investment ('the single best genuinely emulated investment this service can make'), which is what this pass targeted and closed. (bd: gopherstack-8hw8)
-- No AWS::ResilienceHub::* CloudFormation resource type exists in services/cloudformation/resources_*.go. This is services/cloudformation's own resource-type surface, not resiliencehub's -- the original audit itself noted it 'not scoped as parity work' -- and out of this pass's directory scope (services/resiliencehub/ only). (bd: gopherstack-rnfh)
 
 ### Structural gaps
 

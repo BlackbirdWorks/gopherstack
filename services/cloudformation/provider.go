@@ -131,6 +131,7 @@ type BackendsProvider interface {
 	GetWafv2Handler() service.Registerable
 	GetELBv2Handler() service.Registerable
 	GetBackupHandler() service.Registerable
+	GetResilienceHubHandler() service.Registerable
 	GetGlobalConfig() *config.GlobalConfig
 }
 
@@ -169,6 +170,7 @@ func extractCoreBackends(bp BackendsProvider, backends *ServiceBackends) {
 	backends.ELBv2, _ = getHandler[*elbv2backend.Handler](bp.GetELBv2Handler())
 	backends.Backup, _ = getHandler[*backupbackend.Handler](bp.GetBackupHandler())
 	backends.BedrockRuntime, _ = getHandler[*bedrockruntime.Handler](bp.GetBedrockRuntimeHandler())
+	backends.ResilienceHub, _ = getHandler[ResilienceHubBackend](bp.GetResilienceHubHandler())
 }
 
 // extractAllServiceBackends populates all extended and phase-2 service backends.

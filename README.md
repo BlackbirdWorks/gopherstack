@@ -698,7 +698,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 5 structural gaps; 1 deferred |
 | [Networkmanager](services/networkmanager/README.md) | A | 95 | 5 gaps; 2 structural gaps |
 | [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 6 structural gaps |
-| [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 2 gaps; 6 structural gaps |
+| [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 6 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |
 | [WorkSpaces](services/workspaces/README.md) | A | 32 | 2 deferred |
 <!-- END GENERATED SERVICES -->
