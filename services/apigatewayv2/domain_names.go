@@ -6,6 +6,9 @@ import (
 	"maps"
 	"slices"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 )
 
 func applyDomainNameDefaults(
@@ -134,10 +137,13 @@ func (b *InMemoryBackend) CreateRoutingRule(
 	}
 
 	id := randomID()
+	// RoutingRule ARNs carry an account ID, unlike the DomainName ARN they
+	// nest under (arn-format-reference.html#apigateway-domain-name-arns):
+	// arn:{partition}:apigateway:{region}:{account-id}:/domainnames/{domain}/routingrules/{id}
 	rule := &RoutingRule{
 		RoutingRuleID: id,
-		RoutingRuleARN: "arn:aws:apigateway:" + regionFromCtx(ctx) +
-			"::/domainnames/" + domainName + "/routingrules/" + id,
+		RoutingRuleARN: arn.Build("apigateway", regionFromCtx(ctx), awsmeta.Account(ctx),
+			"/domainnames/"+domainName+"/routingrules/"+id),
 		DomainName: domainName,
 		Priority:   input.Priority,
 		Actions:    input.Actions,

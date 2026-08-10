@@ -155,7 +155,10 @@ e2e-test: ui-build
 total-coverage: build-linux
 	$(eval COVERPKGS := $(shell go list ./... | grep -v -E '(test/|/demo$$|/modules/|/teststack$$)' | tr '\n' ',' | sed 's/,$$//'))
 	@echo "Running unit tests with coverage..."
-	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...
+	@# Same -race -shuffle on -short ./... as the `test` target (go test's own
+	@# default timeout, 10m, applies there) plus coverage instrumentation
+	@# overhead, so this step needs at least as much room, not less.
+	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 10m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...
 	@echo "Running integration tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -coverpkg=$(COVERPKGS) -coverprofile=integration-coverage.out -covermode=atomic ./test/integration/...
 	@echo "Running terraform tests with coverage..."
