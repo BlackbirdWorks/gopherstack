@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -200,6 +200,12 @@ pgo:
 # README.md. See cmd/gendocs.
 docs:
 	go run ./cmd/gendocs
+
+# Verify every services/<svc>/PARITY.md sdk_module pin matches the version
+# go.mod actually requires -- a stale pin silently undermines every wire
+# claim audited against it. See cmd/checkpins.
+check-pins:
+	go run ./cmd/checkpins
 
 demo: ui-build
 	docker compose down

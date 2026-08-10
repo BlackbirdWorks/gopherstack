@@ -1,0 +1,109 @@
+package main
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestEvaluatePin(t *testing.T) {
+	t.Parallel()
+
+	goModVersions := map[string]string{
+		"dlm":      "v1.39.4",
+		"opsworks": "v1.31.0",
+	}
+
+	tests := []struct {
+		content  string
+		slug     string
+		name     string
+		wantMsg  string
+		wantKind resultKind
+	}{
+		{
+			name:     "matching pin",
+			slug:     "dlm",
+			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # audited\n",
+			wantKind: resultOK,
+		},
+		{
+			name:     "mismatched pin",
+			slug:     "dlm",
+			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.30.0   # stale\n",
+			wantKind: resultMismatch,
+			wantMsg:  "dlm: recorded v1.30.0, go.mod v1.39.4",
+		},
+		{
+			name: "module cache only documented",
+			slug: "opsworks",
+			content: "service: opsworks\n" +
+				"sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cache but is NOT\n" +
+				"                                                       # a go.mod dependency of this repo\n",
+			wantKind: resultOK,
+		},
+		{
+			name:     "module missing and undocumented",
+			slug:     "foo",
+			content:  "service: foo\nsdk_module: aws-sdk-go-v2/service/foo@v1.0.0   # some other note\n",
+			wantKind: resultMismatch,
+			wantMsg:  `foo: recorded module "foo" not found in go.mod`,
+		},
+		{
+			name:     "malformed value",
+			slug:     "dlm",
+			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.39.4 (now a real dependency\n",
+			wantKind: resultWarning,
+			wantMsg:  "no parseable @version",
+		},
+		{
+			name:     "missing field",
+			slug:     "dlm",
+			content:  "service: dlm\nlast_audit_commit: abc123\n",
+			wantKind: resultWarning,
+			wantMsg:  "no sdk_module field",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := evaluatePin(tt.slug, tt.content, goModVersions)
+
+			require.Equal(t, tt.wantKind, got.kind)
+			if tt.wantMsg != "" {
+				assert.Contains(t, got.message, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestLoadGoModVersions(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "go.mod")
+	content := `module example.com/thing
+
+go 1.26.5
+
+require (
+	github.com/aws/aws-sdk-go-v2/service/dlm v1.39.4
+	github.com/other/pkg v0.1.0
+)
+
+require github.com/aws/aws-sdk-go-v2/service/opsworks v1.31.0
+`
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	versions, err := loadGoModVersions(path)
+	require.NoError(t, err)
+
+	assert.Equal(t, "v1.39.4", versions["dlm"])
+	assert.Equal(t, "v1.31.0", versions["opsworks"])
+	assert.NotContains(t, versions, "pkg")
+}
