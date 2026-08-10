@@ -302,10 +302,26 @@ func (b *InMemoryBackend) RemoveLFTagsFromResource(
 	return failures
 }
 
+// validLFTagResourceKind reports whether resource is a Database, Table, or
+// TableWithColumns resource -- the only kinds GetResourceLFTags/
+// AddLFTagsToResource/RemoveLFTagsFromResource accept ("The database, table,
+// or column resource...", api_op_GetResourceLFTags.go:30-33 and
+// api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource spells it out
+// explicitly: "Only database, table, or tableWithColumns resource are
+// allowed.", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/
+// lakeformation@v1.50.4). gopherstack previously accepted every Resource
+// union member here (a permissive superset of what AWS accepts).
+func validLFTagResourceKind(r *Resource) bool {
+	return r != nil && (r.Database != nil || r.Table != nil || r.TableWithColumns != nil)
+}
+
 // GetResourceLFTags returns the LF-tags currently attached to a resource.
 func (b *InMemoryBackend) GetResourceLFTags(_ string, resource *Resource) ([]LFTagPair, error) {
 	if resource == nil {
 		return nil, fmt.Errorf("resource is required: %w", ErrValidation)
+	}
+	if !validLFTagResourceKind(resource) {
+		return nil, fmt.Errorf("Resource must be a Database, Table, or TableWithColumns resource: %w", ErrValidation)
 	}
 
 	b.mu.RLock("GetResourceLFTags")

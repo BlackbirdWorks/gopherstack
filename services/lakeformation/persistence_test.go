@@ -71,7 +71,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 		},
 		Permissions: []string{"DESCRIBE"},
 	}
-	require.NoError(t, original.GrantPermissions(entry))
+	require.NoError(t, original.GrantPermissions(t.Context(), entry))
 
 	require.NoError(t, original.CreateDataCellsFilter(&lakeformation.DataCellsFilter{
 		TableCatalogID: "123456789012",
@@ -221,10 +221,10 @@ func TestInMemoryBackend_RevokePermissions_KeepsPermissionsMapConsistent(t *test
 		},
 		Permissions: []string{"DESCRIBE", "ALTER"},
 	}
-	require.NoError(t, b.GrantPermissions(entry))
+	require.NoError(t, b.GrantPermissions(t.Context(), entry))
 	require.Equal(t, 1, b.PermissionCount())
 
-	require.NoError(t, b.RevokePermissions(&lakeformation.PermissionEntry{
+	require.NoError(t, b.RevokePermissions(t.Context(), &lakeformation.PermissionEntry{
 		Principal:   entry.Principal,
 		Resource:    entry.Resource,
 		Permissions: []string{"DESCRIBE", "ALTER"},
@@ -233,7 +233,7 @@ func TestInMemoryBackend_RevokePermissions_KeepsPermissionsMapConsistent(t *test
 
 	// Re-granting after a full revoke must succeed cleanly (no stale entry
 	// left behind in permissionsMap).
-	require.NoError(t, b.GrantPermissions(entry))
+	require.NoError(t, b.GrantPermissions(t.Context(), entry))
 	assert.Equal(t, 1, b.PermissionCount())
 }
 

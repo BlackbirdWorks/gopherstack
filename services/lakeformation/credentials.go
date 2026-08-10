@@ -53,16 +53,26 @@ func (b *InMemoryBackend) AssumeDecoratedRoleWithSAML(
 	}
 }
 
-// GetDataLakePrincipal returns a synthetic caller-identity principal.
-// In a real deployment, this returns the ARN of the calling IAM entity.
-func (b *InMemoryBackend) GetDataLakePrincipal(ctx context.Context) *DataLakePrincipal {
+// callerPrincipalARN derives a synthetic caller-identity ARN from the
+// request's account context, the same identity GetDataLakePrincipal reports.
+// Used to populate PermissionEntry.LastUpdatedBy ("the user who updated the
+// record", types.PrincipalResourcePermissions.LastUpdatedBy,
+// aws-sdk-go-v2/service/lakeformation@v1.50.4 types/types.go:652) since
+// gopherstack has no real IAM principal to attribute a grant/revoke to.
+func callerPrincipalARN(ctx context.Context) string {
 	account := awsmeta.Account(ctx)
 	if account == "" {
 		account = awsmeta.DefaultAccount
 	}
 
+	return "arn:aws:iam::" + account + ":user/gopherstack-user"
+}
+
+// GetDataLakePrincipal returns a synthetic caller-identity principal.
+// In a real deployment, this returns the ARN of the calling IAM entity.
+func (b *InMemoryBackend) GetDataLakePrincipal(ctx context.Context) *DataLakePrincipal {
 	return &DataLakePrincipal{
-		DataLakePrincipalIdentifier: "arn:aws:iam::" + account + ":user/gopherstack-user",
+		DataLakePrincipalIdentifier: callerPrincipalARN(ctx),
 	}
 }
 

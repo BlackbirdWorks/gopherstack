@@ -27,9 +27,9 @@ ops:
   GetLFTag: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateLFTag: {wire: ok, errors: ok, state: ok, persist: ok}
   ListLFTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  AddLFTagsToResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  RemoveLFTagsFromResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetResourceLFTags: {wire: ok, errors: ok, state: ok, persist: ok}
+  AddLFTagsToResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now rejects non-Database/Table/TableWithColumns Resource kinds (was a permissive superset of what AWS accepts, see gopherstack-kbnu); resourceToKey also fixed to key TableWithColumns distinctly (previously had no case for it at all -- every TableWithColumns resource collided under the same empty-string key)"}
+  RemoveLFTagsFromResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same resource-kind restriction fix as AddLFTagsToResource"}
+  GetResourceLFTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: same resource-kind restriction as AddLFTagsToResource/RemoveLFTagsFromResource; also fixed getResourceLFTagsOutput.LFTagsOnColumns, which was typed []LFTagPair -- the real GetResourceLFTagsOutput.LFTagsOnColumns is []types.ColumnLFTag (Name+LFTags) -- and was never populated by any code path (disguised stub)"}
   CreateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: ColumnWildcard (ExcludedColumnNames) now accepted/persisted; ColumnNames+ColumnWildcard together rejected as InvalidInputException (real API: must specify exactly one); VersionId now assigned"}
   GetDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDataCellsFilter: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ColumnWildcard/VersionId fix as CreateDataCellsFilter"}
@@ -69,7 +69,7 @@ ops:
   UpdateTableStorageOptimizer: {wire: ok, errors: ok, state: ok, persist: ok}
   SearchDatabasesByLFTags: {wire: ok, errors: ok, state: ok, persist: n/a, note: "real implementation in lf_tags.go, not a stub"}
   SearchTablesByLFTags: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetEffectivePermissionsForPath: {wire: ok, errors: ok, state: ok, persist: ok, note: "unlike ListPermissions, this op genuinely does filter by a flat ResourceArn per the real API -- kept its own ARN-based implementation (permissionMatchesARN) rather than sharing ListPermissions' new Resource-shaped filter"}
+  GetEffectivePermissionsForPath: {wire: ok, errors: ok, state: ok, persist: ok, note: "unlike ListPermissions, this op genuinely does filter by a flat ResourceArn per the real API -- kept its own ARN-based implementation (permissionMatchesARN) rather than sharing ListPermissions' new Resource-shaped filter. Also now expands LFTagPolicy grants: resolves resourceArn to a Database/Table resource, looks up its actual assigned LF-tags (resourceLFTags), and includes any LFTagPolicy-resource grant whose Expression/ExpressionName is satisfied (AND across tag keys, OR across one key's values) -- previously a tag-policy grant was invisible here entirely since it has no Database/Table field to ARN-match against (gopherstack-kbnu)"}
   GetDataLakePrincipal: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetDataLakeSettings: {wire: ok, errors: ok, state: ok, persist: ok, note: "ExternalDataFilteringAllowList field added (was entirely missing from DataLakeSettings)"}
   PutDataLakeSettings: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -78,10 +78,10 @@ families:
   resource_union: {status: ok, note: "Resource previously only carried Catalog/Database/Table/TableWithColumns/DataLocation. Added DataCellsFilter/LFTag(LFTagKeyResource)/LFTagExpression/LFTagPolicy(LFTagPolicyResource) -- all real types.Resource union members. GrantPermissions/RevokePermissions/ListPermissions now work end-to-end against every kind (resourceToKey/copyResource/permissionMatchesResource/permissionMatchesResourceType all extended); see handler_permissions_resource_kinds_test.go for coverage of all 6 previously-partial/deferred kinds plus TableWildcard and CatalogResource.Id."}
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 15-member enum exactly."}
 gaps:
-  - "PrincipalResourcePermissions.LastUpdatedBy is never populated (stays empty/omitted) -- the real value is the calling principal's ARN, but GrantPermissions/RevokePermissions have no caller-identity context threaded through them (unlike GetDataLakePrincipal, which derives a synthetic identity from awsmeta.Account(ctx) but takes a ctx param GrantPermissions doesn't have). Omitting an optional field is valid per protocol, so this is a completeness gap, not a wire-shape bug. Follow-up: thread ctx into GrantPermissions/RevokePermissions if worth the interface churn."
-  - "PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare, RAM resource-share info) is never populated -- gopherstack has no RAM integration for Lake Formation resource shares, so this optional field is correctly always omitted rather than fabricated."
-  - "LFTagPolicy-based permission grants are stored and returned literally (exact CatalogId+ResourceType+Expression match) but are NOT expanded into effective per-resource permissions -- i.e. GetEffectivePermissionsForPath/SearchTablesByLFTags/SearchDatabasesByLFTags do not cross-reference an LFTagPolicy grant against a table's actual LF-tags to compute implied access. This mirrors gopherstack's existing scope: no LakeFormation operation in this backend enforces authorization at all (permissions are bookkeeping, not an enforcement engine), so this is consistent with pre-existing behavior rather than a new gap, but is called out explicitly since LFTagPolicy is new this pass."
-  - "GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource accept any Resource kind (no restriction to Database/Table/TableWithColumns as AWS's docs describe) -- permissive superset, not under-permissive, so a real client's valid calls are unaffected; not tightened this pass given no observed client-visible symptom."
+  - "FIXED (gopherstack-kbnu): PrincipalResourcePermissions.LastUpdatedBy is now populated by GrantPermissions/RevokePermissions/BatchGrantPermissions/BatchRevokePermissions with a synthetic caller ARN derived from awsmeta.Account(ctx) (callerPrincipalARN, credentials.go -- same identity GetDataLakePrincipal reports). Interface signatures gained a ctx context.Context first parameter; all callers updated."
+  - "PrincipalResourcePermissions.AdditionalDetails (DetailsMap.ResourceShare, RAM resource-share info) is still never populated. Re-checked this pass: gopherstack DOES have a standalone services/ram package (resource shares, principals, permissions), but there is no cross-service wiring between it and lakeformation anywhere in the codebase (no service in this repo reaches into another service's InMemoryBackend directly -- checked s3<->kms as a second data point, same finding). Populating this would require introducing a new cross-service backend-injection pattern, which is out of scope for a single-service follow-up. Correctly omitted rather than fabricated."
+  - "PARTIALLY FIXED (gopherstack-kbnu): LFTagPolicy-based permission grants are now expanded into effective per-resource permissions in GetEffectivePermissionsForPath (resolves the resourceArn to a Database/Table, looks up its actual LF-tags, and evaluates each LFTagPolicy grant's Expression/ExpressionName against them -- AND across tag keys, OR across one key's values, per https://docs.aws.amazon.com/lake-formation/latest/dg/managing-tag-expressions.html). ListPermissions filtered by a concrete resource intentionally still does NOT expand tag-policy grants: AWS's own documented behavior is that LF-Tag-based grants are queried via their own LFTagPolicy/LF_TAG_POLICY_* resource type, not by listing the concrete resource they happen to cover (a tag-based grant 'may not appear in ListPermissions results for specific resources'). SearchTablesByLFTags/SearchDatabasesByLFTags remain untouched (out of scope for this pass -- they answer 'which resources have these tags', not 'what permissions apply to this resource'). No LakeFormation operation in this backend enforces authorization at runtime (permissions are bookkeeping, not an enforcement engine); this pass only makes the LF-Tag-derived permission *record* visible where AWS documents it should be, it does not add access control."
+  - "FIXED (gopherstack-kbnu): GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource now reject Resource kinds other than Database/Table/TableWithColumns with InvalidInputException, matching the documented restriction (\"The database, table, or column resource...\", api_op_GetResourceLFTags.go:30-33 / api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource states it explicitly: \"Only database, table, or tableWithColumns resource are allowed.\", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/lakeformation@v1.50.4). Was a permissive superset (accepted Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy too) -- the same bug class as a glacier-pass finding the same day (gopherstack accepting a clause AWS rejects)."
 deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). RedshiftScopeUnion/ServiceIntegrationUnion (RedshiftConnect service-integration resource kinds, api_op none of the 61 routed ops reference them directly as request/response fields outside types.go) remain out of scope: no routed operation in the 61-op surface takes a RedshiftScopeUnion/ServiceIntegrationUnion as an input/output field, so there is no wire surface to implement against.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
 ---
@@ -89,6 +89,32 @@ leaks: {status: clean, note: "no new goroutines/janitors added this pass; all ne
 ## Notes
 
 Freeform: AWS-behavior specifics worth remembering.
+
+- **gopherstack-kbnu follow-up (2026-08-10)**: closed all three named gaps from the prior
+  pass's `gaps:` list, to varying degrees -- see the corresponding `gaps:` entries above for
+  citations. Summary: `LastUpdatedBy` now stamped via a `ctx`-threaded synthetic caller ARN
+  (`GrantPermissions`/`RevokePermissions`/`Batch*` signatures gained a `context.Context`
+  first param); `GetEffectivePermissionsForPath` now expands `LFTagPolicy` grants against a
+  resource's actual LF-tags (`ListPermissions` intentionally left alone -- matches AWS's
+  documented behavior that tag-based grants aren't visible when listing by concrete
+  resource); `GetResourceLFTags`/`AddLFTagsToResource`/`RemoveLFTagsFromResource` now reject
+  non-Database/Table/TableWithColumns resources. `AdditionalDetails`/RAM stays documented
+  as blocked -- confirmed no cross-service backend wiring pattern exists anywhere in this
+  repo (checked `services/ram`, and `s3`<->`kms` as a second data point).
+
+  Two adjacent bugs fixed alongside: `resourceToKey` had no `TableWithColumns` case at all
+  (every TableWithColumns resource collided under the same `""` key, so
+  `AddLFTagsToResource`/`GetResourceLFTags` on unrelated tables leaked tags into each
+  other); and `getResourceLFTagsOutput.LFTagsOnColumns` was typed `[]LFTagPair` instead of
+  the real `[]types.ColumnLFTag` (`api_op_GetResourceLFTags.go:53`,
+  `aws-sdk-go-v2/service/lakeformation@v1.50.4`) -- a disguised stub, since no code path
+  had ever populated it.
+
+  Note: this repo's actual pinned SDK is `aws-sdk-go-v2/service/lakeformation@v1.50.4`
+  (`go.mod`/`go.sum`), not the `v1.47.3` recorded in this file's `sdk_module:` header from
+  the last full audit -- all new citations in this pass are against `v1.50.4`. Left
+  `sdk_module:`/`last_audit_commit:` unchanged since this was a targeted follow-up, not a
+  full 61-op re-audit; a future full audit should re-pin both.
 
 - **`ListPermissions` request shape was wire-broken** (this pass's headline fix):
   gopherstack's `listPermissionsInput` had a flat `ResourceArn string` field, but the real

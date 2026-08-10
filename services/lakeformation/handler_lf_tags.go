@@ -81,18 +81,35 @@ func (h *Handler) handleListLFTags(_ context.Context, c *echo.Context, body []by
 	})
 }
 
+// checkAddRemoveLFTagsInput validates the Resource/LFTags shared by
+// AddLFTagsToResource and RemoveLFTagsFromResource requests. ok is false when
+// validation failed; err (possibly nil, if the JSON error write itself
+// succeeded) is what the caller should return from its echo handler.
+func (h *Handler) checkAddRemoveLFTagsInput(c *echo.Context, resource *Resource, lfTags []LFTagPair) (bool, error) {
+	if resource == nil {
+		return false, h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
+	}
+
+	if !validLFTagResourceKind(resource) {
+		return false, h.writeError(c, http.StatusBadRequest, "InvalidInputException",
+			"Resource must be a Database, Table, or TableWithColumns resource")
+	}
+
+	if len(lfTags) == 0 {
+		return false, h.writeError(c, http.StatusBadRequest, "InvalidInputException", "LFTags is required")
+	}
+
+	return true, nil
+}
+
 func (h *Handler) handleAddLFTagsToResource(_ context.Context, c *echo.Context, body []byte) error {
 	var in addLFTagsToResourceInput
 	if err := json.Unmarshal(body, &in); err != nil {
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	if in.Resource == nil {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
-	}
-
-	if len(in.LFTags) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "LFTags is required")
+	if ok, err := h.checkAddRemoveLFTagsInput(c, in.Resource, in.LFTags); !ok {
+		return err
 	}
 
 	failures := h.Backend.AddLFTagsToResource(in.CatalogID, in.Resource, in.LFTags)
@@ -109,12 +126,8 @@ func (h *Handler) handleRemoveLFTagsFromResource(_ context.Context, c *echo.Cont
 		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", err.Error())
 	}
 
-	if in.Resource == nil {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "Resource is required")
-	}
-
-	if len(in.LFTags) == 0 {
-		return h.writeError(c, http.StatusBadRequest, "InvalidInputException", "LFTags is required")
+	if ok, err := h.checkAddRemoveLFTagsInput(c, in.Resource, in.LFTags); !ok {
+		return err
 	}
 
 	failures := h.Backend.RemoveLFTagsFromResource(in.CatalogID, in.Resource, in.LFTags)
@@ -140,13 +153,17 @@ func (h *Handler) handleGetResourceLFTags(_ context.Context, c *echo.Context, bo
 		return h.handleError(c, err)
 	}
 
-	// Return tags in the appropriate output field based on resource type.
 	out := getResourceLFTagsOutput{}
 	switch {
 	case in.Resource.Database != nil:
 		out.LFTagOnDatabase = pairs
-	case in.Resource.Table != nil:
-		out.LFTagsOnTable = pairs
+	case in.Resource.TableWithColumns != nil && len(in.Resource.TableWithColumns.ColumnNames) > 0 && len(pairs) > 0:
+		cols := make([]ColumnLFTag, len(in.Resource.TableWithColumns.ColumnNames))
+		for i, name := range in.Resource.TableWithColumns.ColumnNames {
+			cols[i] = ColumnLFTag{Name: name, LFTags: pairs}
+		}
+
+		out.LFTagsOnColumns = cols
 	default:
 		out.LFTagsOnTable = pairs
 	}

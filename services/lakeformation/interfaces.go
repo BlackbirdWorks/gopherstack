@@ -15,8 +15,8 @@ type StorageBackend interface {
 	DescribeResource(resourceArn string) (*ResourceInfo, error)
 	ListResources(maxResults int, nextToken string) ([]*ResourceInfo, string)
 
-	GrantPermissions(entry *PermissionEntry) error
-	RevokePermissions(entry *PermissionEntry) error
+	GrantPermissions(ctx context.Context, entry *PermissionEntry) error
+	RevokePermissions(ctx context.Context, entry *PermissionEntry) error
 	ListPermissions(
 		resource *Resource,
 		maxResults int,
@@ -31,8 +31,8 @@ type StorageBackend interface {
 	UpdateLFTag(catalogID, tagKey string, tagValuesToAdd, tagValuesToDelete []string) error
 	ListLFTags(catalogID string, maxResults int, nextToken string) ([]*LFTag, string)
 
-	BatchGrantPermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
-	BatchRevokePermissions(entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
+	BatchGrantPermissions(ctx context.Context, entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
+	BatchRevokePermissions(ctx context.Context, entries []*BatchPermissionsRequestEntry) []*BatchFailureEntry
 
 	AddLFTagsToResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
 	RemoveLFTagsFromResource(catalogID string, resource *Resource, lfTags []LFTagPair) []LFTagError
