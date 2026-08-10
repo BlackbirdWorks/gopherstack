@@ -50,7 +50,7 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, t
 	}
 
 	tagStore := b.tagsStore(region)
-	existing := tagStore[resourceARN]
+	existing := cloneTags(tagStore[resourceARN])
 
 	for _, newTag := range tags {
 		updated := false

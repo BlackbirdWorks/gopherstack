@@ -194,3 +194,43 @@ func TestTagResource_TooManyTags(t *testing.T) {
 	require.NoError(t, listErr)
 	assert.Empty(t, got, "the over-limit batch must not be partially applied")
 }
+
+// TestTagResource_TooManyTags_LeavesExistingValuesUntouched proves that a
+// rejected over-limit batch does not even partially apply -- not just to the
+// new keys it would have added, but to existing keys it would have
+// overwritten. TagResource merges the batch into the same backing array
+// backing the tag store before checking the resulting count, so an update to
+// an already-present key must not survive a rejected batch.
+func TestTagResource_TooManyTags_LeavesExistingValuesUntouched(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	resARN := newTaggableTrustAnchor(t, b)
+
+	const atLimit = 200
+
+	initial := make([]rolesanywhere.TagEntry, atLimit)
+	for i := range initial {
+		initial[i] = rolesanywhere.TagEntry{Key: "k" + strconv.Itoa(i), Value: "v"}
+	}
+
+	initial[0] = rolesanywhere.TagEntry{Key: "env", Value: "old"}
+	require.NoError(t, b.TagResource(context.Background(), resARN, initial))
+
+	err := b.TagResource(context.Background(), resARN, []rolesanywhere.TagEntry{
+		{Key: "env", Value: "new"},
+		{Key: "extra", Value: "v"},
+	})
+	require.Error(t, err)
+
+	got, listErr := b.ListTagsForResource(context.Background(), resARN)
+	require.NoError(t, listErr)
+
+	found := make(map[string]string, len(got))
+	for _, tg := range got {
+		found[tg.Key] = tg.Value
+	}
+
+	assert.Equal(t, "old", found["env"], "a rejected batch must not overwrite an existing tag's value")
+	assert.NotContains(t, found, "extra", "a rejected batch must not add any of its new keys")
+}

@@ -51,7 +51,14 @@ func TestCrl_ImportGetListUpdateDeleteCycle(t *testing.T) {
 			b := newBackend(t)
 
 			// Import.
-			crl, err := b.ImportCrl(context.Background(), tc.crlName, tc.crlData, tc.trustAnchorArn, tc.enabled, nil)
+			crl, err := b.ImportCrl(
+				context.Background(),
+				tc.crlName,
+				tc.crlData,
+				tc.trustAnchorArn,
+				tc.enabled,
+				nil,
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, crl.CrlID)
 			assert.Equal(t, tc.crlName, crl.Name)
@@ -141,7 +148,14 @@ func TestDeleteCrl_CascadesTags(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	crl, err := b.ImportCrl(context.Background(), "cascade-crl", []byte("data"), "arn:ta", true, nil)
+	crl, err := b.ImportCrl(
+		context.Background(),
+		"cascade-crl",
+		[]byte("data"),
+		"arn:ta",
+		true,
+		nil,
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(context.Background(), crl.CrlArn,
@@ -151,7 +165,11 @@ func TestDeleteCrl_CascadesTags(t *testing.T) {
 	require.NoError(t, err)
 
 	tags, err := b.ListTagsForResource(context.Background(), crl.CrlArn)
-	require.Error(t, err, "ListTagsForResource must report ResourceNotFoundException for the deleted CRL's ARN")
+	require.Error(
+		t,
+		err,
+		"ListTagsForResource must report ResourceNotFoundException for the deleted CRL's ARN",
+	)
 	assert.Empty(t, tags)
 }
 
@@ -232,8 +250,18 @@ func TestImportCrl_RequiredFields(t *testing.T) {
 		wantErr        bool
 	}{
 		{name: "missing crlData rejected", crlData: nil, trustAnchorArn: "arn:ta", wantErr: true},
-		{name: "missing trustAnchorArn rejected", crlData: []byte("data"), trustAnchorArn: "", wantErr: true},
-		{name: "both present succeeds", crlData: []byte("data"), trustAnchorArn: "arn:ta", wantErr: false},
+		{
+			name:           "missing trustAnchorArn rejected",
+			crlData:        []byte("data"),
+			trustAnchorArn: "",
+			wantErr:        true,
+		},
+		{
+			name:           "both present succeeds",
+			crlData:        []byte("data"),
+			trustAnchorArn: "arn:ta",
+			wantErr:        false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -241,7 +269,14 @@ func TestImportCrl_RequiredFields(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.ImportCrl(context.Background(), "req-fields-crl", tt.crlData, tt.trustAnchorArn, true, nil)
+			_, err := b.ImportCrl(
+				context.Background(),
+				"req-fields-crl",
+				tt.crlData,
+				tt.trustAnchorArn,
+				true,
+				nil,
+			)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -268,7 +303,14 @@ func TestImportCrl_EmptyName(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.ImportCrl(context.Background(), tt.crlName, []byte("data"), "arn:ta", true, nil)
+			_, err := b.ImportCrl(
+				context.Background(),
+				tt.crlName,
+				[]byte("data"),
+				"arn:ta",
+				true,
+				nil,
+			)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -331,9 +373,25 @@ func TestAttributeMapping_PutGetDelete(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			p, _ := b.CreateProfile(context.Background(), "mapping-profile", nil, nil, nil, nil, "", false, nil, nil)
+			p, _ := b.CreateProfile(
+				context.Background(),
+				"mapping-profile",
+				[]string{},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
 
-			_, err := b.PutAttributeMapping(context.Background(), p.ProfileID, tc.certificateField, tc.rules)
+			_, err := b.PutAttributeMapping(
+				context.Background(),
+				p.ProfileID,
+				tc.certificateField,
+				tc.rules,
+			)
 			require.NoError(t, err)
 
 			mappings := b.GetAttributeMappings(context.Background(), p.ProfileID)
@@ -365,7 +423,18 @@ func TestAttributeMapping_ReplacesExistingField(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, _ := b.CreateProfile(context.Background(), "replace-profile", nil, nil, nil, nil, "", false, nil, nil)
+	p, _ := b.CreateProfile(
+		context.Background(),
+		"replace-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 
 	_, err := b.PutAttributeMapping(
 		context.Background(),
@@ -399,6 +468,174 @@ func TestAttributeMapping_ProfileNotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestPutAttributeMapping_CertificateFieldEnum proves that certificateField
+// is rejected unless it is one of the three values the real CertificateField
+// shape enumerates (x509Subject, x509Issuer, x509SAN) -- confirmed against
+// botocore's rolesanywhere/2018-05-10/service-2.json "CertificateField" shape.
+func TestPutAttributeMapping_CertificateFieldEnum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		certificateField string
+		wantErr          bool
+	}{
+		{name: "x509Subject accepted", certificateField: "x509Subject", wantErr: false},
+		{name: "x509Issuer accepted", certificateField: "x509Issuer", wantErr: false},
+		{name: "x509SAN accepted", certificateField: "x509SAN", wantErr: false},
+		{name: "unknown value rejected", certificateField: "bogusField", wantErr: true},
+		{name: "empty value rejected", certificateField: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			p, err := b.CreateProfile(
+				context.Background(),
+				t.Name(),
+				[]string{},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+
+			_, err = b.PutAttributeMapping(
+				context.Background(),
+				p.ProfileID,
+				tt.certificateField,
+				[]rolesanywhere.MappingRule{{Specifier: "CN"}},
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestDeleteAttributeMapping_CertificateFieldEnum proves DeleteAttributeMapping
+// applies the same CertificateField enum check as PutAttributeMapping --
+// both declare ValidationException in the real model
+// (DeleteAttributeMappingRequest.certificateField is the same CertificateField
+// shape as PutAttributeMappingRequest.certificateField).
+func TestDeleteAttributeMapping_CertificateFieldEnum(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"del-mapping-enum-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	_, err = b.DeleteAttributeMapping(context.Background(), p.ProfileID, "bogusField", nil)
+	require.Error(t, err)
+}
+
+// TestPutAttributeMapping_MappingRulesRequired proves that PutAttributeMapping
+// rejects a nil mappingRules list with ValidationException, matching real
+// AWS: PutAttributeMappingInput.MappingRules is "This member is required"
+// (aws-sdk-go-v2's validateOpPutAttributeMappingInput checks
+// v.MappingRules == nil). An explicitly empty (non-nil) list is still
+// accepted since the MappingRules shape declares no minimum length.
+func TestPutAttributeMapping_MappingRulesRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		rules   []rolesanywhere.MappingRule
+		wantErr bool
+	}{
+		{name: "nil mapping rules rejected", rules: nil, wantErr: true},
+		{
+			name:    "empty mapping rules accepted",
+			rules:   []rolesanywhere.MappingRule{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			p, err := b.CreateProfile(
+				context.Background(),
+				t.Name(),
+				[]string{},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+
+			_, err = b.PutAttributeMapping(
+				context.Background(),
+				p.ProfileID,
+				"x509Subject",
+				tt.rules,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestPutAttributeMapping_SpecifierRequired proves that a MappingRule with an
+// empty specifier is rejected -- real AWS's MappingRule shape declares
+// "specifier" as required (validateMappingRule checks v.Specifier == nil).
+func TestPutAttributeMapping_SpecifierRequired(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"specifier-required-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+
+	_, err = b.PutAttributeMapping(
+		context.Background(),
+		p.ProfileID,
+		"x509Subject",
+		[]rolesanywhere.MappingRule{{Specifier: "CN"}, {Specifier: ""}},
+	)
+	require.Error(t, err)
+}
+
 // ---- Notification settings tests ----
 
 func TestNotificationSettings_PutResetCycle(t *testing.T) {
@@ -424,7 +661,9 @@ func TestNotificationSettings_PutResetCycle(t *testing.T) {
 			settings: []rolesanywhere.NotificationSetting{
 				{Event: "CA_CERTIFICATE_EXPIRY", Channel: "ALL", Enabled: true},
 			},
-			resetKeys:   []rolesanywhere.NotificationSettingKey{{Event: "CA_CERTIFICATE_EXPIRY", Channel: "ALL"}},
+			resetKeys: []rolesanywhere.NotificationSettingKey{
+				{Event: "CA_CERTIFICATE_EXPIRY", Channel: "ALL"},
+			},
 			expectAfter: 0,
 		},
 	}
@@ -444,7 +683,11 @@ func TestNotificationSettings_PutResetCycle(t *testing.T) {
 			settings := b.GetNotificationSettings(context.Background(), ta.TrustAnchorID)
 			assert.Len(t, settings, len(tc.settings))
 
-			_, err = b.ResetNotificationSettings(context.Background(), ta.TrustAnchorID, tc.resetKeys)
+			_, err = b.ResetNotificationSettings(
+				context.Background(),
+				ta.TrustAnchorID,
+				tc.resetKeys,
+			)
 			require.NoError(t, err)
 
 			settings = b.GetNotificationSettings(context.Background(), ta.TrustAnchorID)
@@ -458,7 +701,11 @@ func TestNotificationSettings_TrustAnchorNotFound(t *testing.T) {
 
 	b := newBackend(t)
 
-	_, err := b.PutNotificationSettings(context.Background(), "no-such-anchor", []rolesanywhere.NotificationSetting{})
+	_, err := b.PutNotificationSettings(
+		context.Background(),
+		"no-such-anchor",
+		[]rolesanywhere.NotificationSetting{},
+	)
 	require.Error(t, err)
 
 	_, err = b.ResetNotificationSettings(
@@ -476,14 +723,22 @@ func TestNotificationSettings_UpdateExisting(t *testing.T) {
 	src := rolesanywhere.TrustAnchorSource{SourceType: "CERTIFICATE_BUNDLE"}
 	ta, _ := b.CreateTrustAnchor(context.Background(), "update-notif-anchor", src, nil, nil, nil)
 
-	_, err := b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, []rolesanywhere.NotificationSetting{
-		{Event: "CA_CERTIFICATE_EXPIRY", Enabled: true},
-	})
+	_, err := b.PutNotificationSettings(
+		context.Background(),
+		ta.TrustAnchorID,
+		[]rolesanywhere.NotificationSetting{
+			{Event: "CA_CERTIFICATE_EXPIRY", Enabled: true},
+		},
+	)
 	require.NoError(t, err)
 
-	_, err = b.PutNotificationSettings(context.Background(), ta.TrustAnchorID, []rolesanywhere.NotificationSetting{
-		{Event: "CA_CERTIFICATE_EXPIRY", Enabled: false},
-	})
+	_, err = b.PutNotificationSettings(
+		context.Background(),
+		ta.TrustAnchorID,
+		[]rolesanywhere.NotificationSetting{
+			{Event: "CA_CERTIFICATE_EXPIRY", Enabled: false},
+		},
+	)
 	require.NoError(t, err)
 
 	settings := b.GetNotificationSettings(context.Background(), ta.TrustAnchorID)

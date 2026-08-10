@@ -141,6 +141,42 @@ func TestHandler_Profile_NotFound(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateProfile_RoleArnsRequired proves that CreateProfile
+// rejects a request whose body omits roleArns entirely with
+// ValidationException, matching real AWS's required CreateProfileInput.RoleArns
+// (see TestCreateProfile_RoleArnsRequired in profiles_test.go for the backend-
+// level proof and its SDK citations).
+func TestHandler_CreateProfile_RoleArnsRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createBody map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "roleArns key omitted is rejected",
+			createBody: map[string]any{"name": "no-role-arns-profile"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "roleArns explicitly empty is accepted",
+			createBody: map[string]any{"name": "empty-role-arns-profile", "roleArns": []string{}},
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doREST(t, h, http.MethodPost, "/profiles", tt.createBody)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
+}
+
 func TestHandler_Profile_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
