@@ -8,12 +8,11 @@
 //
 //	go run ./cmd/checkpins
 //
-// Exits non-zero if any PARITY.md pin disagrees with go.mod, or if a
-// recorded module isn't in go.mod without documenting why (see
-// isModuleCacheOnly). A PARITY.md whose sdk_module has no parseable
-// @version, or is missing entirely, is reported but does not fail the
-// check — it can't be verified either way, so it's a warning, not a
-// mismatch.
+// Exits non-zero if any PARITY.md pin disagrees with go.mod, if a recorded
+// module isn't in go.mod without documenting why (see isModuleCacheOnly),
+// or if sdk_module is missing or has no parseable @version — an
+// unverifiable pin is exactly the failure mode this check exists to catch,
+// not a case to wave through.
 package main
 
 import (
@@ -62,24 +61,16 @@ func run() error {
 		return err
 	}
 
-	var mismatches, warnings []string
+	var mismatches []string
 	for _, slug := range slugs {
 		result, checkErr := checkService(slug, goModVersions)
 		if checkErr != nil {
 			return checkErr
 		}
 
-		switch result.kind {
-		case resultMismatch:
+		if result.kind == resultMismatch {
 			mismatches = append(mismatches, result.message)
-		case resultWarning:
-			warnings = append(warnings, result.message)
-		case resultOK:
 		}
-	}
-
-	for _, w := range warnings {
-		fmt.Fprintln(os.Stderr, "checkpins: warning:", w)
 	}
 
 	if len(mismatches) > 0 {
@@ -144,7 +135,6 @@ type resultKind int
 
 const (
 	resultOK resultKind = iota
-	resultWarning
 	resultMismatch
 )
 
@@ -179,7 +169,7 @@ func evaluatePin(slug, content string, goModVersions map[string]string) checkRes
 	valueLine, commentText, found := extractSDKModule(content)
 	if !found {
 		return checkResult{
-			kind:    resultWarning,
+			kind:    resultMismatch,
 			message: fmt.Sprintf("%s: no sdk_module field in PARITY.md", slug),
 		}
 	}
@@ -187,7 +177,7 @@ func evaluatePin(slug, content string, goModVersions map[string]string) checkRes
 	module, version, ok := parsePinValue(valueLine)
 	if !ok {
 		return checkResult{
-			kind: resultWarning,
+			kind: resultMismatch,
 			message: fmt.Sprintf("%s: sdk_module value %q has no parseable @version",
 				slug, strings.TrimSpace(valueLine)),
 		}

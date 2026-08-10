@@ -1,6 +1,11 @@
 ---
 service: iam
-sdk_module: aws-sdk-go-v2/service/iam   # version: v1.55.0 (unchanged this sweep)
+sdk_module: aws-sdk-go-v2/service/iam@v1.58.1   # version audited against (go.mod pin; was stale
+  # at v1.55.0 -- SimulateCustomPolicy/SimulatePrincipalPolicy's response shape
+  # changed in v1.57.0 (top-level results now aggregate across resources instead
+  # of one entry per resource); policy simulation was already flagged as NOT
+  # re-verified this sweep (see items_still_open), so no live claim broke, but
+  # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
 last_audit_commit: b72533e7a
 last_audit_date: 2026-08-07
 overall: A   # sweep 6: comprehensiveBackend folded onto the coarse b.mu; GetAccountAuthorizationDetails now supports Marker/MaxItems/Filter

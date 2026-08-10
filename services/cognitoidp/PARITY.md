@@ -1,6 +1,6 @@
 ---
 service: cognitoidp
-sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@1.67.4
+sdk_module: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4
 last_audit_commit: pending (uncommitted this pass -- see git log at merge time)
 last_audit_date: 2026-08-08
 overall: A                # 2026-08-08 (gopherstack-kxow): restored from B to A -- terms/, the

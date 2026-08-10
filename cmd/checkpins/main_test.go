@@ -56,15 +56,30 @@ func TestEvaluatePin(t *testing.T) {
 			name:     "malformed value",
 			slug:     "dlm",
 			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.39.4 (now a real dependency\n",
-			wantKind: resultWarning,
+			wantKind: resultMismatch,
 			wantMsg:  "no parseable @version",
 		},
 		{
 			name:     "missing field",
 			slug:     "dlm",
 			content:  "service: dlm\nlast_audit_commit: abc123\n",
-			wantKind: resultWarning,
+			wantKind: resultMismatch,
 			wantMsg:  "no sdk_module field",
+		},
+		{
+			name:     "missing version prefix",
+			slug:     "dlm",
+			content:  "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@1.39.4\n",
+			wantKind: resultMismatch,
+			wantMsg:  "no parseable @version",
+		},
+		{
+			name: "unterminated trailing note",
+			slug: "dlm",
+			content: "service: dlm\nsdk_module: aws-sdk-go-v2/service/dlm@v1.39.4 (now a real go.mod/go.sum\n" +
+				"  dependency, added this pass via `go get`)\n",
+			wantKind: resultMismatch,
+			wantMsg:  "no parseable @version",
 		},
 	}
 

@@ -501,7 +501,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DocumentDB](services/docdb/README.md) | A | 55 | 1 deferred |
 | [DynamoDB](services/dynamodb/README.md) | A | — | 7 families; 1 gap; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
-| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 deferred |
+| [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 3 deferred |
 | [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
@@ -613,7 +613,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [CloudFormation](services/cloudformation/README.md) | A | 67 | 4 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 4 gaps |
 | [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 69 | 8 gaps; 3 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 69 | 9 gaps; 3 deferred |
 | [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |

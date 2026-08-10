@@ -1,6 +1,6 @@
 ---
 service: dynamodb
-sdk_module: aws-sdk-go-v2/service/dynamodb   # version: v1.63.1 (go.mod)
+sdk_module: aws-sdk-go-v2/service/dynamodb@v1.63.1   # version audited against (go.mod pin)
 last_audit_commit: 0a609eabb
 last_audit_date: 2026-08-05
 overall: A   # follow-up sweep: closed the 3 dynamodbstreams/dynamodb items tracked by gopherstack-exg7 + the TransactWriteItems EAN/EAV gap tracked by gopherstack-daa; no regressions

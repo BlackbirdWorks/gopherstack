@@ -1,6 +1,6 @@
 ---
 service: ec2
-sdk_module: aws-sdk-go-v2/service/ec2   # version: see go.mod (backfilled)
+sdk_module: aws-sdk-go-v2/service/ec2@v1.319.1   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
 last_audit_commit: pending (agent instructed not to commit; see git log for this pass's commit)
 last_audit_date: 2026-08-07
 overall: A   # 2026-08-07 pass (gopherstack-8pce follow-up): re-verified the tag dual-storage

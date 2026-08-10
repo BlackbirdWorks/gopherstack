@@ -98,6 +98,9 @@ jobs:
           check-latest: true
           cache: true
 
+      - name: Check sdk_module pins
+        run: make check-pins
+
       - name: Generate docs
         run: make docs
 

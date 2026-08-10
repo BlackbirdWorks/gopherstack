@@ -5,12 +5,12 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: account
-sdk_module: aws-sdk-go-v2/service/account@v1.35.4 (now a real go.mod/go.sum
-  dependency, added this pass via `go get` -- prior passes only fetched it
-  read-only into GOMODCACHE. Also added services/account/sdk_completeness_test.go,
-  which was entirely missing before this pass -- this service had zero
-  SDK-completeness coverage and no test/integration/account_test.go, unlike
-  every other service in the repo.)
+sdk_module: aws-sdk-go-v2/service/account@v1.35.4   # (now a real go.mod/go.sum
+  # dependency, added this pass via `go get` -- prior passes only fetched it
+  # read-only into GOMODCACHE. Also added services/account/sdk_completeness_test.go,
+  # which was entirely missing before this pass -- this service had zero
+  # SDK-completeness coverage and no test/integration/account_test.go, unlike
+  # every other service in the repo.)
 last_audit_commit: fca4a71a1
 last_audit_date: 2026-08-10
 overall: A            # sdk_completeness_test.go added and green (16/16 real ops
