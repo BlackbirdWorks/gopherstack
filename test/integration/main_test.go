@@ -185,7 +185,6 @@ func TestMain(m *testing.M) {
 				options.PullParent = false
 			},
 		},
-		AutoRemove:   true,
 		ExposedPorts: []string{"8000/tcp", "1883/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
