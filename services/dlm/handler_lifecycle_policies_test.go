@@ -515,6 +515,143 @@ func TestHandler_UpdateLifecyclePolicy_DefaultPolicyFields(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// GetLifecyclePolicy / GetLifecyclePolicies: top-level DefaultPolicy bool
+// ---------------------------------------------------------------------------
+
+// TestHandler_GetLifecyclePolicy_DefaultPolicyEcho verifies the top-level
+// DefaultPolicy bool (aws-sdk-go-v2/service/dlm@v1.39.4/types/types.go:411)
+// on the GetLifecyclePolicy response, derived from the stored
+// PolicyLanguage that a default-policy Create request sets to SIMPLIFIED
+// (see defaultPolicyFields.applyTo in models.go). A custom (STANDARD)
+// policy must echo false.
+func TestHandler_GetLifecyclePolicy_DefaultPolicyEcho(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		createBody map[string]any
+		name       string
+		want       bool
+	}{
+		{
+			name:       "default policy echoes DefaultPolicy true",
+			createBody: map[string]any{"DefaultPolicy": "VOLUME"},
+			want:       true,
+		},
+		{
+			name:       "custom policy echoes DefaultPolicy false",
+			createBody: map[string]any{"PolicyDetails": map[string]any{"PolicyType": "EBS_SNAPSHOT_MANAGEMENT"}},
+			want:       false,
+		},
+		{
+			name:       "no PolicyDetails at all echoes DefaultPolicy false",
+			createBody: map[string]any{},
+			want:       false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			body := map[string]any{
+				"Description":      "default policy echo test",
+				"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+				"State":            "ENABLED",
+			}
+			maps.Copy(body, tc.createBody)
+
+			createRec := doRequest(t, h, http.MethodPost, "/policies", body)
+			require.Equal(t, http.StatusCreated, createRec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+			policyID := createResp["PolicyId"].(string)
+
+			getRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/policies/%s", policyID), nil)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var getResp map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+			policy := getResp["Policy"].(map[string]any)
+
+			assert.Equal(t, tc.want, policy["DefaultPolicy"])
+		})
+	}
+}
+
+// TestHandler_GetLifecyclePolicies_DefaultPolicyEcho verifies the summary
+// shape (LifecyclePolicySummary, types.go:449) also carries the top-level
+// DefaultPolicy bool.
+func TestHandler_GetLifecyclePolicies_DefaultPolicyEcho(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createPolicyWithDetails(t, h, "custom", map[string]any{"PolicyType": "EBS_SNAPSHOT_MANAGEMENT"})
+
+	defaultRec := doRequest(t, h, http.MethodPost, "/policies", map[string]any{
+		"Description":      "default",
+		"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+		"State":            "ENABLED",
+		"DefaultPolicy":    "INSTANCE",
+	})
+	require.Equal(t, http.StatusCreated, defaultRec.Code)
+
+	rec := doRequest(t, h, http.MethodGet, "/policies", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	policies := getPoliciesResp(t, rec)
+	require.Len(t, policies, 2)
+
+	got := map[string]bool{}
+	for _, p := range policies {
+		got[p["Description"].(string)] = p["DefaultPolicy"].(bool)
+	}
+
+	assert.False(t, got["custom"])
+	assert.True(t, got["default"])
+}
+
+// ---------------------------------------------------------------------------
+// CreateLifecyclePolicy: LimitExceededException quota
+// ---------------------------------------------------------------------------
+
+// TestHandler_CreateLifecyclePolicy_LimitExceeded covers gopherstack-x009's
+// quota gap: AWS's documented default "Policies per Region" quota is 100
+// (adjustable; quota code L-5407D8DA,
+// docs.aws.amazon.com/general/latest/gr/dlm.html), and
+// CreateLifecyclePolicy's modeled error catalog includes
+// LimitExceededException (aws-sdk-go-v2/service/dlm@v1.39.4/types/errors.go:70).
+func TestHandler_CreateLifecyclePolicy_LimitExceeded(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	const maxPoliciesPerRegion = 100
+
+	for i := range maxPoliciesPerRegion {
+		rec := doRequest(t, h, http.MethodPost, "/policies", map[string]any{
+			"Description":      fmt.Sprintf("policy-%d", i),
+			"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+			"State":            "ENABLED",
+		})
+		require.Equal(t, http.StatusCreated, rec.Code, "policy %d should succeed under the quota", i)
+	}
+
+	rec := doRequest(t, h, http.MethodPost, "/policies", map[string]any{
+		"Description":      "one-too-many",
+		"ExecutionRoleArn": "arn:aws:iam::000000000000:role/dlm-role",
+		"State":            "ENABLED",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var out map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	assert.Equal(t, "LimitExceededException", out["__type"])
+}
+
+// ---------------------------------------------------------------------------
 // CreateLifecyclePolicy: required-field validation over HTTP
 // ---------------------------------------------------------------------------
 

@@ -123,6 +123,54 @@ func TestPersistence_FullStateRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPersistence_DefaultPolicyEchoSurvivesRestore verifies the derived
+// top-level DefaultPolicy bool (see policyDetailsIsDefaultPolicy in
+// models.go) re-derives correctly after a Snapshot -> Restore cycle, proving
+// it stays in sync with the persisted PolicyDetails.PolicyLanguage it is
+// computed from rather than drifting as separately-stored state would.
+func TestPersistence_DefaultPolicyEchoSurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		policyDetails map[string]any
+		name          string
+		want          bool
+	}{
+		{
+			name:          "simplified policy language survives as DefaultPolicy true",
+			policyDetails: map[string]any{"PolicyLanguage": "SIMPLIFIED", "ResourceType": "VOLUME"},
+			want:          true,
+		},
+		{
+			name:          "standard policy language survives as DefaultPolicy false",
+			policyDetails: map[string]any{"PolicyLanguage": "STANDARD"},
+			want:          false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b1 := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			p, err := b1.CreateLifecyclePolicy(
+				"d", "arn:aws:iam::000000000000:role/r", "ENABLED", nil, tc.policyDetails,
+			)
+			require.NoError(t, err)
+
+			snap := b1.Snapshot(context.Background())
+			require.NotEmpty(t, snap)
+
+			b2 := dlm.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, b2.Restore(context.Background(), snap))
+
+			got, err := b2.GetLifecyclePolicy(p.PolicyID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got.DefaultPolicy)
+		})
+	}
+}
+
 // TestPersistence_HandlerDelegatesToBackend verifies the dead-wiring fix:
 // Handler.Snapshot/Restore must delegate to the backend so the persistence
 // manager (which type-asserts service.Registerable, i.e. *Handler, against a

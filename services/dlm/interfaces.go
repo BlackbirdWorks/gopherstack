@@ -58,15 +58,17 @@ type Policy struct {
 	PolicyID         string
 	State            string
 	StatusMessage    string
+	DefaultPolicy    bool
 }
 
 // PolicySummary holds summary lifecycle policy info.
 type PolicySummary struct {
-	Tags        map[string]string
-	PolicyID    string
-	Description string
-	State       string
-	PolicyType  string
+	Tags          map[string]string
+	PolicyID      string
+	Description   string
+	State         string
+	PolicyType    string
+	DefaultPolicy bool
 }
 
 // PolicyFilter narrows the results of GetLifecyclePolicies. A zero-value

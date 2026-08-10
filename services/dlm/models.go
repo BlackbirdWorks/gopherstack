@@ -47,6 +47,7 @@ func (p *storedPolicy) toPolicy() *Policy {
 		StatusMessage:    p.StatusMessage,
 		Tags:             tags,
 		PolicyDetails:    p.PolicyDetails,
+		DefaultPolicy:    policyDetailsIsDefaultPolicy(p.PolicyDetails),
 	}
 }
 
@@ -55,11 +56,12 @@ func (p *storedPolicy) toSummary() *PolicySummary {
 	maps.Copy(tags, p.Tags)
 
 	return &PolicySummary{
-		PolicyID:    p.PolicyID,
-		Description: p.Description,
-		State:       p.State,
-		Tags:        tags,
-		PolicyType:  policyDetailsPolicyType(p.PolicyDetails),
+		PolicyID:      p.PolicyID,
+		Description:   p.Description,
+		State:         p.State,
+		Tags:          tags,
+		PolicyType:    policyDetailsPolicyType(p.PolicyDetails),
+		DefaultPolicy: policyDetailsIsDefaultPolicy(p.PolicyDetails),
 	}
 }
 
@@ -79,6 +81,19 @@ func policyDetailsPolicyType(details map[string]any) string {
 	}
 
 	return "EBS_SNAPSHOT_MANAGEMENT"
+}
+
+// policyDetailsIsDefaultPolicy reports whether details belongs to a default
+// (as opposed to custom) policy, matching the real LifecyclePolicy/
+// LifecyclePolicySummary top-level DefaultPolicy bool
+// (aws-sdk-go-v2/service/dlm@v1.39.4/types/types.go:411,449). PolicyLanguage
+// is a reliable signal: applyTo (see defaultPolicyFields) sets it to
+// SIMPLIFIED precisely when, and only when, a policy was created via the
+// top-level default-policy request fields.
+func policyDetailsIsDefaultPolicy(details map[string]any) bool {
+	pl, _ := details["PolicyLanguage"].(string)
+
+	return strings.EqualFold(pl, "SIMPLIFIED")
 }
 
 // policyDetailsStringSlice reads a []string-shaped field out of a decoded

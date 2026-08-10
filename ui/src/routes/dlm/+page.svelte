@@ -1304,6 +1304,10 @@
 					<dd class="text-slate-900 dark:text-white">{viewedPolicy.StatusMessage ?? '—'}</dd>
 				</div>
 				<div>
+					<dt class="text-slate-500 dark:text-slate-400">Default policy</dt>
+					<dd class="text-slate-900 dark:text-white">{viewedPolicy.DefaultPolicy ? 'Yes' : 'No'}</dd>
+				</div>
+				<div>
 					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
 					<dd class="text-slate-900 dark:text-white">{formatDate(viewedPolicy.DateCreated)}</dd>
 				</div>

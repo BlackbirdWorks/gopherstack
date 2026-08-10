@@ -286,21 +286,23 @@ func (h *Handler) handleGetLifecyclePolicies(c *echo.Context) error {
 	}
 
 	type summaryResp struct {
-		Tags        map[string]string `json:"Tags,omitempty"`
-		PolicyID    string            `json:"PolicyId"`
-		Description string            `json:"Description"`
-		State       string            `json:"State"`
-		PolicyType  string            `json:"PolicyType"`
+		Tags          map[string]string `json:"Tags,omitempty"`
+		PolicyID      string            `json:"PolicyId"`
+		Description   string            `json:"Description"`
+		State         string            `json:"State"`
+		PolicyType    string            `json:"PolicyType"`
+		DefaultPolicy bool              `json:"DefaultPolicy"`
 	}
 
 	resp := make([]summaryResp, 0, len(summaries))
 	for _, s := range summaries {
 		resp = append(resp, summaryResp{
-			PolicyID:    s.PolicyID,
-			Description: s.Description,
-			State:       s.State,
-			Tags:        s.Tags,
-			PolicyType:  s.PolicyType,
+			PolicyID:      s.PolicyID,
+			Description:   s.Description,
+			State:         s.State,
+			Tags:          s.Tags,
+			PolicyType:    s.PolicyType,
+			DefaultPolicy: s.DefaultPolicy,
 		})
 	}
 
@@ -330,6 +332,7 @@ func (h *Handler) handleGetLifecyclePolicy(c *echo.Context, policyID string) err
 			"ExecutionRoleArn": policy.ExecutionRoleARN,
 			"State":            policy.State,
 			"StatusMessage":    policy.StatusMessage,
+			"DefaultPolicy":    policy.DefaultPolicy,
 			"DateCreated":      policy.DateCreated,
 			"DateModified":     policy.DateModified,
 			"Tags":             policy.Tags,
@@ -415,6 +418,8 @@ func (h *Handler) mapError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
 		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, err.Error()))
+	case errors.Is(err, ErrLimitExceeded):
+		return c.JSON(http.StatusBadRequest, errBody(errLimitExceeded, err.Error()))
 	case errors.Is(err, awserr.ErrInvalidParameter):
 		return c.JSON(http.StatusBadRequest, errBody(errInvalidRequest, err.Error()))
 	default:

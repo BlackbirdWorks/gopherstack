@@ -10,6 +10,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// maxPoliciesPerRegion is AWS's documented default "Policies per Region"
+// quota (adjustable; quota code L-5407D8DA,
+// docs.aws.amazon.com/general/latest/gr/dlm.html).
+const maxPoliciesPerRegion = 100
+
 // CreateLifecyclePolicy creates a new lifecycle policy and returns it.
 func (b *InMemoryBackend) CreateLifecyclePolicy(
 	description, executionRoleARN, state string,
@@ -25,6 +30,10 @@ func (b *InMemoryBackend) CreateLifecyclePolicy(
 	// leniency for State).
 	if description == "" || executionRoleARN == "" {
 		return nil, ErrInvalidRequest
+	}
+
+	if b.policies.Len() >= maxPoliciesPerRegion {
+		return nil, ErrLimitExceeded
 	}
 
 	b.counter++
