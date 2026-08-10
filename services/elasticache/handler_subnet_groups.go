@@ -74,6 +74,14 @@ func (h *Handler) createCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 			)
 		}
 
+		if errors.Is(err, ErrCacheSubnetGroupQuotaExceeded) {
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupQuotaExceeded", err.Error())
+		}
+
+		if errors.Is(err, ErrCacheSubnetQuotaExceeded) {
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetQuotaExceededFault", err.Error())
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
@@ -157,6 +165,10 @@ func (h *Handler) modifyCacheSubnetGroup(ctx context.Context, c *echo.Context, f
 	if err != nil {
 		if errors.Is(err, ErrSubnetGroupNotFound) {
 			return xmlError(c, http.StatusBadRequest, "CacheSubnetGroupNotFoundFault", "Cache subnet group not found")
+		}
+
+		if errors.Is(err, ErrCacheSubnetQuotaExceeded) {
+			return xmlError(c, http.StatusBadRequest, "CacheSubnetQuotaExceededFault", err.Error())
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

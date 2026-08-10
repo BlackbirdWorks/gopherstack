@@ -54,6 +54,19 @@ var (
 	ErrReservedCacheNodesOfferingNotFound = errors.New("ReservedCacheNodesOfferingNotFound")
 )
 
+// Quota-exceeded sentinels: AWS's documented default per-Region/per-resource
+// quotas (docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html),
+// enforced with the matching Fault the real API recognizes for each op
+// (verified against aws-sdk-go-v2/service/elasticache@v1.51.11/
+// deserializers.go's per-operation error-deserializer switch). See
+// maxCacheSubnetGroupsPerRegion/maxSubnetsPerCacheSubnetGroup/
+// maxServerlessCachesPerRegion for the specific published values.
+var (
+	ErrCacheSubnetGroupQuotaExceeded = errors.New("CacheSubnetGroupQuotaExceeded")
+	ErrCacheSubnetQuotaExceeded      = errors.New("CacheSubnetQuotaExceededFault")
+	ErrServerlessCacheQuotaExceeded  = errors.New("ServerlessCacheQuotaForCustomerExceededFault")
+)
+
 var (
 	ErrUserNotInGroup    = errors.New("user is a member of a user group and cannot be deleted")
 	ErrUserNotFound2     = ErrUserNotFound

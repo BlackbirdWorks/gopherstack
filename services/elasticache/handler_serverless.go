@@ -244,6 +244,10 @@ func (h *Handler) createServerlessCache(ctx context.Context, c *echo.Context, fo
 			)
 		}
 
+		if errors.Is(err, ErrServerlessCacheQuotaExceeded) {
+			return xmlError(c, http.StatusBadRequest, "ServerlessCacheQuotaForCustomerExceededFault", err.Error())
+		}
+
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 

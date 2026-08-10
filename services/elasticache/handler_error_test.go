@@ -3,6 +3,7 @@ package elasticache_test
 import (
 	"context"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -460,6 +461,85 @@ func Test_ErrorWireShapesMatchAWS(t *testing.T) {
 				requireFault[elasticachetypes.ReservedCacheNodeAlreadyExistsFault](t, err)
 			},
 			wantStatus: http.StatusNotFound,
+		},
+		{
+			// AWS's documented default "Subnets per subnet group" quota is 20
+			// (docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html).
+			name: "CacheSubnetQuotaExceeded",
+			call: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+
+				subnetIDs := make([]string, 21)
+				for i := range subnetIDs {
+					subnetIDs[i] = fmt.Sprintf("subnet-%d", i)
+				}
+
+				_, err := client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+					CacheSubnetGroupName:        aws.String("too-many-subnets"),
+					CacheSubnetGroupDescription: aws.String("d"),
+					SubnetIds:                   subnetIDs,
+				})
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.CacheSubnetQuotaExceededFault](t, err)
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// AWS's documented default "Subnet groups per Region" quota is 300
+			// (docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html).
+			name: "CacheSubnetGroupQuotaExceeded",
+			call: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+
+				var err error
+				for i := range 301 {
+					_, err = client.CreateCacheSubnetGroup(t.Context(), &elasticachesdk.CreateCacheSubnetGroupInput{
+						CacheSubnetGroupName:        aws.String(fmt.Sprintf("sng-quota-%d", i)),
+						CacheSubnetGroupDescription: aws.String("d"),
+						SubnetIds:                   []string{"subnet-1"},
+					})
+					if err != nil {
+						break
+					}
+				}
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.CacheSubnetGroupQuotaExceededFault](t, err)
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// AWS's documented default "Serverless caches per Region" quota is 40
+			// (docs.aws.amazon.com/AmazonElastiCache/latest/dg/quota-limits.html).
+			name: "ServerlessCacheQuotaForCustomerExceeded",
+			call: func(t *testing.T, client *elasticachesdk.Client) error {
+				t.Helper()
+
+				var err error
+				for i := range 41 {
+					_, err = client.CreateServerlessCache(t.Context(), &elasticachesdk.CreateServerlessCacheInput{
+						ServerlessCacheName: aws.String(fmt.Sprintf("sc-quota-%d", i)),
+						Engine:              aws.String("redis"),
+					})
+					if err != nil {
+						break
+					}
+				}
+
+				return err
+			},
+			checkFault: func(t *testing.T, err error) {
+				t.Helper()
+				requireFault[elasticachetypes.ServerlessCacheQuotaForCustomerExceededFault](t, err)
+			},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 

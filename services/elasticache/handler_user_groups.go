@@ -25,7 +25,12 @@ type describeUserGroupsResultXML struct {
 // field on the real SDK type -- a prior pass invented one and serialized it
 // on the wire; do not re-add it. ReplicationGroups is the reverse of a
 // ReplicationGroup's UserGroupIds, computed fresh on every response (see
-// userGroupReplicationGroupIDsLocked).
+// userGroupReplicationGroupIDsLocked). ServerlessCaches is the same pattern
+// for the reverse of a ServerlessCache's UserGroupId (see
+// userGroupServerlessCacheIDsLocked); both list wrappers use the generic
+// "member" locationName, verified against
+// aws-sdk-go-v2/service/elasticache@v1.51.11/deserializers.go's
+// awsAwsquery_deserializeDocumentUGServerlessCacheIdList.
 type userGroupXML struct {
 	ARN         string `xml:"ARN"`
 	UserGroupID string `xml:"UserGroupId"`
@@ -37,6 +42,9 @@ type userGroupXML struct {
 	ReplicationGroups struct {
 		Member []string `xml:"member"`
 	} `xml:"ReplicationGroups"`
+	ServerlessCaches struct {
+		Member []string `xml:"member"`
+	} `xml:"ServerlessCaches"`
 }
 
 func userGroupToXML(ug *UserGroup) userGroupXML {
@@ -48,6 +56,7 @@ func userGroupToXML(ug *UserGroup) userGroupXML {
 	}
 	x.UserIDs.Member = ug.UserIDs
 	x.ReplicationGroups.Member = ug.AssignedReplicationGroupIDs
+	x.ServerlessCaches.Member = ug.AssignedServerlessCacheIDs
 
 	return x
 }
@@ -85,6 +94,9 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 		ReplicationGroups struct {
 			Member []string `xml:"member"`
 		} `xml:"CreateUserGroupResult>ReplicationGroups"`
+		ServerlessCaches struct {
+			Member []string `xml:"member"`
+		} `xml:"CreateUserGroupResult>ServerlessCaches"`
 	}
 
 	x := userGroupToXML(ug)
@@ -97,6 +109,7 @@ func (h *Handler) createUserGroup(ctx context.Context, c *echo.Context, form url
 	}
 	r.UserIDs.Member = x.UserIDs.Member
 	r.ReplicationGroups.Member = x.ReplicationGroups.Member
+	r.ServerlessCaches.Member = x.ServerlessCaches.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }
@@ -126,6 +139,9 @@ func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url
 		ReplicationGroups struct {
 			Member []string `xml:"member"`
 		} `xml:"DeleteUserGroupResult>ReplicationGroups"`
+		ServerlessCaches struct {
+			Member []string `xml:"member"`
+		} `xml:"DeleteUserGroupResult>ServerlessCaches"`
 	}
 
 	x := userGroupToXML(ug)
@@ -138,6 +154,7 @@ func (h *Handler) deleteUserGroup(ctx context.Context, c *echo.Context, form url
 	}
 	r.UserIDs.Member = x.UserIDs.Member
 	r.ReplicationGroups.Member = x.ReplicationGroups.Member
+	r.ServerlessCaches.Member = x.ServerlessCaches.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }
@@ -192,6 +209,9 @@ func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url
 		ReplicationGroups struct {
 			Member []string `xml:"member"`
 		} `xml:"ModifyUserGroupResult>ReplicationGroups"`
+		ServerlessCaches struct {
+			Member []string `xml:"member"`
+		} `xml:"ModifyUserGroupResult>ServerlessCaches"`
 	}
 
 	x := userGroupToXML(ug)
@@ -204,6 +224,7 @@ func (h *Handler) modifyUserGroup(ctx context.Context, c *echo.Context, form url
 	}
 	r.UserIDs.Member = x.UserIDs.Member
 	r.ReplicationGroups.Member = x.ReplicationGroups.Member
+	r.ServerlessCaches.Member = x.ServerlessCaches.Member
 
 	return xmlResp(c, http.StatusOK, r)
 }
