@@ -9,9 +9,9 @@ package codeconnections
 // Host.HostArn already embed their own region
 // (arn:partition:service:region:account:resource, see regionFromARN), so
 // each is keyed directly by its own ARN with no hidden field needed --
-// region isolation for List*/duplicate-name checks falls out of the
-// byRegion/byName secondary indexes below, which derive their group key from
-// the ARN. Get/Delete/Update additionally re-check regionFromARN(arn) against
+// region isolation for List* falls out of the byRegion secondary index
+// below, which derives its group key from the ARN. Get/Delete/Update
+// additionally re-check regionFromARN(arn) against
 // the caller's context region (see backend.go) to preserve the old per-region
 // map's strict isolation (an ARN created in one region must not resolve from
 // another). Both are registered directly on b.registry.
@@ -31,10 +31,6 @@ package codeconnections
 // region field a real JSON tag, and InMemoryBackend.Reset resets each of the
 // three explicitly.
 //
-// connectionsByName/hostsByName -- the old ARN reverse-lookup maps -- are
-// replaced by secondary *store.Index values (byName) kept consistent
-// automatically by store.Table's Put/Delete/Restore; they need no
-// persistence of their own.
 import (
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -43,17 +39,9 @@ func connectionKeyFn(v *Connection) string { return v.ConnectionArn }
 
 func connectionRegionIndexKeyFn(v *Connection) string { return regionFromARN(v.ConnectionArn) }
 
-func connectionNameIndexKeyFn(v *Connection) string {
-	return regionKey(regionFromARN(v.ConnectionArn), v.ConnectionName)
-}
-
 func hostKeyFn(v *Host) string { return v.HostArn }
 
 func hostRegionIndexKeyFn(v *Host) string { return regionFromARN(v.HostArn) }
-
-func hostNameIndexKeyFn(v *Host) string {
-	return regionKey(regionFromARN(v.HostArn), v.Name)
-}
 
 func repositoryLinkKeyFn(v *RepositoryLink) string { return regionKey(v.region, v.RepositoryLinkID) }
 
@@ -85,11 +73,9 @@ func syncBlockerResourceIndexKeyFn(v *SyncBlocker) string {
 func registerAllTables(b *InMemoryBackend) {
 	b.connections = store.Register(b.registry, "connections", store.New(connectionKeyFn))
 	b.connectionsByRegion = b.connections.AddIndex("byRegion", connectionRegionIndexKeyFn)
-	b.connectionsByName = b.connections.AddIndex("byName", connectionNameIndexKeyFn)
 
 	b.hosts = store.Register(b.registry, "hosts", store.New(hostKeyFn))
 	b.hostsByRegion = b.hosts.AddIndex("byRegion", hostRegionIndexKeyFn)
-	b.hostsByName = b.hosts.AddIndex("byName", hostNameIndexKeyFn)
 
 	b.repositoryLinks = store.New(repositoryLinkKeyFn)
 	b.repositoryLinksByRegion = b.repositoryLinks.AddIndex("byRegion", repositoryLinkRegionIndexKeyFn)

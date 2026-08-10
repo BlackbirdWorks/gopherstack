@@ -19,6 +19,18 @@ func (b *InMemoryBackend) CreateSyncConfiguration(
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
 	}
 
+	if !validEnabledDisabled()[publishDeploymentStatus] {
+		return nil, fmt.Errorf("%w: invalid PublishDeploymentStatus %q", ErrValidation, publishDeploymentStatus)
+	}
+
+	if !validTriggerResourceUpdateOn()[triggerResourceUpdateOn] {
+		return nil, fmt.Errorf("%w: invalid TriggerResourceUpdateOn %q", ErrValidation, triggerResourceUpdateOn)
+	}
+
+	if !validEnabledDisabled()[pullRequestComment] {
+		return nil, fmt.Errorf("%w: invalid PullRequestComment %q", ErrValidation, pullRequestComment)
+	}
+
 	region := getRegion(ctx, b.defaultRegion)
 
 	b.mu.Lock("CreateSyncConfiguration")
@@ -166,6 +178,18 @@ func (b *InMemoryBackend) UpdateSyncConfiguration(
 ) (*SyncConfiguration, error) {
 	if syncType != "" && !validSyncTypes()[syncType] {
 		return nil, fmt.Errorf("%w: invalid SyncType %q", ErrValidation, syncType)
+	}
+
+	if !validEnabledDisabled()[publishDeploymentStatus] {
+		return nil, fmt.Errorf("%w: invalid PublishDeploymentStatus %q", ErrValidation, publishDeploymentStatus)
+	}
+
+	if !validTriggerResourceUpdateOn()[triggerResourceUpdateOn] {
+		return nil, fmt.Errorf("%w: invalid TriggerResourceUpdateOn %q", ErrValidation, triggerResourceUpdateOn)
+	}
+
+	if !validEnabledDisabled()[pullRequestComment] {
+		return nil, fmt.Errorf("%w: invalid PullRequestComment %q", ErrValidation, pullRequestComment)
 	}
 
 	region := getRegion(ctx, b.defaultRegion)

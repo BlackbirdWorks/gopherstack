@@ -1,10 +1,22 @@
 package detective
 
 import (
-	"maps"
+	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
+
+// validDatasourcePackages is the real DatasourcePackage enum (botocore
+// detective/2018-10-26 service-2.json shapes.DatasourcePackage) --
+// UpdateDatasourcePackages documents ValidationException in its error set,
+// so a package name outside this set must be rejected, not silently
+// persisted as if it were a real package.
+var validDatasourcePackages = map[string]bool{ //nolint:gochecknoglobals // static enum lookup table, never mutated.
+	"DETECTIVE_CORE":           true,
+	"EKS_AUDIT":                true,
+	"ASFF_SECURITYHUB_FINDING": true,
+}
 
 // ListDatasourcePackages returns datasource package ingest details for a graph.
 func (b *InMemoryBackend) ListDatasourcePackages(
@@ -53,6 +65,12 @@ func (b *InMemoryBackend) ListDatasourcePackages(
 
 // UpdateDatasourcePackages enables datasource packages on a graph.
 func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []string) error {
+	for _, pkg := range packages {
+		if !validDatasourcePackages[pkg] {
+			return fmt.Errorf("%w: invalid DatasourcePackage %q", ErrValidation, pkg)
+		}
+	}
+
 	b.mu.Lock("UpdateDatasourcePackages")
 	defer b.mu.Unlock()
 
@@ -64,11 +82,31 @@ func (b *InMemoryBackend) UpdateDatasourcePackages(graphARN string, packages []s
 		b.datasources[graphARN] = make(map[string]string)
 	}
 
+	if b.datasourceChangedAt[graphARN] == nil {
+		b.datasourceChangedAt[graphARN] = make(map[string]time.Time)
+	}
+
+	now := time.Now().UTC()
 	for _, pkg := range packages {
 		b.datasources[graphARN][pkg] = datasourceIngestStateStarted
+		b.datasourceChangedAt[graphARN][pkg] = now
 	}
 
 	return nil
+}
+
+// ingestHistoryLocked builds the DatasourcePackageIngestHistory shape (package
+// -> current ingest state -> the time that state began) for graphARN. Callers
+// must hold b.mu (either lock).
+func (b *InMemoryBackend) ingestHistoryLocked(graphARN string) map[string]map[string]time.Time {
+	history := make(map[string]map[string]time.Time)
+
+	for pkg, state := range b.datasources[graphARN] {
+		changedAt := b.datasourceChangedAt[graphARN][pkg]
+		history[pkg] = map[string]time.Time{state: changedAt}
+	}
+
+	return history
 }
 
 // BatchGetGraphMemberDatasources returns datasource package info for member accounts of a graph.
@@ -96,15 +134,10 @@ func (b *InMemoryBackend) BatchGetGraphMemberDatasources(
 			continue
 		}
 
-		pkgStates := make(map[string]string)
-		if pkgMap := b.datasources[graphARN]; pkgMap != nil {
-			maps.Copy(pkgStates, pkgMap)
-		}
-
 		results = append(results, MembershipDatasources{
-			AccountID:                     id,
-			GraphARN:                      graphARN,
-			DatasourcePackageIngestStates: pkgStates,
+			AccountID:     id,
+			GraphARN:      graphARN,
+			IngestHistory: b.ingestHistoryLocked(graphARN),
 		})
 	}
 
@@ -131,15 +164,10 @@ func (b *InMemoryBackend) BatchGetMembershipDatasources(
 			continue
 		}
 
-		pkgStates := make(map[string]string)
-		if pkgMap := b.datasources[graphARN]; pkgMap != nil {
-			maps.Copy(pkgStates, pkgMap)
-		}
-
 		results = append(results, MembershipDatasources{
-			AccountID:                     b.accountID,
-			GraphARN:                      graphARN,
-			DatasourcePackageIngestStates: pkgStates,
+			AccountID:     b.accountID,
+			GraphARN:      graphARN,
+			IngestHistory: b.ingestHistoryLocked(graphARN),
 		})
 	}
 

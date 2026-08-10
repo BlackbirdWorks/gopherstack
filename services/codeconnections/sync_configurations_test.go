@@ -1,6 +1,7 @@
 package codeconnections_test
 
 import (
+	"maps"
 	"net/http"
 	"strconv"
 	"testing"
@@ -105,6 +106,127 @@ func TestCreateSyncConfiguration(t *testing.T) {
 				assert.Equal(t, "my-stack", cfg["ResourceName"])
 				assert.Equal(t, "CFN_STACK_SYNC", cfg["SyncType"])
 			}
+		})
+	}
+}
+
+// TestCreateSyncConfigurationEnumValidation verifies PublishDeploymentStatus/
+// TriggerResourceUpdateOn/PullRequestComment reject values outside their real
+// enums (aws-sdk-go-v2/service/codeconnections@v1.13.4 types/enums.go:89-105
+// PublishDeploymentStatus={ENABLED,DISABLED}; :108-124 PullRequestComment=
+// {ENABLED,DISABLED}; :192-208 TriggerResourceUpdateOn={ANY_CHANGE,
+// FILE_CHANGE}). None of the three are required input members, so omitting
+// them must still succeed.
+func TestCreateSyncConfigurationEnumValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		extra      map[string]any
+		name       string
+		wantStatus int
+	}{
+		{name: "omitted_fields_ok", extra: nil, wantStatus: http.StatusOK},
+		{
+			name:       "valid_publish_deployment_status",
+			extra:      map[string]any{"PublishDeploymentStatus": "ENABLED"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_publish_deployment_status",
+			extra:      map[string]any{"PublishDeploymentStatus": "MAYBE"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid_trigger_resource_update_on",
+			extra:      map[string]any{"TriggerResourceUpdateOn": "FILE_CHANGE"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_trigger_resource_update_on",
+			extra:      map[string]any{"TriggerResourceUpdateOn": "EVERY_CHANGE"},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "valid_pull_request_comment",
+			extra:      map[string]any{"PullRequestComment": "DISABLED"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "invalid_pull_request_comment",
+			extra:      map[string]any{"PullRequestComment": "SOMETIMES"},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			connArn := createConn(t, h, "enum-conn-"+tt.name, "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "enum-repo-"+tt.name)
+
+			body := map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "config.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "stack-" + tt.name,
+				"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+				"SyncType":         "CFN_STACK_SYNC",
+			}
+			maps.Copy(body, tt.extra)
+
+			rec := doJSON(t, h, "CreateSyncConfiguration", body)
+			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body.String())
+		})
+	}
+}
+
+// TestUpdateSyncConfigurationEnumValidation mirrors
+// TestCreateSyncConfigurationEnumValidation for UpdateSyncConfiguration; an
+// empty string is the existing "leave unchanged" sentinel for these fields
+// (see UpdateSyncConfiguration in sync_configurations.go), so it must remain
+// accepted alongside the two real enum members.
+func TestUpdateSyncConfigurationEnumValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		field      string
+		value      string
+		wantStatus int
+	}{
+		{field: "PublishDeploymentStatus", value: "ENABLED", wantStatus: http.StatusOK},
+		{field: "PublishDeploymentStatus", value: "MAYBE", wantStatus: http.StatusBadRequest},
+		{field: "TriggerResourceUpdateOn", value: "ANY_CHANGE", wantStatus: http.StatusOK},
+		{field: "TriggerResourceUpdateOn", value: "EVERY_CHANGE", wantStatus: http.StatusBadRequest},
+		{field: "PullRequestComment", value: "DISABLED", wantStatus: http.StatusOK},
+		{field: "PullRequestComment", value: "SOMETIMES", wantStatus: http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.field+"_"+tt.value, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			connArn := createConn(t, h, "upd-enum-conn-"+tt.field+tt.value, "GitHub")
+			linkID := createRepositoryLink(t, h, connArn, "my-org", "upd-enum-repo-"+tt.field+tt.value)
+
+			createRec := doJSON(t, h, "CreateSyncConfiguration", map[string]any{
+				"Branch":           "main",
+				"ConfigFile":       "config.yaml",
+				"RepositoryLinkId": linkID,
+				"ResourceName":     "upd-stack-" + tt.field + tt.value,
+				"RoleArn":          "arn:aws:iam::123456789012:role/sync-role",
+				"SyncType":         "CFN_STACK_SYNC",
+			})
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			rec := doJSON(t, h, "UpdateSyncConfiguration", map[string]any{
+				"ResourceName": "upd-stack-" + tt.field + tt.value,
+				"SyncType":     "CFN_STACK_SYNC",
+				tt.field:       tt.value,
+			})
+			assert.Equal(t, tt.wantStatus, rec.Code, "body: %s", rec.Body.String())
 		})
 	}
 }
@@ -660,7 +782,7 @@ func TestUpdateSyncConfigurationPublishDeploymentStatus(t *testing.T) {
 // TestSyncConfigurationPullRequestComment verifies that PullRequestComment is
 // stored and returned in CreateSyncConfiguration/GetSyncConfiguration
 // responses. Real AWS CodeConnections (aws-sdk-go-v2/service/codeconnections@
-// v1.10.22 types.SyncConfiguration/CreateSyncConfigurationInput) has this
+// v1.13.4 types.SyncConfiguration/CreateSyncConfigurationInput) has this
 // field; it was previously entirely unimplemented in this service.
 func TestSyncConfigurationPullRequestComment(t *testing.T) {
 	t.Parallel()

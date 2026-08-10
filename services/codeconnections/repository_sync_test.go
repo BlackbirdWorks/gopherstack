@@ -135,7 +135,7 @@ func TestGetResourceSyncStatus(t *testing.T) {
 // returns the complete real wire shape: LatestSync.Target/InitialRevision/
 // TargetRevision (previously entirely missing from the response), plus the
 // top-level DesiredState and LatestSuccessfulSync members (previously
-// unpopulated). Real aws-sdk-go-v2/service/codeconnections@v1.10.22
+// unpopulated). Real aws-sdk-go-v2/service/codeconnections@v1.13.4
 // types.ResourceSyncAttempt requires Events/InitialRevision/StartedAt/
 // Status/Target/TargetRevision; GetResourceSyncStatusOutput additionally
 // carries optional DesiredState/LatestSuccessfulSync.

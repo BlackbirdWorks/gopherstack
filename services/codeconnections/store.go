@@ -54,10 +54,10 @@ func regionKey(region, id string) string {
 //
 // connections and hosts are "clean" store.Table collections (see
 // store_setup.go): each is keyed directly by its own ARN, which already
-// embeds its region, so region isolation for Get/Delete/List/duplicate-name
-// checks falls out of the byRegion/byName secondary indexes below, which
-// derive their group key from the ARN. Both are registered directly on
-// registry. repositoryLinks and syncConfigurations are "dirty": their own
+// embeds its region, so region isolation for Get/Delete/List falls out of
+// the byRegion secondary index below, which derives its group key from the
+// ARN. Both are registered directly on registry. repositoryLinks and
+// syncConfigurations are "dirty": their own
 // identity (RepositoryLinkID; ResourceName+SyncType) carries no region of its
 // own, and lookups are scoped by the caller's context region rather than by
 // any ARN, so each carries an unexported region-qualifying field and is
@@ -72,11 +72,9 @@ type InMemoryBackend struct {
 
 	connections         *store.Table[Connection]
 	connectionsByRegion *store.Index[Connection]
-	connectionsByName   *store.Index[Connection]
 
 	hosts         *store.Table[Host]
 	hostsByRegion *store.Index[Host]
-	hostsByName   *store.Index[Host]
 
 	repositoryLinks         *store.Table[RepositoryLink]
 	repositoryLinksByRegion *store.Index[RepositoryLink]

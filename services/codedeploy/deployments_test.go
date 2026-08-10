@@ -19,11 +19,12 @@ func TestHandler_CreateDeployment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		input      map[string]any
-		setup      func(h *codedeploy.Handler)
-		name       string
-		wantStatus int
-		wantID     bool
+		input       map[string]any
+		setup       func(h *codedeploy.Handler)
+		name        string
+		wantErrType string
+		wantStatus  int
+		wantID      bool
 	}{
 		{
 			name: "success",
@@ -53,6 +54,46 @@ func TestHandler_CreateDeployment(t *testing.T) {
 			},
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name: "success_valid_file_exists_behavior",
+			setup: func(h *codedeploy.Handler) {
+				_, err := h.Backend.CreateApplication("my-app", "Server", nil)
+				if err != nil {
+					panic(err)
+				}
+				_, err = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				if err != nil {
+					panic(err)
+				}
+			},
+			input: map[string]any{
+				"applicationName":     "my-app",
+				"deploymentGroupName": "my-dg",
+				"fileExistsBehavior":  "OVERWRITE",
+			},
+			wantStatus: http.StatusOK,
+			wantID:     true,
+		},
+		{
+			name: "invalid_file_exists_behavior",
+			setup: func(h *codedeploy.Handler) {
+				_, err := h.Backend.CreateApplication("my-app", "Server", nil)
+				if err != nil {
+					panic(err)
+				}
+				_, err = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				if err != nil {
+					panic(err)
+				}
+			},
+			input: map[string]any{
+				"applicationName":     "my-app",
+				"deploymentGroupName": "my-dg",
+				"fileExistsBehavior":  "BOGUS",
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidFileExistsBehaviorException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -73,6 +114,12 @@ func TestHandler_CreateDeployment(t *testing.T) {
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 				assert.NotEmpty(t, resp["deploymentId"])
 				assert.True(t, len(resp["deploymentId"]) > 2 && resp["deploymentId"][:2] == "d-")
+			}
+
+			if tt.wantErrType != "" {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantErrType, resp["__type"])
 			}
 		})
 	}
@@ -488,21 +535,35 @@ func TestDeployments_ListStatusFilter(t *testing.T) {
 	}
 }
 
+// TestHandler_ContinueDeployment covers the real ContinueDeployment
+// preconditions: aws-sdk-go-v2/service/codedeploy@v1.38.4/types/errors.go:556-557
+// ("The deployment does not have a status of Ready and can't continue yet.")
+// and :221 ("The deployment is already complete."). CreateDeployment in this
+// backend completes synchronously (statusSucceeded), so a deployment only
+// ever reaches Ready via direct seeding -- exercising the not-ready and
+// already-completed paths this backend previously skipped entirely.
 func TestHandler_ContinueDeployment(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(h *codedeploy.Handler) string
-		input      func(deployID string) map[string]any
-		name       string
-		wantStatus int
+		setup       func(h *codedeploy.Handler) string
+		input       func(deployID string) map[string]any
+		name        string
+		wantErrType string
+		wantStatus  int
 	}{
 		{
-			name: "success",
+			name: "success_ready_state",
 			setup: func(h *codedeploy.Handler) string {
 				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
 				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
-				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
+				d := &codedeploy.Deployment{
+					DeploymentID:        "d-READY0001",
+					ApplicationName:     "my-app",
+					DeploymentGroupName: "my-dg",
+					Status:              "Ready",
+				}
+				h.Backend.AddDeploymentInternal(d)
 
 				return d.DeploymentID
 			},
@@ -530,6 +591,66 @@ func TestHandler_ContinueDeployment(t *testing.T) {
 			},
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name: "already_completed",
+			setup: func(h *codedeploy.Handler) string {
+				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d, _ := createDeploy(h.Backend, "my-app", "my-dg", "", "")
+
+				return d.DeploymentID
+			},
+			input: func(deployID string) map[string]any {
+				return map[string]any{"deploymentId": deployID}
+			},
+			wantStatus:  http.StatusConflict,
+			wantErrType: "DeploymentAlreadyCompletedException",
+		},
+		{
+			name: "not_in_ready_state",
+			setup: func(h *codedeploy.Handler) string {
+				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d := &codedeploy.Deployment{
+					DeploymentID:        "d-INPROG001",
+					ApplicationName:     "my-app",
+					DeploymentGroupName: "my-dg",
+					Status:              "InProgress",
+				}
+				h.Backend.AddDeploymentInternal(d)
+
+				return d.DeploymentID
+			},
+			input: func(deployID string) map[string]any {
+				return map[string]any{"deploymentId": deployID}
+			},
+			wantStatus:  http.StatusConflict,
+			wantErrType: "DeploymentIsNotInReadyStateException",
+		},
+		{
+			name: "invalid_wait_type",
+			setup: func(h *codedeploy.Handler) string {
+				_, _ = h.Backend.CreateApplication("my-app", "Server", nil)
+				_, _ = createDG(h.Backend, "my-app", "my-dg", "", "", nil)
+				d := &codedeploy.Deployment{
+					DeploymentID:        "d-READY0002",
+					ApplicationName:     "my-app",
+					DeploymentGroupName: "my-dg",
+					Status:              "Ready",
+				}
+				h.Backend.AddDeploymentInternal(d)
+
+				return d.DeploymentID
+			},
+			input: func(deployID string) map[string]any {
+				return map[string]any{
+					"deploymentId":       deployID,
+					"deploymentWaitType": "BOGUS_WAIT",
+				}
+			},
+			wantStatus:  http.StatusBadRequest,
+			wantErrType: "InvalidDeploymentWaitTypeException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -541,6 +662,12 @@ func TestHandler_ContinueDeployment(t *testing.T) {
 
 			rec := doRequest(t, h, "ContinueDeployment", tt.input(deployID))
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantErrType != "" {
+				var resp map[string]string
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				assert.Equal(t, tt.wantErrType, resp["__type"])
+			}
 		})
 	}
 }

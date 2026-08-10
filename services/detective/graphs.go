@@ -56,7 +56,8 @@ func (b *InMemoryBackend) CreateGraph(tags map[string]string) (*Graph, error) {
 }
 
 // deleteGraphLocked deletes graphARN and cascades cleanup of every map keyed
-// by it (members, investigations, tags, datasources, orgConfigs). Callers
+// by it (members, investigations, tags, datasources, datasourceChangedAt,
+// orgConfigs). Callers
 // must hold b.mu for writing. Shared by DeleteGraph and
 // DisableOrganizationAdminAccount, which both destroy a behavior graph.
 // Returns false if graphARN does not exist (no-op).
@@ -77,6 +78,7 @@ func (b *InMemoryBackend) deleteGraphLocked(graphARN string) bool {
 
 	delete(b.tags, graphARN)
 	delete(b.datasources, graphARN)
+	delete(b.datasourceChangedAt, graphARN)
 	delete(b.orgConfigs, graphARN)
 
 	return true

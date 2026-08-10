@@ -163,3 +163,44 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, _, err = restored.ListMembers(g.Arn, 0, "")
 	require.Error(t, err)
 }
+
+// TestInMemoryBackend_SnapshotRestore_DatasourceIngestHistory verifies the
+// per-package ingest-state-change timestamp added this pass (gopherstack-c902,
+// backing MembershipDatasources.IngestHistory) survives a snapshot/restore
+// round trip instead of resetting to the zero time.
+func TestInMemoryBackend_SnapshotRestore_DatasourceIngestHistory(t *testing.T) {
+	t.Parallel()
+
+	original := detective.NewInMemoryBackend("111111111111", "us-east-1")
+	ctx := t.Context()
+
+	g, err := original.CreateGraph(nil)
+	require.NoError(t, err)
+
+	_, unprocessed, err := original.CreateMembers(g.Arn, []detective.Account{
+		{AccountID: "222233334444", EmailAddress: "member@example.com"},
+	}, "")
+	require.NoError(t, err)
+	require.Empty(t, unprocessed)
+
+	require.NoError(t, original.UpdateDatasourcePackages(g.Arn, []string{"DETECTIVE_CORE"}))
+
+	before, _, err := original.BatchGetGraphMemberDatasources(g.Arn, []string{"222233334444"})
+	require.NoError(t, err)
+	require.Len(t, before, 1)
+	beforeTime := before[0].IngestHistory["DETECTIVE_CORE"]["STARTED"]
+	require.False(t, beforeTime.IsZero())
+
+	data := original.Snapshot(ctx)
+	require.NotNil(t, data)
+
+	restored := detective.NewInMemoryBackend("000000000000", "")
+	require.NoError(t, restored.Restore(ctx, data))
+
+	after, _, err := restored.BatchGetGraphMemberDatasources(g.Arn, []string{"222233334444"})
+	require.NoError(t, err)
+	require.Len(t, after, 1)
+	afterTime := after[0].IngestHistory["DETECTIVE_CORE"]["STARTED"]
+	assert.True(t, beforeTime.Equal(afterTime),
+		"ingest-state-change timestamp must survive snapshot/restore unchanged")
+}

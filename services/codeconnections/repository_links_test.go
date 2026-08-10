@@ -464,7 +464,7 @@ func TestListRepositoryLinksPagination(t *testing.T) {
 // TestRepositoryLinkNoTagsFieldInListItem verifies that ListRepositoryLinks
 // (and CreateRepositoryLink/GetRepositoryLink) items have NO "Tags" field:
 // the real RepositoryLinkInfo wire type (aws-sdk-go-v2/service/
-// codeconnections@v1.10.22 types.RepositoryLinkInfo) has no Tags member at
+// codeconnections@v1.13.4 types.RepositoryLinkInfo) has no Tags member at
 // all -- tags for a repository link are retrievable only via
 // ListTagsForResource, exercised here too so the tags themselves are not
 // lost, just moved to the right operation.

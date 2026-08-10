@@ -493,6 +493,42 @@ func TestListIndicators_DetailShape(t *testing.T) {
 	}
 }
 
+// TestListIndicators_InvalidIndicatorTypeRejected verifies an IndicatorType
+// filter outside the real 8-value enum (botocore detective/2018-10-26
+// service-2.json shapes.IndicatorType) is rejected with ValidationException,
+// matching ListIndicators' documented error set (which includes
+// ValidationException) rather than silently returning an empty Indicators
+// list for a value the real API would reject before it ever reaches
+// business logic.
+func TestListIndicators_InvalidIndicatorTypeRejected(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	parseJSON(t, rec.Body.Bytes(), &gResp)
+	graphARN := gResp["GraphArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/investigations/startInvestigation", map[string]any{
+		"GraphArn":       graphARN,
+		"EntityArn":      "arn:aws:iam::123456789012:user/testuser",
+		"ScopeStartTime": "2024-01-01T00:00:00Z",
+		"ScopeEndTime":   "2024-01-31T00:00:00Z",
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+	var invResp map[string]any
+	parseJSON(t, rec2.Body.Bytes(), &invResp)
+	invID := invResp["InvestigationId"].(string)
+
+	rec3 := doRequest(t, h, http.MethodPost, "/investigations/listIndicators", map[string]any{
+		"GraphArn":        graphARN,
+		"InvestigationId": invID,
+		"IndicatorType":   "NOT_A_REAL_INDICATOR_TYPE",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec3.Code)
+}
+
 // TestHandleStartInvestigation_RequiresScopeTimes verifies ScopeStartTime and
 // ScopeEndTime are enforced as required (both are marked "This member is
 // required" on StartInvestigationInput in the real SDK). Before this test,

@@ -32,7 +32,7 @@ func (b *InMemoryBackend) GetRepositorySyncStatus(
 // syntheticRevisionSha deterministically derives a git-commit-shaped Sha
 // (40 lowercase hex chars, matching a real SHA-1 git object ID) from stable
 // sync-configuration identity fields. The real SHA wire type
-// (aws-sdk-go-v2/service/codeconnections@v1.10.22 types.SHA) is unconstrained
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 types.SHA) is unconstrained
 // beyond min:1/max:255, but this emulation always returns the same value for
 // the same configuration rather than a fabricated/random one, since nothing
 // in this backend tracks actual repository commit history.
