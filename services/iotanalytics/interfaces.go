@@ -2,6 +2,27 @@ package iotanalytics
 
 import "context"
 
+// LambdaInvoker is the subset of Lambda operations RunPipelineActivity's "lambda"
+// activity needs to invoke a function on a batch of messages (same shape as
+// services/firehose/interfaces.go's LambdaInvoker, which *lambda.InMemoryBackend
+// already satisfies).
+type LambdaInvoker interface {
+	InvokeFunction(ctx context.Context, name, invocationType string, payload []byte) ([]byte, int, error)
+}
+
+// ThingRegistry looks up AWS IoT device registry data for the "deviceRegistryEnrich"
+// activity (iot:DescribeThing -- see the CloudFormation docs for
+// AWS::IoTAnalytics::Pipeline DeviceRegistryEnrich's RoleArn requirement).
+type ThingRegistry interface {
+	DescribeThing(thingName string) (map[string]any, error)
+}
+
+// ThingShadowStore looks up the AWS IoT classic device shadow for the
+// "deviceShadowEnrich" activity (iot:GetThingShadow).
+type ThingShadowStore interface {
+	GetThingShadow(thingName string) (map[string]any, error)
+}
+
 // StorageBackend is the interface for the IoT Analytics backend.
 type StorageBackend interface {
 	CreateChannel(
@@ -87,7 +108,7 @@ type StorageBackend interface {
 	DescribeLoggingOptions() (*LoggingOptions, error)
 	PutLoggingOptions(options *LoggingOptions) error
 
-	RunPipelineActivity(activity PipelineActivity, payloads [][]byte) ([][]byte, error)
+	RunPipelineActivity(ctx context.Context, activity PipelineActivity, payloads [][]byte) ([][]byte, error)
 
 	Reset()
 }

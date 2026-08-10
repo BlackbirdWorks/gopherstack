@@ -518,6 +518,11 @@ linters:
       # rather than sprinkling ~15 identical inline nolints.
       - path: 'iotanalytics/handler_create_tags_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
+      # cli.go composition-root wiring test also drives the deprecated iotanalytics
+      # SDK client end to end.
+      - path: 'cli_iotanalytics_lambda_iot_wiring_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

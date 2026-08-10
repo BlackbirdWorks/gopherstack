@@ -185,7 +185,7 @@ func TestInMemoryBackend_RunPipelineActivity_AttributeActivities(t *testing.T) {
 
 			b := iotanalytics.NewInMemoryBackend()
 
-			out, err := b.RunPipelineActivity(tt.activity, [][]byte{[]byte(tt.payload)})
+			out, err := b.RunPipelineActivity(t.Context(), tt.activity, [][]byte{[]byte(tt.payload)})
 			require.NoError(t, err)
 			require.Len(t, out, 1)
 

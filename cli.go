@@ -3262,6 +3262,10 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// Wire IoT rules → SQS/Lambda action dispatch, and broker → IoT Data Plane.
 	wireIoTRules(byName["IoT"], byName["IoTDataPlane"], byName["SQS"], byName["Lambda"])
 
+	// Wire IoT Analytics' RunPipelineActivity lambda/deviceRegistryEnrich/
+	// deviceShadowEnrich activities to the real Lambda and IoT backends.
+	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"])
+
 	// Wire AppConfig → AppConfigData so a completed deployment's
 	// configuration becomes observable through GetLatestConfiguration polling.
 	wireAppConfigDeployments(byName["AppConfig"], byName["AppConfigData"])
@@ -10937,6 +10941,85 @@ func wireGlacierS3(glacierReg, s3Reg service.Registerable) {
 	}
 
 	glBk.SetS3Backend(s3Bk)
+}
+
+// iotAnalyticsThingRegistryAdapter adapts the IoT backend's DescribeThing to the
+// iotanalytics.ThingRegistry interface for the "deviceRegistryEnrich" pipeline activity
+// (iot:DescribeThing, per the CloudFormation docs for AWS::IoTAnalytics::Pipeline
+// DeviceRegistryEnrich's RoleArn requirement).
+type iotAnalyticsThingRegistryAdapter struct {
+	backend *iotbackend.InMemoryBackend
+}
+
+func (a *iotAnalyticsThingRegistryAdapter) DescribeThing(thingName string) (map[string]any, error) {
+	t, err := a.backend.DescribeThing(thingName)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"thingName":     t.ThingName,
+		"thingId":       t.ThingID,
+		"thingArn":      t.ARN,
+		"thingTypeName": t.ThingTypeName,
+		"attributes":    t.Attributes,
+		"version":       t.Version,
+	}, nil
+}
+
+// iotAnalyticsThingShadowAdapter adapts the IoT backend's GetThingShadow (classic shadow) to
+// the iotanalytics.ThingShadowStore interface for the "deviceShadowEnrich" pipeline activity
+// (iot:GetThingShadow).
+type iotAnalyticsThingShadowAdapter struct {
+	backend *iotbackend.InMemoryBackend
+}
+
+func (a *iotAnalyticsThingShadowAdapter) GetThingShadow(thingName string) (map[string]any, error) {
+	s, err := a.backend.GetThingShadow(thingName, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"state":    s.State,
+		"metadata": s.Metadata,
+		"version":  s.Version,
+	}, nil
+}
+
+// wireIoTAnalyticsCrossService wires RunPipelineActivity's lambda/deviceRegistryEnrich/
+// deviceShadowEnrich activities (services/iotanalytics/pipelines.go) to the real Lambda and
+// IoT backends, following the same LambdaInvoker/adapter patterns wireStorageAndSecretsIntegrations
+// already uses for SNS, Firehose, and SecretsManager.
+func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerable) {
+	iotaH, ok := iotaReg.(*iotanalyticsbackend.Handler)
+	if !ok {
+		return
+	}
+
+	iotaBk, bkOk := iotaH.Backend.(*iotanalyticsbackend.InMemoryBackend)
+	if !bkOk {
+		return
+	}
+
+	if lambdaH, lambdaOk := lambdaReg.(*lambdabackend.Handler); lambdaOk {
+		if lambdaBk, lbkOk := lambdaH.Backend.(*lambdabackend.InMemoryBackend); lbkOk {
+			iotaBk.SetLambdaBackend(lambdaBk)
+		}
+	}
+
+	iotH, iotOk := iotReg.(*iotbackend.Handler)
+	if !iotOk {
+		return
+	}
+
+	iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
+	if !ibkOk {
+		return
+	}
+
+	iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
+	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
 }
 
 // cfnLightsailStackAdapter adapts the CloudFormation backend's real

@@ -105,7 +105,7 @@ func TestInMemoryBackend_RunPipelineActivity_Filter(t *testing.T) {
 				Filter: &iotanalytics.PipelineFilterActivity{Name: "f", Filter: tt.filter},
 			}
 
-			out, err := b.RunPipelineActivity(activity, tt.payloads)
+			out, err := b.RunPipelineActivity(t.Context(), activity, tt.payloads)
 			require.NoError(t, err)
 			assert.Len(t, out, tt.wantLen)
 		})
@@ -148,6 +148,62 @@ func TestInMemoryBackend_RunPipelineActivity_Math(t *testing.T) {
 			wantValue: 1,
 		},
 		{
+			name:      "sqrt_function",
+			math:      "sqrt(x)",
+			attribute: "y",
+			payload:   `{"x":16}`,
+			wantValue: 4,
+		},
+		{
+			name:      "abs_function",
+			math:      "abs(x)",
+			attribute: "y",
+			payload:   `{"x":-7}`,
+			wantValue: 7,
+		},
+		{
+			name:      "power_function_two_args",
+			math:      "power(x, 3)",
+			attribute: "y",
+			payload:   `{"x":2}`,
+			wantValue: 8,
+		},
+		{
+			name:      "mod_function_two_args",
+			math:      "mod(x, 3)",
+			attribute: "y",
+			payload:   `{"x":10}`,
+			wantValue: 1,
+		},
+		{
+			name:      "trunc_function_two_args",
+			math:      "trunc(x, 1)",
+			attribute: "y",
+			payload:   `{"x":3.14159}`,
+			wantValue: 3.1,
+		},
+		{
+			name:      "nested_function_and_arithmetic",
+			math:      "round(sqrt(x)) + 1",
+			attribute: "y",
+			payload:   `{"x":17}`,
+			wantValue: 5,
+		},
+		{
+			name:      "unknown_function_unchanged",
+			math:      "notafunction(x)",
+			attribute: "y",
+			payload:   `{"x":5}`,
+			wantSame:  true,
+		},
+		{
+			name:      "function_wrong_arity_unchanged",
+			math:      "sqrt(x, y)",
+			attribute: "y",
+			payload:   `{"x":5,"y":2}`,
+			wantSame:  true,
+		},
+		{
 			name:      "malformed_expression_unchanged",
 			math:      "x +",
 			attribute: "y",
@@ -179,7 +235,7 @@ func TestInMemoryBackend_RunPipelineActivity_Math(t *testing.T) {
 				Math: &iotanalytics.PipelineMathActivity{Name: "m", Attribute: tt.attribute, Math: tt.math},
 			}
 
-			out, err := b.RunPipelineActivity(activity, [][]byte{[]byte(tt.payload)})
+			out, err := b.RunPipelineActivity(t.Context(), activity, [][]byte{[]byte(tt.payload)})
 			require.NoError(t, err)
 			require.Len(t, out, 1)
 
@@ -196,10 +252,11 @@ func TestInMemoryBackend_RunPipelineActivity_Math(t *testing.T) {
 	}
 }
 
-// TestInMemoryBackend_RunPipelineActivity_PassThrough verifies that activity types this
-// backend cannot execute for real (channel/datastore source-sink activities, and
-// lambda/deviceRegistryEnrich/deviceShadowEnrich, which would require cross-service calls
-// this backend has no wiring for) pass payloads through unchanged rather than erroring.
+// TestInMemoryBackend_RunPipelineActivity_PassThrough verifies that channel/datastore
+// (legitimately pass-through source/sink activities in real AWS too) and unwired
+// lambda/deviceRegistryEnrich/deviceShadowEnrich (no SetLambdaBackend/SetThingRegistry/
+// SetThingShadowStore call -- see pipelines_wiring_test.go for the wired-path behavior)
+// pass payloads through unchanged rather than erroring.
 func TestInMemoryBackend_RunPipelineActivity_PassThrough(t *testing.T) {
 	t.Parallel()
 
@@ -251,7 +308,7 @@ func TestInMemoryBackend_RunPipelineActivity_PassThrough(t *testing.T) {
 
 			b := iotanalytics.NewInMemoryBackend()
 
-			out, err := b.RunPipelineActivity(tt.activity, payloads)
+			out, err := b.RunPipelineActivity(t.Context(), tt.activity, payloads)
 			require.NoError(t, err)
 			require.Len(t, out, len(payloads))
 

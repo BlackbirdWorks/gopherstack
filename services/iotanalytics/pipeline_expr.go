@@ -22,10 +22,11 @@ import (
 // + - * / %, the comparison operators = != <> < <= > >=, the logical
 // operators AND / OR / NOT, and parenthesized grouping.
 //
-// AWS's real grammar is an open SQL-like superset that also supports
-// functions (e.g. TRIM, SUBSTR, date functions). Those are not implemented
-// here -- expressions using them fail to parse. See PARITY.md
-// items_still_open.
+// The math activity additionally supports a documented set of numeric functions (see
+// mathFuncs1/mathFuncs2 and https://docs.aws.amazon.com/iotanalytics/latest/userguide/
+// math-operators-functions.html); the filter activity's grammar beyond comparison/logical
+// operators (LIKE, IN, BETWEEN, and any function library) has no equivalent published
+// grammar reference and is intentionally not implemented -- see PARITY.md items_still_open.
 // ----------------------------------------
 
 // ErrExprSyntax is returned when a pipeline filter/math expression fails to parse or evaluate.
@@ -57,6 +58,7 @@ const (
 	tokPercent
 	tokLParen
 	tokRParen
+	tokComma
 )
 
 type token struct {
@@ -153,6 +155,8 @@ func singleCharToken(c rune) (tokenKind, bool) {
 		return tokLParen, true
 	case ')':
 		return tokRParen, true
+	case ',':
+		return tokComma, true
 	case '+':
 		return tokPlus, true
 	case '-':
@@ -439,12 +443,49 @@ func (p *exprParser) parsePrimary() (exprNode, error) {
 	case tokNull:
 		return nullLit{}, nil
 	case tokIdent:
+		if p.peek().kind == tokLParen {
+			return p.parseFuncCall(t.text)
+		}
+
 		return identNode{name: t.text}, nil
 	case tokLParen:
 		return p.parseParenGroup()
 	default:
 		return nil, fmt.Errorf("%w: unexpected token", ErrExprSyntax)
 	}
+}
+
+// parseFuncCall parses a math function call "name(arg, arg, ...)" -- the opening
+// parenthesis has been peeked but not consumed.
+func (p *exprParser) parseFuncCall(name string) (exprNode, error) {
+	p.next()
+
+	var args []exprNode
+
+	if p.peek().kind != tokRParen {
+		for {
+			arg, err := p.parseOr()
+			if err != nil {
+				return nil, err
+			}
+
+			args = append(args, arg)
+
+			if p.peek().kind != tokComma {
+				break
+			}
+
+			p.next()
+		}
+	}
+
+	if p.peek().kind != tokRParen {
+		return nil, fmt.Errorf("%w: expected closing parenthesis in call to %s", ErrExprSyntax, name)
+	}
+
+	p.next()
+
+	return funcCallNode{name: name, args: args}, nil
 }
 
 func (p *exprParser) parseParenGroup() (exprNode, error) {
@@ -502,6 +543,107 @@ func (id identNode) eval(msg map[string]any) (any, error) {
 	}
 
 	return v, nil
+}
+
+// mathFuncs1/mathFuncs2 are the documented math activity functions
+// (docs.aws.amazon.com/iotanalytics/latest/userguide/math-operators-functions.html):
+// abs/acos/asin/atan/ceil/cos/cosh/exp/ln/log/round/sign/sin/sinh/sqrt/tan/tanh take one
+// Decimal argument; atan2/mod/power/trunc take two. log is base-10 (log10), matching ln's
+// separate natural-log entry.
+//
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var mathFuncs1 = map[string]func(float64) float64{
+	"abs": math.Abs, "acos": math.Acos, "asin": math.Asin, "atan": math.Atan,
+	"ceil": math.Ceil, "cos": math.Cos, "cosh": math.Cosh, "exp": math.Exp,
+	"ln": math.Log, "log": math.Log10, "round": math.Round, "sign": mathSign,
+	"sin": math.Sin, "sinh": math.Sinh, "sqrt": math.Sqrt, "tan": math.Tan, "tanh": math.Tanh,
+}
+
+//nolint:gochecknoglobals // read-only dispatch table initialized once at startup
+var mathFuncs2 = map[string]func(float64, float64) float64{
+	"atan2": math.Atan2, "mod": math.Mod, "power": math.Pow, "trunc": mathTrunc,
+}
+
+func mathSign(x float64) float64 {
+	switch {
+	case x > 0:
+		return 1
+	case x < 0:
+		return -1
+	default:
+		return 0
+	}
+}
+
+// decimalBase is trunc(x, places)'s scale base -- AWS's trunc(Decimal, int) truncates to a
+// number of base-10 decimal places.
+const decimalBase = 10
+
+func mathTrunc(x, places float64) float64 {
+	scale := math.Pow(decimalBase, places)
+
+	return math.Trunc(x*scale) / scale
+}
+
+// funcCallNode is a math function call, e.g. "sqrt(x)" or "power(x, 2)".
+type funcCallNode struct {
+	name string
+	args []exprNode
+}
+
+// mathFunc1Arity/mathFunc2Arity are the argument counts mathFuncs1/mathFuncs2 require.
+const (
+	mathFunc1Arity = 1
+	mathFunc2Arity = 2
+)
+
+func (f funcCallNode) eval(msg map[string]any) (any, error) {
+	name := strings.ToLower(f.name)
+
+	if fn, ok := mathFuncs1[name]; ok {
+		x, err := f.evalArg(msg, 0, mathFunc1Arity)
+		if err != nil {
+			return nil, err
+		}
+
+		return fn(x), nil
+	}
+
+	if fn, ok := mathFuncs2[name]; ok {
+		x, err := f.evalArg(msg, 0, mathFunc2Arity)
+		if err != nil {
+			return nil, err
+		}
+
+		y, err := f.evalArg(msg, 1, mathFunc2Arity)
+		if err != nil {
+			return nil, err
+		}
+
+		return fn(x, y), nil
+	}
+
+	return nil, fmt.Errorf("%w: unknown function %q", ErrExprSyntax, f.name)
+}
+
+// evalArg evaluates and numeric-coerces args[i], first checking the call has exactly
+// wantArgs arguments.
+func (f funcCallNode) evalArg(msg map[string]any, i, wantArgs int) (float64, error) {
+	if len(f.args) != wantArgs {
+		return 0, fmt.Errorf("%w: %s takes %d argument(s)", ErrExprSyntax, f.name, wantArgs)
+	}
+
+	v, err := f.args[i].eval(msg)
+	if err != nil {
+		return 0, err
+	}
+
+	fv, ok := toFloat(v)
+	if !ok {
+		return 0, fmt.Errorf("%w: argument to %s must be numeric", ErrExprSyntax, f.name)
+	}
+
+	return fv, nil
 }
 
 type unaryNode struct {
