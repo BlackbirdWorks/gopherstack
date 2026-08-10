@@ -46,6 +46,11 @@ var (
 	// ErrSnapshotCopyConfigSLNotFound is returned when a serverless snapshot
 	// copy configuration does not exist.
 	ErrSnapshotCopyConfigSLNotFound = errors.New("ResourceNotFoundException")
+	// ErrRecoveryPointNotFound is returned when a recovery point does not exist.
+	ErrRecoveryPointNotFound = errors.New("ResourceNotFoundException")
+	// ErrTableRestoreSLNotFound is returned when a serverless table restore
+	// request does not exist.
+	ErrTableRestoreSLNotFound = errors.New("ResourceNotFoundException")
 )
 
 // ---------------------------------------------------------------------------
@@ -249,6 +254,52 @@ type ServerlessSnapshotCopyConfiguration struct {
 	DestinationRegion            string `json:"destinationRegion"`
 	DestinationKmsKeyID          string `json:"destinationKmsKeyId,omitempty"`
 	SnapshotRetentionPeriod      int    `json:"snapshotRetentionPeriod,omitempty"`
+}
+
+// RecoveryPoint is a namespace's automatically created recovery point (the
+// "RecoveryPoint" shape in service-2.json: "Recovery points are created every
+// 30 minutes and kept for 24 hours" -- there is no CreateRecoveryPoint
+// operation anywhere in this API, confirmed absent from the operations list).
+// This backend generates one recovery point per workgroup at CreateWorkgroup
+// time instead of running a real 30-minute background scheduler, matching
+// this service's existing instant-apply convention elsewhere (e.g. snapshots
+// created instantaneously) -- see generateRecoveryPointLocked.
+type RecoveryPoint struct {
+	RecoveryPointCreateTime time.Time `json:"recoveryPointCreateTime"`
+	NamespaceArn            string    `json:"namespaceArn,omitempty"`
+	NamespaceName           string    `json:"namespaceName,omitempty"`
+	RecoveryPointID         string    `json:"recoveryPointId"`
+	WorkgroupName           string    `json:"workgroupName,omitempty"`
+	TotalSizeInMegaBytes    float64   `json:"totalSizeInMegaBytes,omitempty"`
+}
+
+// ServerlessTableRestoreStatus represents a Redshift Serverless table-level
+// restore request (the "TableRestoreStatus" shape in service-2.json),
+// distinct from classic Redshift's cluster-keyed TableRestoreStatus in
+// models.go (table_restore.go). RequestTime is tagged json:"-" because it is
+// an epoch-seconds number on the wire (confirmed via
+// awsAwsjson11_deserializeDocumentTableRestoreStatus's smithytime.ParseEpochSeconds
+// in aws-sdk-go-v2/service/redshiftserverless@v1.38.5/deserializers.go),
+// unlike RecoveryPointCreateTime's ISO8601 string above -- the response
+// wrapper (see handler_serverless_table_restore.go) does the epoch
+// conversion at the boundary, same pattern as slScheduledActionWire.
+type ServerlessTableRestoreStatus struct {
+	RequestTime           time.Time `json:"-"`
+	Message               string    `json:"message,omitempty"`
+	NamespaceName         string    `json:"namespaceName,omitempty"`
+	NewTableName          string    `json:"newTableName,omitempty"`
+	RecoveryPointID       string    `json:"recoveryPointId,omitempty"`
+	SnapshotName          string    `json:"snapshotName,omitempty"`
+	SourceDatabaseName    string    `json:"sourceDatabaseName,omitempty"`
+	SourceSchemaName      string    `json:"sourceSchemaName,omitempty"`
+	SourceTableName       string    `json:"sourceTableName,omitempty"`
+	Status                string    `json:"status,omitempty"`
+	TableRestoreRequestID string    `json:"tableRestoreRequestId"`
+	TargetDatabaseName    string    `json:"targetDatabaseName,omitempty"`
+	TargetSchemaName      string    `json:"targetSchemaName,omitempty"`
+	WorkgroupName         string    `json:"workgroupName,omitempty"`
+	ProgressInMegaBytes   int64     `json:"progressInMegaBytes,omitempty"`
+	TotalDataInMegaBytes  int64     `json:"totalDataInMegaBytes,omitempty"`
 }
 
 // slResourceTagSet holds the tags attached to a taggable Redshift Serverless

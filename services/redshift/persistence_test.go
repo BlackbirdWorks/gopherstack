@@ -266,6 +266,20 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
 	require.NoError(t, err)
 
+	rtRecoveryPoints, _ := b.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	require.Len(t, rtRecoveryPoints, 1, "CreateWorkgroup must have generated exactly one recovery point")
+	rtRecoveryPointID := rtRecoveryPoints[0].RecoveryPointID
+
+	rtTableRestore, err := b.RestoreTableFromSnapshotSL(redshift.RestoreTableFromSnapshotParams{
+		NamespaceName:      "rt-namespace",
+		WorkgroupName:      "rt-workgroup",
+		NewTableName:       "rt-newtable",
+		SnapshotName:       "rt-slsnapshot",
+		SourceDatabaseName: "rt-srcdb",
+		SourceTableName:    "rt-srctable",
+	})
+	require.NoError(t, err)
+
 	_, err = b.CreateCustomDomainAssociationSL(
 		"rt.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", "rt-workgroup",
 	)
@@ -391,6 +405,20 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	sccList, _ := fresh.ListSnapshotCopyConfigurationsSL("rt-namespace", 0, "")
 	require.Len(t, sccList, 1)
 	assert.Equal(t, scc.SnapshotCopyConfigurationID, sccList[0].SnapshotCopyConfigurationID)
+
+	recoveryPoint, err := fresh.GetRecoveryPointSL(rtRecoveryPointID)
+	require.NoError(t, err)
+	assert.Equal(t, "rt-namespace", recoveryPoint.NamespaceName)
+
+	recoveryPointList, _ := fresh.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	require.Len(t, recoveryPointList, 1, "sorted index must survive the round trip, not just the underlying table")
+
+	tr, err := fresh.GetTableRestoreStatusSL(rtTableRestore.TableRestoreRequestID)
+	require.NoError(t, err)
+	assert.Equal(t, "rt-newtable", tr.NewTableName)
+
+	tableRestoreList, _ := fresh.ListTableRestoreStatusSL("rt-namespace", "", 0, "")
+	require.Len(t, tableRestoreList, 1, "sorted index must survive the round trip, not just the underlying table")
 
 	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
 	// survived the round trip with the rt-cluster entry intact.

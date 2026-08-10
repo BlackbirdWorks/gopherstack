@@ -87,6 +87,13 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"UpdateSnapshotCopyConfiguration",
 		"DeleteSnapshotCopyConfiguration",
 		"ListSnapshotCopyConfigurations",
+		"GetRecoveryPoint",
+		"ListRecoveryPoints",
+		"RestoreFromRecoveryPoint",
+		"RestoreTableFromSnapshot",
+		"RestoreTableFromRecoveryPoint",
+		"GetTableRestoreStatus",
+		"ListTableRestoreStatus",
 	}
 }
 
@@ -113,6 +120,8 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slCustomDomains.Reset()
 	h.Backend.slResourcePolicies.Reset()
 	h.Backend.slSnapshotCopyConfig.Reset()
+	h.Backend.slRecoveryPoints.Reset()
+	h.Backend.slTableRestoreStatuses.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -240,6 +249,15 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 	"UpdateSnapshotCopyConfiguration": (*ServerlessHandler).handleUpdateSnapshotCopyConfigurationSL,
 	"DeleteSnapshotCopyConfiguration": (*ServerlessHandler).handleDeleteSnapshotCopyConfigurationSL,
 	"ListSnapshotCopyConfigurations":  (*ServerlessHandler).handleListSnapshotCopyConfigurationsSL,
+
+	"GetRecoveryPoint":         (*ServerlessHandler).handleGetRecoveryPoint,
+	"ListRecoveryPoints":       (*ServerlessHandler).handleListRecoveryPoints,
+	"RestoreFromRecoveryPoint": (*ServerlessHandler).handleRestoreFromRecoveryPoint,
+
+	"RestoreTableFromSnapshot":      (*ServerlessHandler).handleRestoreTableFromSnapshot,
+	"RestoreTableFromRecoveryPoint": (*ServerlessHandler).handleRestoreTableFromRecoveryPoint,
+	"GetTableRestoreStatus":         (*ServerlessHandler).handleGetTableRestoreStatus,
+	"ListTableRestoreStatus":        (*ServerlessHandler).handleListTableRestoreStatus,
 }
 
 // ---------------------------------------------------------------------------
@@ -955,6 +973,8 @@ const (
 	slRespUsageLimit         = "usageLimit"
 	slRespScheduledAction    = "scheduledAction"
 	slRespSnapshotCopyConfig = "snapshotCopyConfiguration"
+	slRespRecoveryPoint      = "recoveryPoint"
+	slRespTableRestoreStatus = "tableRestoreStatus"
 )
 
 func slErrorResponse(code, msg string) map[string]any {
@@ -984,7 +1004,9 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrServerlessResourceNotFound),
 		errors.Is(err, ErrCustomDomainSLNotFound),
 		errors.Is(err, ErrResourcePolicySLNotFound),
-		errors.Is(err, ErrSnapshotCopyConfigSLNotFound):
+		errors.Is(err, ErrSnapshotCopyConfigSLNotFound),
+		errors.Is(err, ErrRecoveryPointNotFound),
+		errors.Is(err, ErrTableRestoreSLNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),

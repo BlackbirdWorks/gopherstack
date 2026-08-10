@@ -63,24 +63,26 @@ type InMemoryBackend struct {
 	resourcePolicies   *store.Table[ResourcePolicy]
 	tableRestores      *store.Table[TableRestoreStatus]
 	// snapshotCopyConfigs is intentionally NOT a store.Table; see activeResizes above.
-	snapshotCopyConfigs  map[string]*SnapshotCopyConfig
-	hsmClientCerts       *store.Table[HsmClientCertificate]
-	hsmConfigs           *store.Table[HsmConfiguration]
-	reservedNodes        *store.Table[ReservedNode]
-	scheduledActions     *store.Table[ScheduledAction]
-	slScheduledActions   *store.Table[ServerlessScheduledAction]
-	integrations         *store.Table[Integration]
-	idcApplications      *store.Table[IdcApplication]
-	qev2IdcApplications  *store.Table[Qev2IdcApplication]
-	slNamespaces         *store.Table[Namespace]
-	slWorkgroups         *store.Table[Workgroup]
-	slSnapshots          *store.Table[ServerlessSnapshot]
-	slUsageLimits        *store.Table[ServerlessUsageLimit]
-	slResourceTags       *store.Table[slResourceTagSet]
-	slCustomDomains      *store.Table[ServerlessCustomDomainAssociation]
-	slResourcePolicies   *store.Table[ServerlessResourcePolicy]
-	slSnapshotCopyConfig *store.Table[ServerlessSnapshotCopyConfiguration]
-	endpointAccesses     *store.Table[EndpointAccess]
+	snapshotCopyConfigs    map[string]*SnapshotCopyConfig
+	hsmClientCerts         *store.Table[HsmClientCertificate]
+	hsmConfigs             *store.Table[HsmConfiguration]
+	reservedNodes          *store.Table[ReservedNode]
+	scheduledActions       *store.Table[ScheduledAction]
+	slScheduledActions     *store.Table[ServerlessScheduledAction]
+	integrations           *store.Table[Integration]
+	idcApplications        *store.Table[IdcApplication]
+	qev2IdcApplications    *store.Table[Qev2IdcApplication]
+	slNamespaces           *store.Table[Namespace]
+	slWorkgroups           *store.Table[Workgroup]
+	slSnapshots            *store.Table[ServerlessSnapshot]
+	slUsageLimits          *store.Table[ServerlessUsageLimit]
+	slResourceTags         *store.Table[slResourceTagSet]
+	slCustomDomains        *store.Table[ServerlessCustomDomainAssociation]
+	slResourcePolicies     *store.Table[ServerlessResourcePolicy]
+	slSnapshotCopyConfig   *store.Table[ServerlessSnapshotCopyConfiguration]
+	slRecoveryPoints       *store.Table[RecoveryPoint]
+	slTableRestoreStatuses *store.Table[ServerlessTableRestoreStatus]
+	endpointAccesses       *store.Table[EndpointAccess]
 	// clusterTransitions holds in-flight lifecycle state, intentionally never
 	// persisted (see Restore) and keyed externally by cluster ID.
 	clusterTransitions      map[string]*clusterTransition
@@ -95,6 +97,8 @@ type InMemoryBackend struct {
 	slScheduledActionIdx    sortedStringIndex
 	slCustomDomainIdx       sortedStringIndex
 	slSnapshotCopyConfigIdx sortedStringIndex
+	slRecoveryPointIdx      sortedStringIndex
+	slTableRestoreStatusIdx sortedStringIndex
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
 	reconcileInterval       time.Duration

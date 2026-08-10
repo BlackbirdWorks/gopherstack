@@ -31,7 +31,8 @@ func (b *InMemoryBackend) CreateWorkgroup(
 		)
 	}
 
-	if _, ok := b.slNamespaces.Get(namespaceName); !ok {
+	ns, ok := b.slNamespaces.Get(namespaceName)
+	if !ok {
 		return nil, fmt.Errorf("%w: namespace %q not found", ErrNamespaceNotFound, namespaceName)
 	}
 
@@ -80,6 +81,7 @@ func (b *InMemoryBackend) CreateWorkgroup(
 	b.slWorkgroups.Put(wg)
 	b.slWorkgroupIdx.insert(workgroupName)
 	b.putServerlessTagsLocked(wgArn, tags)
+	b.generateRecoveryPointLocked(ns, wg)
 
 	return cloneWorkgroup(wg), nil
 }
