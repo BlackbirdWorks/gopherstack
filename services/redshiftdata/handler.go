@@ -13,6 +13,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/safemap"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -67,10 +68,11 @@ var (
 
 // Handler is the HTTP handler for the AWS Redshift Data API.
 type Handler struct {
-	Backend   StorageBackend
-	janitor   *Janitor
-	AccountID string
-	Region    string
+	Backend     StorageBackend
+	janitor     *Janitor
+	idempotency *safemap.Map[string, idempotentStatement]
+	AccountID   string
+	Region      string
 }
 
 // regionFromRequest resolves the AWS region for a request from its SigV4
@@ -82,9 +84,10 @@ func (h *Handler) regionFromRequest(c *echo.Context) string {
 // NewHandler creates a new Redshift Data handler.
 func NewHandler(backend StorageBackend) *Handler {
 	return &Handler{
-		Backend:   backend,
-		AccountID: backend.AccountID(),
-		Region:    backend.Region(),
+		Backend:     backend,
+		AccountID:   backend.AccountID(),
+		Region:      backend.Region(),
+		idempotency: safemap.New[string, idempotentStatement]("redshiftdata.idempotency"),
 	}
 }
 
@@ -118,6 +121,7 @@ func (h *Handler) Name() string { return "RedshiftData" }
 // Reset clears all backend state. Useful for test isolation.
 func (h *Handler) Reset() {
 	h.Backend.Reset()
+	h.idempotency.Clear()
 }
 
 // GetSupportedOperations returns the list of supported Redshift Data operations.
