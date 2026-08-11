@@ -21,6 +21,41 @@ func TestSendDiagnosticInterrupt(t *testing.T) {
 	require.ErrorIs(t, b.SendDiagnosticInterrupt(""), ec2.ErrInvalidParameter)
 }
 
+func TestRunInstancesCountBound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr   error
+		name      string
+		count     int
+		wantCount int
+	}{
+		{nil, "count below one clamps to one", 0, 1},
+		{nil, "count at bound succeeds", 1000, 1000},
+		{ec2.ErrResourceCountExceeded, "count above bound errors", 1001, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+
+			instances, err := b.RunInstances("ami-test", "t3.micro", "", tt.count)
+
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				assert.Empty(t, instances)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Len(t, instances, tt.wantCount)
+		})
+	}
+}
+
 func TestDescribeElasticGpus(t *testing.T) {
 	t.Parallel()
 

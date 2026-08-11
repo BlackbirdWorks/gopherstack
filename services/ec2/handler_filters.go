@@ -669,11 +669,13 @@ func parseInt32Value(s string) int32 {
 	return int32(n)
 }
 
-// maxRunInstancesCount bounds MinCount/MaxCount so a client-supplied value can
-// never drive an unbounded slice allocation in RunInstances (CodeQL
-// go/uncontrolled-allocation-size, alert #253); real AWS similarly rejects
-// requests above account instance quotas long before launch.
-const maxRunInstancesCount = 1000
+// maxInstancesPerRunInstancesRequest bounds MinCount/MaxCount so a
+// client-supplied value can never drive an unbounded slice allocation in
+// RunInstances (CodeQL go/uncontrolled-allocation-size, alert #253). This is
+// gopherstack's own allocation-safety cap, not a modeled AWS quota -- real
+// EC2 has no flat per-request instance-count limit, only per-account/
+// instance-type quotas (see gopherstack-x6r7).
+const maxInstancesPerRunInstancesRequest = 1000
 
 // parseRunInstancesCounts validates and returns MinCount and MaxCount from RunInstances params.
 // MinCount defaults to 1 when absent. MaxCount defaults to MinCount when absent.
@@ -685,8 +687,11 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 		}
 	}
 
-	if minCnt > maxRunInstancesCount {
-		return 0, 0, fmt.Errorf("%w: MinCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
+	if minCnt > maxInstancesPerRunInstancesRequest {
+		return 0, 0, fmt.Errorf(
+			"%w: MinCount must not exceed %d",
+			ErrResourceCountExceeded, maxInstancesPerRunInstancesRequest,
+		)
 	}
 
 	maxCnt := minCnt
@@ -700,8 +705,11 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 		return 0, 0, fmt.Errorf("%w: MaxCount must be greater than or equal to MinCount", ErrInvalidParameter)
 	}
 
-	if maxCnt > maxRunInstancesCount {
-		return 0, 0, fmt.Errorf("%w: MaxCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
+	if maxCnt > maxInstancesPerRunInstancesRequest {
+		return 0, 0, fmt.Errorf(
+			"%w: MaxCount must not exceed %d",
+			ErrResourceCountExceeded, maxInstancesPerRunInstancesRequest,
+		)
 	}
 
 	return minCnt, maxCnt, nil

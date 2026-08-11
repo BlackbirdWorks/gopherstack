@@ -737,6 +737,7 @@ var errCodeLookup = []struct {
 	{ErrTooManyApplicationStatusChecks, "ApplicationStatusCheckLimitExceeded"},
 	{ErrOutpostArnNotFound, errCodeInvalidParameterValue},
 	{ErrInsufficientInstanceCapacity, "InsufficientInstanceCapacity"},
+	{ErrResourceCountExceeded, "ResourceCountExceeded"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
