@@ -8,8 +8,8 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 74 (74 ok) |
-| Feature families | 9 (9 ok) |
-| Known gaps | 4 |
+| Feature families | 10 (10 ok) |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -18,7 +18,6 @@
 - NoChangeNotification/ExpirationNotification are now fully EVALUATED (see families.parameter-store and Notes: 'Parameter policy notifications') — a new janitor sweep computes due-ness and calls an injectable ParameterPolicyNotifier, and the real EventBridge-side adapter (services/eventbridge/ssm_integration.go) is implemented and proven by a cross-package test (TestNotifyParameterPolicyAction). The ONE remaining piece, deliberately left undone because this agent was instructed not to edit cli.go, is the single wiring call — `ssmBackend.SetParameterPolicyNotifier(eventbridgeBackend)` (mirroring the existing SetEventBridgeIntegration/SetSQSIntegration/SetGlueIntegration wiring block in cli.go around wireStepFunctionsServiceIntegrations) — that actually injects the real notifier into the running SSM backend at startup. Until that line lands, PutParameter/the janitor behave exactly as before from an external caller's perspective (b.parameterPolicyNotifier is nil, so the sweep is a safe no-op) — see cli_wiring_note in the pass receipt.
 - ValidateCloudConnector cannot make a real outbound call to Azure (gopherstack has no Azure tenant), so its ValidationFindings are derived deterministically from the connector's own stored Configuration (tenant/subscription IDs) rather than reflecting real third-party connectivity/permission state. This is an inherent sandbox constraint (same category as KMS being locally emulated instead of a real HSM call), not a wire/state bug — re-confirmed phase-2, still genuinely impossible for the same reason (no Azure credentials/tenant/egress available to the emulator, and reaching out to a live Azure tenant from an AWS emulator's request handler would be inappropriate even if it were possible) — documented here so a future reader doesn't mistake the mocked findings for verified AWS behavior.
 - CreateMaintenanceWindow/UpdateMaintenanceWindow's new StartDate/EndDate/ScheduleTimezone/ScheduleOffset fields are stored and round-tripped verbatim but not evaluated — DescribeMaintenanceWindowSchedule/DescribeMaintenanceWindowExecutions do not yet factor StartDate/EndDate into whether a window is currently active, or ScheduleOffset into the computed next-run time. Untouched this pass — out of scope (not one of this pass's assigned gaps).
-- NEW since v1.71.0 (found by gopherstack-u8my's pin-correction pass, not fixed): AutomationExecution/AutomationExecutionMetadata/StepExecution gained a WarningMessage *string field (non-critical issue reporting). Not modeled anywhere in automation_exec.go/models_automations.go -- silently omitted from GetAutomationExecution/DescribeAutomationExecutions/DescribeAutomationStepExecutions responses. (needs bd issue)
 
 ## More
 

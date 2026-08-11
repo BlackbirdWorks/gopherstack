@@ -622,7 +622,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
 | [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
 | [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 9 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 74 | 4 gaps |
+| [Systems Manager](services/ssm/README.md) | A | 74 | 3 gaps |
 
 ### Developer Tools
 
@@ -683,7 +683,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 95 | clean |
-| [Transfer Family](services/transfer/README.md) | A | — | 17 families; 1 gap |
+| [Transfer Family](services/transfer/README.md) | A | — | 17 families |
 
 ### Other
 
