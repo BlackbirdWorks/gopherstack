@@ -7,16 +7,17 @@
 
 | Metric | Value |
 | --- | --- |
-| Operations audited | 55 (53 ok, 2 partial) |
+| Operations audited | 56 (56 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- NEW since v1.38.0 (found by gopherstack-u8my's pin-correction pass, not fixed): DescribeInstanceOutput/UpdateInstanceInput gained a PermissionSetsEnabled *bool member (real API: once enabled it cannot be disabled; mutually exclusive with EncryptionConfiguration in the same UpdateInstance call, else ValidationException). handleUpdateInstance (handler_instances.go) only reads InstanceArn/Name from the request body -- PermissionSetsEnabled is silently dropped, and DescribeInstance never echoes it. Also NEW: types.InstanceMetadata (ListInstances' per-instance shape) gained PrimaryRegion/Regions fields for multi-region instances; ListInstances does not populate them either. (needs bd issue)
-- RegionMetadata.IsPrimaryRegion is always false -- known simplification, unchanged from prior sweep (bd: none filed).
+- FIXED (gopherstack-gt9o): DescribeInstanceOutput/UpdateInstanceInput's PermissionSetsEnabled and ListInstances' InstanceMetadata.Regions are now threaded/populated; see DescribeInstance/UpdateInstance/ListInstances ops entries.
+- InstanceMetadata.PrimaryRegion (ListInstances) remains permanently unset -- no caller-settable or derivable source in this backend (see ListInstances op note). UpdateInstanceInput.EncryptionConfiguration remains entirely unmodeled (pre-existing, out of scope for gopherstack-gt9o -- see UpdateInstance op note).
+- RegionMetadata.IsPrimaryRegion is always false -- known simplification, unchanged from prior sweep (bd: none filed). This is also why InstanceMetadata.PrimaryRegion above has no real data to derive from.
 - ListApplicationAuthenticationMethods/ListApplicationGrants/ListTagsForResource support NextToken on the real API but have no MaxResults member at all (unlike every other List op in this service); gopherstack still returns everything in one page with a nil NextToken for these three. Low-value: there is no MaxResults contract to violate (a real caller can never request a capped page), and this mirrors the same intentional simplification already accepted for other AWS emulators in this codebase. Re-examined this pass (gopherstack-dbwi) and confirmed still not worth building: there is no real behavior gap to close, only a self-imposed pagination-everywhere convention this service already deviates from correctly. (bd: gopherstack-dbwi, considered and left as-is)
 
 ## More

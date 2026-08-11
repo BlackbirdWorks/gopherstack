@@ -596,7 +596,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 9 | clean |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
-| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 3 gaps |
+| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
 | [STS](services/sts/README.md) | A | 11 | 2 gaps; 1 deferred |
@@ -700,7 +700,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 6 structural gaps |
 | [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 6 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |
-| [WorkSpaces](services/workspaces/README.md) | A | 32 | clean |
+| [WorkSpaces](services/workspaces/README.md) | A | 34 | 1 gap |
 <!-- END GENERATED SERVICES -->
 
 ## Using Gopherstack
