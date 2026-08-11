@@ -9,22 +9,39 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// agentArnsLocationCase covers one of the five location types with a real
-// top-level AgentArns member on Create/UpdateLocation*Request (botocore
-// datasync 2018-11-09 model: CreateLocationS3Request,
+// agentArnsLocationCase covers one of the six location types that accept
+// AgentArns (botocore datasync 2018-11-09 model: CreateLocationS3Request,
 // CreateLocationAzureBlobRequest, CreateLocationHdfsRequest,
-// CreateLocationObjectStorageRequest, CreateLocationSmbRequest).
-// createBody/updateBody build a request with the given AgentArns value
-// substituted in, so the same case data drives both the reject-phantom-agent
-// and accept-real-agent assertions. updateBody is nil for S3, whose
-// UpdateLocationS3Request has no AgentArns member.
+// CreateLocationObjectStorageRequest, CreateLocationSmbRequest,
+// CreateLocationNfsRequest.OnPremConfig.AgentArns). createBody/updateBody
+// build a request with the given AgentArns value substituted in, so the
+// same case data drives both the reject-phantom-agent and accept-real-agent
+// assertions. updateBody is nil for S3, whose UpdateLocationS3Request has
+// no AgentArns member.
 type agentArnsLocationCase struct {
-	createBody     func(agentArn string) map[string]any
-	updateBody     func(locationArn, agentArn string) map[string]any
+	createBody func(agentArn string) map[string]any
+	updateBody func(locationArn, agentArn string) map[string]any
+	// respAgentArns extracts AgentArns from a Describe response; nil means
+	// the top-level "AgentArns" member. NFS nests it under "OnPremConfig"
+	// (botocore datasync 2018-11-09: DescribeLocationNfsResponse.OnPremConfig).
+	respAgentArns  func(t *testing.T, resp map[string]any) []any
 	name           string
 	createAction   string
 	describeAction string
 	updateAction   string
+}
+
+func (tc agentArnsLocationCase) agentArns(t *testing.T, resp map[string]any) []any {
+	t.Helper()
+
+	if tc.respAgentArns != nil {
+		return tc.respAgentArns(t, resp)
+	}
+
+	agentArns, ok := resp["AgentArns"].([]any)
+	require.True(t, ok)
+
+	return agentArns
 }
 
 func agentArnsLocationCases() []agentArnsLocationCase {
@@ -93,6 +110,35 @@ func agentArnsLocationCases() []agentArnsLocationCase {
 			},
 		},
 		{
+			name:           "nfs",
+			createAction:   "CreateLocationNfs",
+			describeAction: "DescribeLocationNfs",
+			updateAction:   "UpdateLocationNfs",
+			createBody: func(agentArn string) map[string]any {
+				return map[string]any{
+					"ServerHostname": "nfs.example.com",
+					"Subdirectory":   "/exports/data",
+					"OnPremConfig":   map[string]any{"AgentArns": []string{agentArn}},
+				}
+			},
+			updateBody: func(locationArn, agentArn string) map[string]any {
+				return map[string]any{
+					"LocationArn":  locationArn,
+					"OnPremConfig": map[string]any{"AgentArns": []string{agentArn}},
+				}
+			},
+			respAgentArns: func(t *testing.T, resp map[string]any) []any {
+				t.Helper()
+
+				onPrem, ok := resp["OnPremConfig"].(map[string]any)
+				require.True(t, ok)
+				agentArns, ok := onPrem["AgentArns"].([]any)
+				require.True(t, ok)
+
+				return agentArns
+			},
+		},
+		{
 			name:           "smb",
 			createAction:   "CreateLocationSmb",
 			describeAction: "DescribeLocationSmb",
@@ -118,7 +164,7 @@ const phantomAgentArn = "arn:aws:datasync:us-east-1:000000000000:agent/does-not-
 // TestDataSync_AgentArns_RejectsPhantomAgent verifies CreateLocation* rejects
 // an AgentArns entry that was never created, with the same error shape AWS
 // uses for a malformed request: 400 InvalidRequestException. Before this
-// sweep's validateAgentArns fix, none of these five operations checked
+// sweep's validateAgentArns fix, none of these six operations checked
 // AgentArns against known agents at all.
 func TestDataSync_AgentArns_RejectsPhantomAgent(t *testing.T) {
 	t.Parallel()
@@ -140,7 +186,7 @@ func TestDataSync_AgentArns_RejectsPhantomAgent(t *testing.T) {
 }
 
 // TestDataSync_AgentArns_UpdateRejectsPhantomAgent mirrors the Create test
-// for the four UpdateLocation* operations that also accept AgentArns
+// for the five UpdateLocation* operations that also accept AgentArns
 // (UpdateLocationS3Request has no AgentArns member, so S3 is skipped).
 func TestDataSync_AgentArns_UpdateRejectsPhantomAgent(t *testing.T) {
 	t.Parallel()
@@ -178,9 +224,7 @@ func TestDataSync_AgentArns_UpdateRejectsPhantomAgent(t *testing.T) {
 
 			var descResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-			agentArns, ok := descResp["AgentArns"].([]any)
-			require.True(t, ok)
-			assert.ElementsMatch(t, []any{realAgentArn}, agentArns)
+			assert.ElementsMatch(t, []any{realAgentArn}, tc.agentArns(t, descResp))
 		})
 	}
 }
@@ -211,9 +255,7 @@ func TestDataSync_AgentArns_AcceptsRealAgent(t *testing.T) {
 
 			var descResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
-			agentArns, ok := descResp["AgentArns"].([]any)
-			require.True(t, ok)
-			assert.ElementsMatch(t, []any{agentArn}, agentArns)
+			assert.ElementsMatch(t, []any{agentArn}, tc.agentArns(t, descResp))
 		})
 	}
 }

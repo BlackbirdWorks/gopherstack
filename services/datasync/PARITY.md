@@ -37,9 +37,9 @@ ops:
   CreateLocationHdfs: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationHdfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented Subdirectory field (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationHdfs: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}
-  CreateLocationNfs: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateLocationNfs: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns (already correctly nested, not flat -- see corrected gaps note) now validated to reference agents that actually exist in this backend instead of accepting any ARN and succeeding -- FIXED this sweep"}
   DescribeLocationNfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/Subdirectory fields (not on real wire; real output is CreationTime/LocationArn/LocationUri/MountOptions/OnPremConfig only) -- FIXED this sweep"}
-  UpdateLocationNfs: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLocationNfs: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns existence validation -- FIXED this sweep"}
   CreateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationObjectStorage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/BucketName/Subdirectory fields (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}
@@ -68,7 +68,6 @@ families:
 gaps:
   - "LocationUri scheme prefixes for ObjectStorage (\"object-storage://\") and AzureBlob (\"azure-blob://\") technically violate AWS's own published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$, identical text on every DescribeLocation*Output doc page including these two), same as the now-fixed Lustre/ONTAP bugs -- but no positive evidence exists for what AWS actually returns for these two location types (both are comparatively recent additions; the shared regex may itself be stale doc-generation cruft that predates them and isn't enforced server-side for newer types, unlike the FSx family where the regex was clearly extended on purpose to add the fsx[a-z0-9-]+ alternative). Re-checked this sweep from two independent sources -- the installed botocore 1.43.56 model (data/datasync/2018-11-09/service-2.json.gz, LocationUri shape, pinned to the one version directory present) and AWS's live API_DescribeLocationObjectStorage.html/API_DescribeLocationAzureBlob.html doc pages -- both give the identical pattern text with no scheme-prefix example anywhere for either location type, so the \"no positive evidence\" verdict stands: there is proof the current prefixes violate the published pattern, but no proof of what a compliant replacement should be (both prefixes follow the same type-name-as-scheme convention as every other location type, including the fsxl:// fix below, which is itself only an analogy-based guess -- see next gap). Left unchanged; do not \"fix\" to a guessed scheme without evidence."
   - "LocationUri scheme \"fsxl://\" for FSx Lustre (fixed this sweep from the confirmed-wrong \"lustre://\") was chosen by analogy with FSx OpenZFS's confirmed \"fsxz://\" (real AWS CLI doc example: fsxz://us-west-2.fs-.../fsx/folderA/folder) but is not independently confirmed against real AWS output. Medium confidence: matches the regex, matches the single-letter-suffix convention, but Lustre could plausibly use a different fsx-prefixed string."
-  - "CreateLocationNfs/UpdateLocationNfs accept a flat AgentArns parameter, but the real CreateLocationNfsRequest/UpdateLocationNfsRequest have no top-level AgentArns member at all -- it's nested inside OnPremConfig (CreateLocationNfsRequest members are exactly Subdirectory/ServerHostname/OnPremConfig/MountOptions/Tags, confirmed against the botocore datasync 2018-11-09 model). Found this sweep while adding AgentArns-existence validation to the other five location types with a real top-level AgentArns member; left NFS unfixed since correcting it means restructuring the NFS location type (nesting under OnPremConfig) rather than a validation-only change, and that risks a persisted-shape migration this sweep's scope doesn't cover. Confirmed locations_nfs.go's CreateLocationNfs/UpdateLocationNfs never call validateAgentArns either, so this is a second, independent phantom-agent-reference path (any AgentArns string succeeds, structural bug notwithstanding) left open by the same NFS gap -- not fixed alongside the other five for the same restructure-risk reason."
   - "CancelTaskExecution succeeds unconditionally, including on an already-terminal (SUCCESS/ERROR) execution, overwriting its terminal status with ERROR. Real AWS likely rejects cancelling a finished execution, but the exact error behavior was not confirmed and existing test coverage (TestDataSync_TaskExecution) exercises cancel-after-success expecting a 200. Left unfixed pending confirmation of the real error contract (unchanged from prior sweep)."
   - "ManagedSecretConfig (distinct from CmkSecretConfig/CustomSecretConfig, which are now modeled -- see Location family note) stays absent from every DescribeLocation*Output this sweep confirmed it on (Smb/Hdfs/ObjectStorage/AzureBlob/FsxWindows). This is correct, not a gap: the botocore model's own CmkSecretConfig-in-FsxProtocolSmb documentation states outright \"Do not provide this for a CreateLocation request. ManagedSecretConfig is a ReadOnly property and is only be populated in the DescribeLocation response\" -- AWS populates it itself when the client supplies a plaintext credential (Password/SecretKey/SasConfiguration) without CmkSecretConfig/CustomSecretConfig, by auto-provisioning a Secrets Manager secret. gopherstack has no Secrets Manager integration to back a real SecretArn, and fabricating one would violate the no-fabricated-IDs rule -- correctly left absent."
   - "DescribeTaskOutput omits ErrorCode, ErrorDetail, DestinationNetworkInterfaceArns, SourceNetworkInterfaceArns, and ScheduleDetails, all present on the real output. Re-checked this sweep, including whether CancelTaskExecution's ERROR-status path (the one place this backend models a task-execution outcome other than SUCCESS) gives ErrorCode/ErrorDetail anything to surface: it doesn't -- CancelTaskExecution only flips storedTaskExecution.Status to the bare \"ERROR\" enum value, it never records failure text anywhere, so there is no error-message state to promote, and DataSync's own ErrorCode strings (e.g. its internal troubleshooting codes) aren't published anywhere this sweep could cite. gopherstack also has no ENI provisioning state at all. Both stay an honest omission rather than a fabricated value; a gap only if a future sweep adds real failure-text tracking or ENI simulation."
@@ -189,7 +188,7 @@ leaks: {status: clean, note: "no goroutines/timers/janitors in this service; all
   none of its supporting fields existed. `DnsIpAddresses`/`KerberosPrincipal` now round-trip
   through Describe; `KerberosKeytab`/`KerberosKrb5Conf` are stored but correctly stay
   write-only (the real `DescribeLocationSmbResponse` has neither).
-- **AgentArns existence validation added** (CreateLocationS3/AzureBlob/Hdfs/ObjectStorage/Smb
+- **AgentArns existence validation added** (CreateLocationS3/AzureBlob/Hdfs/ObjectStorage/Smb/Nfs
   and their Update counterparts): none of these operations checked that a supplied
   `AgentArns` entry referred to an agent this backend actually knows about -- any string
   succeeded and was stored/echoed verbatim, the same "operation accepting an ARN for a
@@ -200,14 +199,24 @@ leaks: {status: clean, note: "no goroutines/timers/janitors in this service; all
   building/writing the stored location -- keeps state-mutated-before-validation out of these
   paths too. FSx Windows/ONTAP/OpenZFS/Lustre and EFS were not touched: none of their real
   `CreateLocation*Request`/`UpdateLocation*Request` shapes have an `AgentArns` member (they
-  connect over VPC security groups instead), so there was nothing to validate. NFS is a
-  second, structurally distinct case of the same underlying gap -- see gaps. Covered by
-  table-driven tests in `handler_locations_agentarns_test.go`
+  connect over VPC security groups instead), so there was nothing to validate. NFS was fixed
+  in the same pass, correcting a prior sweep's gaps note that mischaracterized this as a
+  wire-shape problem ("NFS carries a flat AgentArns the real request nests under
+  OnPremConfig"): `createLocationNfsInput`/`updateLocationNfsInput` in
+  `handler_locations_nfs.go` already correctly required `OnPremConfig.AgentArns` (confirmed
+  against `aws-sdk-go-v2/service/datasync@v1.61.4` `types.OnPremConfig`, an `AgentArns
+  []string` member required on both `CreateLocationNfsInput.OnPremConfig` and, when present,
+  `UpdateLocationNfsInput.OnPremConfig`); the only real gap was that `CreateLocationNfs`/
+  `UpdateLocationNfs` never called `validateAgentArns` on the (correctly nested) value, the
+  same missing call the other five had. Covered by table-driven tests in
+  `handler_locations_agentarns_test.go`
   (`TestDataSync_AgentArns_RejectsPhantomAgent`/`_UpdateRejectsPhantomAgent`/
-  `_AcceptsRealAgent`); verified by neutering `validateAgentArns` to `return nil`
-  unconditionally and confirming the reject-path tests fail (the accept-path positive
-  control keeps the suite from passing on a validator that rejects everything, or one whose
-  nine call sites have been silently unwired).
+  `_AcceptsRealAgent`, now six cases including `nfs`, whose Describe response extracts
+  `AgentArns` from `OnPremConfig` instead of the top level); verified by neutering
+  `validateAgentArns` to `return nil` unconditionally and confirming the reject-path tests
+  fail for all six location types (the accept-path positive control keeps the suite from
+  passing on a validator that rejects everything, or one whose call sites have been silently
+  unwired).
 - **SmbAuthenticationType enum validation added**: `AuthenticationType` on
   `CreateLocationSmb`/`UpdateLocationSmb` previously accepted and echoed any string.
   `SmbAuthenticationType`'s real enum is exactly `["NTLM", "KERBEROS"]` (botocore model);
