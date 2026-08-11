@@ -42,6 +42,11 @@ type Account struct {
 	JoinedMethod           string    `json:"joinedMethod"`
 	RoleName               string    `json:"roleName,omitempty"`
 	IamUserAccessToBilling string    `json:"iamUserAccessToBilling,omitempty"`
+	// Paths is derived from accountParent/ouParent at read time (see
+	// paths.go) and deliberately excluded from persistence: it is never
+	// source-of-truth state, just a formatting of the tree that is already
+	// stored.
+	Paths []string `json:"-"`
 }
 
 // Root represents the root container in an organization.
@@ -64,6 +69,9 @@ type OrganizationalUnit struct {
 	ARN      string `json:"arn"`
 	Name     string `json:"name"`
 	ParentID string `json:"parentID"`
+	// Path is derived from ParentID/ouParent at read time (see paths.go)
+	// and deliberately excluded from persistence -- see Account.Paths.
+	Path string `json:"-"`
 }
 
 // Policy represents an Organizations policy.

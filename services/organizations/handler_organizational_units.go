@@ -19,6 +19,7 @@ type ouObject struct {
 	ID   string `json:"Id"`
 	ARN  string `json:"Arn"`
 	Name string `json:"Name"`
+	Path string `json:"Path,omitempty"`
 }
 
 type createOrganizationalUnitResponse struct {
@@ -256,5 +257,6 @@ func toOUObject(ou *OrganizationalUnit) ouObject {
 		ID:   ou.ID,
 		ARN:  ou.ARN,
 		Name: ou.Name,
+		Path: ou.Path,
 	}
 }

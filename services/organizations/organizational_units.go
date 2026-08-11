@@ -77,6 +77,7 @@ func (b *InMemoryBackend) CreateOrganizationalUnit(
 	}
 	b.ousByParent[parentID][name] = ouID
 	b.setTagsLocked(ouID, tags)
+	ou.Path = b.ouPathLocked(ou)
 
 	return ou, nil
 }
@@ -91,7 +92,10 @@ func (b *InMemoryBackend) DescribeOrganizationalUnit(ouID string) (*Organization
 		return nil, ErrOUNotFound
 	}
 
-	return copyOU(ou), nil
+	cp := copyOU(ou)
+	cp.Path = b.ouPathLocked(cp)
+
+	return cp, nil
 }
 
 // DeleteOrganizationalUnit removes an OU.
@@ -161,7 +165,10 @@ func (b *InMemoryBackend) UpdateOrganizationalUnit(ouID, name string) (*Organiza
 
 	ou.Name = name
 
-	return copyOU(ou), nil
+	cp := copyOU(ou)
+	cp.Path = b.ouPathLocked(cp)
+
+	return cp, nil
 }
 
 // ListOrganizationalUnitsForParent returns all OUs under a parent.
@@ -182,7 +189,9 @@ func (b *InMemoryBackend) ListOrganizationalUnitsForParent(
 	var out []*OrganizationalUnit
 
 	for _, ou := range b.ousByParentIdx.Get(parentID) {
-		out = append(out, copyOU(ou))
+		cp := copyOU(ou)
+		cp.Path = b.ouPathLocked(cp)
+		out = append(out, cp)
 	}
 
 	slices.SortFunc(out, func(a, b *OrganizationalUnit) int { return cmp.Compare(a.Name, b.Name) })
@@ -208,7 +217,9 @@ func (b *InMemoryBackend) ListAccountsForParent(parentID string) ([]*Account, er
 	for acctID, pid := range b.accountParent {
 		if pid == parentID {
 			if a, ok := b.accounts.Get(acctID); ok {
-				out = append(out, copyAccount(a))
+				cp := copyAccount(a)
+				cp.Paths = b.accountPathsLocked(acctID)
+				out = append(out, cp)
 			}
 		}
 	}

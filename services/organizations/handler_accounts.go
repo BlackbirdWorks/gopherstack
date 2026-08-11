@@ -36,15 +36,16 @@ type describeAccountRequest struct {
 }
 
 type accountObject struct {
-	ID                     string  `json:"Id"`
-	ARN                    string  `json:"Arn"`
-	Name                   string  `json:"Name"`
-	Email                  string  `json:"Email"`
-	Status                 string  `json:"Status"`
-	JoinedMethod           string  `json:"JoinedMethod"`
-	RoleName               string  `json:"RoleName,omitempty"`
-	IamUserAccessToBilling string  `json:"IamUserAccessToBilling,omitempty"`
-	JoinedAt               float64 `json:"JoinedTimestamp"`
+	ID                     string   `json:"Id"`
+	ARN                    string   `json:"Arn"`
+	Name                   string   `json:"Name"`
+	Email                  string   `json:"Email"`
+	Status                 string   `json:"Status"`
+	JoinedMethod           string   `json:"JoinedMethod"`
+	RoleName               string   `json:"RoleName,omitempty"`
+	IamUserAccessToBilling string   `json:"IamUserAccessToBilling,omitempty"`
+	Paths                  []string `json:"Paths,omitempty"`
+	JoinedAt               float64  `json:"JoinedTimestamp"`
 }
 
 type describeAccountResponse struct {
@@ -374,5 +375,6 @@ func toAccountObject(a *Account) accountObject {
 		JoinedAt:               epochSeconds(a.JoinedAt),
 		RoleName:               a.RoleName,
 		IamUserAccessToBilling: a.IamUserAccessToBilling,
+		Paths:                  a.Paths,
 	}
 }
