@@ -10,7 +10,7 @@ import (
 type StorageBackend interface {
 	VerifyEmailIdentity(identity string) error
 	DeleteIdentity(identity string)
-	ListIdentities(nextToken string, maxItems int) page.Page[string]
+	ListIdentities(nextToken string, maxItems int, identityType string) page.Page[string]
 	GetIdentityVerificationAttributes(identities []string) map[string]string
 	SendEmail(in SendEmailInput) (string, error)
 	SendTemplatedEmail(in SendTemplatedEmailInput) (string, error)

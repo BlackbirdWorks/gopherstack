@@ -314,7 +314,7 @@ func (h *Handler) dispatch(vals url.Values, reqID, action string) (any, error) {
 	case "DeleteIdentity":
 		return h.handleDeleteIdentity(vals, reqID), nil
 	case "ListIdentities":
-		return h.handleListIdentities(vals, reqID), nil
+		return h.handleListIdentities(vals, reqID)
 	case "GetIdentityVerificationAttributes":
 		return h.handleGetIdentityVerificationAttributes(vals, reqID), nil
 	case "GetAccountSendingEnabled":
@@ -594,6 +594,8 @@ func sesErrorCode(opErr error) (string, int) {
 		return "ConfigurationSetAlreadyExists", status
 	case errors.Is(opErr, ErrAccountSendingPaused):
 		return "AccountSendingPausedException", status
+	case errors.Is(opErr, ErrValidation):
+		return "ValidationError", status
 	}
 
 	return sesNewOpsErrorCode(opErr, status)

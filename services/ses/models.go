@@ -125,6 +125,13 @@ type Email struct {
 	Cc                   []string  `json:"cc,omitempty"`
 	Bcc                  []string  `json:"bcc,omitempty"`
 	ReplyTo              []string  `json:"replyTo,omitempty"`
+	// Bounced/Complained are set when a recipient is one of the AWS SES mailbox
+	// simulator's documented deterministic addresses (bounce@/suppressionlist@/
+	// complaint@simulator.amazonses.com), the only real, publicly documented way
+	// to trigger a bounce or complaint outcome deterministically. See
+	// classifySimulatedRecipients.
+	Bounced    bool `json:"bounced,omitempty"`
+	Complained bool `json:"complained,omitempty"`
 }
 
 // EmailTemplate represents a stored SES email template.

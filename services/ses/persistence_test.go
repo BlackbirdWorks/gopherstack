@@ -31,7 +31,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ses.InMemoryBackend, id string) {
 				t.Helper()
 
-				identities := b.ListIdentities("", 0).Data
+				identities := b.ListIdentities("", 0, "").Data
 				require.Len(t, identities, 1)
 				assert.Equal(t, id, identities[0])
 			},
@@ -42,7 +42,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *ses.InMemoryBackend, _ string) {
 				t.Helper()
 
-				identities := b.ListIdentities("", 0).Data
+				identities := b.ListIdentities("", 0, "").Data
 				assert.Empty(t, identities)
 			},
 		},
@@ -86,7 +86,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := ses.NewHandler(ses.NewInMemoryBackend())
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	identities := h2.Backend.ListIdentities("", 0).Data
+	identities := h2.Backend.ListIdentities("", 0, "").Data
 	require.Len(t, identities, 1)
 	assert.Equal(t, "delegate@test.com", identities[0])
 }
@@ -239,6 +239,37 @@ func TestInMemoryBackend_RestorePreservesEmails(t *testing.T) {
 	assert.Equal(t, "Test", emails[0].Subject)
 }
 
+func TestInMemoryBackend_RestorePreservesBouncedComplained(t *testing.T) {
+	t.Parallel()
+
+	b := ses.NewInMemoryBackend()
+	require.NoError(t, b.VerifyEmailIdentity("persist@test.com"))
+
+	_, err := b.SendEmail(ses.SendEmailInput{
+		From: "persist@test.com", To: []string{"bounce@simulator.amazonses.com"}, Subject: "b", BodyText: "body",
+	})
+	require.NoError(t, err)
+
+	_, err = b.SendEmail(ses.SendEmailInput{
+		From: "persist@test.com", To: []string{"complaint@simulator.amazonses.com"}, Subject: "c", BodyText: "body",
+	})
+	require.NoError(t, err)
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := ses.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	emails := fresh.ListEmails()
+	require.Len(t, emails, 2)
+
+	points := fresh.GetSendStatistics()
+	require.Len(t, points, 1)
+	assert.InDelta(t, float64(1), points[0].Bounces, 0, "bounce flag must survive snapshot/restore")
+	assert.InDelta(t, float64(1), points[0].Complaints, 0, "complaint flag must survive snapshot/restore")
+}
+
 func TestPersistence_EnsureNonNilMaps(t *testing.T) {
 	t.Parallel()
 
@@ -359,7 +390,9 @@ func TestSnapshotRestore_NewOps(t *testing.T) {
 	require.NoError(t, b.CreateConfigurationSet("cs1"))
 	require.NoError(
 		t,
-		b.CreateConfigurationSetEventDestination("cs1", ses.EventDestination{Name: "dest1", Enabled: true}),
+		b.CreateConfigurationSetEventDestination(
+			"cs1", ses.EventDestination{Name: "dest1", Enabled: true, MatchingEventTypes: []string{"send"}},
+		),
 	)
 	require.NoError(t, b.CreateConfigurationSetTrackingOptions("cs1", "track.example.com"))
 	require.NoError(t, b.CreateCustomVerificationEmailTemplate(ses.CustomVerificationEmailTemplate{
