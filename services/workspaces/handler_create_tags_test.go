@@ -65,11 +65,20 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 
 		client := newTestHandlerAndClient(t)
 
+		// CreateWorkspaceBundle validates that ImageId references a real
+		// image, so create one first rather than using a made-up ID.
+		imgOut, err := client.CreateWorkspaceImage(t.Context(), &wssdk.CreateWorkspaceImageInput{
+			Name:        aws.String("source-image"),
+			Description: aws.String("desc"),
+			WorkspaceId: aws.String(createSDKWorkspace(t, client)),
+		})
+		require.NoError(t, err)
+
 		out, err := client.CreateWorkspaceBundle(t.Context(), &wssdk.CreateWorkspaceBundleInput{
 			BundleName:        aws.String("tagged-bundle"),
 			BundleDescription: aws.String("desc"),
 			ComputeType:       &types.ComputeType{Name: types.ComputeValue},
-			ImageId:           aws.String("wsi-00000000"),
+			ImageId:           imgOut.ImageId,
 			UserStorage:       &types.UserStorage{Capacity: aws.String("50")},
 			Tags:              wantTags,
 		})
@@ -87,10 +96,12 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 
 		client := newTestHandlerAndClient(t)
 
+		// CreateWorkspaceImage validates that WorkspaceId references a real
+		// workspace, so create one first rather than using a made-up ID.
 		out, err := client.CreateWorkspaceImage(t.Context(), &wssdk.CreateWorkspaceImageInput{
 			Name:        aws.String("tagged-image"),
 			Description: aws.String("desc"),
-			WorkspaceId: aws.String("ws-00000000"),
+			WorkspaceId: aws.String(createSDKWorkspace(t, client)),
 			Tags:        wantTags,
 		})
 		require.NoError(t, err)

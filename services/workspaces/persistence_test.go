@@ -39,10 +39,10 @@ func newPersistenceTestBackend(t *testing.T) *workspaces.InMemoryBackend {
 	_, err = b.CreateConnectionAlias("conn.example.com", map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkspaceBundle("custom-bundle", "desc", "wsi-00000001", "STANDARD", map[string]string{"k": "v"})
+	img, err := b.CreateWorkspaceImage("img1", "desc", ws.WorkspaceID, map[string]string{"k": "v"})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkspaceImage("img1", "desc", ws.WorkspaceID, map[string]string{"k": "v"})
+	_, err = b.CreateWorkspaceBundle("custom-bundle", "desc", img.ImageID, "STANDARD", map[string]string{"k": "v"})
 	require.NoError(t, err)
 
 	_, err = b.CreateWorkspacesPool(

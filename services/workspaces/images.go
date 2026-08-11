@@ -41,13 +41,24 @@ func (b *InMemoryBackend) CopyWorkspaceImage(
 	return img.ImageID, nil
 }
 
-// CreateWorkspaceImage creates an image from a workspace.
+// CreateWorkspaceImage creates an image from a workspace. Returns
+// ErrWorkspaceNotFound for a WorkspaceId that doesn't reference a real
+// workspace, matching real AWS (ResourceNotFoundException is in this
+// operation's error list; see deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateWorkspaceImage). The real
+// CreateWorkspaceImageOutput and WorkspaceImage type carry no source
+// workspace reference, so there is nothing to derive from the workspace
+// beyond confirming it exists.
 func (b *InMemoryBackend) CreateWorkspaceImage(
-	name, description, _ /*workspaceId*/ string,
+	name, description, workspaceID string,
 	tags map[string]string,
 ) (*storedImage, error) {
 	b.mu.Lock("CreateWorkspaceImage")
 	defer b.mu.Unlock()
+
+	if !b.workspaces.Has(workspaceID) {
+		return nil, ErrWorkspaceNotFound
+	}
 
 	img := b.createImageLocked(name, description, "", tags)
 

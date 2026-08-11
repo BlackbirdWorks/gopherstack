@@ -1,13 +1,20 @@
 package workspaces_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/workspaces"
 )
 
 // TestWorkspaceImageCRUD exercises image creation via Copy/Create/Import operations.
 func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing issue.
 	h, _ := newTestHandlerWithBackend(t)
+	wsID := createWorkspace(t, h)
 
 	tests := []struct {
 		body  any
@@ -39,7 +46,7 @@ func TestWorkspaceImageCRUD(t *testing.T) { //nolint:paralleltest // existing is
 			body: map[string]any{
 				"Name":        "new-image",
 				"Description": "from workspace",
-				"WorkspaceId": "ws-00000001",
+				"WorkspaceId": wsID,
 			},
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
@@ -195,4 +202,118 @@ func TestWorkspaceImageDescribeAndPermissions(
 	if rec7.Code != http.StatusOK {
 		t.Fatalf("delete image: expected 200, got %d", rec7.Code)
 	}
+}
+
+func createWorkspaceImageReq(workspaceID string) map[string]any {
+	return map[string]any{
+		"Name":        "validation-test",
+		"Description": "test",
+		"WorkspaceId": workspaceID,
+	}
+}
+
+// TestCreateWorkspaceImage_WorkspaceIDValidation verifies CreateWorkspaceImage
+// rejects a WorkspaceId that doesn't reference a real workspace and accepts
+// one that does -- ResourceNotFoundException is in this operation's real
+// error list (aws-sdk-go-v2/service/workspaces@v1.73.1 deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateWorkspaceImage).
+func TestCreateWorkspaceImage_WorkspaceIDValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		workspaceID func(t *testing.T, h *workspaces.Handler) string
+		name        string
+		wantCode    int
+	}{
+		{
+			name: "missing workspace rejects",
+			workspaceID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "ws-doesnotexist"
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "valid workspace succeeds",
+			workspaceID: func(t *testing.T, h *workspaces.Handler) string {
+				t.Helper()
+
+				return createWorkspace(t, h)
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(
+				t, h, "CreateWorkspaceImage", createWorkspaceImageReq(tc.workspaceID(t, h)),
+			)
+
+			require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState verifies a
+// rejected CreateWorkspaceImage call leaves nothing behind: no image
+// appears in DescribeWorkspaceImages, and the shared ID counter (store.go's
+// nextID) isn't advanced, proving the workspace-existence check runs before
+// createImageLocked's nextID call, not after.
+func TestCreateWorkspaceImage_UnknownWorkspace_ConsumesNoState(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+	wsID := createWorkspace(t, h)
+
+	rec1 := doTargetRequest(t, h, "CreateWorkspaceImage", createWorkspaceImageReq(wsID))
+	require.Equal(t, http.StatusOK, rec1.Code, rec1.Body.String())
+
+	var out1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &out1))
+	firstID, _ := out1["ImageId"].(string)
+	require.NotEmpty(t, firstID)
+
+	describeRec := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var before struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+
+	rejectedRec := doTargetRequest(
+		t, h, "CreateWorkspaceImage", createWorkspaceImageReq("ws-doesnotexist"),
+	)
+	require.Equal(t, http.StatusNotFound, rejectedRec.Code)
+
+	describeRec2 := doTargetRequest(t, h, "DescribeWorkspaceImages", map[string]any{})
+	require.Equal(t, http.StatusOK, describeRec2.Code)
+
+	var after struct {
+		Images []map[string]any `json:"Images"`
+	}
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+
+	assert.Len(t, after.Images, len(before.Images), "rejected create must not add an image")
+
+	rec2 := doTargetRequest(t, h, "CreateWorkspaceImage", createWorkspaceImageReq(wsID))
+	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+
+	var out2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &out2))
+	secondID, _ := out2["ImageId"].(string)
+	require.NotEmpty(t, secondID)
+
+	assert.Equal(
+		t,
+		idCounterSuffix(t, firstID, "wsi-")+1,
+		idCounterSuffix(t, secondID, "wsi-"),
+		"rejected create must not consume an ID from the shared counter",
+	)
 }

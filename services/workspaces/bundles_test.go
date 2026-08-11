@@ -151,9 +151,11 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	// Create a custom bundle.
+	// Create a custom bundle. CreateWorkspaceBundle validates that ImageId
+	// references a real image, so use one actually created.
 	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
 		"BundleName":  "MyBundle",
+		"ImageId":     createImage(t, h),
 		"ComputeType": map[string]any{"Name": "STANDARD"},
 		"UserStorage": map[string]any{"Capacity": "50"},
 		"RootStorage": map[string]any{"Capacity": "80"},
@@ -184,6 +186,7 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
 		"BundleName":        "MyCustomBundle",
 		"BundleDescription": "A test bundle",
+		"ImageId":           createImage(t, h),
 		"ComputeType":       map[string]any{"Name": "STANDARD"},
 		"UserStorage":       map[string]any{"Capacity": "50"},
 		"RootStorage":       map[string]any{"Capacity": "80"},
@@ -243,11 +246,12 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := newTestHandlerWithBackend(t)
 
-			// Create
+			// Create -- CreateWorkspaceBundle validates ImageId references a
+			// real image, so use one actually created rather than a made-up ID.
 			rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
 				"BundleName":        tc.bundleName,
 				"BundleDescription": tc.description,
-				"ImageId":           "wsi-00000001",
+				"ImageId":           createImage(t, h),
 				"ComputeType":       map[string]string{"Name": "VALUE"},
 				"UserStorage":       map[string]string{"Capacity": "10"},
 				"RootStorage":       map[string]string{"Capacity": "80"},
@@ -269,22 +273,9 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 			// Update -- UpdateWorkspaceBundle validates ImageId references a
 			// real image (see TestUpdateWorkspaceBundle_UnknownImage), so use
 			// one actually created rather than a made-up ID.
-			imgRec := doTargetRequest(t, h, "CreateWorkspaceImage", map[string]any{
-				"Name":        "img-for-bundle-update",
-				"Description": "test",
-			})
-			if imgRec.Code != http.StatusOK {
-				t.Fatalf("create image: expected 200, got %d: %s", imgRec.Code, imgRec.Body)
-			}
-
-			var imgOut struct {
-				ImageID string `json:"ImageId"`
-			}
-			decodeJSON(t, imgRec.Body.Bytes(), &imgOut)
-
 			rec2 := doTargetRequest(t, h, "UpdateWorkspaceBundle", map[string]any{
 				"BundleId": bundleID,
-				"ImageId":  imgOut.ImageID,
+				"ImageId":  createImage(t, h),
 			})
 			if rec2.Code != http.StatusOK {
 				t.Fatalf("update: expected 200, got %d: %s", rec2.Code, rec2.Body)
@@ -314,7 +305,7 @@ func TestUpdateWorkspaceBundle_UnknownImage(t *testing.T) {
 	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
 		"BundleName":        "unknown-image-bundle",
 		"BundleDescription": "test",
-		"ImageId":           "wsi-00000001",
+		"ImageId":           createImage(t, h),
 		"ComputeType":       map[string]string{"Name": "VALUE"},
 		"UserStorage":       map[string]string{"Capacity": "10"},
 		"RootStorage":       map[string]string{"Capacity": "80"},
@@ -336,4 +327,121 @@ func TestUpdateWorkspaceBundle_UnknownImage(t *testing.T) {
 	if rec2.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", rec2.Code, rec2.Body)
 	}
+}
+
+func createBundleReq(imageID string) map[string]any {
+	return map[string]any{
+		"BundleName":        "validation-test",
+		"BundleDescription": "test",
+		"ImageId":           imageID,
+		"ComputeType":       map[string]string{"Name": "VALUE"},
+		"UserStorage":       map[string]string{"Capacity": "10"},
+		"RootStorage":       map[string]string{"Capacity": "80"},
+	}
+}
+
+// TestCreateWorkspaceBundle_ImageIDValidation verifies CreateWorkspaceBundle
+// rejects an ImageId that doesn't reference a real image and accepts one
+// that does -- ResourceNotFoundException is in this operation's real error
+// list (aws-sdk-go-v2/service/workspaces@v1.73.1 deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateWorkspaceBundle).
+func TestCreateWorkspaceBundle_ImageIDValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		imageID  func(t *testing.T, h *workspaces.Handler) string
+		name     string
+		wantCode int
+	}{
+		{
+			name: "missing image rejects",
+			imageID: func(t *testing.T, _ *workspaces.Handler) string {
+				t.Helper()
+
+				return "wsi-doesnotexist"
+			},
+			wantCode: http.StatusNotFound,
+		},
+		{
+			name: "valid image succeeds",
+			imageID: func(t *testing.T, h *workspaces.Handler) string {
+				t.Helper()
+
+				return createImage(t, h)
+			},
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newTestHandlerWithBackend(t)
+
+			rec := doTargetRequest(t, h, "CreateWorkspaceBundle", createBundleReq(tc.imageID(t, h)))
+
+			require.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestCreateWorkspaceBundle_UnknownImage_ConsumesNoState verifies a rejected
+// CreateWorkspaceBundle call leaves nothing behind: no bundle appears in
+// DescribeWorkspaceBundles, and the shared ID counter (store.go's nextID)
+// isn't advanced, proving b.nextID was never reached -- the existence check
+// must run before any state mutation.
+func TestCreateWorkspaceBundle_UnknownImage_ConsumesNoState(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+	imageID := createImage(t, h)
+
+	rec1 := doTargetRequest(t, h, "CreateWorkspaceBundle", createBundleReq(imageID))
+	require.Equal(t, http.StatusOK, rec1.Code, rec1.Body.String())
+
+	var out1 struct {
+		WorkspaceBundle map[string]any `json:"WorkspaceBundle"`
+	}
+	decodeJSON(t, rec1.Body.Bytes(), &out1)
+	firstID, _ := out1.WorkspaceBundle["BundleId"].(string)
+	require.NotEmpty(t, firstID)
+
+	describeRec := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{"Owner": "111122223333"})
+	require.Equal(t, http.StatusOK, describeRec.Code)
+
+	var before map[string]any
+	require.NoError(t, json.Unmarshal(describeRec.Body.Bytes(), &before))
+	countBefore := len(before["Bundles"].([]any))
+
+	rejectedRec := doTargetRequest(
+		t, h, "CreateWorkspaceBundle", createBundleReq("wsi-doesnotexist"),
+	)
+	require.Equal(t, http.StatusNotFound, rejectedRec.Code)
+
+	describeRec2 := doTargetRequest(t, h, "DescribeWorkspaceBundles", map[string]any{"Owner": "111122223333"})
+	require.Equal(t, http.StatusOK, describeRec2.Code)
+
+	var after map[string]any
+	require.NoError(t, json.Unmarshal(describeRec2.Body.Bytes(), &after))
+	countAfter := len(after["Bundles"].([]any))
+
+	assert.Equal(t, countBefore, countAfter, "rejected create must not add a bundle")
+
+	rec2 := doTargetRequest(t, h, "CreateWorkspaceBundle", createBundleReq(imageID))
+	require.Equal(t, http.StatusOK, rec2.Code, rec2.Body.String())
+
+	var out2 struct {
+		WorkspaceBundle map[string]any `json:"WorkspaceBundle"`
+	}
+	decodeJSON(t, rec2.Body.Bytes(), &out2)
+	secondID, _ := out2.WorkspaceBundle["BundleId"].(string)
+	require.NotEmpty(t, secondID)
+
+	assert.Equal(
+		t,
+		idCounterSuffix(t, firstID, "wsb-")+1,
+		idCounterSuffix(t, secondID, "wsb-"),
+		"rejected create must not consume an ID from the shared counter",
+	)
 }

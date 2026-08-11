@@ -44,8 +44,8 @@ ops:
 
 families:
   ConnectionAlias: {status: ok, note: "Create/Describe/Delete/Associate/Disassociate/Permissions all mutate storedConnAlias state correctly; spot-checked against real WorkspaceRequest/ConnectionAlias field names"}
-  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation. FIXED this pass (gopherstack-o5ig): UpdateWorkspaceBundle accepted any ImageId, including nonexistent ones, and silently pointed the bundle at a phantom image — now validates ImageId against b.images (ResourceNotFoundException, real error list); empty ImageId remains a no-op (the real field is optional). CreateWorkspaceBundle.ImageId has the same gap and is NOT fixed this pass — see gaps note above."}
-  WorkspaceImage: {status: ok, note: "Copy/Create/Delete/Import/CreateUpdated/DescribePermissions/UpdatePermission all mutate storedImage table. FIXED this pass: Created was serialized as an ISO8601 string (\"2006-01-02T15:04:05Z\") in three response shapes (CreateWorkspaceImage, DescribeWorkspaceImages, DescribeCustomWorkspaceImageImport) — real WorkspaceImage.Created / DescribeCustomWorkspaceImageImportOutput.Created are *time.Time, and this is the awsjson1.1 protocol, which requires epoch-seconds numbers (unixTimestamp), not RFC3339 strings; a real client SDK would fail to deserialize the response. Fixed via awstime.Epoch, matching the bug class already fixed in QuickSight/IoT."}
+  WorkspaceBundle_custom: {status: ok, note: "Create/Delete/Update custom bundles verified real mutation. FIXED this pass (gopherstack-o5ig): UpdateWorkspaceBundle accepted any ImageId, including nonexistent ones, and silently pointed the bundle at a phantom image — now validates ImageId against b.images (ResourceNotFoundException, real error list); empty ImageId remains a no-op (the real field is optional). FIXED this pass (gopherstack-e5pd): CreateWorkspaceBundle had the same gap (ImageId is a real required field, unlike UpdateWorkspaceBundle's optional one) — now validates existence before b.nextID/b.customBundles.Put/b.tags are touched, so a rejected call consumes no ID and leaves no partial state."}
+  WorkspaceImage: {status: ok, note: "Copy/Create/Delete/Import/CreateUpdated/DescribePermissions/UpdatePermission all mutate storedImage table. FIXED this pass: Created was serialized as an ISO8601 string (\"2006-01-02T15:04:05Z\") in three response shapes (CreateWorkspaceImage, DescribeWorkspaceImages, DescribeCustomWorkspaceImageImport) — real WorkspaceImage.Created / DescribeCustomWorkspaceImageImportOutput.Created are *time.Time, and this is the awsjson1.1 protocol, which requires epoch-seconds numbers (unixTimestamp), not RFC3339 strings; a real client SDK would fail to deserialize the response. Fixed via awstime.Epoch, matching the bug class already fixed in QuickSight/IoT. FIXED this pass (gopherstack-e5pd): CreateWorkspaceImage's WorkspaceId parameter was discarded outright (`_ /*workspaceId*/`), so any value including a nonexistent one was accepted — now validated against b.workspaces (ResourceNotFoundException, real error list) before createImageLocked runs; the real CreateWorkspaceImageOutput/WorkspaceImage types carry no source-workspace field, so there is nothing else to derive from it. CopyWorkspaceImage.SourceImageId and CreateUpdatedWorkspaceImage.SourceImageId have the same unvalidated-identifier shape and are NOT fixed this pass (gopherstack-plmb) — CopyWorkspaceImage additionally takes a SourceRegion this single-region backend doesn't model per image, worth resolving before validating."}
   WorkspacesPool: {status: ok, note: "Create/Describe/Start/Stop/Terminate/Update all real state transitions on storedPool.State. FIXED prior pass: (1) CreatedAt epoch-seconds bug; (2) CapacityStatus/RunningMode were entirely absent from the response, DesiredUserSessions was parsed but discarded. FIXED this pass (gopherstack-o5ig): UpdateWorkspacesPoolInput's real constraint 'The running mode can only be updated when the pool is in a stopped state' (doc comment on RunningMode) is now enforced -- previously applied unconditionally. The pool state machine genuinely reaches STOPPED via StopWorkspacesPool, so this is a real, reachable precondition, not a strand-the-operation trap: UpdateWorkspacesPool now returns InvalidResourceStateException (in the real error list) when RunningMode is set on a non-STOPPED pool, checked before any other field is mutated. See TestWorkspacesPool_UpdateRunningModeRequiresStopped."}
   WorkspacesPoolSession: {status: ok}
   Account: {status: ok, note: "DescribeAccount/ModifyAccount/ModifyEndpointEncryptionMode read/write storedAccountConfig; DescribeAccountModifications now has a real, persisted modification history (see ops table) instead of an always-empty stub."}
@@ -65,11 +65,12 @@ gaps: []
   #
   # gopherstack-o5ig (2026-08-10): both items previously listed as deferred below
   # (RunningMode-while-STOPPED, Applications family) are now fixed — see the
-  # WorkspacesPool and Applications family notes above. Known related-but-
-  # unfixed findings from this pass (out of scope, not part of gopherstack-o5ig):
-  # CreateWorkspaceBundle.ImageId and CreateWorkspaceImage.WorkspaceId also
-  # accept a nonexistent resource ID and report success (same bug class as
-  # UpdateWorkspaceBundle.ImageId, fixed this pass) — flagged for a future pass.
+  # WorkspacesPool and Applications family notes above. CreateWorkspaceBundle.ImageId
+  # and CreateWorkspaceImage.WorkspaceId, flagged then as a follow-up, are now
+  # fixed too (gopherstack-e5pd, 2026-08-11) — see WorkspaceBundle_custom and
+  # WorkspaceImage notes above. That same pass found CopyWorkspaceImage.SourceImageId
+  # and CreateUpdatedWorkspaceImage.SourceImageId have the identical gap and left
+  # them unfixed (gopherstack-plmb) to keep the change contained.
 
 deferred: []
 
@@ -158,9 +159,12 @@ bug-class order:
     `DirectoryId`, registered or not) — fixed, see DirectoryModifyOps note.
   - `UpdateWorkspaceBundle` accepted any `ImageId` — fixed, see
     WorkspaceBundle_custom note. `CreateWorkspaceBundle.ImageId` and
-    `CreateWorkspaceImage.WorkspaceId` have the same gap and are **not**
-    fixed this pass (see gaps note) — flagged for a future pass rather than
-    expanded into out-of-scope territory.
+    `CreateWorkspaceImage.WorkspaceId` had the same gap, flagged then for a
+    future pass; fixed 2026-08-11 (gopherstack-e5pd) — see WorkspaceBundle_custom
+    and WorkspaceImage notes above. `CopyWorkspaceImage.SourceImageId` and
+    `CreateUpdatedWorkspaceImage.SourceImageId` turned out to share the same
+    gap and are flagged as a new follow-up (gopherstack-plmb) rather than
+    folded into that fix.
 - **More permissive than real AWS (unvalidated enums)**:
   `DescribeWorkspaceAssociations`/`DescribeApplicationAssociations` never
   validated the real required `AssociatedResourceTypes` field — fixed
