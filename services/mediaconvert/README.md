@@ -16,7 +16,7 @@
 ### Known gaps
 
 - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.97.1 (pin corrected from the stale v1.87.3 recorded here by gopherstack-u8my): still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
-- NEW since v1.87.3: CreateQueueInput/UpdateQueueInput gained a MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency); gopherstack's CreateQueue/UpdateQueue do not read, store, or echo it (silently dropped). Found by the gopherstack-u8my pin-correction pass's SDK diff, not yet fixed -- CreateQueue/UpdateQueue ops rows above stay wire:ok pending a real fix, matching this file's existing convention of tracking known field-level gaps here rather than downgrading the op status.
+- FIXED by gopherstack-gt9o: CreateQueueInput/UpdateQueueInput's MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency, added since v1.87.3) now read, stored, and echoed. See Notes.
 
 ### Deferred
 
