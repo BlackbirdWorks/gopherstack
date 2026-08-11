@@ -69,6 +69,16 @@ func TestFindTagsByArn_Project(t *testing.T) {
 func TestFindTagsByArn_Job(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
 	j, err := b.CreateJob(
 		context.Background(),
 		"tagged-j",
@@ -191,6 +201,16 @@ func TestUpdateTagsByArn_Project(t *testing.T) {
 func TestUpdateTagsByArn_Job(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend()
+	_, err := b.CreateDataset(
+		context.Background(),
+		"ds",
+		"CSV",
+		s3Input("b", ""),
+		databrew.DatasetFormatOptions{},
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
 	j, err := b.CreateJob(
 		context.Background(),
 		"tag-upd-j",

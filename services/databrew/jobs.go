@@ -32,6 +32,9 @@ func (b *InMemoryBackend) CreateJob(
 	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
+	if err := b.validateJobResourceRefs(region, datasetName, projectName, recipeName); err != nil {
+		return nil, err
+	}
 	if err := validateJobExtras(extra); err != nil {
 		return nil, err
 	}
@@ -148,6 +151,31 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
+
+	return nil
+}
+
+// validateJobResourceRefs rejects a CreateJob call that names a dataset,
+// project, or recipe that doesn't exist, before any state is mutated.
+// CreateProfileJob and CreateRecipeJob both document ResourceNotFoundException
+// (aws-sdk-go-v2/service/databrew's deserializers.go:465/960, in
+// awsRestjson1_deserializeOpErrorCreateProfileJob/CreateRecipeJob);
+// CreateProject's error switch (deserializers.go:626-638) has no
+// ResourceNotFoundException case, so ProjectName/RecipeName there are
+// deliberately left unvalidated by CreateProject itself. Each name here is
+// checked only when non-empty: CreateRecipeJobInput accepts ProjectName as an
+// alternative to DatasetName+RecipeReference, so an unset reference is not an
+// error.
+func (b *InMemoryBackend) validateJobResourceRefs(region, datasetName, projectName, recipeName string) error {
+	if datasetName != "" && !b.datasetsTable(region).Has(datasetName) {
+		return fmt.Errorf("%w: dataset %q", ErrNotFound, datasetName)
+	}
+	if projectName != "" && !b.projectsTable(region).Has(projectName) {
+		return fmt.Errorf("%w: project %q", ErrNotFound, projectName)
+	}
+	if recipeName != "" && !b.recipesTable(region).Has(recipeName) {
+		return fmt.Errorf("%w: recipe %q", ErrNotFound, recipeName)
+	}
 
 	return nil
 }
