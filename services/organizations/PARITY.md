@@ -29,24 +29,24 @@ ops:
   CloseAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateOrganizationalUnit: {wire: ok, errors: ok, state: ok, persist: ok, note: "depth-limit (root=0, OUs 1-5) and O(1) sibling-name uniqueness enforced"}
   DescribeOrganizationalUnit: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteOrganizationalUnit: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects non-empty OUs (child accounts or child OUs)"}
+  DeleteOrganizationalUnit: {wire: ok, errors: ok, state: fixed, persist: ok, note: "rejects non-empty OUs (child accounts or child OUs); now also cleans the reverse policyTargets index on delete -- previously left the deleted OU's ID as a ghost entry in every attached policy's target list, so ListTargetsForPolicy kept reporting a deleted OU as a live target"}
   UpdateOrganizationalUnit: {wire: ok, errors: ok, state: ok, persist: ok}
   ListOrganizationalUnitsForParent: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
   ListAccountsForParent: {wire: fixed, errors: ok, state: ok, persist: ok, note: "request/response DTOs already declared MaxResults/NextToken but the handler ignored both and returned everything -- wired page.New to match sibling ops"}
   ListParents: {wire: ok, errors: ok, state: ok, persist: ok}
   ListChildren: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
-  CreatePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "content now validated: json.Valid() syntax check -> MalformedPolicyDocumentException, and per-policy-type size quota (SCP/RCP 5120, TAG/BACKUP/DECLARATIVE_POLICY_EC2 10000, AISERVICES_OPT_OUT_POLICY 2500 chars; CHATBOT_POLICY/SECURITYHUB_POLICY default to 10000 as a best-effort value, not independently verified against an AWS quotas doc) -> ConstraintViolationException(POLICY_CONTENT_LIMIT_EXCEEDED). Tags param now validated via validateNewTags before any mutation (see TagResource note)."}
+  CreatePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "content validated: json.Valid() syntax check -> MalformedPolicyDocumentException, and per-policy-type DEFAULT size quota -> ConstraintViolationException(POLICY_CONTENT_LIMIT_EXCEEDED), all values verified against the live 'Maximum size of a policy document' row of orgs_reference_limits.html: SCP 10240 (was wrongly 5120, shared with RCP -- real bug, fixed), RCP 5120, TAG/BACKUP/DECLARATIVE_POLICY_EC2 10000, AISERVICES_OPT_OUT_POLICY 2500, CHATBOT_POLICY/SECURITYHUB_POLICY 10000 (now independently confirmed, was previously an unverified guess that happened to be correct). Tags param validated via validateNewTags before any mutation (see TagResource note)."}
   DescribePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "Content, when supplied, now goes through the same validatePolicyContent() as CreatePolicy (syntax+size) before ANY field (name/description/content) is mutated, matching AWS's atomic per-request failure semantics -- previously content was accepted unvalidated."}
+  UpdatePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content, when supplied, goes through the same validatePolicyContent() as CreatePolicy (syntax+size, corrected SCP/RCP limits) before ANY field (name/description/content) is mutated, matching AWS's atomic per-request failure semantics."}
   DeletePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects deletion while still attached to any target"}
   ListPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "requires non-empty Filter, matches AWS; already paginated"}
   AttachPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "enforces AWS's 5-policies-per-type-per-target limit and duplicate-attachment rejection"}
   DetachPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPoliciesForTarget: {wire: fixed, errors: ok, state: ok, persist: ok, note: "MaxResults field was missing from the request DTO entirely and results were never truncated; added field + wired page.New"}
   ListTargetsForPolicy: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same gap as ListPoliciesForTarget -- fixed the same way"}
-  EnablePolicyType: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisablePolicyType: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects disabling a type while policies of that type remain attached anywhere"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags now validated (validateNewTags in tags.go) before merge: (1) reserved 'aws:' key prefix (case-insensitive) -> InvalidInputException(INVALID_SYSTEM_TAGS_PARAMETER); (2) duplicate key within one request's Tags list -> InvalidInputException(DUPLICATE_TAG_KEY); (3) resulting tag count > 50 (AWS's documented per-resource limit) -> ConstraintViolationException(MAX_TAG_LIMIT_EXCEEDED). Same validation now also gates CreateAccount/CreateGovCloudAccount/CreateOrganizationalUnit/CreatePolicy's Tags parameter, called before any resource is created so a bad tag list leaves nothing behind (matches AWS's 'the entire request fails' doc note on those Tags params)."}
+  EnablePolicyType: {wire: ok, errors: ok, state: fixed, persist: ok, note: "PolicyType now validated against validPolicyTypes() -- previously accepted any string and enabled it, more permissive than AWS's enum-constrained PolicyType"}
+  DisablePolicyType: {wire: ok, errors: ok, state: fixed, persist: ok, note: "rejects disabling a type while policies of that type remain attached anywhere; PolicyType now validated against validPolicyTypes() (same fix as EnablePolicyType)"}
+  TagResource: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Tags validated (validateNewTags in tags.go) before merge: (1) key length 1-128 chars, value length 0-256 chars (TagKey/TagValue shape bounds, botocore organizations/2016-11-28) -> InvalidInputException -- NEW this pass, previously unvalidated; (2) reserved 'aws:' key prefix (case-insensitive) -> InvalidInputException(INVALID_SYSTEM_TAGS_PARAMETER); (3) duplicate key within one request's Tags list -> InvalidInputException(DUPLICATE_TAG_KEY); (4) resulting tag count > 50 (AWS's documented per-resource limit) -> ConstraintViolationException(MAX_TAG_LIMIT_EXCEEDED). Same validation gates CreateAccount/CreateGovCloudAccount/CreateOrganizationalUnit/CreatePolicy's Tags parameter, called before any resource is created so a bad tag list leaves nothing behind (matches AWS's 'the entire request fails' doc note on those Tags params)."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response DTO already declared NextToken but it was never populated and the request had no NextToken field at all (real AWS ListTagsForResource paginates via NextToken, no MaxResults param); added the field and wired page.New with the service default page size"}
   EnableAWSServiceAccess: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -66,7 +66,7 @@ ops:
   ListHandshakesForOrganization: {wire: ok, errors: ok, state: ok, persist: ok, note: "already paginated"}
   DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutResourcePolicy: {wire: ok, errors: ok, state: fixed, persist: ok, note: "Content now capped at 40,000 chars, the ResourcePolicyContent shape's hard max (botocore organizations/2016-11-28, not account-quota state like PolicyContent) -> ConstraintViolationException; was previously unbounded"}
   DescribeEffectivePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "walks the OU/root policy chain and merges per policy-type semantics (SCP intersection-style vs tag-style override)"}
   ListAccountsWithInvalidEffectivePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly always empty -- this backend performs no policy-schema validation so no account can ever have an invalid effective policy; NOT a stub, a correct void result (parity-principles rule 4)"}
   ListEffectivePolicyValidationErrors: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as above -- correct void result, not a stub"}
@@ -86,8 +86,8 @@ families:
 gaps:                     # known divergences NOT fixed — link bd issue ids
   - "ListAccountsWithInvalidEffectivePolicy / ListEffectivePolicyValidationErrors don't paginate (MaxResults/NextToken silently accepted-but-ignored in the same way the 6 fixed ops used to be), but both are provably always-empty results given no real policy-schema validation exists, so pagination there is moot until schema validation is implemented (no bd issue filed yet)"
   - "AWS auto-creates and attaches a default 'FullAWSAccess' SCP to the root when the SERVICE_CONTROL_POLICY policy type is enabled (or org created with ALL features); this backend does not fabricate that default policy, so ListPolicies/ListPoliciesForTarget won't show it. Deep AWS behavior detail, not flagged as broken since no client mutation is silently dropped -- documented here for the next auditor (no bd issue filed yet)"
-  - "Policy content size limits are modeled at AWS's DEFAULT per-type quota only (e.g. SCP/RCP 5120 chars); this backend does not model the service-quota-increase path (SCP up to 10240/20480 via a quota request) since there is no quota-management API call being emulated here. A client that successfully requested a real quota increase would see this backend reject documents AWS would accept. CHATBOT_POLICY/SECURITYHUB_POLICY default to the same 10000-char ceiling as BACKUP/TAG/DECLARATIVE_POLICY_EC2 as a best-effort value -- not found in the current orgs_reference_limits.md doc snapshot, so not independently verified (no bd issue filed yet)."
-  - "Tag key/value length limits (AWS also caps individual tag key/value string lengths, not just the 50-tags-per-resource count) are not validated -- only count, duplicate-key, and reserved-prefix are enforced this pass (no bd issue filed yet)"
+  - "Policy content size limits are modeled at AWS's DEFAULT per-type quota only (SCP 10240, RCP 5120, TAG/BACKUP/DECLARATIVE_POLICY_EC2/CHATBOT_POLICY/SECURITYHUB_POLICY 10000, AISERVICES_OPT_OUT_POLICY 2500 -- all independently verified against the live orgs_reference_limits.html 'Maximum size of a policy document' table this pass, including the SCP default itself, which was previously wrong at 5120/shared with RCP and has been fixed); this backend does not model the service-quota-increase path (e.g. SCP up to 20480 via a quota request) since there is no quota-management API call being emulated here. A client that successfully requested a real quota increase would see this backend reject documents AWS would accept -- legitimately unmodeled account state, not a bug (no bd issue filed yet)."
+  - "DescribeEffectivePolicy does not validate its policyType argument against AWS's EffectivePolicyType enum (a different, larger enum than PolicyType -- includes INSPECTOR_POLICY/UPGRADE_ROLLOUT_POLICY/BEDROCK_POLICY/S3_POLICY/NETWORK_SECURITY_DIRECTOR_POLICY, excludes SCP/RCP), so an unrecognized value falls through to ErrEffectivePolicyNotFound instead of AWS's InvalidInputException; unlike EnablePolicyType/DisablePolicyType (fixed this pass against the existing validPolicyTypes() allowlist), adding this correctly needs a second, distinct allowlist and was left alone to avoid guessing at one under time pressure (no bd issue filed yet)"
   - "NEW since v1.50.4 (found by gopherstack-u8my's pin-correction pass, not fixed): Account gained a Paths []string field (the account's location paths in the org hierarchy) and OrganizationalUnit gained a Path *string field (its own location path). gopherstack does not compute or populate either on DescribeAccount/ListAccounts/DescribeOrganizationalUnit/UpdateOrganizationalUnit/ListOrganizationalUnitsForParent -- silently omitted from responses. (needs bd issue)"
 deferred: []               # both previously-deferred items (policy content validation, tag validation)
                             # were implemented and field-diffed this pass -- see CreatePolicy/UpdatePolicy/
@@ -151,6 +151,45 @@ so the next auditor doesn't re-flag them.
 - **Error table**: `getErrorTable()` (handler.go) has a 1:1 entry for all 28 sentinel errors
   declared in backend.go; verified there is no gap that would surface as a raw 500
   `InternalFailure` for a condition that should have a specific AWS exception code.
+
+- **Real bug #3 (fixed) -- SCP given RCP's smaller default limit**: `policyContentMaxSize`
+  matched `policyTypeSCP` and `policyTypeRCP` on the same case and returned a shared 5,120-char
+  constant. The live orgs_reference_limits.html "Maximum size of a policy document" table gives
+  SCP 10,240 and RCP 5,120 -- two different defaults. Effect: real AWS accepts an
+  8,000-character SCP; this backend rejected it with
+  `ConstraintViolationException(POLICY_CONTENT_LIMIT_EXCEEDED)` -- more restrictive than AWS.
+  Split into `policyContentLimitSCP = 10240` / `policyContentLimitRCP = 5120`.
+  `TestCreatePolicy_ContentSizeLimit`'s own `scp` case previously asserted the wrong (5,120)
+  boundary -- exactly the "test written against gopherstack's own broken output" trap; fixed
+  along with the code.
+
+- **Real bug #4 (fixed) -- tag key/value string-length limits unvalidated**: only tag count
+  (50/resource), duplicate-key, and `aws:`-prefix were enforced; the `TagKey`/`TagValue` shapes'
+  own length bounds (botocore `organizations/2016-11-28/service-2.json.gz`: `TagKey` min 1/max
+  128, `TagValue` min 0/max 256) were not. A 129-character key or a 257-character value that
+  real AWS rejects was silently accepted and persisted. Added length checks to
+  `validateNewTags` (tags.go), ahead of the existing prefix/duplicate/count checks so an invalid
+  key/value still leaves the target unmutated.
+
+- **Real bug #5 (fixed) -- PutResourcePolicy had no size cap**: `ResourcePolicyContent` (a
+  *different* shape from `PolicyContent`) carries a hard `max: 40000` in the botocore model --
+  unlike `PolicyContent`, this one is a real shape constraint, not account-quota state, and
+  matches the docs page's "Maximum size of the resource-based delegation policy: 40,000
+  characters" row exactly. `PutResourcePolicy` accepted content of any size. Added the check.
+
+- **Real bug #6 (fixed) -- EnablePolicyType/DisablePolicyType accepted any string**: unlike
+  `CreatePolicy`, neither validated `PolicyType` against `validPolicyTypes()`, so a garbage
+  policy-type string would be silently "enabled" and stored on the root's `PolicyTypes` list --
+  more permissive than AWS's enum-constrained `PolicyType`. Added the same
+  `slices.Contains(validPolicyTypes(), policyType)` check `CreatePolicy` already used.
+
+- **Real bug #7 (fixed) -- DeleteOrganizationalUnit left a ghost policy target**: deletion
+  cleared the OU's own `targetPolicies` entry (OU -> attached policy IDs) but never walked those
+  policies' `policyTargets` entries (policy -> attached target IDs) to remove the OU, unlike
+  `RemoveAccountFromOrganization`, which does both directions. Effect: `ListTargetsForPolicy`
+  kept listing the deleted OU as an attached target indefinitely (with an empty
+  name/ARN, misreported as `Type: "ACCOUNT"` by `resolveTargetSummary`'s fallback branch).
+  Fixed by mirroring `RemoveAccountFromOrganization`'s reverse-index cleanup.
 
 - **Persistence**: `Handler.Snapshot`/`Restore` delegate directly to
   `InMemoryBackend.Snapshot`/`Restore` with the exact method signatures

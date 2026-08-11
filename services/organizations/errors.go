@@ -168,6 +168,18 @@ var (
 		"InvalidInputException: DUPLICATE_TAG_KEY",
 		awserr.ErrInvalidParameter,
 	)
+	// ErrInvalidTagKeyLength is returned when a tag key is empty or exceeds 128
+	// characters (TagKey shape: min 1, max 128).
+	ErrInvalidTagKeyLength = awserr.New(
+		"InvalidInputException: tag key must be between 1 and 128 characters",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrInvalidTagValueLength is returned when a tag value exceeds 256
+	// characters (TagValue shape: max 256).
+	ErrInvalidTagValueLength = awserr.New(
+		"InvalidInputException: tag value must not exceed 256 characters",
+		awserr.ErrInvalidParameter,
+	)
 )
 
 // Ensure errors are used somewhere to satisfy linter.

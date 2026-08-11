@@ -1,5 +1,13 @@
 package organizations
 
+// maxResourcePolicyContentLength is the ResourcePolicyContent shape's max
+// (botocore 1.43.56, data/organizations/2016-11-28/service-2.json.gz),
+// matching the "Maximum size of the resource-based delegation policy" row of
+// docs.aws.amazon.com/organizations/latest/userguide/orgs_reference_limits.html
+// (40,000 characters). Unlike PolicyContent, this is a hard shape constraint,
+// not account-quota state.
+const maxResourcePolicyContentLength = 40000
+
 // DeleteResourcePolicy removes the organization resource policy.
 func (b *InMemoryBackend) DeleteResourcePolicy() error {
 	b.mu.Lock("DeleteResourcePolicy")
@@ -43,6 +51,10 @@ func (b *InMemoryBackend) PutResourcePolicy(content string) (*ResourcePolicy, er
 
 	if b.org == nil {
 		return nil, ErrOrgNotFound
+	}
+
+	if len(content) > maxResourcePolicyContentLength {
+		return nil, ErrPolicyContentLimitExceeded
 	}
 
 	rpID := "p-rp-default"

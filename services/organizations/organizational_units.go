@@ -121,6 +121,13 @@ func (b *InMemoryBackend) DeleteOrganizationalUnit(ouID string) error {
 		delete(siblings, ou.Name)
 	}
 	delete(b.tags, ouID)
+
+	// Clean the reverse index too: otherwise a deleted OU lingers as a
+	// "target" in ListTargetsForPolicy for any policy that was attached to it.
+	for _, policyID := range b.targetPolicies[ouID] {
+		b.policyTargets[policyID] = removeString(b.policyTargets[policyID], ouID)
+	}
+
 	delete(b.targetPolicies, ouID)
 
 	return nil

@@ -608,6 +608,30 @@ func TestDisablePolicyType_WithAttached_Rejected(t *testing.T) {
 	require.Error(t, err, "DisablePolicyType must fail while policies of that type are attached")
 }
 
+// TestEnablePolicyType_UnknownType_Rejected verifies EnablePolicyType rejects
+// a PolicyType value outside AWS's enum instead of silently enabling it.
+func TestEnablePolicyType_UnknownType_Rejected(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	_, err := b.EnablePolicyType(rootID, "NOT_A_REAL_POLICY_TYPE")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidInputException")
+}
+
+// TestDisablePolicyType_UnknownType_Rejected verifies DisablePolicyType
+// rejects a PolicyType value outside AWS's enum.
+func TestDisablePolicyType_UnknownType_Rejected(t *testing.T) {
+	t.Parallel()
+
+	b, rootID := newOrgBackend(t)
+
+	_, err := b.DisablePolicyType(rootID, "NOT_A_REAL_POLICY_TYPE")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidInputException")
+}
+
 // TestDisablePolicyType_WithAttached_ViaHandler verifies HTTP 400 +
 // ConstraintViolationException when policies are still attached.
 func TestDisablePolicyType_WithAttached_ViaHandler(t *testing.T) {
@@ -934,7 +958,7 @@ func TestCreatePolicy_ContentSizeLimit(t *testing.T) {
 		policyType string
 		limit      int
 	}{
-		{name: "scp", policyType: "SERVICE_CONTROL_POLICY", limit: 5120},
+		{name: "scp", policyType: "SERVICE_CONTROL_POLICY", limit: 10240},
 		{name: "resource_control", policyType: "RESOURCE_CONTROL_POLICY", limit: 5120},
 		{name: "tag", policyType: "TAG_POLICY", limit: 10000},
 		{name: "backup", policyType: "BACKUP_POLICY", limit: 10000},
@@ -998,7 +1022,7 @@ func TestUpdatePolicy_ContentSizeLimit(t *testing.T) {
 	p, err := b.CreatePolicy("scp", "", `{}`, "SERVICE_CONTROL_POLICY", nil)
 	require.NoError(t, err)
 
-	oversized := `{"k":"` + strings.Repeat("a", 5120) + `"}`
+	oversized := `{"k":"` + strings.Repeat("a", 10240) + `"}`
 	_, err = b.UpdatePolicy(p.PolicySummary.ID, "", "", oversized)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "POLICY_CONTENT_LIMIT_EXCEEDED")

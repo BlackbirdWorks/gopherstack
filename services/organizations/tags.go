@@ -15,6 +15,16 @@ const maxTagsPerResource = 50
 // callers may not create or modify tags whose key starts with it.
 const reservedTagKeyPrefix = "aws:"
 
+// Tag key/value length bounds, from the TagKey/TagValue shapes in botocore's
+// organizations service model (botocore 1.43.56,
+// data/organizations/2016-11-28/service-2.json.gz): TagKey {min:1, max:128},
+// TagValue {min:0, max:256}.
+const (
+	minTagKeyLength   = 1
+	maxTagKeyLength   = 128
+	maxTagValueLength = 256
+)
+
 // validateNewTags checks a caller-supplied tag list against AWS Organizations'
 // tagging constraints before it is merged onto existing (nil for a resource that
 // doesn't exist yet, e.g. a Create* call's Tags parameter). It must be called
@@ -29,6 +39,14 @@ func validateNewTags(existing map[string]string, newTags []Tag) error {
 	seen := make(map[string]struct{}, len(newTags))
 
 	for _, t := range newTags {
+		if len(t.Key) < minTagKeyLength || len(t.Key) > maxTagKeyLength {
+			return ErrInvalidTagKeyLength
+		}
+
+		if len(t.Value) > maxTagValueLength {
+			return ErrInvalidTagValueLength
+		}
+
 		if strings.HasPrefix(strings.ToLower(t.Key), reservedTagKeyPrefix) {
 			return ErrInvalidSystemTags
 		}
