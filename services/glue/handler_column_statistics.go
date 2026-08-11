@@ -9,7 +9,7 @@ import (
 type createColumnStatisticsTaskSettingsInput struct {
 	DatabaseName   string   `json:"DatabaseName"`
 	TableName      string   `json:"TableName"`
-	RoleArn        string   `json:"RoleArn,omitempty"`
+	RoleArn        string   `json:"Role,omitempty"`
 	ColumnNameList []string `json:"ColumnNameList,omitempty"`
 }
 
@@ -361,7 +361,7 @@ func (h *Handler) handleUpdateColumnStatisticsForTable(
 type updateColumnStatisticsTaskSettingsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
-	RoleArn      string `json:"RoleArn,omitempty"`
+	RoleArn      string `json:"Role,omitempty"`
 }
 
 func (h *Handler) handleUpdateColumnStatisticsTaskSettings(

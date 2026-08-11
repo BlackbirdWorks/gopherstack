@@ -29,7 +29,10 @@ func TestIntegration_AutoScaling_LaunchConfigurationLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteLaunchConfiguration(ctx, &autoscaling.DeleteLaunchConfigurationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteLaunchConfiguration(cleanupCtx, &autoscaling.DeleteLaunchConfigurationInput{
 			LaunchConfigurationName: aws.String(lcName),
 		})
 	})
@@ -78,11 +81,14 @@ func TestIntegration_AutoScaling_AutoScalingGroupLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteAutoScalingGroup(ctx, &autoscaling.DeleteAutoScalingGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteAutoScalingGroup(cleanupCtx, &autoscaling.DeleteAutoScalingGroupInput{
 			AutoScalingGroupName: aws.String(asgName),
 			ForceDelete:          aws.Bool(true),
 		})
-		_, _ = client.DeleteLaunchConfiguration(ctx, &autoscaling.DeleteLaunchConfigurationInput{
+		_, _ = client.DeleteLaunchConfiguration(cleanupCtx, &autoscaling.DeleteLaunchConfigurationInput{
 			LaunchConfigurationName: aws.String(lcName),
 		})
 	})
@@ -158,11 +164,14 @@ func TestIntegration_AutoScaling_DescribeScalingActivities(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteAutoScalingGroup(ctx, &autoscaling.DeleteAutoScalingGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteAutoScalingGroup(cleanupCtx, &autoscaling.DeleteAutoScalingGroupInput{
 			AutoScalingGroupName: aws.String(asgName),
 			ForceDelete:          aws.Bool(true),
 		})
-		_, _ = client.DeleteLaunchConfiguration(ctx, &autoscaling.DeleteLaunchConfigurationInput{
+		_, _ = client.DeleteLaunchConfiguration(cleanupCtx, &autoscaling.DeleteLaunchConfigurationInput{
 			LaunchConfigurationName: aws.String(lcName),
 		})
 	})
@@ -219,11 +228,14 @@ func TestIntegration_AutoScaling_DescribeAutoScalingGroups_WithFilter(t *testing
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteAutoScalingGroup(ctx, &autoscaling.DeleteAutoScalingGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteAutoScalingGroup(cleanupCtx, &autoscaling.DeleteAutoScalingGroupInput{
 			AutoScalingGroupName: aws.String(asgName),
 			ForceDelete:          aws.Bool(true),
 		})
-		_, _ = client.DeleteLaunchConfiguration(ctx, &autoscaling.DeleteLaunchConfigurationInput{
+		_, _ = client.DeleteLaunchConfiguration(cleanupCtx, &autoscaling.DeleteLaunchConfigurationInput{
 			LaunchConfigurationName: aws.String(lcName),
 		})
 	})

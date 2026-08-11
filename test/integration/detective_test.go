@@ -56,7 +56,10 @@ func TestIntegration_Detective_GraphLifecycle(t *testing.T) {
 			require.NotEmpty(t, graphArn, "graph ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteGraph(ctx, &detectivesdk.DeleteGraphInput{GraphArn: aws.String(graphArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteGraph(cleanupCtx, &detectivesdk.DeleteGraphInput{GraphArn: aws.String(graphArn)})
 			})
 
 			listOut, err := client.ListGraphs(ctx, &detectivesdk.ListGraphsInput{})

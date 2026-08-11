@@ -368,7 +368,7 @@ func TestBackendOps_UpdateOpsItem(t *testing.T) {
 }
 
 // TestOpsItem_PriorityRoundTrip locks in the Priority field (confirmed
-// against aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreateOpsItem.go/
+// against aws-sdk-go-v2/service/ssm@v1.73.4's api_op_CreateOpsItem.go/
 // api_op_UpdateOpsItem.go -- "the importance of this OpsItem in relation to
 // other OpsItems"), which was previously entirely absent from
 // CreateOpsItemInput/UpdateOpsItemInput/OpsItem/OpsItemSummary and silently
@@ -408,7 +408,7 @@ func TestOpsItem_PriorityRoundTrip(t *testing.T) {
 // CreateOpsItemInput/UpdateOpsItemInput fields (bd gopherstack-iq4m):
 // AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/
 // PlannedEndTime/RelatedOpsItems, confirmed present in aws-sdk-go-v2
-// v1.71.0's api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go.
+// v1.73.4's api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go.
 func TestOpsItem_ChangeManagerFieldsRoundTrip(t *testing.T) {
 	t.Parallel()
 

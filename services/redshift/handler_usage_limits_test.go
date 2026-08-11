@@ -29,9 +29,13 @@ func TestHandler_CreateUsageLimit(t *testing.T) {
 				postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=ul-cluster")
 			},
 			body: "Action=CreateUsageLimit&Version=2012-12-01&ClusterIdentifier=ul-cluster" +
-				"&FeatureType=spectrum&LimitType=time&Amount=100&BreachAction=log",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateUsageLimitResponse", "ul-cluster", "spectrum"},
+				"&FeatureType=spectrum&LimitType=time&Amount=100&BreachAction=log" +
+				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateUsageLimitResponse", "ul-cluster", "spectrum",
+				"<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>",
+			},
 		},
 		{
 			name: "cluster_not_found",

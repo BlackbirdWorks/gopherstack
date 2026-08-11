@@ -24,7 +24,7 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 		{
 			name: "happy_path",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateConfigurationSet("my-set")
+				_, _ = b.CreateConfigurationSet("my-set", nil)
 			},
 			configSetName: "my-set",
 			destName:      "my-dest",
@@ -39,7 +39,7 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 		{
 			name: "duplicate_destination",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateConfigurationSet("my-set")
+				_, _ = b.CreateConfigurationSet("my-set", nil)
 				_, _ = b.CreateConfigurationSetEventDestination("my-set", "my-dest", true, nil)
 			},
 			configSetName: "my-set",
@@ -75,7 +75,7 @@ func TestCreateConfigurationSetEventDestinationHTTP(t *testing.T) {
 	t.Parallel()
 
 	h, backend := newSESv2TestHandler(t)
-	_, err := backend.CreateConfigurationSet("my-cs")
+	_, err := backend.CreateConfigurationSet("my-cs", nil)
 	require.NoError(t, err)
 
 	body := map[string]any{

@@ -72,12 +72,46 @@ func TestAccuracy_MarketplaceEndpoint_RegisterTransitionsToActive(t *testing.T) 
 	assert.Equal(t, "Creating", ep.Status)
 
 	rec := doRequest(t, h, http.MethodPost,
-		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/registration", nil)
-	assert.Equal(t, http.StatusOK, rec.Code)
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/registration",
+		map[string]any{"modelSourceIdentifier": "registered-src-id"})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	mustUnmarshal(t, rec, &out)
+	registered := out["marketplaceModelEndpoint"].(map[string]any)
+	assert.Equal(t, "Active", registered["status"])
+	assert.Equal(t, "registered-src-id", registered["modelSourceIdentifier"])
 
 	got, err := b.GetMarketplaceModelEndpoint(ep.EndpointArn)
 	require.NoError(t, err)
 	assert.Equal(t, "Active", got.Status)
+	assert.Equal(
+		t,
+		"registered-src-id",
+		got.ModelSourceID,
+		"Register must apply the request body, not just flip status",
+	)
+}
+
+// TestAccuracy_MarketplaceEndpoint_RegisterRequiresModelSourceIdentifier locks in
+// that RegisterMarketplaceModelEndpoint's required modelSourceIdentifier body field
+// (aws-sdk-go-v2 api_op_RegisterMarketplaceModelEndpoint.go:37) is actually parsed
+// and enforced, not silently ignored.
+func TestAccuracy_MarketplaceEndpoint_RegisterRequiresModelSourceIdentifier(t *testing.T) {
+	t.Parallel()
+
+	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+	h := bedrock.NewHandler(b)
+	ep, err := b.CreateMarketplaceModelEndpoint("no-src-ep", "src-id", nil, nil)
+	require.NoError(t, err)
+
+	rec := doRequest(t, h, http.MethodPost,
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/registration", nil)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	got, err := b.GetMarketplaceModelEndpoint(ep.EndpointArn)
+	require.NoError(t, err)
+	assert.Equal(t, "Creating", got.Status, "a rejected register must not mutate status")
 }
 
 func TestAccuracy_MarketplaceEndpoint_DeregisterTransitionsToDeregistered(t *testing.T) {
@@ -89,7 +123,8 @@ func TestAccuracy_MarketplaceEndpoint_DeregisterTransitionsToDeregistered(t *tes
 	require.NoError(t, err)
 
 	// Register first.
-	require.NoError(t, b.RegisterMarketplaceModelEndpoint(ep.EndpointArn))
+	_, err = b.RegisterMarketplaceModelEndpoint(ep.EndpointArn, "src-id")
+	require.NoError(t, err)
 
 	rec := doRequest(t, h, http.MethodDelete,
 		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn)+"/registration", nil)
@@ -161,6 +196,56 @@ func TestAccuracy_MarketplaceEndpoint_ListResponseShape(t *testing.T) {
 	}
 }
 
+// TestAccuracy_MarketplaceEndpoint_ListModelSourceFilter locks in that
+// ListMarketplaceModelEndpoints' real query param is "modelSourceIdentifier"
+// (not "modelSourceEquals" -- aws-sdk-go-v2 serializers.go:6822-6824) and that
+// it's actually parsed and applied.
+func TestAccuracy_MarketplaceEndpoint_ListModelSourceFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		query     string
+		wantNames []string
+	}{
+		{
+			name:      "matches one source",
+			query:     "?modelSourceIdentifier=src-a",
+			wantNames: []string{"ep-a"},
+		},
+		{name: "matches none", query: "?modelSourceIdentifier=nonexistent-src", wantNames: nil},
+		{name: "no filter matches all", query: "", wantNames: []string{"ep-a", "ep-b"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
+			h := bedrock.NewHandler(b)
+
+			_, err := b.CreateMarketplaceModelEndpoint("ep-a", "src-a", nil, nil)
+			require.NoError(t, err)
+			_, err = b.CreateMarketplaceModelEndpoint("ep-b", "src-b", nil, nil)
+			require.NoError(t, err)
+
+			rec := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints"+tt.query, nil)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			endpoints := out["marketplaceModelEndpoints"].([]any)
+
+			gotNames := make([]string, 0, len(endpoints))
+			for _, raw := range endpoints {
+				gotNames = append(gotNames, raw.(map[string]any)["endpointName"].(string))
+			}
+
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
 func TestAccuracy_MarketplaceEndpoint_DeleteRemovesFromList(t *testing.T) {
 	t.Parallel()
 
@@ -169,7 +254,13 @@ func TestAccuracy_MarketplaceEndpoint_DeleteRemovesFromList(t *testing.T) {
 	ep, err := b.CreateMarketplaceModelEndpoint("del-ep", "src", nil, nil)
 	require.NoError(t, err)
 
-	rec := doRequest(t, h, http.MethodDelete, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn),
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	recList := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints", nil)
@@ -188,7 +279,13 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 	ep, err := b.CreateMarketplaceModelEndpoint("update-ep", "src", nil, nil)
 	require.NoError(t, err)
 
-	rec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn),
+		nil,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
@@ -230,7 +327,11 @@ func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) 
 	assert.InEpsilon(t, float64(1), createdCfg["initialInstanceCount"], 0)
 
 	// Update with a DIFFERENT config -- must actually apply, not no-op.
-	updateRec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+	updateRec := doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
 		map[string]any{
 			"endpointConfig": map[string]any{
 				"sageMaker": map[string]any{
@@ -239,7 +340,8 @@ func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) 
 					"initialInstanceCount": 3,
 				},
 			},
-		})
+		},
+	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	var updateOut map[string]any
@@ -250,7 +352,13 @@ func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) 
 	assert.InEpsilon(t, float64(3), updatedCfg["initialInstanceCount"], 0)
 
 	// Get must reflect the applied update too, not just the Update response.
-	getRec := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
+	getRec := doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+		nil,
+	)
 	var getOut map[string]any
 	mustUnmarshal(t, getRec, &getOut)
 	getCfg := getOut["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
@@ -266,13 +374,24 @@ func TestAccuracy_MarketplaceEndpoint_UpdateWithoutEndpointConfigPreservesExisti
 	b := bedrock.NewInMemoryBackend("000000000000", "us-east-1")
 	h := bedrock.NewHandler(b)
 
-	ep, err := b.CreateMarketplaceModelEndpoint("preserve-ep", "src", &bedrock.SageMakerEndpointConfig{
-		ExecutionRole: "arn:aws:iam::000000000000:role/original",
-		InstanceType:  "ml.m5.large",
-	}, nil)
+	ep, err := b.CreateMarketplaceModelEndpoint(
+		"preserve-ep",
+		"src",
+		&bedrock.SageMakerEndpointConfig{
+			ExecutionRole: "arn:aws:iam::000000000000:role/original",
+			InstanceType:  "ml.m5.large",
+		},
+		nil,
+	)
 	require.NoError(t, err)
 
-	rec := doRequest(t, h, http.MethodPatch, "/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn), nil)
+	rec := doRequest(
+		t,
+		h,
+		http.MethodPatch,
+		"/marketplace-model/endpoints/"+url.PathEscape(ep.EndpointArn),
+		nil,
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
@@ -303,7 +422,13 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec2.Code)
 
 	// Get endpoint.
-	rec3 := doRequest(t, h, http.MethodGet, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
+	rec3 := doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec3.Code)
 
 	// Update endpoint.
@@ -316,7 +441,13 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 
 	// Register endpoint.
 	regPath := "/marketplace-model/endpoints/" + url.PathEscape(endpointARN) + "/registration"
-	rec5 := doRequest(t, h, http.MethodPost, regPath, nil)
+	rec5 := doRequest(
+		t,
+		h,
+		http.MethodPost,
+		regPath,
+		map[string]any{"modelSourceIdentifier": "src"},
+	)
 	assert.Equal(t, http.StatusOK, rec5.Code)
 
 	// Deregister endpoint (same "/registration" path, DELETE method).
@@ -324,6 +455,12 @@ func TestHandler_MarketplaceModelEndpointLifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec6.Code)
 
 	// Delete endpoint.
-	rec7 := doRequest(t, h, http.MethodDelete, "/marketplace-model/endpoints/"+url.PathEscape(endpointARN), nil)
+	rec7 := doRequest(
+		t,
+		h,
+		http.MethodDelete,
+		"/marketplace-model/endpoints/"+url.PathEscape(endpointARN),
+		nil,
+	)
 	assert.Equal(t, http.StatusOK, rec7.Code)
 }

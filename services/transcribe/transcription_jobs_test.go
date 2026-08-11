@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/transcribe/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -174,6 +175,23 @@ func TestLanguageCode_Validation(t *testing.T) {
 			Media:   transcribe.Media{MediaFileURI: "s3://b/f"},
 		})
 		require.ErrorIs(t, err, transcribe.ErrValidation)
+	})
+
+	// Anti-drift: every code the pinned SDK's types.LanguageCode enum knows about
+	// must validate. Catches a future hand-maintained allowlist falling behind again.
+	t.Run("every_sdk_enum_code_accepted", func(t *testing.T) {
+		t.Parallel()
+
+		b := transcribe.NewInMemoryBackend()
+
+		for i, code := range sdktypes.LanguageCode("").Values() {
+			_, err := b.StartTranscriptionJob(&transcribe.TranscriptionJob{
+				JobName:      fmt.Sprintf("job-sdk-lang-%d", i),
+				LanguageCode: string(code),
+				Media:        transcribe.Media{MediaFileURI: "s3://b/f.mp3"},
+			})
+			require.NoError(t, err, "expected SDK LanguageCode %s to be accepted", code)
+		}
 	})
 }
 

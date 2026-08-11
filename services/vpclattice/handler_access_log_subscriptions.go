@@ -10,7 +10,7 @@ import (
 
 func (h *Handler) handleCreateALS(c *echo.Context, body map[string]any) error {
 	resourceID, _ := body["resourceIdentifier"].(string)
-	destArn, _ := body["destinationArn"].(string)
+	destArn, _ := body[keyDestinationARN].(string)
 	logType, _ := body["serviceNetworkLogType"].(string)
 
 	if resourceID == "" || destArn == "" {
@@ -41,7 +41,7 @@ func (h *Handler) handleGetALS(c *echo.Context, id string) error {
 }
 
 func (h *Handler) handleUpdateALS(c *echo.Context, id string, body map[string]any) error {
-	destArn, _ := body["destinationArn"].(string)
+	destArn, _ := body[keyDestinationARN].(string)
 
 	als, err := h.Backend.UpdateAccessLogSubscription(id, destArn)
 	if err != nil {
@@ -87,23 +87,23 @@ func (h *Handler) handleListALSs(c *echo.Context) error {
 
 func alsToJSON(a *AccessLogSubscription) map[string]any {
 	return map[string]any{
-		keyARN:           a.ARN,
-		"id":             a.ID,
-		"resourceArn":    a.ResourceARN,
-		"resourceId":     a.ResourceID,
-		"destinationArn": a.DestinationARN,
-		keyCreatedAt:     a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: a.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:            a.ARN,
+		"id":              a.ID,
+		"resourceArn":     a.ResourceARN,
+		"resourceId":      a.ResourceID,
+		keyDestinationARN: a.DestinationARN,
+		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:  a.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }
 
 func alsSummaryToJSON(a *AccessLogSubscriptionSummary) map[string]any {
 	return map[string]any{
-		keyARN:           a.ARN,
-		"id":             a.ID,
-		"resourceArn":    a.ResourceARN,
-		"resourceId":     a.ResourceID,
-		"destinationArn": a.DestinationARN,
-		keyCreatedAt:     a.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyARN:            a.ARN,
+		"id":              a.ID,
+		"resourceArn":     a.ResourceARN,
+		"resourceId":      a.ResourceID,
+		keyDestinationARN: a.DestinationARN,
+		keyCreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

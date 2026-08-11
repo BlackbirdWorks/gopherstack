@@ -25,7 +25,7 @@ func classifyTagsPath(method, path string) (string, string) {
 func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string) error {
 	tags, err := h.Backend.ListTagsForResource(resourceArn)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Tags": tags})
@@ -41,7 +41,7 @@ func (h *Handler) handleTagResource(c *echo.Context, resourceArn string, body ma
 	}
 
 	if err := h.Backend.TagResource(resourceArn, tags); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -51,7 +51,7 @@ func (h *Handler) handleUntagResource(c *echo.Context, resourceArn string) error
 	rawKeys := c.QueryParams()["tagKeys"]
 
 	if err := h.Backend.UntagResource(resourceArn, rawKeys); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

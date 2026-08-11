@@ -112,3 +112,60 @@ func TestGetUsageStatistics_SumByFeature_ReflectsEnabledFeatures(t *testing.T) {
 	entry := features[0].(map[string]any)
 	assert.Equal(t, "S3_DATA_EVENTS", entry["feature"])
 }
+
+// TestGetRemainingFreeTrialDays_HonorsAccountIDs locks two real bugs: (1)
+// GetRemainingFreeTrialDaysInput.AccountIds (a required member) was
+// completely ignored -- every call returned a single hardcoded entry for the
+// detector's own account regardless of which member accountIds were
+// requested; (2) the response carried an invented top-level
+// "freeTrialDaysRemaining" field that does not exist on the real
+// AccountFreeTrialInfo shape at all -- real per-feature remainders live
+// under features[].freeTrialDaysRemaining (types.AccountFreeTrialInfo).
+func TestGetRemainingFreeTrialDays_HonorsAccountIDs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	detID := createTestDetector(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/detector/"+detID+"/member", map[string]any{
+		"accountDetails": []map[string]any{
+			{"accountId": "666666666666", "email": "f@example.com"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	rec = doRequest(t, h, http.MethodPost, "/detector/"+detID+"/freeTrial/daysRemaining", map[string]any{
+		"accountIds": []string{"666666666666", "999999999999"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	accounts, ok := resp["accounts"].([]any)
+	require.True(t, ok)
+	require.Len(t, accounts, 1, "only the requested, real member account should be reported")
+
+	entry, ok := accounts[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "666666666666", entry["accountId"])
+	assert.NotContains(t, entry, "freeTrialDaysRemaining",
+		"AccountFreeTrialInfo has no top-level freeTrialDaysRemaining member on the real API")
+
+	features, ok := entry["features"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, features)
+
+	feature, ok := features[0].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, feature, "name")
+	assert.Contains(t, feature, "freeTrialDaysRemaining")
+
+	unprocessed, ok := resp["unprocessedAccounts"].([]any)
+	require.True(t, ok)
+	require.Len(t, unprocessed, 1, "the non-member account id must be reported unprocessed, not silently dropped")
+
+	unprocessedEntry, ok := unprocessed[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "999999999999", unprocessedEntry["accountId"])
+}

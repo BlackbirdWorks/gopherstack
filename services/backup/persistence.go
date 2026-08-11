@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -23,21 +24,24 @@ const backupSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the Backup backend.
 //
-// Tables holds one JSON-encoded array per registered table name, produced by
-// [store.Registry.SnapshotAll] on b.registry -- vaults, plans, jobs,
-// selections, frameworks, legalHolds, reportPlans, restoreAccessVaults,
-// restoreTestingPlans, and restoreTestingSelections (see store_setup.go).
-// The VOLATILE tables (recoveryPoints, copyJobs, vaultAccessPolicies,
-// vaultLockConfigs, vaultNotifications, restoreJobs, reportJobs, scanJobs,
-// tieringConfigs, protectedResources) were never part of a snapshot before
-// this refactor and are deliberately not registered on b.registry, so they
-// remain unpersisted here too -- see store_setup.go's file doc comment.
+// Tables holds one JSON-encoded array per table registered on b.registry
+// (every store.Table field on InMemoryBackend -- see store_setup.go),
+// produced by [store.Registry.SnapshotAll]. MpaApprovals, GlobalSettings,
+// RecoveryPointIndexStatus and RegionSettings cover the plain-map/pointer
+// state that isn't a store.Table (gopherstack-y5b4) -- their values are not
+// *T, mirroring services/ses's "policies" precedent. Derived ARN/ID lookup
+// indexes (vaultARNIndex etc.) are NOT included here; they are rebuilt from
+// the restored tables by rebuildARNIndexes instead of persisted.
 type backendSnapshot struct {
-	Tables       map[string]json.RawMessage `json:"tables"`
-	MpaApprovals map[string]string          `json:"mpaApprovals,omitempty"`
-	AccountID    string                     `json:"accountID"`
-	Region       string                     `json:"region"`
-	Version      int                        `json:"version"`
+	GlobalSettingsLastUpdate time.Time                  `json:"globalSettingsLastUpdate,omitzero"`
+	Tables                   map[string]json.RawMessage `json:"tables"`
+	MpaApprovals             map[string]string          `json:"mpaApprovals,omitempty"`
+	GlobalSettings           map[string]string          `json:"globalSettings,omitempty"`
+	RecoveryPointIndexStatus map[string]string          `json:"recoveryPointIndexStatus,omitempty"`
+	RegionSettings           *RegionSettings            `json:"regionSettings,omitempty"`
+	AccountID                string                     `json:"accountID"`
+	Region                   string                     `json:"region"`
+	Version                  int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -60,12 +64,22 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	mpa := make(map[string]string, len(b.mpaApprovals))
 	maps.Copy(mpa, b.mpaApprovals)
 
+	gs := make(map[string]string, len(b.globalSettings))
+	maps.Copy(gs, b.globalSettings)
+
+	rpis := make(map[string]string, len(b.recoveryPointIndexStatus))
+	maps.Copy(rpis, b.recoveryPointIndexStatus)
+
 	snap := backendSnapshot{
-		Version:      backupSnapshotVersion,
-		Tables:       tables,
-		MpaApprovals: mpa,
-		AccountID:    b.accountID,
-		Region:       b.region,
+		Version:                  backupSnapshotVersion,
+		Tables:                   tables,
+		MpaApprovals:             mpa,
+		GlobalSettings:           gs,
+		RecoveryPointIndexStatus: rpis,
+		RegionSettings:           b.regionSettings,
+		GlobalSettingsLastUpdate: b.globalSettingsLastUpdate,
+		AccountID:                b.accountID,
+		Region:                   b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "backup", snap)
@@ -96,6 +110,10 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.mpaApprovals = make(map[string]string)
+		b.globalSettings = make(map[string]string)
+		b.recoveryPointIndexStatus = make(map[string]string)
+		b.regionSettings = nil
+		b.globalSettingsLastUpdate = time.Time{}
 
 		return nil
 	}
@@ -108,7 +126,19 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.MpaApprovals = make(map[string]string)
 	}
 
+	if snap.GlobalSettings == nil {
+		snap.GlobalSettings = make(map[string]string)
+	}
+
+	if snap.RecoveryPointIndexStatus == nil {
+		snap.RecoveryPointIndexStatus = make(map[string]string)
+	}
+
 	b.mpaApprovals = snap.MpaApprovals
+	b.globalSettings = snap.GlobalSettings
+	b.recoveryPointIndexStatus = snap.RecoveryPointIndexStatus
+	b.regionSettings = snap.RegionSettings
+	b.globalSettingsLastUpdate = snap.GlobalSettingsLastUpdate
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

@@ -28,7 +28,8 @@ func refreshSchedulesLocked(ds *storedDataSet) map[string]*storedRefreshSchedule
 // ---- DataSet refresh schedules ----
 
 func (b *InMemoryBackend) CreateRefreshSchedule(
-	accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+	accountID, datasetID, scheduleID, refreshType string,
+	startAfterDateTime time.Time,
 	scheduleFrequency map[string]any,
 ) (*RefreshSchedule, error) {
 	if scheduleID == "" || !isValidIngestionType(refreshType) {
@@ -78,7 +79,8 @@ func (b *InMemoryBackend) DescribeRefreshSchedule(accountID, datasetID, schedule
 }
 
 func (b *InMemoryBackend) UpdateRefreshSchedule(
-	accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+	accountID, datasetID, scheduleID, refreshType string,
+	startAfterDateTime time.Time,
 	scheduleFrequency map[string]any,
 ) (*RefreshSchedule, error) {
 	b.mu.Lock("UpdateRefreshSchedule")
@@ -101,7 +103,7 @@ func (b *InMemoryBackend) UpdateRefreshSchedule(
 		}
 		s.RefreshType = refreshType
 	}
-	if startAfterDateTime != "" {
+	if !startAfterDateTime.IsZero() {
 		s.StartAfterDateTime = startAfterDateTime
 	}
 	if scheduleFrequency != nil {

@@ -14,6 +14,11 @@ const (
 	invitationStatusPending = "PENDING"
 	// invitationStatusRejected is the status for a rejected invitation.
 	invitationStatusRejected = "REJECTED"
+	// invitationStatusAccepted is the status set once CreateMember consumes the
+	// invitation. Real AWS's InvitationStatus enum documents ACCEPTED as "The invitee
+	// created a member and joined the network using the InvitationId" (aws-sdk-go-v2
+	// managedblockchain types/enums.go:111, v1.34.4).
+	invitationStatusAccepted = "ACCEPTED"
 )
 
 // invitationARN builds the ARN for a Managed Blockchain invitation.

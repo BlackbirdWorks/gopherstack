@@ -72,6 +72,25 @@ var (
 	// Hyperledger Fabric" -- new networks (including ETHEREUM, still a valid Framework enum
 	// member used elsewhere, e.g. accessors) can no longer be created through this operation.
 	ErrUnsupportedNetworkFramework = errors.New("CreateNetworkInput.Framework must be HYPERLEDGER_FABRIC")
+	// ErrMissingInvitationID is returned when CreateMemberInput.InvitationId is missing.
+	// The real aws-sdk-go-v2 client-side validator (validateOpCreateMemberInput) marks
+	// this field required and refuses to send the request without it.
+	ErrMissingInvitationID = errors.New("InvitationId is required for CreateMember")
+	// ErrInvitationNetworkMismatch is returned when CreateMember's InvitationId names an
+	// invitation issued for a different network than the one in the request path.
+	ErrInvitationNetworkMismatch = awserr.New(
+		"InvalidRequestException: invitation is not for this network",
+		awserr.ErrInvalidParameter,
+	)
+	// ErrInvitationNotPending is returned when CreateMember's InvitationId names an
+	// invitation that is not PENDING -- already used to join (ACCEPTED), rejected, or
+	// expired. Real AWS's Invitation.Status doc documents ACCEPTED as "The invitee created
+	// a member and joined the network using the InvitationId", implying an invitation is
+	// consumed exactly once.
+	ErrInvitationNotPending = awserr.New(
+		"InvalidRequestException: invitation is not pending",
+		awserr.ErrInvalidParameter,
+	)
 	// ErrValidation is returned when input validation fails.
 	ErrValidation = awserr.New("InvalidRequestException: validation error", awserr.ErrInvalidParameter)
 )

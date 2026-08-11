@@ -11,11 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// buildSDKMethodSet returns the set of exported method names on sdkClientPtr,
-// excluding the "Options" configuration accessor which is present on every AWS
-// SDK v2 Client but is not an API operation.
-//
-// sdkClientPtr must be a non-nil pointer to a struct.
+// buildSDKMethodSet returns exported method names on sdkClientPtr (a non-nil
+// pointer to a struct), excluding "Options" which is not an API operation.
 func buildSDKMethodSet(sdkClientPtr any) map[string]bool {
 	methods := make(map[string]bool)
 	for m := range reflect.TypeOf(sdkClientPtr).Methods() {
@@ -42,11 +39,8 @@ func buildSet(items []string) (map[string]bool, []string) {
 	return set, dups
 }
 
-// findStale returns entries from candidateSet that are not in sdkMethods (i.e.
-// they don't correspond to a real SDK operation). It is used both to flag
-// notImplemented entries that no longer exist on the SDK client, and to flag
-// supportedOps entries that never existed on the SDK client at all — a
-// "phantom" operation the handler claims to support but that AWS doesn't have.
+// findStale returns candidateSet entries not in sdkMethods: stale
+// notImplemented entries, or "phantom" supportedOps entries AWS doesn't have.
 func findStale(candidateSet, sdkMethods map[string]bool) []string {
 	var stale []string
 	for m := range candidateSet {
@@ -72,6 +66,34 @@ func findOverlapping(a, b map[string]bool) []string {
 	return overlap
 }
 
+// phantomAllowlist lists supportedOps entries that legitimately aren't a real
+// SDK method, keyed by the client's concrete pointer type
+// (fmt.Sprintf("%T", sdkClientPtr), e.g. "*s3.Client") to avoid adding a
+// parameter to CheckCompleteness's ~160 call sites. Each value is a short
+// justification; keep this list rare — the phantom check is a hard gate so
+// bogus supportedOps entries get caught immediately.
+//
+//nolint:gochecknoglobals // static lookup table, same pattern as errCodeLookup elsewhere
+var phantomAllowlist = map[string]map[string]string{
+	"*s3.Client": {
+		"PostObject":         "browser-form POST upload; real S3 REST op, no SDK client method",
+		"PresignedGetObject": "presigned-URL helper for GET; client-side SDK helper, not a wire op",
+		"PresignedPutObject": "presigned-URL helper for PUT; client-side SDK helper, not a wire op",
+	},
+	"*iotdataplane.Client": {
+		"ListConnections":       "gopherstack admin-only extension; not a real iotdataplane op (List)",
+		"ListThingsWithShadows": "gopherstack admin-only extension; not a real iotdataplane op (Shadows)",
+		"RegisterConnection":    "gopherstack admin-only extension; not a real iotdataplane op (Register)",
+	},
+	"*bedrockagent.Client": {
+		"GetAgentMemory":    "real op on the bedrock-agent-runtime client, which is not vendored here",
+		"DeleteAgentMemory": "real op on the bedrock-agent-runtime client, which is not vendored here",
+	},
+	"*rds.Client": {
+		"GetPerformanceInsightsMetrics": "kept; real op is pi client's GetResourceMetrics, see PARITY.md",
+	},
+}
+
 // findUnaccounted returns SDK method names not present in either supportedSet or notImplSet.
 func findUnaccounted(sdkMethods, supportedSet, notImplSet map[string]bool) []string {
 	var unaccounted []string
@@ -85,34 +107,11 @@ func findUnaccounted(sdkMethods, supportedSet, notImplSet map[string]bool) []str
 	return unaccounted
 }
 
-// CheckCompleteness verifies that every exported method on sdkClientPtr is
-// either listed in supportedOps (the handler's GetSupportedOperations slice) or
-// explicitly listed in notImplemented. It also performs quality checks on the
-// two lists themselves, in both directions: every SDK method must be
-// accounted for, and every entry in notImplemented must correspond to a real
-// SDK method. A third, currently non-fatal check reports supportedOps entries
-// that don't correspond to a real SDK method ("phantom" operations) via
-// tb.Logf — see the rollout note beside that check in the implementation for
-// why it isn't a hard failure yet.
-//
-// sdkClientPtr must be a non-nil pointer to an AWS SDK v2 Client struct, e.g.
-// &s3.Client{}.
-//
-// The test fails if:
-//   - sdkClientPtr is nil or not a pointer type.
-//   - An SDK method is not accounted for in either list (new upstream operation).
-//   - notImplemented contains entries that are not real SDK methods (typos / SDK renames).
-//   - notImplemented contains duplicate entries.
-//   - supportedOps contains duplicate entries.
-//   - supportedOps and notImplemented contain overlapping entries.
-//
-// The test logs (but does not fail) when:
-//   - supportedOps contains entries that are not real SDK methods (a "phantom"
-//     operation — the handler claims to support something AWS doesn't have,
-//     or the check is being run against the wrong sibling SDK client).
-//
-// The "Options" method, which exists on every AWS SDK v2 Client but is not an
-// API operation, is always excluded from the check.
+// CheckCompleteness verifies every exported method on sdkClientPtr (a non-nil
+// pointer, e.g. &s3.Client{}) is accounted for in supportedOps or
+// notImplemented, with no duplicates or overlap between the two, no stale
+// entries in notImplemented, and no "phantom" entries in supportedOps unless
+// allowed by phantomAllowlist. "Options" is always excluded.
 func CheckCompleteness(tb testing.TB, sdkClientPtr any, supportedOps []string, notImplemented []string) {
 	tb.Helper()
 
@@ -149,28 +148,27 @@ func CheckCompleteness(tb testing.TB, sdkClientPtr any, supportedOps []string, n
 		"notImplemented contains entries that are not exported methods on the SDK client.\n"+
 			"These may be typos or methods that were renamed/removed in a newer SDK version.")
 
-	if phantomOps := findStale(supportedSet, sdkMethods); len(phantomOps) > 0 {
-		// Intentionally non-fatal (tb.Logf, not assert.Empty) during the initial
-		// rollout of this reverse check: a repo-wide sweep found dozens of
-		// phantom entries across a meaningful fraction of services on first run
-		// (fabricated operations, operations that belong to a sibling/data-plane
-		// SDK client instead of this one, and a few deliberate non-operation
-		// dispatch labels like S3 presigned-URL routes). Flipping this straight
-		// to a hard failure would redden many previously-green service test
-		// suites at once with no per-service way to except the legitimate
-		// cases. Once a service's phantom entries have been triaged (fixed,
-		// re-pointed at the correct SDK client, or confirmed as a deliberate
-		// exception), change this tb.Logf call to assert.Empty(tb, ...) for
-		// that rollout to become a hard gate — see the catalogue in bd issue
-		// gopherstack-vhw2.
-		tb.Logf("GetSupportedOperations() contains %d entries that are not exported methods on the "+
-			"SDK client (a \"phantom\" operation): %v.\n"+
+	clientType := fmt.Sprintf("%T", sdkClientPtr)
+	allowed := phantomAllowlist[clientType]
+
+	var unexpectedPhantoms []string
+	for _, op := range findStale(supportedSet, sdkMethods) {
+		if _, ok := allowed[op]; !ok {
+			unexpectedPhantoms = append(unexpectedPhantoms, op)
+		}
+	}
+	sort.Strings(unexpectedPhantoms)
+
+	assert.Empty(tb, unexpectedPhantoms,
+		"GetSupportedOperations() contains entries that are not exported methods on the SDK client "+
+			"(a \"phantom\" operation) and are not in phantomAllowlist[%q] in check.go: %v.\n"+
 			"These may be typos, methods that were renamed/removed in a newer SDK version, an "+
 			"operation that belongs to a different (sibling/data-plane) SDK client, or an operation "+
 			"that was never real — verify the true operation name/shape against the actual AWS SDK "+
-			"before assuming a rename. This is currently reporting-only and does not fail the test.",
-			len(phantomOps), phantomOps)
-	}
+			"before assuming a rename. If this is a deliberate, documented gopherstack extension or "+
+			"pseudo-operation, add it to phantomAllowlist in pkgs/sdkcheck/check.go with a "+
+			"justification comment instead of suppressing this failure another way.",
+		clientType, unexpectedPhantoms)
 
 	assert.Empty(tb, findUnaccounted(sdkMethods, supportedSet, notImplSet),
 		"SDK methods found that are neither in GetSupportedOperations() nor in the notImplemented list.\n"+

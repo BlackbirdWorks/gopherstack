@@ -267,3 +267,323 @@ func assertHasOperationID(t *testing.T, body []byte) {
 	require.True(t, ok, "expected OperationId in response")
 	assert.NotEmpty(t, opID)
 }
+
+// TestKAV2_StartApplication_SqlRunConfigurations verifies StartApplication's
+// RunConfiguration.SqlRunConfigurations (per-input starting position) is
+// stored on the matching InputDescription and echoed back via
+// DescribeApplication -- real AWS's RunConfigurationDescription has no such
+// field (botocore kinesisanalyticsv2/2018-05-23/service-2.json.gz shape
+// "RunConfigurationDescription"), it only surfaces per-input.
+func TestKAV2_StartApplication_SqlRunConfigurations(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	createRec := doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "sqlrun-app",
+		"RuntimeEnvironment": "SQL-1_0",
+		"ApplicationConfiguration": map[string]any{
+			"SqlApplicationConfiguration": map[string]any{
+				"Inputs": []map[string]any{
+					{
+						"NamePrefix": "SOURCE_SQL_STREAM",
+						"KinesisStreamsInput": map[string]any{
+							"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/in",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+	createAppConfig := createOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any) //nolint:lll // test readability
+	createSQLConfig := createAppConfig["SqlApplicationConfigurationDescription"].(map[string]any)
+	inputID := createSQLConfig["InputDescriptions"].([]any)[0].(map[string]any)["InputId"].(string)
+
+	startRec := doKAV2Request(t, h, "StartApplication", map[string]any{
+		"ApplicationName": "sqlrun-app",
+		"RunConfiguration": map[string]any{
+			"SqlRunConfigurations": []map[string]any{
+				{
+					"InputId": inputID,
+					"InputStartingPositionConfiguration": map[string]any{
+						"InputStartingPosition": "TRIM_HORIZON",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	descRec := doKAV2Request(t, h, "DescribeApplication", map[string]any{"ApplicationName": "sqlrun-app"})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	appConfig := descOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any)
+	sqlConfig := appConfig["SqlApplicationConfigurationDescription"].(map[string]any)
+	input := sqlConfig["InputDescriptions"].([]any)[0].(map[string]any)
+	startingPos := input["InputStartingPositionConfiguration"].(map[string]any)
+	assert.Equal(t, "TRIM_HORIZON", startingPos["InputStartingPosition"])
+}
+
+// TestKAV2_StartApplication_SqlRunConfigurations_UnknownInputRejected
+// verifies an unknown InputId is rejected with ResourceNotFoundException
+// before ApplicationStatus is mutated to RUNNING (state-mutated-before-
+// validation is a real bug class elsewhere in this backend -- see
+// validateUpdateReferences' doc comment).
+func TestKAV2_StartApplication_SqlRunConfigurations_UnknownInputRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	require.Equal(t, http.StatusOK, doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "sqlrun-unknown-app",
+		"RuntimeEnvironment": "SQL-1_0",
+	}).Code)
+
+	startRec := doKAV2Request(t, h, "StartApplication", map[string]any{
+		"ApplicationName": "sqlrun-unknown-app",
+		"RunConfiguration": map[string]any{
+			"SqlRunConfigurations": []map[string]any{
+				{"InputId": "does-not-exist"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusNotFound, startRec.Code)
+	assertErrorType(t, startRec.Body.Bytes(), "ResourceNotFoundException")
+
+	descRec := doKAV2Request(t, h, "DescribeApplication", map[string]any{"ApplicationName": "sqlrun-unknown-app"})
+	require.Equal(t, http.StatusOK, descRec.Code)
+	assertAppStatus(t, descRec.Body.Bytes(), "READY")
+}
+
+// TestKAV2_StopApplication_Force verifies Force is parsed and that real
+// AWS's Flink-only force-stop restriction is enforced ("You can only force
+// stop a Managed Service for Apache Flink application. You can't force stop
+// a SQL-based Kinesis Data Analytics application." -- api_op_StopApplication.go
+// doc comment, aws-sdk-go-v2/service/kinesisanalyticsv2@v1.41.4).
+func TestKAV2_StopApplication_Force(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		runtime    string
+		force      bool
+		wantStatus int
+	}{
+		{name: "flink force stop allowed", runtime: "FLINK-1_18", force: true, wantStatus: http.StatusOK},
+		{name: "sql force stop rejected", runtime: "SQL-1_0", force: true, wantStatus: http.StatusBadRequest},
+		{name: "sql non-force stop allowed", runtime: "SQL-1_0", force: false, wantStatus: http.StatusOK},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+			appName := "force-stop-" + tt.runtime
+
+			require.Equal(t, http.StatusOK, doKAV2Request(t, h, "CreateApplication", map[string]any{
+				"ApplicationName":    appName,
+				"RuntimeEnvironment": tt.runtime,
+			}).Code)
+			require.Equal(t, http.StatusOK, doKAV2Request(t, h, "StartApplication", map[string]any{
+				"ApplicationName": appName,
+			}).Code)
+
+			rec := doKAV2Request(t, h, "StopApplication", map[string]any{
+				"ApplicationName": appName,
+				"Force":           tt.force,
+			})
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			if tt.wantStatus != http.StatusOK {
+				assertErrorType(t, rec.Body.Bytes(), "InvalidArgumentException")
+			}
+		})
+	}
+}
+
+// TestKAV2_DiscoverInputSchema verifies ServiceExecutionRole (previously
+// wired to the wrong "RoleARN" wire key -- see discoverInputSchemaInput's doc
+// comment) is now the required field real AWS documents, and the response's
+// InputSchema.RecordColumns (a required member of SourceSchema) is populated.
+func TestKAV2_DiscoverInputSchema(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name: "success",
+			body: map[string]any{
+				"ResourceARN":          "arn:aws:kinesis:us-east-1:000000000000:stream/in",
+				"ServiceExecutionRole": "arn:aws:iam::000000000000:role/svc",
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name: "missing service execution role",
+			body: map[string]any{
+				"ResourceARN": "arn:aws:kinesis:us-east-1:000000000000:stream/in",
+			},
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestKAV2Handler(t)
+			rec := doKAV2Request(t, h, "DiscoverInputSchema", tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				assertErrorType(t, rec.Body.Bytes(), "InvalidArgumentException")
+
+				return
+			}
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			inputSchema := out["InputSchema"].(map[string]any)
+			assert.Len(t, inputSchema["RecordColumns"], 3)
+		})
+	}
+}
+
+// TestKAV2_CreateApplication_ZeppelinConfiguration verifies
+// ZeppelinApplicationConfiguration (Studio notebook: Glue Data Catalog,
+// Maven/S3 custom artifacts, deploy-as-application) -- previously accepted
+// on the wire but not modeled at all -- is seeded and echoed back via
+// ZeppelinApplicationConfigurationDescription.
+func TestKAV2_CreateApplication_ZeppelinConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	rec := doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "zeppelin-app",
+		"RuntimeEnvironment": "ZEPPELIN-FLINK-3_0",
+		"ApplicationMode":    "INTERACTIVE",
+		"ApplicationConfiguration": map[string]any{
+			"ZeppelinApplicationConfiguration": map[string]any{
+				"MonitoringConfiguration": map[string]any{"LogLevel": "INFO"},
+				"CatalogConfiguration": map[string]any{
+					"GlueDataCatalogConfiguration": map[string]any{
+						"DatabaseARN": "arn:aws:glue:us-east-1:000000000000:database/notebook-db",
+					},
+				},
+				"DeployAsApplicationConfiguration": map[string]any{
+					"S3ContentLocation": map[string]any{
+						"BucketARN": "arn:aws:s3:::notebook-bucket",
+						"BasePath":  "apps/notebook",
+					},
+				},
+				"CustomArtifactsConfiguration": []map[string]any{
+					{
+						"ArtifactType": "UDF",
+						"S3ContentLocation": map[string]any{
+							"BucketARN": "arn:aws:s3:::notebook-bucket",
+							"FileKey":   "udfs/my-udf.jar",
+						},
+					},
+					{
+						"ArtifactType": "DEPENDENCY_JAR",
+						"MavenReference": map[string]any{
+							"GroupId":    "org.example",
+							"ArtifactId": "my-lib",
+							"Version":    "1.0.0",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	detail := out["ApplicationDetail"].(map[string]any)
+	appConfig := detail["ApplicationConfigurationDescription"].(map[string]any)
+	zepDesc := appConfig["ZeppelinApplicationConfigurationDescription"].(map[string]any)
+
+	monDesc := zepDesc["MonitoringConfigurationDescription"].(map[string]any)
+	assert.Equal(t, "INFO", monDesc["LogLevel"])
+
+	catalogDesc := zepDesc["CatalogConfigurationDescription"].(map[string]any)
+	glueDesc := catalogDesc["GlueDataCatalogConfigurationDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:glue:us-east-1:000000000000:database/notebook-db", glueDesc["DatabaseARN"])
+
+	deployDesc := zepDesc["DeployAsApplicationConfigurationDescription"].(map[string]any)
+	s3Desc := deployDesc["S3ContentLocationDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:s3:::notebook-bucket", s3Desc["BucketARN"])
+	assert.Equal(t, "apps/notebook", s3Desc["BasePath"])
+
+	artifacts := zepDesc["CustomArtifactsConfigurationDescription"].([]any)
+	require.Len(t, artifacts, 2)
+	udf := artifacts[0].(map[string]any)
+	assert.Equal(t, "UDF", udf["ArtifactType"])
+	assert.Equal(t, "udfs/my-udf.jar", udf["S3ContentLocationDescription"].(map[string]any)["FileKey"])
+	dep := artifacts[1].(map[string]any)
+	assert.Equal(t, "DEPENDENCY_JAR", dep["ArtifactType"])
+	assert.Equal(t, "my-lib", dep["MavenReferenceDescription"].(map[string]any)["ArtifactId"])
+}
+
+// TestKAV2_UpdateApplication_ZeppelinConfiguration verifies
+// ZeppelinApplicationConfigurationUpdate's sub-updates merge onto an
+// existing Zeppelin configuration instead of being silently dropped.
+func TestKAV2_UpdateApplication_ZeppelinConfiguration(t *testing.T) {
+	t.Parallel()
+
+	h := newTestKAV2Handler(t)
+
+	require.Equal(t, http.StatusOK, doKAV2Request(t, h, "CreateApplication", map[string]any{
+		"ApplicationName":    "zeppelin-update-app",
+		"RuntimeEnvironment": "ZEPPELIN-FLINK-3_0",
+		"ApplicationMode":    "INTERACTIVE",
+		"ApplicationConfiguration": map[string]any{
+			"ZeppelinApplicationConfiguration": map[string]any{
+				"MonitoringConfiguration": map[string]any{"LogLevel": "INFO"},
+			},
+		},
+	}).Code)
+
+	updRec := doKAV2Request(t, h, "UpdateApplication", map[string]any{
+		"ApplicationName":             "zeppelin-update-app",
+		"CurrentApplicationVersionId": 1,
+		"ApplicationConfigurationUpdate": map[string]any{
+			"ZeppelinApplicationConfigurationUpdate": map[string]any{
+				"MonitoringConfigurationUpdate": map[string]any{"LogLevelUpdate": "DEBUG"},
+				"CatalogConfigurationUpdate": map[string]any{
+					"GlueDataCatalogConfigurationUpdate": map[string]any{
+						"DatabaseARNUpdate": "arn:aws:glue:us-east-1:000000000000:database/db2",
+					},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	descRec := doKAV2Request(t, h, "DescribeApplication", map[string]any{"ApplicationName": "zeppelin-update-app"})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var descOut map[string]any
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descOut))
+	appConfig := descOut["ApplicationDetail"].(map[string]any)["ApplicationConfigurationDescription"].(map[string]any)
+	zepDesc := appConfig["ZeppelinApplicationConfigurationDescription"].(map[string]any)
+
+	monDesc := zepDesc["MonitoringConfigurationDescription"].(map[string]any)
+	assert.Equal(t, "DEBUG", monDesc["LogLevel"])
+
+	catalogDesc := zepDesc["CatalogConfigurationDescription"].(map[string]any)
+	glueDesc := catalogDesc["GlueDataCatalogConfigurationDescription"].(map[string]any)
+	assert.Equal(t, "arn:aws:glue:us-east-1:000000000000:database/db2", glueDesc["DatabaseARN"])
+}

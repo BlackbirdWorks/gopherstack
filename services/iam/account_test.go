@@ -729,9 +729,91 @@ func TestGetAccountAuthorizationDetails_Backend(t *testing.T) {
 			b := iam.NewInMemoryBackend()
 			tt.setup(b)
 
-			details := b.GetAccountAuthorizationDetails()
+			details, nextMarker := b.GetAccountAuthorizationDetails("", 0, nil)
 			assert.Len(t, details.Users, tt.wantUserCount)
 			assert.Len(t, details.Roles, tt.wantRoleCount)
+			assert.Empty(t, nextMarker)
+		})
+	}
+}
+
+// newAuthDetailsFixture creates 2 users, 1 group, 1 role, and 1 managed
+// policy (5 entities total) for pagination/filter tests below.
+func newAuthDetailsFixture(t *testing.T) *iam.InMemoryBackend {
+	t.Helper()
+
+	b := iam.NewInMemoryBackend()
+	_, err := b.CreateUser("alice", "/", "")
+	require.NoError(t, err)
+	_, err = b.CreateUser("bob", "/", "")
+	require.NoError(t, err)
+	_, err = b.CreateGroup("devs", "/")
+	require.NoError(t, err)
+	_, err = b.CreateRole("exec", "/", "{}", "")
+	require.NoError(t, err)
+	_, err = b.CreatePolicy(
+		"readonly", "/",
+		`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":"s3:GetObject","Resource":"*"}]}`,
+	)
+	require.NoError(t, err)
+
+	return b
+}
+
+func TestGetAccountAuthorizationDetails_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := newAuthDetailsFixture(t)
+
+	details, nextMarker := b.GetAccountAuthorizationDetails("", 3, nil)
+	firstPageCount := len(details.Users) + len(details.Groups) + len(details.Roles) + len(details.Policies)
+	assert.Equal(t, 3, firstPageCount)
+	assert.NotEmpty(t, nextMarker)
+
+	details2, nextMarker2 := b.GetAccountAuthorizationDetails(nextMarker, 3, nil)
+	secondPageCount := len(details2.Users) + len(details2.Groups) + len(details2.Roles) + len(details2.Policies)
+	assert.Equal(t, 2, secondPageCount)
+	assert.Empty(t, nextMarker2)
+}
+
+func TestGetAccountAuthorizationDetails_Filter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filter       []string
+		wantUsers    int
+		wantGroups   int
+		wantRoles    int
+		wantPolicies int
+	}{
+		{
+			name: "no_filter_includes_everything", filter: nil,
+			wantUsers: 2, wantGroups: 1, wantRoles: 1, wantPolicies: 1,
+		},
+		{name: "user_only", filter: []string{"User"}, wantUsers: 2},
+		{name: "role_and_group", filter: []string{"Role", "Group"}, wantGroups: 1, wantRoles: 1},
+		{
+			name:   "local_managed_policy_matches_all_policies",
+			filter: []string{"LocalManagedPolicy"}, wantPolicies: 1,
+		},
+		{
+			name:   "aws_managed_policy_matches_none",
+			filter: []string{"AWSManagedPolicy"}, wantPolicies: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newAuthDetailsFixture(t)
+
+			details, _ := b.GetAccountAuthorizationDetails("", 0, tt.filter)
+			assert.Len(t, details.Users, tt.wantUsers)
+			assert.Len(t, details.Groups, tt.wantGroups)
+			assert.Len(t, details.Roles, tt.wantRoles)
+			assert.Len(t, details.Policies, tt.wantPolicies)
 		})
 	}
 }

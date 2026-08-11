@@ -40,6 +40,12 @@ func (b *InMemoryBackend) PutObject(
 		return nil, fmt.Errorf("%w: %q", ErrInvalidStorageClass, storageClass)
 	}
 
+	if uploadAvailability == "" {
+		uploadAvailability = "STANDARD"
+	} else if !isValidUploadAvailability(uploadAvailability) {
+		return nil, fmt.Errorf("%w: %q", ErrInvalidUploadAvailability, uploadAvailability)
+	}
+
 	b.mu.Lock("PutObject")
 	defer b.mu.Unlock()
 
@@ -118,6 +124,12 @@ func (b *InMemoryBackend) DeleteObject(ctx context.Context, path string) error {
 
 // UpdateObjectMetadata updates content-type and cache-control on an existing
 // object without re-uploading the body. Returns ErrNotFound if path is absent.
+//
+// Not a real MediaStore Data API operation (the SDK has none -- PutObject
+// always overwrites the full object). This backs the dashboard-only PATCH
+// /dashboard/api/mediastoredata/objects endpoint (dashboard/ui.go's
+// registerMediaStoreDataUpdateMetadataRoute), a gopherstack-internal UI
+// convenience, not a wire-routed AWS operation -- see gopherstack-vxmb.
 func (b *InMemoryBackend) UpdateObjectMetadata(ctx context.Context, path, contentType, cacheControl string) error {
 	if err := ValidatePath(path); err != nil {
 		return err

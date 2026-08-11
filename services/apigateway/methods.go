@@ -241,11 +241,21 @@ func (b *InMemoryBackend) UpdateMethod(input UpdateMethodInput) (*Method, error)
 		m.OperationName = input.OperationName
 	}
 
-	if len(input.RequestModels) > 0 {
+	if input.RequestValidatorID != "" {
+		m.RequestValidatorID = input.RequestValidatorID
+	}
+
+	if input.RequestModels != nil {
 		m.RequestModels = input.RequestModels
 	}
 
-	return m, nil
+	if input.RequestParameters != nil {
+		m.RequestParameters = input.RequestParameters
+	}
+
+	cp := *m
+
+	return &cp, nil
 }
 
 // UpdateMethodResponse updates a method response's models or parameters.
@@ -272,15 +282,17 @@ func (b *InMemoryBackend) UpdateMethodResponse(input UpdateMethodResponseInput) 
 		return nil, fmt.Errorf("%w: method response %s not found", ErrNotFound, input.StatusCode)
 	}
 
-	if len(input.ResponseModels) > 0 {
+	if input.ResponseModels != nil {
 		mr.ResponseModels = input.ResponseModels
 	}
 
-	if len(input.ResponseParameters) > 0 {
+	if input.ResponseParameters != nil {
 		mr.ResponseParameters = input.ResponseParameters
 	}
 
 	m.MethodResponses[input.StatusCode] = mr
 
-	return mr, nil
+	cp := *mr
+
+	return &cp, nil
 }

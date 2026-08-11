@@ -112,7 +112,7 @@ func (b *InMemoryBackend) DescribeDBMajorEngineVersions(engine string) []DBMajor
 
 // validServerlessV2Engines is the set of Engine values
 // DescribeServerlessV2PlatformVersionsInput documents as valid, verified against
-// aws-sdk-go-v2/service/rds@v1.123.0's api_op_DescribeServerlessV2PlatformVersions.go
+// aws-sdk-go-v2/service/rds@v1.124.1's api_op_DescribeServerlessV2PlatformVersions.go
 // "Valid Values" doc comment on the Engine field (a plain *string on the wire, no
 // SDK-side enum type).
 //

@@ -169,7 +169,7 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 			Description:                 s.Description,
 			StackStatus:                 s.StackStatus,
 			StackStatusReason:           s.StackStatusReason,
-			CreationTime:                s.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime:                s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 			Parameters:                  s.Parameters,
 			Outputs:                     s.Outputs,
 			Tags:                        s.Tags,
@@ -237,7 +237,7 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 			StackID:      s.StackID,
 			StackName:    s.StackName,
 			StackStatus:  s.StackStatus,
-			CreationTime: s.CreationTime.Format("2006-01-02T15:04:05Z"),
+			CreationTime: s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 
@@ -293,7 +293,7 @@ func (h *Handler) handleDescribeStackEvents(form url.Values, c *echo.Context) er
 			ResourceType:         e.ResourceType,
 			ResourceStatus:       e.ResourceStatus,
 			ResourceStatusReason: e.ResourceStatusReason,
-			Timestamp:            e.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Timestamp:            e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 

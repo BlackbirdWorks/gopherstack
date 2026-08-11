@@ -18,19 +18,21 @@ type hdfsQopConfigInput struct {
 }
 
 type createLocationHdfsInput struct {
-	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
-	SimpleUser         string              `json:"SimpleUser,omitempty"`
-	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
-	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
-	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
-	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
-	AuthenticationType string              `json:"AuthenticationType,omitempty"`
-	Subdirectory       string              `json:"Subdirectory,omitempty"`
-	AgentArns          []string            `json:"AgentArns"`
-	Tags               []tagInput          `json:"Tags"`
-	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
-	BlockSize          int64               `json:"BlockSize,omitempty"`
-	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
+	QopConfiguration   *hdfsQopConfigInput     `json:"QopConfiguration"`
+	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig"`
+	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig"`
+	SimpleUser         string                  `json:"SimpleUser,omitempty"`
+	KerberosPrincipal  string                  `json:"KerberosPrincipal,omitempty"`
+	KerberosKeytab     string                  `json:"KerberosKeytab,omitempty"`
+	KerberosKrb5Conf   string                  `json:"KerberosKrb5Conf,omitempty"`
+	KmsKeyProviderURI  string                  `json:"KmsKeyProviderUri,omitempty"`
+	AuthenticationType string                  `json:"AuthenticationType,omitempty"`
+	Subdirectory       string                  `json:"Subdirectory,omitempty"`
+	AgentArns          []string                `json:"AgentArns"`
+	Tags               []tagInput              `json:"Tags"`
+	NameNodes          []hdfsNameNodeInput     `json:"NameNodes"`
+	BlockSize          int64                   `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32                   `json:"ReplicationFactor,omitempty"`
 }
 
 type createLocationHdfsOutput struct {
@@ -53,6 +55,10 @@ func (h *Handler) handleCreateLocationHdfs(
 		return nil, fmt.Errorf("%w: AgentArns is required", errInvalidRequest)
 	}
 
+	if err := validateSecretConfig(in.CmkSecretConfig, in.CustomSecretConfig); err != nil {
+		return nil, err
+	}
+
 	tags := tagsFromInput(in.Tags)
 
 	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
@@ -68,10 +74,15 @@ func (h *Handler) handleCreateLocationHdfs(
 		}
 	}
 
+	secretConfig := SecretConfig{
+		Cmk:    cmkSecretConfigFromWire(in.CmkSecretConfig),
+		Custom: customSecretConfigFromWire(in.CustomSecretConfig),
+	}
+
 	l, err := h.Backend.CreateLocationHdfs(
 		in.Subdirectory, in.AuthenticationType, in.SimpleUser,
 		in.KerberosPrincipal, in.KerberosKeytab, in.KerberosKrb5Conf, in.KmsKeyProviderURI,
-		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns, tags,
+		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns, tags, secretConfig,
 	)
 	if err != nil {
 		return nil, err
@@ -96,20 +107,24 @@ type hdfsQopConfigOutput struct {
 
 // describeLocationHdfsOutput intentionally has no Subdirectory field: the
 // real DescribeLocationHdfsOutput doesn't have one (confirmed against
-// aws-sdk-go-v2 v1.59.2).
+// aws-sdk-go-v2 v1.61.4). CmkSecretConfig/CustomSecretConfig are echoed
+// below; ManagedSecretConfig stays absent (documented ReadOnly/AWS-populated
+// field gopherstack can't honestly synthesize -- see PARITY.md).
 type describeLocationHdfsOutput struct {
-	QopConfiguration   *hdfsQopConfigOutput `json:"QopConfiguration,omitempty"`
-	KmsKeyProviderURI  string               `json:"KmsKeyProviderUri,omitempty"`
-	LocationArn        string               `json:"LocationArn"`
-	LocationURI        string               `json:"LocationUri"`
-	KerberosPrincipal  string               `json:"KerberosPrincipal,omitempty"`
-	AuthenticationType string               `json:"AuthenticationType,omitempty"`
-	SimpleUser         string               `json:"SimpleUser,omitempty"`
-	AgentArns          []string             `json:"AgentArns,omitempty"`
-	NameNodes          []hdfsNameNodeOutput `json:"NameNodes,omitempty"`
-	CreationTime       int64                `json:"CreationTime"`
-	BlockSize          int64                `json:"BlockSize,omitempty"`
-	ReplicationFactor  int32                `json:"ReplicationFactor,omitempty"`
+	QopConfiguration   *hdfsQopConfigOutput    `json:"QopConfiguration,omitempty"`
+	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig,omitempty"`
+	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig,omitempty"`
+	KmsKeyProviderURI  string                  `json:"KmsKeyProviderUri,omitempty"`
+	LocationArn        string                  `json:"LocationArn"`
+	LocationURI        string                  `json:"LocationUri"`
+	KerberosPrincipal  string                  `json:"KerberosPrincipal,omitempty"`
+	AuthenticationType string                  `json:"AuthenticationType,omitempty"`
+	SimpleUser         string                  `json:"SimpleUser,omitempty"`
+	AgentArns          []string                `json:"AgentArns,omitempty"`
+	NameNodes          []hdfsNameNodeOutput    `json:"NameNodes,omitempty"`
+	CreationTime       int64                   `json:"CreationTime"`
+	BlockSize          int64                   `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32                   `json:"ReplicationFactor,omitempty"`
 }
 
 func (h *Handler) handleDescribeLocationHdfs(
@@ -136,6 +151,8 @@ func (h *Handler) handleDescribeLocationHdfs(
 		ReplicationFactor:  l.ReplicationFactor,
 		AgentArns:          l.AgentArns,
 		CreationTime:       l.CreationTime.Unix(),
+		CmkSecretConfig:    cmkSecretConfigToWire(l.CmkSecretConfig),
+		CustomSecretConfig: customSecretConfigToWire(l.CustomSecretConfig),
 	}
 
 	nodes := make([]hdfsNameNodeOutput, len(l.NameNodes))
@@ -156,19 +173,21 @@ func (h *Handler) handleDescribeLocationHdfs(
 }
 
 type updateLocationHdfsInput struct {
-	QopConfiguration   *hdfsQopConfigInput `json:"QopConfiguration"`
-	KerberosKrb5Conf   string              `json:"KerberosKrb5Conf,omitempty"`
-	LocationArn        string              `json:"LocationArn"`
-	KerberosPrincipal  string              `json:"KerberosPrincipal,omitempty"`
-	KerberosKeytab     string              `json:"KerberosKeytab,omitempty"`
-	KmsKeyProviderURI  string              `json:"KmsKeyProviderUri,omitempty"`
-	AuthenticationType string              `json:"AuthenticationType,omitempty"`
-	SimpleUser         string              `json:"SimpleUser,omitempty"`
-	Subdirectory       string              `json:"Subdirectory,omitempty"`
-	AgentArns          []string            `json:"AgentArns"`
-	NameNodes          []hdfsNameNodeInput `json:"NameNodes"`
-	BlockSize          int64               `json:"BlockSize,omitempty"`
-	ReplicationFactor  int32               `json:"ReplicationFactor,omitempty"`
+	QopConfiguration   *hdfsQopConfigInput     `json:"QopConfiguration"`
+	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig"`
+	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig"`
+	KerberosKrb5Conf   string                  `json:"KerberosKrb5Conf,omitempty"`
+	LocationArn        string                  `json:"LocationArn"`
+	KerberosPrincipal  string                  `json:"KerberosPrincipal,omitempty"`
+	KerberosKeytab     string                  `json:"KerberosKeytab,omitempty"`
+	KmsKeyProviderURI  string                  `json:"KmsKeyProviderUri,omitempty"`
+	AuthenticationType string                  `json:"AuthenticationType,omitempty"`
+	SimpleUser         string                  `json:"SimpleUser,omitempty"`
+	Subdirectory       string                  `json:"Subdirectory,omitempty"`
+	AgentArns          []string                `json:"AgentArns"`
+	NameNodes          []hdfsNameNodeInput     `json:"NameNodes"`
+	BlockSize          int64                   `json:"BlockSize,omitempty"`
+	ReplicationFactor  int32                   `json:"ReplicationFactor,omitempty"`
 }
 
 type updateLocationHdfsOutput struct{}
@@ -179,6 +198,10 @@ func (h *Handler) handleUpdateLocationHdfs(
 ) (*updateLocationHdfsOutput, error) {
 	if in.LocationArn == "" {
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
+	}
+
+	if err := validateSecretConfig(in.CmkSecretConfig, in.CustomSecretConfig); err != nil {
+		return nil, err
 	}
 
 	nameNodes := make([]HdfsNameNode, len(in.NameNodes))
@@ -194,10 +217,15 @@ func (h *Handler) handleUpdateLocationHdfs(
 		}
 	}
 
+	secretConfig := SecretConfig{
+		Cmk:    cmkSecretConfigFromWire(in.CmkSecretConfig),
+		Custom: customSecretConfigFromWire(in.CustomSecretConfig),
+	}
+
 	if err := h.Backend.UpdateLocationHdfs(
 		in.LocationArn, in.Subdirectory, in.AuthenticationType, in.SimpleUser,
 		in.KerberosPrincipal, in.KerberosKeytab, in.KerberosKrb5Conf, in.KmsKeyProviderURI,
-		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns,
+		nameNodes, in.BlockSize, in.ReplicationFactor, qopCfg, in.AgentArns, secretConfig,
 	); err != nil {
 		return nil, err
 	}

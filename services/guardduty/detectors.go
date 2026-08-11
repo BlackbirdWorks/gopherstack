@@ -10,6 +10,63 @@ import (
 	"github.com/google/uuid"
 )
 
+// validFindingPublishingFrequencies matches the real
+// types.FindingPublishingFrequency enum.
+//
+//nolint:gochecknoglobals // static lookup table
+var validFindingPublishingFrequencies = map[string]bool{
+	"FIFTEEN_MINUTES": true,
+	"ONE_HOUR":        true,
+	"SIX_HOURS":       true,
+}
+
+// validDetectorFeatureNames matches the real types.DetectorFeature enum.
+//
+//nolint:gochecknoglobals // static lookup table
+var validDetectorFeatureNames = map[string]bool{
+	"S3_DATA_EVENTS":         true,
+	"EKS_AUDIT_LOGS":         true,
+	"EBS_MALWARE_PROTECTION": true,
+	"RDS_LOGIN_EVENTS":       true,
+	"LAMBDA_NETWORK_LOGS":    true,
+	"EKS_RUNTIME_MONITORING": true,
+	"RUNTIME_MONITORING":     true,
+	"AI_PROTECTION":          true,
+	"AI_ANALYST":             true,
+}
+
+// validFeatureStatuses matches the real types.FeatureStatus enum.
+//
+//nolint:gochecknoglobals // static lookup table
+var validFeatureStatuses = map[string]bool{
+	statusEnabled:  true,
+	statusDisabled: true,
+}
+
+// validateDetectorConfig rejects a findingPublishingFrequency or
+// features[].name/status outside the real SDK enums (types.
+// FindingPublishingFrequency / types.DetectorFeature / types.FeatureStatus)
+// -- this backend previously accepted and stored any string here, more
+// permissive than the real service, which rejects an unrecognized enum
+// value with a validation error rather than persisting it verbatim.
+func validateDetectorConfig(frequency string, features []DetectorFeature) error {
+	if frequency != "" && !validFindingPublishingFrequencies[frequency] {
+		return ErrValidation
+	}
+
+	for _, f := range features {
+		if !validDetectorFeatureNames[f.Name] {
+			return ErrValidation
+		}
+
+		if f.Status != "" && !validFeatureStatuses[f.Status] {
+			return ErrValidation
+		}
+	}
+
+	return nil
+}
+
 // CreateDetector creates a new GuardDuty detector for this account+region.
 func (b *InMemoryBackend) CreateDetector(
 	enable bool,
@@ -19,6 +76,10 @@ func (b *InMemoryBackend) CreateDetector(
 ) (*Detector, error) {
 	b.mu.Lock("CreateDetector")
 	defer b.mu.Unlock()
+
+	if err := validateDetectorConfig(frequency, features); err != nil {
+		return nil, err
+	}
 
 	if b.detectors.Len() > 0 {
 		return nil, ErrDetectorAlreadyExists
@@ -84,6 +145,12 @@ func (b *InMemoryBackend) UpdateDetector(
 	d, ok := b.detectors.Get(detectorID)
 	if !ok {
 		return ErrDetectorNotFound
+	}
+
+	// Validate before mutating anything -- an invalid frequency/feature must
+	// not leave the detector's Status half-updated from enable/disable.
+	if err := validateDetectorConfig(frequency, features); err != nil {
+		return err
 	}
 
 	if enable != nil {

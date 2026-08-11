@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
+	"time"
 )
 
 type instanceTypeOfferingItem struct {
@@ -13,8 +15,13 @@ type instanceTypeOfferingItem struct {
 }
 
 type keyPairItem struct {
-	KeyName        string `xml:"keyName"`
-	KeyFingerprint string `xml:"keyFingerprint"`
+	KeyPairID      string          `xml:"keyPairId"`
+	KeyName        string          `xml:"keyName"`
+	KeyFingerprint string          `xml:"keyFingerprint"`
+	KeyType        string          `xml:"keyType"`
+	CreateTime     time.Time       `xml:"createTime"`
+	PublicKey      string          `xml:"publicKey,omitempty"`
+	TagSet         []simpleTagItem `xml:"tagSet>item"`
 }
 
 type keyPairItemSet struct {
@@ -29,12 +36,14 @@ type describeKeyPairsResponse struct {
 }
 
 type createKeyPairResponse struct {
-	XMLName        xml.Name `xml:"CreateKeyPairResponse"`
-	Xmlns          string   `xml:"xmlns,attr"`
-	RequestID      string   `xml:"requestId"`
-	KeyName        string   `xml:"keyName"`
-	KeyFingerprint string   `xml:"keyFingerprint"`
-	KeyMaterial    string   `xml:"keyMaterial"`
+	XMLName        xml.Name        `xml:"CreateKeyPairResponse"`
+	Xmlns          string          `xml:"xmlns,attr"`
+	RequestID      string          `xml:"requestId"`
+	KeyPairID      string          `xml:"keyPairId"`
+	KeyName        string          `xml:"keyName"`
+	KeyFingerprint string          `xml:"keyFingerprint"`
+	KeyMaterial    string          `xml:"keyMaterial,omitempty"`
+	TagSet         []simpleTagItem `xml:"tagSet>item"`
 }
 
 type deleteKeyPairResponse struct {
@@ -46,8 +55,9 @@ type deleteKeyPairResponse struct {
 
 func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error) {
 	name := vals.Get("KeyName")
+	tags := parseTagSpecification(vals, "key-pair")
 
-	kp, err := h.Backend.CreateKeyPair(name)
+	kp, err := h.Backend.CreateKeyPair(name, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -55,9 +65,11 @@ func (h *Handler) handleCreateKeyPair(vals url.Values, reqID string) (any, error
 	return &createKeyPairResponse{
 		Xmlns:          ec2XMLNS,
 		RequestID:      reqID,
+		KeyPairID:      kp.KeyPairID,
 		KeyName:        kp.Name,
 		KeyFingerprint: kp.Fingerprint,
 		KeyMaterial:    kp.Material,
+		TagSet:         tagItemsFromMap(h.Backend.TagsForResource(kp.Name)),
 	}, nil
 }
 
@@ -68,12 +80,24 @@ func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, er
 	filters := parseEC2Filters(vals)
 	kps = applyKeyPairFilters(kps, filters, h.Backend)
 
+	includePublicKey, _ := strconv.ParseBool(vals.Get("IncludePublicKey"))
+
 	items := make([]keyPairItem, 0, len(kps))
 	for _, kp := range kps {
-		items = append(items, keyPairItem{
+		item := keyPairItem{
+			KeyPairID:      kp.KeyPairID,
 			KeyName:        kp.Name,
 			KeyFingerprint: kp.Fingerprint,
-		})
+			KeyType:        kp.KeyType,
+			CreateTime:     kp.CreateTime,
+			TagSet:         tagItemsFromMap(h.Backend.TagsForResource(kp.Name)),
+		}
+
+		if includePublicKey {
+			item.PublicKey = kp.PublicKey
+		}
+
+		items = append(items, item)
 	}
 
 	return &describeKeyPairsResponse{
@@ -107,7 +131,9 @@ func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error
 		return nil, fmt.Errorf("%w: PublicKeyMaterial is required", ErrInvalidParameter)
 	}
 
-	kp, err := h.Backend.ImportKeyPair(name, vals.Get("PublicKeyMaterial"))
+	tags := parseTagSpecification(vals, "key-pair")
+
+	kp, err := h.Backend.ImportKeyPair(name, vals.Get("PublicKeyMaterial"), tags)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +141,9 @@ func (h *Handler) handleImportKeyPair(vals url.Values, reqID string) (any, error
 	return &createKeyPairResponse{
 		Xmlns:          ec2XMLNS,
 		RequestID:      reqID,
+		KeyPairID:      kp.KeyPairID,
 		KeyName:        kp.Name,
 		KeyFingerprint: kp.Fingerprint,
+		TagSet:         tagItemsFromMap(h.Backend.TagsForResource(kp.Name)),
 	}, nil
 }

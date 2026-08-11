@@ -145,6 +145,9 @@ func selfUpgradeRequestDetailToMap(r *SelfUpgradeRequestDetail) map[string]any {
 	if r.LastUpdateFailureReason != "" {
 		m["LastUpdateFailureReason"] = r.LastUpdateFailureReason
 	}
+	if r.UserName != "" {
+		m["UserName"] = r.UserName
+	}
 
 	return m
 }

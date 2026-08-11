@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import ECSPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -16,6 +17,17 @@ vi.mock("$lib/confirm-dialog", () => ({
 vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const clusterArn = "arn:aws:ecs:us-east-1:123456789:cluster/prod-cluster";
 const serviceArn = "arn:aws:ecs:us-east-1:123456789:service/prod-cluster/api-service";
@@ -47,6 +59,7 @@ describe("ECS Page", () => {
     mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -195,6 +208,96 @@ describe("ECS Page", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Select a cluster to see its tasks")).toBeInTheDocument();
+    });
+  });
+
+  describe("All regions mode", () => {
+    const usArn = "arn:aws:ecs:us-east-1:123456789:cluster/us-cluster";
+    const euArn = "arn:aws:ecs:eu-west-1:123456789:cluster/eu-cluster";
+
+    it("fans ListClusters+DescribeClusters out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ clusterArns: [usArn] })
+        .mockResolvedValueOnce({ clusterArns: [euArn] })
+        .mockResolvedValueOnce({ clusters: [{ clusterArn: usArn, clusterName: "us-cluster" }] })
+        .mockResolvedValueOnce({ clusters: [{ clusterArn: euArn, clusterName: "eu-cluster" }] });
+
+      render(ECSPage);
+
+      await waitFor(() =>
+        expect(screen.getByRole("cell", { name: "us-cluster" })).toBeInTheDocument(),
+      );
+      expect(screen.getByRole("cell", { name: "eu-cluster" })).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListClusters call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ clusterArns: [clusterArn] });
+      mockSend.mockResolvedValueOnce({ clusters: [exampleCluster] });
+      render(ECSPage);
+      await waitFor(() => screen.getByRole("cell", { name: "prod-cluster" }));
+      const listCalls = mockSend.mock.calls.filter(
+        ([cmd]) => cmd.constructor.name === "ListClustersCommand",
+      );
+      expect(listCalls).toHaveLength(1);
+    });
+
+    it("renders the same cluster name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ clusterArns: [usArn] })
+        .mockResolvedValueOnce({ clusterArns: [euArn] })
+        .mockResolvedValueOnce({ clusters: [{ clusterArn: usArn, clusterName: "shared-cluster" }] })
+        .mockResolvedValueOnce({
+          clusters: [{ clusterArn: euArn, clusterName: "shared-cluster" }],
+        });
+
+      render(ECSPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByRole("cell", { name: "shared-cluster" });
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) => within(r.closest("tr") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("scopes the Services tab to the selected cluster's own region, not the picker's region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ clusterArns: [] })
+        .mockResolvedValueOnce({ clusterArns: [euArn] })
+        .mockResolvedValueOnce({ clusters: [{ clusterArn: euArn, clusterName: "eu-cluster" }] });
+
+      render(ECSPage);
+      await waitFor(() =>
+        expect(screen.getByRole("cell", { name: "eu-cluster" })).toBeInTheDocument(),
+      );
+
+      mockSend.mockResolvedValueOnce({ serviceArns: [serviceArn] });
+      mockSend.mockResolvedValueOnce({ services: [exampleService] });
+      await fireEvent.click(screen.getByText("Services"));
+
+      await waitFor(() =>
+        expect(screen.getByRole("cell", { name: "api-service" })).toBeInTheDocument(),
+      );
+      expect(mockSend).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ cluster: euArn }),
+        }),
+      );
+
+      vi.unstubAllGlobals();
     });
   });
 });

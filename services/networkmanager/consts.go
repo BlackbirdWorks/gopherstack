@@ -143,6 +143,33 @@ const routeAnalysisReasonAttachmentNotFound = "TRANSIT_GATEWAY_ATTACHMENT_NOT_FO
 // carries neither an IpAddress nor a TransitGatewayAttachmentArn.
 const routeAnalysisReasonNoDestination = "NO_DESTINATION_ARN_PROVIDED"
 
+// Further RouteAnalysisCompletionReasonCode values this backend's real
+// EC2-route-table walk (routeanalysis.go) can genuinely produce, out of the
+// 11 the real SDK models -- the rest (CYCLIC_PATH_DETECTED,
+// TRANSIT_GATEWAY_ATTACHMENT_NOT_IN_TRANSIT_GATEWAY,
+// TRANSIT_GATEWAY_ATTACHMENT_STABLE_ROUTE_TABLE_NOT_FOUND,
+// TRANSIT_GATEWAY_ATTACHMENT_ATTACH_ARN_NO_MATCH, MAX_HOPS_EXCEEDED,
+// POSSIBLE_MIDDLEBOX) describe multi-hop cross-TGW-peering topology this
+// backend's single-hop walk does not model -- see routeanalysis.go's doc
+// comment.
+const (
+	routeAnalysisReasonRouteNotFound = "ROUTE_NOT_FOUND"
+	routeAnalysisReasonBlackhole     = "BLACKHOLE_ROUTE_FOR_DESTINATION_FOUND"
+	routeAnalysisReasonInactiveRoute = "INACTIVE_ROUTE_FOR_DESTINATION_FOUND"
+)
+
+// ec2TransitGatewayRouteStateActive/ec2TransitGatewayRouteStateBlackhole
+// mirror services/ec2's own unexported lowercase TGW route State literals
+// ("active"/"blackhole", services/ec2/store.go/ec2core.go) -- this package
+// cannot import ec2's unexported consts, so the literal is duplicated here,
+// matching cli.go's networkManagerEC2ResolverAdapter which passes these
+// same raw ec2 State strings through EC2TransitGatewayRoute.State
+// unchanged.
+const (
+	ec2TransitGatewayRouteStateActive    = "active"
+	ec2TransitGatewayRouteStateBlackhole = "blackhole"
+)
+
 // RouteState / RouteType / RouteTableType wire values (family T).
 const (
 	routeStateActive                  = "ACTIVE"
@@ -236,4 +263,21 @@ const (
 	resourceRouteAnalysis  = "ROUTE_ANALYSIS"
 	resourceRoutingLabel   = "ROUTING_POLICY_LABEL"
 	resourceTaggable       = "RESOURCE"
+)
+
+// resource-kind labels for cross-service ARNs this package validates
+// against services/ec2/services/directconnect via EC2Resolver/
+// DirectConnectResolver (crossservice.go) -- used only in
+// ResourceNotFoundException's free-form ResourceType field when the
+// referenced ARN does not resolve, same SCREAMING_SNAKE_CASE convention as
+// this package's own resource kinds above.
+const (
+	resourceEC2Vpc                       = "VPC"
+	resourceEC2Subnet                    = "SUBNET"
+	resourceEC2CustomerGateway           = "CUSTOMER_GATEWAY"
+	resourceEC2TransitGateway            = "TRANSIT_GATEWAY"
+	resourceEC2VpnConnection             = "VPN_CONNECTION"
+	resourceEC2TransitGatewayConnectPeer = "TRANSIT_GATEWAY_CONNECT_PEER"
+	resourceEC2TransitGatewayRouteTable  = "TRANSIT_GATEWAY_ROUTE_TABLE"
+	resourceDXGateway                    = "DIRECT_CONNECT_GATEWAY"
 )

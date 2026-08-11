@@ -244,11 +244,17 @@ type Crawler struct {
 
 // CrawlHistoryEntry records a single crawl run for ListCrawls.
 type CrawlHistoryEntry struct {
-	CrawlID   string  `json:"CrawlId,omitempty"`
-	State     string  `json:"State,omitempty"`
-	Summary   string  `json:"Summary,omitempty"`
-	StartTime float64 `json:"StartTime,omitempty"`
-	EndTime   float64 `json:"EndTime,omitempty"`
+	CrawlID string `json:"CrawlId,omitempty"`
+	State   string `json:"State,omitempty"`
+	Summary string `json:"Summary,omitempty"`
+	// WorkflowRunID links a workflow-triggered crawl to its WorkflowRun for
+	// WorkflowRunStatistics. Real AWS's Crawl/CrawlerHistory shapes have no such
+	// field (aws-sdk-go-v2/service/glue@v1.152.0 types.go:2815-2836,2916-2946), so
+	// this is internal-only: it persists (handleListCrawls' crawlHistoryOut DTO
+	// copies fields explicitly and never includes it, so it never reaches the wire).
+	WorkflowRunID string  `json:"workflowRunId,omitempty"`
+	StartTime     float64 `json:"StartTime,omitempty"`
+	EndTime       float64 `json:"EndTime,omitempty"`
 }
 
 // ConnectionsList holds connections for a Glue job.
@@ -474,21 +480,29 @@ type CrawlerSchedule struct {
 
 // JobRun represents a single execution of a Glue job.
 type JobRun struct {
-	Arguments             map[string]string    `json:"Arguments,omitempty"`
-	ID                    string               `json:"Id"`
-	JobName               string               `json:"JobName"`
-	JobRunState           string               `json:"JobRunState"`
-	ErrorMessage          string               `json:"ErrorMessage,omitempty"`
-	WorkerType            string               `json:"WorkerType,omitempty"`
-	GlueVersion           string               `json:"GlueVersion,omitempty"`
-	SecurityConfiguration string               `json:"SecurityConfiguration,omitempty"`
-	StartedOn             float64              `json:"StartedOn,omitempty"`
-	CompletedOn           float64              `json:"CompletedOn,omitempty"`
-	MaxCapacity           float64              `json:"MaxCapacity,omitempty"`
-	ExecutionTime         int                  `json:"ExecutionTime,omitempty"`
-	NumberOfWorkers       int                  `json:"NumberOfWorkers,omitempty"`
-	Timeout               int                  `json:"Timeout,omitempty"`
-	NotificationProperty  NotificationProperty `json:"NotificationProperty,omitzero"`
+	Arguments             map[string]string `json:"Arguments,omitempty"`
+	ID                    string            `json:"Id"`
+	JobName               string            `json:"JobName"`
+	JobRunState           string            `json:"JobRunState"`
+	ErrorMessage          string            `json:"ErrorMessage,omitempty"`
+	WorkerType            string            `json:"WorkerType,omitempty"`
+	GlueVersion           string            `json:"GlueVersion,omitempty"`
+	SecurityConfiguration string            `json:"SecurityConfiguration,omitempty"`
+	// TriggerName is the name of the trigger that started this run (real field:
+	// aws-sdk-go-v2/service/glue@v1.152.0 types.go:7350-7351).
+	TriggerName string `json:"TriggerName,omitempty"`
+	// WorkflowRunID links a workflow-triggered job run to its WorkflowRun for
+	// WorkflowRunStatistics. Real AWS's JobRun has no such field, so this is
+	// internal-only: it persists but GetJobRun/GetJobRuns strip it before
+	// returning, since those embed *JobRun directly in the wire response.
+	WorkflowRunID        string               `json:"workflowRunId,omitempty"`
+	StartedOn            float64              `json:"StartedOn,omitempty"`
+	CompletedOn          float64              `json:"CompletedOn,omitempty"`
+	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionTime        int                  `json:"ExecutionTime,omitempty"`
+	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
+	Timeout              int                  `json:"Timeout,omitempty"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 }
 
 // StartJobRunOptions carries the optional per-run overrides AWS's
@@ -703,16 +717,17 @@ type ResourceURI struct {
 
 // UserDefinedFunction represents a Glue UDF.
 type UserDefinedFunction struct {
-	DatabaseName string        `json:"DatabaseName"`
-	FunctionName string        `json:"FunctionName"`
-	ClassName    string        `json:"ClassName,omitempty"`
-	OwnerName    string        `json:"OwnerName,omitempty"`
-	OwnerType    string        `json:"OwnerType,omitempty"`
-	FunctionType string        `json:"FunctionType,omitempty"`
-	CatalogID    string        `json:"CatalogId,omitempty"`
-	FunctionARN  string        `json:"-"`
-	ResourceURIs []ResourceURI `json:"ResourceUris,omitempty"`
-	CreateTime   float64       `json:"CreateTime,omitempty"`
+	Tags         map[string]string `json:"-"`
+	DatabaseName string            `json:"DatabaseName"`
+	FunctionName string            `json:"FunctionName"`
+	ClassName    string            `json:"ClassName,omitempty"`
+	OwnerName    string            `json:"OwnerName,omitempty"`
+	OwnerType    string            `json:"OwnerType,omitempty"`
+	FunctionType string            `json:"FunctionType,omitempty"`
+	CatalogID    string            `json:"CatalogId,omitempty"`
+	FunctionARN  string            `json:"-"`
+	ResourceURIs []ResourceURI     `json:"ResourceUris,omitempty"`
+	CreateTime   float64           `json:"CreateTime,omitempty"`
 }
 
 // EncryptionConfiguration holds encryption settings for a SecurityConfiguration.
@@ -877,6 +892,7 @@ type MLTransform struct {
 	Parameters          MLTransformParameter `json:"Parameters,omitzero"`
 	TransformEncryption *TransformEncryption `json:"TransformEncryption,omitempty"`
 	Schema              []SchemaColumnEntry  `json:"Schema,omitempty"`
+	Tags                map[string]string    `json:"-"`
 	TransformID         string               `json:"TransformId"`
 	Name                string               `json:"Name"`
 	Description         string               `json:"Description,omitempty"`
@@ -955,6 +971,24 @@ type EncryptionAtRest struct {
 type ConnectionPasswordEncryption struct {
 	AwsKmsKeyID                       string `json:"AwsKmsKeyId,omitempty"`
 	ReturnConnectionPasswordEncrypted bool   `json:"ReturnConnectionPasswordEncrypted"`
+}
+
+// DataCatalogExportConfiguration holds the Glue Data Catalog's S3 Tables
+// export configuration. Unlike DataCatalogEncryptionSettings, this API's
+// shapes carry no CatalogId -- a single backend-global setting; see catalogs.go.
+type DataCatalogExportConfiguration struct {
+	EncryptionConfiguration *ExportEncryptionConfiguration `json:"EncryptionConfiguration,omitempty"`
+	ExportSetting           string                         `json:"ExportSetting,omitempty"`
+	S3TableBucketArn        string                         `json:"S3TableBucketArn,omitempty"`
+	Status                  string                         `json:"Status,omitempty"`
+	CreatedAt               float64                        `json:"CreatedAt,omitempty"`
+	UpdatedAt               float64                        `json:"UpdatedAt,omitempty"`
+}
+
+// ExportEncryptionConfiguration mirrors types.ExportEncryptionConfiguration.
+type ExportEncryptionConfiguration struct {
+	KmsKeyArn    string `json:"KmsKeyArn,omitempty"`
+	SseAlgorithm string `json:"SseAlgorithm,omitempty"`
 }
 
 // CatalogImportStatus records the Hive metastore import completion state.
@@ -1083,6 +1117,8 @@ type Trigger struct {
 // Workflow represents a Glue workflow.
 type Workflow struct {
 	Tags                 map[string]string `json:"-"`
+	Graph                *WorkflowGraph    `json:"Graph,omitempty"`
+	LastRun              *WorkflowRun      `json:"LastRun,omitempty"`
 	DefaultRunProperties map[string]string `json:"DefaultRunProperties,omitempty"`
 	Name                 string            `json:"Name"`
 	Description          string            `json:"Description,omitempty"`
@@ -1092,14 +1128,65 @@ type Workflow struct {
 	MaxConcurrentRuns    int               `json:"MaxConcurrentRuns,omitempty"`
 }
 
+// WorkflowGraph is the DAG of triggers/jobs/crawlers belonging to a workflow,
+// mirroring aws-sdk-go-v2/service/glue/types.WorkflowGraph. Derived from real
+// Trigger.WorkflowName membership plus each trigger's Actions/Predicate --
+// see workflowGraphLocked in workflow_graph.go.
+type WorkflowGraph struct {
+	Nodes []WorkflowNode `json:"Nodes,omitempty"`
+	Edges []WorkflowEdge `json:"Edges,omitempty"`
+}
+
+// WorkflowNode is one Glue component (crawler/job/trigger) in a
+// WorkflowGraph, mirroring aws-sdk-go-v2/service/glue/types.Node.
+// TriggerDetails is populated with the real Trigger definition; JobDetails/
+// CrawlerDetails (per-node run history) are not modeled -- the job/crawler-run
+// to workflow-run link they'd need now exists (JobRun/CrawlHistoryEntry's
+// internal WorkflowRunID, see workflows.go), but converting it into per-node
+// run lists is separate work not done yet.
+type WorkflowNode struct {
+	TriggerDetails *WorkflowTriggerNodeDetails `json:"TriggerDetails,omitempty"`
+	Name           string                      `json:"Name,omitempty"`
+	Type           string                      `json:"Type,omitempty"`
+	UniqueID       string                      `json:"UniqueId,omitempty"`
+}
+
+// WorkflowTriggerNodeDetails mirrors aws-sdk-go-v2/service/glue/types.TriggerNodeDetails.
+type WorkflowTriggerNodeDetails struct {
+	Trigger *Trigger `json:"Trigger,omitempty"`
+}
+
+// WorkflowEdge is a directed connection between two WorkflowGraph nodes,
+// mirroring aws-sdk-go-v2/service/glue/types.Edge.
+type WorkflowEdge struct {
+	SourceID      string `json:"SourceId,omitempty"`
+	DestinationID string `json:"DestinationId,omitempty"`
+}
+
 // WorkflowRun represents a single run of a Glue workflow.
 type WorkflowRun struct {
-	Properties   map[string]string `json:"WorkflowRunProperties,omitempty"`
-	WorkflowName string            `json:"WorkflowName"`
-	RunID        string            `json:"WorkflowRunId"`
-	Status       string            `json:"Status"`
-	StartedOn    float64           `json:"StartedOn,omitempty"`
-	CompletedOn  float64           `json:"CompletedOn,omitempty"`
+	Properties   map[string]string      `json:"WorkflowRunProperties,omitempty"`
+	Statistics   *WorkflowRunStatistics `json:"Statistics,omitempty"`
+	WorkflowName string                 `json:"WorkflowName"`
+	RunID        string                 `json:"WorkflowRunId"`
+	Status       string                 `json:"Status"`
+	StartedOn    float64                `json:"StartedOn,omitempty"`
+	CompletedOn  float64                `json:"CompletedOn,omitempty"`
+}
+
+// WorkflowRunStatistics mirrors aws-sdk-go-v2/service/glue/types.WorkflowRunStatistics
+// (types.go:13201-13228). Computed live from job runs/crawls carrying this run's
+// WorkflowRunID -- see computeWorkflowRunStatisticsLocked in workflows.go -- never
+// stored, so it can never go stale.
+type WorkflowRunStatistics struct {
+	TotalActions     int `json:"TotalActions,omitempty"`
+	TimeoutActions   int `json:"TimeoutActions,omitempty"`
+	FailedActions    int `json:"FailedActions,omitempty"`
+	StoppedActions   int `json:"StoppedActions,omitempty"`
+	SucceededActions int `json:"SucceededActions,omitempty"`
+	RunningActions   int `json:"RunningActions,omitempty"`
+	ErroredActions   int `json:"ErroredActions,omitempty"`
+	WaitingActions   int `json:"WaitingActions,omitempty"`
 }
 
 // GrokClassifier is a Grok-based classifier.

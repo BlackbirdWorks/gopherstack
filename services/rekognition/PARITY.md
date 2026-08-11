@@ -1,9 +1,9 @@
 ---
 service: rekognition
-sdk_module: aws-sdk-go-v2/service/rekognition@v1.51.26   # version audited against
-last_audit_commit: 6642a73c                       # HEAD when this manifest was written
-last_audit_date: 2026-07-23
-overall: A            # this sweep closed every remaining gaps-list item from the prior audit (see Notes #5)
+sdk_module: aws-sdk-go-v2/service/rekognition@v1.54.4   # version audited against (was stale at v1.51.26; go.mod pins v1.54.4 -- corrected this sweep)
+last_audit_commit: 903d74b67                       # HEAD when this manifest was written
+last_audit_date: 2026-08-10
+overall: A            # field-completeness follow-up sweep (see Notes #6): shallow CreateProjectVersion/StartProjectVersion/CopyProjectVersion fields and async-video Get* JobTag/Video/SelectedSegmentTypes/GetRequestMetadata now modeled; deep Custom Labels manifests and post-training fields stay deliberately deferred
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -36,11 +36,11 @@ ops:
   CreateProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: duplicate name now returns ResourceInUseException (was ResourceAlreadyExistsException) — see Notes #2"}
   DeleteProject: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeProjects: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp was an ISO8601 string ('2006-01-02T15:04:05.000Z' Format()) — real awsjson1.1 wire shape is an epoch-seconds JSON number; SDK deserializer errors with 'expected DateTime to be a JSON Number, got string instead'. Now epochSeconds() — see Notes #1"}
-  CreateProjectVersion: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-07-23): Tags/OutputConfig/KmsKeyId/VersionDescription now parsed, stored, and echoed back by DescribeProjectVersions; initial Tags applied to the ProjectVersion ARN the same way CreateStreamProcessor applies its tags — see Notes #5. Also FIXED prior sweep: duplicate (ProjectArn,VersionName) now returns ResourceInUseException — see Notes #2. Still gap (not fixed, see gaps): TrainingData/TestingData/FeatureConfig — genuinely complex nested Custom Labels training-manifest structures with no backing resource this mock can meaningfully echo, out of budget this sweep too"}
+  CreateProjectVersion: {wire: partial, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (2026-08-10, Notes #6): OutputConfig is now enforced as required (was silently optional -- more permissive than the real validator); FeatureConfig.ContentModeration.ConfidenceThreshold now parsed/stored/echoed (shallow, 2 levels, no unions); TrainingData/TestingData now cross-validated (both-or-neither) though their contents stay opaque -- see gaps. Prior sweep (2026-07-23): Tags/OutputConfig/KmsKeyId/VersionDescription parsed, stored, echoed — see Notes #5. Duplicate (ProjectArn,VersionName) returns ResourceInUseException — see Notes #2"}
   DeleteProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeProjectVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
-  CopyProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeProjectVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now also echoes FeatureConfig/MaxInferenceUnits/MinInferenceUnits/SourceProjectVersionArn (previously stored by Start/CopyProjectVersion but never serialized here). Prior sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
+  CopyProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now stores SourceProjectVersionArn on the destination version (echoed by DescribeProjectVersions)"}
+  StartProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep (Notes #6): now accepts and stores the optional MaxInferenceUnits (StartProjectVersionInput member; was parsed nowhere, so MinInferenceUnits was the only value ever recorded)"}
   StopProjectVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   ListProjectPolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp + LastUpdatedTimestamp string->epoch-seconds — see Notes #1"}
   PutProjectPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -59,13 +59,15 @@ ops:
   ListMediaAnalysisJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
 families:
   detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against"
-  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted); Get* response bodies are synthesized empty/placeholder result arrays (acceptable mock, same ML-inherent-op exemption)"}
+  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred"}
 routing: {status: ok, note: "single X-Amz-Target: RekognitionService.<Op> POST endpoint (awsjson1.1), verified every op in the dispatch map (buildOps + appendixAOps) against a real op name in aws-sdk-go-v2/service/rekognition; no name mismatches found"}
 gaps:
-  - CreateProjectVersion still drops TrainingData/TestingData/FeatureConfig from the request (Custom Labels training-manifest config: nested GroundTruthManifest/Asset structures with no backing resource this in-memory mock can meaningfully echo back) — low-traffic Custom Labels training flow, file a bd issue if this is needed
+  - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
 deferred:
-  - Full field-level completeness audit of the async-video Get* response bodies (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections arrays) — always empty; acceptable per the ML-mock exemption but not individually wire-diffed field-by-field this sweep
-  - Full field-level completeness audit of ProjectVersionDescription (BaseModelVersion/BillableTrainingTimeInSeconds/EvaluationResult/Feature/ManifestSummary/MaxInferenceUnits/SourceProjectVersionArn/TestingDataResult/TrainingDataResult/TrainingEndTimestamp) beyond the OutputConfig/KmsKeyId/VersionDescription fields added this sweep — DescribeProjectVersions was already marked wire:ok by a prior audit and expanding its full field set was out of this sweep's assigned gap list (CreateProjectVersion's dropped-fields gap only)
+  - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
+  - ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
+  - SegmentTypeInfo.ModelVersion (needs data this emulator cannot have: AWS-internal segment-detection model build string) — Type is modeled, ModelVersion is not, see Notes #6
+  - Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) stay synthesized-empty; acceptable per the ML-mock exemption, not individually wire-diffed field-by-field this sweep (this sweep's scope was CreateProjectVersion/ProjectVersionDescription/async-video envelope fields, not the ML detection payloads themselves)
 leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetrics.RWMutex coarse lock verified around every backend mutation; Snapshot/Restore delegation (Handler->Backend) verified wired (persistence.go)"}
 ---
 
@@ -74,7 +76,7 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
 1. **Timestamp wire shape (the main bug class this sweep).** awsjson1.1 (which
    Rekognition uses) always serializes `time.Time` fields as epoch-seconds JSON
    *numbers*, never ISO8601 strings — confirmed by reading
-   `aws-sdk-go-v2/service/rekognition@v1.51.26/deserializers.go`'s
+   `aws-sdk-go-v2/service/rekognition@v1.54.4/deserializers.go`'s
    `case "CreationTimestamp": ... case json.Number: ... default: return
    fmt.Errorf("expected DateTime to be a JSON Number, got %T instead", value)`.
    8 fields across 5 response types in `handler_appendixa.go` were rendering
@@ -121,7 +123,7 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
 
 3. **`resourceExists()` (backend.go, gates TagResource/UntagResource/
    ListTagsForResource) only recognized collection and stream-processor
-   ARNs.** Per `aws-sdk-go-v2/service/rekognition@v1.51.26/api_op_TagResource.go`'s
+   ARNs.** Per `aws-sdk-go-v2/service/rekognition@v1.54.4/api_op_TagResource.go`'s
    doc comment, tagging also applies to "an Amazon Rekognition ... Custom
    Labels model" — i.e. a ProjectVersion ARN. Before this sweep, tagging a
    real, just-created ProjectVersion always failed with
@@ -160,7 +162,7 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
      `StreamProcessorNotificationChannel`/`StreamProcessorDataSharingPreference`
      domain types (`interfaces.go`) mirroring the real SDK's nested
      `types.*` shapes field-for-field (verified against
-     `aws-sdk-go-v2/service/rekognition@v1.51.26/types/types.go` and the
+     `aws-sdk-go-v2/service/rekognition@v1.54.4/types/types.go` and the
      `awsAwsjson11_serialize/deserializeDocument*` functions for exact JSON
      key names/nesting), threaded through a `CreateStreamProcessorParams`
      struct (avoids an unbounded positional-parameter CreateStreamProcessor
@@ -208,3 +210,89 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; lockmetric
      `CreateStreamProcessorParams`) to keep `golangci-lint`'s `govet`
      fieldalignment check at 0 issues; field order in those structs carries
      no semantic meaning beyond that.
+
+6. **2026-08-10 field-completeness follow-up (gopherstack-3tzd).** SDK pin
+   was stale (`v1.51.26` in this file vs `v1.54.4` pinned in `go.mod`) —
+   corrected here and in every inline citation above. Depth measurement of
+   the recorded gaps, read directly from
+   `aws-sdk-go-v2/service/rekognition@v1.54.4/types/types.go`:
+   - `TrainingData`/`TestingData` -> `[]Asset` -> `Asset.GroundTruthManifest`
+     -> `GroundTruthManifest.S3Object` -> `S3Object{Bucket,Name,Version}`: 4
+     struct levels, no unions, every level 1-3 fields. Structurally shallow,
+     but each level's only content is an S3 pointer to a manifest this
+     backend never trains against — there is no training-completion
+     lifecycle here for `TrainingDataResult`/`TestingDataResult` (the only
+     place a stored copy would resurface) to ever populate. Left opaque; only
+     the documented "both or neither" cross-field requirement
+     (`api_op_CreateProjectVersion.go` doc comment) is enforced, since that's
+     cheaply checkable without modeling the contents — this closes a
+     more-permissive-than-real gap (gopherstack previously accepted either
+     field alone).
+   - `FeatureConfig` -> `CustomizationFeatureConfig.ContentModeration` ->
+     `CustomizationFeatureContentModerationConfig.ConfidenceThreshold`: 2
+     levels, single member each, no unions — the prior audit's "genuinely
+     complex... feature-variant unions" characterization (see the Notes #5
+     entry above) was wrong; verified by reading `types.go:486,495` directly.
+     Modeled and echoed verbatim (no fabrication: it's the client's own
+     training-job config, not an inference result).
+   - **`CreateProjectVersion` was more permissive than the real service**:
+     `OutputConfig` is a required `CreateProjectVersionInput` member
+     (`validateOpCreateProjectVersionInput`, `validators.go:2107`) but
+     gopherstack never checked for it. Fixed with a failing-first test
+     (`TestProjectVersions/CreateProjectVersion_missing_OutputConfig_returns_error`);
+     three existing tests asserted the old (wrong) permissive behavior by
+     omitting `OutputConfig` and expecting 200 — fixed to send it.
+   - **`StartProjectVersion`/`CopyProjectVersion`/`DescribeProjectVersions`
+     dropped fields the backend already had, or could trivially have,
+     but never serialized**: `MaxInferenceUnits` (a real
+     `StartProjectVersionInput` member, parsed nowhere before this sweep);
+     `SourceProjectVersionArn` (never stored by `CopyProjectVersion`); and
+     `MinInferenceUnits` itself (stored since a prior sweep via
+     `StartProjectVersion`, but never echoed by `DescribeProjectVersions` —
+     a pure serialization gap). All three fixed.
+   - **Async-video `Get*` responses: `JobTag` and `Video` are real
+     `GetXxxOutput` members** (verified against every `api_op_GetXxx.go` in
+     this family) that every `Start*` handler already parsed into its
+     request struct and then discarded (`_ *startXxxReq`). Now threaded
+     through `StartAsyncJobParams` -> `storedAsyncJob` -> the shared
+     `getJobBase` helper, so all seven `Get*` responses
+     (LabelDetection/ContentModeration/CelebrityRecognition/FaceDetection/
+     FaceSearch/TextDetection/PersonTracking) echo them. `getJobBase`'s
+     signature grew a second return value (the raw `*AsyncJob`) so
+     `GetSegmentDetection` doesn't have to call `GetAsyncJob` a second time
+     to read `SegmentTypes` — doing so would have double-advanced the
+     `PollCount` IN_PROGRESS->SUCCEEDED state machine per client-visible
+     call, a real bug caught before it shipped.
+   - **`GetSegmentDetection.SelectedSegmentTypes`** now echoes the `Type` of
+     each `SegmentTypes` entry from the matching `StartSegmentDetection`
+     call (previously always `[]`, despite the value being sitting right
+     there in the discarded request). `ModelVersion` is deliberately left
+     off `segmentTypeInfoWire` — it names the internal Rekognition model
+     build and there is no legitimate source for that string.
+   - **`GetLabelDetection`/`GetContentModeration.GetRequestMetadata`** now
+     echo the current call's `SortBy`/`AggregateBy`, applying the documented
+     default when omitted (`LabelDetectionSortBy`/`ContentModerationSortBy`
+     default to `TIMESTAMP`, `ContentModerationAggregateBy` defaults to
+     `TIMESTAMPS` — all three defaults are stated in their respective
+     `api_op_GetXxx.go` doc comments). `LabelDetectionAggregateBy` has no
+     documented default, so it is only reported when the caller supplies
+     one — inventing a default here would be the same class of mistake as a
+     fabricated confidence score.
+   - **Deliberately not modeled, with reasons** (see `deferred:`):
+     `BaseModelVersion` (needs data this emulator cannot have — AWS-internal
+     base-model catalog); `BillableTrainingTimeInSeconds`,
+     `TrainingEndTimestamp`, `EvaluationResult`, `ManifestSummary`,
+     `TestingDataResult`, `TrainingDataResult` (needs a lifecycle that does
+     not exist — this backend's `Status` never advances past
+     `TRAINING_IN_PROGRESS`, and `EvaluationResult.F1Score` additionally
+     can't be computed without a real model); `Feature` on
+     `ProjectVersionDescription`/`DescribeProjects` (large mechanical
+     surface deferred for size — `CreateProject` doesn't accept or store
+     `Feature` at all yet, so modeling it honestly is a separate
+     `CreateProject`+`DescribeProjects` change, not a `CreateProjectVersion`
+     one); `SegmentTypeInfo.ModelVersion` (needs data this emulator cannot
+     have, see above).
+   - All new struct fields use `omitempty` and are additive — no
+     `rekognitionSnapshotVersion` bump; round-trip verified by
+     `TestSnapshotRestore_ProjectVersionAndAsyncJobNewFields`
+     (`persistence_test.go`).

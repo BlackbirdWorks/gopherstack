@@ -184,7 +184,7 @@ func toClusterNetworkSettingsOutput(ns ClusterNetworkSettings) *clusterNetworkSe
 
 // clusterOutput mirrors DescribeClusterOutput/CreateClusterOutput/
 // UpdateClusterOutput exactly. The real API has NO "tags" field on this
-// shape (verified against aws-sdk-go-v2/service/medialive@v1.97.2's
+// shape (verified against aws-sdk-go-v2/service/medialive@v1.101.4's
 // awsRestjson1_deserializeOpDocumentDescribeClusterOutput) even though
 // CreateClusterInput accepts tags -- tags for a Cluster only surface via
 // ListTagsForResource. "channelIds" is derived live from Channel.

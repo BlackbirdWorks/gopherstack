@@ -175,6 +175,91 @@ func TestDetective_Datasources(t *testing.T) { //nolint:paralleltest // existing
 	}
 }
 
+// TestUpdateDatasourcePackages_InvalidPackageRejected verifies a
+// DatasourcePackages entry outside the real 3-value enum (botocore
+// detective/2018-10-26 service-2.json shapes.DatasourcePackage:
+// DETECTIVE_CORE, EKS_AUDIT, ASFF_SECURITYHUB_FINDING) is rejected with
+// ValidationException, matching UpdateDatasourcePackages' documented error
+// set rather than silently persisting a package name that does not exist.
+func TestUpdateDatasourcePackages_InvalidPackageRejected(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	graphARN := gResp["GraphArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
+		"GraphArn":           graphARN,
+		"DatasourcePackages": []string{"NOT_A_REAL_PACKAGE"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec2.Code)
+}
+
+// TestBatchGetGraphMemberDatasources_WireShape verifies MembershipDatasources
+// (the element type of both BatchGetGraphMemberDatasources' MemberDatasources
+// and BatchGetMembershipDatasources' MembershipDatasources) carries the real
+// SDK field DatasourcePackageIngestHistory -- a
+// map[DatasourcePackage]map[DatasourcePackageIngestState]TimestampForCollection
+// (aws-sdk-go-v2/service/detective/types.MembershipDatasources,
+// deserializers.go's awsRestjson1_deserializeDocumentMembershipDatasources) --
+// not the invented flat DatasourcePackageIngestStates map this emulator
+// previously emitted, which has no member of that name anywhere in the real
+// MembershipDatasources shape; a real client would silently drop it and see
+// an empty DatasourcePackageIngestHistory on every result.
+func TestBatchGetGraphMemberDatasources_WireShape(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/graph", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	var gResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &gResp))
+	graphARN := gResp["GraphArn"].(string)
+
+	memberRec := doRequest(t, h, http.MethodPost, "/graph/members", map[string]any{
+		"GraphArn": graphARN,
+		"Accounts": []map[string]any{
+			{"AccountId": "111111111111", "EmailAddress": "m@example.com"},
+		},
+	})
+	require.Equal(t, http.StatusOK, memberRec.Code)
+
+	updateRec := doRequest(t, h, http.MethodPost, "/graph/datasources/update", map[string]any{
+		"GraphArn":           graphARN,
+		"DatasourcePackages": []string{"DETECTIVE_CORE"},
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/graph/datasources/get", map[string]any{
+		"GraphArn":   graphARN,
+		"AccountIds": []string{"111111111111"},
+	})
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp))
+	members, ok := resp["MemberDatasources"].([]any)
+	require.True(t, ok)
+	require.Len(t, members, 1)
+
+	member, isMap := members[0].(map[string]any)
+	require.True(t, isMap)
+	assert.NotContains(t, member, "DatasourcePackageIngestStates",
+		"the real MembershipDatasources shape has no field of this name")
+
+	history, hasHistory := member["DatasourcePackageIngestHistory"].(map[string]any)
+	require.True(t, hasHistory, "MembershipDatasources must carry DatasourcePackageIngestHistory")
+
+	states, hasStates := history["DETECTIVE_CORE"].(map[string]any)
+	require.True(t, hasStates)
+	started, hasStarted := states["STARTED"].(map[string]any)
+	require.True(t, hasStarted)
+	assert.NotEmpty(t, started["Timestamp"])
+}
+
 // TestListDatasourcePackagesOpaqueToken verifies ListDatasourcePackages'
 // NextToken is an opaque base64 offset, not the raw next package-name key.
 // A prior audit flagged this list op (along with ListInvitations,

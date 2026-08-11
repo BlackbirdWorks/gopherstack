@@ -53,7 +53,7 @@ func (h *Handler) handleCreateMigrationProject(
 }
 
 type deleteMigrationProjectInput struct {
-	MigrationProjectArn *string `json:"MigrationProjectArn"`
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
 }
 
 type deleteMigrationProjectOutput struct {
@@ -63,7 +63,7 @@ type deleteMigrationProjectOutput struct {
 func (h *Handler) handleDeleteMigrationProject(
 	ctx context.Context, in *deleteMigrationProjectInput,
 ) (*deleteMigrationProjectOutput, error) {
-	nameOrArn := ptrconv.String(in.MigrationProjectArn)
+	nameOrArn := ptrconv.String(in.MigrationProjectIdentifier)
 
 	projects, _ := h.Backend.DescribeMigrationProjects(ctx)
 	var found *MigrationProject
@@ -120,8 +120,8 @@ func (h *Handler) handleDescribeMigrationProjects(
 }
 
 type modifyMigrationProjectInput struct {
-	MigrationProjectArn *string `json:"MigrationProjectArn"`
-	Description         *string `json:"Description"`
+	MigrationProjectIdentifier *string `json:"MigrationProjectIdentifier"`
+	Description                *string `json:"Description"`
 }
 
 type modifyMigrationProjectOutput struct {
@@ -133,7 +133,7 @@ func (h *Handler) handleModifyMigrationProject(
 ) (*modifyMigrationProjectOutput, error) {
 	mp, err := h.Backend.ModifyMigrationProject(
 		ctx,
-		ptrconv.String(in.MigrationProjectArn),
+		ptrconv.String(in.MigrationProjectIdentifier),
 		ptrconv.String(in.Description),
 	)
 	if err != nil {

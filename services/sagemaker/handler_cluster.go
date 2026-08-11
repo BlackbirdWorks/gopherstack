@@ -173,10 +173,16 @@ func fromClusterInstanceGroups(groups []ClusterInstanceGroup) []clusterInstanceG
 
 // createClusterRequest is the request body for CreateCluster.
 type createClusterRequest struct {
-	ClusterName    string                        `json:"ClusterName"`
-	NodeRecovery   string                        `json:"NodeRecovery,omitempty"`
-	InstanceGroups []clusterInstanceGroupRequest `json:"InstanceGroups"`
-	Tags           []tagObject                   `json:"Tags"`
+	VpcConfig            *VpcConfig                    `json:"VpcConfig,omitempty"`
+	AutoScaling          *ClusterAutoScalingConfig     `json:"AutoScaling,omitempty"`
+	Orchestrator         *ClusterOrchestrator          `json:"Orchestrator,omitempty"`
+	TieredStorageConfig  *ClusterTieredStorageConfig   `json:"TieredStorageConfig,omitempty"`
+	ClusterName          string                        `json:"ClusterName"`
+	NodeRecovery         string                        `json:"NodeRecovery,omitempty"`
+	ClusterRole          string                        `json:"ClusterRole,omitempty"`
+	NodeProvisioningMode string                        `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups       []clusterInstanceGroupRequest `json:"InstanceGroups"`
+	Tags                 []tagObject                   `json:"Tags"`
 }
 
 func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte, error) {
@@ -189,13 +195,18 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.CreateCluster(
-		ctx,
-		req.ClusterName,
-		toClusterInstanceGroups(req.InstanceGroups),
-		req.NodeRecovery,
-		fromTagObjects(req.Tags),
-	)
+	c, err := h.Backend.CreateCluster(ctx, CreateClusterOptions{
+		ClusterName:          req.ClusterName,
+		InstanceGroups:       toClusterInstanceGroups(req.InstanceGroups),
+		NodeRecovery:         req.NodeRecovery,
+		ClusterRole:          req.ClusterRole,
+		NodeProvisioningMode: req.NodeProvisioningMode,
+		VpcConfig:            req.VpcConfig,
+		AutoScaling:          req.AutoScaling,
+		Orchestrator:         req.Orchestrator,
+		TieredStorageConfig:  req.TieredStorageConfig,
+		Tags:                 fromTagObjects(req.Tags),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +215,20 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 		InfoContext(ctx, "sagemaker: created cluster", "name", c.ClusterName, "arn", c.ClusterArn)
 
 	return json.Marshal(map[string]string{keyClusterArn: c.ClusterArn})
+}
+
+// clusterAutoScalingStatusInService is the (only) status this emulator
+// reports for a configured autoscaler, mirroring instanceGroupStatusInService
+// since asynchronous autoscaler provisioning is not modeled.
+const clusterAutoScalingStatusInService = "InService"
+
+// clusterAutoScalingConfigResponse is the wire shape for DescribeClusterOutput.AutoScaling
+// (types.ClusterAutoScalingConfigOutput, types/types.go:4507, sagemaker@v1.263.2) — adds
+// the required Status field over the input-only ClusterAutoScalingConfig.
+type clusterAutoScalingConfigResponse struct {
+	Mode           string `json:"Mode"`
+	Status         string `json:"Status"`
+	AutoScalerType string `json:"AutoScalerType,omitempty"`
 }
 
 func (h *Handler) describeClusterResponse(c *Cluster) []byte {
@@ -217,6 +242,28 @@ func (h *Handler) describeClusterResponse(c *Cluster) []byte {
 
 	if c.NodeRecovery != "" {
 		resp["NodeRecovery"] = c.NodeRecovery
+	}
+	if c.ClusterRole != "" {
+		resp["ClusterRole"] = c.ClusterRole
+	}
+	if c.NodeProvisioningMode != "" {
+		resp["NodeProvisioningMode"] = c.NodeProvisioningMode
+	}
+	if c.VpcConfig != nil {
+		resp["VpcConfig"] = c.VpcConfig
+	}
+	if c.AutoScaling != nil {
+		resp["AutoScaling"] = clusterAutoScalingConfigResponse{
+			Mode:           c.AutoScaling.Mode,
+			Status:         clusterAutoScalingStatusInService,
+			AutoScalerType: c.AutoScaling.AutoScalerType,
+		}
+	}
+	if c.Orchestrator != nil {
+		resp["Orchestrator"] = c.Orchestrator
+	}
+	if c.TieredStorageConfig != nil {
+		resp["TieredStorageConfig"] = c.TieredStorageConfig
 	}
 
 	b, _ := json.Marshal(resp)
@@ -308,8 +355,12 @@ func (h *Handler) handleDeleteCluster(ctx context.Context, body []byte) ([]byte,
 
 // updateClusterRequest is the request body for UpdateCluster.
 type updateClusterRequest struct {
+	AutoScaling            *ClusterAutoScalingConfig     `json:"AutoScaling,omitempty"`
+	Orchestrator           *ClusterOrchestrator          `json:"Orchestrator,omitempty"`
+	TieredStorageConfig    *ClusterTieredStorageConfig   `json:"TieredStorageConfig,omitempty"`
 	ClusterName            string                        `json:"ClusterName"`
 	NodeRecovery           string                        `json:"NodeRecovery,omitempty"`
+	NodeProvisioningMode   string                        `json:"NodeProvisioningMode,omitempty"`
 	InstanceGroups         []clusterInstanceGroupRequest `json:"InstanceGroups"`
 	InstanceGroupsToDelete []string                      `json:"InstanceGroupsToDelete"`
 }
@@ -324,13 +375,16 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte,
 		return nil, fmt.Errorf("%w: ClusterName is required", errInvalidRequest)
 	}
 
-	c, err := h.Backend.UpdateCluster(
-		ctx,
-		req.ClusterName,
-		toClusterInstanceGroups(req.InstanceGroups),
-		req.InstanceGroupsToDelete,
-		req.NodeRecovery,
-	)
+	c, err := h.Backend.UpdateCluster(ctx, UpdateClusterOptions{
+		NameOrArn:              req.ClusterName,
+		InstanceGroups:         toClusterInstanceGroups(req.InstanceGroups),
+		InstanceGroupsToDelete: req.InstanceGroupsToDelete,
+		NodeRecovery:           req.NodeRecovery,
+		NodeProvisioningMode:   req.NodeProvisioningMode,
+		AutoScaling:            req.AutoScaling,
+		Orchestrator:           req.Orchestrator,
+		TieredStorageConfig:    req.TieredStorageConfig,
+	})
 	if err != nil {
 		return nil, err
 	}

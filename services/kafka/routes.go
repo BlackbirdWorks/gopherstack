@@ -98,6 +98,10 @@ func parseClusterResourceV1(method, remainder string) (string, string) {
 		return op, id
 	}
 
+	if op, id := parseClusterResourceV1Channels(method, decoded); op != "" {
+		return op, id
+	}
+
 	if op, id := parseClusterResourceV1Config(method, decoded); op != "" {
 		return op, id
 	}
@@ -173,6 +177,48 @@ func parseClusterResourceV1Topics(method, decoded string) (string, string) {
 			return opBatchDisassociateScramSecret, arnStr
 		case http.MethodGet:
 			return opListScramSecrets, arnStr
+		}
+
+		return "", ""
+	}
+
+	return "", ""
+}
+
+// parseClusterResourceV1Channels handles the /channels and
+// /channels/{ChannelArn} sub-paths (MSK Channels, kafka v1.57). Both ARNs
+// arrive here already percent-decoded by parseClusterResourceV1's single
+// url.PathUnescape call, so splitting on the literal "/channels/" marker is
+// unambiguous, same as "/topics/" in parseClusterResourceV1Topics. Must run
+// before the generic Describe/DeleteCluster fallback.
+func parseClusterResourceV1Channels(method, decoded string) (string, string) {
+	// /channels/{ChannelArn}: DeleteChannel (DELETE), DescribeChannel (GET),
+	// UpdateChannel (PUT).
+	if idx := strings.Index(decoded, channelsSuffix+"/"); idx != -1 {
+		clusterArn := decoded[:idx]
+		channelArn := decoded[idx+len(channelsSuffix)+1:]
+
+		switch method {
+		case http.MethodDelete:
+			return opDeleteChannel, clusterArn + topicKeySeparator + channelArn
+		case http.MethodGet:
+			return opDescribeChannel, clusterArn + topicKeySeparator + channelArn
+		case http.MethodPut:
+			return opUpdateChannel, clusterArn + topicKeySeparator + channelArn
+		}
+
+		return "", ""
+	}
+
+	// /channels (no trailing channel ARN): CreateChannel (POST) or ListChannels (GET).
+	if strings.HasSuffix(decoded, channelsSuffix) {
+		arnStr := decoded[:len(decoded)-len(channelsSuffix)]
+
+		switch method {
+		case http.MethodPost:
+			return opCreateChannel, arnStr
+		case http.MethodGet:
+			return opListChannels, arnStr
 		}
 
 		return "", ""

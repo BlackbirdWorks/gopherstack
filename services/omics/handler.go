@@ -174,6 +174,9 @@ const (
 	keyImportJobs = "importJobs"
 	keyErrors     = "errors"
 	keyTags       = "tags"
+	keyArn        = "arn"
+	keyStatus     = "status"
+	keyUUID       = "uuid"
 )
 
 // Handler handles HealthOmics HTTP requests.
@@ -740,7 +743,11 @@ func errResp(code, message string) map[string]string {
 func readJSON(c *echo.Context, v any) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, errResp(errValidation, "invalid body"))
+		if jsonErr := c.JSON(http.StatusBadRequest, errResp(errValidation, "invalid body")); jsonErr != nil {
+			return jsonErr
+		}
+
+		return err
 	}
 
 	if len(body) == 0 {
@@ -748,7 +755,11 @@ func readJSON(c *echo.Context, v any) error {
 	}
 
 	if jsonErr := json.Unmarshal(body, v); jsonErr != nil {
-		return c.JSON(http.StatusBadRequest, errResp(errValidation, "invalid JSON"))
+		if writeErr := c.JSON(http.StatusBadRequest, errResp(errValidation, "invalid JSON")); writeErr != nil {
+			return writeErr
+		}
+
+		return jsonErr
 	}
 
 	return nil

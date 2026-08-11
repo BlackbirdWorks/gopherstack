@@ -2,6 +2,7 @@ package workspaces
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -37,8 +38,12 @@ type bundleComputeTypeResp struct {
 	Name string `json:"Name,omitempty"`
 }
 
+// bundleStorageResp.Capacity is a string on the wire (workspaces@v1.73.1
+// types.go: UserStorage.Capacity, RootStorage.Capacity are both *string),
+// not a number -- a real client's response deserialization fails outright
+// otherwise.
 type bundleStorageResp struct {
-	Capacity int32 `json:"Capacity,omitempty"`
+	Capacity string `json:"Capacity,omitempty"`
 }
 
 type bundleResp struct {
@@ -75,8 +80,8 @@ func (h *Handler) handleDescribeWorkspaceBundles(
 			Description: bun.Description,
 			ImageID:     bun.ImageID,
 			ComputeType: bundleComputeTypeResp{Name: bun.ComputeType.Name},
-			UserStorage: bundleStorageResp{Capacity: bun.UserStorage.Capacity},
-			RootStorage: bundleStorageResp{Capacity: bun.RootStorage.Capacity},
+			UserStorage: bundleStorageResp{Capacity: strconv.Itoa(int(bun.UserStorage.Capacity))},
+			RootStorage: bundleStorageResp{Capacity: strconv.Itoa(int(bun.RootStorage.Capacity))},
 		})
 	}
 
@@ -90,13 +95,13 @@ type createWorkspaceBundleInput struct {
 	ComputeType       struct {
 		Name string `json:"Name"`
 	} `json:"ComputeType"`
-	Tags        []tagItem `json:"Tags"`
 	UserStorage struct {
-		Capacity int32 `json:"Capacity"`
+		Capacity string `json:"Capacity"`
 	} `json:"UserStorage"`
 	RootStorage struct {
-		Capacity int32 `json:"Capacity"`
+		Capacity string `json:"Capacity"`
 	} `json:"RootStorage"`
+	Tags []tagItem `json:"Tags"`
 }
 
 type workspaceBundleResp struct {
@@ -109,10 +114,10 @@ type workspaceBundleResp struct {
 		Name string `json:"Name"`
 	} `json:"ComputeType"`
 	UserStorage struct {
-		Capacity int32 `json:"Capacity"`
+		Capacity string `json:"Capacity"`
 	} `json:"UserStorage"`
 	RootStorage struct {
-		Capacity int32 `json:"Capacity"`
+		Capacity string `json:"Capacity"`
 	} `json:"RootStorage"`
 }
 

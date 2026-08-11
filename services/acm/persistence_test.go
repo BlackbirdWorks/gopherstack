@@ -142,6 +142,44 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			// Proves DomainValidationOption.HttpRedirect (a new pointer
+			// field, see certificate_validation.go's HTTP case) round-trips
+			// through Snapshot/Restore, and that copyCert deep-copies it
+			// rather than sharing the pointer with the pre-snapshot cert.
+			name: "round_trip_preserves_http_validation",
+			setup: func(b *acm.InMemoryBackend) string {
+				cert, err := b.RequestCertificate(
+					context.Background(),
+					"http-validation.example.com",
+					"AMAZON_ISSUED",
+					"HTTP",
+					"",
+					"",
+					"",
+					"",
+					nil,
+				)
+				if err != nil {
+					return ""
+				}
+
+				return cert.ARN
+			},
+			verify: func(t *testing.T, b *acm.InMemoryBackend, id string) {
+				t.Helper()
+
+				cert, err := b.DescribeCertificate(context.Background(), id)
+				require.NoError(t, err)
+				assert.Equal(t, "PENDING_VALIDATION", cert.Status)
+				require.Len(t, cert.DomainValidationOptions, 1)
+				dvo := cert.DomainValidationOptions[0]
+				require.NotNil(t, dvo.HTTPRedirect)
+				assert.NotEmpty(t, dvo.HTTPRedirect.RedirectFrom)
+				assert.NotEmpty(t, dvo.HTTPRedirect.RedirectTo)
+				assert.Nil(t, dvo.ResourceRecord)
+			},
+		},
+		{
 			// Proves accountConfig and accountIdempotency (both non-*T
 			// value maps, left raw and persisted directly) survive the
 			// round trip: the configured DaysBeforeExpiry must read back

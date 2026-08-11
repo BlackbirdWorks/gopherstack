@@ -65,7 +65,10 @@ func computeNextRotationDate(secret *Secret) *float64 {
 }
 
 // RotateSecret creates a new version of the secret (rotation stub).
-func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretInput) (*RotateSecretOutput, error) {
+func (b *InMemoryBackend) RotateSecret(
+	ctx context.Context,
+	input *RotateSecretInput,
+) (*RotateSecretOutput, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("RotateSecret")
@@ -80,8 +83,31 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 		return nil, ErrSecretDeleted
 	}
 
+	// Real AWS requires a rotation strategy -- a Lambda ARN, either already
+	// stored on the secret or supplied on this request -- before it will
+	// enable/perform rotation; see ErrRotationStrategyRequired's doc comment.
+	// Checked before any mutation below so a rejected call leaves the secret
+	// untouched.
+	effectiveLambdaARN := secret.RotationLambdaARN
+	if input.RotationLambdaARN != "" {
+		effectiveLambdaARN = input.RotationLambdaARN
+	}
+	if effectiveLambdaARN == "" {
+		return nil, ErrRotationStrategyRequired
+	}
+
 	if input.RotationLambdaARN != "" {
 		secret.RotationLambdaARN = input.RotationLambdaARN
+	}
+
+	if input.ExternalSecretRotationRoleArn != "" {
+		secret.ExternalSecretRotationRoleArn = input.ExternalSecretRotationRoleArn
+	}
+
+	if input.ExternalSecretRotationMetadata != nil {
+		secret.ExternalSecretRotationMetadata = cloneExternalSecretRotationMetadata(
+			input.ExternalSecretRotationMetadata,
+		)
 	}
 
 	if input.RotationRules != nil {
@@ -114,7 +140,11 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 	// Promote immediately when no Lambda invoker is wired (stub/direct-backend usage).
 	// When a Lambda ARN is set AND a Lambda invoker is configured, the handler or
 	// scheduler will call FinishRotation after invoking the four rotation steps.
-	if input.RotationLambdaARN == "" || b.lambdaInvoker == nil {
+	// Checked against secret.RotationLambdaARN (set above from input, or already
+	// stored from a prior EnableRotation/RotateSecret call), not input.RotationLambdaARN
+	// directly -- callers normally configure the ARN once and omit it on every
+	// subsequent RotateSecret call.
+	if secret.RotationLambdaARN == "" || b.lambdaInvoker == nil {
 		b.finishRotationLocked(region, secret, versionID)
 	}
 
@@ -128,7 +158,11 @@ func (b *InMemoryBackend) RotateSecret(ctx context.Context, input *RotateSecretI
 // rotateSecretLocked creates a new secret version with the AWSPENDING staging label.
 // Callers MUST follow up with finishRotationLocked (to promote to AWSCURRENT) or
 // abortRotationLocked (to discard the pending version). Must be called with b.mu held.
-func (b *InMemoryBackend) rotateSecretLocked(ctx context.Context, secret *Secret, token string) (string, error) {
+func (b *InMemoryBackend) rotateSecretLocked(
+	ctx context.Context,
+	secret *Secret,
+	token string,
+) (string, error) {
 	currentVer := b.findVersion(secret, "", StagingLabelCurrent)
 	if currentVer == nil {
 		return "", ErrVersionNotFound
@@ -145,7 +179,13 @@ func (b *InMemoryBackend) rotateSecretLocked(ctx context.Context, secret *Secret
 	// promote the value.
 	if secret.RotationLambdaARN != "" {
 		newVer, err := b.sealVersion(
-			ctx, secret, versionID, uuid.New().String(), nil, []string{"AWSPENDING"}, UnixTimeFloat(b.now()),
+			ctx,
+			secret,
+			versionID,
+			uuid.New().String(),
+			nil,
+			[]string{"AWSPENDING"},
+			UnixTimeFloat(b.now()),
 		)
 		if err != nil {
 			return "", err
@@ -205,7 +245,10 @@ func (b *InMemoryBackend) abortRotationLocked(secret *Secret, versionID string) 
 // version, then removes that version without promoting it to AWSCURRENT.
 // Callers MUST follow up with AbortRotation (success or failure) to remove
 // the transient version.
-func (b *InMemoryBackend) BeginRotationTestProbe(ctx context.Context, secretID string) (string, error) {
+func (b *InMemoryBackend) BeginRotationTestProbe(
+	ctx context.Context,
+	secretID string,
+) (string, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.Lock("BeginRotationTestProbe")
@@ -267,7 +310,10 @@ func (b *InMemoryBackend) AbortRotation(ctx context.Context, secretID, versionID
 
 // runLambdaRotationSteps invokes the four Lambda rotation steps (createSecret,
 // setSecret, testSecret, finishSecret) for the given secret and version token.
-func (b *InMemoryBackend) runLambdaRotationSteps(ctx context.Context, lambdaARN, secretID, token string) error {
+func (b *InMemoryBackend) runLambdaRotationSteps(
+	ctx context.Context,
+	lambdaARN, secretID, token string,
+) error {
 	fnName := extractFunctionNameFromARN(lambdaARN)
 
 	for _, step := range rotationSteps {
@@ -282,6 +328,16 @@ func (b *InMemoryBackend) runLambdaRotationSteps(ctx context.Context, lambdaARN,
 	}
 
 	return nil
+}
+
+func cloneExternalSecretRotationMetadata(
+	items []ExternalSecretRotationMetadataItem,
+) []ExternalSecretRotationMetadataItem {
+	if items == nil {
+		return nil
+	}
+
+	return append([]ExternalSecretRotationMetadataItem(nil), items...)
 }
 
 func cloneRotationRules(rules *RotationRulesType) *RotationRulesType {
@@ -465,7 +521,12 @@ func (b *InMemoryBackend) scheduleRotationLocked(
 		return pendingRotation{}, false
 	}
 
-	return pendingRotation{region: region, secretID: id, versionID: versionID, lambdaARN: lambdaARN}, true
+	return pendingRotation{
+		region:    region,
+		secretID:  id,
+		versionID: versionID,
+		lambdaARN: lambdaARN,
+	}, true
 }
 
 // rotationDue reports whether a rotation should fire at `now` given the rotation rules and

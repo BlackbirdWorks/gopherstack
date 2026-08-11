@@ -45,6 +45,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	cluster := &DBCluster{
 		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
+		DBClusterArn:                 b.rdsARN("cluster", id),
 		DBClusterResourceID:          "cluster-" + id,
 		Engine:                       engine,
 		EngineVersion:                opts.EngineVersion,
@@ -411,6 +412,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(clusterID, snapshotID, en
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
+		DBClusterArn:                b.rdsARN("cluster", clusterID),
 		Engine:                      engine,
 		Status:                      instanceStatusAvailable,
 		DBClusterParameterGroupName: "default." + engine,
@@ -443,6 +445,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(clusterID, sourceCluster
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
 	cluster := &DBCluster{
 		DBClusterIdentifier:         clusterID,
+		DBClusterArn:                b.rdsARN("cluster", clusterID),
 		Engine:                      source.Engine,
 		Status:                      instanceStatusAvailable,
 		MasterUsername:              source.MasterUsername,
@@ -698,6 +701,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(id, engine, masterUsername, s3B
 	}
 	cluster := &DBCluster{
 		DBClusterIdentifier: id,
+		DBClusterArn:        b.rdsARN("cluster", id),
 		Engine:              engine,
 		MasterUsername:      masterUsername,
 		Status:              "creating",

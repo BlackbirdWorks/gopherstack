@@ -39,7 +39,7 @@ func TestFSx_FileCache(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 
-			body := map[string]any{"StorageCapacityGiB": tc.capacity}
+			body := map[string]any{"StorageCapacity": tc.capacity}
 			if tc.cacheType != "" {
 				body["FileCacheType"] = tc.cacheType
 			}
@@ -53,6 +53,7 @@ func TestFSx_FileCache(t *testing.T) {
 				c := out["FileCache"].(map[string]any)
 				assert.Contains(t, c["FileCacheId"].(string), "fc-")
 				assert.Equal(t, "AVAILABLE", c["Lifecycle"])
+				assert.InDelta(t, float64(tc.capacity), c["StorageCapacity"], 0.0001)
 			}
 		})
 	}
@@ -86,7 +87,7 @@ func TestFSx_FileCacheLifecycle(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
-		assert.InDelta(t, float64(2400), ur["FileCache"].(map[string]any)["StorageCapacityGiB"], 0.0001)
+		assert.InDelta(t, float64(2400), ur["FileCache"].(map[string]any)["StorageCapacity"], 0.0001)
 
 		// delete
 		rec3 := doFSxRequest(t, h, "DeleteFileCache", map[string]any{"FileCacheId": fcID})

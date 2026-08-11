@@ -16,8 +16,14 @@ func (b *InMemoryBackend) newCustomizationJobID() string {
 }
 
 // CreateModelCustomizationJob creates a new model customization job.
+// customModelName is the required name of the resulting output model
+// (bedrock@v1.66.4 CreateModelCustomizationJobRequest: "customModelName" is
+// required and distinct from jobName). It is validated and reserved now so
+// AdvanceCustomizationJobStatuses can materialize the output CustomModel
+// without discovering a name conflict after the job has already committed to
+// running.
 func (b *InMemoryBackend) CreateModelCustomizationJob(
-	jobName, baseModelID, customizationType string,
+	jobName, customModelName, baseModelID, customizationType string,
 	tags []Tag,
 ) (*ModelCustomizationJob, error) {
 	b.mu.Lock("CreateModelCustomizationJob")
@@ -27,21 +33,42 @@ func (b *InMemoryBackend) CreateModelCustomizationJob(
 		return nil, fmt.Errorf("%w: jobName is required", ErrValidation)
 	}
 
+	if customModelName == "" {
+		return nil, fmt.Errorf("%w: customModelName is required", ErrValidation)
+	}
+
 	if _, exists := b.customizationJobsByName[jobName]; exists {
 		return nil, fmt.Errorf("%w: customization job %s already exists", ErrAlreadyExists, jobName)
+	}
+
+	if _, exists := b.customModelsByName[customModelName]; exists {
+		return nil, fmt.Errorf("%w: custom model %s already exists", ErrAlreadyExists, customModelName)
+	}
+
+	for _, j := range b.modelCustomizationJobs.All() {
+		if j.CustomModelName == customModelName {
+			return nil, fmt.Errorf("%w: custom model %s already exists", ErrAlreadyExists, customModelName)
+		}
 	}
 
 	id := b.newCustomizationJobID()
 	jobARN := arn.Build("bedrock", b.region, b.accountID, "model-customization-job/"+id)
 	outputModelARN := arn.Build("bedrock", b.region, b.accountID, "custom-model/output-"+id)
-	baseModelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+baseModelID)
+	baseModelARN := foundationModelARN(b.region, baseModelID)
 	now := time.Now().UTC()
+
+	var baseModelName string
+	if fm := b.findFoundationModelByID(baseModelID); fm != nil {
+		baseModelName = fm.ModelName
+	}
 
 	job := &ModelCustomizationJob{
 		JobArn:            jobARN,
 		JobName:           jobName,
 		BaseModelArn:      baseModelARN,
+		BaseModelName:     baseModelName,
 		OutputModelArn:    outputModelARN,
+		CustomModelName:   customModelName,
 		Status:            statusInProgress,
 		CustomizationType: customizationType,
 		CreationTime:      now,
@@ -87,9 +114,15 @@ func (b *InMemoryBackend) GetModelCustomizationJob(idOrARN string) (*ModelCustom
 	return &cp, nil
 }
 
-// ListModelCustomizationJobs returns all customization jobs with optional pagination.
+// ListModelCustomizationJobs returns customization jobs matching in's filters,
+// sorted and paginated. in may be nil, matching an unfiltered call.
+// Structurally similar to ListEvaluationJobs/ListModelInvocationJobs (same
+// filter/sort/paginate shape) but over a distinct resource type and filter
+// set; see matchesCustomizationJobFilter.
+//
+//nolint:dupl // see doc comment above.
 func (b *InMemoryBackend) ListModelCustomizationJobs(
-	nextToken string,
+	in *ListModelCustomizationJobsInput,
 ) ([]*ModelCustomizationJob, string) {
 	b.mu.RLock("ListModelCustomizationJobs")
 	defer b.mu.RUnlock()
@@ -97,14 +130,52 @@ func (b *InMemoryBackend) ListModelCustomizationJobs(
 	list := make([]*ModelCustomizationJob, 0, b.modelCustomizationJobs.Len())
 
 	for _, j := range b.modelCustomizationJobs.All() {
+		if !matchesCustomizationJobFilter(j, in) {
+			continue
+		}
+
 		cp := *j
 		cp.Tags = copyTags(j.Tags)
 		list = append(list, &cp)
 	}
 
-	sort.Slice(list, func(i, j int) bool { return list[i].JobArn < list[j].JobArn })
+	descending := in != nil && in.SortOrder == sortOrderDescending
+	sort.Slice(list, func(i, j int) bool {
+		if descending {
+			return list[i].CreationTime.After(list[j].CreationTime)
+		}
 
-	return paginateBedrockSlice(list, nextToken)
+		return list[i].CreationTime.Before(list[j].CreationTime)
+	})
+
+	nextToken := ""
+	if in != nil {
+		list, nextToken = paginateBedrockSlice(list, in.NextToken)
+	}
+
+	return list, nextToken
+}
+
+// matchesCustomizationJobFilter reports whether a job satisfies the list
+// filters (statusEquals, nameContains, creationTimeAfter/Before).
+func matchesCustomizationJobFilter(j *ModelCustomizationJob, in *ListModelCustomizationJobsInput) bool {
+	if in == nil {
+		return true
+	}
+	if in.StatusEquals != "" && j.Status != in.StatusEquals {
+		return false
+	}
+	if in.NameContains != "" && !containsIgnoreCase(j.JobName, in.NameContains) {
+		return false
+	}
+	if in.CreationTimeAfter != nil && !j.CreationTime.After(*in.CreationTimeAfter) {
+		return false
+	}
+	if in.CreationTimeBefore != nil && !j.CreationTime.Before(*in.CreationTimeBefore) {
+		return false
+	}
+
+	return true
 }
 
 // StopModelCustomizationJob stops a running customization job.
@@ -141,9 +212,30 @@ func (b *InMemoryBackend) AdvanceCustomizationJobStatuses(minAge time.Duration) 
 			job.Status = statusCompleted
 			job.LastModifiedTime = now
 			job.EndTime = now
+			b.materializeCustomizationOutputModel(job, now)
 			advanced++
 		}
 	}
 
 	return advanced
+}
+
+// materializeCustomizationOutputModel creates the CustomModel record for a
+// job's output once it completes -- until now nothing ever populated
+// b.customModels for a job's OutputModelArn, so it was never listed or
+// gettable. Caller must hold the write lock.
+func (b *InMemoryBackend) materializeCustomizationOutputModel(job *ModelCustomizationJob, now time.Time) {
+	model := &CustomModel{
+		ModelArn:          job.OutputModelArn,
+		ModelName:         job.CustomModelName,
+		ModelStatus:       statusActive,
+		BaseModelArn:      job.BaseModelArn,
+		BaseModelName:     job.BaseModelName,
+		CustomizationType: job.CustomizationType,
+		JobArn:            job.JobArn,
+		JobName:           job.JobName,
+		CreationTime:      now,
+	}
+	b.customModels.Put(model)
+	b.customModelsByName[job.CustomModelName] = job.OutputModelArn
 }

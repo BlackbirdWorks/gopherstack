@@ -34,8 +34,9 @@ func (h *Handler) handleCreateEventSubscription(ctx context.Context, vals url.Va
 	sourceIDs := parseSourceIDMembers(vals)
 	eventCategories := parseEventCategoryMembers(vals)
 	enabled := parseBoolParam(vals, "Enabled")
+	tags := parseTags(vals)
 	sub, err := h.Backend.CreateEventSubscription(
-		ctx, name, snsTopicARN, sourceType, eventCategories, sourceIDs, enabled,
+		ctx, name, snsTopicARN, sourceType, eventCategories, sourceIDs, enabled, tags,
 	)
 	if err != nil {
 		return nil, err
@@ -303,8 +304,10 @@ type xmlEventCategoryMap struct {
 	EventCategories xmlEventCategoryList `xml:"EventCategories"`
 }
 
+// docdb@v1.51.4 deserializers.go:13826 wraps each entry in
+// <EventCategoriesMap>, not <EventCategoryMap>.
 type xmlEventCategoriesMapList struct {
-	Members []xmlEventCategoryMap `xml:"EventCategoryMap"`
+	Members []xmlEventCategoryMap `xml:"EventCategoriesMap"`
 }
 
 type describeEventCategoriesResult struct {

@@ -103,17 +103,10 @@ type StartAuditMitigationActionsTaskInput struct {
 // auditMitigationFindingIDs resolves the set of stored audit finding IDs that
 // a task target applies to. Must be called with b.mu held.
 //
-// Real AWS IoT's AuditMitigationActionsTaskTarget lets auditTaskId and
-// auditCheckToReasonCodeFilter be combined (e.g. "this audit's findings for
-// check X with reason code Y"), not just used interchangeably -- confirmed
-// against the target field docs in types.AuditMitigationActionsTaskTarget.
-// This previously matched on AuditTaskID alone whenever it was set (a
-// switch's first matching case wins), silently ignoring
-// AuditCheckToReasonCodeFilter even when both were populated, and matched
-// AuditCheckToReasonCodeFilter by check name only -- ignoring the actual
-// reason-code list, which real AWS filters on when non-empty (an empty list
-// for a check means "any reason code for that check"). Both are real,
-// previously-undiscovered target-resolution bugs; fixed here.
+// AuditTaskID and AuditCheckToReasonCodeFilter can be combined (findings for
+// this audit AND this check/reason-code), not just used interchangeably —
+// types.AuditMitigationActionsTaskTarget. An empty reason-code list for a
+// check means "any reason code for that check".
 func (b *InMemoryBackend) auditMitigationFindingIDs(target *AuditMitigationActionsTaskTarget) []string {
 	if target == nil {
 		return nil
@@ -332,7 +325,7 @@ type ViolationEventOccurrenceRange struct {
 
 // MitigationActionRef is the shape of a mitigation action as embedded in
 // DetectMitigationActionsTaskSummary.actionsDefinition (types.MitigationAction,
-// confirmed against v1.76.0) -- a narrower shape than
+// confirmed against v1.77.4) -- a narrower shape than
 // DescribeMitigationActionOutput's own top-level fields: just
 // id/name/roleArn/actionParams, with no arn, actionType, or timestamps.
 type MitigationActionRef struct {
@@ -345,17 +338,11 @@ type MitigationActionRef struct {
 // DetectMitigationTask represents a task started by StartDetectMitigationActionsTask.
 //
 // Actions is internal-only storage (json:"-"): real AWS's
-// DetectMitigationActionsTaskSummary (confirmed against v1.76.0) has no
-// "actions" field at all -- the wire field is "actionsDefinition", a list of
-// full MitigationAction objects, not action names. Wire-response builders
-// (handler_devicedefender.go's detectMitigationTaskSummaryWire) resolve
-// Actions to their MitigationActionRef shape via
-// [InMemoryBackend.MitigationActionRefs] rather than ever serializing this
-// struct directly. ViolationEventOccurrenceRange keeps a normal json tag
-// (unlike Actions) since it needs no such backend-lookup transformation --
-// it round-trips as-is, both to the HTTP response and through this table's
-// Snapshot/Restore (which marshals the struct directly; a json:"-" field
-// would silently be dropped across a snapshot/restore cycle).
+// DetectMitigationActionsTaskSummary (v1.77.4) has no "actions" field — the
+// wire field is "actionsDefinition", a list of full MitigationAction
+// objects. Wire builders resolve Actions via
+// [InMemoryBackend.MitigationActionRefs] instead of serializing this struct
+// directly.
 type DetectMitigationTask struct {
 	Target                        *DetectMitigationActionsTaskTarget `json:"target,omitempty"`
 	TaskStatistics                *DetectMitigationTaskStatistics    `json:"taskStatistics,omitempty"`
@@ -414,12 +401,9 @@ func (b *InMemoryBackend) MitigationActionRefs(names []string) []MitigationActio
 // DetectMitigationActionExecution represents one mitigation action applied
 // (or to be applied) to one violation as part of a DetectMitigationTask.
 //
-// ExecutionStartDate/ExecutionEndDate were field-diffed against
-// types.DetectMitigationActionExecution (awsRestjson1_deserializeDocumentDetectMitigationActionExecution
-// in v1.76.0) and found to be wire-keyed "executionStartTime"/
-// "executionEndTime" -- the real fields are "executionStartDate"/
-// "executionEndDate". A real client's deserializer would never have found
-// either key and left both fields permanently unset. Fixed.
+// Wire keys are "executionStartDate"/"executionEndDate", not
+// "executionStartTime"/"executionEndTime" — types.DetectMitigationActionExecution,
+// awsRestjson1_deserializeDocumentDetectMitigationActionExecution (v1.77.4).
 type DetectMitigationActionExecution struct {
 	TaskID             string  `json:"taskId"`
 	ViolationID        string  `json:"violationId"`
@@ -625,9 +609,7 @@ func (b *InMemoryBackend) ListDetectMitigationActionsExecutions(
 	return out
 }
 
-// ---------------------------------------------------------------------------
-// Device Defender Detect violations
-// ---------------------------------------------------------------------------
+// Device Defender Detect violations.
 
 // ViolationBehavior identifies the security-profile behavior that a violation
 // or violation event relates to.
@@ -645,23 +627,15 @@ type ViolationEventAdditionalInfo struct {
 // ActiveViolation represents a currently active Device Defender Detect
 // violation of a security-profile behavior by a thing.
 //
-// Field-diffed against types.ActiveViolation in v1.76.0: LastViolationTime
-// and ViolationEventAdditionalInfo were both entirely missing (only
-// ViolationStartTime was modeled, but real AWS distinguishes "when the
-// violation started" from "when the most recent violation occurred" -- the
-// latter updates on every subsequent detection of the same ongoing
-// violation); both now modeled.
-// Suppressed is internal-only (json:"-"): real AWS has no "suppressed" field
-// on ActiveViolation itself -- ListActiveViolationsInput's listSuppressedAlerts
-// filters on whether the *behavior* that raised the violation has
-// SuppressAlerts configured (a security-profile-level setting), which this
-// backend does not persist at all (CreateSecurityProfile doesn't store
-// Behaviors currently -- a separate, larger gap in the security_profiles
-// family, out of scope here). Modeling suppression as a directly-seedable
-// flag (mirroring AuditFinding.IsSuppressed's identical simplification
-// elsewhere in this same service) is what makes listSuppressedAlerts
-// filtering honestly implementable without first building out that
-// unrelated subsystem.
+// LastViolationTime tracks "most recent detection of this ongoing
+// violation", distinct from ViolationStartTime — both real per
+// types.ActiveViolation (v1.77.4).
+//
+// Suppressed is internal-only (json:"-"): real AWS has no such field on
+// ActiveViolation; listSuppressedAlerts really filters on the
+// security-profile behavior's SuppressAlerts setting, which this backend
+// doesn't persist. A directly-seedable flag (mirroring AuditFinding.IsSuppressed)
+// makes the filter honestly implementable without building out that subsystem.
 type ActiveViolation struct {
 	Behavior                     *ViolationBehavior            `json:"behavior,omitempty"`
 	LastViolationValue           map[string]any                `json:"lastViolationValue,omitempty"`
@@ -694,10 +668,6 @@ func cloneActiveViolation(v *ActiveViolation) *ActiveViolation {
 
 // ViolationEvent represents a historical occurrence of a Detect violation
 // starting, being cleared, or having its verification state changed.
-//
-// ViolationEventAdditionalInfo was field-diffed against
-// types.ViolationEvent and found missing; now modeled (same field as
-// ActiveViolation's, above).
 // Suppressed is internal-only (json:"-") for the same reason as
 // ActiveViolation's identically-named field above.
 type ViolationEvent struct {
@@ -862,21 +832,13 @@ func matchesWindow(t, startTime, endTime float64) bool {
 
 // ListActiveViolations returns currently active violations, optionally
 // filtered by thing name, security profile name, verification state,
-// suppression state, and/or behaviorCriteriaType. listSuppressedAlerts
-// mirrors ListAuditFindingsFilter.ListSuppressedFindings' tri-state
-// semantics (confirmed against the analogous, unambiguous
-// ListAuditFindingsInput doc: nil means both suppressed and unsuppressed
-// are returned, true/false narrows to one or the other) -- real
-// ListActiveViolationsInput's own doc for listSuppressedAlerts is less
-// explicit ("A list of all suppressed alerts"), but this is the only
-// self-consistent tri-state reading and matches the sibling audit-findings
-// filter's behavior in this same service. behaviorCriteriaType (empty
-// string means unfiltered) is resolved per violation via
-// securityProfileBehaviorCriteriaTypeLocked against the owning security
-// profile's now-persisted Behaviors (see security_profiles.go) -- this was
-// the previously-unimplementable filter blocked by security_profiles'
-// former Behaviors gap; a violation whose behavior can no longer be
-// resolved on its security profile never matches a non-empty filter value.
+// suppression state, and/or behaviorCriteriaType. listSuppressedAlerts is
+// tri-state (nil: both; true/false: one or the other), mirroring
+// ListAuditFindingsFilter.ListSuppressedFindings. behaviorCriteriaType is
+// resolved per violation via securityProfileBehaviorCriteriaTypeLocked
+// against the owning security profile's persisted Behaviors
+// (security_profiles.go); a violation whose behavior can't be resolved
+// never matches a non-empty filter value.
 func (b *InMemoryBackend) ListActiveViolations(
 	thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool, behaviorCriteriaType string,
 ) []*ActiveViolation {
@@ -965,18 +927,13 @@ func (b *InMemoryBackend) PutVerificationStateOnViolation(violationID, verificat
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Persistence helpers
-// ---------------------------------------------------------------------------
+// Persistence helpers.
 
-// deviceDefenderSnapshot bundles the Device Defender fields of backendSnapshot
-// so Snapshot/Restore can delegate to a single helper each, keeping their own
-// cyclomatic complexity low.
-// deviceDefenderSnapshot now only carries the raw (non-Table) Device Defender
-// fields. AuditMitigationTaskObjects, DetectMitigationTasks, and
-// ActiveViolations moved to store.Table[T]s registered on b.registry (see
-// store_setup.go) and round-trip via registry.SnapshotAll()/RestoreAll()
-// instead of through this bundle.
+// deviceDefenderSnapshot carries the raw (non-Table) Device Defender fields
+// so Snapshot/Restore can delegate to a single helper each. AuditMitigationTaskObjects,
+// DetectMitigationTasks, and ActiveViolations live in store.Table[T]s on
+// b.registry (store_setup.go) instead, round-tripping via
+// registry.SnapshotAll()/RestoreAll().
 type deviceDefenderSnapshot struct {
 	AuditMitigationExecutions  map[string][]*AuditMitigationActionExecution
 	DetectMitigationExecutions map[string][]*DetectMitigationActionExecution

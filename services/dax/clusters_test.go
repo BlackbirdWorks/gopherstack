@@ -557,6 +557,109 @@ func TestUpdateCluster(t *testing.T) {
 	}
 }
 
+// TestClusterOpsRequiredFieldErrorCode verifies that a missing required field on cluster ops
+// returns InvalidParameterValueException, not InvalidARNFault -- botocore's dax service-2.json
+// (2017-04-19) declares InvalidARNFault only for TagResource/UntagResource/ListTags, never for
+// these five cluster ops, all of which do declare InvalidParameterValueException.
+func TestClusterOpsRequiredFieldErrorCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		op   func(b *dax.InMemoryBackend) error
+		name string
+	}{
+		{
+			name: "CreateCluster missing IamRoleArn",
+			op: func(b *dax.InMemoryBackend) error {
+				in := validCreateInput("missing-role")
+				in.IamRoleArn = ""
+				_, err := b.CreateCluster(in)
+
+				return err
+			},
+		},
+		{
+			name: "UpdateCluster missing ClusterName",
+			op: func(b *dax.InMemoryBackend) error {
+				_, err := b.UpdateCluster(dax.UpdateClusterInput{})
+
+				return err
+			},
+		},
+		{
+			name: "DeleteCluster missing ClusterName",
+			op: func(b *dax.InMemoryBackend) error {
+				_, err := b.DeleteCluster("")
+
+				return err
+			},
+		},
+		{
+			name: "IncreaseReplicationFactor missing ClusterName",
+			op: func(b *dax.InMemoryBackend) error {
+				_, err := b.IncreaseReplicationFactor(dax.IncreaseReplicationFactorInput{NewReplicationFactor: 2})
+
+				return err
+			},
+		},
+		{
+			name: "DecreaseReplicationFactor missing ClusterName",
+			op: func(b *dax.InMemoryBackend) error {
+				_, err := b.DecreaseReplicationFactor(dax.DecreaseReplicationFactorInput{NewReplicationFactor: 1})
+
+				return err
+			},
+		},
+		{
+			name: "RebootNode missing ClusterName",
+			op: func(b *dax.InMemoryBackend) error {
+				_, err := b.RebootNode("", "node-0001")
+
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			b := newTestBackend()
+
+			err := tt.op(b)
+
+			require.Error(t, err)
+			require.ErrorIsf(t, err, dax.ErrInvalidParameterValue,
+				"want InvalidParameterValueException, got %v", err)
+			assert.NotErrorIsf(t, err, dax.ErrInvalidARN,
+				"InvalidARNFault is not a declared error for this operation, got %v", err)
+		})
+	}
+}
+
+// TestUpdateClusterRejectedRequestDoesNotMutateState verifies that a partially-invalid
+// UpdateCluster request (valid PreferredMaintenanceWindow, unknown ParameterGroupName) leaves
+// the cluster untouched -- AWS rejects the whole request atomically, not field-by-field.
+func TestUpdateClusterRejectedRequestDoesNotMutateState(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	_, err := b.CreateCluster(validCreateInput("atomic-update"))
+	require.NoError(t, err)
+
+	_, err = b.UpdateCluster(dax.UpdateClusterInput{
+		ClusterName:                "atomic-update",
+		PreferredMaintenanceWindow: "mon:01:00-mon:02:00",
+		SecurityGroupIDs:           []string{"sg-changed"},
+		ParameterGroupName:         "no-such-pg",
+	})
+	require.Error(t, err)
+
+	clusters, _, err := b.DescribeClusters([]string{"atomic-update"}, 0, "")
+	require.NoError(t, err)
+	require.Len(t, clusters, 1)
+	assert.NotEqual(t, "mon:01:00-mon:02:00", clusters[0].PreferredMaintenanceWindow)
+	assert.NotEqual(t, []string{"sg-changed"}, clusters[0].SecurityGroupIDs)
+}
+
 // ---- DeleteCluster ----
 
 func TestDeleteCluster(t *testing.T) {

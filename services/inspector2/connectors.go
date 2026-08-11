@@ -12,7 +12,7 @@ import (
 )
 
 // Real ConnectorCloudProvider/EnablementStatus/ConnectorHealthStatus/
-// ScopeState wire values (aws-sdk-go-v2/service/inspector2/types@v1.53.0
+// ScopeState wire values (aws-sdk-go-v2/service/inspector2/types@v1.54.1
 // enums.go), reproduced here as the subset this backend actually drives.
 const (
 	connectorProviderAzure = "AZURE"

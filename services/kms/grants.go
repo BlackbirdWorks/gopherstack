@@ -25,7 +25,7 @@ func isValidGrantOperation(op string) bool {
 }
 
 // validateGrantPrincipals enforces CreateGrant's principal-selection rules,
-// matching the real aws-sdk-go-v2/service/kms@v1.54.0 CreateGrantInput doc
+// matching the real aws-sdk-go-v2/service/kms@v1.55.4 CreateGrantInput doc
 // comments: exactly one of GranteePrincipal/GranteeServicePrincipal must be
 // set; RetiringPrincipal and RetiringServicePrincipal are mutually exclusive;
 // and specifying a GranteeServicePrincipal additionally requires a SourceArn

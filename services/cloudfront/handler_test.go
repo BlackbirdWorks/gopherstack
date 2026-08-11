@@ -25,7 +25,7 @@ func TestResponseHasCFIDHeader(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 				minimalDistConfig("ref-hdr", "test", true))
 			require.Equal(t, http.StatusCreated, rec.Code, tc.name)
@@ -62,7 +62,7 @@ func TestCFHandlerStringManipulations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			var body []byte
 			if strings.Contains(tt.path, "realtime-log-config") {
 				body = []byte(
@@ -81,7 +81,7 @@ func TestCFHandlerStringManipulations(t *testing.T) {
 func TestHandlerName(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	assert.Equal(t, "CloudFront", h.Name())
 	assert.Equal(t, "cloudfront", h.ChaosServiceName())
@@ -94,7 +94,7 @@ func TestHandlerName(t *testing.T) {
 func TestRouteMatcher(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	e := echo.New()
 
@@ -125,7 +125,7 @@ func TestRouteMatcher(t *testing.T) {
 func TestXMLResponseFormat(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	rec := doXML(t, h, http.MethodGet, "/2020-05-31/distribution", nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -141,7 +141,7 @@ func TestXMLResponseFormat(t *testing.T) {
 func TestHandlerReset(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 	b := h.Backend
 
 	_, err := b.CreateDistribution("ref-r1", "reset-dist", true, nil)

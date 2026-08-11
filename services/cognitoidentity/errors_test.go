@@ -1,4 +1,4 @@
-package cognitoidentity_test
+package cognitoidentity
 
 import (
 	"errors"
@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/blackbirdworks/gopherstack/services/cognitoidentity"
 )
 
 // errBoom is a static test-only sentinel standing in for an unmodeled/unexpected error
@@ -29,43 +27,43 @@ func TestResolveErrorType(t *testing.T) {
 	}{
 		{
 			name:       "resource_not_found",
-			err:        cognitoidentity.ErrIdentityPoolNotFound,
+			err:        ErrIdentityPoolNotFound,
 			wantType:   "ResourceNotFoundException",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "resource_conflict_pool_name",
-			err:        cognitoidentity.ErrIdentityPoolAlreadyExists,
+			err:        ErrIdentityPoolAlreadyExists,
 			wantType:   "ResourceConflictException",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_parameter",
-			err:        cognitoidentity.ErrInvalidParameter,
+			err:        ErrInvalidParameter,
 			wantType:   "InvalidParameterException",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "not_authorized_is_403",
-			err:        cognitoidentity.ErrNotAuthorized,
+			err:        ErrNotAuthorized,
 			wantType:   "NotAuthorizedException",
 			wantStatus: http.StatusForbidden,
 		},
 		{
 			name:       "resource_conflict_generic",
-			err:        cognitoidentity.ErrResourceConflict,
+			err:        ErrResourceConflict,
 			wantType:   "ResourceConflictException",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "developer_user_already_registered",
-			err:        cognitoidentity.ErrDeveloperUserAlreadyRegistered,
+			err:        ErrDeveloperUserAlreadyRegistered,
 			wantType:   "DeveloperUserAlreadyRegisteredException",
 			wantStatus: http.StatusBadRequest,
 		},
 		{
 			name:       "invalid_identity_pool_configuration",
-			err:        cognitoidentity.ErrInvalidIdentityPoolConfiguration,
+			err:        ErrInvalidIdentityPoolConfiguration,
 			wantType:   "InvalidIdentityPoolConfigurationException",
 			wantStatus: http.StatusBadRequest,
 		},
@@ -81,7 +79,7 @@ func TestResolveErrorType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotType, gotStatus := cognitoidentity.ResolveErrorType(tt.err)
+			gotType, gotStatus := resolveErrorType(tt.err)
 			assert.Equal(t, tt.wantType, gotType)
 			assert.Equal(t, tt.wantStatus, gotStatus)
 		})

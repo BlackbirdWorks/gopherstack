@@ -10,11 +10,6 @@ func ParseRateExpression(expr string) (time.Duration, error) {
 	return parseRateExpression(expr)
 }
 
-// ParseAtExpression exports parseAtExpression for testing.
-func ParseAtExpression(expr string, loc *time.Location) (time.Time, error) {
-	return parseAtExpression(expr, loc)
-}
-
 // CheckAndFireSchedules exports (r *Runner).checkAndFireSchedules for white-box testing
 // without running a full goroutine.
 func CheckAndFireSchedules(ctx context.Context, r *Runner, now time.Time) {
@@ -58,18 +53,4 @@ func CronCacheLen(r *Runner) int {
 	defer r.cacheMu.RUnlock()
 
 	return len(r.cronCache)
-}
-
-// LocCacheLen returns the number of entries in the runner's locCache map.
-// Intended for use in unit tests to verify cache eviction.
-func LocCacheLen(r *Runner) int {
-	r.cacheMu.RLock()
-	defer r.cacheMu.RUnlock()
-
-	return len(r.locCache)
-}
-
-// IdempotencyCacheLen returns the number of entries in the handler's idempotency cache.
-func IdempotencyCacheLen(h *Handler) int {
-	return h.idempotency.Len()
 }

@@ -1,14 +1,14 @@
 ---
 service: managedblockchain
-sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.31.19
-last_audit_commit: efd78e54
-last_audit_date: 2026-07-24
+sdk_module: aws-sdk-go-v2/service/managedblockchain@v1.34.4
+last_audit_commit: d08692ef
+last_audit_date: 2026-08-10
 overall: A
 ops:
   CreateNetwork: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "FrameworkConfiguration.Fabric.Edition, VpcEndpointServiceName, Framework restricted to HYPERLEDGER_FABRIC; see Notes"}
   GetNetwork: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric + VpcEndpointServiceName"}
   ListNetworks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented via pkgs/page; see Notes"}
-  CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword now required and validated, KmsKeyArn accepted; see Notes"}
+  CreateMember: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "InvitationId now required and validated against a real PENDING invitation for this network, consumed (ACCEPTED) on success; MemberConfiguration.FrameworkConfiguration.Fabric.AdminUsername/AdminPassword required and validated, KmsKeyArn accepted; see Notes"}
   GetMember: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now returns FrameworkAttributes.Fabric.AdminUsername/CaEndpoint + KmsKeyArn"}
   ListMembers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   DeleteMember: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades to member's nodes, matching real AWS"}
@@ -41,9 +41,9 @@ families:
   accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
 gaps:
-  - "CreateMember ignores req.InvitationId -- every CreateMember call succeeds as if the caller already owns the network (IsOwned: true always), whereas real AWS requires a live invitation for cross-account members. gopherstack has no multi-account model, so this is a reasonable simplification, not flagged as a bug to fix."
+  - "Member.IsOwned is always true, even for a member created via CreateMember (i.e. joining via invitation, which in real AWS is not owned by the joining account's original network-owner relationship). gopherstack has no multi-account model to distinguish an owned member from an invited one, so this is a reasonable simplification, not flagged as a bug to fix (gopherstack-u84u re-reviewed this alongside InvitationId; InvitationId itself is now real, see Notes #8)."
   - "No artificial service quotas (max members per network, max nodes per member, max networks per account) are enforced, so ResourceLimitExceededException is never returned. Consistent with this emulator's general no-limits style elsewhere; not treated as a bug."
-  - "Network.FrameworkAttributes.Ethereum and Node.FrameworkAttributes.Ethereum are not modeled: CreateNetwork's real API documents itself as \"Applies only to Hyperledger Fabric\" (new networks can no longer be created on Ethereum), and gopherstack rejects a non-Fabric Framework at CreateNetwork accordingly (ErrUnsupportedNetworkFramework). Real AWS's Ethereum surface is reached only via CreateNode against a pre-existing public network (e.g. NetworkId \"n-ethereum-mainnet\"), which gopherstack does not pre-seed. Deferred: pre-seeding a public Ethereum network is a bigger design question (what does an emulated public network with no owning account even mean?) than a wire-shape fix, and CreateNode's actual routed behavior (member-owned Fabric nodes) is unaffected."
+  - "Network.FrameworkAttributes.Ethereum and Node.FrameworkAttributes.Ethereum are not modeled. gopherstack-u84u answered the design question this was deferred under: real AWS's CreateNode documents exactly one well-known public Ethereum NetworkId, \"n-ethereum-mainnet\" (aws-sdk-go-v2 managedblockchain api_op_CreateNode.go:44-47 and api_op_DeleteNode.go:36, v1.34.4 -- confirmed NOT invented; older SDKs additionally listed now-sunset n-ethereum-goerli/n-ethereum-rinkeby testnets, absent from this pin), with FrameworkAttributes.Ethereum.ChainId documented as \"1\" for mainnet (types/types.go:538-547's NetworkEthereumAttributes). ListNetworks/GetNetwork both self-document \"Applies to Hyperledger Fabric and Ethereum\", so real AWS does surface this network through both once an account has a node on it. Seeding the network itself would therefore be honest (a real, stable constant, not invented). Still deferred: CreateNode's real MemberId is documented \"Applies only to Hyperledger Fabric\" (api_op_CreateNode.go:56-58) -- Ethereum nodes have no owning member -- but gopherstack's Node storage is keyed by (networkID, memberID, nodeID) (nodeKey in store_setup.go) and CreateNode already requires MemberId unconditionally (ErrMissingNodeMemberID) for its one supported framework. Making CreateNode against Ethereum reachable needs a memberless Node storage path, not just a seeded network row -- a real structural change, not an adjacent fix."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend.mu is the single coarse lockmetrics.RWMutex guarding every map/store.Table, consistent with pkgs-catalog.md's locking rule. The new paginate() helper (pagination.go) and buildNetworkFrameworkAttributes/buildMemberFrameworkAttributes/CreateNode's FrameworkAttributes synthesis are all pure functions operating on already-locked state or post-lock snapshots -- no new lock paths introduced."}
 ---
@@ -115,6 +115,21 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
    `SetQuery("maxResults")`/`SetQuery("nextToken")` bindings, identical across all seven ops.
    `defaultListPageSize` (100) matches `services/acmpca`'s `defaultMaxItems` convention since real
    AWS does not document a specific default for this service.
+
+8. **`CreateMember` parsed `InvitationId` off the request body and never read it again**
+   (gopherstack-u84u). Real AWS's client-side validator marks it required
+   (`validateOpCreateMemberInput`, `validators.go:805-806`, v1.34.4) and never sends a
+   request without it; `Invitation.Status`'s doc comment (`types/enums.go:106-122`)
+   documents `PENDING`→`ACCEPTED` as the one-time transition a successful `CreateMember`
+   drives. gopherstack now requires it (`InvalidRequestException` if empty,
+   `ErrMissingInvitationID`), looks it up (`ResourceNotFoundException` if unknown,
+   reusing `ErrInvitationNotFound`), rejects one issued for a different network or not
+   `PENDING` (`InvalidRequestException`, new `ErrInvitationNetworkMismatch`/
+   `ErrInvitationNotPending`), and marks it `ACCEPTED` on success so it cannot be
+   replayed. `Member.IsOwned` staying unconditionally `true` is unchanged and still a
+   reasonable simplification (see gaps) -- gopherstack has no multi-account model to
+   distinguish an owned member from an invited one, but the invitation itself is now a
+   real, consumed resource rather than an ignored field.
 
 **The prior pass's node-routing-URI fix** (nodes live at `/networks/{id}/nodes[/{id}]` with
 `MemberId` carried via JSON body / `memberId` query parameter, never nested under `/members/`)

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
 import Route53Page from "./+page.svelte";
+import { ALL_REGIONS, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -116,5 +117,33 @@ describe("Route 53 Page", () => {
     mockSend.mockResolvedValue({ HostedZones: [], IsTruncated: false });
     render(Route53Page);
     expect(screen.getByPlaceholderText("Search hosted zones...")).toBeInTheDocument();
+  });
+
+  // Route 53 is a global service (its backend hardcodes Region() to
+  // us-east-1 regardless of which region a client was built for), so unlike
+  // regional services it must NOT fan ListHostedZones out across regions --
+  // doing so would issue duplicate identical calls and render every zone
+  // once per region. It shows a "global" chip instead.
+  describe("global service handling", () => {
+    it("tags every zone row with a global chip, not a region", async () => {
+      mockSend.mockResolvedValue({
+        HostedZones: [
+          { Id: "/hostedzone/Z123", Name: "example.com.", Config: { PrivateZone: false } },
+        ],
+        IsTruncated: false,
+      });
+      render(Route53Page);
+      await waitFor(() => expect(screen.getByText("example.com.")).toBeInTheDocument());
+      const chip = screen.getByTestId("region-chip");
+      expect(chip.textContent).toBe("global");
+    });
+
+    it("issues exactly one ListHostedZones call in All regions mode, not one per region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      mockSend.mockResolvedValue({ HostedZones: [], IsTruncated: false });
+      render(Route53Page);
+      await waitFor(() => expect(screen.getByText("No hosted zones found")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
   });
 });

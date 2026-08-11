@@ -305,6 +305,128 @@ func TestEngine_ExecuteSQLUpdatesCount(t *testing.T) {
 	assert.Equal(t, int64(1), results[0].NumberOfRecordsUpdated)
 }
 
+// TestEngine_ExecuteSQL_ResultFrame verifies the deprecated ExecuteSql path
+// populates resultFrame with real row data for a query, using the same
+// engine row-extraction ExecuteStatement uses, and leaves resultFrame nil
+// for DML while still reporting numberOfRecordsUpdated.
+func TestEngine_ExecuteSQL_ResultFrame(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		sql   string
+		setup []string
+	}{
+		{
+			name: "select_mixed_types_with_null",
+			setup: []string{
+				"CREATE TABLE widgets (id INTEGER, name TEXT, price REAL, note TEXT)",
+				"INSERT INTO widgets (id, name, price, note) VALUES (1, 'a', 1.5, NULL)",
+				"INSERT INTO widgets (id, name, price, note) VALUES (2, 'b', 2.5, 'ok')",
+			},
+			sql: "SELECT id, name, price, note FROM widgets ORDER BY id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newEngineBackend()
+			ctx := context.Background()
+
+			for _, stmt := range tt.setup {
+				_, err := b.ExecuteSQL(ctx, engineARN, stmt)
+				require.NoError(t, err)
+			}
+
+			results, err := b.ExecuteSQL(ctx, engineARN, tt.sql)
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+
+			frame := results[0].ResultFrame
+			require.NotNil(t, frame)
+			require.NotNil(t, frame.ResultSetMetadata)
+			assert.Equal(t, int64(4), frame.ResultSetMetadata.ColumnCount)
+			require.Len(t, frame.ResultSetMetadata.ColumnMetadata, 4)
+
+			require.Len(t, frame.Records, 2)
+
+			row0 := frame.Records[0].Values
+			require.Len(t, row0, 4)
+			require.NotNil(t, row0[0].BigIntValue)
+			assert.Equal(t, int64(1), *row0[0].BigIntValue)
+			require.NotNil(t, row0[1].StringValue)
+			assert.Equal(t, "a", *row0[1].StringValue)
+			require.NotNil(t, row0[2].DoubleValue)
+			assert.InEpsilon(t, 1.5, *row0[2].DoubleValue, 0.0001)
+			require.NotNil(t, row0[3].IsNull)
+			assert.True(t, *row0[3].IsNull)
+
+			row1 := frame.Records[1].Values
+			require.Len(t, row1, 4)
+			require.NotNil(t, row1[0].BigIntValue)
+			assert.Equal(t, int64(2), *row1[0].BigIntValue)
+			require.NotNil(t, row1[3].StringValue)
+			assert.Equal(t, "ok", *row1[3].StringValue)
+		})
+	}
+}
+
+// TestEngine_ExecuteSQL_ResultFrameNilForDML verifies DML statements report
+// numberOfRecordsUpdated with no resultFrame, matching real AWS (which only
+// populates resultFrame for statements that return rows).
+func TestEngine_ExecuteSQL_ResultFrameNilForDML(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		sql         string
+		setup       []string
+		wantUpdated int64
+	}{
+		{
+			name: "insert",
+			setup: []string{
+				"CREATE TABLE counters (id INTEGER)",
+			},
+			sql:         "INSERT INTO counters (id) VALUES (1)",
+			wantUpdated: 1,
+		},
+		{
+			name: "update",
+			setup: []string{
+				"CREATE TABLE counters (id INTEGER)",
+				"INSERT INTO counters (id) VALUES (1)",
+				"INSERT INTO counters (id) VALUES (2)",
+			},
+			sql:         "UPDATE counters SET id = id + 10",
+			wantUpdated: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newEngineBackend()
+			ctx := context.Background()
+
+			for _, stmt := range tt.setup {
+				_, err := b.ExecuteSQL(ctx, engineARN, stmt)
+				require.NoError(t, err)
+			}
+
+			results, err := b.ExecuteSQL(ctx, engineARN, tt.sql)
+			require.NoError(t, err)
+			require.Len(t, results, 1)
+
+			assert.Equal(t, tt.wantUpdated, results[0].NumberOfRecordsUpdated)
+			assert.Nil(t, results[0].ResultFrame)
+		})
+	}
+}
+
 // TestEngine_GeneratedFields_RowIDAlias verifies that an INSERT into a table
 // with a single INTEGER PRIMARY KEY column (SQLite's rowid alias) surfaces
 // the assigned id as GeneratedFields, matching real AWS's auto-increment

@@ -12,9 +12,9 @@ import (
 
 func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags      map[string]string `json:"Tags"`
-		DomainID  string            `json:"DomainId"`
-		SpaceName string            `json:"SpaceName"`
+		DomainID  string      `json:"DomainId"`
+		SpaceName string      `json:"SpaceName"`
+		Tags      []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -29,7 +29,7 @@ func (h *Handler) handleCreateSpace(ctx context.Context, body []byte) ([]byte, e
 		return nil, fmt.Errorf("%w: SpaceName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateSpace(ctx, req.DomainID, req.SpaceName, req.Tags)
+	result, err := h.Backend.CreateSpace(ctx, req.DomainID, req.SpaceName, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}

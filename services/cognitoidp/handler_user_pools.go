@@ -159,6 +159,10 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 		return nil, err
 	}
 
+	if len(in.UserPoolTags) > 0 {
+		h.Backend.TagResource(pool.ARN, in.UserPoolTags)
+	}
+
 	return &createUserPoolWithOptsOutput{UserPool: poolToAccurateData(pool)}, nil
 }
 

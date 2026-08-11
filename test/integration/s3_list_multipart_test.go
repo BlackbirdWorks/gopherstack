@@ -50,10 +50,13 @@ func TestIntegration_S3_ListMultipartUploads(t *testing.T) {
 				require.NotEmpty(t, aws.ToString(create2.UploadId))
 
 				t.Cleanup(func() {
-					_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 						Bucket: aws.String(bkt), Key: aws.String("key1"), UploadId: create1.UploadId,
 					})
-					_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+					_, _ = client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 						Bucket: aws.String(bkt), Key: aws.String("key2"), UploadId: create2.UploadId,
 					})
 				})
@@ -119,8 +122,11 @@ func TestIntegration_S3_ListMultipartUploads(t *testing.T) {
 				}
 
 				t.Cleanup(func() {
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
 					for i, k := range keys {
-						_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+						_, _ = client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 							Bucket:   aws.String(bkt),
 							Key:      aws.String(k),
 							UploadId: aws.String(uploadIDs[i]),
@@ -223,7 +229,10 @@ func TestIntegration_S3_ListParts(t *testing.T) {
 				uploadID := c.UploadId
 
 				t.Cleanup(func() {
-					_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 						Bucket: aws.String(bkt), Key: aws.String(key), UploadId: uploadID,
 					})
 				})
@@ -297,7 +306,10 @@ func TestIntegration_S3_ListParts(t *testing.T) {
 				require.NoError(t, err)
 
 				t.Cleanup(func() {
-					_, _ = client.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.AbortMultipartUpload(cleanupCtx, &s3.AbortMultipartUploadInput{
 						Bucket: aws.String(bkt), Key: aws.String("empty-parts"), UploadId: c.UploadId,
 					})
 				})

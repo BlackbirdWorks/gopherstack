@@ -16,8 +16,10 @@ type StorageBackend interface {
 	ListApplications(ctx context.Context, nextToken string) ([]*Application, string)
 	UpdateApplication(ctx context.Context, params UpdateApplicationParams) (*Application, string, error)
 	DeleteApplication(ctx context.Context, name string, createTimestampSeconds *float64) error
-	StartApplication(ctx context.Context, name string, runConfig *RunConfigInput) (string, error)
-	StopApplication(ctx context.Context, name string) (string, error)
+	StartApplication(
+		ctx context.Context, name string, runConfig *RunConfigInput, sqlRunConfigs []SQLRunConfigInput,
+	) (string, error)
+	StopApplication(ctx context.Context, name string, force bool) (string, error)
 
 	CreateApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)
 	DescribeApplicationSnapshot(ctx context.Context, appName, snapshotName string) (*Snapshot, error)

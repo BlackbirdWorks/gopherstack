@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import {
 		GetFunctionCommand,
 		UpdateFunctionConfigurationCommand,
@@ -30,7 +32,7 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { Play, Trash2, RefreshCw, X } from 'lucide-svelte';
 
-	const lambda = getLambdaClient();
+	const lambda = regionalClient(getLambdaClient);
 
 	let loading = $state(false);
 	let errorMessage = $state('');
@@ -79,7 +81,7 @@
 		loading = true;
 		errorMessage = '';
 		try {
-			response = await lambda.send(new GetFunctionCommand({ FunctionName: functionName }));
+			response = await lambda().send(new GetFunctionCommand({ FunctionName: functionName }));
 			const vars = response.Configuration?.Environment?.Variables ?? {};
 			envVars = Object.entries(vars).map(([key, value]) => ({ key, value }));
 		} catch (err) {
@@ -93,7 +95,7 @@
 	async function loadESMs(): Promise<void> {
 		loadingEsms = true;
 		try {
-			const res = await lambda.send(new ListEventSourceMappingsCommand({ FunctionName: functionName }));
+			const res = await lambda().send(new ListEventSourceMappingsCommand({ FunctionName: functionName }));
 			esms = res.EventSourceMappings ?? [];
 		} catch {
 			esms = [];
@@ -104,7 +106,7 @@
 
 	async function loadVersions(): Promise<void> {
 		try {
-			const res = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: functionName }));
+			const res = await lambda().send(new ListVersionsByFunctionCommand({ FunctionName: functionName }));
 			versions = res.Versions ?? [];
 		} catch {
 			versions = [];
@@ -113,7 +115,7 @@
 
 	async function loadAliases(): Promise<void> {
 		try {
-			const res = await lambda.send(new ListAliasesCommand({ FunctionName: functionName }));
+			const res = await lambda().send(new ListAliasesCommand({ FunctionName: functionName }));
 			aliases = res.Aliases ?? [];
 		} catch {
 			aliases = [];
@@ -124,7 +126,7 @@
 		if (!newAliasName.trim()) { toast.error('Alias name is required'); return; }
 		creatingAlias = true;
 		try {
-			await lambda.send(new CreateAliasCommand({
+			await lambda().send(new CreateAliasCommand({
 				FunctionName: functionName,
 				Name: newAliasName.trim(),
 				FunctionVersion: newAliasVersion || '$LATEST',
@@ -143,7 +145,7 @@
 
 	async function deleteAlias(aliasName: string): Promise<void> {
 		try {
-			await lambda.send(new DeleteAliasCommand({ FunctionName: functionName, Name: aliasName }));
+			await lambda().send(new DeleteAliasCommand({ FunctionName: functionName, Name: aliasName }));
 			toast.success(`Alias "${aliasName}" deleted`);
 			await loadAliases();
 		} catch (err) {
@@ -154,7 +156,7 @@
 	async function loadFunctionURL(): Promise<void> {
 		loadingURL = true;
 		try {
-			const res = await lambda.send(new GetFunctionUrlConfigCommand({ FunctionName: functionName }));
+			const res = await lambda().send(new GetFunctionUrlConfigCommand({ FunctionName: functionName }));
 			functionURL = res;
 		} catch {
 			functionURL = null;
@@ -170,7 +172,7 @@
 			for (const { key, value } of envVars) {
 				if (key.trim()) variables[key.trim()] = value;
 			}
-			await lambda.send(new UpdateFunctionConfigurationCommand({
+			await lambda().send(new UpdateFunctionConfigurationCommand({
 				FunctionName: functionName,
 				Environment: { Variables: variables },
 			}));
@@ -186,7 +188,7 @@
 		if (!newEsmArn.trim()) { toast.error('EventSourceARN is required'); return; }
 		addingEsm = true;
 		try {
-			await lambda.send(new CreateEventSourceMappingCommand({
+			await lambda().send(new CreateEventSourceMappingCommand({
 				FunctionName: functionName,
 				EventSourceArn: newEsmArn.trim(),
 				BatchSize: newEsmBatchSize,
@@ -205,7 +207,7 @@
 
 	async function deleteESM(uuid: string): Promise<void> {
 		try {
-			await lambda.send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
+			await lambda().send(new DeleteEventSourceMappingCommand({ UUID: uuid }));
 			toast.success('ESM deleted');
 			await loadESMs();
 		} catch (err) {
@@ -216,7 +218,7 @@
 	async function publishVersion(): Promise<void> {
 		publishingVersion = true;
 		try {
-			await lambda.send(new PublishVersionCommand({ FunctionName: functionName, Description: versionDescription }));
+			await lambda().send(new PublishVersionCommand({ FunctionName: functionName, Description: versionDescription }));
 			toast.success('Version published');
 			versionDescription = '';
 			await loadVersions();
@@ -229,7 +231,7 @@
 
 	async function createFunctionURL(): Promise<void> {
 		try {
-			await lambda.send(new CreateFunctionUrlConfigCommand({ FunctionName: functionName, AuthType: 'NONE' }));
+			await lambda().send(new CreateFunctionUrlConfigCommand({ FunctionName: functionName, AuthType: 'NONE' }));
 			toast.success('Function URL created');
 			await loadFunctionURL();
 		} catch (err) {
@@ -239,7 +241,7 @@
 
 	async function deleteFunctionURL(): Promise<void> {
 		try {
-			await lambda.send(new DeleteFunctionUrlConfigCommand({ FunctionName: functionName }));
+			await lambda().send(new DeleteFunctionUrlConfigCommand({ FunctionName: functionName }));
 			toast.success('Function URL deleted');
 			functionURL = null;
 		} catch (err) {
@@ -252,7 +254,7 @@
 		invokeResponse = null;
 		try {
 			const payload = new TextEncoder().encode(invokePayload);
-			const res = await lambda.send(new InvokeCommand({
+			const res = await lambda().send(new InvokeCommand({
 				FunctionName: functionName,
 				InvocationType: invokeType,
 				LogType: 'Tail',
@@ -274,7 +276,7 @@
 	async function deleteFunction(): Promise<void> {
 		if (!await confirmDestructive({ title: 'Delete Function', message: `Delete function "${functionName}"? This action cannot be undone.` })) return;
 		try {
-			await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
+			await lambda().send(new DeleteFunctionCommand({ FunctionName: functionName }));
 			toast.success(`Function "${functionName}" deleted`);
 			await goto('/dashboard/lambda');
 		} catch (err) {
@@ -301,7 +303,7 @@
 		}
 	}
 
-	onMount(() => {
+	onRegionChange(() => {
 		void loadFunction();
 		void loadESMs();
 		void loadVersions();
@@ -348,7 +350,10 @@
 		{:else if errorMessage}
 			<p class="text-red-600 dark:text-red-400">{errorMessage}</p>
 		{:else if response?.Configuration}
-			<h2 class="text-2xl font-bold text-slate-900 dark:text-white">{response.Configuration.FunctionName}</h2>
+			<div class="flex items-center gap-2">
+				<h2 class="text-2xl font-bold text-slate-900 dark:text-white">{response.Configuration.FunctionName}</h2>
+				<RegionChip region={currentRegion()} />
+			</div>
 			{#if response.Configuration.Description}
 				<p class="text-sm text-slate-500 dark:text-slate-400 italic">{response.Configuration.Description}</p>
 			{/if}

@@ -24,6 +24,7 @@ type StorageBackend interface {
 	RegisterFilteredProvider(p FilteredResourceProvider)
 	RegisterARNTagger(t ARNTagger)
 	RegisterARNUntagger(u ARNUntagger)
+	RegisterTagPolicyProvider(p TagPolicyProvider)
 
 	// Lifecycle
 	Reset()

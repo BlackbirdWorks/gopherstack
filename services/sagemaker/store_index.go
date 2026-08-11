@@ -239,3 +239,63 @@ func (b *InMemoryBackend) transformJobARNIndexStoreRO(r string) map[string]strin
 
 	return make(map[string]string)
 }
+
+func (b *InMemoryBackend) modelPackageGroupARNIndexStore(r string) map[string]string {
+	if b.modelPackageGroupARNIndex[r] == nil {
+		b.modelPackageGroupARNIndex[r] = make(map[string]string)
+	}
+
+	return b.modelPackageGroupARNIndex[r]
+}
+
+// modelPackageGroupARNIndexStoreRO returns the region-scoped modelPackageGroupARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) modelPackageGroupARNIndexStoreRO(r string) map[string]string {
+	if v := b.modelPackageGroupARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
+func (b *InMemoryBackend) workteamARNIndexStore(r string) map[string]string {
+	if b.workteamARNIndex[r] == nil {
+		b.workteamARNIndex[r] = make(map[string]string)
+	}
+
+	return b.workteamARNIndex[r]
+}
+
+// workteamARNIndexStoreRO returns the region-scoped workteamARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) workteamARNIndexStoreRO(r string) map[string]string {
+	if v := b.workteamARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}
+
+func (b *InMemoryBackend) workforceARNIndexStore(r string) map[string]string {
+	if b.workforceARNIndex[r] == nil {
+		b.workforceARNIndex[r] = make(map[string]string)
+	}
+
+	return b.workforceARNIndex[r]
+}
+
+// workforceARNIndexStoreRO returns the region-scoped workforceARNIndex table for r without mutating
+// the outer map. Safe to call while holding only b.mu.RLock(): if the region
+// has not been observed yet, it returns a fresh, unregistered, empty view
+// instead of lazily creating (and persisting) an entry.
+func (b *InMemoryBackend) workforceARNIndexStoreRO(r string) map[string]string {
+	if v := b.workforceARNIndex[r]; v != nil {
+		return v
+	}
+
+	return make(map[string]string)
+}

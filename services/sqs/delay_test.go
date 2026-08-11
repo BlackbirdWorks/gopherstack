@@ -3,6 +3,7 @@ package sqs_test
 import (
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -40,33 +41,35 @@ func TestDelayQueue_MessageLevelDelay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := sqs.NewInMemoryBackend()
-			t.Cleanup(b.Close)
-			qURL := createTestQueue(t, b, "delay-msg-"+tt.name)
+			synctest.Test(t, func(t *testing.T) {
+				b := sqs.NewInMemoryBackend()
+				t.Cleanup(b.Close)
+				qURL := createTestQueue(t, b, "delay-msg-"+tt.name)
 
-			_, err := b.SendMessage(&sqs.SendMessageInput{
-				QueueURL:     qURL,
-				MessageBody:  "delayed-body",
-				DelaySeconds: tt.delaySeconds,
+				_, err := b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:     qURL,
+					MessageBody:  "delayed-body",
+					DelaySeconds: tt.delaySeconds,
+				})
+				require.NoError(t, err)
+
+				if tt.waitBefore > 0 {
+					time.Sleep(tt.waitBefore)
+				}
+
+				out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            qURL,
+					MaxNumberOfMessages: 1,
+				})
+				require.NoError(t, err)
+
+				if tt.wantVisible {
+					require.Len(t, out.Messages, 1)
+					assert.Equal(t, "delayed-body", out.Messages[0].Body)
+				} else {
+					assert.Empty(t, out.Messages, "message should still be delayed")
+				}
 			})
-			require.NoError(t, err)
-
-			if tt.waitBefore > 0 {
-				time.Sleep(tt.waitBefore)
-			}
-
-			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-				QueueURL:            qURL,
-				MaxNumberOfMessages: 1,
-			})
-			require.NoError(t, err)
-
-			if tt.wantVisible {
-				require.Len(t, out.Messages, 1)
-				assert.Equal(t, "delayed-body", out.Messages[0].Body)
-			} else {
-				assert.Empty(t, out.Messages, "message should still be delayed")
-			}
 		})
 	}
 }
@@ -115,42 +118,44 @@ func TestDelayQueue_QueueLevelDelay(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := sqs.NewInMemoryBackend()
-			t.Cleanup(b.Close)
+			synctest.Test(t, func(t *testing.T) {
+				b := sqs.NewInMemoryBackend()
+				t.Cleanup(b.Close)
 
-			out, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "delay-q-" + tt.name,
-				Endpoint:  testEndpoint,
-				Attributes: map[string]string{
-					"DelaySeconds": tt.queueDelay,
-				},
+				out, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "delay-q-" + tt.name,
+					Endpoint:  testEndpoint,
+					Attributes: map[string]string{
+						"DelaySeconds": tt.queueDelay,
+					},
+				})
+				require.NoError(t, err)
+
+				qURL := out.QueueURL
+
+				_, err = b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:     qURL,
+					MessageBody:  "body",
+					DelaySeconds: tt.msgDelaySeconds,
+				})
+				require.NoError(t, err)
+
+				if tt.waitBefore > 0 {
+					time.Sleep(tt.waitBefore)
+				}
+
+				recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            qURL,
+					MaxNumberOfMessages: 1,
+				})
+				require.NoError(t, err)
+
+				if tt.wantVisible {
+					require.Len(t, recv.Messages, 1, "message should be visible after delay")
+				} else {
+					assert.Empty(t, recv.Messages, "message should still be hidden by delay")
+				}
 			})
-			require.NoError(t, err)
-
-			qURL := out.QueueURL
-
-			_, err = b.SendMessage(&sqs.SendMessageInput{
-				QueueURL:     qURL,
-				MessageBody:  "body",
-				DelaySeconds: tt.msgDelaySeconds,
-			})
-			require.NoError(t, err)
-
-			if tt.waitBefore > 0 {
-				time.Sleep(tt.waitBefore)
-			}
-
-			recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-				QueueURL:            qURL,
-				MaxNumberOfMessages: 1,
-			})
-			require.NoError(t, err)
-
-			if tt.wantVisible {
-				require.Len(t, recv.Messages, 1, "message should be visible after delay")
-			} else {
-				assert.Empty(t, recv.Messages, "message should still be hidden by delay")
-			}
 		})
 	}
 }

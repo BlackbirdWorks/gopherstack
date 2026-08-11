@@ -20,6 +20,7 @@ type redshiftIdcAppXML struct {
 	IdcInstanceArn     string `xml:"IdcInstanceArn,omitempty"`
 	IdcDisplayName     string `xml:"IdcDisplayName,omitempty"`
 	IamRoleArn         string `xml:"IamRoleArn,omitempty"`
+	ApplicationType    string `xml:"ApplicationType,omitempty"`
 }
 
 func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
@@ -29,6 +30,7 @@ func idcAppToXML(app *IdcApplication) redshiftIdcAppXML {
 		IdcInstanceArn:     app.IdcInstanceArn,
 		IdcDisplayName:     app.IdcDisplayName,
 		IamRoleArn:         app.IamRoleArn,
+		ApplicationType:    app.ApplicationType,
 	}
 }
 
@@ -53,6 +55,7 @@ func (h *Handler) handleCreateIdcApplication(vals url.Values) (any, error) {
 		vals.Get("IdcInstanceArn"),
 		vals.Get("IdcDisplayName"),
 		vals.Get("IamRoleArn"),
+		vals.Get("ApplicationType"),
 	)
 	if err != nil {
 		return nil, err

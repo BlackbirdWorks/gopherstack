@@ -14,20 +14,17 @@ import (
 // Routing Information, 1 op), and P (Attachment Routing Policy labels, 3
 // ops) -- 20 ops total.
 //
-// Policy lifecycle scope decision (loudly documented, matching PARITY.md's
-// own framing): CoreNetworkPolicyHistory tracks the real LIVE-vs-LATEST
+// Policy lifecycle: CoreNetworkPolicyHistory tracks the real LIVE-vs-LATEST
 // alias split, the full PolicyVersionId history, ChangeSetState's real
 // transitions, and the "can't delete the current LIVE policy" invariant --
-// all genuine state-machine bookkeeping over caller-supplied JSON. What
-// this backend does NOT do is compute GetCoreNetworkChangeSet's real
-// ADD/MODIFY/REMOVE diff between the LIVE and submitted policy JSON (that
-// requires parsing segments/network-function-groups/attachment-policies
-// sections and diffing them -- real, buildable work, but meaningfully more
-// than the state-machine CRUD shell around it). GetCoreNetworkChangeSet and
-// GetCoreNetworkChangeEvents both return an honest empty list rather than a
-// fabricated plausible-looking diff -- see PARITY.md's "Missing simulated
-// functionality" section, which explicitly sanctions this as a scoped-down
-// first pass provided it is flagged, not silently presented as a full diff.
+// all genuine state-machine bookkeeping over caller-supplied JSON.
+// GetCoreNetworkChangeSet/GetCoreNetworkChangeEvents compute a real
+// ADD/MODIFY/REMOVE structural diff over the policy JSON's
+// segments/network-function-groups/segment-actions/attachment-policies/
+// core-network-configuration sections (corenetworkpolicydiff.go) --
+// document-level, not correlated against live attachment membership, a
+// documented scope reduction from the SDK's full 14-value ChangeType
+// granularity, but never a fabricated plausible-looking diff.
 
 // ---- Core Network ----
 
@@ -377,29 +374,71 @@ func (b *InMemoryBackend) RestoreCoreNetworkPolicyVersion(
 }
 
 // GetCoreNetworkChangeSet validates coreNetworkID/policyVersionID and
-// returns an honest empty diff -- see this file's doc comment.
-func (b *InMemoryBackend) GetCoreNetworkChangeSet(coreNetworkID string, policyVersionID int32) error {
+// returns the real structural diff between the LIVE policy and
+// policyVersionID's own document -- see corenetworkpolicydiff.go.
+func (b *InMemoryBackend) GetCoreNetworkChangeSet(
+	coreNetworkID string, policyVersionID int32,
+) ([]CoreNetworkChange, error) {
 	b.mu.RLock("GetCoreNetworkChangeSet")
 	defer b.mu.RUnlock()
 
-	h, ok := b.policyHistories.Get(coreNetworkID)
-	if !ok {
-		return notFoundError(resourceCoreNetwork, coreNetworkID)
+	h, v, err := b.resolvePolicyHistoryAndVersionLocked(coreNetworkID, policyVersionID)
+	if err != nil {
+		return nil, err
 	}
 
-	if _, versionOK := h.Versions[policyVersionID]; !versionOK {
-		return notFoundError(resourcePolicyVersion, coreNetworkID)
+	var liveDoc string
+	if live, ok := h.Versions[h.LiveID]; ok {
+		liveDoc = live.PolicyDocument
 	}
 
-	return nil
+	return diffCoreNetworkPolicy(liveDoc, v.PolicyDocument), nil
 }
 
 // GetCoreNetworkChangeEvents validates coreNetworkID/policyVersionID and
-// returns an honest empty event list, consistent with GetCoreNetworkChangeSet
-// returning an empty diff (no execution-progress events exist for a diff
-// this backend never computed).
-func (b *InMemoryBackend) GetCoreNetworkChangeEvents(coreNetworkID string, policyVersionID int32) error {
-	return b.GetCoreNetworkChangeSet(coreNetworkID, policyVersionID)
+// derives per-change EXECUTION progress from the same diff
+// GetCoreNetworkChangeSet computes, plus policyVersionID's own
+// ChangeSetState -- see corenetworkpolicydiff.go's changesToEvents doc
+// comment for the coarseness this implies (one status per changeset, not
+// per IdentifierPath).
+func (b *InMemoryBackend) GetCoreNetworkChangeEvents(
+	coreNetworkID string, policyVersionID int32,
+) ([]CoreNetworkChangeEvent, error) {
+	b.mu.RLock("GetCoreNetworkChangeEvents")
+	defer b.mu.RUnlock()
+
+	h, v, err := b.resolvePolicyHistoryAndVersionLocked(coreNetworkID, policyVersionID)
+	if err != nil {
+		return nil, err
+	}
+
+	var liveDoc string
+	if live, ok := h.Versions[h.LiveID]; ok {
+		liveDoc = live.PolicyDocument
+	}
+
+	changes := diffCoreNetworkPolicy(liveDoc, v.PolicyDocument)
+
+	return changesToEvents(changes, v.ChangeSetState), nil
+}
+
+// resolvePolicyHistoryAndVersionLocked looks up coreNetworkID's policy
+// history and policyVersionID within it. Callers must hold b.mu (read lock
+// suffices).
+func (b *InMemoryBackend) resolvePolicyHistoryAndVersionLocked(
+	coreNetworkID string, policyVersionID int32,
+) (*CoreNetworkPolicyHistory, *CoreNetworkPolicyVersion, error) {
+	h, ok := b.policyHistories.Get(coreNetworkID)
+	if !ok {
+		return nil, nil, notFoundError(resourceCoreNetwork, coreNetworkID)
+	}
+
+	v, ok := h.Versions[policyVersionID]
+	if !ok {
+		return nil, nil, notFoundError(resourcePolicyVersion, coreNetworkID)
+	}
+
+	return h, v, nil
 }
 
 func (b *InMemoryBackend) ExecuteCoreNetworkChangeSet(coreNetworkID string, policyVersionID int32) error {

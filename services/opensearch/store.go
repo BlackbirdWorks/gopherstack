@@ -28,6 +28,7 @@ type InMemoryBackend struct {
 	vpcEndpoints               *store.Table[VpcEndpoint]
 	applications               *store.Table[Application]
 	applicationsByName         *store.Index[Application]
+	applicationsByARN          *store.Index[Application]
 	packages                   *store.Table[Package]
 	scheduledActions           map[string][]*ScheduledAction
 	packageAssociations        map[string]map[string]bool

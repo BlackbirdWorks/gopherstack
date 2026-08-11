@@ -40,6 +40,7 @@ type InputDescription struct {
 	InputProcessingConfigurationDescription *InputProcessingConfigurationDesc `json:"InputProcessingConfigurationDescription,omitempty"` //nolint:lll // AWS API name
 	KinesisStreamsInputDescription          *KinesisStreamsInputDesc          `json:"KinesisStreamsInputDescription,omitempty"`          //nolint:lll // AWS API name
 	KinesisFirehoseInputDescription         *KinesisFirehoseInputDesc         `json:"KinesisFirehoseInputDescription,omitempty"`         //nolint:lll // AWS API name
+	InputStartingPositionConfiguration      *InputStartingPositionConfig      `json:"InputStartingPositionConfiguration,omitempty"`      //nolint:lll // AWS API name
 	InputID                                 string                            `json:"InputId"`
 	NamePrefix                              string                            `json:"NamePrefix,omitempty"`
 }
@@ -193,6 +194,114 @@ type RunConfigDesc struct {
 	FlinkRunConfigurationDescription           *FlinkRunConfig           `json:"FlinkRunConfigurationDescription,omitempty"`           //nolint:lll // AWS API name
 }
 
+// InputStartingPositionConfig describes the point at which a SQL-based
+// application starts reading from an input's streaming source
+// (StartApplication's RunConfiguration.SqlRunConfigurations and the
+// response-side InputDescription.InputStartingPositionConfiguration use the
+// identical shape -- botocore kinesisanalyticsv2/2018-05-23/service-2.json.gz
+// shape "InputStartingPositionConfiguration").
+type InputStartingPositionConfig struct {
+	InputStartingPosition string `json:"InputStartingPosition,omitempty"`
+}
+
+// SQLRunConfigInput carries one entry of StartApplication's
+// RunConfiguration.SqlRunConfigurations -- the per-input starting position
+// for a SQL-based application. Real AWS's RunConfigurationUpdate (used by
+// UpdateApplication) has no such field: verified against botocore
+// kinesisanalyticsv2/2018-05-23/service-2.json.gz, shape
+// "RunConfigurationUpdate" only has FlinkRunConfiguration/
+// ApplicationRestoreConfiguration.
+type SQLRunConfigInput struct {
+	InputStartingPositionConfiguration *InputStartingPositionConfig `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	InputID                            string                       `json:"InputId"`
+}
+
+// ZeppelinMonitoringConfigDesc describes CloudWatch logging verbosity for a
+// Managed Service for Apache Flink Studio notebook (shared shape for both
+// the create request and the describe response -- real AWS's
+// ZeppelinMonitoringConfiguration and ZeppelinMonitoringConfigurationDescription
+// both use the field name "LogLevel").
+type ZeppelinMonitoringConfigDesc struct {
+	LogLevel string `json:"LogLevel"`
+}
+
+// GlueDataCatalogConfigDesc identifies the Glue Data Catalog database used by
+// a Studio notebook (shared shape, same rationale as ZeppelinMonitoringConfigDesc).
+type GlueDataCatalogConfigDesc struct {
+	DatabaseARN string `json:"DatabaseARN"`
+}
+
+// CatalogConfigDesc wraps GlueDataCatalogConfigDesc for CreateApplication's
+// inline ApplicationConfiguration.ZeppelinApplicationConfiguration.CatalogConfiguration.
+type CatalogConfigDesc struct {
+	GlueDataCatalogConfiguration *GlueDataCatalogConfigDesc `json:"GlueDataCatalogConfiguration,omitempty"`
+}
+
+// CatalogConfigDescription wraps GlueDataCatalogConfigDesc for
+// DescribeApplication's ...ZeppelinApplicationConfigurationDescription.CatalogConfigurationDescription.
+type CatalogConfigDescription struct {
+	GlueDataCatalogConfigurationDescription *GlueDataCatalogConfigDesc `json:"GlueDataCatalogConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+}
+
+// S3ContentBaseLocationDesc describes an S3 base location (bucket + optional
+// path prefix), shared by DeployAsApplicationConfiguration's request and
+// response fields -- real AWS's S3ContentBaseLocation and
+// S3ContentBaseLocationDescription both use BucketARN/BasePath.
+type S3ContentBaseLocationDesc struct {
+	BucketARN string `json:"BucketARN"`
+	BasePath  string `json:"BasePath,omitempty"`
+}
+
+// DeployAsApplicationConfigDesc wraps the S3 location a Studio notebook
+// deploys as a durable-state application, for CreateApplication's inline
+// ZeppelinApplicationConfiguration.DeployAsApplicationConfiguration.
+type DeployAsApplicationConfigDesc struct {
+	S3ContentLocation *S3ContentBaseLocationDesc `json:"S3ContentLocation,omitempty"`
+}
+
+// DeployAsApplicationConfigDescription is the DescribeApplication-side
+// counterpart to DeployAsApplicationConfigDesc.
+type DeployAsApplicationConfigDescription struct {
+	S3ContentLocationDescription *S3ContentBaseLocationDesc `json:"S3ContentLocationDescription,omitempty"` //nolint:lll // AWS API name
+}
+
+// MavenReferenceDesc identifies a Maven dependency JAR (shared shape for
+// request and response -- real AWS's MavenReference uses GroupId/ArtifactId/
+// Version on both CustomArtifactConfiguration and
+// CustomArtifactConfigurationDescription).
+type MavenReferenceDesc struct {
+	GroupID    string `json:"GroupId"`
+	ArtifactID string `json:"ArtifactId"`
+	Version    string `json:"Version"`
+}
+
+// CustomArtifactConfigDescription describes one dependency JAR or UDF JAR
+// (S3-hosted or Maven-hosted, per ArtifactType) attached to a Studio
+// notebook. Real AWS reuses this same item shape (renamed
+// CustomArtifactConfiguration on create) wholesale for
+// UpdateApplication's CustomArtifactsConfigurationUpdate -- there is no
+// separate per-item update shape (verified: botocore's
+// "CustomArtifactConfigurationUpdate" shape does not exist).
+type CustomArtifactConfigDescription struct {
+	S3ContentLocationDescription *S3CodeLocationDesc `json:"S3ContentLocationDescription,omitempty"` //nolint:lll // AWS API name
+	MavenReferenceDescription    *MavenReferenceDesc `json:"MavenReferenceDescription,omitempty"`    //nolint:lll // AWS API name
+	ArtifactType                 string              `json:"ArtifactType"`
+}
+
+// ZeppelinApplicationConfigDescription mirrors real AWS's
+// ZeppelinApplicationConfigurationDescription -- the Managed Service for
+// Apache Flink Studio notebook configuration (Glue Data Catalog, Maven/S3
+// custom artifacts, deploy-as-application) echoed by DescribeApplication.
+// Stored directly on Application and reused as the response wire shape
+// (matches the FlinkApplicationConfigDesc/ApplicationCodeConfigDesc
+// convention elsewhere in this file).
+type ZeppelinApplicationConfigDescription struct {
+	MonitoringConfigurationDescription          *ZeppelinMonitoringConfigDesc         `json:"MonitoringConfigurationDescription"`                    //nolint:lll // AWS API name
+	CatalogConfigurationDescription             *CatalogConfigDescription             `json:"CatalogConfigurationDescription,omitempty"`             //nolint:lll // AWS API name
+	DeployAsApplicationConfigurationDescription *DeployAsApplicationConfigDescription `json:"DeployAsApplicationConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	CustomArtifactsConfigurationDescription     []CustomArtifactConfigDescription     `json:"CustomArtifactsConfigurationDescription,omitempty"`     //nolint:lll // AWS API name
+}
+
 const (
 	// ApplicationStatusReady indicates a running application that is ready.
 	ApplicationStatusReady = "READY"
@@ -226,11 +335,22 @@ type ApplicationVersionSummary struct {
 	ApplicationVersionID int64  `json:"ApplicationVersionId"`
 }
 
+// RecordColumnDesc describes one column mapped from a streaming source's
+// sampled records (SourceSchema.RecordColumns is a required member of the
+// real DiscoverInputSchemaResponse.InputSchema -- botocore
+// kinesisanalyticsv2/2018-05-23/service-2.json.gz shape "RecordColumn").
+type RecordColumnDesc struct {
+	Name    string `json:"Name"`
+	Mapping string `json:"Mapping,omitempty"`
+	SQLType string `json:"SqlType"`
+}
+
 // DiscoveredSchema holds the inferred schema from DiscoverInputSchema.
 type DiscoveredSchema struct {
-	RecordFormat       string     `json:"RecordFormat"`
-	RecordEncoding     string     `json:"RecordEncoding,omitempty"`
-	ParsedInputRecords [][]string `json:"ParsedInputRecords,omitempty"`
+	RecordFormat       string             `json:"RecordFormat"`
+	RecordEncoding     string             `json:"RecordEncoding,omitempty"`
+	RecordColumns      []RecordColumnDesc `json:"RecordColumns"`
+	ParsedInputRecords [][]string         `json:"ParsedInputRecords,omitempty"`
 }
 
 // Tag represents a key-value tag pair.
@@ -246,6 +366,7 @@ type Application struct {
 	ApplicationVersionCreateTimestamp time.Time `json:"-"`
 	RunConfig                         *RunConfigDesc
 	EncryptionConfig                  *ApplicationEncryptionConfigDesc
+	ZeppelinConfig                    *ZeppelinApplicationConfigDescription
 	RollbackEnabled                   *bool
 	SnapshotsEnabled                  *bool
 	FlinkConfig                       *FlinkApplicationConfigDesc

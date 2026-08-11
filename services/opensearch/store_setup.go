@@ -45,6 +45,7 @@ func vpcEndpointKeyFn(v *VpcEndpoint) string { return v.VpcEndpointID }
 
 func applicationKeyFn(v *Application) string     { return v.ID }
 func applicationNameKeyFn(v *Application) string { return v.Name }
+func applicationARNKeyFn(v *Application) string  { return v.ARN }
 
 func packageKeyFn(v *Package) string { return v.PackageID }
 
@@ -171,6 +172,7 @@ var tableRegistrations = []func(*InMemoryBackend){
 	func(b *InMemoryBackend) {
 		b.applications = store.Register(b.registry, "applications", store.New(applicationKeyFn))
 		b.applicationsByName = b.applications.AddIndex("byName", applicationNameKeyFn)
+		b.applicationsByARN = b.applications.AddIndex("byARN", applicationARNKeyFn)
 	},
 	func(b *InMemoryBackend) {
 		b.packages = store.Register(b.registry, "packages", store.New(packageKeyFn))

@@ -66,16 +66,29 @@ func (h *Handler) handleListStoredQueries(
 
 // PutStoredQuery request/response types and handler.
 type putStoredQueryBody struct {
-	QueryName string `json:"QueryName"`
+	QueryName   string `json:"QueryName"`
+	Description string `json:"Description,omitempty"`
+	Expression  string `json:"Expression,omitempty"`
 }
 type putStoredQueryInput struct {
 	StoredQuery putStoredQueryBody `json:"StoredQuery"`
+	Tags        []Tag              `json:"Tags,omitempty"`
+}
+type putStoredQueryOutput struct {
+	QueryArn string `json:"QueryArn,omitempty"`
 }
 
 func (h *Handler) handlePutStoredQuery(
 	_ context.Context, in *putStoredQueryInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutStoredQuery(in.StoredQuery.QueryName)
+) (*putStoredQueryOutput, error) {
+	arn, err := h.Backend.PutStoredQuery(
+		in.StoredQuery.QueryName, in.StoredQuery.Description, in.StoredQuery.Expression, in.Tags,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putStoredQueryOutput{QueryArn: arn}, nil
 }
 
 // buildStoredQueryDispatch returns dispatch entries for stored query ops.

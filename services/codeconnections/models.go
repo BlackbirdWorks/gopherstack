@@ -27,12 +27,27 @@ func validSyncTypes() map[string]bool {
 	}
 }
 
+// validEnabledDisabled is the {"", "ENABLED", "DISABLED"} value set shared by
+// PublishDeploymentStatus and PullRequestComment (aws-sdk-go-v2/service/
+// codeconnections@v1.13.4 types/enums.go:91-95/110-114); "" means the field
+// was left unset on the request. Neither field is required on
+// CreateSyncConfigurationInput/UpdateSyncConfigurationInput.
+func validEnabledDisabled() map[string]bool {
+	return map[string]bool{"": true, "ENABLED": true, "DISABLED": true}
+}
+
+// validTriggerResourceUpdateOn is the value set for TriggerResourceUpdateOn
+// (types/enums.go:194-198); "" means the field was left unset.
+func validTriggerResourceUpdateOn() map[string]bool {
+	return map[string]bool{"": true, "ANY_CHANGE": true, "FILE_CHANGE": true}
+}
+
 // Connection represents an AWS CodeConnections connection.
 //
 // ConnectionArn already embeds its own region (arn:partition:service:region:
 // account:resource, see regionFromARN), so Connection needs no hidden region
 // field: store_setup.go's connections table is keyed directly by
-// ConnectionArn and its byRegion/byName indexes derive region from the ARN.
+// ConnectionArn and its byRegion index derives region from the ARN.
 type Connection struct {
 	Tags           map[string]string `json:"tags,omitempty"`
 	CreatedAt      time.Time         `json:"createdAt"`
@@ -98,7 +113,7 @@ type SyncConfiguration struct {
 	// PullRequestComment mirrors the real SyncConfiguration/
 	// CreateSyncConfigurationInput/UpdateSyncConfigurationInput
 	// PullRequestComment member (aws-sdk-go-v2/service/codeconnections@
-	// v1.10.22 types.PullRequestComment, ENABLED|DISABLED) -- present in this
+	// v1.13.4 types.PullRequestComment, ENABLED|DISABLED) -- present in this
 	// service's pinned SDK but previously never implemented here.
 	PullRequestComment string `json:"pullRequestComment,omitempty"`
 	// region is the store.Table composite-key qualifier: ResourceName+SyncType
@@ -131,7 +146,7 @@ type SyncEvent struct {
 
 // Revision mirrors AWS CodeConnections' Revision type: the state of an AWS
 // resource as declared by its linked repository at a specific commit (real
-// aws-sdk-go-v2/service/codeconnections@v1.10.22 types.Revision -- Branch/
+// aws-sdk-go-v2/service/codeconnections@v1.13.4 types.Revision -- Branch/
 // Directory/OwnerId/ProviderType/RepositoryName/Sha are all required wire
 // members).
 type Revision struct {

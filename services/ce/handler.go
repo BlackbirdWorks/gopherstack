@@ -243,10 +243,20 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 		})
 
 		return c.JSONBlob(http.StatusBadRequest, payload)
+	// "ValidationError" is CE's documented CommonErrors type for malformed/
+	// missing-required-member requests (see ErrValidation above) -- it is not
+	// tied to any one operation's model, so it fits here too.
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
+		payload, _ := json.Marshal(service.JSONErrorResponse{
+			Type:    "ValidationError",
+			Message: err.Error(),
+		})
+
+		return c.JSONBlob(http.StatusBadRequest, payload)
 	default:
+		// costexplorer@v1.67.4's types/errors.go declares no internal-server/
+		// generic-server exception at all -- left untyped rather than inventing one.
 		return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 	}
 }

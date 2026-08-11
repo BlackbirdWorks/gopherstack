@@ -57,7 +57,7 @@ type s3ConfigOutput struct {
 
 // describeLocationS3Output intentionally has no S3BucketArn or Subdirectory
 // field: the real DescribeLocationS3Output has neither -- the bucket and
-// prefix are folded into LocationUri only (confirmed: aws-sdk-go-v2 v1.59.2
+// prefix are folded into LocationUri only (confirmed: aws-sdk-go-v2 v1.61.4
 // DescribeLocationS3Output has AgentArns, CreationTime, LocationArn,
 // LocationUri, S3Config, S3StorageClass -- nothing else).
 type describeLocationS3Output struct {

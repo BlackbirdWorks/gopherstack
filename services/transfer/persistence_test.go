@@ -3,6 +3,7 @@ package transfer_test
 import (
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -20,128 +21,132 @@ import (
 func TestPersistence_FullStateRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	b := newTestBackend(t)
+	synctest.Test(t, func(t *testing.T) {
+		b := newTestBackend(t)
 
-	s, err := b.CreateServer(nil, map[string]string{"env": "test"})
-	require.NoError(t, err)
+		s, err := b.CreateServer(nil, map[string]string{"env": "test"})
+		require.NoError(t, err)
 
-	_, err = b.CreateUser(s.ServerID, "alice", "/home/alice", "arn:role", nil)
-	require.NoError(t, err)
+		_, err = b.CreateUser(s.ServerID, "alice", "/home/alice", "arn:role", nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateAccess(s.ServerID, "ext-1", "arn:role", "/home/ext-1", nil)
-	require.NoError(t, err)
+		_, err = b.CreateAccess(s.ServerID, "ext-1", "arn:role", "/home/ext-1", nil)
+		require.NoError(t, err)
 
-	profile, err := b.CreateProfile("LOCAL", "as2id", nil)
-	require.NoError(t, err)
+		profile, err := b.CreateProfile("LOCAL", "as2id", nil)
+		require.NoError(t, err)
 
-	_, err = b.CreateAgreement(s.ServerID, "desc", profile.ProfileID, profile.ProfileID, "/base", "arn:role", nil)
-	require.NoError(t, err)
+		_, err = b.CreateAgreement(s.ServerID, "desc", profile.ProfileID, profile.ProfileID, "/base", "arn:role", nil)
+		require.NoError(t, err)
 
-	connector, err := b.CreateConnector("https://example.com", "arn:role", nil, nil, nil)
-	require.NoError(t, err)
+		connector, err := b.CreateConnector("https://example.com", "arn:role", nil, nil, nil)
+		require.NoError(t, err)
 
-	webApp, err := b.CreateWebApp(&transfer.CreateWebAppInput{
-		IdentityCenterConfig: &transfer.WebAppIdentityCenterConfig{
-			InstanceArn: "arn:aws:sso:::instance/ssoins-persistence",
-			Role:        "arn:aws:iam::123456789012:role/webapp-idp",
-		},
+		webApp, err := b.CreateWebApp(&transfer.CreateWebAppInput{
+			IdentityCenterConfig: &transfer.WebAppIdentityCenterConfig{
+				InstanceArn: "arn:aws:sso:::instance/ssoins-persistence",
+				Role:        "arn:aws:iam::123456789012:role/webapp-idp",
+			},
+		})
+		require.NoError(t, err)
+
+		workflow, err := b.CreateWorkflow("desc", nil, nil, nil)
+		require.NoError(t, err)
+
+		_, err = b.ImportCertificate("SIGNING", "", "desc", time.Time{}, time.Time{}, nil)
+		require.NoError(t, err)
+
+		_, err = b.ImportHostKey(s.ServerID, testHostKeyEd25519, "desc", nil)
+		require.NoError(t, err)
+
+		_, err = b.ImportSSHPublicKey(s.ServerID, "alice", testHostKeyEd25519)
+		require.NoError(t, err)
+
+		_, err = b.CreateExecution(workflow.WorkflowID)
+		require.NoError(t, err)
+
+		b.StartFileFileTransferResult(connector.ConnectorID, []string{"file1"})
+		b.StartAsyncOperationRecord(connector.ConnectorID, "LIST")
+
+		require.NoError(t, b.TagResource("arn:aws:transfer:us-east-1:123456789012:server/"+s.ServerID,
+			map[string]string{"k": "v"}))
+
+		_, err = b.UpdateWebAppCustomization(webApp.WebAppID, "title", "logo", "favicon")
+		require.NoError(t, err)
+
+		// Snapshot and restore into a fresh backend.
+		data := b.Snapshot(t.Context())
+		require.NotNil(t, data)
+
+		b2 := newTestBackend(t)
+		require.NoError(t, b2.Restore(t.Context(), data))
+
+		assert.Equal(t, 1, transfer.ServerCount(b2))
+		assert.Equal(t, 1, transfer.UserCount(b2))
+		assert.Equal(t, 1, transfer.AccessCount(b2))
+		assert.Equal(t, 1, transfer.AgreementCount(b2))
+		assert.Equal(t, 1, transfer.ConnectorCount(b2))
+		assert.Equal(t, 1, transfer.ProfileCount(b2))
+		assert.Equal(t, 1, transfer.WebAppCount(b2))
+		assert.Equal(t, 1, transfer.WorkflowCount(b2))
+		assert.Equal(t, 1, transfer.CertificateCount(b2))
+		assert.Equal(t, 1, transfer.HostKeyCount(b2))
+		assert.Equal(t, 1, transfer.SSHPublicKeyCount(b2))
+
+		// Secondary indexes must be rebuilt, not just the primary tables: these
+		// all resolve through a store.Index, not a direct Table.Get.
+		users, err := b2.ListUsers(s.ServerID)
+		require.NoError(t, err)
+		assert.Len(t, users, 1)
+		assert.Equal(t, "alice", users[0].UserName)
+
+		accesses, err := b2.ListAccesses(s.ServerID)
+		require.NoError(t, err)
+		assert.Len(t, accesses, 1)
+
+		agreements, err := b2.ListAgreements(s.ServerID)
+		require.NoError(t, err)
+		assert.Len(t, agreements, 1)
+
+		hostKeys, err := b2.ListHostKeys(s.ServerID)
+		require.NoError(t, err)
+		assert.Len(t, hostKeys, 1)
+
+		sshKeys := b2.ListSSHPublicKeys(s.ServerID, "alice")
+		assert.Len(t, sshKeys, 1)
+		assert.Equal(t, 1, b2.CountUserSSHPublicKeys(s.ServerID, "alice"))
+
+		executions, err := b2.ListExecutions(workflow.WorkflowID)
+		require.NoError(t, err)
+		assert.Len(t, executions, 1)
+
+		transferResults := b2.ListFileFileTransferResults(connector.ConnectorID)
+		assert.Len(t, transferResults, 1)
+
+		tags := b2.ListTagsForResource("arn:aws:transfer:us-east-1:123456789012:server/" + s.ServerID)
+		assert.Equal(t, "v", tags["k"])
+
+		// webAppCustomizations is a pre-existing gap (never part of
+		// backendSnapshot, even before this conversion) that this refactor
+		// deliberately preserves rather than fixes as a side effect.
+		cust, err := b2.DescribeWebAppCustomization(webApp.WebAppID)
+		require.NoError(t, err)
+		assert.Empty(t, cust.Title, "webAppCustomizations was never persisted before Phase 3.3 either")
+
+		// DeleteServer must still cascade-delete every composite-keyed child
+		// table after a restore, proving the rebuilt indexes are live (not just
+		// populated once at Restore time).
+		require.NoError(t, b2.StopServer(s.ServerID))
+		// Server was already OFFLINE from creation, so StopServer is a no-op;
+		// Wait just settles any pending goroutines before asserting.
+		synctest.Wait()
+		require.NoError(t, b2.DeleteServer(s.ServerID))
+		assert.Equal(t, 0, transfer.UserCount(b2))
+		assert.Equal(t, 0, transfer.AccessCount(b2))
+		assert.Equal(t, 0, transfer.AgreementCount(b2))
+		assert.Equal(t, 0, transfer.HostKeyCount(b2))
+		assert.Equal(t, 0, transfer.SSHPublicKeyCount(b2))
 	})
-	require.NoError(t, err)
-
-	workflow, err := b.CreateWorkflow("desc", nil, nil, nil)
-	require.NoError(t, err)
-
-	_, err = b.ImportCertificate("SIGNING", "", "desc", time.Time{}, time.Time{}, nil)
-	require.NoError(t, err)
-
-	_, err = b.ImportHostKey(s.ServerID, testHostKeyEd25519, "desc", nil)
-	require.NoError(t, err)
-
-	_, err = b.ImportSSHPublicKey(s.ServerID, "alice", testHostKeyEd25519)
-	require.NoError(t, err)
-
-	_, err = b.CreateExecution(workflow.WorkflowID)
-	require.NoError(t, err)
-
-	b.StartFileFileTransferResult(connector.ConnectorID, []string{"file1"})
-	b.StartAsyncOperationRecord(connector.ConnectorID, "LIST")
-
-	require.NoError(t, b.TagResource("arn:aws:transfer:us-east-1:123456789012:server/"+s.ServerID,
-		map[string]string{"k": "v"}))
-
-	_, err = b.UpdateWebAppCustomization(webApp.WebAppID, "title", "logo", "favicon")
-	require.NoError(t, err)
-
-	// Snapshot and restore into a fresh backend.
-	data := b.Snapshot(t.Context())
-	require.NotNil(t, data)
-
-	b2 := newTestBackend(t)
-	require.NoError(t, b2.Restore(t.Context(), data))
-
-	assert.Equal(t, 1, transfer.ServerCount(b2))
-	assert.Equal(t, 1, transfer.UserCount(b2))
-	assert.Equal(t, 1, transfer.AccessCount(b2))
-	assert.Equal(t, 1, transfer.AgreementCount(b2))
-	assert.Equal(t, 1, transfer.ConnectorCount(b2))
-	assert.Equal(t, 1, transfer.ProfileCount(b2))
-	assert.Equal(t, 1, transfer.WebAppCount(b2))
-	assert.Equal(t, 1, transfer.WorkflowCount(b2))
-	assert.Equal(t, 1, transfer.CertificateCount(b2))
-	assert.Equal(t, 1, transfer.HostKeyCount(b2))
-	assert.Equal(t, 1, transfer.SSHPublicKeyCount(b2))
-
-	// Secondary indexes must be rebuilt, not just the primary tables: these
-	// all resolve through a store.Index, not a direct Table.Get.
-	users, err := b2.ListUsers(s.ServerID)
-	require.NoError(t, err)
-	assert.Len(t, users, 1)
-	assert.Equal(t, "alice", users[0].UserName)
-
-	accesses, err := b2.ListAccesses(s.ServerID)
-	require.NoError(t, err)
-	assert.Len(t, accesses, 1)
-
-	agreements, err := b2.ListAgreements(s.ServerID)
-	require.NoError(t, err)
-	assert.Len(t, agreements, 1)
-
-	hostKeys, err := b2.ListHostKeys(s.ServerID)
-	require.NoError(t, err)
-	assert.Len(t, hostKeys, 1)
-
-	sshKeys := b2.ListSSHPublicKeys(s.ServerID, "alice")
-	assert.Len(t, sshKeys, 1)
-	assert.Equal(t, 1, b2.CountUserSSHPublicKeys(s.ServerID, "alice"))
-
-	executions, err := b2.ListExecutions(workflow.WorkflowID)
-	require.NoError(t, err)
-	assert.Len(t, executions, 1)
-
-	transferResults := b2.ListFileFileTransferResults(connector.ConnectorID)
-	assert.Len(t, transferResults, 1)
-
-	tags := b2.ListTagsForResource("arn:aws:transfer:us-east-1:123456789012:server/" + s.ServerID)
-	assert.Equal(t, "v", tags["k"])
-
-	// webAppCustomizations is a pre-existing gap (never part of
-	// backendSnapshot, even before this conversion) that this refactor
-	// deliberately preserves rather than fixes as a side effect.
-	cust, err := b2.DescribeWebAppCustomization(webApp.WebAppID)
-	require.NoError(t, err)
-	assert.Empty(t, cust.Title, "webAppCustomizations was never persisted before Phase 3.3 either")
-
-	// DeleteServer must still cascade-delete every composite-keyed child
-	// table after a restore, proving the rebuilt indexes are live (not just
-	// populated once at Restore time).
-	require.NoError(t, b2.StopServer(s.ServerID))
-	time.Sleep(20 * time.Millisecond)
-	require.NoError(t, b2.DeleteServer(s.ServerID))
-	assert.Equal(t, 0, transfer.UserCount(b2))
-	assert.Equal(t, 0, transfer.AccessCount(b2))
-	assert.Equal(t, 0, transfer.AgreementCount(b2))
-	assert.Equal(t, 0, transfer.HostKeyCount(b2))
-	assert.Equal(t, 0, transfer.SSHPublicKeyCount(b2))
 }
 
 // TestPersistence_IncompatibleVersionResetsToEmpty verifies that Restore

@@ -379,7 +379,7 @@ type ConnectorScopeConfiguration struct {
 // cloud provider (currently only Azure, per the real ConnectorCloudProvider
 // enum's single AZURE value) to Inspector for vulnerability scanning,
 // matching the real Connector shape (types.Connector, field-diffed against
-// aws-sdk-go-v2/service/inspector2/types@v1.53.0's deserializers.go).
+// aws-sdk-go-v2/service/inspector2/types@v1.54.1's deserializers.go).
 type Connector struct {
 	CreatedAt              time.Time                    `json:"createdAt"`
 	UpdatedAt              time.Time                    `json:"updatedAt"`

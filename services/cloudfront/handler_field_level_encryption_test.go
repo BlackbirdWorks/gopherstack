@@ -118,7 +118,7 @@ func TestDeleteFLERequiresIfMatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			createRec := doXML(t, h, http.MethodPost, "/2020-05-31/field-level-encryption",
 				[]byte(`<FieldLevelEncryptionConfig><Comment>test</Comment></FieldLevelEncryptionConfig>`))
 			require.Equal(t, http.StatusCreated, createRec.Code)
@@ -319,7 +319,7 @@ func TestFieldLevelEncryptionCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -488,7 +488,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -581,7 +581,7 @@ func TestInMemoryBackend_FieldLevelEncryption(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}

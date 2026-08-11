@@ -317,19 +317,19 @@ func TestAccuracy_ARPVersion_PerPolicyNumberingIsolated(t *testing.T) {
 	require.NoError(t, err)
 
 	// Each policy starts its own counter.
-	v1a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes")
+	v1a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "1", v1a.Version)
 
-	v1b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes")
+	v1b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "1", v1b.Version, "per-policy counter — beta starts at 1")
 
-	v2a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes")
+	v2a, err := b.CreateAutomatedReasoningPolicyVersion(p1.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2", v2a.Version)
 
-	v2b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes")
+	v2b, err := b.CreateAutomatedReasoningPolicyVersion(p2.PolicyArn, "notes", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "2", v2b.Version)
 }
@@ -541,10 +541,13 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	policyARN := out["policyArn"].(string)
 
+	wf := h.Backend.AddBuildWorkflowForTest(policyARN)
+	annPath := "/automated-reasoning-policies/" + url.PathEscape(policyARN) +
+		"/build-workflows/" + wf.BuildWorkflowID + "/annotations"
+
 	// Update annotations (needs URL-encoded ARN)
 	updateRec := doRequest(
-		t, h, http.MethodPatch,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations",
+		t, h, http.MethodPatch, annPath,
 		map[string]any{"annotations": []map[string]any{
 			{"key": "env", "value": "prod"},
 		}},
@@ -552,8 +555,7 @@ func TestAccuracy_ARP_AnnotationsGetAfterUpdate(t *testing.T) {
 	require.Equal(t, http.StatusOK, updateRec.Code)
 
 	// Get annotations - should not be empty
-	getAnnRec := doRequest(t, h, http.MethodGet,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/annotations", nil)
+	getAnnRec := doRequest(t, h, http.MethodGet, annPath, nil)
 	require.Equal(t, http.StatusOK, getAnnRec.Code)
 
 	var annOut map[string]any
@@ -725,7 +727,11 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 
 	// Update
 	recUpd := doRequest(t, h, http.MethodPatch,
-		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID,
+		map[string]any{
+			"guardContent":                     "the model said X",
+			"expectedAggregatedFindingsResult": "VALID",
+		})
 	assert.Equal(t, http.StatusOK, recUpd.Code)
 
 	// Delete
@@ -737,6 +743,91 @@ func TestHandler_GetListDeleteARPTestCase(t *testing.T) {
 	recGet2 := doRequest(t, h, http.MethodGet,
 		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
 	assert.Equal(t, http.StatusNotFound, recGet2.Code)
+}
+
+// TestAccuracy_ARPTestCase_UpdateAppliesContent locks in that
+// UpdateAutomatedReasoningPolicyTestCase actually parses and stores its request
+// body (aws-sdk-go-v2 api_op_UpdateAutomatedReasoningPolicyTestCase.go:29-71) --
+// gopherstack previously accepted PATCH bodies but never read them, only echoing
+// testCaseId/policyArn back.
+func TestAccuracy_ARPTestCase_UpdateAppliesContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "upd-content-pol"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	mustUnmarshal(t, rec, &created)
+	policyARN := created["policyArn"].(string)
+
+	recTC := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, recTC.Code)
+
+	var tc map[string]any
+	mustUnmarshal(t, recTC, &tc)
+	tcID := tc["testCaseId"].(string)
+
+	confidence := 0.85
+	updRec := doRequest(t, h, http.MethodPatch,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID,
+		map[string]any{
+			"guardContent":                     "the model said the sky is blue",
+			"queryContent":                     "what color is the sky?",
+			"expectedAggregatedFindingsResult": "VALID",
+			"confidenceThreshold":              confidence,
+		})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	mustUnmarshal(t, getRec, &getOut)
+	assert.Equal(t, "the model said the sky is blue", getOut["guardContent"])
+	assert.Equal(t, "what color is the sky?", getOut["queryContent"])
+	assert.Equal(t, "VALID", getOut["expectedAggregatedFindingsResult"])
+	assert.InEpsilon(t, confidence, getOut["confidenceThreshold"], 0)
+}
+
+// TestAccuracy_ARPTestCase_UpdateRequiresGuardContent locks in that
+// UpdateAutomatedReasoningPolicyTestCase's required guardContent and
+// expectedAggregatedFindingsResult fields are enforced, not silently accepted
+// as absent.
+func TestAccuracy_ARPTestCase_UpdateRequiresGuardContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "req-content-pol"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	mustUnmarshal(t, rec, &created)
+	policyARN := created["policyArn"].(string)
+
+	recTC := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, recTC.Code)
+
+	var tc map[string]any
+	mustUnmarshal(t, recTC, &tc)
+	tcID := tc["testCaseId"].(string)
+
+	updRec := doRequest(t, h, http.MethodPatch,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	assert.Equal(t, http.StatusBadRequest, updRec.Code)
+
+	getRec := doRequest(t, h, http.MethodGet,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases/"+tcID, nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getOut map[string]any
+	mustUnmarshal(t, getRec, &getOut)
+	assert.Empty(t, getOut["guardContent"], "a rejected update must not mutate the test case")
 }
 
 // TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod locks in the parity fix for
@@ -765,6 +856,8 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tcOut))
 	tcID := tcOut["testCaseId"].(string)
 
+	wf := h.Backend.AddBuildWorkflowForTest(policyARN)
+
 	tests := []struct {
 		name string
 		path string
@@ -776,7 +869,8 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 		},
 		{
 			name: "UpdateAutomatedReasoningPolicyAnnotations",
-			path: "/automated-reasoning-policies/" + url.PathEscape(policyARN) + "/annotations",
+			path: "/automated-reasoning-policies/" + url.PathEscape(policyARN) +
+				"/build-workflows/" + wf.BuildWorkflowID + "/annotations",
 		},
 	}
 
@@ -786,6 +880,237 @@ func TestAccuracy_ARP_UpdateOpsRejectOldPUTMethod(t *testing.T) {
 
 			putRec := doRequest(t, h, http.MethodPut, tt.path, map[string]any{"description": "x"})
 			assert.Equal(t, http.StatusNotFound, putRec.Code)
+		})
+	}
+}
+
+// TestAccuracy_ARP_BuildWorkflowScopedSubResources locks in that
+// Get/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario,
+// Get/ListAutomatedReasoningPolicyTestResult(s), and StartAutomatedReasoningPolicyTestWorkflow
+// are build-workflow-scoped in real AWS (bedrock@v1.66.4 serializers.go:3874, :4122,
+// :4282, :5937, :8117), not policy-scoped -- the paths gopherstack previously served for
+// these ops did not exist in the real API.
+func TestAccuracy_ARP_BuildWorkflowScopedSubResources(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		pathSuffix func(wfID, tcID string) string
+		body       map[string]any
+		name       string
+		method     string
+		wantStatus int
+	}{
+		{
+			name:       "get annotations",
+			method:     http.MethodGet,
+			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/annotations" },
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "update annotations",
+			method:     http.MethodPatch,
+			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/annotations" },
+			body:       map[string]any{"annotations": []map[string]any{{"key": "a", "value": "b"}}},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "next scenario",
+			method:     http.MethodGet,
+			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/scenarios" },
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "get test result",
+			method: http.MethodGet,
+			pathSuffix: func(wfID, tcID string) string {
+				return "/build-workflows/" + wfID + "/test-cases/" + tcID + "/test-results"
+			},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "list test results",
+			method:     http.MethodGet,
+			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/test-results" },
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "start test workflow",
+			method:     http.MethodPost,
+			pathSuffix: func(wfID, _ string) string { return "/build-workflows/" + wfID + "/test-workflows" },
+			wantStatus: http.StatusCreated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies",
+				map[string]any{"name": "sub-resource-" + tt.name})
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var created map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			policyARN := created["policyArn"].(string)
+
+			wf := h.Backend.AddBuildWorkflowForTest(policyARN)
+
+			tcRec := doRequest(t, h, http.MethodPost,
+				"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+			require.Equal(t, http.StatusCreated, tcRec.Code)
+
+			var tc map[string]any
+			require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc))
+			tcID := tc["testCaseId"].(string)
+
+			path := "/automated-reasoning-policies/" + url.PathEscape(policyARN) +
+				tt.pathSuffix(wf.BuildWorkflowID, tcID)
+			gotRec := doRequest(t, h, tt.method, path, tt.body)
+			assert.Equal(t, tt.wantStatus, gotRec.Code)
+		})
+	}
+}
+
+// TestAccuracy_ARP_BuildWorkflowSubResourcesRejectWrongPolicy locks in that the
+// build-workflow-scoped sub-resources validate (policyArn, buildWorkflowId) as a
+// pair, not buildWorkflowId alone -- a workflow from a different policy must 404,
+// mirroring TestHandler_CancelWorkflowWrongPolicy for the pre-existing Cancel op.
+func TestAccuracy_ARP_BuildWorkflowSubResourcesRejectWrongPolicy(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec1 := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "wrong-policy-1"})
+	require.Equal(t, http.StatusCreated, rec1.Code)
+
+	var p1 map[string]any
+	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &p1))
+	policy1ARN := p1["policyArn"].(string)
+
+	rec2 := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies", map[string]any{"name": "wrong-policy-2"})
+	require.Equal(t, http.StatusCreated, rec2.Code)
+
+	var p2 map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &p2))
+	policy2ARN := p2["policyArn"].(string)
+
+	wf := h.Backend.AddBuildWorkflowForTest(policy1ARN)
+
+	tests := []struct {
+		name   string
+		method string
+		suffix string
+	}{
+		{name: "annotations", method: http.MethodGet, suffix: "/annotations"},
+		{name: "scenarios", method: http.MethodGet, suffix: "/scenarios"},
+		{name: "test results list", method: http.MethodGet, suffix: "/test-results"},
+		{name: "test workflows start", method: http.MethodPost, suffix: "/test-workflows"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := "/automated-reasoning-policies/" + url.PathEscape(policy2ARN) +
+				"/build-workflows/" + wf.BuildWorkflowID + tt.suffix
+			gotRec := doRequest(t, h, tt.method, path, nil)
+			assert.Equal(t, http.StatusNotFound, gotRec.Code)
+		})
+	}
+}
+
+// TestAccuracy_ARP_ExportVersion locks in ExportAutomatedReasoningPolicyVersion's real
+// path (bedrock@v1.66.4 serializers.go:3603): GET .../{policyArn}/export, where
+// policyArn may itself be a versioned ARN -- there is no separate {version} segment,
+// and the real method is GET, not POST.
+func TestAccuracy_ARP_ExportVersion(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies",
+		map[string]any{"name": "export-policy"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	policyARN := created["policyArn"].(string)
+
+	verRec := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/versions",
+		map[string]any{"lastUpdatedDefinitionHash": "hash-export"})
+	require.Equal(t, http.StatusCreated, verRec.Code)
+
+	var ver map[string]any
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver))
+	versionedARN := ver["policyArn"].(string)
+
+	exportRec := doRequest(t, h, http.MethodGet,
+		"/automated-reasoning-policies/"+url.PathEscape(versionedARN)+"/export", nil)
+	require.Equal(t, http.StatusOK, exportRec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(exportRec.Body.Bytes(), &out))
+	assert.Equal(t, "hash-export", out["definitionHash"])
+}
+
+// TestAccuracy_ARP_OldInventedSubResourcePathsGone locks in that the pre-fix
+// policy-scoped ARP sub-resource paths -- which do not exist in real AWS, see
+// PARITY.md families.AutomatedReasoningPolicy -- no longer serve traffic now that
+// these ops are build-workflow-scoped (or, for export, take no version segment).
+func TestAccuracy_ARP_OldInventedSubResourcePathsGone(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/automated-reasoning-policies",
+		map[string]any{"name": "old-path-gone-policy"})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	policyARN := created["policyArn"].(string)
+
+	tcRec := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/test-cases", nil)
+	require.Equal(t, http.StatusCreated, tcRec.Code)
+
+	var tc map[string]any
+	require.NoError(t, json.Unmarshal(tcRec.Body.Bytes(), &tc))
+	tcID := tc["testCaseId"].(string)
+
+	verRec := doRequest(t, h, http.MethodPost,
+		"/automated-reasoning-policies/"+url.PathEscape(policyARN)+"/versions",
+		map[string]any{"lastUpdatedDefinitionHash": "hash"})
+	require.Equal(t, http.StatusCreated, verRec.Code)
+
+	var ver map[string]any
+	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &ver))
+	version := ver["version"].(string)
+
+	base := "/automated-reasoning-policies/" + url.PathEscape(policyARN)
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{name: "test case run", method: http.MethodPost, path: base + "/test-cases/" + tcID + "/run"},
+		{name: "test case result", method: http.MethodGet, path: base + "/test-cases/" + tcID + "/result"},
+		{name: "test cases results collection", method: http.MethodGet, path: base + "/test-cases/results"},
+		{name: "versioned export via POST", method: http.MethodPost, path: base + "/versions/" + version + "/export"},
+		{name: "flat next scenario", method: http.MethodGet, path: base + "/next-scenario"},
+		{name: "flat annotations get", method: http.MethodGet, path: base + "/annotations"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gotRec := doRequest(t, h, tt.method, tt.path, nil)
+			assert.Equal(t, http.StatusNotFound, gotRec.Code)
 		})
 	}
 }

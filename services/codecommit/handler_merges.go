@@ -269,7 +269,26 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	mergeable, err := h.Backend.GetMergeConflicts(
+	if req.SourceCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: sourceCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if req.DestinationCommitSpecifier == "" {
+		return nil, fmt.Errorf("%w: destinationCommitSpecifier is required", errInvalidRequest)
+	}
+
+	if req.MergeOption == "" {
+		return nil, fmt.Errorf("%w: mergeOption is required", errInvalidRequest)
+	}
+
+	if !isValidMergeOption(req.MergeOption) {
+		return nil, fmt.Errorf(
+			"%w: mergeOption must be FAST_FORWARD_MERGE, SQUASH_MERGE, or THREE_WAY_MERGE",
+			ErrValidation,
+		)
+	}
+
+	mergeable, sourceCommitID, destCommitID, err := h.Backend.GetMergeConflicts(
 		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.MergeOption,
 	)
 	if err != nil {
@@ -278,8 +297,8 @@ func (h *Handler) handleGetMergeConflicts(body []byte) (any, error) {
 
 	return map[string]any{
 		"mergeable":       mergeable,
-		keySourceCommitID: req.SourceCommitSpecifier,
-		keyDestCommitID:   req.DestinationCommitSpecifier,
+		keySourceCommitID: sourceCommitID,
+		keyDestCommitID:   destCommitID,
 		"conflicts":       []any{},
 	}, nil
 }
@@ -350,19 +369,36 @@ func (h *Handler) handleDescribeMergeConflicts(body []byte) (any, error) {
 	}, nil
 }
 
-// MergeBranchesBySquash and MergeBranchesByThreeWay stub handlers.
-func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
-	var req struct {
-		RepositoryName             string `json:"repositoryName"`
-		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
-		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
+type mergeBranchesRequest struct {
+	RepositoryName             string `json:"repositoryName"`
+	SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
+	DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
+	TargetBranch               string `json:"targetBranch"`
+	CommitMessage              string `json:"commitMessage"`
+	AuthorName                 string `json:"authorName"`
+	Email                      string `json:"email"`
+}
+
+func (r mergeBranchesRequest) options() MergeBranchesOptions {
+	return MergeBranchesOptions{
+		TargetBranch:  r.TargetBranch,
+		CommitMessage: r.CommitMessage,
+		AuthorName:    r.AuthorName,
+		Email:         r.Email,
 	}
+}
+
+func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
+	var req mergeBranchesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
+	if req.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
 
-	commit, err := h.Backend.MergeBranchesByFastForward(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
+	commit, err := h.Backend.MergeBranchesBySquash(
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.options(),
 	)
 	if err != nil {
 		return nil, err
@@ -375,17 +411,16 @@ func (h *Handler) handleMergeBranchesBySquash(body []byte) (any, error) {
 }
 
 func (h *Handler) handleMergeBranchesByThreeWay(body []byte) (any, error) {
-	var req struct {
-		RepositoryName             string `json:"repositoryName"`
-		SourceCommitSpecifier      string `json:"sourceCommitSpecifier"`
-		DestinationCommitSpecifier string `json:"destinationCommitSpecifier"`
-	}
+	var req mergeBranchesRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
 	}
+	if req.RepositoryName == "" {
+		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
+	}
 
-	commit, err := h.Backend.MergeBranchesByFastForward(
-		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier,
+	commit, err := h.Backend.MergeBranchesByThreeWay(
+		req.RepositoryName, req.SourceCommitSpecifier, req.DestinationCommitSpecifier, req.options(),
 	)
 	if err != nil {
 		return nil, err

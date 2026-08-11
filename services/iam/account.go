@@ -87,21 +87,20 @@ func (b *InMemoryBackend) GenerateOrganizationsAccessReport(_ string) string {
 	jobID := "orgjob-" + newID("")
 	now := time.Now().UTC()
 
-	c := b.comp()
-	c.mu.Lock()
-	c.orgReportJobs[jobID] = now
-	c.mu.Unlock()
+	b.mu.Lock("GenerateOrganizationsAccessReport")
+	defer b.mu.Unlock()
+
+	b.comp().orgReportJobs[jobID] = now
 
 	return jobID
 }
 
 // GetOrganizationsAccessReport retrieves the status of an org access report job.
 func (b *InMemoryBackend) GetOrganizationsAccessReport(jobID string) (string, time.Time, bool) {
-	c := b.comp()
-	c.mu.Lock()
-	createdAt, found := c.orgReportJobs[jobID]
-	c.mu.Unlock()
+	b.mu.RLock("GetOrganizationsAccessReport")
+	defer b.mu.RUnlock()
 
+	createdAt, found := b.comp().orgReportJobs[jobID]
 	if !found {
 		return "", time.Time{}, false
 	}
@@ -335,10 +334,7 @@ func (b *InMemoryBackend) GetCredentialReport() string {
 		credFalse, notApplicable, credFalse, notApplicable,
 	}, ","))
 
-	c := b.comp()
-	c.mu.Lock()
-	mfaLinks := maps.Clone(c.mfaUserLinks)
-	c.mu.Unlock()
+	mfaLinks := maps.Clone(b.comp().mfaUserLinks)
 
 	for _, u := range users {
 		lines = append(lines, b.credUserRow(u, mfaLinks))

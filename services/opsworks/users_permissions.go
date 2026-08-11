@@ -114,8 +114,34 @@ func (b *InMemoryBackend) UpdateMyUserProfile(_ string) error {
 	return nil
 }
 
-// SetPermission sets stack permissions for an IAM user.
+// isValidPermissionLevel reports whether level is one of the exact strings
+// SetPermissionInput's Level doc comment enumerates (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_SetPermission.go: "must
+// be set to one of the following strings"). The Go SDK types Level as a
+// plain *string rather than a smithy enum, but the API still documents an
+// exhaustive, closed set.
+func isValidPermissionLevel(level string) bool {
+	switch level {
+	case "deny", "show", "deploy", "manage", "iam_only":
+		return true
+	default:
+		return false
+	}
+}
+
+// SetPermission sets stack permissions for an IAM user. IamUserArn and
+// StackId are both "This member is required" on the real
+// SetPermissionInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_SetPermission.go); Level
+// is optional but, when set, restricted to isValidPermissionLevel's set.
 func (b *InMemoryBackend) SetPermission(stackID, iamUserArn, level string, allowSSH, allowSudo bool) error {
+	if stackID == "" || iamUserArn == "" {
+		return ErrValidation
+	}
+	if level != "" && !isValidPermissionLevel(level) {
+		return ErrValidation
+	}
+
 	b.mu.Lock("SetPermission")
 	defer b.mu.Unlock()
 

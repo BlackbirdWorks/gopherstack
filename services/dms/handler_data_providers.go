@@ -59,7 +59,7 @@ func dpToJSON(dp *DataProvider) dataProviderJSON {
 }
 
 type deleteDataProviderInput struct {
-	DataProviderArn *string `json:"DataProviderArn"`
+	DataProviderIdentifier *string `json:"DataProviderIdentifier"`
 }
 
 type deleteDataProviderOutput struct {
@@ -69,7 +69,7 @@ type deleteDataProviderOutput struct {
 func (h *Handler) handleDeleteDataProvider(
 	ctx context.Context, in *deleteDataProviderInput,
 ) (*deleteDataProviderOutput, error) {
-	dp, err := h.Backend.DeleteDataProvider(ctx, ptrconv.String(in.DataProviderArn))
+	dp, err := h.Backend.DeleteDataProvider(ctx, ptrconv.String(in.DataProviderIdentifier))
 	if err != nil {
 		return nil, err
 	}
@@ -111,9 +111,9 @@ func (h *Handler) handleDescribeDataProviders(
 }
 
 type modifyDataProviderInput struct {
-	DataProviderArn *string `json:"DataProviderArn"`
-	Engine          *string `json:"Engine"`
-	Description     *string `json:"Description"`
+	DataProviderIdentifier *string `json:"DataProviderIdentifier"`
+	Engine                 *string `json:"Engine"`
+	Description            *string `json:"Description"`
 }
 
 type modifyDataProviderOutput struct {
@@ -125,7 +125,7 @@ func (h *Handler) handleModifyDataProvider(
 ) (*modifyDataProviderOutput, error) {
 	dp, err := h.Backend.ModifyDataProvider(
 		ctx,
-		ptrconv.String(in.DataProviderArn),
+		ptrconv.String(in.DataProviderIdentifier),
 		ptrconv.String(in.Engine),
 		ptrconv.String(in.Description),
 	)

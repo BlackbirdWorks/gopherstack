@@ -66,17 +66,18 @@ func (b *InMemoryBackend) handleContinueAsNewWorkflowExecutionDecision(dc decisi
 
 	defaults, err := b.resolveExecutionDefaultsLocked(newInput)
 	if err != nil {
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ContinueAsNewWorkflowExecutionFailed", map[string]any{
-			eventAttrKey("ContinueAsNewWorkflowExecutionFailed"): map[string]any{
-				attrDTCEventID: dc.decisionTaskCompletedEventID,
-				attrCause:      continueAsNewFailureCause(err),
-			},
-		})
+		b.appendHistoryEventLocked(
+			dc.domain, dc.workflowID, dc.runID, "ContinueAsNewWorkflowExecutionFailed", map[string]any{
+				eventAttrKey("ContinueAsNewWorkflowExecutionFailed"): map[string]any{
+					attrDTCEventID: dc.decisionTaskCompletedEventID,
+					attrCause:      continueAsNewFailureCause(err),
+				},
+			})
 		// The old run never closed; re-enqueue a decision task so the
 		// decider gets another chance instead of the execution going
 		// silently stuck (its previous decision task token was already
 		// consumed by RespondDecisionTaskCompleted).
-		b.enqueueDecisionTaskLocked(dc.domain, dc.workflowID)
+		b.enqueueDecisionTaskLocked(dc.domain, dc.workflowID, dc.runID)
 
 		return
 	}
@@ -84,7 +85,7 @@ func (b *InMemoryBackend) handleContinueAsNewWorkflowExecutionDecision(dc decisi
 	oldRunID := dc.exec.RunID
 	newInput.RunID = uuid.New().String()
 
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "WorkflowExecutionContinuedAsNew", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "WorkflowExecutionContinuedAsNew", map[string]any{
 		eventAttrKey("WorkflowExecutionContinuedAsNew"): map[string]any{
 			attrDTCEventID:      dc.decisionTaskCompletedEventID,
 			"newExecutionRunId": newInput.RunID,
@@ -123,13 +124,14 @@ func (b *InMemoryBackend) handleContinueAsNewWorkflowExecutionDecision(dc decisi
 		dc.exec.Status = statusRunning
 		dc.exec.CloseStatus = ""
 		dc.exec.CloseTimestamp = 0
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ContinueAsNewWorkflowExecutionFailed", map[string]any{
-			eventAttrKey("ContinueAsNewWorkflowExecutionFailed"): map[string]any{
-				attrDTCEventID: dc.decisionTaskCompletedEventID,
-				attrCause:      causeOpNotPermitted,
-			},
-		})
-		b.enqueueDecisionTaskLocked(dc.domain, dc.workflowID)
+		b.appendHistoryEventLocked(
+			dc.domain, dc.workflowID, dc.runID, "ContinueAsNewWorkflowExecutionFailed", map[string]any{
+				eventAttrKey("ContinueAsNewWorkflowExecutionFailed"): map[string]any{
+					attrDTCEventID: dc.decisionTaskCompletedEventID,
+					attrCause:      causeOpNotPermitted,
+				},
+			})
+		b.enqueueDecisionTaskLocked(dc.domain, dc.workflowID, dc.runID)
 	}
 }
 
@@ -163,7 +165,7 @@ func (b *InMemoryBackend) handleStartChildWorkflowExecutionDecision(dc decisionC
 	}
 
 	initiatedEventID := b.appendHistoryEventLocked(
-		dc.domain, dc.workflowID, "StartChildWorkflowExecutionInitiated", map[string]any{
+		dc.domain, dc.workflowID, dc.runID, "StartChildWorkflowExecutionInitiated", map[string]any{
 			eventAttrKey("StartChildWorkflowExecutionInitiated"): map[string]any{
 				attrDTCEventID: dc.decisionTaskCompletedEventID,
 				attrWorkflowID: attrs.WorkflowID,
@@ -210,19 +212,20 @@ func (b *InMemoryBackend) handleStartChildWorkflowExecutionDecision(dc decisionC
 	}
 
 	if err != nil {
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "StartChildWorkflowExecutionFailed", map[string]any{
-			eventAttrKey("StartChildWorkflowExecutionFailed"): map[string]any{
-				attrDTCEventID:    dc.decisionTaskCompletedEventID,
-				attrInitiatedEvID: initiatedEventID,
-				attrWorkflowID:    attrs.WorkflowID,
-				attrWorkflowType: map[string]any{
-					attrName:    attrs.WorkflowType.Name,
-					attrVersion: attrs.WorkflowType.Version,
+		b.appendHistoryEventLocked(
+			dc.domain, dc.workflowID, dc.runID, "StartChildWorkflowExecutionFailed", map[string]any{
+				eventAttrKey("StartChildWorkflowExecutionFailed"): map[string]any{
+					attrDTCEventID:    dc.decisionTaskCompletedEventID,
+					attrInitiatedEvID: initiatedEventID,
+					attrWorkflowID:    attrs.WorkflowID,
+					attrWorkflowType: map[string]any{
+						attrName:    attrs.WorkflowType.Name,
+						attrVersion: attrs.WorkflowType.Version,
+					},
+					attrControl: attrs.Control,
+					attrCause:   startChildFailureCause(err),
 				},
-				attrControl: attrs.Control,
-				attrCause:   startChildFailureCause(err),
-			},
-		})
+			})
 
 		return
 	}
@@ -230,6 +233,7 @@ func (b *InMemoryBackend) handleStartChildWorkflowExecutionDecision(dc decisionC
 	startedEventID := b.appendHistoryEventLocked(
 		dc.domain,
 		dc.workflowID,
+		dc.runID,
 		"ChildWorkflowExecutionStarted",
 		map[string]any{
 			eventAttrKey("ChildWorkflowExecutionStarted"): map[string]any{
@@ -248,7 +252,7 @@ func (b *InMemoryBackend) handleStartChildWorkflowExecutionDecision(dc decisionC
 	// createExecutionLocked returns a detached copy (see its doc comment);
 	// stamp ParentStartedEventID onto the live stored row so
 	// propagateChildClosureLocked can echo it back when this child closes.
-	if live, ok := b.executions.Get(dc.domain + ":" + child.WorkflowID); ok {
+	if live, ok := b.executions.Get(executionKey(dc.domain, child.WorkflowID, child.RunID)); ok {
 		live.ParentStartedEventID = startedEventID
 	}
 }
@@ -287,7 +291,7 @@ func (b *InMemoryBackend) handleSignalExternalWorkflowExecutionDecision(dc decis
 	}
 
 	initiatedEventID := b.appendHistoryEventLocked(
-		dc.domain, dc.workflowID, "SignalExternalWorkflowExecutionInitiated", map[string]any{
+		dc.domain, dc.workflowID, dc.runID, "SignalExternalWorkflowExecutionInitiated", map[string]any{
 			eventAttrKey("SignalExternalWorkflowExecutionInitiated"): map[string]any{
 				attrDTCEventID: dc.decisionTaskCompletedEventID,
 				attrWorkflowID: attrs.WorkflowID,
@@ -298,42 +302,48 @@ func (b *InMemoryBackend) handleSignalExternalWorkflowExecutionDecision(dc decis
 			},
 		})
 
-	target, ok := b.executions.Get(dc.domain + ":" + attrs.WorkflowID)
-	if !ok || target.Status != statusRunning || (attrs.RunID != "" && target.RunID != attrs.RunID) {
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "SignalExternalWorkflowExecutionFailed", map[string]any{
-			eventAttrKey("SignalExternalWorkflowExecutionFailed"): map[string]any{
-				attrDTCEventID:    dc.decisionTaskCompletedEventID,
-				attrInitiatedEvID: initiatedEventID,
-				attrWorkflowID:    attrs.WorkflowID,
-				attrRunID:         attrs.RunID,
-				attrControl:       attrs.Control,
-				attrCause:         unknownExternalExecutionCause,
-			},
-		})
+	// attrs.RunID empty means "the target workflowId's currently open run" --
+	// resolveExecutionLocked implements exactly that fallback; a non-empty
+	// RunID is pinned exactly, so no separate match check is needed here.
+	target, ok := b.resolveExecutionLocked(dc.domain, attrs.WorkflowID, attrs.RunID)
+	if !ok || target.Status != statusRunning {
+		b.appendHistoryEventLocked(
+			dc.domain, dc.workflowID, dc.runID, "SignalExternalWorkflowExecutionFailed", map[string]any{
+				eventAttrKey("SignalExternalWorkflowExecutionFailed"): map[string]any{
+					attrDTCEventID:    dc.decisionTaskCompletedEventID,
+					attrInitiatedEvID: initiatedEventID,
+					attrWorkflowID:    attrs.WorkflowID,
+					attrRunID:         attrs.RunID,
+					attrControl:       attrs.Control,
+					attrCause:         unknownExternalExecutionCause,
+				},
+			})
 
 		return
 	}
 
-	b.appendHistoryEventLocked(dc.domain, attrs.WorkflowID, "WorkflowExecutionSignaled", map[string]any{
-		eventAttrKey("WorkflowExecutionSignaled"): map[string]any{
-			attrSignalName:             attrs.SignalName,
-			attrInput:                  attrs.Input,
-			"externalInitiatedEventId": initiatedEventID,
-			"externalWorkflowExecution": map[string]any{
-				attrWorkflowID: dc.workflowID, attrRunID: dc.exec.RunID,
+	b.appendHistoryEventLocked(
+		dc.domain, attrs.WorkflowID, target.RunID, "WorkflowExecutionSignaled", map[string]any{
+			eventAttrKey("WorkflowExecutionSignaled"): map[string]any{
+				attrSignalName:             attrs.SignalName,
+				attrInput:                  attrs.Input,
+				"externalInitiatedEventId": initiatedEventID,
+				"externalWorkflowExecution": map[string]any{
+					attrWorkflowID: dc.workflowID, attrRunID: dc.exec.RunID,
+				},
 			},
-		},
-	})
-	b.enqueueDecisionTaskLocked(dc.domain, attrs.WorkflowID)
+		})
+	b.enqueueDecisionTaskLocked(dc.domain, attrs.WorkflowID, target.RunID)
 
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ExternalWorkflowExecutionSignaled", map[string]any{
-		eventAttrKey("ExternalWorkflowExecutionSignaled"): map[string]any{
-			attrInitiatedEvID: initiatedEventID,
-			attrWorkflowExec: map[string]any{
-				attrWorkflowID: target.WorkflowID, attrRunID: target.RunID,
+	b.appendHistoryEventLocked(
+		dc.domain, dc.workflowID, dc.runID, "ExternalWorkflowExecutionSignaled", map[string]any{
+			eventAttrKey("ExternalWorkflowExecutionSignaled"): map[string]any{
+				attrInitiatedEvID: initiatedEventID,
+				attrWorkflowExec: map[string]any{
+					attrWorkflowID: target.WorkflowID, attrRunID: target.RunID,
+				},
 			},
-		},
-	})
+		})
 }
 
 // handleRequestCancelExternalWorkflowExecutionDecision actually requests
@@ -350,7 +360,7 @@ func (b *InMemoryBackend) handleRequestCancelExternalWorkflowExecutionDecision(d
 	}
 
 	initiatedEventID := b.appendHistoryEventLocked(
-		dc.domain, dc.workflowID, "RequestCancelExternalWorkflowExecutionInitiated", map[string]any{
+		dc.domain, dc.workflowID, dc.runID, "RequestCancelExternalWorkflowExecutionInitiated", map[string]any{
 			eventAttrKey("RequestCancelExternalWorkflowExecutionInitiated"): map[string]any{
 				attrDTCEventID: dc.decisionTaskCompletedEventID,
 				attrWorkflowID: attrs.WorkflowID,
@@ -359,11 +369,15 @@ func (b *InMemoryBackend) handleRequestCancelExternalWorkflowExecutionDecision(d
 			},
 		})
 
-	target, ok := b.executions.Get(dc.domain + ":" + attrs.WorkflowID)
-	if !ok || target.Status != statusRunning || (attrs.RunID != "" && target.RunID != attrs.RunID) {
+	// attrs.RunID empty means "the target workflowId's currently open run" --
+	// resolveExecutionLocked implements exactly that fallback; a non-empty
+	// RunID is pinned exactly, so no separate match check is needed here.
+	target, ok := b.resolveExecutionLocked(dc.domain, attrs.WorkflowID, attrs.RunID)
+	if !ok || target.Status != statusRunning {
 		b.appendHistoryEventLocked(
 			dc.domain,
 			dc.workflowID,
+			dc.runID,
 			"RequestCancelExternalWorkflowExecutionFailed",
 			map[string]any{
 				eventAttrKey("RequestCancelExternalWorkflowExecutionFailed"): map[string]any{
@@ -381,24 +395,26 @@ func (b *InMemoryBackend) handleRequestCancelExternalWorkflowExecutionDecision(d
 	}
 
 	target.CancelRequested = true
-	b.appendHistoryEventLocked(dc.domain, attrs.WorkflowID, "WorkflowExecutionCancelRequested", map[string]any{
-		eventAttrKey("WorkflowExecutionCancelRequested"): map[string]any{
-			"externalInitiatedEventId": initiatedEventID,
-			"externalWorkflowExecution": map[string]any{
-				attrWorkflowID: dc.workflowID, attrRunID: dc.exec.RunID,
+	b.appendHistoryEventLocked(
+		dc.domain, attrs.WorkflowID, target.RunID, "WorkflowExecutionCancelRequested", map[string]any{
+			eventAttrKey("WorkflowExecutionCancelRequested"): map[string]any{
+				"externalInitiatedEventId": initiatedEventID,
+				"externalWorkflowExecution": map[string]any{
+					attrWorkflowID: dc.workflowID, attrRunID: dc.exec.RunID,
+				},
 			},
-		},
-	})
-	b.enqueueDecisionTaskLocked(dc.domain, attrs.WorkflowID)
+		})
+	b.enqueueDecisionTaskLocked(dc.domain, attrs.WorkflowID, target.RunID)
 
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ExternalWorkflowExecutionCancelRequested", map[string]any{
-		eventAttrKey("ExternalWorkflowExecutionCancelRequested"): map[string]any{
-			attrInitiatedEvID: initiatedEventID,
-			attrWorkflowExec: map[string]any{
-				attrWorkflowID: target.WorkflowID, attrRunID: target.RunID,
+	b.appendHistoryEventLocked(
+		dc.domain, dc.workflowID, dc.runID, "ExternalWorkflowExecutionCancelRequested", map[string]any{
+			eventAttrKey("ExternalWorkflowExecutionCancelRequested"): map[string]any{
+				attrInitiatedEvID: initiatedEventID,
+				attrWorkflowExec: map[string]any{
+					attrWorkflowID: target.WorkflowID, attrRunID: target.RunID,
+				},
 			},
-		},
-	})
+		})
 }
 
 // propagateChildClosureLocked appends the appropriate Child* closure event to
@@ -420,8 +436,14 @@ func (b *InMemoryBackend) propagateChildClosureLocked(
 	if child.ParentWorkflowID == "" {
 		return
 	}
-	parent, ok := b.executions.Get(domain + ":" + child.ParentWorkflowID)
-	if !ok || parent.RunID != child.ParentRunID || parent.Status != statusRunning {
+	// child.ParentRunID pins the exact parent run this child was started
+	// from, so this is a direct keyed lookup, not an ambiguous
+	// "currently open run" resolution -- a parent that has itself since
+	// continued-as-new (a different, newer run under the same workflowId)
+	// must NOT receive an event meant for the run that actually started
+	// this child.
+	parent, ok := b.executions.Get(executionKey(domain, child.ParentWorkflowID, child.ParentRunID))
+	if !ok || parent.Status != statusRunning {
 		return
 	}
 
@@ -438,8 +460,8 @@ func (b *InMemoryBackend) propagateChildClosureLocked(
 	}
 	maps.Copy(attrs, extra)
 
-	b.appendHistoryEventLocked(domain, child.ParentWorkflowID, eventType, map[string]any{
+	b.appendHistoryEventLocked(domain, child.ParentWorkflowID, parent.RunID, eventType, map[string]any{
 		eventAttrKey(eventType): attrs,
 	})
-	b.enqueueDecisionTaskLocked(domain, child.ParentWorkflowID)
+	b.enqueueDecisionTaskLocked(domain, child.ParentWorkflowID, parent.RunID)
 }

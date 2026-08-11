@@ -44,6 +44,7 @@ func (b *InMemoryBackend) newManualSnapshotLocked(snapshotID string, inst *DBIns
 	snap := &DBSnapshot{
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: snapshotID,
+		DBSnapshotArn:        b.rdsARN("snapshot", snapshotID),
 		DBInstanceIdentifier: inst.DBInstanceIdentifier,
 		DbiResourceID:        inst.DbiResourceID,
 		Engine:               inst.Engine,
@@ -221,6 +222,7 @@ func (b *InMemoryBackend) CopyDBSnapshot(
 	snap := &DBSnapshot{
 		SnapshotCreateTime:   time.Now().UTC(),
 		DBSnapshotIdentifier: targetSnapshotID,
+		DBSnapshotArn:        b.rdsARN("snapshot", targetSnapshotID),
 		DBInstanceIdentifier: src.DBInstanceIdentifier,
 		DbiResourceID:        src.DbiResourceID,
 		Engine:               src.Engine,
@@ -294,6 +296,7 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 
 		inst := &DBInstance{
 			DBInstanceIdentifier: id,
+			DBInstanceArn:        b.rdsARN("db", id),
 			DbiResourceID:        id,
 			Engine:               snap.Engine,
 			EngineVersion:        snap.EngineVersion,

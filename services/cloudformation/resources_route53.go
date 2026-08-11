@@ -115,6 +115,8 @@ func (rc *ResourceCreator) createRoute53ResolverEndpoint(
 		"",
 		false,
 		false,
+		false,
+		false,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create Route53Resolver endpoint %s: %w", name, err)
@@ -160,6 +162,7 @@ func (rc *ResourceCreator) createRoute53ResolverRule(
 		domainName,
 		ruleType,
 		endpointID,
+		"",
 		"",
 		nil,
 	)

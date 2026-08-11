@@ -133,8 +133,12 @@ type ServiceBackends struct {
 	// CFN extensibility
 	WaitConditions *WaitConditionStore
 	MacroRegistry  *MacroRegistry
-	AccountID      string
-	Region         string
+	// ResilienceHub is declared as a local interface, not a concrete
+	// *resiliencehub.Handler, to avoid an import cycle -- see
+	// ResilienceHubBackend's doc comment in resources_resiliencehub.go.
+	ResilienceHub ResilienceHubBackend
+	AccountID     string
+	Region        string
 }
 
 // NestedStackCreator is a callback used to create and delete nested CloudFormation stacks.
@@ -2456,6 +2460,12 @@ func (rc *ResourceCreator) createExtraResource(
 		return id, true, err
 	}
 
+	if id, ok, err := rc.createResilienceHubSupplementalResource(
+		logicalID, resourceType, props, params, physicalIDs,
+	); ok {
+		return id, true, err
+	}
+
 	return rc.createExtraPlatformResource(ctx, logicalID, resourceType, props, params, physicalIDs)
 }
 
@@ -2493,6 +2503,10 @@ func (rc *ResourceCreator) deleteExtraResource(
 	}
 
 	if handled, err := rc.deleteAppSyncSupplementalResource(resourceType, physicalID); handled {
+		return true, err
+	}
+
+	if handled, err := rc.deleteResilienceHubSupplementalResource(resourceType, physicalID); handled {
 		return true, err
 	}
 

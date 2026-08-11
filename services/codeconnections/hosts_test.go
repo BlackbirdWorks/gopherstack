@@ -370,13 +370,21 @@ func TestHostCreate(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate name returns error",
+			// CreateHost has no ResourceAlreadyExistsException in its real
+			// error list (see TestCreateHostNameNotUnique), so a second
+			// create with the same name must also succeed.
+			name: "duplicate name also succeeds",
 			body: map[string]any{
 				"Name":             "dup-host",
 				"ProviderType":     "GitHubEnterpriseServer",
 				"ProviderEndpoint": "https://x.example.com",
 			},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, m map[string]any) {
+				t.Helper()
+
+				assert.NotEmpty(t, m["HostArn"])
+			},
 		},
 		{
 			name: "missing provider type returns error",
@@ -394,7 +402,7 @@ func TestHostCreate(t *testing.T) {
 
 			h := newHandlerFixedAccount(t)
 
-			if tt.name == "duplicate name returns error" {
+			if tt.name == "duplicate name also succeeds" {
 				rec := doJSON(t, h, "CreateHost", tt.body)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -532,27 +540,21 @@ func TestGetHostIncludesHostArn(t *testing.T) {
 	}
 }
 
-// TestCreateHostNameUniqueness verifies duplicate host names are rejected.
-func TestCreateHostNameUniqueness(t *testing.T) {
+// TestCreateHostNameNotUnique verifies a duplicate host Name is accepted, not
+// rejected. CreateHost's real error list is exactly [LimitExceededException]
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 deserializers.go:237-241,
+// awsAwsjson10_deserializeOpErrorCreateHost's own switch) -- no
+// ResourceAlreadyExistsException, so a real client's second create call for
+// the same name succeeds with a distinct ARN.
+func TestCreateHostNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		hostName      string
-		wantDuplicate bool
-		wantStatus    int
+		name     string
+		hostName string
 	}{
-		{
-			name:       "unique_name_succeeds",
-			hostName:   "unique-host",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:          "duplicate_name_rejected",
-			hostName:      "dup-host",
-			wantDuplicate: true,
-			wantStatus:    http.StatusBadRequest,
-		},
+		{name: "unique_name_succeeds", hostName: "unique-host"},
+		{name: "duplicate_name_also_succeeds", hostName: "dup-host"},
 	}
 
 	for _, tt := range tests {
@@ -560,16 +562,17 @@ func TestCreateHostNameUniqueness(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			if tt.wantDuplicate {
-				createHost(t, h, tt.hostName, "GitHubEnterpriseServer", "https://a.example.com")
-			}
+			arn1 := createHost(t, h, tt.hostName, "GitHubEnterpriseServer", "https://a.example.com")
 
 			rec := doJSON(t, h, "CreateHost", map[string]any{
 				"Name":             tt.hostName,
 				"ProviderType":     "GitHubEnterpriseServer",
 				"ProviderEndpoint": "https://b.example.com",
 			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			arn2 := parseResp(t, rec)["HostArn"].(string)
+			assert.NotEqual(t, arn1, arn2, "duplicate-named hosts must still get distinct ARNs")
 		})
 	}
 }

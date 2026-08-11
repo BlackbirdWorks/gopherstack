@@ -618,7 +618,10 @@ func TestBackend_GenerateVersionID(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{SecretID: "uuid-ver"})
+	_, err = b.RotateSecret(context.Background(), &secretsmanager.RotateSecretInput{
+		SecretID:          "uuid-ver",
+		RotationLambdaARN: testLambdaARN,
+	})
 	require.NoError(t, err)
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "uuid-ver"})

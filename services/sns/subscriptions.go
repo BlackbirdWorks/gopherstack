@@ -104,7 +104,7 @@ func (b *InMemoryBackend) Subscribe(
 		return nil, parseErr
 	}
 
-	b.mu.Lock("Subscribe")
+	b.mu.Lock(opSubscribe)
 	defer b.mu.Unlock()
 
 	topic, exists := b.topics.Get(topicArn)

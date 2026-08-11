@@ -2,7 +2,6 @@ package integration_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -50,12 +49,15 @@ func TestIntegration_DDB_LocalSecondaryIndex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		client.DeleteTable(
-			t.Context(),
+			cleanupCtx,
 			&dynamodb.DeleteTableInput{TableName: aws.String(tableName)},
 		)
 	})
-	time.Sleep(10 * time.Millisecond)
+	waitForDDBTableActive(t, client, tableName)
 
 	// Seed: PK=A, SK=1/lsi_sk=50, SK=2/lsi_sk=40, SK=3/lsi_sk=30
 	for _, v := range []struct{ sk, lsiSk string }{{"1", "50"}, {"2", "40"}, {"3", "30"}} {

@@ -7,6 +7,9 @@ type UserPoolDomain struct {
 	CloudFrontDistribution string `json:"cloudFrontDistribution,omitempty"`
 	CertificateArn         string `json:"certificateArn,omitempty"`
 	Status                 string `json:"status,omitempty"`
+	S3Bucket               string `json:"s3Bucket,omitempty"`
+	AWSAccountID           string `json:"awsAccountID,omitempty"`
+	ManagedLoginVersion    int32  `json:"managedLoginVersion,omitempty"`
 }
 
 type customDomainConfigJSON struct {
@@ -14,23 +17,27 @@ type customDomainConfigJSON struct {
 }
 
 type createUserPoolDomainFullInput struct {
-	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
-	UserPoolID         string                  `json:"UserPoolId,omitempty"`
-	Domain             string                  `json:"Domain,omitempty"`
+	CustomDomainConfig  *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
+	ManagedLoginVersion *int32                  `json:"ManagedLoginVersion,omitempty"`
+	UserPoolID          string                  `json:"UserPoolId,omitempty"`
+	Domain              string                  `json:"Domain,omitempty"`
 }
 
 type createUserPoolDomainFullOutput struct {
-	CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
+	ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
+	CloudFrontDomain    string `json:"CloudFrontDomain,omitempty"`
 }
 
 type updateUserPoolDomainFullInput struct {
-	CustomDomainConfig *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
-	UserPoolID         string                  `json:"UserPoolId,omitempty"`
-	Domain             string                  `json:"Domain,omitempty"`
+	CustomDomainConfig  *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
+	ManagedLoginVersion *int32                  `json:"ManagedLoginVersion,omitempty"`
+	UserPoolID          string                  `json:"UserPoolId,omitempty"`
+	Domain              string                  `json:"Domain,omitempty"`
 }
 
 type updateUserPoolDomainFullOutput struct {
-	CloudFrontDomain string `json:"CloudFrontDomain,omitempty"`
+	ManagedLoginVersion *int32 `json:"ManagedLoginVersion,omitempty"`
+	CloudFrontDomain    string `json:"CloudFrontDomain,omitempty"`
 }
 
 type createUserPoolDomainInput struct {
@@ -55,10 +62,13 @@ type describeUserPoolDomainInput struct {
 
 type userPoolDomainDescription struct {
 	CustomDomainConfig     *customDomainConfigJSON `json:"CustomDomainConfig,omitempty"`
+	ManagedLoginVersion    *int32                  `json:"ManagedLoginVersion,omitempty"`
 	Domain                 string                  `json:"Domain,omitempty"`
 	UserPoolID             string                  `json:"UserPoolId,omitempty"`
 	Status                 string                  `json:"Status,omitempty"`
 	CloudFrontDistribution string                  `json:"CloudFrontDistribution,omitempty"`
+	AWSAccountID           string                  `json:"AWSAccountId,omitempty"`
+	S3Bucket               string                  `json:"S3Bucket,omitempty"`
 }
 
 type describeUserPoolDomainOutput struct {

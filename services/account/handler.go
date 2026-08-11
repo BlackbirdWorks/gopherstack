@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -22,20 +23,22 @@ const (
 	accountService = "account"
 	matchPriority  = service.PriorityPathVersioned
 
-	pathGetContactInformation    = "/getContactInformation"
-	pathPutContactInformation    = "/putContactInformation"
-	pathGetAlternateContact      = "/getAlternateContact"
-	pathPutAlternateContact      = "/putAlternateContact"
-	pathDeleteAlternateContact   = "/deleteAlternateContact"
-	pathListRegions              = "/listRegions"
-	pathGetRegionOptStatus       = "/getRegionOptStatus"
-	pathEnableRegion             = "/enableRegion"
-	pathDisableRegion            = "/disableRegion"
-	pathGetPrimaryEmail          = "/getPrimaryEmail"
-	pathStartPrimaryEmailUpdate  = "/startPrimaryEmailUpdate"
-	pathAcceptPrimaryEmailUpdate = "/acceptPrimaryEmailUpdate"
-	pathGetAccountInformation    = "/getAccountInformation"
-	pathPutAccountName           = "/putAccountName"
+	pathGetContactInformation         = "/getContactInformation"
+	pathPutContactInformation         = "/putContactInformation"
+	pathGetAlternateContact           = "/getAlternateContact"
+	pathPutAlternateContact           = "/putAlternateContact"
+	pathDeleteAlternateContact        = "/deleteAlternateContact"
+	pathListRegions                   = "/listRegions"
+	pathGetRegionOptStatus            = "/getRegionOptStatus"
+	pathEnableRegion                  = "/enableRegion"
+	pathDisableRegion                 = "/disableRegion"
+	pathGetPrimaryEmail               = "/getPrimaryEmail"
+	pathStartPrimaryEmailUpdate       = "/startPrimaryEmailUpdate"
+	pathAcceptPrimaryEmailUpdate      = "/acceptPrimaryEmailUpdate"
+	pathGetAccountInformation         = "/getAccountInformation"
+	pathPutAccountName                = "/putAccountName"
+	pathGetPrimaryEmailUpdateStatus   = "/getPrimaryEmailUpdateStatus"
+	pathGetGovCloudAccountInformation = "/getGovCloudAccountInformation"
 
 	// amznErrorTypeHeader carries the modeled exception type in the AWS
 	// rest-json protocol. SDK clients resolve the exception from this
@@ -48,25 +51,28 @@ const (
 
 	keyAccountID    = "AccountId"
 	keyPrimaryEmail = "PrimaryEmail"
+	keyStatus       = "Status"
 )
 
 // operationNames maps each fixed request path to its AWS operation name.
 // Every operation is POST-only, so the path alone identifies the operation.
 var operationNames = map[string]string{ //nolint:gochecknoglobals // package-level lookup table; immutable after init
-	pathGetContactInformation:    "GetContactInformation",
-	pathPutContactInformation:    "PutContactInformation",
-	pathGetAlternateContact:      "GetAlternateContact",
-	pathPutAlternateContact:      "PutAlternateContact",
-	pathDeleteAlternateContact:   "DeleteAlternateContact",
-	pathListRegions:              "ListRegions",
-	pathGetRegionOptStatus:       "GetRegionOptStatus",
-	pathEnableRegion:             "EnableRegion",
-	pathDisableRegion:            "DisableRegion",
-	pathGetPrimaryEmail:          "GetPrimaryEmail",
-	pathStartPrimaryEmailUpdate:  "StartPrimaryEmailUpdate",
-	pathAcceptPrimaryEmailUpdate: "AcceptPrimaryEmailUpdate",
-	pathGetAccountInformation:    "GetAccountInformation",
-	pathPutAccountName:           "PutAccountName",
+	pathGetContactInformation:         "GetContactInformation",
+	pathPutContactInformation:         "PutContactInformation",
+	pathGetAlternateContact:           "GetAlternateContact",
+	pathPutAlternateContact:           "PutAlternateContact",
+	pathDeleteAlternateContact:        "DeleteAlternateContact",
+	pathListRegions:                   "ListRegions",
+	pathGetRegionOptStatus:            "GetRegionOptStatus",
+	pathEnableRegion:                  "EnableRegion",
+	pathDisableRegion:                 "DisableRegion",
+	pathGetPrimaryEmail:               "GetPrimaryEmail",
+	pathStartPrimaryEmailUpdate:       "StartPrimaryEmailUpdate",
+	pathAcceptPrimaryEmailUpdate:      "AcceptPrimaryEmailUpdate",
+	pathGetAccountInformation:         "GetAccountInformation",
+	pathPutAccountName:                "PutAccountName",
+	pathGetPrimaryEmailUpdateStatus:   "GetPrimaryEmailUpdateStatus",
+	pathGetGovCloudAccountInformation: "GetGovCloudAccountInformation",
 }
 
 // Handler implements service.Registerable for the AWS Account Management API.
@@ -102,6 +108,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		"AcceptPrimaryEmailUpdate",
 		"GetAccountInformation",
 		"PutAccountName",
+		"GetPrimaryEmailUpdateStatus",
+		"GetGovCloudAccountInformation",
 	}
 }
 
@@ -158,20 +166,22 @@ type handlerFunc func(*Handler, *echo.Context, []byte) error
 //
 //nolint:gochecknoglobals // immutable lookup table
 var operationHandlers = map[string]handlerFunc{
-	pathGetContactInformation:    (*Handler).handleGetContactInformation,
-	pathPutContactInformation:    (*Handler).handlePutContactInformation,
-	pathGetAlternateContact:      (*Handler).handleGetAlternateContact,
-	pathPutAlternateContact:      (*Handler).handlePutAlternateContact,
-	pathDeleteAlternateContact:   (*Handler).handleDeleteAlternateContact,
-	pathListRegions:              (*Handler).handleListRegions,
-	pathGetRegionOptStatus:       (*Handler).handleGetRegionOptStatus,
-	pathEnableRegion:             (*Handler).handleEnableRegion,
-	pathDisableRegion:            (*Handler).handleDisableRegion,
-	pathGetPrimaryEmail:          (*Handler).handleGetPrimaryEmail,
-	pathStartPrimaryEmailUpdate:  (*Handler).handleStartPrimaryEmailUpdate,
-	pathAcceptPrimaryEmailUpdate: (*Handler).handleAcceptPrimaryEmailUpdate,
-	pathGetAccountInformation:    (*Handler).handleGetAccountInformation,
-	pathPutAccountName:           (*Handler).handlePutAccountName,
+	pathGetContactInformation:         (*Handler).handleGetContactInformation,
+	pathPutContactInformation:         (*Handler).handlePutContactInformation,
+	pathGetAlternateContact:           (*Handler).handleGetAlternateContact,
+	pathPutAlternateContact:           (*Handler).handlePutAlternateContact,
+	pathDeleteAlternateContact:        (*Handler).handleDeleteAlternateContact,
+	pathListRegions:                   (*Handler).handleListRegions,
+	pathGetRegionOptStatus:            (*Handler).handleGetRegionOptStatus,
+	pathEnableRegion:                  (*Handler).handleEnableRegion,
+	pathDisableRegion:                 (*Handler).handleDisableRegion,
+	pathGetPrimaryEmail:               (*Handler).handleGetPrimaryEmail,
+	pathStartPrimaryEmailUpdate:       (*Handler).handleStartPrimaryEmailUpdate,
+	pathAcceptPrimaryEmailUpdate:      (*Handler).handleAcceptPrimaryEmailUpdate,
+	pathGetAccountInformation:         (*Handler).handleGetAccountInformation,
+	pathPutAccountName:                (*Handler).handlePutAccountName,
+	pathGetPrimaryEmailUpdateStatus:   (*Handler).handleGetPrimaryEmailUpdateStatus,
+	pathGetGovCloudAccountInformation: (*Handler).handleGetGovCloudAccountInformation,
 }
 
 func (h *Handler) route(c *echo.Context) error {
@@ -505,7 +515,7 @@ func (h *Handler) handleStartPrimaryEmailUpdate(c *echo.Context, body []byte) er
 		return writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Status": "PENDING"})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: PrimaryEmailUpdateStatusPending})
 }
 
 func (h *Handler) handleAcceptPrimaryEmailUpdate(c *echo.Context, body []byte) error {
@@ -534,7 +544,7 @@ func (h *Handler) handleAcceptPrimaryEmailUpdate(c *echo.Context, body []byte) e
 		return writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"Status": "ACCEPTED"})
+	return c.JSON(http.StatusOK, map[string]any{keyStatus: PrimaryEmailUpdateStatusAccepted})
 }
 
 func (h *Handler) handleGetAccountInformation(c *echo.Context, body []byte) error {
@@ -578,6 +588,46 @@ func (h *Handler) handlePutAccountName(c *echo.Context, body []byte) error {
 	return c.NoContent(http.StatusOK)
 }
 
+func (h *Handler) handleGetPrimaryEmailUpdateStatus(c *echo.Context, body []byte) error {
+	var req struct {
+		AccountID string `json:"AccountId"`
+	}
+
+	if err := decodeJSON(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	status, updatedAt, err := h.Backend.GetPrimaryEmailUpdateStatus()
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		keyStatus:   status,
+		"UpdatedAt": awstime.Epoch(updatedAt),
+	})
+}
+
+func (h *Handler) handleGetGovCloudAccountInformation(c *echo.Context, body []byte) error {
+	var req struct {
+		StandardAccountID string `json:"StandardAccountId"`
+	}
+
+	if err := decodeJSON(body, &req); err != nil {
+		return writeError(c, http.StatusBadRequest, "ValidationException", err.Error())
+	}
+
+	govCloudAccountID, state, err := h.Backend.GetGovCloudAccountInformation()
+	if err != nil {
+		return writeBackendError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"GovCloudAccountId": govCloudAccountID,
+		"AccountState":      state,
+	})
+}
+
 // errMissingRegionName is returned by decodeRegionNameRequest when the
 // request body omits the required RegionName field.
 var errMissingRegionName = errors.New("RegionName is required")
@@ -615,6 +665,8 @@ func writeBackendError(c *echo.Context, err error) error {
 		code, status = "AccessDeniedException", http.StatusForbidden
 	case strings.Contains(err.Error(), "TooManyRequestsException"):
 		code, status = "TooManyRequestsException", http.StatusTooManyRequests
+	case strings.Contains(err.Error(), "ResourceUnavailableException"):
+		code, status = "ResourceUnavailableException", http.StatusFailedDependency
 	}
 
 	return writeError(c, status, code, err.Error())

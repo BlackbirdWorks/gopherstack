@@ -12,6 +12,7 @@ func (b *InMemoryBackend) createImageLocked(
 	tags map[string]string,
 ) *storedImage {
 	id := b.nextID("wsi-")
+	stored := cloneTags(tags)
 	img := &storedImage{
 		ImageID:       id,
 		Name:          name,
@@ -19,9 +20,10 @@ func (b *InMemoryBackend) createImageLocked(
 		State:         "AVAILABLE",
 		SourceImageID: sourceImageID,
 		Created:       time.Now().UTC(),
-		Tags:          cloneTags(tags),
+		Tags:          stored,
 	}
 	b.images.Put(img)
+	b.tags[id] = stored
 
 	return img
 }

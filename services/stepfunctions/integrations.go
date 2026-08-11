@@ -1,6 +1,7 @@
 package stepfunctions
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -105,6 +106,32 @@ func (a *s3Adapter) GetObjectBytes(ctx context.Context, bucket, key string) ([]b
 	}
 
 	return data, nil
+}
+
+// s3ResultWriterAdapter adapts s3.StorageBackend to asl.S3Writer, used to
+// export Distributed Map ResultWriter output to S3.
+type s3ResultWriterAdapter struct {
+	backend s3pkg.StorageBackend
+}
+
+// Compile-time assertion: s3ResultWriterAdapter must implement asl.S3Writer.
+var _ asl.S3Writer = (*s3ResultWriterAdapter)(nil)
+
+// NewS3ResultWriterIntegration creates an S3 integration adapter for
+// Distributed Map ResultWriter.
+func NewS3ResultWriterIntegration(backend s3pkg.StorageBackend) asl.S3Writer {
+	return &s3ResultWriterAdapter{backend: backend}
+}
+
+// PutObjectBytes implements asl.S3Writer.
+func (a *s3ResultWriterAdapter) PutObjectBytes(ctx context.Context, bucket, key string, data []byte) error {
+	_, err := a.backend.PutObject(ctx, &awss3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Body:   bytes.NewReader(data),
+	})
+
+	return err
 }
 
 // convertViaJSON converts a value to a target type by marshaling to JSON and back.

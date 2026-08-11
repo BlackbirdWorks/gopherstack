@@ -188,7 +188,7 @@ func TestGetKeyLastUsage_Via_Handler(t *testing.T) {
 // TestGetKeyLastUsage_RejectsAliasKeyID verifies that GetKeyLastUsage rejects
 // alias-form KeyId values -- even a bare alias name or alias ARN that
 // resolves to a real, existing key -- with a ValidationException. Per the
-// real aws-sdk-go-v2/service/kms@v1.54.0 GetKeyLastUsageInput doc comment:
+// real aws-sdk-go-v2/service/kms@v1.55.4 GetKeyLastUsageInput doc comment:
 // "Specify the key ID or key ARN of the KMS key... Alias names are not
 // supported." This is a field-level constraint most other KeyId-accepting
 // KMS operations (DescribeKey, Encrypt, Sign, ...) do NOT share -- those

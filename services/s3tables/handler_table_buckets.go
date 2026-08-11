@@ -68,7 +68,7 @@ func (h *Handler) handleGetTableBucket(ctx context.Context, r *http.Request, _ [
 		keyArn:            tb.ARN,
 		keyName:           tb.Name,
 		keyOwnerAccountID: tb.OwnerAccountID,
-		keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+		keyCreatedAt:      tb.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 		keyType:           bucketTypeCustomer,
 	})
 }
@@ -111,7 +111,7 @@ func (h *Handler) handleListTableBuckets(ctx context.Context, r *http.Request, _
 			keyArn:            tb.ARN,
 			keyName:           tb.Name,
 			keyOwnerAccountID: tb.OwnerAccountID,
-			keyCreatedAt:      tb.CreatedAt.Format("2006-01-02T15:04:05.999Z"),
+			keyCreatedAt:      tb.CreatedAt.UTC().Format("2006-01-02T15:04:05.999Z"),
 			keyType:           bucketTypeCustomer,
 		})
 	}

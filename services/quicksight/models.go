@@ -166,11 +166,11 @@ func (d *storedDashboard) toDashboard() *Dashboard {
 // storedRefreshSchedule is the persisted representation of one dataset SPICE
 // refresh schedule, keyed by ScheduleId.
 type storedRefreshSchedule struct {
+	StartAfterDateTime time.Time      `json:"startAfterDateTime,omitzero"`
 	ScheduleFrequency  map[string]any `json:"scheduleFrequency,omitempty"`
 	ScheduleID         string         `json:"scheduleId"`
 	Arn                string         `json:"arn"`
 	RefreshType        string         `json:"refreshType"`
-	StartAfterDateTime string         `json:"startAfterDateTime,omitempty"`
 }
 
 func (s *storedRefreshSchedule) toRefreshSchedule() *RefreshSchedule {

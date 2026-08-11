@@ -146,6 +146,35 @@ func TestHandler_UpdateSamplingRule(t *testing.T) {
 	}
 }
 
+func TestHandler_UpdateSamplingRule_Attributes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	_, err := h.Backend.CreateSamplingRule(
+		xray.SamplingRule{RuleName: "attr-rule", FixedRate: 0.05, Priority: 1},
+	)
+	require.NoError(t, err)
+
+	rec := doXrayRequest(t, h, "/UpdateSamplingRule", map[string]any{
+		"SamplingRuleUpdate": map[string]any{
+			"RuleName":   "attr-rule",
+			"Attributes": map[string]string{"env": "prod"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		SamplingRuleRecord struct {
+			SamplingRule struct {
+				Attributes map[string]string `json:"Attributes"`
+			} `json:"SamplingRule"`
+		} `json:"SamplingRuleRecord"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, map[string]string{"env": "prod"}, resp.SamplingRuleRecord.SamplingRule.Attributes)
+}
+
 func TestHandler_DeleteSamplingRule(t *testing.T) {
 	t.Parallel()
 
@@ -785,25 +814,5 @@ func TestSamplingRule_DefaultRuleUndeletableByARN(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-// TestCreateSamplingRule_RuleLimitExceeded verifies the previously-unenforced
-// RuleLimitExceededException cap on the number of sampling rules per account.
-func TestCreateSamplingRule_RuleLimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	h, b := newTestHandlerWithBackend(t)
-
-	// Seed up to the limit directly (bypassing validation) for speed; the Default
-	// rule already counts toward the limit.
-	for i := b.SamplingRuleCount(); i < xray.SamplingRuleLimitForTest(); i++ {
-		b.AddSamplingRuleInternal(xray.SamplingRule{RuleName: fmt.Sprintf("seed-%d", i), Priority: 1})
-	}
-
-	rec := doXrayRequest(t, h, "/CreateSamplingRule", map[string]any{
-		"SamplingRule": map[string]any{"RuleName": "one-too-many", "Priority": 1, "FixedRate": 0.1},
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-
-	var resp map[string]string
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "RuleLimitExceededException", resp["__type"])
-}
+// TestCreateSamplingRule_RuleLimitExceeded lives in whitebox_test.go: it
+// needs direct access to the unexported maxSamplingRules constant.

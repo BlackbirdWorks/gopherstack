@@ -58,8 +58,10 @@ func (h *Handler) handleAuthorizeEndpointAccess(vals url.Values) (any, error) {
 
 // ---- DescribeEndpointAuthorization ----
 
+// redshift@v1.65.4 deserializers.go:30628 wraps each entry in <member>,
+// not <EndpointAuthorization>.
 type xmlEndpointAuthorizationList struct {
-	Members []xmlEndpointAuthorization `xml:"EndpointAuthorization"`
+	Members []xmlEndpointAuthorization `xml:"member"`
 }
 
 type describeEndpointAuthorizationResponse struct {

@@ -92,3 +92,30 @@ func (b *InMemoryBackend) ListTags(
 
 	return result, outToken, nil
 }
+
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every stack or layer ARN with at least one tag,
+// for the resourcegroupstaggingapi integration (cli.go's wireTaggingOpsWorks).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceARN, t := range b.tags {
+		if len(t) == 0 {
+			continue
+		}
+
+		tagsCopy := make(map[string]string, len(t))
+		maps.Copy(tagsCopy, t)
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: tagsCopy})
+	}
+
+	return out
+}

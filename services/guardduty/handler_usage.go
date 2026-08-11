@@ -35,11 +35,18 @@ func (h *Handler) handleGetUsageStatistics(detectorID string, body []byte) (any,
 	return stats, http.StatusOK, nil
 }
 
-func (h *Handler) handleGetRemainingFreeTrialDays(
-	detectorID string,
-	body []byte, //nolint:revive,unparam // existing issue.
-) (any, int, error) {
-	result, err := h.Backend.GetRemainingFreeTrialDays(detectorID)
+func (h *Handler) handleGetRemainingFreeTrialDays(detectorID string, body []byte) (any, int, error) {
+	var req struct {
+		AccountIDs []string `json:"accountIds"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, http.StatusBadRequest, ErrValidation
+		}
+	}
+
+	result, err := h.Backend.GetRemainingFreeTrialDays(detectorID, req.AccountIDs)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}

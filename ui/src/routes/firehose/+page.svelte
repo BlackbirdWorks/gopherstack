@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getFirehoseClient } from '$lib/aws-client';
 	import {
 		ListDeliveryStreamsCommand,
@@ -24,9 +27,15 @@
 
 	const firehose = regionalClient(getFirehoseClient);
 
+	// Every row carries the region its List/DescribeDeliveryStream call was
+	// made against. Row and detail actions must use THIS region, not the
+	// page's shared `firehose()` client -- in All mode the same delivery
+	// stream name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let streamNames = $state<string[]>([]);
-	let selectedStream = $state<DeliveryStreamDescription | null>(null);
+	let streamNames = $state<{ name: string; region: string }[]>([]);
+	let selectedStream = $state<Regioned<DeliveryStreamDescription> | null>(null);
 	let loadingDetail = $state(false);
 	let activeTab = $state<'overview' | 'destinations' | 'tags' | 'encryption' | 'put'>('overview');
 	let searchQuery = $state('');
@@ -76,7 +85,7 @@
 	let newKmsKeyArn = $state('');
 
 	const filteredNames = $derived(
-		streamNames.filter((n) => !searchQuery || n.toLowerCase().includes(searchQuery.toLowerCase()))
+		streamNames.filter((n) => !searchQuery || n.name.toLowerCase().includes(searchQuery.toLowerCase()))
 	);
 
 	const statusColor = (status: string | undefined) => {
@@ -87,11 +96,17 @@
 		return 'gray';
 	};
 
+	// Fans ListDeliveryStreams out across every region with data in All mode
+	// (single-region mode collapses to exactly one call).
 	async function loadStreams() {
 		loading = true;
 		try {
-			const resp = await firehose().send(new ListDeliveryStreamsCommand({ Limit: 50 }));
-			streamNames = resp.DeliveryStreamNames ?? [];
+			const result = await multiRegionList(
+				(region) => getFirehoseClient(region).send(new ListDeliveryStreamsCommand({ Limit: 50 })),
+				(r) => r.DeliveryStreamNames ?? []
+			);
+			streamNames = result.items.map(({ region, item }) => ({ name: item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load streams from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error('Failed to load streams: ' + String(e));
 		} finally {
@@ -99,14 +114,14 @@
 		}
 	}
 
-	async function selectStream(name: string) {
+	async function selectStream(name: string, region: string) {
 		loadingDetail = true;
 		try {
-			const resp = await firehose().send(new DescribeDeliveryStreamCommand({ DeliveryStreamName: name }));
-			selectedStream = resp.DeliveryStreamDescription ?? null;
+			const resp = await getFirehoseClient(region).send(new DescribeDeliveryStreamCommand({ DeliveryStreamName: name }));
+			selectedStream = resp.DeliveryStreamDescription ? { ...resp.DeliveryStreamDescription, region } : null;
 			activeTab = 'overview';
 			tagList = [];
-			void loadTags(name);
+			void loadTags(name, region);
 		} catch (e) {
 			toast.error('Failed to load stream details: ' + String(e));
 		} finally {
@@ -153,10 +168,10 @@
 		newBufferInterval = 300;
 	}
 
-	async function deleteStream(name: string) {
+	async function deleteStream(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Delivery Stream', message: `Delete delivery stream "${name}"? In-flight records may be lost.` })) return;
 		try {
-			await firehose().send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
+			await getFirehoseClient(region).send(new DeleteDeliveryStreamCommand({ DeliveryStreamName: name }));
 			toast.success(`Stream "${name}" deleted`);
 			if (selectedStream?.DeliveryStreamName === name) selectedStream = null;
 			await loadStreams();
@@ -170,7 +185,7 @@
 		puttingRecord = true;
 		putResult = '';
 		try {
-			const resp = await firehose().send(new PutRecordCommand({
+			const resp = await getFirehoseClient(selectedStream.region).send(new PutRecordCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Record: { Data: new TextEncoder().encode(putData.trim()) }
 			}));
@@ -193,7 +208,7 @@
 		puttingRecord = true;
 		batchResult = null;
 		try {
-			const resp = await firehose().send(new PutRecordBatchCommand({
+			const resp = await getFirehoseClient(selectedStream.region).send(new PutRecordBatchCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Records: batchLines.map((line) => ({ Data: new TextEncoder().encode(line) }))
 			}));
@@ -215,7 +230,7 @@
 		if (!selectedStream?.DeliveryStreamName) return;
 		managingEncryption = true;
 		try {
-			await firehose().send(new StartDeliveryStreamEncryptionCommand({
+			await getFirehoseClient(selectedStream.region).send(new StartDeliveryStreamEncryptionCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				DeliveryStreamEncryptionConfigurationInput: {
 					KeyType: newKmsKeyArn.trim() ? 'CUSTOMER_MANAGED_CMK' : 'AWS_OWNED_CMK',
@@ -224,7 +239,7 @@
 			}));
 			toast.success('Started delivery stream encryption update');
 			newKmsKeyArn = '';
-			await selectStream(selectedStream.DeliveryStreamName);
+			await selectStream(selectedStream.DeliveryStreamName, selectedStream.region);
 		} catch (e) {
 			toast.error('Failed to update encryption: ' + String(e));
 		} finally {
@@ -237,11 +252,11 @@
 		if (!await confirmDestructive({ title: 'Stop Encryption', message: `Stop encryption for delivery stream "${selectedStream.DeliveryStreamName}"?` })) return;
 		managingEncryption = true;
 		try {
-			await firehose().send(new StopDeliveryStreamEncryptionCommand({
+			await getFirehoseClient(selectedStream.region).send(new StopDeliveryStreamEncryptionCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName
 			}));
 			toast.success('Stopped delivery stream encryption');
-			await selectStream(selectedStream.DeliveryStreamName);
+			await selectStream(selectedStream.DeliveryStreamName, selectedStream.region);
 		} catch (e) {
 			toast.error('Failed to stop encryption: ' + String(e));
 		} finally {
@@ -264,10 +279,10 @@
 		return 'Unknown destination';
 	}
 
-	async function loadTags(name: string) {
+	async function loadTags(name: string, region: string) {
 		loadingTags = true;
 		try {
-			const resp = await firehose().send(new ListTagsForDeliveryStreamCommand({ DeliveryStreamName: name }));
+			const resp = await getFirehoseClient(region).send(new ListTagsForDeliveryStreamCommand({ DeliveryStreamName: name }));
 			tagList = (resp.Tags ?? []).map((t) => ({ Key: t.Key ?? '', Value: t.Value ?? '' }));
 		} catch (e) {
 			toast.error('Failed to load tags: ' + String(e));
@@ -280,14 +295,14 @@
 		if (!selectedStream?.DeliveryStreamName || !newTagKey.trim()) return;
 		savingTag = true;
 		try {
-			await firehose().send(new TagDeliveryStreamCommand({
+			await getFirehoseClient(selectedStream.region).send(new TagDeliveryStreamCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				Tags: [{ Key: newTagKey.trim(), Value: newTagValue.trim() }]
 			}));
 			toast.success(`Tag "${newTagKey}" applied`);
 			newTagKey = '';
 			newTagValue = '';
-			await loadTags(selectedStream.DeliveryStreamName);
+			await loadTags(selectedStream.DeliveryStreamName, selectedStream.region);
 		} catch (e) {
 			toast.error('Failed to add tag: ' + String(e));
 		} finally {
@@ -298,12 +313,12 @@
 	async function removeTag(key: string) {
 		if (!selectedStream?.DeliveryStreamName) return;
 		try {
-			await firehose().send(new UntagDeliveryStreamCommand({
+			await getFirehoseClient(selectedStream.region).send(new UntagDeliveryStreamCommand({
 				DeliveryStreamName: selectedStream.DeliveryStreamName,
 				TagKeys: [key]
 			}));
 			toast.success(`Tag "${key}" removed`);
-			await loadTags(selectedStream.DeliveryStreamName);
+			await loadTags(selectedStream.DeliveryStreamName, selectedStream.region);
 		} catch (e) {
 			toast.error('Failed to remove tag: ' + String(e));
 		}
@@ -351,10 +366,10 @@
 					HECToken: updSplunkToken.trim() || undefined
 				};
 			}
-			await firehose().send(new UpdateDestinationCommand(cmd));
+			await getFirehoseClient(selectedStream.region).send(new UpdateDestinationCommand(cmd));
 			toast.success('Destination updated');
 			showUpdateDest = false;
-			await selectStream(selectedStream.DeliveryStreamName);
+			await selectStream(selectedStream.DeliveryStreamName, selectedStream.region);
 		} catch (e) {
 			toast.error('Failed to update destination: ' + String(e));
 		} finally {
@@ -396,6 +411,7 @@
 			<button onclick={loadStreams} class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm">
 				<RefreshCw class="w-4 h-4" /> Refresh
 			</button>
+			<WriteRegionHint />
 			<button onclick={() => (showCreateStream = true)} class="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 text-sm font-medium">
 				<Plus class="w-4 h-4" /> Create Stream
 			</button>
@@ -448,6 +464,7 @@
 			<button onclick={() => { selectedStream = null; }} class="text-red-600 hover:underline">Delivery Streams</button>
 			<ChevronRight class="w-4 h-4 text-gray-400" />
 			<span class="text-gray-600 dark:text-gray-300 font-medium">{selectedStream.DeliveryStreamName}</span>
+			<RegionChip region={selectedStream.region} />
 			<span class={`ml-2 px-2 py-0.5 rounded text-xs font-medium bg-${statusColor(selectedStream.DeliveryStreamStatus)}-100 text-${statusColor(selectedStream.DeliveryStreamStatus)}-700`}>
 				{selectedStream.DeliveryStreamStatus}
 			</span>
@@ -463,7 +480,7 @@
 					{label}
 				</button>
 			{/each}
-			<button onclick={() => deleteStream(selectedStream?.DeliveryStreamName ?? '')} class="ml-auto px-4 py-2 text-sm text-red-500 hover:underline">Delete</button>
+			<button onclick={() => deleteStream(selectedStream?.DeliveryStreamName ?? '', selectedStream?.region ?? '')} class="ml-auto px-4 py-2 text-sm text-red-500 hover:underline">Delete</button>
 		</div>
 
 		{#if activeTab === 'overview'}
@@ -846,17 +863,19 @@
 					<thead class="bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase text-xs">
 						<tr>
 							<th class="px-4 py-3 text-left">Stream Name</th>
+							<th class="px-4 py-3 text-left">Region</th>
 							<th class="px-4 py-3 text-left">Actions</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-						{#each filteredNames as name}
+						{#each filteredNames as stream}
 							<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
 								<td class="px-4 py-3">
-									<button onclick={() => selectStream(name)} class="text-red-600 dark:text-red-400 hover:underline font-medium">{name}</button>
+									<button onclick={() => selectStream(stream.name, stream.region)} class="text-red-600 dark:text-red-400 hover:underline font-medium">{stream.name}</button>
 								</td>
+								<td class="px-4 py-3"><RegionChip region={stream.region} /></td>
 								<td class="px-4 py-3">
-									<button onclick={() => deleteStream(name)} class="text-red-500 hover:text-red-700 p-1">
+									<button onclick={() => deleteStream(stream.name, stream.region)} class="text-red-500 hover:text-red-700 p-1">
 										<Trash2 class="w-4 h-4" />
 									</button>
 								</td>

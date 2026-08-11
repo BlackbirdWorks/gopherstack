@@ -9,6 +9,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // apigatewaySnapshotVersion identifies the shape of backendSnapshot's Tables
@@ -20,7 +21,7 @@ import (
 // against the persisted value and discards (rather than attempts to
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/ec2 (commit 12e611a4).
-const apigatewaySnapshotVersion = 1
+const apigatewaySnapshotVersion = 2
 
 // resourceSnapshot, deploymentSnapshot, stageSnapshot, authorizerSnapshot,
 // requestValidatorSnapshot, documentationPartSnapshot,
@@ -98,6 +99,7 @@ func fromDeploymentSnapshot(v *deploymentSnapshot) *Deployment {
 }
 
 type stageSnapshot struct {
+	Tags                 *tags.Tags               `json:"tags,omitempty"`
 	CanarySettings       *CanarySettings          `json:"canarySettings,omitempty"`
 	AccessLogSettings    *AccessLogSettings       `json:"accessLogSettings,omitempty"`
 	MethodSettings       map[string]MethodSetting `json:"methodSettings,omitempty"`
@@ -121,6 +123,7 @@ func stageSnapshotKey(v *stageSnapshot) string { return stageKey(v.RestAPIID, v.
 
 func toStageSnapshot(v *Stage) *stageSnapshot {
 	return &stageSnapshot{
+		Tags:                 v.Tags,
 		CanarySettings:       v.CanarySettings,
 		AccessLogSettings:    v.AccessLogSettings,
 		MethodSettings:       v.MethodSettings,
@@ -143,6 +146,7 @@ func toStageSnapshot(v *Stage) *stageSnapshot {
 
 func fromStageSnapshot(v *stageSnapshot) *Stage {
 	return &Stage{
+		Tags:                 v.Tags,
 		CanarySettings:       v.CanarySettings,
 		AccessLogSettings:    v.AccessLogSettings,
 		MethodSettings:       v.MethodSettings,

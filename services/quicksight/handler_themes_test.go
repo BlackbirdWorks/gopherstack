@@ -82,6 +82,34 @@ func TestQuickSight_ThemeCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
 
+// ---- CreateTheme/UpdateTheme.VersionDescription round-trips into
+// ThemeVersion.Description ----
+
+func TestQuickSight_Theme_VersionDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/themes/thm1"), map[string]any{
+		"Name": "Theme1", "BaseThemeId": "SEASIDE", "VersionDescription": "first cut",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/themes/thm1"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	version := parseBody(t, describeRec)["Theme"].(map[string]any)["Version"].(map[string]any)
+	assert.Equal(t, "first cut", version["Description"])
+
+	updateRec := doRequest(t, h, http.MethodPut, accountPath("/themes/thm1"), map[string]any{
+		"Name": "Theme1", "BaseThemeId": "SEASIDE", "VersionDescription": "second cut",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	describeAfterUpdate := doRequest(t, h, http.MethodGet, accountPath("/themes/thm1"), nil)
+	afterVersion := parseBody(t, describeAfterUpdate)["Theme"].(map[string]any)["Version"].(map[string]any)
+	assert.Equal(t, "second cut", afterVersion["Description"])
+}
+
 // ---- Theme missing Name -> validation error ----
 
 func TestQuickSight_CreateTheme_Validation(t *testing.T) {

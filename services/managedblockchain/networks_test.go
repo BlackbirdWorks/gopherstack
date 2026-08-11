@@ -58,12 +58,11 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 					"",
 					tt.memberName,
 					"",
-					nil,
+					nil, nil,
 					nil,
 					"",
 					"admin",
-					"",
-				)
+					"")
 				require.NoError(t, err)
 			}
 
@@ -76,12 +75,11 @@ func TestInMemoryBackend_CreateNetwork(t *testing.T) {
 				"",
 				tt.memberName,
 				"",
-				nil,
+				nil, nil,
 				nil,
 				"",
 				"admin",
-				"",
-			)
+				"")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -137,12 +135,11 @@ func TestInMemoryBackend_GetNetwork(t *testing.T) {
 				"",
 				"member1",
 				"",
-				nil,
+				nil, nil,
 				nil,
 				"",
 				"admin",
-				"",
-			)
+				"")
 			require.NoError(t, err)
 
 			id := tt.networkID
@@ -203,12 +200,11 @@ func TestInMemoryBackend_ListNetworks(t *testing.T) {
 					"",
 					"m1",
 					"",
-					nil,
+					nil, nil,
 					nil,
 					"",
 					"admin",
-					"",
-				)
+					"")
 				require.NoError(t, err)
 			}
 
@@ -631,9 +627,8 @@ func TestInMemoryBackend_CloneVotingPolicyDoesNotMutate(t *testing.T) {
 	n, _, err := b.CreateNetwork(
 		testRegion, testAccountID,
 		"vp-net", "", "", "", "m1", "",
-		nil, vp,
-		"", "admin", "",
-	)
+		nil, nil, vp,
+		"", "admin", "")
 	require.NoError(t, err)
 
 	// GetNetwork returns a clone
@@ -681,4 +676,42 @@ func TestHandler_CreateNetworkWithTags(t *testing.T) {
 	tags := network["Tags"].(map[string]any)
 	assert.Equal(t, "prod", tags["env"])
 	assert.Equal(t, "infra", tags["team"])
+}
+
+// TestHandler_CreateNetworkFoundingMemberTags verifies that Tags nested
+// under MemberConfiguration on CreateNetwork reach the founding member's own
+// tags AND the shared tag store ListTagsForResource reads (gopherstack-2mwl:
+// the founding member's tags were previously always dropped, regardless of
+// what CreateNetwork's request supplied).
+func TestHandler_CreateNetworkFoundingMemberTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	memberConfig := testMemberConfiguration("founding-member")
+	memberConfig["Tags"] = map[string]string{"role": "founder"}
+
+	rec := doRequest(t, h, http.MethodPost, "/networks", map[string]any{
+		"Name":                "founder-tags-net",
+		"MemberConfiguration": memberConfig,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	networkID, _ := resp["NetworkId"].(string)
+	memberID, _ := resp["MemberId"].(string)
+	require.NotEmpty(t, networkID)
+	require.NotEmpty(t, memberID)
+
+	rec2 := doRequest(t, h, http.MethodGet, "/networks/"+networkID+"/members/"+memberID, nil)
+	require.Equal(t, http.StatusOK, rec2.Code)
+
+	var memResp map[string]any
+	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &memResp))
+
+	member := memResp["Member"].(map[string]any)
+	tags := member["Tags"].(map[string]any)
+	assert.Equal(t, "founder", tags["role"])
 }

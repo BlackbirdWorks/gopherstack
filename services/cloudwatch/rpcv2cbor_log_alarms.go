@@ -88,6 +88,8 @@ func (h *Handler) cborPutLogAlarm(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreationTags(input, alarm.AlarmArn)
+
 	return writeCBOR(c, cbor.Map{})
 }
 
@@ -155,8 +157,14 @@ func buildScheduledQueryConfigurationCBOR(cfg ScheduledQueryConfiguration) cbor.
 		"ScheduledQueryRoleARN": cbor.String(cfg.ScheduledQueryRoleARN),
 		"ScheduleConfiguration": cbor.Map{
 			"ScheduleExpression": cbor.String(cfg.ScheduleConfiguration.ScheduleExpression),
-			"StartTimeOffset":    cbor.Float64(float64(cfg.ScheduleConfiguration.StartTimeOffset)),
-			"EndTimeOffset":      cbor.Float64(float64(cfg.ScheduleConfiguration.EndTimeOffset)),
+			// int64 (Long) on the wire, not Double -- cloudwatch@v1.66.3
+			// types.go's ScheduleConfiguration declares both *int64;
+			// Float64 fails real client deserialization ("expected
+			// integer, got major type 7").
+			//nolint:gosec // non-negative per AWS docs
+			"StartTimeOffset": cbor.Uint(uint64(cfg.ScheduleConfiguration.StartTimeOffset)),
+			//nolint:gosec // non-negative per AWS docs
+			"EndTimeOffset": cbor.Uint(uint64(cfg.ScheduleConfiguration.EndTimeOffset)),
 		},
 	}
 	if cfg.QueryARN != "" {

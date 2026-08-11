@@ -23,21 +23,25 @@ func deviceProfileARN(region, accountID, id string) string {
 }
 
 // copyDeviceProfile returns a shallow copy of dp with independent Tags,
-// LoRaWAN, and Sidewalk maps.
+// LoRaWAN, and Sidewalk.
 func copyDeviceProfile(dp *DeviceProfile) *DeviceProfile {
 	cp := *dp
 	cp.Tags = make(map[string]string, len(dp.Tags))
 	maps.Copy(cp.Tags, dp.Tags)
-	cp.LoRaWAN = copyAnyMap(dp.LoRaWAN)
-	cp.Sidewalk = copyAnyMap(dp.Sidewalk)
+	cp.LoRaWAN = copyLoRaWANDeviceProfile(dp.LoRaWAN)
+	cp.Sidewalk = copySidewalkGetDeviceProfile(dp.Sidewalk)
 
 	return &cp
 }
 
-// CreateDeviceProfile creates a new device profile.
+// CreateDeviceProfile creates a new device profile. sidewalk being non-nil
+// (even if empty -- SidewalkCreateDeviceProfile has no fields of its own)
+// distinguishes a request that asked for a Sidewalk profile from one that
+// didn't -- see sidewalkGetDeviceProfileFromCreate.
 func (b *InMemoryBackend) CreateDeviceProfile(
 	accountID, region, name string,
-	loRaWAN, sidewalk map[string]any,
+	loRaWAN *LoRaWANDeviceProfile,
+	sidewalk *SidewalkCreateDeviceProfile,
 	tags map[string]string,
 ) (*DeviceProfile, error) {
 	b.mu.Lock("CreateDeviceProfile")
@@ -51,7 +55,7 @@ func (b *InMemoryBackend) CreateDeviceProfile(
 		ARN:       arn,
 		Name:      name,
 		LoRaWAN:   loRaWAN,
-		Sidewalk:  sidewalk,
+		Sidewalk:  sidewalkGetDeviceProfileFromCreate(sidewalk != nil),
 		Tags:      newTagsCopy(tags),
 		CreatedAt: time.Now(),
 		AccountID: accountID,
@@ -135,12 +139,12 @@ func serviceProfileARN(region, accountID, id string) string {
 }
 
 // copyServiceProfile returns a shallow copy of sp with independent Tags and
-// LoRaWAN maps.
+// LoRaWAN.
 func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
 	cp := *sp
 	cp.Tags = make(map[string]string, len(sp.Tags))
 	maps.Copy(cp.Tags, sp.Tags)
-	cp.LoRaWAN = copyAnyMap(sp.LoRaWAN)
+	cp.LoRaWAN = copyLoRaWANServiceProfile(sp.LoRaWAN)
 
 	return &cp
 }
@@ -148,7 +152,7 @@ func copyServiceProfile(sp *ServiceProfile) *ServiceProfile {
 // CreateServiceProfile creates a new service profile.
 func (b *InMemoryBackend) CreateServiceProfile(
 	accountID, region, name string,
-	loRaWAN map[string]any,
+	loRaWAN *LoRaWANServiceProfile,
 	tags map[string]string,
 ) (*ServiceProfile, error) {
 	b.mu.Lock("CreateServiceProfile")

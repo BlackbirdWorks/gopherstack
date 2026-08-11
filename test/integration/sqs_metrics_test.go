@@ -32,7 +32,10 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 
 	queueURL := createOut.QueueUrl
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
 	})
 
 	msgBody := "metric-test-body-" + uuid.NewString()
@@ -44,9 +47,6 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, *sendOut.MessageId)
-
-	// Allow the async metric emission goroutine to complete.
-	time.Sleep(200 * time.Millisecond)
 
 	assertMetricExists(t, cwClient, "NumberOfMessagesSent")
 
@@ -67,8 +67,6 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, receiveOut.Messages, 1)
 
-	time.Sleep(200 * time.Millisecond)
-
 	assertMetricExists(t, cwClient, "NumberOfMessagesReceived")
 
 	// --- DeleteMessage → NumberOfMessagesDeleted ---
@@ -77,8 +75,6 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 		ReceiptHandle: receiveOut.Messages[0].ReceiptHandle,
 	})
 	require.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
 
 	assertMetricExists(t, cwClient, "NumberOfMessagesDeleted")
 
@@ -92,17 +88,19 @@ func TestIntegration_SQS_MetricEmission(t *testing.T) {
 		"queue depth should be 0 after deleting the message")
 }
 
-// assertMetricExists asserts that at least one data point exists for the named
-// metric in the AWS/SQS namespace using ListMetrics (no time-window dependency).
+// assertMetricExists polls ListMetrics until the async metric-emission goroutine
+// has registered the named metric in the AWS/SQS namespace, or the deadline expires.
 func assertMetricExists(t *testing.T, cwClient *cloudwatchsdk.Client, metricName string) {
 	t.Helper()
 
-	out, err := cwClient.ListMetrics(t.Context(), &cloudwatchsdk.ListMetricsInput{
-		Namespace:  aws.String("AWS/SQS"),
-		MetricName: aws.String(metricName),
-	})
-	require.NoError(t, err, "ListMetrics for %s should not error", metricName)
-	assert.NotEmpty(t, out.Metrics, "expected metric %s to be registered in AWS/SQS namespace", metricName)
+	require.Eventually(t, func() bool {
+		out, err := cwClient.ListMetrics(t.Context(), &cloudwatchsdk.ListMetricsInput{
+			Namespace:  aws.String("AWS/SQS"),
+			MetricName: aws.String(metricName),
+		})
+
+		return err == nil && len(out.Metrics) > 0
+	}, 5*time.Second, 50*time.Millisecond, "expected metric %s to be registered in AWS/SQS namespace", metricName)
 }
 
 // TestIntegration_SQS_QueuePolicy verifies that SetQueueAttributes and
@@ -122,7 +120,10 @@ func TestIntegration_SQS_QueuePolicy(t *testing.T) {
 
 	queueURL := createOut.QueueUrl
 	t.Cleanup(func() {
-		_, _ = client.DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteQueue(cleanupCtx, &sqs.DeleteQueueInput{QueueUrl: queueURL})
 	})
 
 	// Get the queue ARN first.

@@ -22,7 +22,7 @@ func (h *Handler) handleGetWorkflowExecutionHistory(
 	in *handleGetWorkflowExecutionHistoryInput,
 ) (*getWorkflowExecutionHistoryOutput, error) {
 	events, nextPageToken := h.Backend.GetWorkflowExecutionHistory(
-		in.Domain, in.Execution.WorkflowID,
+		in.Domain, in.Execution.WorkflowID, in.Execution.RunID,
 		in.MaximumPageSize, in.NextPageToken, in.ReverseOrder,
 	)
 

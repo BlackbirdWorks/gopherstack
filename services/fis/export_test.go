@@ -38,14 +38,6 @@ func ParseISODurationForTest(s string) time.Duration {
 	return parseISODuration(s)
 }
 
-// ComputeExperimentReportForTest exposes computeExperimentReport for testing.
-func ComputeExperimentReportForTest(
-	cfg *ExperimentReportConfiguration,
-	expID, expTerminalStatus string,
-) *ExperimentReport {
-	return computeExperimentReport(cfg, expID, expTerminalStatus)
-}
-
 // ParsePercentageForTest exposes parsePercentage for testing.
 func ParsePercentageForTest(s string) float64 {
 	return parsePercentage(s)

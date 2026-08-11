@@ -1,5 +1,6 @@
 <script lang="ts">
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import RegionChip from '$lib/components/RegionChip.svelte';
 import { getIAMClient } from '$lib/aws-client';
 import {
 ListUsersCommand, ListRolesCommand, ListGroupsCommand, ListPoliciesCommand,
@@ -737,8 +738,8 @@ const iam_docs = [
 <Shield class="w-6 h-6 text-orange-600 dark:text-orange-400" />
 </div>
 <div>
-<h1 class="text-3xl font-bold text-slate-900 dark:text-white">IAM</h1>
-<p class="text-slate-500 dark:text-slate-400 text-sm">Identity and Access Management{accountAlias ? ` · ${accountAlias}` : ''}</p>
+<h1 class="text-3xl font-bold text-slate-900 dark:text-white flex items-center gap-2"><span>IAM</span><RegionChip region={null} /></h1>
+<p class="text-slate-500 dark:text-slate-400 text-sm">Identity and Access Management{accountAlias ? ` · ${accountAlias}` : ''} — account-wide, not tied to a region</p>
 </div>
 </div>
 <button onclick={refresh} class="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2">
@@ -1002,7 +1003,7 @@ class="px-3 py-1.5 border border-slate-200 dark:border-slate-700 rounded-lg text
 {#each filteredPolicies as policy}
 <div class="px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 flex items-center justify-between gap-2">
 <div class="min-w-0">
-<p class="font-medium text-slate-900 dark:text-white text-sm truncate">{policy.PolicyName}</p>
+<p class="font-medium text-slate-900 dark:text-white text-sm truncate flex items-center gap-2"><span class="truncate">{policy.PolicyName}</span><RegionChip region={null} /></p>
 <p class="text-xs text-slate-500 dark:text-slate-400 truncate font-mono">{policy.Arn}</p>
 {#if policy.Description}
 <p class="text-xs text-slate-400 mt-0.5 truncate">{policy.Description}</p>
@@ -1079,7 +1080,7 @@ selectedUser = null; selectedRole = null;
 }}
 onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') e.currentTarget.click(); }}>
 <div class="min-w-0 flex-1">
-<p class="font-medium text-slate-900 dark:text-white text-sm truncate">{itemName(item)}</p>
+<p class="font-medium text-slate-900 dark:text-white text-sm truncate flex items-center gap-2"><span class="truncate">{itemName(item)}</span><RegionChip region={null} /></p>
 <p class="text-xs text-slate-500 dark:text-slate-400 truncate font-mono">{itemArn(item)}</p>
 </div>
 <div class="flex items-center gap-1 shrink-0">

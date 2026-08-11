@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: timestreamwrite
-sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.35.19
+sdk_module: aws-sdk-go-v2/service/timestreamwrite@v1.38.4
 last_audit_commit: ca3b796e
 last_audit_date: 2026-07-23
 overall: A            # independently re-verified this pass; no new fixes needed, prior sweep already got the surface right

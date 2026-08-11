@@ -133,8 +133,14 @@ func (s *Scheduler) fireDueRule(
 		last = tick.Add(-s.tickInterval)
 	}
 
-	// Fire the rule for each tick window that has passed.
+	// Fire the rule for each tick window that has passed. A zero next means
+	// the expression has no future match (e.g. a Year field already past);
+	// treating it as "before tick" would fire every tick forever.
 	next := expr.NextAfter(last)
+	if next.IsZero() {
+		return false
+	}
+
 	if next.Before(tick) || next.Equal(tick) {
 		s.fireRule(ctx, rule, info.busName, info.region)
 		lastFired[rule.Arn] = tick

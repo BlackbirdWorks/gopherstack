@@ -3,31 +3,41 @@ package efs
 import (
 	"context"
 	"fmt"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 )
 
+// isValidTransitionToIA derives its answer from types.TransitionToIARules.Values()
+// so it cannot drift from the real enum -- the previous hand-copied list was
+// missing AFTER_1_DAY and wrongly accepted "NONE", which isn't a TransitionToIARules
+// member at all (LifecyclePolicy.TransitionToIA is simply omitted, not set to "NONE").
 func isValidTransitionToIA(v string) bool {
-	switch v {
-	case "AFTER_7_DAYS", "AFTER_14_DAYS", "AFTER_30_DAYS", "AFTER_60_DAYS",
-		"AFTER_90_DAYS", "AFTER_180_DAYS", "AFTER_270_DAYS", "AFTER_365_DAYS", "NONE":
-		return true
-	default:
-		return false
+	for _, e := range sdktypes.TransitionToIARules("").Values() {
+		if string(e) == v {
+			return true
+		}
 	}
+
+	return false
 }
 
 func isValidTransitionToPrimary(v string) bool {
 	return v == "AFTER_1_ACCESS"
 }
 
+// isValidTransitionToArchive derives its answer from
+// types.TransitionToArchiveRules.Values() so it cannot drift from the real
+// enum -- the previous hand-copied list was missing AFTER_1_DAY and wrongly
+// accepted "AFTER_1_ACCESS" (that value belongs to the separate
+// TransitionToPrimaryStorageClassRules enum) and a nonexistent "AFTER_90_DAYS_1".
 func isValidTransitionToArchive(v string) bool {
-	switch v {
-	case "AFTER_1_ACCESS", "AFTER_7_DAYS", "AFTER_14_DAYS", "AFTER_30_DAYS",
-		"AFTER_60_DAYS", "AFTER_90_DAYS", "AFTER_180_DAYS", "AFTER_270_DAYS",
-		"AFTER_365_DAYS", "AFTER_90_DAYS_1":
-		return true
-	default:
-		return false
+	for _, e := range sdktypes.TransitionToArchiveRules("").Values() {
+		if string(e) == v {
+			return true
+		}
 	}
+
+	return false
 }
 
 // DescribeLifecycleConfiguration returns lifecycle policies for a file system.

@@ -306,6 +306,8 @@ func getErrorTable() map[error]awserr.APIError {
 		ErrTagLimitExceeded:           {Code: errConstraintViolation, HTTPStatus: http.StatusBadRequest},
 		ErrInvalidSystemTags:          {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 		ErrDuplicateTagKey:            {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+		ErrInvalidTagKeyLength:        {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
+		ErrInvalidTagValueLength:      {Code: errInvalidInput, HTTPStatus: http.StatusBadRequest},
 	}
 }
 

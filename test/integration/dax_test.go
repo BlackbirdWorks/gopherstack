@@ -62,7 +62,10 @@ func TestIntegration_DAX_SubnetGroupLifecycle(t *testing.T) {
 			assert.Equal(t, tt.groupName, aws.ToString(createOut.SubnetGroup.SubnetGroupName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteSubnetGroup(ctx, &daxsdk.DeleteSubnetGroupInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteSubnetGroup(cleanupCtx, &daxsdk.DeleteSubnetGroupInput{
 					SubnetGroupName: aws.String(tt.groupName),
 				})
 			})
@@ -111,7 +114,10 @@ func TestIntegration_DAX_ParameterGroupLifecycle(t *testing.T) {
 			assert.Equal(t, tt.groupName, aws.ToString(createOut.ParameterGroup.ParameterGroupName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteParameterGroup(ctx, &daxsdk.DeleteParameterGroupInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteParameterGroup(cleanupCtx, &daxsdk.DeleteParameterGroupInput{
 					ParameterGroupName: aws.String(tt.groupName),
 				})
 			})

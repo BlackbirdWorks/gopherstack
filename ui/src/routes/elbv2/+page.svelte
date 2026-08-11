@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import { isAllRegions, currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getELBv2Client } from '$lib/aws-client';
 	import {
 		DescribeLoadBalancersCommand,
@@ -37,7 +41,9 @@
 		type Listener,
 		type Rule,
 		type Certificate,
-		type RuleCondition
+		type RuleCondition,
+		type TrustStore,
+		type TrustStoreRevocation
 	} from '@aws-sdk/client-elastic-load-balancing-v2';
 	import { toast } from 'svelte-sonner';
 	import {
@@ -66,6 +72,12 @@
 	const TRUST_STORE_CA_S3_BUCKET = 'gopherstack-demo';
 	const TRUST_STORE_CA_S3_KEY = 'certs.pem';
 
+	// Every row carries the region its Describe*Command call was made against.
+	// Row actions (delete/detail/register/etc) must use THIS region, not the
+	// page's shared `elb()` client -- in All mode the same name/ARN can
+	// legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	type Tab = 'lbs' | 'targets' | 'listeners' | 'truststores' | 'metrics' | 'docs';
 
 	let loading = $state(false);
@@ -73,8 +85,8 @@
 	let searchQuery = $state('');
 
 	// ── Load Balancers ──────────────────────────────────────────────────────────
-	let loadBalancers = $state<LoadBalancer[]>([]);
-	let selectedLB = $state<LoadBalancer | null>(null);
+	let loadBalancers = $state<Regioned<LoadBalancer>[]>([]);
+	let selectedLB = $state<Regioned<LoadBalancer> | null>(null);
 	let lbListeners = $state<Listener[]>([]);
 	let loadingListeners = $state(false);
 	let showCreateModal = $state(false);
@@ -85,8 +97,8 @@
 	let newLBSubnets = $state('');
 
 	// ── Target Groups ───────────────────────────────────────────────────────────
-	let targetGroups = $state<TargetGroup[]>([]);
-	let selectedTG = $state<TargetGroup | null>(null);
+	let targetGroups = $state<Regioned<TargetGroup>[]>([]);
+	let selectedTG = $state<Regioned<TargetGroup> | null>(null);
 	let tgHealth = $state<Array<{ Target?: { Id?: string; Port?: number }; TargetHealth?: { State?: string; Description?: string } }>>([]);
 	let loadingHealth = $state(false);
 
@@ -105,9 +117,9 @@
 	let creatingTG = $state(false);
 
 	// ── Listeners ───────────────────────────────────────────────────────────────
-	let allListeners = $state<Listener[]>([]);
+	let allListeners = $state<Regioned<Listener>[]>([]);
 	let loadingAllListeners = $state(false);
-	let selectedListener = $state<Listener | null>(null);
+	let selectedListener = $state<Regioned<Listener> | null>(null);
 	let listenerRules = $state<Rule[]>([]);
 	let loadingRules = $state(false);
 	let listenerCerts = $state<Certificate[]>([]);
@@ -136,10 +148,10 @@
 	let savingRule = $state(false);
 
 	// ── Trust Stores ────────────────────────────────────────────────────────────
-	let trustStores = $state<Array<{ TrustStoreArn?: string; Name?: string; Status?: string; TotalRevokedEntries?: number }>>([]);
+	let trustStores = $state<Regioned<TrustStore>[]>([]);
 	let loadingTrustStores = $state(false);
-	let selectedTrustStore = $state<{ TrustStoreArn?: string; Name?: string; Status?: string } | null>(null);
-	let trustStoreRevocations = $state<Array<{ RevocationId?: string; RevocationType?: string; LastUpdatedAt?: Date }>>([]);
+	let selectedTrustStore = $state<Regioned<TrustStore> | null>(null);
+	let trustStoreRevocations = $state<TrustStoreRevocation[]>([]);
 	let loadingRevocations = $state(false);
 	let showCreateTSModal = $state(false);
 	let newTSName = $state('');
@@ -269,11 +281,26 @@
 	}
 
 	// ── data loaders ────────────────────────────────────────────────────────────
+	// Fans a Describe*Command out across every region with data in All mode;
+	// single-region mode issues exactly one call, tagged with currentRegion().
+	async function loadRegioned<TResponse, TItem>(
+		label: string,
+		regionCall: (region: string) => Promise<TResponse>,
+		extractItems: (r: TResponse) => TItem[],
+		assign: (items: Regioned<TItem>[]) => void
+	) {
+		const result = await multiRegionList(regionCall, extractItems);
+		assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+		if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
+	}
+
 	async function loadLoadBalancers() {
 		loading = true;
 		try {
-			const res = await elb().send(new DescribeLoadBalancersCommand({ PageSize: 100 }));
-			loadBalancers = res.LoadBalancers ?? [];
+			await loadRegioned('load balancers',
+				(region) => getELBv2Client(region).send(new DescribeLoadBalancersCommand({ PageSize: 100 })),
+				(r) => r.LoadBalancers ?? [],
+				(items) => loadBalancers = items);
 		} catch (e) {
 			toast.error(`Failed to load load balancers: ${e}`);
 		} finally {
@@ -284,8 +311,10 @@
 	async function loadTargetGroups() {
 		loading = true;
 		try {
-			const res = await elb().send(new DescribeTargetGroupsCommand({ PageSize: 100 }));
-			targetGroups = res.TargetGroups ?? [];
+			await loadRegioned('target groups',
+				(region) => getELBv2Client(region).send(new DescribeTargetGroupsCommand({ PageSize: 100 })),
+				(r) => r.TargetGroups ?? [],
+				(items) => targetGroups = items);
 		} catch (e) {
 			toast.error(`Failed to load target groups: ${e}`);
 		} finally {
@@ -297,8 +326,10 @@
 		loadingAllListeners = true;
 		allListeners = [];
 		try {
-			const res = await elb().send(new DescribeListenersCommand({}));
-			allListeners = res.Listeners ?? [];
+			await loadRegioned('listeners',
+				(region) => getELBv2Client(region).send(new DescribeListenersCommand({})),
+				(r) => r.Listeners ?? [],
+				(items) => allListeners = items);
 		} catch (e) {
 			toast.error(`Failed to load listeners: ${e}`);
 		} finally {
@@ -310,8 +341,10 @@
 		loadingTrustStores = true;
 		trustStores = [];
 		try {
-			const res = await elb().send(new DescribeTrustStoresCommand({}));
-			trustStores = (res.TrustStores ?? []) as typeof trustStores;
+			await loadRegioned('trust stores',
+				(region) => getELBv2Client(region).send(new DescribeTrustStoresCommand({})),
+				(r) => r.TrustStores ?? [],
+				(items) => trustStores = items);
 		} catch (e) {
 			toast.error(`Failed to load trust stores: ${e}`);
 		} finally {
@@ -319,12 +352,12 @@
 		}
 	}
 
-	async function viewLBListeners(lb: LoadBalancer) {
+	async function viewLBListeners(lb: Regioned<LoadBalancer>) {
 		selectedLB = lb;
 		loadingListeners = true;
 		lbListeners = [];
 		try {
-			const res = await elb().send(
+			const res = await getELBv2Client(lb.region).send(
 				new DescribeListenersCommand({ LoadBalancerArn: lb.LoadBalancerArn })
 			);
 			lbListeners = res.Listeners ?? [];
@@ -335,14 +368,14 @@
 		}
 	}
 
-	async function viewTGHealth(tg: TargetGroup) {
+	async function viewTGHealth(tg: Regioned<TargetGroup>) {
 		selectedTG = tg;
 		loadingHealth = true;
 		tgHealth = [];
 		newTargetId = '';
 		newTargetPort = String(tg.Port ?? 80);
 		try {
-			const res = await elb().send(
+			const res = await getELBv2Client(tg.region).send(
 				new DescribeTargetHealthCommand({ TargetGroupArn: tg.TargetGroupArn })
 			);
 			tgHealth = (res.TargetHealthDescriptions ?? []).map((d) => ({
@@ -361,9 +394,9 @@
 		}
 	}
 
-	async function loadTgAttributes(tg: TargetGroup) {
+	async function loadTgAttributes(tg: Regioned<TargetGroup>) {
 		try {
-			const res = await elb().send(new DescribeTargetGroupAttributesCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			const res = await getELBv2Client(tg.region).send(new DescribeTargetGroupAttributesCommand({ TargetGroupArn: tg.TargetGroupArn }));
 			const attrs = res.Attributes ?? [];
 			tgStickinessEnabled = attrs.find((a) => a.Key === 'stickiness.enabled')?.Value === 'true';
 			const dur = attrs.find((a) => a.Key === 'stickiness.lb_cookie.duration_seconds')?.Value;
@@ -377,7 +410,7 @@
 		if (!selectedTG?.TargetGroupArn) return;
 		savingTgAttrs = true;
 		try {
-			await elb().send(new ModifyTargetGroupAttributesCommand({
+			await getELBv2Client(selectedTG.region).send(new ModifyTargetGroupAttributesCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Attributes: [
 					{ Key: 'stickiness.enabled', Value: String(tgStickinessEnabled) },
@@ -397,7 +430,7 @@
 		if (!selectedTG?.TargetGroupArn || !newTargetId.trim()) return;
 		registeringTarget = true;
 		try {
-			await elb().send(new RegisterTargetsCommand({
+			await getELBv2Client(selectedTG.region).send(new RegisterTargetsCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Targets: [{ Id: newTargetId.trim(), Port: newTargetPort ? Number(newTargetPort) : undefined }]
 			}));
@@ -414,7 +447,7 @@
 	async function deregisterTarget(id: string | undefined, port: number | undefined) {
 		if (!selectedTG?.TargetGroupArn || !id) return;
 		try {
-			await elb().send(new DeregisterTargetsCommand({
+			await getELBv2Client(selectedTG.region).send(new DeregisterTargetsCommand({
 				TargetGroupArn: selectedTG.TargetGroupArn,
 				Targets: [{ Id: id, Port: port }]
 			}));
@@ -438,7 +471,7 @@
 		const aPrio = parseInt(a.Priority ?? '0', 10);
 		const bPrio = parseInt(b.Priority ?? '0', 10);
 		try {
-			await elb().send(new SetRulePrioritiesCommand({
+			await getELBv2Client(selectedListener.region).send(new SetRulePrioritiesCommand({
 				RulePriorities: [
 					{ RuleArn: a.RuleArn, Priority: bPrio },
 					{ RuleArn: b.RuleArn, Priority: aPrio }
@@ -451,16 +484,16 @@
 		}
 	}
 
-	async function selectListener(listener: Listener) {
+	async function selectListener(listener: Regioned<Listener>) {
 		selectedListener = listener;
 		await Promise.all([loadListenerRules(listener), loadListenerCerts(listener)]);
 	}
 
-	async function loadListenerRules(listener: Listener) {
+	async function loadListenerRules(listener: Regioned<Listener>) {
 		loadingRules = true;
 		listenerRules = [];
 		try {
-			const res = await elb().send(
+			const res = await getELBv2Client(listener.region).send(
 				new DescribeRulesCommand({ ListenerArn: listener.ListenerArn })
 			);
 			listenerRules = res.Rules ?? [];
@@ -471,11 +504,11 @@
 		}
 	}
 
-	async function loadListenerCerts(listener: Listener) {
+	async function loadListenerCerts(listener: Regioned<Listener>) {
 		loadingCerts = true;
 		listenerCerts = [];
 		try {
-			const res = await elb().send(
+			const res = await getELBv2Client(listener.region).send(
 				new DescribeListenerCertificatesCommand({ ListenerArn: listener.ListenerArn })
 			);
 			listenerCerts = res.Certificates ?? [];
@@ -490,7 +523,7 @@
 		if (!selectedListener?.ListenerArn || !newCertArn.trim()) return;
 		addingCert = true;
 		try {
-			await elb().send(
+			await getELBv2Client(selectedListener.region).send(
 				new AddListenerCertificatesCommand({
 					ListenerArn: selectedListener.ListenerArn,
 					Certificates: [{ CertificateArn: newCertArn.trim() }]
@@ -515,7 +548,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(
+			await getELBv2Client(selectedListener.region).send(
 				new RemoveListenerCertificatesCommand({
 					ListenerArn: selectedListener.ListenerArn,
 					Certificates: [{ CertificateArn: certArn }]
@@ -587,7 +620,7 @@
 			const actions = ruleActionTGArn ? [{ Type: 'forward' as const, TargetGroupArn: ruleActionTGArn }] : [];
 
 			if (editingRule?.RuleArn) {
-				await elb().send(
+				await getELBv2Client(selectedListener.region).send(
 					new ModifyRuleCommand({
 						RuleArn: editingRule.RuleArn,
 						Conditions: [condition],
@@ -597,7 +630,7 @@
 				toast.success('Rule updated');
 			} else {
 				const priority = rulePriority.trim() ? Number(rulePriority.trim()) : Date.now() % 50000;
-				await elb().send(
+				await getELBv2Client(selectedListener.region).send(
 					new CreateRuleCommand({
 						ListenerArn: selectedListener.ListenerArn,
 						Priority: priority,
@@ -617,30 +650,30 @@
 	}
 
 	async function deleteRule(rule: Rule) {
-		if (!rule.RuleArn) return;
+		if (!rule.RuleArn || !selectedListener) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete Rule',
 			message: `Delete rule with priority ${rule.Priority}?`
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(new DeleteRuleCommand({ RuleArn: rule.RuleArn }));
+			await getELBv2Client(selectedListener.region).send(new DeleteRuleCommand({ RuleArn: rule.RuleArn }));
 			toast.success('Rule deleted');
-			if (selectedListener) await loadListenerRules(selectedListener);
+			await loadListenerRules(selectedListener);
 		} catch (e) {
 			toast.error(`Failed to delete rule: ${e}`);
 		}
 	}
 
-	async function viewTrustStoreRevocations(ts: typeof trustStores[number]) {
+	async function viewTrustStoreRevocations(ts: Regioned<TrustStore>) {
 		selectedTrustStore = ts;
 		loadingRevocations = true;
 		trustStoreRevocations = [];
 		try {
-			const res = await elb().send(
+			const res = await getELBv2Client(ts.region).send(
 				new DescribeTrustStoreRevocationsCommand({ TrustStoreArn: ts.TrustStoreArn })
 			);
-			trustStoreRevocations = (res.TrustStoreRevocations ?? []) as typeof trustStoreRevocations;
+			trustStoreRevocations = res.TrustStoreRevocations ?? [];
 		} catch (e) {
 			toast.error(`Failed to load revocations: ${e}`);
 		} finally {
@@ -648,7 +681,7 @@
 		}
 	}
 
-	async function deleteLB(lb: LoadBalancer) {
+	async function deleteLB(lb: Regioned<LoadBalancer>) {
 		if (!lb.LoadBalancerArn) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete Load Balancer',
@@ -656,7 +689,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
+			await getELBv2Client(lb.region).send(new DeleteLoadBalancerCommand({ LoadBalancerArn: lb.LoadBalancerArn }));
 			toast.success(`Deleting "${lb.LoadBalancerName}"…`);
 			await loadLoadBalancers();
 		} catch (e) {
@@ -712,7 +745,7 @@
 		}
 	}
 
-	async function deleteTG(tg: TargetGroup) {
+	async function deleteTG(tg: Regioned<TargetGroup>) {
 		if (!tg.TargetGroupArn) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete Target Group',
@@ -720,20 +753,24 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(new DeleteTargetGroupCommand({ TargetGroupArn: tg.TargetGroupArn }));
+			await getELBv2Client(tg.region).send(new DeleteTargetGroupCommand({ TargetGroupArn: tg.TargetGroupArn }));
 			toast.success(`Deleted "${tg.TargetGroupName}"`);
-			if (selectedTG?.TargetGroupArn === tg.TargetGroupArn) selectedTG = null;
+			if (selectedTG && selectedTG.TargetGroupArn === tg.TargetGroupArn && selectedTG.region === tg.region) selectedTG = null;
 			await loadTargetGroups();
 		} catch (e) {
 			toast.error(`Failed to delete: ${e}`);
 		}
 	}
 
+	// A listener attaches to a specific load balancer, so it must be created
+	// in THAT load balancer's region, not the page's default write region.
 	async function createListener() {
 		if (!newListenerLBArn) { toast.error('Select a load balancer'); return; }
+		const lb = loadBalancers.find((l) => l.LoadBalancerArn === newListenerLBArn);
+		if (!lb) { toast.error('Selected load balancer not found'); return; }
 		creatingListener = true;
 		try {
-			await elb().send(new CreateListenerCommand({
+			await getELBv2Client(lb.region).send(new CreateListenerCommand({
 				LoadBalancerArn: newListenerLBArn,
 				Protocol: newListenerProtocol as ProtocolEnum,
 				Port: parseInt(newListenerPort, 10),
@@ -752,7 +789,7 @@
 		}
 	}
 
-	async function deleteListener(listener: Listener) {
+	async function deleteListener(listener: Regioned<Listener>) {
 		if (!listener.ListenerArn) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete Listener',
@@ -760,7 +797,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(new DeleteListenerCommand({ ListenerArn: listener.ListenerArn }));
+			await getELBv2Client(listener.region).send(new DeleteListenerCommand({ ListenerArn: listener.ListenerArn }));
 			toast.success('Listener deleted');
 			if (selectedListener?.ListenerArn === listener.ListenerArn) {
 				selectedListener = null;
@@ -793,7 +830,7 @@
 		}
 	}
 
-	async function deleteTrustStore(ts: typeof trustStores[number]) {
+	async function deleteTrustStore(ts: Regioned<TrustStore>) {
 		if (!ts.TrustStoreArn) return;
 		const confirmed = await confirmDestructive({
 			title: 'Delete Trust Store',
@@ -801,7 +838,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await elb().send(new DeleteTrustStoreCommand({ TrustStoreArn: ts.TrustStoreArn }));
+			await getELBv2Client(ts.region).send(new DeleteTrustStoreCommand({ TrustStoreArn: ts.TrustStoreArn }));
 			toast.success(`Deleted "${ts.Name}"`);
 			if (selectedTrustStore?.TrustStoreArn === ts.TrustStoreArn) selectedTrustStore = null;
 			await loadTrustStores();
@@ -948,6 +985,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -980,12 +1018,17 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredLBs as lb}
+						{#each filteredLBs as lb (lb.region + '::' + lb.LoadBalancerArn)}
 							<tr
 								class="hover:bg-muted/30 cursor-pointer"
 								onclick={() => viewLBListeners(lb)}
 							>
-								<td class="px-4 py-3 font-medium">{lb.LoadBalancerName}</td>
+								<td class="px-4 py-3 font-medium">
+									<div class="flex items-center gap-2">
+										{lb.LoadBalancerName}
+										<RegionChip region={lb.region} />
+									</div>
+								</td>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium capitalize {lbTypeBadge(lb.Type)}">
 										{lb.Type ?? '—'}
@@ -1031,7 +1074,7 @@
 		{#if selectedLB}
 			<div class="rounded-lg border p-4 space-y-3">
 				<div class="flex items-center justify-between">
-					<h3 class="font-semibold">{selectedLB.LoadBalancerName} — Listeners</h3>
+					<h3 class="font-semibold flex items-center gap-2">{selectedLB.LoadBalancerName} — Listeners <RegionChip region={selectedLB.region} /></h3>
 					<button onclick={() => (selectedLB = null)} class="text-xs text-muted-foreground hover:text-foreground">
 						Close
 					</button>
@@ -1071,6 +1114,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateTGModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1103,12 +1147,17 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredTGs as tg}
+						{#each filteredTGs as tg (tg.region + '::' + tg.TargetGroupArn)}
 							<tr
 								class="hover:bg-muted/30 cursor-pointer"
 								onclick={() => viewTGHealth(tg)}
 							>
-								<td class="px-4 py-3 font-medium">{tg.TargetGroupName}</td>
+								<td class="px-4 py-3 font-medium">
+									<div class="flex items-center gap-2">
+										{tg.TargetGroupName}
+										<RegionChip region={tg.region} />
+									</div>
+								</td>
 								<td class="px-4 py-3 text-muted-foreground">{tg.Protocol ?? '—'}</td>
 								<td class="px-4 py-3">{tg.Port ?? '—'}</td>
 								<td class="px-4 py-3">
@@ -1147,7 +1196,7 @@
 			{#if selectedTG}
 				<div class="rounded-lg border p-4 space-y-3">
 					<div class="flex items-center justify-between">
-						<h3 class="font-semibold">{selectedTG.TargetGroupName} — Target Health</h3>
+						<h3 class="font-semibold flex items-center gap-2">{selectedTG.TargetGroupName} — Target Health <RegionChip region={selectedTG.region} /></h3>
 						<button onclick={() => (selectedTG = null)} class="text-xs text-muted-foreground hover:text-foreground">
 							Close
 						</button>
@@ -1234,7 +1283,7 @@
 			>
 				<option value="">All load balancers</option>
 				{#each loadBalancers as lb}
-					<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName}</option>
+					<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName} ({lb.region})</option>
 				{/each}
 			</select>
 			<button
@@ -1268,9 +1317,9 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each filteredListeners as listener}
+						{#each filteredListeners as listener (listener.region + '::' + listener.ListenerArn)}
 							<tr
-								class="hover:bg-muted/30 cursor-pointer {selectedListener?.ListenerArn === listener.ListenerArn ? 'bg-muted/40' : ''}"
+								class="hover:bg-muted/30 cursor-pointer {selectedListener && selectedListener.ListenerArn === listener.ListenerArn && selectedListener.region === listener.region ? 'bg-muted/40' : ''}"
 								onclick={() => selectListener(listener)}
 							>
 								<td class="px-4 py-3 font-medium">
@@ -1279,6 +1328,7 @@
 										{#if listener.Protocol === 'HTTPS' || listener.Protocol === 'TLS'}
 											<Lock class="h-3 w-3 text-green-500" />
 										{/if}
+										<RegionChip region={listener.region} />
 									</span>
 								</td>
 								<td class="px-4 py-3 text-muted-foreground">
@@ -1321,7 +1371,7 @@
 		{#if selectedListener}
 			<div class="rounded-lg border p-4 space-y-4">
 				<div class="flex items-center justify-between">
-					<h3 class="font-semibold">{selectedListener.Protocol}:{selectedListener.Port} — Details</h3>
+					<h3 class="font-semibold flex items-center gap-2">{selectedListener.Protocol}:{selectedListener.Port} — Details <RegionChip region={selectedListener.region} /></h3>
 					<button onclick={() => (selectedListener = null)} class="text-xs text-muted-foreground hover:text-foreground">
 						Close
 					</button>
@@ -1475,6 +1525,7 @@
 	{#if activeTab === 'truststores'}
 		<div class="flex items-center justify-between gap-4">
 			<div class="flex-1"></div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateTSModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -1504,12 +1555,17 @@
 						</tr>
 					</thead>
 					<tbody class="divide-y">
-						{#each trustStores as ts}
+						{#each trustStores as ts (ts.region + '::' + ts.TrustStoreArn)}
 							<tr
-								class="hover:bg-muted/30 cursor-pointer {selectedTrustStore?.TrustStoreArn === ts.TrustStoreArn ? 'bg-muted/40' : ''}"
+								class="hover:bg-muted/30 cursor-pointer {selectedTrustStore && selectedTrustStore.TrustStoreArn === ts.TrustStoreArn && selectedTrustStore.region === ts.region ? 'bg-muted/40' : ''}"
 								onclick={() => viewTrustStoreRevocations(ts)}
 							>
-								<td class="px-4 py-3 font-medium">{ts.Name ?? '—'}</td>
+								<td class="px-4 py-3 font-medium">
+									<div class="flex items-center gap-2">
+										{ts.Name ?? '—'}
+										<RegionChip region={ts.region} />
+									</div>
+								</td>
 								<td class="px-4 py-3">
 									<span class="rounded-full px-2 py-0.5 text-xs font-medium {ts.Status === 'ACTIVE' ? 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900' : 'text-muted-foreground bg-muted'}">
 										{ts.Status ?? '—'}
@@ -1546,7 +1602,7 @@
 			{#if selectedTrustStore}
 				<div class="rounded-lg border p-4 space-y-3">
 					<div class="flex items-center justify-between">
-						<h3 class="font-semibold">{selectedTrustStore.Name} — Revocations</h3>
+						<h3 class="font-semibold flex items-center gap-2">{selectedTrustStore.Name} — Revocations <RegionChip region={selectedTrustStore.region} /></h3>
 						<button onclick={() => (selectedTrustStore = null)} class="text-xs text-muted-foreground hover:text-foreground">
 							Close
 						</button>
@@ -1565,9 +1621,9 @@
 											<span class="ml-2 text-xs text-muted-foreground">{rev.RevocationType}</span>
 										{/if}
 									</div>
-									{#if rev.LastUpdatedAt}
+									{#if rev.NumberOfRevokedEntries !== undefined}
 										<span class="text-xs text-muted-foreground">
-											{new Date(rev.LastUpdatedAt).toLocaleDateString()}
+											{rev.NumberOfRevokedEntries} revoked
 										</span>
 									{/if}
 								</div>
@@ -1848,7 +1904,7 @@
 					/>
 					{#if targetGroups.length > 0}
 						<div class="mt-1 flex flex-wrap gap-1">
-							{#each targetGroups as tg}
+							{#each targetGroups.filter((tg) => !selectedListener || tg.region === selectedListener.region) as tg}
 								<button
 									onclick={() => (ruleActionTGArn = tg.TargetGroupArn ?? '')}
 									class="text-xs rounded border px-2 py-0.5 hover:bg-accent"
@@ -1937,9 +1993,10 @@
 <select id="listener-lb" bind:value={newListenerLBArn} class="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
 <option value="">Select load balancer…</option>
 {#each loadBalancers as lb}
-<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName}</option>
+<option value={lb.LoadBalancerArn}>{lb.LoadBalancerName} ({lb.region})</option>
 {/each}
 </select>
+<p class="text-xs text-muted-foreground mt-1">Created in the selected load balancer's region.</p>
 </div>
 <div class="grid grid-cols-2 gap-3">
 <div>

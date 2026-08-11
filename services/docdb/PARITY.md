@@ -1,6 +1,6 @@
 ---
 service: docdb
-sdk_module: aws-sdk-go-v2/service/docdb@v1.48.11
+sdk_module: aws-sdk-go-v2/service/docdb@v1.51.4
 last_audit_commit: 04b49136
 last_audit_date: 2026-07-31
 overall: A            # this pass: 3 real feature gaps closed (GlobalCluster members, real events log, real pending-maintenance queue), 2 disguised no-op bugs fixed (ResetDBClusterParameterGroup, CreateEventSubscription arg-swap), 1 wire-field gap fixed (EventSubscription response), 2 cosmetic gaps closed

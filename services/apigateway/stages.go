@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // GetStages returns all stages for a REST API.
@@ -95,7 +97,9 @@ func (b *InMemoryBackend) CreateStage(input CreateStageInput) (*Stage, error) {
 	}
 
 	now := unixEpochTime{time.Now()}
+	backendTags := tags.FromMap("apigw.stage."+input.RestAPIID+"."+input.StageName+".tags", input.Tags)
 	stage := &Stage{
+		Tags:                 backendTags,
 		StageName:            input.StageName,
 		RestAPIID:            input.RestAPIID,
 		DeploymentID:         input.DeploymentID,

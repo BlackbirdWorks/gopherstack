@@ -70,7 +70,10 @@ func TestIntegration_StepFunctions_ASL_PassState(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
 			StateMachineArn: smOut.StateMachineArn,
 		})
 	})
@@ -122,7 +125,10 @@ func TestIntegration_StepFunctions_ASL_Choice(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
 			StateMachineArn: smOut.StateMachineArn,
 		})
 	})
@@ -206,7 +212,10 @@ func TestIntegration_StepFunctions_ASL_Fail(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
 			StateMachineArn: smOut.StateMachineArn,
 		})
 	})
@@ -287,7 +296,10 @@ func TestIntegration_StepFunctions_FullExecution(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = client.DeleteStateMachine(ctx, &sfnsdk.DeleteStateMachineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteStateMachine(cleanupCtx, &sfnsdk.DeleteStateMachineInput{
 			StateMachineArn: smOut.StateMachineArn,
 		})
 	})

@@ -240,8 +240,9 @@ func (h *Handler) dispatchAccessGrantsPrefixOps(c *echo.Context, path, method st
 // --- Access Grants Instance handlers ---
 
 type createAccessGrantsInstanceRequestXML struct {
-	XMLName           xml.Name `xml:"CreateAccessGrantsInstanceRequest"`
-	IdentityCenterArn string   `xml:"IdentityCenterArn"`
+	XMLName           xml.Name         `xml:"CreateAccessGrantsInstanceRequest"`
+	IdentityCenterArn string           `xml:"IdentityCenterArn"`
+	Tags              []resourceTagXML `xml:"Tags>Tag"`
 }
 
 type createAccessGrantsInstanceResponseXML struct {
@@ -263,6 +264,15 @@ func (h *Handler) handleCreateAccessGrantsInstance(c *echo.Context) error {
 	}
 
 	inst := h.Backend.CreateAccessGrantsInstance(accountID, body.IdentityCenterArn)
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(inst.AccessGrantsInstanceArn, tags)
+	}
 
 	return writeXML(c, createAccessGrantsInstanceResponseXML{
 		AccessGrantsInstanceArn:   inst.AccessGrantsInstanceArn,
@@ -350,6 +360,7 @@ type createAccessGrantRequestXML struct {
 	Permission             string                      `xml:"Permission"`
 	Grantee                createAccessGrantGranteeXML `xml:"Grantee"`
 	ApplicationArn         string                      `xml:"ApplicationArn"`
+	Tags                   []resourceTagXML            `xml:"Tags>Tag"`
 }
 
 type createAccessGrantResponseXML struct {
@@ -383,6 +394,15 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(grant.AccessGrantArn, tags)
+	}
+
 	return writeXML(c, createAccessGrantResponseXML{
 		AccessGrantArn:         grant.AccessGrantArn,
 		AccessGrantID:          grant.AccessGrantID,
@@ -400,9 +420,10 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 // --- CreateAccessGrantsLocation handler ---
 
 type createAccessGrantsLocationRequestXML struct {
-	XMLName       xml.Name `xml:"CreateAccessGrantsLocationRequest"`
-	LocationScope string   `xml:"LocationScope"`
-	IAMRoleArn    string   `xml:"IAMRoleArn"`
+	XMLName       xml.Name         `xml:"CreateAccessGrantsLocationRequest"`
+	LocationScope string           `xml:"LocationScope"`
+	IAMRoleArn    string           `xml:"IAMRoleArn"`
+	Tags          []resourceTagXML `xml:"Tags>Tag"`
 }
 
 type createAccessGrantsLocationResponseXML struct {
@@ -426,6 +447,15 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 	}
 
 	loc := h.Backend.CreateAccessGrantsLocation(accountID, body.LocationScope, body.IAMRoleArn)
+
+	if len(body.Tags) > 0 {
+		tags := make(map[string]string, len(body.Tags))
+		for _, t := range body.Tags {
+			tags[t.Key] = t.Value
+		}
+
+		h.Backend.TagResource(loc.AccessGrantsLocationArn, tags)
+	}
 
 	return writeXML(c, createAccessGrantsLocationResponseXML{
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
@@ -653,14 +683,9 @@ func (h *Handler) handleListAccessGrants(c *echo.Context) error {
 	return writeXML(c, listAccessGrantsResponseXML{AccessGrants: page, NextToken: tok})
 }
 
-// listCallerAccessGrantItemXML mirrors aws-sdk-go-v2's
-// ListCallerAccessGrantsEntry, which is a genuinely narrower type than
-// ListAccessGrantEntry -- it carries NO AccessGrantId, AccessGrantArn,
-// CreatedAt, or Grantee field at all (verified against
-// aws-sdk-go-v2/service/s3control/types.ListCallerAccessGrantsEntry). A
-// prior version of this handler reused listAccessGrantItemXML here, which
-// fabricated an <AccessGrantId> element the real ListCallerAccessGrants
-// response never emits.
+// listCallerAccessGrantItemXML mirrors
+// types.ListCallerAccessGrantsEntry, narrower than ListAccessGrantEntry —
+// no AccessGrantId, AccessGrantArn, CreatedAt, or Grantee field.
 type listCallerAccessGrantItemXML struct {
 	Permission     string `xml:"Permission"`
 	GrantScope     string `xml:"GrantScope,omitempty"`
@@ -685,17 +710,10 @@ func (h *Handler) handleListCallerAccessGrants(c *echo.Context) error {
 
 	page, tok := s3cPaginate(items, nextToken, maxResults)
 
-	// NOTE: the real ListCallerAccessGrantsOutput wraps its list under
-	// "CallerAccessGrantsList", NOT "AccessGrantsList" -- confirmed via
-	// deserializers.go's awsRestxml_deserializeOpDocumentListCallerAccessGrantsOutput,
-	// which only recognizes "CallerAccessGrantsList" and "NextToken" at the
-	// top level. A previous version of this handler wrapped the list under
-	// "AccessGrantsList", the same key ListAccessGrants (a different
-	// operation) uses. Because the real SDK's field-matching loop silently
-	// skips unrecognized elements, a real client decoding that response
-	// would see an empty CallerAccessGrantsList every time -- the same
-	// wrong-envelope-key bug class documented for cloudwatchlogs'
-	// "scheduledQuery" wrap and redshift's empty-struct wrap.
+	// Real ListCallerAccessGrantsOutput wraps its list under
+	// "CallerAccessGrantsList", not "AccessGrantsList" (the key
+	// ListAccessGrants, a different op, uses) —
+	// awsRestxml_deserializeOpDocumentListCallerAccessGrantsOutput.
 	return writeXML(c, struct {
 		XMLName      xml.Name                       `xml:"ListCallerAccessGrantsResult"`
 		NextToken    string                         `xml:"NextToken,omitempty"`
@@ -811,14 +829,12 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	// GAP (no backing data, not fabricated): the real GetDataAccessOutput
-	// also carries Credentials.SessionToken, Credentials.Expiration, and a
-	// top-level Grantee (GranteeType/GranteeIdentifier) -- confirmed via
-	// aws-sdk-go-v2/service/s3control's GetDataAccessOutput /
+	// GAP (no backing data, not fabricated): real GetDataAccessOutput also
+	// carries Credentials.SessionToken, Credentials.Expiration, and a
+	// top-level Grantee (GranteeType/GranteeIdentifier) —
 	// awsRestxml_deserializeOpDocumentGetDataAccessOutput. This backend
-	// does not issue real STS-style temporary credentials or resolve which
-	// grant matched the request, so those fields are omitted rather than
-	// populated with invented values.
+	// issues no real STS credentials and resolves no matching grant, so
+	// those fields are omitted rather than invented.
 	return writeXML(c, struct {
 		XMLName     xml.Name `xml:"GetDataAccessResult"`
 		Credentials struct {

@@ -137,6 +137,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return false
 		}
 
+		// The tags trio is keyed by method + "tags" alone (see routeKey), so
+		// it must not claim another service's /tags/{arn} request -- only
+		// the ARN's own service segment disambiguates the true owner.
+		if segs[0] == "tags" {
+			return httputils.MatchesTaggedResourceARN(c.Request().URL.Path, resiliencehubService)
+		}
+
 		_, ok := h.routes()[routeKey(c.Request().Method, segs)]
 
 		return ok

@@ -10,9 +10,16 @@ import (
 func (h *Handler) handleCreateDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	snapshotID := vals.Get("DBClusterSnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
+	tags := parseTagEntries(vals)
+	if err := validateTagEntries(tags); err != nil {
+		return nil, err
+	}
 	snap, err := h.Backend.CreateDBClusterSnapshot(ctx, snapshotID, clusterID)
 	if err != nil {
 		return nil, err
+	}
+	if len(tags) > 0 {
+		_ = h.Backend.AddTagsToResource(ctx, snap.DBClusterSnapshotArn, tags)
 	}
 
 	return &createDBClusterSnapshotResponse{

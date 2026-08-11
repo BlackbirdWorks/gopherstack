@@ -38,7 +38,7 @@ func evictOneIfAtCapacity[V any](t *store.Table[V], maxLen int, keyFn func(*V) s
 }
 
 // StartAsyncJob creates a new async video analysis job.
-func (b *InMemoryBackend) StartAsyncJob(jobType, collectionID string) (string, error) {
+func (b *InMemoryBackend) StartAsyncJob(params StartAsyncJobParams) (string, error) {
 	b.mu.Lock("StartAsyncJob")
 	defer b.mu.Unlock()
 
@@ -46,10 +46,15 @@ func (b *InMemoryBackend) StartAsyncJob(jobType, collectionID string) (string, e
 
 	jobID := uuid.NewString()
 	b.asyncJobs.Put(&storedAsyncJob{
-		JobID:        jobID,
-		JobType:      jobType,
-		CollectionID: collectionID,
-		JobStatus:    "IN_PROGRESS",
+		JobID:          jobID,
+		JobType:        params.JobType,
+		CollectionID:   params.CollectionID,
+		JobStatus:      "IN_PROGRESS",
+		JobTag:         params.JobTag,
+		VideoS3Bucket:  params.VideoS3Bucket,
+		VideoS3Name:    params.VideoS3Name,
+		VideoS3Version: params.VideoS3Version,
+		SegmentTypes:   params.SegmentTypes,
 	})
 
 	return jobID, nil
@@ -68,16 +73,20 @@ func (b *InMemoryBackend) GetAsyncJob(jobID string) (*AsyncJob, error) {
 	switch job.PollCount {
 	case 0:
 		job.PollCount++
-
-		return &AsyncJob{JobID: job.JobID, JobStatus: "IN_PROGRESS"}, nil
 	case 1:
 		job.PollCount++
 		job.JobStatus = jobStatusSucceeded
-
-		return &AsyncJob{JobID: job.JobID, JobStatus: jobStatusSucceeded}, nil
-	default:
-		return &AsyncJob{JobID: job.JobID, JobStatus: job.JobStatus}, nil
 	}
+
+	return &AsyncJob{
+		JobID:          job.JobID,
+		JobStatus:      job.JobStatus,
+		JobTag:         job.JobTag,
+		VideoS3Bucket:  job.VideoS3Bucket,
+		VideoS3Name:    job.VideoS3Name,
+		VideoS3Version: job.VideoS3Version,
+		SegmentTypes:   job.SegmentTypes,
+	}, nil
 }
 
 // =============================================================================

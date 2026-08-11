@@ -5,33 +5,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family M (13 ops, all under /network-migration/):
-// CreateNetworkMigrationDefinition, GetNetworkMigrationDefinition,
-// UpdateNetworkMigrationDefinition, DeleteNetworkMigrationDefinition,
-// ListNetworkMigrationDefinitions, GetNetworkMigrationMapperSegmentConstruct,
-// ListNetworkMigrationMapperSegmentConstructs,
-// ListNetworkMigrationMapperSegments, UpdateNetworkMigrationMapperSegment,
-// ListNetworkMigrationMappings, ListNetworkMigrationMappingUpdates,
-// StartNetworkMigrationMapping, StartNetworkMigrationMappingUpdate.
-//
-// # Mapper segments/constructs are never populated
-//
-// No op in this 95-op surface creates a NetworkMigrationMapperSegment or
-// NetworkMigrationMapperSegmentConstruct either -- they are conceptually
-// produced by the (unbuildable, per PARITY.md) network-analysis engine as a
-// side effect of a MAPPING job succeeding. Unlike SourceServer/VcenterClient
-// (which this package resolves with an explicit SeedX non-SDK convenience,
-// since they back the primary 70-op replication surface this service exists
-// to emulate), mapper segments back only bookkeeping display within the
-// already-honest-gapped Network Migration analysis sub-feature -- this
-// package deliberately takes the OTHER option this task's instructions
-// explicitly weigh: "leave the families genuinely empty and record it as a
-// gap," rather than adding a second synthetic seeding seam whose payoff is
-// far smaller. ListNetworkMigrationMapperSegments/
-// ListNetworkMigrationMapperSegmentConstructs therefore always return empty
-// (after validating the (definition, execution) scope exists);
-// GetNetworkMigrationMapperSegmentConstruct/UpdateNetworkMigrationMapperSegment
-// always 404, since no segment ever exists to address.
+// Mapper segments/constructs are never populated: no op creates a
+// NetworkMigrationMapperSegment or ...SegmentConstruct -- they're conceptually
+// produced by the (unbuildable, per PARITY.md) network-analysis engine as a side
+// effect of a MAPPING job succeeding. Unlike SourceServer/VcenterClient, this
+// package deliberately leaves these families genuinely empty rather than adding a
+// second synthetic seeding seam. List* ops return empty (after validating the
+// (definition, execution) scope exists); Get/Update on a segment always 404.
 
 // CreateNetworkMigrationDefinitionInput mirrors
 // CreateNetworkMigrationDefinitionInput.

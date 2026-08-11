@@ -14,7 +14,6 @@ import (
 	schedulersdk "github.com/aws/aws-sdk-go-v2/service/scheduler"
 	schedulersdktypes "github.com/aws/aws-sdk-go-v2/service/scheduler/types"
 	"github.com/labstack/echo/v5"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
@@ -113,15 +112,7 @@ func TestIntegration_Scheduler_Lambda_Target(t *testing.T) {
 	schedulerHandler.GetRunner().Start(runCtx)
 
 	// --- Step 3: Wait for the schedule to fire at least once ---
-	deadline := time.Now().Add(schedulerPollTimeout)
-
-	for time.Now().Before(deadline) {
-		if mockInvoker.CallCount() >= 1 {
-			break
-		}
-
-		time.Sleep(schedulerPollInterval)
-	}
-
-	assert.GreaterOrEqual(t, mockInvoker.CallCount(), 1, "Lambda should be invoked by the scheduler")
+	require.Eventually(t, func() bool {
+		return mockInvoker.CallCount() >= 1
+	}, schedulerPollTimeout, schedulerPollInterval, "Lambda should be invoked by the scheduler")
 }

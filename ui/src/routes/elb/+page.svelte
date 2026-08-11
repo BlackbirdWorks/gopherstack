@@ -29,8 +29,23 @@
 		type PolicyDescription
 	} from '@aws-sdk/client-elastic-load-balancing';
 	import { toast } from 'svelte-sonner';
+	import { confirmDestructive } from '$lib/confirm-dialog';
 
 	const elb = regionalClient(getELBClient);
+
+	// The SDK puts the AWS error code on err.name and status on
+	// err.$metadata.httpStatusCode; err.message alone is usually just the
+	// human-readable text. Combine them so the toast shows the actual code.
+	function describeError(e: unknown): string {
+		if (e && typeof e === 'object') {
+			const rec = e as { name?: unknown; message?: unknown; $metadata?: { httpStatusCode?: number } };
+			const name = rec.name ? String(rec.name) : 'Error';
+			const message = rec.message ? String(rec.message) : String(e);
+			const status = rec.$metadata?.httpStatusCode;
+			return status ? `${name} (HTTP ${status}): ${message}` : `${name}: ${message}`;
+		}
+		return String(e);
+	}
 
 	type ActiveTab = 'overview' | 'listeners' | 'healthcheck' | 'attributes' | 'instances' | 'policies';
 
@@ -117,7 +132,7 @@
 				if (selectedLB) await loadLBDetails();
 			}
 		} catch (err: unknown) {
-			toast.error(`Failed to load balancers: ${(err as Error).message}`);
+			toast.error(`Failed to load balancers: ${describeError(err)}`);
 		} finally {
 			loading = false;
 		}
@@ -157,7 +172,7 @@
 
 			lbPolicies = polOut.PolicyDescriptions ?? [];
 		} catch (err: unknown) {
-			toast.error(`Failed to load LB details: ${(err as Error).message}`);
+			toast.error(`Failed to load LB details: ${describeError(err)}`);
 		}
 	}
 
@@ -188,18 +203,19 @@
 			if (created) await selectLB(created);
 			toast.success('Load balancer created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create: ${(err as Error).message}`);
+			toast.error(`Failed to create: ${describeError(err)}`);
 		}
 	}
 
 	async function deleteLoadBalancer(name: string) {
+		if (!(await confirmDestructive({ title: 'Delete Load Balancer', message: `Delete load balancer "${name}"? This cannot be undone.` }))) return;
 		try {
 			await elb().send(new DeleteLoadBalancerCommand({ LoadBalancerName: name }));
 			if (selectedLB?.LoadBalancerName === name) selectedLB = null;
 			await loadBalancersList();
 			toast.success('Load balancer deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete: ${(err as Error).message}`);
+			toast.error(`Failed to delete: ${describeError(err)}`);
 		}
 	}
 
@@ -226,12 +242,13 @@
 			await loadBalancersList();
 			toast.success('Listener added');
 		} catch (err: unknown) {
-			toast.error(`Failed to add listener: ${(err as Error).message}`);
+			toast.error(`Failed to add listener: ${describeError(err)}`);
 		}
 	}
 
 	async function deleteListener(port: number) {
 		if (!selectedLB?.LoadBalancerName) return;
+		if (!(await confirmDestructive({ title: 'Remove Listener', message: `Remove the listener on port ${port}?` }))) return;
 		try {
 			await elb().send(new DeleteLoadBalancerListenersCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
@@ -240,7 +257,7 @@
 			await loadBalancersList();
 			toast.success('Listener removed');
 		} catch (err: unknown) {
-			toast.error(`Failed to remove listener: ${(err as Error).message}`);
+			toast.error(`Failed to remove listener: ${describeError(err)}`);
 		}
 	}
 
@@ -260,7 +277,7 @@
 			await loadBalancersList();
 			toast.success('Health check updated');
 		} catch (err: unknown) {
-			toast.error(`Failed to update health check: ${(err as Error).message}`);
+			toast.error(`Failed to update health check: ${describeError(err)}`);
 		}
 	}
 
@@ -278,7 +295,7 @@
 			await loadLBDetails();
 			toast.success('Attributes updated');
 		} catch (err: unknown) {
-			toast.error(`Failed to update attributes: ${(err as Error).message}`);
+			toast.error(`Failed to update attributes: ${describeError(err)}`);
 		}
 	}
 
@@ -293,7 +310,7 @@
 			await loadBalancersList();
 			toast.success('Instance registered');
 		} catch (err: unknown) {
-			toast.error(`Failed to register instance: ${(err as Error).message}`);
+			toast.error(`Failed to register instance: ${describeError(err)}`);
 		}
 	}
 
@@ -307,7 +324,7 @@
 			await loadBalancersList();
 			toast.success('Instance deregistered');
 		} catch (err: unknown) {
-			toast.error(`Failed to deregister: ${(err as Error).message}`);
+			toast.error(`Failed to deregister: ${describeError(err)}`);
 		}
 	}
 
@@ -334,12 +351,13 @@
 			await loadLBDetails();
 			toast.success('Policy created');
 		} catch (err: unknown) {
-			toast.error(`Failed to create policy: ${(err as Error).message}`);
+			toast.error(`Failed to create policy: ${describeError(err)}`);
 		}
 	}
 
 	async function deletePolicy(name: string) {
 		if (!selectedLB?.LoadBalancerName) return;
+		if (!(await confirmDestructive({ title: 'Delete Policy', message: `Delete policy "${name}"?` }))) return;
 		try {
 			await elb().send(new DeleteLoadBalancerPolicyCommand({
 				LoadBalancerName: selectedLB.LoadBalancerName,
@@ -348,7 +366,7 @@
 			await loadLBDetails();
 			toast.success('Policy deleted');
 		} catch (err: unknown) {
-			toast.error(`Failed to delete policy: ${(err as Error).message}`);
+			toast.error(`Failed to delete policy: ${describeError(err)}`);
 		}
 	}
 
@@ -365,7 +383,7 @@
 			await loadBalancersList();
 			toast.success('SSL certificate updated');
 		} catch (err: unknown) {
-			toast.error(`Failed to set SSL cert: ${(err as Error).message}`);
+			toast.error(`Failed to set SSL cert: ${describeError(err)}`);
 		}
 	}
 
@@ -383,7 +401,7 @@
 			await loadBalancersList();
 			toast.success('Listener policies updated');
 		} catch (err: unknown) {
-			toast.error(`Failed to update listener policies: ${(err as Error).message}`);
+			toast.error(`Failed to update listener policies: ${describeError(err)}`);
 		}
 	}
 
@@ -398,7 +416,7 @@
 			await loadBalancersList();
 			toast.success('Availability zone enabled');
 		} catch (err: unknown) {
-			toast.error(`Failed to enable AZ: ${(err as Error).message}`);
+			toast.error(`Failed to enable AZ: ${describeError(err)}`);
 		}
 	}
 
@@ -412,7 +430,7 @@
 			await loadBalancersList();
 			toast.success('Availability zone disabled');
 		} catch (err: unknown) {
-			toast.error(`Failed to disable AZ: ${(err as Error).message}`);
+			toast.error(`Failed to disable AZ: ${describeError(err)}`);
 		}
 	}
 
@@ -426,7 +444,7 @@
 			await loadBalancersList();
 			toast.success('Subnet detached');
 		} catch (err: unknown) {
-			toast.error(`Failed to detach subnet: ${(err as Error).message}`);
+			toast.error(`Failed to detach subnet: ${describeError(err)}`);
 		}
 	}
 
@@ -441,7 +459,7 @@
 			await loadBalancersList();
 			toast.success('Subnet attached');
 		} catch (err: unknown) {
-			toast.error(`Failed to attach subnet: ${(err as Error).message}`);
+			toast.error(`Failed to attach subnet: ${describeError(err)}`);
 		}
 	}
 
@@ -459,7 +477,7 @@
 			await loadBalancersList();
 			toast.success('Backend server policies updated');
 		} catch (err: unknown) {
-			toast.error(`Failed: ${(err as Error).message}`);
+			toast.error(`Failed: ${describeError(err)}`);
 		}
 	}
 
@@ -480,7 +498,7 @@
 			}
 			instanceHealthMap = map;
 		} catch (err: unknown) {
-			toast.error(`Failed to fetch health: ${(err as Error).message}`);
+			toast.error(`Failed to fetch health: ${describeError(err)}`);
 		} finally {
 			healthLoading = false;
 		}
@@ -513,7 +531,7 @@
 			if (created) await selectLB(created);
 			toast.success('Demo data loaded');
 		} catch (err: unknown) {
-			toast.error(`Demo data failed: ${(err as Error).message}`);
+			toast.error(`Demo data failed: ${describeError(err)}`);
 		}
 	}
 

@@ -36,10 +36,7 @@ func (h *Handler) handleCreateExtension(c *echo.Context) error {
 			return conflictResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, ext)
@@ -56,10 +53,7 @@ func (h *Handler) handleGetExtension(c *echo.Context, extensionID string) error 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -114,10 +108,7 @@ func (h *Handler) handleUpdateExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, ext)
@@ -133,14 +124,14 @@ func (h *Handler) handleDeleteExtension(c *echo.Context, extensionID string) err
 			return notFoundResponse(c, err)
 		}
 
+		// DeleteExtension models only BadRequestException, InternalServerException
+		// and ResourceNotFoundException (appconfig@v1.48.4 deserializers.go:2369) --
+		// no ConflictException, so "still associated" maps to BadRequestException here.
 		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return conflictResponse(c, err)
+			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)
@@ -177,10 +168,7 @@ func (h *Handler) handleCreateExtensionAssociation(c *echo.Context) error {
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, assoc)
@@ -196,10 +184,7 @@ func (h *Handler) handleGetExtensionAssociation(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, assoc)
@@ -245,10 +230,7 @@ func (h *Handler) handleUpdateExtensionAssociation(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, assoc)
@@ -263,10 +245,7 @@ func (h *Handler) handleDeleteExtensionAssociation(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

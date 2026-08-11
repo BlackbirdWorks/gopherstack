@@ -179,6 +179,7 @@ type samplingRuleUpdateInput struct {
 	Priority          *int32                 `json:"Priority"`
 	ReservoirSize     *int32                 `json:"ReservoirSize"`
 	SamplingRateBoost *samplingRateBoostView `json:"SamplingRateBoost,omitempty"`
+	Attributes        map[string]string      `json:"Attributes,omitempty"`
 	RuleName          string                 `json:"RuleName"`
 	RuleARN           string                 `json:"RuleARN"`
 }
@@ -209,6 +210,7 @@ func (h *Handler) handleUpdateSamplingRule(_ context.Context, body []byte) ([]by
 		FixedRate:     in.SamplingRuleUpdate.FixedRate,
 		Priority:      in.SamplingRuleUpdate.Priority,
 		ReservoirSize: in.SamplingRuleUpdate.ReservoirSize,
+		Attributes:    in.SamplingRuleUpdate.Attributes,
 	}
 
 	if in.SamplingRuleUpdate.SamplingRateBoost != nil {

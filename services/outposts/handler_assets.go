@@ -30,10 +30,30 @@ func (h *Handler) handleListAssets(_ context.Context, r *http.Request, _ []byte)
 
 func (h *Handler) handleListAssetInstances(_ context.Context, r *http.Request, _ []byte) ([]byte, error) {
 	segs := rawPathSegments(r)
+	q := r.URL.Query()
 
-	if err := h.Backend.ListAssetInstances(segs[1]); err != nil {
+	f := assetInstanceFilter{
+		accountIDs:    q["AccountIdFilter"],
+		assetIDs:      q["AssetIdFilter"],
+		awsServices:   q["AwsServiceFilter"],
+		instanceTypes: q["InstanceTypeFilter"],
+	}
+
+	instances, err := h.Backend.ListAssetInstances(segs[1], f)
+	if err != nil {
 		return nil, err
 	}
 
-	return marshalResponse(listAssetInstancesResponse{AssetInstances: []assetInstanceWire{}})
+	resp := listAssetInstancesResponse{AssetInstances: make([]assetInstanceWire, 0, len(instances))}
+	for _, ri := range instances {
+		resp.AssetInstances = append(resp.AssetInstances, assetInstanceWire{
+			AccountId:      ri.AccountID,
+			AssetId:        ri.AssetID,
+			AwsServiceName: awsServiceNameEC2,
+			InstanceId:     ri.InstanceID,
+			InstanceType:   ri.InstanceType,
+		})
+	}
+
+	return marshalResponse(resp)
 }

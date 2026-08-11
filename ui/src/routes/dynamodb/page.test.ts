@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import DynamoDBPage from "./+page.svelte";
 import { setMockPageUrl, getMockPage } from "$lib/mock-page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -34,6 +35,17 @@ function findCall(name: string, index = 0): { input: Record<string, unknown> } {
 
 function callCount(name: string): number {
   return mockSend.mock.calls.filter((c) => commandName(c[0]) === name).length;
+}
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
 }
 
 const baseTable = {
@@ -70,6 +82,12 @@ describe("DynamoDB Page", () => {
     mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
+    // Region defaults to "All" for a fresh user (see region.svelte.ts) --
+    // every existing test in this file below predates "All" mode and
+    // assumes exactly one ListTables/DescribeTable call sequence against a
+    // single region, so pin single-region mode here. Tests that actually
+    // exercise All mode call setStoredRegion(ALL_REGIONS) themselves.
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title and create button", () => {
@@ -1138,6 +1156,61 @@ describe("DynamoDB Page", () => {
         TableArn: baseTable.TableArn,
         S3Bucket: "my-export-bucket",
         ExportFormat: "DYNAMODB_JSON",
+      });
+
+      vi.unstubAllGlobals();
+    });
+  });
+
+  describe("All regions mode", () => {
+    it("fans ListTables out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+      mockSend.mockResolvedValueOnce({ TableNames: ["Users"] });
+
+      render(DynamoDBPage);
+
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument());
+      expect(screen.getByText("Users")).toBeInTheDocument();
+      expect(callCount("ListTablesCommand")).toBe(2);
+      // The table list is fanned out only -- no per-table DescribeTable
+      // fan-out yet, so exactly the 2 ListTables calls above are expected.
+      expect(callCount("DescribeTableCommand")).toBe(0);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("falls back to just the default region when no region has data", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData([]);
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+
+      render(DynamoDBPage);
+
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument());
+      expect(callCount("ListTablesCommand")).toBe(1);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("opening a row pins the picker to that row's region and single-region-loads its detail", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+
+      render(DynamoDBPage);
+      await waitFor(() => expect(screen.getByText("Orders")).toBeInTheDocument());
+
+      mockSend.mockResolvedValueOnce({ TableNames: ["Orders"] });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ Table: baseTable });
+      mockSend.mockResolvedValueOnce({ TimeToLiveDescription: { TimeToLiveStatus: "DISABLED" } });
+
+      await fireEvent.click(screen.getByText("Orders"));
+
+      await waitFor(() => expect(screen.getByText("Delete Table")).toBeInTheDocument(), {
+        timeout: 3000,
       });
 
       vi.unstubAllGlobals();

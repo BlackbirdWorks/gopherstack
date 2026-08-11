@@ -173,6 +173,79 @@ func TestUntagResource(t *testing.T) {
 	assert.Equal(t, "team", tags[0].(map[string]any)["key"])
 }
 
+// TestCreateCapacityProvider_TagsVisibleViaListTagsForResource guards against a
+// dual-store divergence: CreateCapacityProvider used to write its Tags input only
+// onto the CapacityProvider's own struct field, never into the shared resourceTags
+// map ListTagsForResource/TagResource/UntagResource read and write. The create
+// response itself echoed the tags back (from the struct field), masking the bug --
+// only a follow-up ListTagsForResource call, as a real client would make, exposed it.
+func TestCreateCapacityProvider_TagsVisibleViaListTagsForResource(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createResp := doECSRequest(t, h, "CreateCapacityProvider", map[string]any{
+		"name": "tagged-cp",
+		"tags": []map[string]any{{"key": "env", "value": "prod"}},
+	})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	cpArn := createOut["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
+
+	listResp := doECSRequest(t, h, "ListTagsForResource", map[string]any{
+		"resourceArn": cpArn,
+	})
+	require.Equal(t, http.StatusOK, listResp.Code)
+
+	var listOut map[string]any
+	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &listOut))
+	tags := listOut["tags"].([]any)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "env", tags[0].(map[string]any)["key"])
+	assert.Equal(t, "prod", tags[0].(map[string]any)["value"])
+}
+
+// TestDescribeCapacityProviders_TagResource_ReflectsInDescribe guards the inverse
+// direction of the same divergence: TagResource/UntagResource only ever wrote to the
+// shared resourceTags map, while DescribeCapacityProviders' Include=[TAGS] path read
+// the CapacityProvider struct's own Tags field, which TagResource never touched -- so
+// a tag added after creation would round-trip via ListTagsForResource but never show
+// up in DescribeCapacityProviders.
+func TestDescribeCapacityProviders_TagResource_ReflectsInDescribe(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createResp := doECSRequest(t, h, "CreateCapacityProvider", map[string]any{"name": "post-tagged-cp"})
+	require.Equal(t, http.StatusOK, createResp.Code)
+
+	var createOut map[string]any
+	require.NoError(t, json.Unmarshal(createResp.Body.Bytes(), &createOut))
+	cpArn := createOut["capacityProvider"].(map[string]any)["capacityProviderArn"].(string)
+
+	tagResp := doECSRequest(t, h, "TagResource", map[string]any{
+		"resourceArn": cpArn,
+		"tags":        []any{map[string]any{"key": "owner", "value": "ops"}},
+	})
+	require.Equal(t, http.StatusOK, tagResp.Code)
+
+	describeResp := doECSRequest(t, h, "DescribeCapacityProviders", map[string]any{
+		"capacityProviders": []string{"post-tagged-cp"},
+		"include":           []string{"TAGS"},
+	})
+	require.Equal(t, http.StatusOK, describeResp.Code)
+
+	var describeOut map[string]any
+	require.NoError(t, json.Unmarshal(describeResp.Body.Bytes(), &describeOut))
+	providers := describeOut["capacityProviders"].([]any)
+	require.Len(t, providers, 1)
+	tags := providers[0].(map[string]any)["tags"].([]any)
+	require.Len(t, tags, 1)
+	assert.Equal(t, "owner", tags[0].(map[string]any)["key"])
+}
+
 func TestTagResource_Cluster(t *testing.T) {
 	t.Parallel()
 

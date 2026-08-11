@@ -12,25 +12,46 @@ type getInsightInput struct {
 	InsightID string `json:"InsightId"`
 }
 
+type requestImpactStatisticsView struct {
+	OkCount    int64 `json:"OkCount"`
+	FaultCount int64 `json:"FaultCount"`
+	TotalCount int64 `json:"TotalCount"`
+}
+
+func toRequestImpactStatisticsView(s *RequestImpactStatistics) *requestImpactStatisticsView {
+	if s == nil {
+		return nil
+	}
+
+	return &requestImpactStatisticsView{
+		OkCount:    s.OkCount,
+		FaultCount: s.FaultCount,
+		TotalCount: s.TotalCount,
+	}
+}
+
 type insightView struct {
-	InsightID  string   `json:"InsightId"`
-	GroupARN   string   `json:"GroupARN"`
-	GroupName  string   `json:"GroupName"`
-	State      string   `json:"State"`
-	Summary    string   `json:"Summary"`
-	Categories []string `json:"Categories,omitempty"`
-	StartTime  float64  `json:"StartTime"`
-	EndTime    float64  `json:"EndTime,omitempty"`
+	ClientRequestImpactStatistics *requestImpactStatisticsView `json:"ClientRequestImpactStatistics,omitempty"`
+	InsightID                     string                       `json:"InsightId"`
+	GroupARN                      string                       `json:"GroupARN"`
+	GroupName                     string                       `json:"GroupName"`
+	State                         string                       `json:"State"`
+	Summary                       string                       `json:"Summary"`
+	Categories                    []string                     `json:"Categories,omitempty"`
+	StartTime                     float64                      `json:"StartTime"`
+	EndTime                       float64                      `json:"EndTime,omitempty"`
 }
 
 func toInsightView(i *Insight) insightView {
 	v := insightView{
-		InsightID: i.InsightID,
-		GroupARN:  i.GroupARN,
-		GroupName: i.GroupName,
-		State:     i.State,
-		Summary:   i.Summary,
-		StartTime: float64(i.StartTime.Unix()),
+		InsightID:                     i.InsightID,
+		GroupARN:                      i.GroupARN,
+		GroupName:                     i.GroupName,
+		State:                         i.State,
+		Summary:                       i.Summary,
+		Categories:                    i.Categories,
+		ClientRequestImpactStatistics: toRequestImpactStatisticsView(i.ClientRequestImpactStatistics),
+		StartTime:                     float64(i.StartTime.Unix()),
 	}
 	if !i.EndTime.IsZero() {
 		v.EndTime = float64(i.EndTime.Unix())
@@ -132,8 +153,8 @@ func (h *Handler) handleGetInsightImpactGraph(_ context.Context, body []byte) ([
 	return json.Marshal(map[string]any{
 		"InsightId":             in.InsightID,
 		keyServices:             []any{},
-		"StartTime":             in.StartTime,
-		"EndTime":               in.EndTime,
+		keyStartTime:            in.StartTime,
+		keyEndTime:              in.EndTime,
 		"ServiceGraphStartTime": in.StartTime,
 		"ServiceGraphEndTime":   in.EndTime,
 		keyNextToken:            "",
@@ -155,26 +176,29 @@ type getInsightSummariesInput struct {
 // type also carries LastUpdateTime -- "the time, in Unix seconds, that the insight was
 // last updated".
 type insightSummaryView struct {
-	InsightID      string   `json:"InsightId"`
-	GroupARN       string   `json:"GroupARN"`
-	GroupName      string   `json:"GroupName"`
-	State          string   `json:"State"`
-	Summary        string   `json:"Summary"`
-	Categories     []string `json:"Categories,omitempty"`
-	StartTime      float64  `json:"StartTime"`
-	EndTime        float64  `json:"EndTime,omitempty"`
-	LastUpdateTime float64  `json:"LastUpdateTime"`
+	ClientRequestImpactStatistics *requestImpactStatisticsView `json:"ClientRequestImpactStatistics,omitempty"`
+	InsightID                     string                       `json:"InsightId"`
+	GroupARN                      string                       `json:"GroupARN"`
+	GroupName                     string                       `json:"GroupName"`
+	State                         string                       `json:"State"`
+	Summary                       string                       `json:"Summary"`
+	Categories                    []string                     `json:"Categories,omitempty"`
+	StartTime                     float64                      `json:"StartTime"`
+	EndTime                       float64                      `json:"EndTime,omitempty"`
+	LastUpdateTime                float64                      `json:"LastUpdateTime"`
 }
 
 func toInsightSummaryView(i *Insight) insightSummaryView {
 	v := insightSummaryView{
-		InsightID:      i.InsightID,
-		GroupARN:       i.GroupARN,
-		GroupName:      i.GroupName,
-		State:          i.State,
-		Summary:        i.Summary,
-		StartTime:      float64(i.StartTime.Unix()),
-		LastUpdateTime: float64(i.LastUpdateTime.Unix()),
+		InsightID:                     i.InsightID,
+		GroupARN:                      i.GroupARN,
+		GroupName:                     i.GroupName,
+		State:                         i.State,
+		Summary:                       i.Summary,
+		Categories:                    i.Categories,
+		ClientRequestImpactStatistics: toRequestImpactStatisticsView(i.ClientRequestImpactStatistics),
+		StartTime:                     float64(i.StartTime.Unix()),
+		LastUpdateTime:                float64(i.LastUpdateTime.Unix()),
 	}
 	if !i.EndTime.IsZero() {
 		v.EndTime = float64(i.EndTime.Unix())

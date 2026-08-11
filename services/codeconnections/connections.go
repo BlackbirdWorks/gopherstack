@@ -30,9 +30,13 @@ func (b *InMemoryBackend) CreateConnection(
 	b.mu.Lock("CreateConnection")
 	defer b.mu.Unlock()
 
-	if len(b.connectionsByName.Get(regionKey(region, name))) > 0 {
-		return nil, fmt.Errorf("%w: connection %q already exists", ErrAlreadyExists, name)
-	}
+	// A duplicate ConnectionName is NOT rejected: CreateConnection's real
+	// error list has no ResourceAlreadyExistsException (aws-sdk-go-v2/
+	// service/codeconnections@v1.13.4 deserializers.go's
+	// awsAwsjson10_deserializeOpErrorCreateConnection switch), unlike sibling
+	// ops CreateRepositoryLink/CreateSyncConfiguration in the same service
+	// which do model it -- a real client's second create for the same name
+	// gets a distinct ARN, not an error.
 
 	// CreateConnection's real error list is [LimitExceededException,
 	// ResourceNotFoundException, ResourceUnavailableException] (botocore

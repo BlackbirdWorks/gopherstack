@@ -39,7 +39,10 @@ func TestIntegration_IdentityStore_UserAndGroupLifecycle(t *testing.T) {
 	require.NotEmpty(t, userID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteUser(ctx, &identitystoresdk.DeleteUserInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteUser(cleanupCtx, &identitystoresdk.DeleteUserInput{
 			IdentityStoreId: aws.String(identityStoreID),
 			UserId:          aws.String(userID),
 		})
@@ -82,7 +85,10 @@ func TestIntegration_IdentityStore_UserAndGroupLifecycle(t *testing.T) {
 	require.NotEmpty(t, groupID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteGroup(ctx, &identitystoresdk.DeleteGroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteGroup(cleanupCtx, &identitystoresdk.DeleteGroupInput{
 			IdentityStoreId: aws.String(identityStoreID),
 			GroupId:         aws.String(groupID),
 		})

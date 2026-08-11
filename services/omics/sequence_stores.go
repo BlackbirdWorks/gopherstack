@@ -12,9 +12,14 @@ import (
 // SequenceStore
 // ────────────────────────────────────────────────────────────────────────────
 
+// sequenceStoreDefaultETagAlgorithm is the ETag algorithm family CreateSequenceStore
+// applies when the caller omits eTagAlgorithmFamily (CreateSequenceStoreRequest
+// documentation, botocore omics service-2.json).
+const sequenceStoreDefaultETagAlgorithm = "MD5up"
+
 // CreateSequenceStore creates a new sequence store.
 func (b *InMemoryBackend) CreateSequenceStore(
-	name, description string,
+	name, description, eTagAlgorithmFamily, accessLogLocation string,
 	tags map[string]string,
 ) (*SequenceStore, error) {
 	if name == "" {
@@ -24,15 +29,26 @@ func (b *InMemoryBackend) CreateSequenceStore(
 	b.mu.Lock("CreateSequenceStore")
 	defer b.mu.Unlock()
 
+	if eTagAlgorithmFamily == "" {
+		eTagAlgorithmFamily = sequenceStoreDefaultETagAlgorithm
+	}
+
+	var s3Access map[string]any
+	if accessLogLocation != "" {
+		s3Access = map[string]any{"accessLogLocation": accessLogLocation}
+	}
+
 	now := time.Now().UTC()
 	ss := &SequenceStore{
-		ID:           newID(),
-		Name:         name,
-		Description:  description,
-		Status:       statusActive,
-		Tags:         copyTags(tags),
-		CreationTime: now,
-		UpdateTime:   now,
+		ID:            newID(),
+		Name:          name,
+		Description:   description,
+		Status:        statusActive,
+		Tags:          copyTags(tags),
+		CreationTime:  now,
+		UpdateTime:    now,
+		ETagAlgorithm: eTagAlgorithmFamily,
+		S3Access:      s3Access,
 	}
 	ss.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "sequenceStore/"+ss.ID)
 

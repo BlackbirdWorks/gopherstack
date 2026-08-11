@@ -332,7 +332,7 @@ func TestCapabilityRegisterWindow(t *testing.T) {
 		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		b.SetClock(func() time.Time { return start })
 
-		app, err := b.CreateApplication("cap-lc-app", nil, nil)
+		app, err := b.CreateApplication("cap-lc-app", nil, nil, nil)
 		require.NoError(t, err)
 
 		capability, err := b.RegisterCapability(app.ID, "ai-capability")
@@ -354,7 +354,7 @@ func TestCapabilityRegisterWindow(t *testing.T) {
 		t.Parallel()
 
 		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-		app, err := b.CreateApplication("cap-fast-app", nil, nil)
+		app, err := b.CreateApplication("cap-fast-app", nil, nil, nil)
 		require.NoError(t, err)
 
 		capability, err := b.RegisterCapability(app.ID, "ai-capability")
@@ -378,7 +378,7 @@ func TestMigrationLifecycleWindow(t *testing.T) {
 		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		b.SetClock(func() time.Time { return start })
 
-		app, err := b.CreateApplication("mig-lc-app", nil, nil)
+		app, err := b.CreateApplication("mig-lc-app", nil, nil, nil)
 		require.NoError(t, err)
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "mig-lc-domain"})
 		require.NoError(t, err)
@@ -407,7 +407,7 @@ func TestMigrationLifecycleWindow(t *testing.T) {
 		t.Parallel()
 
 		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-		app, err := b.CreateApplication("mig-fast-app", nil, nil)
+		app, err := b.CreateApplication("mig-fast-app", nil, nil, nil)
 		require.NoError(t, err)
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "mig-fast-domain"})
 		require.NoError(t, err)
@@ -430,7 +430,7 @@ func TestDataSourceAttachmentPendingWindow(t *testing.T) {
 		t.Parallel()
 
 		b := newLifecycleBackend(t)
-		app, err := b.CreateApplication("att-lc-app", nil, nil)
+		app, err := b.CreateApplication("att-lc-app", nil, nil, nil)
 		require.NoError(t, err)
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-lc-domain"})
 		require.NoError(t, err)
@@ -454,7 +454,7 @@ func TestDataSourceAttachmentPendingWindow(t *testing.T) {
 		start := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
 		b.SetClock(func() time.Time { return start })
 
-		app, err := b.CreateApplication("att-fail-app", nil, nil)
+		app, err := b.CreateApplication("att-fail-app", nil, nil, nil)
 		require.NoError(t, err)
 		domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "att-fail-domain"})
 		require.NoError(t, err)

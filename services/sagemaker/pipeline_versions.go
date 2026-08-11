@@ -111,6 +111,17 @@ func (b *InMemoryBackend) ListPipelineVersions(
 	return page, out, nil
 }
 
+// findPipelineVersion returns the version with the given ID from versions.
+func findPipelineVersion(versions []*PipelineVersion, versionID int64) (*PipelineVersion, bool) {
+	for _, v := range versions {
+		if v.PipelineVersionID == versionID {
+			return v, true
+		}
+	}
+
+	return nil, false
+}
+
 // findPipelineByARNLocked returns the pipeline with the given ARN. Callers
 // must hold b.mu (read or write).
 func (b *InMemoryBackend) findPipelineByARNLocked(region, pipelineArn string) (*Pipeline, bool) {

@@ -427,6 +427,47 @@ func (h *CoreNetworkPolicyHistory) clone() *CoreNetworkPolicyHistory {
 	return &cp
 }
 
+// CoreNetworkChange mirrors types.CoreNetworkChange -- one entry in the
+// real structural ADD/MODIFY/REMOVE diff GetCoreNetworkChangeSet computes
+// between the LIVE and submitted policy JSON documents
+// (corenetworkpolicydiff.go).
+type CoreNetworkChange struct {
+	NewValues      *CoreNetworkChangeValues
+	PreviousValues *CoreNetworkChangeValues
+	Action         string
+	Identifier     string
+	IdentifierPath string
+	Type           string
+}
+
+// CoreNetworkChangeValues mirrors types.CoreNetworkChangeValues -- only the
+// fields this document-level diff engine actually populates
+// (SegmentName/NetworkFunctionGroupName plus the section's own raw content
+// via RawJSON, which is NOT an SDK field but this backend's own honest way
+// to expose a section-level ADD/MODIFY/REMOVE without inventing per-field
+// SDK values -- see corenetworkpolicydiff.go's doc comment) rather than all
+// ~15 SDK fields, most of which (Asn/Cidr/DestinationIdentifier/...)
+// describe per-attachment route semantics this document-level diff does not
+// correlate against live attachment state.
+type CoreNetworkChangeValues struct {
+	SegmentName              string
+	NetworkFunctionGroupName string
+	RawJSON                  string
+}
+
+// CoreNetworkChangeEvent mirrors types.CoreNetworkChangeEvent -- one
+// change's EXECUTION progress, derived from the same diff as
+// CoreNetworkChange plus the owning ChangeSetState
+// (corenetworkpolicydiff.go).
+type CoreNetworkChangeEvent struct {
+	EventTime      time.Time
+	Values         *CoreNetworkChangeValues
+	Action         string
+	IdentifierPath string
+	Status         string
+	Type           string
+}
+
 // CoreNetworkPrefixListAssociation mirrors types.PrefixListAssociation.
 type CoreNetworkPrefixListAssociation struct {
 	CoreNetworkID   string
@@ -608,12 +649,13 @@ type RouteAnalysisCompletion struct {
 	ResultCode string
 }
 
-// RouteAnalysisPath mirrors types.RouteAnalysisPath. Path stays empty in
-// this pass -- see routeanalysis.go's doc comment: this backend does not
-// walk real cross-service EC2 Transit Gateway route-table state, so it
-// never fabricates a PathComponent sequence.
+// RouteAnalysisPath mirrors types.RouteAnalysisPath. Path is populated only
+// when an EC2Resolver is wired in and the walk actually resolves a route --
+// see routeanalysis.go's doc comment: never a fabricated PathComponent
+// sequence.
 type RouteAnalysisPath struct {
 	CompletionStatus *RouteAnalysisCompletion
+	Path             []PathComponent
 }
 
 func (p *RouteAnalysisPath) clone() *RouteAnalysisPath {
@@ -627,7 +669,26 @@ func (p *RouteAnalysisPath) clone() *RouteAnalysisPath {
 		cp.CompletionStatus = &c
 	}
 
+	cp.Path = append([]PathComponent(nil), p.Path...)
+
 	return &cp
+}
+
+// PathComponent mirrors types.PathComponent.
+type PathComponent struct {
+	Resource             *NetworkResourceSummary
+	DestinationCidrBlock string
+	Sequence             int32
+}
+
+// NetworkResourceSummary mirrors types.NetworkResourceSummary.
+type NetworkResourceSummary struct {
+	Definition           string
+	NameTag              string
+	RegisteredGatewayArn string
+	ResourceArn          string
+	ResourceType         string
+	IsMiddlebox          bool
 }
 
 // RouteAnalysis mirrors types.RouteAnalysis.

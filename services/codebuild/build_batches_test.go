@@ -137,9 +137,13 @@ func TestHandler_DeleteBuildBatch_RemovesBatch(t *testing.T) {
 			name:       "delete_removes_batch",
 			wantDelete: http.StatusOK,
 		},
+		// DeleteBuildBatch declares no ResourceNotFoundException in its real
+		// error set (botocore codebuild/2016-10-06/service-2.json
+		// operations.DeleteBuildBatch.errors: only InvalidInputException), so
+		// it is idempotent.
 		{
-			name:       "delete_missing_returns_404",
-			wantDelete: http.StatusBadRequest,
+			name:       "delete_missing_is_idempotent",
+			wantDelete: http.StatusOK,
 			missing:    true,
 		},
 	}

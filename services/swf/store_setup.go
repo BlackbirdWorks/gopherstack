@@ -4,17 +4,22 @@ package swf
 // domain-nested resource collections (domains, workflows, activities,
 // executions -- previously flat maps keyed by a hand-built composite string)
 // are each replaced by a *store.Table[T]. domains needs no composite key (a
-// domain name is already globally unique); workflows, activities, and
-// executions keep the exact same composite-key shape their old map keys used
-// (domain+":"+name+":"+version, domain+":"+workflowID), since Domain,
-// Name/WorkflowID, and Version are already real, wire-visible JSON fields on
-// each value type -- no hidden field is needed, so all four are "clean"
-// tables registered directly on b.registry.
+// domain name is already globally unique); workflows and activities keep the
+// exact same composite-key shape their old map keys used
+// (domain+":"+name+":"+version), since Domain, Name, and Version are already
+// real, wire-visible JSON fields on each value type -- no hidden field is
+// needed, so all four are "clean" tables registered directly on b.registry.
+// executions is keyed by domain+":"+workflowID+":"+runID (gopherstack-jsi8:
+// re-keyed from domain+":"+workflowID, which let a second run of the same
+// workflowId silently collide with/overwrite the first -- see the
+// InMemoryBackend doc comment in store.go for the real-AWS justification).
 //
 // workflows, activities, and executions additionally gain a companion
 // byDomain *store.Index grouping entries by domain, replacing the linear
 // full-table scan+filter every domain-scoped List/Count operation used
-// against the old flat map.
+// against the old flat map. executions additionally gains byWorkflow,
+// grouping every run (open or closed) under domain+":"+workflowID so the
+// currently-open run can be found without a full-domain scan.
 //
 // activeActivityTasks and activeDecisionTasks are "dirty" tables: their key
 // (taskToken) has no home on the record type's wire shape, so each record
@@ -44,9 +49,12 @@ func activityTypeKeyFn(v *ActivityType) string {
 func activityTypeDomainIndexKeyFn(v *ActivityType) string { return v.Domain }
 
 func workflowExecutionKeyFn(v *WorkflowExecution) string {
-	return v.Domain + ":" + v.WorkflowID
+	return executionKey(v.Domain, v.WorkflowID, v.RunID)
 }
 func workflowExecutionDomainIndexKeyFn(v *WorkflowExecution) string { return v.Domain }
+func workflowExecutionWorkflowIndexKeyFn(v *WorkflowExecution) string {
+	return workflowGroupKey(v.Domain, v.WorkflowID)
+}
 
 func activeActivityTaskKeyFn(v *activeActivityTaskRecord) string { return v.TaskToken }
 
@@ -71,6 +79,7 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.executions = store.Register(b.registry, "executions", store.New(workflowExecutionKeyFn))
 	b.executionsByDomain = b.executions.AddIndex("byDomain", workflowExecutionDomainIndexKeyFn)
+	b.executionsByWorkflow = b.executions.AddIndex("byWorkflow", workflowExecutionWorkflowIndexKeyFn)
 
 	b.activeActivityTasks = store.New(activeActivityTaskKeyFn)
 	b.activeDecisionTasks = store.New(activeDecisionTaskKeyFn)

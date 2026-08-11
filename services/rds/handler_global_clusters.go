@@ -36,6 +36,7 @@ type xmlGlobalClusterMemberList struct {
 type xmlGlobalCluster struct {
 	GlobalClusterMembers    *xmlGlobalClusterMemberList `xml:"GlobalClusterMembers,omitempty"`
 	GlobalClusterIdentifier string                      `xml:"GlobalClusterIdentifier"`
+	GlobalClusterArn        string                      `xml:"GlobalClusterArn,omitempty"`
 	Engine                  string                      `xml:"Engine,omitempty"`
 	EngineVersion           string                      `xml:"EngineVersion,omitempty"`
 	Status                  string                      `xml:"Status,omitempty"`
@@ -45,7 +46,7 @@ type xmlGlobalCluster struct {
 }
 
 type xmlGlobalClusterList struct {
-	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalClusterMember"`
 }
 
 type describeGlobalClustersResponse struct {
@@ -83,6 +84,8 @@ func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, gc.GlobalClusterArn)
 
 	return &createGlobalClusterResponse{
 		Xmlns:         rdsXMLNS,
@@ -129,6 +132,7 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 	x := xmlGlobalCluster{
 		GlobalClusterIdentifier: gc.GlobalClusterIdentifier,
+		GlobalClusterArn:        gc.GlobalClusterArn,
 		Engine:                  gc.Engine,
 		EngineVersion:           gc.EngineVersion,
 		Status:                  gc.Status,

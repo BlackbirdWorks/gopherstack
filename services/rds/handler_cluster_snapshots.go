@@ -14,6 +14,8 @@ func (h *Handler) handleCreateDBClusterSnapshot(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, snap.DBClusterSnapshotArn)
+
 	return &createDBClusterSnapshotResponse{
 		Xmlns:             rdsXMLNS,
 		DBClusterSnapshot: toXMLClusterSnapshot(snap),
@@ -84,6 +86,7 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 
 	return xmlDBClusterSnapshot{
 		DBClusterSnapshotIdentifier: s.DBClusterSnapshotIdentifier,
+		DBClusterSnapshotArn:        s.DBClusterSnapshotArn,
 		DBClusterIdentifier:         s.DBClusterIdentifier,
 		DBClusterResourceID:         s.DBClusterResourceID,
 		Engine:                      s.Engine,
@@ -98,6 +101,7 @@ func toXMLClusterSnapshot(s *DBClusterSnapshot) xmlDBClusterSnapshot {
 
 type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string `xml:"DBClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	DBClusterResourceID         string `xml:"DbClusterResourceId,omitempty"`
 	Engine                      string `xml:"Engine"`

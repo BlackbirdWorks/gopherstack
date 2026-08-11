@@ -346,6 +346,40 @@ func TestCreate_FKReferenceValidation(t *testing.T) {
 				}
 			},
 		},
+		{
+			name:   "predictor_input_data_config_dataset_group_arn",
+			action: "CreatePredictor",
+			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"PredictorName": "pred", "ForecastHorizon": 5,
+					"InputDataConfig": map[string]any{
+						"DatasetGroupArn": "arn:aws:forecast:us-east-1:000000000000:dataset-group/does-not-exist",
+					},
+				}
+			},
+		},
+		{
+			name:   "auto_predictor_data_config_dataset_group_arn",
+			action: "CreateAutoPredictor",
+			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"PredictorName": "auto-pred",
+					"DataConfig": map[string]any{
+						"DatasetGroupArn": "arn:aws:forecast:us-east-1:000000000000:dataset-group/does-not-exist",
+					},
+				}
+			},
+		},
+		{
+			name:   "dataset_group_dataset_arns",
+			action: "CreateDatasetGroup",
+			buildBody: func(*testing.T, *forecast.Handler) map[string]any {
+				return map[string]any{
+					"DatasetGroupName": "dg", "Domain": "RETAIL",
+					"DatasetArns": []any{"arn:aws:forecast:us-east-1:000000000000:dataset/does-not-exist"},
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -372,6 +406,80 @@ func TestCreateForecast_MissingPredictorArn(t *testing.T) {
 	code, resp := request(t, h, "CreateForecast", map[string]any{"ForecastName": "fc"})
 	assert.Equal(t, http.StatusBadRequest, code)
 	assert.Equal(t, "InvalidInputException", resp["__type"])
+}
+
+// TestCreateDatasetGroup_DatasetArnsOptional verifies that CreateDatasetGroup
+// accepts an omitted DatasetArns list, matching real Amazon Forecast
+// (CreateDatasetGroupRequest's "required" list in the botocore model names
+// only DatasetGroupName and Domain; DatasetArns carries no "This member is
+// required" constraint in aws-sdk-go-v2/service/forecast/validators.go's
+// validateOpCreateDatasetGroupInput).
+func TestCreateDatasetGroup_DatasetArnsOptional(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	code, _ := request(t, h, "CreateDatasetGroup", map[string]any{
+		"DatasetGroupName": "no-datasets", "Domain": "RETAIL",
+	})
+	assert.Equal(t, http.StatusOK, code)
+}
+
+// TestUpdateDatasetGroup_DatasetArnsValidation verifies UpdateDatasetGroup's
+// DatasetArns semantics: the field itself is required (UpdateDatasetGroupInput
+// has "This member is required" on DatasetArns per validators.go's
+// validateOpUpdateDatasetGroupInput, unlike Create's optional field), a
+// dangling entry is ResourceNotFoundException, and an empty (but present)
+// list is legal -- the underlying ArnList shape in botocore's forecast model
+// sets no "min" constraint, so replacing a group's datasets with none is a
+// valid way to clear it.
+func TestUpdateDatasetGroup_DatasetArnsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		datasetArns any
+		name        string
+		wantType    string
+		wantCode    int
+	}{
+		{
+			name:        "missing_datasetarns_rejected",
+			datasetArns: nil,
+			wantCode:    http.StatusBadRequest,
+			wantType:    "InvalidInputException",
+		},
+		{
+			name:        "dangling_arn_rejected",
+			datasetArns: []any{"arn:aws:forecast:us-east-1:000000000000:dataset/does-not-exist"},
+			wantCode:    http.StatusBadRequest,
+			wantType:    "ResourceNotFoundException",
+		},
+		{
+			name:        "empty_list_accepted",
+			datasetArns: []any{},
+			wantCode:    http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+			_, created := request(t, h, "CreateDatasetGroup", map[string]any{
+				"DatasetGroupName": "target-group", "Domain": "RETAIL",
+			})
+			body := map[string]any{"DatasetGroupArn": created["DatasetGroupArn"]}
+			if tt.datasetArns != nil {
+				body["DatasetArns"] = tt.datasetArns
+			}
+
+			code, resp := request(t, h, "UpdateDatasetGroup", body)
+			assert.Equal(t, tt.wantCode, code)
+			if tt.wantType != "" {
+				assert.Equal(t, tt.wantType, resp["__type"])
+			}
+		})
+	}
 }
 
 // TestCreateExplainability_ResourceArnAcceptsEitherKind verifies that

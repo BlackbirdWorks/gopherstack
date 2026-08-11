@@ -38,6 +38,54 @@ func TestModifyReplicationTask(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec2.Code)
 }
 
+func TestDescribeReplicationTableStatistics(t *testing.T) {
+	t.Parallel()
+
+	h := newTestDMSHandler()
+	createRec := doDMS(t, h, "CreateReplicationConfig", map[string]any{
+		"ReplicationConfigIdentifier": "rts-config",
+		"ReplicationType":             "full-load",
+		"SourceEndpointArn":           "arn:src",
+		"TargetEndpointArn":           "arn:tgt",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	rcArn := parseJSON(t, createRec)["ReplicationConfig"].(map[string]any)["ReplicationConfigArn"].(string)
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{
+			name:       "known config returns empty statistics",
+			body:       map[string]any{"ReplicationConfigArn": rcArn},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "unknown config not found",
+			body:       map[string]any{"ReplicationConfigArn": "arn:nonexistent"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doDMS(t, h, "DescribeReplicationTableStatistics", tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			resp := parseJSON(t, rec)
+			assert.Equal(t, rcArn, resp["ReplicationConfigArn"])
+			assert.Empty(t, resp["ReplicationTableStatistics"])
+		})
+	}
+}
+
 func TestMoveReplicationTask(t *testing.T) {
 	t.Parallel()
 

@@ -3,7 +3,7 @@ package kms_test
 // describe_key_grant_tokens_test.go — wire-shape + validation regression for
 // DescribeKeyInput.GrantTokens.
 //
-// The real aws-sdk-go-v2 DescribeKeyInput (kms@v1.54.0) carries GrantTokens []string, and
+// The real aws-sdk-go-v2 DescribeKeyInput (kms@v1.55.4) carries GrantTokens []string, and
 // the DescribeKey operation declares InvalidGrantTokenException in its error set.
 // gopherstack's DescribeKeyInput previously had no GrantTokens field at all, so a
 // caller-supplied token was silently dropped by the bare json.Unmarshal in dispatch.

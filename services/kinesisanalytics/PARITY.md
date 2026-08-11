@@ -1,6 +1,6 @@
 ---
 service: kinesisanalytics
-sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.30.21
+sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4
 last_audit_commit: 6e7056ac
 last_audit_date: 2026-07-24
 overall: A            # real fixes found: deleted three gopherstack-invented surfaces
@@ -30,13 +30,13 @@ ops:
   DeleteApplicationInputProcessingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApplicationOutput: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteApplicationReferenceDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  DiscoverInputSchema: {wire: ok, errors: fixed, state: deferred, persist: n/a, note: "fixed: the request previously did zero validation and always returned a canned 200 OK schema regardless of input (empty request, both a streaming source AND an S3Configuration, or a source missing its own required sub-fields all incorrectly succeeded). Now enforces exactly-one-of-{ResourceARN+RoleARN, S3Configuration{BucketARN,FileKey,RoleARN}} plus InputProcessingConfiguration's usual required-field contract, rejecting malformed requests with InvalidArgumentException like every other modeled error path on this op. The successful-path response content remains an intentional fixed-shape sample -- see gaps."}
+  DiscoverInputSchema: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "fixed twice over: (1) the request previously did zero validation and always returned a canned 200 OK schema regardless of input -- now enforces exactly-one-of-{ResourceARN+RoleARN, S3Configuration{BucketARN,FileKey,RoleARN}} plus InputProcessingConfiguration's usual required-field contract, rejecting malformed requests with InvalidArgumentException. (2) the successful-path response was ALSO fabricated even for well-formed requests (a canned COL_1/value1 schema for any ResourceARN/S3Configuration, including nonexistent ones) -- now DiscoverInputSchema actually samples real records via new SetKinesisStreamReader/SetS3ObjectReader hooks (discover_schema.go) and infers RecordColumns from them, returning UnableToDetectSchemaException (a real, previously-unused error on this op) when it cannot reach or sample the source. cli.go now wires both: S3 directly (kaBk.SetS3ObjectReader(s3Bk), no adapter -- s3.InMemoryBackend.GetObject satisfies S3ObjectReader with the real SDK types) and Kinesis via a new kinesisAnalyticsStreamReaderAdapter (cli.go) bridging onto KinesisStreamReader's narrow shape, both proven end to end through the real HTTP dispatch by TestInitializeServices_KinesisAnalyticsKinesisS3Wiring (cli_kinesisanalytics_kinesis_s3_wiring_test.go). A Firehose-sourced ResourceARN still has no reader at all -- see gaps -- and correctly returns UnableToDetectSchemaException rather than something misleading."}
 families:
   requiredFieldValidation: {status: fixed, note: "A whole class of nested required-member validation gaps, all verified against aws-sdk-go-v2/service/kinesisanalytics/validators.go (the authoritative client-side validator source, distinct from -- and occasionally contradicting -- doc comments): Input.InputSchema; KinesisStreamsInput/KinesisFirehoseInput/KinesisStreamsOutput/KinesisFirehoseOutput/LambdaOutput.ResourceARN+RoleARN (required whenever their parent sub-object is supplied at all); InputProcessingConfiguration.InputLambdaProcessor (required whenever InputProcessingConfiguration is supplied) and its own ResourceARN/RoleARN; SourceSchema.RecordFormat.RecordFormatType (restricted to the real two-value RecordFormatType enum, JSON/CSV -- previously only enforced for Output.DestinationSchema, not for Input.InputSchema or ReferenceDataSource.ReferenceSchema); SourceSchema.RecordColumns (required, non-nil) and each RecordColumn's Name/SqlType; JSONMappingParameters.RecordRowPath and CSVMappingParameters.RecordRowDelimiter/RecordColumnDelimiter (required whenever their parent variant is supplied). Previously these gaps meant a malformed request (missing schema, missing role ARN on a nested Kinesis/Lambda sub-object, empty processing configuration, invalid record-format type) was silently accepted and stored with zero-valued/absent fields instead of being rejected with InvalidArgumentException -- a disguised-corruption bug in the same family as the UpdateApplication wire-shape bug fixed in a prior sweep. Centralized in new helpers (validateResourceRoleARN, convertInputProcessingConfig, convertSourceSchema + validateRecordFormatType/validateMappingParameters/validateRecordColumns in applications.go) shared across CreateApplication/AddApplicationInput/AddApplicationOutput/AddApplicationInputProcessingConfiguration/AddApplicationReferenceDataSource/UpdateApplication's ReferenceSchemaUpdate."}
   updateNestedPayloads: {status: ok, note: "InputUpdate/OutputUpdate/ReferenceDataSourceUpdate's Kinesis*/Lambda/S3/InputProcessingConfiguration/InputSchema/InputParallelism sub-objects all correctly carry AWS-suffixed field names (ResourceARNUpdate, RoleARNUpdate, BucketARNUpdate, FileKeyUpdate, ReferenceRoleARNUpdate, RecordColumnUpdates, RecordEncodingUpdate, RecordFormatUpdate, CountUpdate), each with its own dedicated Go type -- verified against aws-sdk-go-v2/service/kinesisanalytics/serializers.go's per-shape awsAwsjson11_serializeDocument* functions. InputSchemaUpdate is correctly applied as a field-by-field partial patch; ReferenceSchemaUpdate is correctly applied as a whole-object SourceSchema replace (confirmed via types.ReferenceDataSourceUpdate.ReferenceSchemaUpdate *SourceSchema)."}
 gaps:
-  - "DiscoverInputSchema's successful-path response is a fixed synthetic schema/sample-records payload regardless of a well-formed request's actual source; real schema inference from a live Kinesis/Firehose stream or S3 object requires an actual sampling+type-inference engine this emulator does not have. This sweep hardened the REQUEST side (see DiscoverInputSchema op note and TestHandler_DiscoverInputSchema) so malformed requests are correctly rejected with InvalidArgumentException instead of always synthesizing success -- but the successful-path content itself remains a documented, wire-shape-correct stub (handleDiscoverInputSchema doc comment). (bd: TBD)"
-  - "statusUpdating (\"UPDATING\", a real ApplicationStatus enum value per types/enums.go) is currently unused: UpdateApplication applies changes synchronously and never transiently sets the application's status to UPDATING the way StartApplication/StopApplication transition through STARTING/STOPPING. Real AWS documents a brief UPDATING window while an update is processed. Not a fabricated value (unlike the five deleted v2-only status constants -- see Notes) and not user-visible today since this emulator's UpdateApplication has no asynchronous gap for a client to observe it during, but a future sweep could add a launchTransition-style transient state for full fidelity. (bd: TBD)"
+  - "DiscoverInputSchema now does real sampling+inference (discover_schema.go: newline-delimited-JSON sampling, per-key BOOLEAN/INTEGER/DOUBLE/VARCHAR(N) type inference, sorted-alphabetical column order) instead of a fixed synthetic schema, and cli.go wires both readers it needs: S3 directly (kaBk.SetS3ObjectReader(s3Bk), no adapter -- s3.InMemoryBackend.GetObject satisfies S3ObjectReader with the real SDK types) and Kinesis via kinesisAnalyticsStreamReaderAdapter (cli.go), which bridges kinesis.InMemoryBackend's real ctx+typed-struct ListShards/GetShardIterator/GetRecords (services/kinesis/records.go, shards.go) onto KinesisStreamReader's narrow (streamName string, limit int) shape. Both proven through the actual composition root (not the wiring helper called directly) by TestInitializeServices_KinesisAnalyticsKinesisS3Wiring (cli_kinesisanalytics_kinesis_s3_wiring_test.go), which deletes its own wireKinesisAnalyticsCrossService call site to confirm the test goes red. Firehose delivery streams as a DiscoverInputSchema source remain genuinely unimplemented, not just unwired: firehose.InMemoryBackend has no accessor to read back buffered/recently-ingested records at all (it's flush-oriented), and adding one is outside services/kinesisanalytics. A Firehose-sourced request (and any request before either reader existed) correctly reports UnableToDetectSchemaException (a real, previously-unused SDK error type for this exact op -- see errors.go) instead of fabricating a 200 -- covered by the same wiring test's firehose_source_reports_unable_to_detect_schema subtest."
+  - "statusUpdating (\"UPDATING\", a real ApplicationStatus enum value per types/enums.go) is unused by design, not by omission: it is present in source (matches the wire enum exactly, not a gap in the enum itself), but UpdateApplication is genuinely synchronous here -- it validates, applies, and bumps ApplicationVersionId/LastUpdateTimestamp atomically under the backend lock before returning, so a client can never observe an intermediate state where those fields disagree. This is the same shape as the emrserverless-SUBMITTED and elasticsearch-Processing precedents judged legitimate simplifications: the transient state is unreachable because nothing async ever exists to be caught mid-transition, not because a field is missing or inconsistent. No code change made for this item."
 deferred: []
 leaks: {status: clean, note: "launchTransition/DeleteApplication background goroutines remain bounded by b.svcCtx (NewInMemoryBackendWithContext) and tracked in b.cancelFuncs, canceled on Reset(). No new goroutines, maps, or per-request state introduced this sweep -- all changes were request-validation logic in the existing conversion helpers (applications.go/handler_*.go), which return early with an error and mutate no backend state on the rejected path."}
 ---
@@ -135,6 +135,27 @@ correct.
    intentionally fixed synthetic sample (see gaps) -- this fix is about the request side, not
    fabricating real schema inference.
 
+4. **`DiscoverInputSchema`'s successful-path response was ALSO a fixed synthetic sample**, even
+   for well-formed requests naming a source that plainly can't exist (e.g.
+   `arn:...:stream/test`) -- confirmed by running `TestHandler_DiscoverInputSchema` against the
+   pre-fix code: both the streaming-source and S3-source cases returned `200 OK` with the same
+   canned `COL_1`/`value1` schema regardless of what `ResourceARN`/`S3Configuration` named. Added
+   real sampling+inference (discover_schema.go): `KinesisStreamReader`/`S3ObjectReader` are new
+   narrow interfaces (interfaces.go, mirroring services/cloudwatch's `FirehosePutter` /
+   services/firehose's `KinesisReader`/`S3Storer` cross-service pattern) that a sibling backend
+   satisfies once wired via the new `SetKinesisStreamReader`/`SetS3ObjectReader`; when wired,
+   `DiscoverInputSchema` samples up to 10 newline-delimited-JSON records and infers a
+   `RecordColumn` per observed key (BOOLEAN/INTEGER/DOUBLE/VARCHAR(N), sorted-alphabetical
+   order). `s3.InMemoryBackend.GetObject` satisfies `S3ObjectReader` directly, with no adapter,
+   proven by `TestS3ObjectReader_SatisfiedByRealS3Backend`. Neither hook is wired by cli.go (out
+   of this pass's scope -- see gaps for exactly what wiring would close the gap), so in the
+   shipped server every request now returns `UnableToDetectSchemaException` -- a real,
+   previously-unused error on this exact op (see errors.go) -- rather than a fabricated 200.
+   `TestDiscoverInputSchema_S3SamplesRealRecords`/`_KinesisSamplesRealRecords` prove the sampling
+   +inference logic itself is correct once a reader is wired, using fake test doubles for the
+   same reason services/firehose's own `KinesisReader` tests do (no cli.go-side adapter exists to
+   bridge onto `kinesis.InMemoryBackend`'s real ctx+typed-struct methods).
+
 ### Verified clean (no bug, but worth recording so the next audit doesn't re-flag)
 
 - **Route matcher / target prefix**: `KinesisAnalytics_20150814.` -- correctly uses the v1 date,
@@ -155,7 +176,10 @@ correct.
   every `Add*`/`Delete*` sub-resource op's `checkAndBumpVersion` call.
 - **ApplicationStatus enum**: the six remaining real constants
   (DELETING/STARTING/STOPPING/READY/RUNNING/UPDATING) match `types.ApplicationStatus`'s six real
-  v1 values exactly (see gaps for `statusUpdating`'s currently-unused transient-state status).
+  v1 values exactly -- `statusUpdating` is a correct, present enum value, just unreachable
+  because `UpdateApplication` is genuinely synchronous (verdict: legitimate simplification, same
+  class as emrserverless's SUBMITTED-only run status and elasticsearch's unreached Processing
+  state -- see gaps for the reasoning).
 - **Cascade cleanup on delete / no ghost rows**: inputs/outputs/reference-data-sources/tags are
   all plain fields embedded directly on `Application` (not separate top-level maps), so
   `DeleteApplication` removing the `Application` row from `b.apps` inherently removes every

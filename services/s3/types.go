@@ -14,12 +14,9 @@ const NullVersion = "null"
 
 // StoredBucket represents an S3 bucket in memory.
 //
-// Region is the region the bucket was created in. It is the [store.Table] key
-// function's identity companion: buckets are keyed by Name (globally unique —
-// CreateBucket enforces this across all regions, mirroring real S3's global
-// bucket-namespace), so Region moved here from the old region->name->*StoredBucket
-// nesting to make that identity self-contained. It never changes after
-// creation (S3 has no "move bucket to another region" operation).
+// Buckets are keyed by Name (globally unique -- CreateBucket enforces this across
+// all regions, mirroring real S3's global bucket-namespace). Region never changes
+// after creation (S3 has no "move bucket to another region" operation).
 type StoredBucket struct {
 	CreationDate                 time.Time                `json:"creationDate"`
 	Objects                      map[string]*StoredObject `json:"objects,omitempty"`
@@ -53,6 +50,11 @@ type StoredBucket struct {
 	Tags                         []types.Tag                  `json:"tags,omitempty"`
 	DeletePending                bool                         `json:"deletePending,omitempty"`
 	IsDirectoryBucket            bool                         `json:"isDirectoryBucket,omitempty"`
+	// ObjectLockEnabled records whether CreateBucket was called with
+	// x-amz-bucket-object-lock-enabled: true. Real S3 requires this at bucket
+	// creation before PutObjectLockConfiguration will accept a configuration
+	// (gopherstack-pzth) -- it cannot be turned on for an existing bucket.
+	ObjectLockEnabled bool `json:"objectLockEnabled,omitempty"`
 }
 
 // StoredObject represents an S3 object with its version history.
@@ -78,19 +80,13 @@ type StoredObjectVersion struct {
 	SSEKMSKeyID       string            `json:"sseKMSKeyID,omitempty"`
 	SSECAlgorithm     string            `json:"sseCAlgorithm,omitempty"`
 	SSECKeyMD5        string            `json:"sseCKeyMD5,omitempty"`
-	// EncryptionDEK is the AES-256 data encryption key randomly generated on
-	// PUT for SSE-S3/SSE-KMS objects. Real S3 wraps this under a KMS CMK and
-	// stores only the wrapped form; for an in-memory mock the storage is
-	// the same address space so we keep the raw key. SSE-C objects don't
-	// store the key — the customer re-supplies it on GET. It MUST persist:
-	// the ciphertext lives in Data (persisted), so dropping the DEK on a
-	// snapshot/restore would leave every SSE-S3/SSE-KMS object permanently
-	// undecryptable ([]byte round-trips as base64 under encoding/json).
+	// EncryptionDEK is the AES-256 DEK generated on PUT for SSE-S3/SSE-KMS
+	// objects (SSE-C keeps none -- the customer re-supplies it on GET). MUST
+	// persist: dropping it on snapshot/restore leaves the object permanently
+	// undecryptable, since the ciphertext in Data is persisted too.
 	EncryptionDEK []byte `json:"encryptionDEK,omitempty"`
-	// EncryptionNonce is the GCM nonce/IV used for this object's ciphertext.
-	// Stored alongside the ciphertext (in StoredObjectVersion.Data) so GET
-	// can decrypt without re-deriving anything. Persisted for the same reason
-	// as EncryptionDEK.
+	// EncryptionNonce is the GCM nonce/IV for this object's ciphertext.
+	// Persisted for the same reason as EncryptionDEK.
 	EncryptionNonce         []byte                   `json:"encryptionNonce,omitempty"`
 	Key                     string                   `json:"key"`
 	ETag                    string                   `json:"etag"`

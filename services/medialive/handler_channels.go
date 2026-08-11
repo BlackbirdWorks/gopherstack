@@ -628,6 +628,10 @@ func toInputAttachmentsOutput(attachments []ChannelInputAttachment) []map[string
 			item["automaticInputFailoverSettings"] = failover
 		}
 
+		if settings := toInputSettingsOutput(a.InputSettings); settings != nil {
+			item["inputSettings"] = settings
+		}
+
 		out = append(out, item)
 	}
 
@@ -716,6 +720,7 @@ func extractInputAttachments(body map[string]any) ([]ChannelInputAttachment, boo
 			InputID:                        stringFromAny(m["inputId"]),
 			LogicalInterfaceNames:          anySliceToStrings(mustSlice(m["logicalInterfaceNames"])),
 			AutomaticInputFailoverSettings: extractAutomaticInputFailoverSettings(m),
+			InputSettings:                  extractInputSettings(m),
 		})
 	}
 

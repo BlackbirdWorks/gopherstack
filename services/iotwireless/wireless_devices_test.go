@@ -118,7 +118,7 @@ func TestInMemoryBackend_ListWirelessDevices(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			devices := bk.ListWirelessDevices(testAccountID, testRegion)
+			devices := bk.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{})
 			assert.Len(t, devices, tt.wantCount)
 		})
 	}
@@ -135,7 +135,7 @@ func TestInMemoryBackend_SortedListWirelessDevices(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	devices := b.ListWirelessDevices(testAccountID, testRegion)
+	devices := b.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{})
 	require.Len(t, devices, 3)
 	assert.Equal(t, "alpha", devices[0].Name)
 	assert.Equal(t, "mango", devices[1].Name)

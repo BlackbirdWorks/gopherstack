@@ -14,21 +14,21 @@ func (h *Handler) textDetectionOps() map[string]service.JSONOpFunc {
 	}
 }
 
-type detectTextReq struct { //nolint:govet // existing issue.
-	Image   imageRef  `json:"Image"`
+type detectTextReq struct {
 	Filters *struct{} `json:"Filters"`
+	Image   imageRef  `json:"Image"`
 }
 
-type textDetectionEntry struct { //nolint:govet // existing issue.
+type textDetectionEntry struct {
 	DetectedText string  `json:"DetectedText"`
-	Confidence   float64 `json:"Confidence"`
 	Type         string  `json:"Type"`
+	Confidence   float64 `json:"Confidence"`
 	Id           int32   `json:"Id"` //nolint:revive,staticcheck // existing issue.
 }
 
-type detectTextResp struct { //nolint:govet // existing issue.
-	TextDetections   []textDetectionEntry `json:"TextDetections"`
+type detectTextResp struct {
 	TextModelVersion string               `json:"TextModelVersion"`
+	TextDetections   []textDetectionEntry `json:"TextDetections"`
 }
 
 func (h *Handler) handleDetectText(_ context.Context, req *detectTextReq) (*detectTextResp, error) {
@@ -65,9 +65,17 @@ type startTextDetectionReq struct {
 }
 
 func (h *Handler) handleStartTextDetection(
-	_ context.Context, _ *startTextDetectionReq,
+	_ context.Context, req *startTextDetectionReq,
 ) (*startJobResp, error) {
-	jobID, err := h.Backend.StartAsyncJob("text_detection", "")
+	bucket, name, version := videoRefS3(req.Video)
+
+	jobID, err := h.Backend.StartAsyncJob(StartAsyncJobParams{
+		JobType:        "text_detection",
+		JobTag:         req.JobTag,
+		VideoS3Bucket:  bucket,
+		VideoS3Name:    name,
+		VideoS3Version: version,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +91,7 @@ type getTextDetectionResp struct {
 func (h *Handler) handleGetTextDetection(
 	_ context.Context, req *getJobReq,
 ) (*getTextDetectionResp, error) {
-	base, err := h.getJobBase(req.JobId)
+	base, _, err := h.getJobBase(req.JobId)
 	if err != nil {
 		return nil, err
 	}

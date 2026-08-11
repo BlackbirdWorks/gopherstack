@@ -11,6 +11,14 @@ import (
 )
 
 // ExecuteStatement creates and immediately completes a SQL statement.
+//
+// Database is NOT validated as required here: unlike ListDatabasesInput/
+// ListSchemasInput/ListTablesInput/DescribeTableInput (whose Database member
+// carries "This member is required" and a matching client-side
+// smithy.NewErrParamRequired check in validators.go), ExecuteStatementInput's
+// Database doc comment says only "required when authenticating using either
+// Secrets Manager or temporary credentials" -- a conditional, not a hard
+// trait -- and validateOpExecuteStatementInput has no Database check at all.
 func (b *InMemoryBackend) ExecuteStatement(
 	ctx context.Context,
 	sql, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
@@ -20,10 +28,6 @@ func (b *InMemoryBackend) ExecuteStatement(
 ) (*Statement, error) {
 	if sql == "" {
 		return nil, fmt.Errorf("%w: Sql is required", ErrValidation)
-	}
-
-	if database == "" {
-		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
 	}
 
 	resultFormat, err := requestedResultFormat(resultFormat)
@@ -87,10 +91,9 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		}
 	}
 
-	if database == "" {
-		return nil, fmt.Errorf("%w: Database is required", ErrValidation)
-	}
-
+	// Database is not validated as required -- see ExecuteStatement's doc
+	// comment; BatchExecuteStatementInput.Database has the identical
+	// conditional (not hard-required) doc comment and validator absence.
 	resultFormat, err := requestedResultFormat(resultFormat)
 	if err != nil {
 		return nil, err

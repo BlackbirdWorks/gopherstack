@@ -35,12 +35,18 @@ func isValidTaskActionOnBlockingInstances(v string) bool {
 }
 
 // activeCapacityTaskExistsLocked reports whether outpostID already has a
-// REQUESTED capacity task for orderID -- StartCapacityTask's own doc
-// comment: only one active capacity task is allowed per (order, Outpost)
-// pair at a time. Callers must hold b.mu.
+// REQUESTED or IN_PROGRESS capacity task for orderID -- StartCapacityTask's
+// own doc comment: only one active capacity task is allowed per (order,
+// Outpost) pair at a time. A task mid-CANCELLATION_IN_PROGRESS is
+// deliberately excluded: it is already on its way out and should not block
+// a new task. Callers must hold b.mu.
 func (b *InMemoryBackend) activeCapacityTaskExistsLocked(outpostID, orderID string) bool {
 	for _, t := range b.capacityTasksByOutpost.Get(outpostID) {
-		if t.OrderID == orderID && t.Status == CapacityTaskStatusRequested {
+		if t.OrderID != orderID {
+			continue
+		}
+
+		if t.Status == CapacityTaskStatusRequested || t.Status == CapacityTaskStatusInProgress {
 			return true
 		}
 	}
@@ -161,21 +167,38 @@ func (e *InstancesToExclude) clone() *InstancesToExclude {
 	}
 }
 
-// scheduleCapacityTaskCompletion schedules a single-hop async transition of
-// capacity task id from REQUESTED to COMPLETED, at which point it applies
+// scheduleCapacityTaskCompletion schedules capacity task id's async two-hop
+// transition through the real SDK-declared REQUESTED -> IN_PROGRESS ->
+// COMPLETED timeline (chained b.work.After calls, mirroring
+// scheduleOrderCompletion in orders.go). The final hop applies
 // RequestedInstancePools onto the target Asset's
 // ComputeAttributes.InstanceTypeCapacities -- the real capacity-ledger
 // mutation GetOutpostInstanceTypes later reads. WAITING_FOR_EVACUATION never
-// occurs here: it requires a live blocking EC2 instance, and this backend
-// has no cross-service instance-placement data (see
-// ListBlockingInstancesForCapacityTask, always empty) -- see PARITY.md.
+// occurs here: it requires a live blocking EC2 instance, and StartCapacityTask's
+// own model is additive-only (mergeInstanceTypeCapacity never shrinks
+// InstanceTypeCapacities), so no running instance can ever legitimately
+// block a task -- see PARITY.md.
 func (b *InMemoryBackend) scheduleCapacityTaskCompletion(id string) {
+	b.work.After("CapacityTaskInProgress", capacityTaskTransitionDelay, func() {
+		b.mu.Lock("CapacityTaskInProgress-async")
+		advanced := b.advanceCapacityTaskStatusLocked(id, CapacityTaskStatusRequested, CapacityTaskStatusInProgress)
+		b.mu.Unlock()
+
+		if !advanced {
+			return
+		}
+
+		b.scheduleCapacityTaskCompletionFinal(id)
+	})
+}
+
+func (b *InMemoryBackend) scheduleCapacityTaskCompletionFinal(id string) {
 	b.work.After("CapacityTaskCompletion", capacityTaskTransitionDelay, func() {
 		b.mu.Lock("CapacityTaskCompletion-async")
 		defer b.mu.Unlock()
 
 		t, ok := b.capacityTasks.Get(id)
-		if !ok || t.Status != CapacityTaskStatusRequested {
+		if !ok || t.Status != CapacityTaskStatusInProgress {
 			return
 		}
 
@@ -196,6 +219,34 @@ func (b *InMemoryBackend) scheduleCapacityTaskCompletion(id string) {
 		for _, pool := range t.RequestedInstancePools {
 			mergeInstanceTypeCapacity(a.ComputeAttributes, pool)
 		}
+	})
+}
+
+// advanceCapacityTaskStatusLocked moves capacity task id from fromStatus to
+// toStatus, but only if it is still in fromStatus (a concurrent
+// CancelCapacityTask, or a restart with no pending timer, means it isn't) --
+// reports whether it advanced. Callers must hold b.mu.
+func (b *InMemoryBackend) advanceCapacityTaskStatusLocked(id, fromStatus, toStatus string) bool {
+	t, ok := b.capacityTasks.Get(id)
+	if !ok || t.Status != fromStatus {
+		return false
+	}
+
+	t.Status = toStatus
+	t.LastModifiedDate = time.Now().UTC()
+
+	return true
+}
+
+// scheduleCapacityTaskCancellation schedules the async
+// CANCELLATION_IN_PROGRESS -> CANCELLED hop for capacity task id -- see
+// CancelCapacityTask.
+func (b *InMemoryBackend) scheduleCapacityTaskCancellation(id string) {
+	b.work.After("CapacityTaskCancelled", capacityTaskTransitionDelay, func() {
+		b.mu.Lock("CapacityTaskCancelled-async")
+		defer b.mu.Unlock()
+
+		b.advanceCapacityTaskStatusLocked(id, CapacityTaskStatusCancellationInProgress, CapacityTaskStatusCancelled)
 	})
 }
 
@@ -234,11 +285,12 @@ func (b *InMemoryBackend) GetCapacityTask(outpostIdentifier, capacityTaskID stri
 
 // CancelCapacityTask cancels the capacity task identified by
 // (outpostIdentifier, capacityTaskID). Rejected (ConflictException) once
-// the task has already reached a terminal state. This backend transitions
-// directly to CANCELLED rather than pausing at the transient
-// CANCELLATION_IN_PROGRESS state -- a documented simplification, since
-// cancellation here is synchronous (there is no real hardware-side cleanup
-// to wait for) -- see PARITY.md.
+// the task has reached CANCELLATION_IN_PROGRESS or a terminal state. A
+// REQUESTED or IN_PROGRESS task moves to the transient
+// CANCELLATION_IN_PROGRESS state and asynchronously resolves to CANCELLED
+// (see scheduleCapacityTaskCancellation) -- unlike the prior single-hop
+// simplification, this now models the real transient state the SDK
+// declares.
 func (b *InMemoryBackend) CancelCapacityTask(outpostIdentifier, capacityTaskID string) error {
 	b.mu.Lock("CancelCapacityTask")
 	defer b.mu.Unlock()
@@ -253,12 +305,14 @@ func (b *InMemoryBackend) CancelCapacityTask(outpostIdentifier, capacityTaskID s
 		return notFoundError(resourceCapacityTask, capacityTaskID)
 	}
 
-	if t.Status != CapacityTaskStatusRequested {
+	if t.Status != CapacityTaskStatusRequested && t.Status != CapacityTaskStatusInProgress {
 		return conflictError("capacity task is not cancellable in status: " + t.Status)
 	}
 
-	t.Status = CapacityTaskStatusCancelled
+	t.Status = CapacityTaskStatusCancellationInProgress
 	t.LastModifiedDate = time.Now().UTC()
+
+	b.scheduleCapacityTaskCancellation(capacityTaskID)
 
 	return nil
 }

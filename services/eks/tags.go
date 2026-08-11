@@ -142,7 +142,28 @@ func (b *InMemoryBackend) findTagsForARNLocked(resourceARN string) *tags.Tags {
 		return t
 	}
 
-	return b.findTagInProfilesAndAssocLocked(resourceARN)
+	if t := b.findTagInProfilesAndAssocLocked(resourceARN); t != nil {
+		return t
+	}
+
+	return b.findTagInIdentityProviderConfigsLocked(resourceARN)
+}
+
+// findTagInIdentityProviderConfigsLocked searches identity provider configs.
+func (b *InMemoryBackend) findTagInIdentityProviderConfigsLocked(resourceARN string) *tags.Tags {
+	var found *tags.Tags
+
+	b.identityProviderConfigs.Range(func(cfg *IdentityProviderConfig) bool {
+		if cfg.ARN == resourceARN {
+			found = cfg.Tags
+
+			return false
+		}
+
+		return true
+	})
+
+	return found
 }
 
 // TagResource adds tags to a resource by ARN.
@@ -209,7 +230,7 @@ func appendEKSTaggedEntry(entries []TaggedEntry, arn string, t *tags.Tags) []Tag
 // TaggedResources returns every EKS resource ARN that currently has at least
 // one tag, across every taggable EKS resource kind (clusters, nodegroups,
 // access entries, addons, fargate profiles, pod identity associations,
-// capabilities, and Anywhere subscriptions).
+// capabilities, Anywhere subscriptions, and identity provider configs).
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
@@ -253,6 +274,11 @@ func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
 	})
 	b.subscriptions.Range(func(sub *AnywhereSubscription) bool {
 		out = appendEKSTaggedEntry(out, sub.ARN, sub.Tags)
+
+		return true
+	})
+	b.identityProviderConfigs.Range(func(cfg *IdentityProviderConfig) bool {
+		out = appendEKSTaggedEntry(out, cfg.ARN, cfg.Tags)
 
 		return true
 	})

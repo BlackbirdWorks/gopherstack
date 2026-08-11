@@ -39,11 +39,36 @@ func (b *InMemoryBackend) userGroupReplicationGroupIDsLocked(region, groupID str
 	return ids
 }
 
+// userGroupServerlessCacheIDsLocked returns the sorted names of every
+// serverless cache whose UserGroupID is groupID -- the reverse of
+// ServerlessCache.UserGroupID, computed fresh on every call rather than
+// persisted (mirrors userGroupReplicationGroupIDsLocked). Must hold at
+// least b.mu.RLock.
+func (b *InMemoryBackend) userGroupServerlessCacheIDsLocked(region, groupID string) []string {
+	var ids []string
+
+	tbl := b.serverlessCachesStoreRO(region)
+	if tbl == nil {
+		return nil
+	}
+
+	for _, sc := range tbl.All() {
+		if sc.UserGroupID == groupID {
+			ids = append(ids, sc.Name)
+		}
+	}
+	sort.Strings(ids)
+
+	return ids
+}
+
 // withAssignedReplicationGroupIDs returns a copy of ug with
-// AssignedReplicationGroupIDs populated. Must hold at least b.mu.RLock.
+// AssignedReplicationGroupIDs and AssignedServerlessCacheIDs populated.
+// Must hold at least b.mu.RLock.
 func (b *InMemoryBackend) withAssignedReplicationGroupIDs(region string, ug *UserGroup) *UserGroup {
 	result := *ug
 	result.AssignedReplicationGroupIDs = b.userGroupReplicationGroupIDsLocked(region, ug.UserGroupID)
+	result.AssignedServerlessCacheIDs = b.userGroupServerlessCacheIDsLocked(region, ug.UserGroupID)
 
 	return &result
 }
@@ -120,6 +145,7 @@ func (b *InMemoryBackend) DescribeUserGroups(
 
 	for i := range p.Data {
 		p.Data[i].AssignedReplicationGroupIDs = b.userGroupReplicationGroupIDsLocked(region, p.Data[i].UserGroupID)
+		p.Data[i].AssignedServerlessCacheIDs = b.userGroupServerlessCacheIDsLocked(region, p.Data[i].UserGroupID)
 	}
 
 	return p, nil

@@ -48,7 +48,7 @@ func (h *Handler) handleUpdateOrganizationConfiguration(c *echo.Context, body ma
 	}
 
 	if err := h.Backend.UpdateOrganizationConfiguration(autoEnable, autoEnableStandards, orgConfigType); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -58,13 +58,11 @@ func (h *Handler) handleEnableOrganizationAdminAccount(c *echo.Context, body map
 	accountID, _ := body["AdminAccountId"].(string)
 
 	if accountID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "AdminAccountId is required",
-		})
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "AdminAccountId is required")
 	}
 
 	if err := h.Backend.EnableOrganizationAdminAccount(accountID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -74,13 +72,11 @@ func (h *Handler) handleDisableOrganizationAdminAccount(c *echo.Context, body ma
 	accountID, _ := body["AdminAccountId"].(string)
 
 	if accountID == "" {
-		return c.JSON(http.StatusBadRequest, map[string]any{
-			keyMessage: "AdminAccountId is required",
-		})
+		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "AdminAccountId is required")
 	}
 
 	if err := h.Backend.DisableOrganizationAdminAccount(accountID); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

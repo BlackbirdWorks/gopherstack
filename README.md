@@ -466,9 +466,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | 1 gap |
-| [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps; 2 deferred |
+| [Auto Scaling](services/autoscaling/README.md) | A | 66 | 1 gap |
 | [Batch](services/batch/README.md) | A | 45 | 2 gaps |
-| [EC2](services/ec2/README.md) | A | — | 10 families; 6 deferred |
+| [EC2](services/ec2/README.md) | A | — | 20 families; 2 gaps; 1 structural gap; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 46 | 3 gaps; 3 deferred |
 | [Lambda](services/lambda/README.md) | A | — | 7 families |
 
@@ -477,7 +477,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [ECR](services/ecr/README.md) | A | 58 | 2 deferred |
-| [ECS](services/ecs/README.md) | A | 65 | 5 gaps; 3 deferred |
+| [ECS](services/ecs/README.md) | A | 65 | 6 gaps; 3 deferred |
 | [EKS](services/eks/README.md) | A | 65 | 3 gaps; 1 deferred |
 
 ### Storage
@@ -485,30 +485,30 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Backup](services/backup/README.md) | A | 45 | clean |
-| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | 3 gaps |
+| [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 2 gaps; 2 deferred |
-| [FSx](services/fsx/README.md) | A | — | 13 families; 5 gaps |
-| [S3](services/s3/README.md) | A | 7 | 4 gaps |
-| [S3 Control](services/s3control/README.md) | A | 45 | 4 gaps; 3 deferred |
-| [S3 Glacier](services/glacier/README.md) | A | 33 | clean |
-| [S3 Tables](services/s3tables/README.md) | A | 49 | 2 gaps |
+| [FSx](services/fsx/README.md) | A | — | 13 families; 3 gaps |
+| [S3](services/s3/README.md) | A | 9 | 5 gaps |
+| [S3 Control](services/s3control/README.md) | A | 45 | 6 gaps; 3 deferred |
+| [S3 Glacier](services/glacier/README.md) | A | 33 | 1 gap |
+| [S3 Tables](services/s3tables/README.md) | A | 49 | 1 gap |
 
 ### Database
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [DAX](services/dax/README.md) | A | 22 | 1 deferred |
+| [DAX](services/dax/README.md) | A | 21 | 1 deferred |
 | [DocumentDB](services/docdb/README.md) | A | 55 | 1 deferred |
-| [DynamoDB](services/dynamodb/README.md) | A | — | 7 families; 2 deferred |
+| [DynamoDB](services/dynamodb/README.md) | A | — | 7 families; 1 gap; 2 deferred |
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
-| [ElastiCache](services/elasticache/README.md) | A | 75 | 2 deferred |
-| [MemoryDB](services/memorydb/README.md) | A | 46 | 3 gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 2 deferred |
+| [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 2 deferred |
+| [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 3 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
-| [RDS](services/rds/README.md) | A | 49 | 1 gap |
+| [RDS](services/rds/README.md) | A | 49 | 4 gaps |
 | [RDS Data](services/rdsdata/README.md) | A | 6 | 2 gaps |
-| [Redshift](services/redshift/README.md) | A- | 5 | 1 gap |
+| [Redshift](services/redshift/README.md) | A | 5 | clean |
 | [Redshift Data](services/redshiftdata/README.md) | A | 12 | 8 gaps; 1 deferred |
 | [Timestream Query](services/timestreamquery/README.md) | A | 12 | 2 gaps; 1 deferred |
 | [Timestream Write](services/timestreamwrite/README.md) | A | 19 | 4 gaps |
@@ -517,34 +517,34 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [API Gateway](services/apigateway/README.md) | A | 123 | 5 gaps; 1 deferred |
-| [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 3 gaps |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 3 deferred |
-| [App Mesh](services/appmesh/README.md) | A | 38 | 3 gaps |
-| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 gaps; 1 deferred |
+| [API Gateway](services/apigateway/README.md) | A | 123 | 10 gaps; 2 deferred |
+| [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
+| [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
+| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 30 | 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
-| [ELB (Classic)](services/elb/README.md) | A | 29 | 3 gaps; 1 deferred |
+| [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
 | [ELBv2](services/elbv2/README.md) | A | 51 | 3 gaps; 6 deferred |
 | [Route 53](services/route53/README.md) | A | 67 | 1 deferred |
-| [Route 53 Resolver](services/route53resolver/README.md) | A- | 72 | 6 gaps; 1 deferred |
-| [VPC Lattice](services/vpclattice/README.md) | A | 52 | 4 gaps; 1 deferred |
+| [Route 53 Resolver](services/route53resolver/README.md) | A | 72 | 4 gaps; 1 deferred |
+| [VPC Lattice](services/vpclattice/README.md) | A | 73 | 4 gaps |
 
 ### Messaging & Integration
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Amazon MQ](services/mq/README.md) | A | 25 | 4 gaps; 1 deferred |
-| [AppSync](services/appsync/README.md) | A | 75 | 3 deferred |
-| [EventBridge](services/eventbridge/README.md) | A | 59 | 2 deferred |
+| [Amazon MQ](services/mq/README.md) | A | 25 | 2 gaps; 1 deferred |
+| [AppSync](services/appsync/README.md) | A | 74 | 2 gaps; 2 deferred |
+| [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
-| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | clean |
+| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 35 | 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |
 | [SNS](services/sns/README.md) | A | 27 | 2 deferred |
-| [SQS](services/sqs/README.md) | A | 18 | 2 gaps; 3 deferred |
-| [SWF](services/swf/README.md) | A | 39 | 4 gaps; 1 deferred |
+| [SQS](services/sqs/README.md) | A | 18 | 3 gaps; 4 deferred |
+| [SWF](services/swf/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [Step Functions](services/stepfunctions/README.md) | A | 28 | 6 gaps |
 | [WorkMail](services/workmail/README.md) | A | 92 | 3 gaps |
 
@@ -553,147 +553,154 @@ Every service links to its own page with a coverage breakdown — audited operat
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Athena](services/athena/README.md) | A | 15 | 1 gap; 1 deferred |
-| [Clean Rooms](services/cleanrooms/README.md) | A | — | 14 families; 6 gaps; 2 deferred |
-| [EMR](services/emr/README.md) | A | 66 | clean |
+| [Clean Rooms](services/cleanrooms/README.md) | A | — | 14 families; 5 gaps; 2 deferred |
+| [EMR](services/emr/README.md) | A | 65 | 1 gap; 4 structural gaps |
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 gap |
-| [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 5 gaps |
-| [Glue](services/glue/README.md) | A | 52 | 9 gaps; 4 deferred |
-| [Glue DataBrew](services/databrew/README.md) | A | 45 | 2 gaps; 1 deferred |
+| [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 3 gaps |
+| [Glue](services/glue/README.md) | A | 54 | 11 gaps; 6 deferred |
+| [Glue DataBrew](services/databrew/README.md) | A | 44 | 3 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |
 | [Kinesis Data Firehose](services/firehose/README.md) | A | 12 | 4 gaps; 5 deferred |
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 4 gaps |
-| [Managed Streaming for Kafka](services/kafka/README.md) | A | 59 | clean |
-| [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 4 gaps; 1 deferred |
-| [OpenSearch](services/opensearch/README.md) | A- | 14 | 3 gaps; 1 deferred |
-| [QuickSight](services/quicksight/README.md) | A- | 65 | clean |
+| [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
+| [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
+| [OpenSearch](services/opensearch/README.md) | A | 14 | 1 gap; 1 deferred |
+| [QuickSight](services/quicksight/README.md) | A | 73 | 1 gap |
 
 ### Security
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [ACM](services/acm/README.md) | B | 38 | 9 gaps; 6 deferred |
+| [ACM](services/acm/README.md) | A | 38 | 6 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 2 gaps; 2 deferred |
-| [GuardDuty](services/guardduty/README.md) | A- | 63 | 5 gaps; 4 deferred |
+| [GuardDuty](services/guardduty/README.md) | A | 63 | 4 gaps; 1 structural gap; 4 deferred |
 | [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 5 gaps; 2 deferred |
 | [Macie](services/macie2/README.md) | A | 82 | clean |
-| [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 2 gaps; 2 deferred |
+| [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 4 gaps; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 116 | 4 gaps |
-| [Shield](services/shield/README.md) | A | 36 | 5 gaps |
+| [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 4 gaps |
-| [WAF](services/waf/README.md) | A | 4 | 1 gap |
-| [WAFv2](services/wafv2/README.md) | A- | 59 | 3 gaps |
+| [WAF](services/waf/README.md) | A | 4 | 2 structural gaps |
+| [WAFv2](services/wafv2/README.md) | A | 59 | 2 gaps; 1 structural gap |
 
 ### Identity & Access
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
-| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 57 | 1 gap; 1 deferred |
-| [Directory Service](services/directoryservice/README.md) | A | 80 | 3 gaps; 1 deferred |
-| [IAM](services/iam/README.md) | A | 6 | 2 gaps |
+| [Cognito Identity Provider](services/cognitoidp/README.md) | A | 57 | 4 gaps; 4 deferred |
+| [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
+| [IAM](services/iam/README.md) | A | 6 | clean |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
-| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 4 gaps |
+| [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 3 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
-| [STS](services/sts/README.md) | A | 11 | 1 gap; 1 deferred |
+| [STS](services/sts/README.md) | A | 11 | 2 gaps; 1 deferred |
 
 ### Management & Governance
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Account](services/account/README.md) | A | 14 | 4 gaps; 1 deferred |
-| [AppConfig](services/appconfig/README.md) | A- | 56 | 8 gaps; 1 deferred |
-| [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 1 gap |
-| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 4 gaps; 3 deferred |
-| [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps; 2 deferred |
-| [CloudFormation](services/cloudformation/README.md) | A | 67 | 4 gaps; 2 deferred |
+| [Account](services/account/README.md) | A | 16 | 5 gaps; 1 deferred |
+| [AppConfig](services/appconfig/README.md) | A | 56 | 6 gaps; 1 deferred |
+| [AppConfig Data](services/appconfigdata/README.md) | A | 2 | 2 gaps |
+| [Application Auto Scaling](services/applicationautoscaling/README.md) | A | 14 | 3 gaps; 2 deferred |
+| [Cloud Control API](services/cloudcontrol/README.md) | A | 8 | 3 gaps |
+| [CloudFormation](services/cloudformation/README.md) | A | 67 | 4 gaps |
 | [CloudTrail](services/cloudtrail/README.md) | A | 60 | 4 gaps |
-| [CloudWatch](services/cloudwatch/README.md) | A- | 50 | 1 gap; 5 deferred |
-| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 69 | 8 gaps; 3 deferred |
-| [Config](services/awsconfig/README.md) | A | 102 | 4 gaps; 1 deferred |
+| [CloudWatch](services/cloudwatch/README.md) | A | 50 | 5 deferred |
+| [CloudWatch Logs](services/cloudwatchlogs/README.md) | A | 70 | 9 gaps; 3 deferred |
+| [Config](services/awsconfig/README.md) | A | 102 | 5 gaps; 1 deferred |
 | [Cost Explorer](services/ce/README.md) | A | 31 | 1 gap; 2 deferred |
 | [Fault Injection Simulator](services/fis/README.md) | A | 26 | 2 gaps; 1 deferred |
-| [OpsWorks](services/opsworks/README.md) | A | 32 | 2 gaps; 2 deferred |
-| [Organizations](services/organizations/README.md) | A | 63 | 4 gaps |
-| [Resource Access Manager](services/ram/README.md) | A | 37 | 2 deferred |
-| [Resource Groups](services/resourcegroups/README.md) | A | 23 | 2 gaps |
-| [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 3 gaps; 2 deferred |
-| [Systems Manager](services/ssm/README.md) | A | 74 | 3 gaps |
+| [OpsWorks](services/opsworks/README.md) | B | 32 | 4 gaps; 1 deferred |
+| [Organizations](services/organizations/README.md) | A | 63 | 5 gaps |
+| [Resource Access Manager](services/ram/README.md) | A | 36 | 2 deferred |
+| [Resource Groups](services/resourcegroups/README.md) | A | 23 | 3 gaps |
+| [Resource Groups Tagging API](services/resourcegroupstaggingapi/README.md) | A | 9 | 9 gaps; 2 deferred |
+| [Systems Manager](services/ssm/README.md) | A | 74 | 4 gaps |
 
 ### Developer Tools
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [Amplify](services/amplify/README.md) | A | 37 | clean |
-| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 6 gaps; 3 deferred |
+| [CodeArtifact](services/codeartifact/README.md) | A | 48 | 7 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 1 deferred |
 | [CodeCommit](services/codecommit/README.md) | A | 79 | 3 gaps |
-| [CodeConnections](services/codeconnections/README.md) | A | 27 | 1 gap |
-| [CodeDeploy](services/codedeploy/README.md) | A | 47 | 2 gaps; 2 deferred |
-| [CodePipeline](services/codepipeline/README.md) | A | 19 | 3 gaps; 3 deferred |
-| [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 2 gaps; 1 deferred |
+| [CodeConnections](services/codeconnections/README.md) | A | 27 | clean |
+| [CodeDeploy](services/codedeploy/README.md) | A | 47 | 2 deferred |
+| [CodePipeline](services/codepipeline/README.md) | A | 19 | 8 gaps; 4 deferred |
+| [CodeStar Connections](services/codestarconnections/README.md) | A | 27 | 1 gap; 2 structural gaps |
 | [Serverless Application Repository](services/serverlessrepo/README.md) | A | 14 | clean |
-| [X-Ray](services/xray/README.md) | A | 38 | 6 gaps; 1 deferred |
+| [X-Ray](services/xray/README.md) | A | 38 | 5 gaps; 1 deferred |
 
 ### Machine Learning
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [Bedrock](services/bedrock/README.md) | A | 80 | 8 gaps |
-| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 2 gaps; 2 deferred |
+| [Bedrock](services/bedrock/README.md) | A | 80 | 10 gaps |
+| [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 4 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 6 gaps |
-| [Comprehend](services/comprehend/README.md) | A | 11 | 1 gap; 3 deferred |
-| [Forecast](services/forecast/README.md) | A | 20 | 3 gaps |
-| [Personalize](services/personalize/README.md) | A | 73 | 2 gaps; 2 deferred |
+| [Comprehend](services/comprehend/README.md) | A | 11 | 1 gap; 1 deferred |
+| [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
+| [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
-| [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 2 deferred |
-| [SageMaker](services/sagemaker/README.md) | A | 54 | 7 gaps; 14 deferred |
-| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | clean |
-| [Textract](services/textract/README.md) | A | 25 | 2 gaps; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 43 | 4 gaps |
+| [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |
+| [SageMaker](services/sagemaker/README.md) | A | 54 | 13 gaps; 6 deferred |
+| [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
+| [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
+| [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |
 | [Translate](services/translate/README.md) | A | 19 | 3 gaps |
 
 ### Media
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 1 gap; 1 deferred |
+| [MediaConvert](services/mediaconvert/README.md) | A | 34 | 2 gaps; 1 deferred |
 | [MediaLive](services/medialive/README.md) | A | — | 4 gaps |
-| [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 gap; 1 deferred |
+| [MediaPackage](services/mediapackage/README.md) | A | 19 | 1 deferred |
 | [MediaStore](services/mediastore/README.md) | A | 21 | clean |
-| [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 3 gaps; 1 deferred |
-| [MediaTailor](services/mediatailor/README.md) | A | 48 | clean |
+| [MediaStore Data](services/mediastoredata/README.md) | A | 5 | 4 gaps; 1 deferred |
+| [MediaTailor](services/mediatailor/README.md) | A | 48 | 2 gaps |
 
 ### IoT
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [IoT Analytics](services/iotanalytics/README.md) | A | 34 | 3 gaps |
-| [IoT Core](services/iot/README.md) | A | 74 | clean |
-| [IoT Data Plane](services/iotdataplane/README.md) | A- | 11 | 5 gaps; 1 deferred |
-| [IoT Wireless](services/iotwireless/README.md) | A | 12 | 2 gaps |
+| [IoT Core](services/iot/README.md) | A | 74 | 1 gap |
+| [IoT Data Plane](services/iotdataplane/README.md) | A | 11 | 5 gaps; 1 deferred |
+| [IoT Wireless](services/iotwireless/README.md) | A | 15 | 2 gaps |
 
 ### Migration & Transfer
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [DataSync](services/datasync/README.md) | A | 53 | 6 gaps; 1 deferred |
-| [Database Migration Service](services/dms/README.md) | A | 94 | clean |
-| [Transfer Family](services/transfer/README.md) | A | — | 15 families |
+| [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
+| [Database Migration Service](services/dms/README.md) | A | 95 | clean |
+| [Transfer Family](services/transfer/README.md) | A | — | 15 families; 1 gap |
 
 ### Other
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 40 | clean |
+| [Directconnect](services/directconnect/README.md) | A | 64 | 2 gaps; 8 structural gaps; 1 deferred |
+| [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |
 | [HealthOmics](services/omics/README.md) | A | — | 25 families; 3 gaps; 1 deferred |
+| [Lightsail](services/lightsail/README.md) | A | — | 28 families; 8 gaps; 2 deferred |
 | [Managed Blockchain](services/managedblockchain/README.md) | A | 27 | 3 gaps |
+| [Mgn](services/mgn/README.md) | A | 95 | 1 gap; 5 structural gaps; 1 deferred |
+| [Networkmanager](services/networkmanager/README.md) | A | 95 | 5 gaps; 2 structural gaps |
+| [Outposts](services/outposts/README.md) | A | 43 | 3 gaps; 6 structural gaps |
+| [Resiliencehub](services/resiliencehub/README.md) | A | 63 | 1 gap; 6 structural gaps |
 | [Support](services/support/README.md) | A | 16 | 1 deferred |
-| [WorkSpaces](services/workspaces/README.md) | A | 32 | 2 deferred |
+| [WorkSpaces](services/workspaces/README.md) | A | 32 | clean |
 <!-- END GENERATED SERVICES -->
 
 ## Using Gopherstack

@@ -1,4 +1,4 @@
-package telemetry_test
+package telemetry
 
 import (
 	"testing"
@@ -6,8 +6,6 @@ import (
 	io_prometheus_client "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/telemetry"
 )
 
 //nolint:paralleltest // Test mutates global state (serviceCount) and cannot run in parallel
@@ -31,9 +29,9 @@ func TestSetServiceCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			telemetry.SetServiceCount(tt.count)
+			SetServiceCount(tt.count)
 
-			result := telemetry.CollectMetrics()
+			result := CollectMetrics()
 			require.NotNil(t, result)
 			assert.Equal(t, tt.wantCount, result.Runtime.NumServices)
 		})
@@ -98,8 +96,8 @@ func TestProcessLockHeldMetrics(t *testing.T) {
 				Metric: []*io_prometheus_client.Metric{metric},
 			}
 
-			candidates := make(map[string]*telemetry.DeadlockInfo)
-			telemetry.ProcessLockHeldMetrics(mf, candidates)
+			candidates := make(map[string]*DeadlockInfo)
+			processLockHeldMetrics(mf, candidates)
 
 			require.Len(t, candidates, tt.wantLen)
 
@@ -117,7 +115,7 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 
 	tests := []struct {
 		labels     map[string]string
-		candidates map[string]*telemetry.DeadlockInfo
+		candidates map[string]*DeadlockInfo
 		name       string
 		wantLock   string
 		val        float64
@@ -128,7 +126,7 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 			name:   "has_waiters",
 			labels: map[string]string{"lock": "TestLock"},
 			val:    3.0,
-			candidates: map[string]*telemetry.DeadlockInfo{
+			candidates: map[string]*DeadlockInfo{
 				"TestLock": {Lock: "TestLock", Operation: "TestOp", HeldSec: 2.5},
 			},
 			wantLen:    1,
@@ -139,7 +137,7 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 			name:   "no_waiters",
 			labels: map[string]string{"lock": "TestLock"},
 			val:    0.0,
-			candidates: map[string]*telemetry.DeadlockInfo{
+			candidates: map[string]*DeadlockInfo{
 				"TestLock": {Lock: "TestLock", Operation: "TestOp", HeldSec: 2.5},
 			},
 			wantLen:    0,
@@ -174,8 +172,8 @@ func TestProcessLockWaitersMetrics(t *testing.T) {
 				Metric: []*io_prometheus_client.Metric{metric},
 			}
 
-			result := &telemetry.Dashboard{}
-			telemetry.ProcessLockWaitersMetrics(mf, tt.candidates, result)
+			result := &Dashboard{}
+			processLockWaitersMetrics(mf, tt.candidates, result)
 
 			require.Len(t, result.Deadlocks, tt.wantLen)
 
@@ -221,7 +219,7 @@ func TestFillMissingPercentiles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got50, got95, got99 := telemetry.FillMissingPercentiles(
+			got50, got95, got99 := fillMissingPercentiles(
 				tt.has50, tt.has95, tt.has99, tt.p50, tt.p95, tt.p99, tt.max,
 			)
 
@@ -256,7 +254,7 @@ func TestCalculatePercentilesFromBuckets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got50, got95, got99, gotMax := telemetry.CalculatePercentilesFromBuckets(tt.hist, tt.count)
+			got50, got95, got99, gotMax := calculatePercentilesFromBuckets(tt.hist, tt.count)
 
 			assert.InDelta(t, tt.want50, got50, 0.0001)
 			assert.InDelta(t, tt.want95, got95, 0.0001)
@@ -289,7 +287,7 @@ func TestEstimatePercentiles(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got50, got95, got99, gotAvg, gotMax := telemetry.EstimatePercentiles(tt.hist)
+			got50, got95, got99, gotAvg, gotMax := estimatePercentiles(tt.hist)
 
 			assert.InDelta(t, tt.want50, got50, 0.0001)
 			assert.InDelta(t, tt.want95, got95, 0.0001)

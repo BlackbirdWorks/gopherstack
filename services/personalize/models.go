@@ -41,7 +41,7 @@ type Schema struct {
 type Solution struct {
 	LastUpdatedDateTime      time.Time
 	CreationDateTime         time.Time
-	SolutionConfig           map[string]any
+	SolutionConfig           *SolutionConfig
 	AutoMLResult             map[string]any
 	LatestSolutionUpdate     map[string]any
 	DatasetGroupArn          string
@@ -57,22 +57,35 @@ type Solution struct {
 }
 
 // SolutionVersion stores a trained Amazon Personalize solution version.
+//
+// DatasetGroupArn/EventType/PerformAutoML/PerformHPO/PerformIncrementalUpdate/
+// RecipeArn are copied from the parent Solution at CreateSolutionVersion
+// time (types.SolutionVersion, types.go:2074) -- a later UpdateSolution call
+// must not retroactively change an already-created version's values, so
+// these are snapshotted plain fields, not a live lookup through SolutionArn.
 type SolutionVersion struct {
-	CreationDateTime    time.Time
-	LastUpdatedDateTime time.Time
-	SolutionConfig      map[string]any
-	SolutionVersionArn  string
-	SolutionArn         string
-	Status              string
-	TrainingMode        string
-	TrainingHours       float64
+	CreationDateTime         time.Time
+	LastUpdatedDateTime      time.Time
+	SolutionConfig           *SolutionConfig
+	SolutionVersionArn       string
+	SolutionArn              string
+	DatasetGroupArn          string
+	EventType                string
+	RecipeArn                string
+	FailureReason            string
+	Status                   string
+	TrainingMode             string
+	TrainingHours            float64
+	PerformAutoML            bool
+	PerformHPO               bool
+	PerformIncrementalUpdate bool
 }
 
 // Campaign stores an Amazon Personalize campaign.
 type Campaign struct {
 	CreationDateTime     time.Time
 	LastUpdatedDateTime  time.Time
-	CampaignConfig       map[string]any
+	CampaignConfig       *CampaignConfig
 	LatestCampaignUpdate map[string]any
 	CampaignArn          string
 	SolutionVersionArn   string
@@ -157,7 +170,7 @@ type Filter struct {
 type Recommender struct {
 	CreationDateTime                   time.Time
 	LastUpdatedDateTime                time.Time
-	RecommenderConfig                  map[string]any
+	RecommenderConfig                  *RecommenderConfig
 	LatestRecommenderUpdate            map[string]any
 	RecommenderArn                     string
 	DatasetGroupArn                    string

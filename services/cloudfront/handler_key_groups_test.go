@@ -131,7 +131,7 @@ func TestDeletePublicKeyRequiresIfMatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			createRec := doXML(
 				t,
 				h,
@@ -180,7 +180,7 @@ func TestDeleteKeyGroupRequiresIfMatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			createRec := doXML(t, h, http.MethodPost, "/2020-05-31/key-group",
 				[]byte(`<KeyGroupConfig><Name>kg1</Name><Items></Items></KeyGroupConfig>`))
 			require.Equal(t, http.StatusCreated, createRec.Code)
@@ -235,7 +235,7 @@ func TestPublicKeyPEMValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/public-key", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -263,7 +263,7 @@ func TestKeyGroupItemValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 
 			var sb strings.Builder
@@ -448,7 +448,7 @@ func TestPublicKeyCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -629,7 +629,7 @@ func TestKeyGroupCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 			if tt.setup != nil {
 				if p := tt.setup(t, h); p != "" {
@@ -713,7 +713,7 @@ func TestInMemoryBackend_PublicKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}
@@ -787,7 +787,7 @@ func TestInMemoryBackend_KeyGroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := cloudfront.NewInMemoryBackend("123456789012", "us-east-1")
+			b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
 			tt.run(t, b)
 		})
 	}

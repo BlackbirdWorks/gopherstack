@@ -321,23 +321,39 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+const errTypeBadRequest = "BadRequestException"
+
+// handleError's wire types are verified against this service's own
+// deserializer error lists (resourcegroups@v1.36.4 deserializers.go:
+// CreateGroup/DeleteGroup/GetGroup/UpdateGroup/Tag/Untag model exactly
+// NotFoundException, BadRequestException, ForbiddenException,
+// InternalServerErrorException, MethodNotAllowedException, TooManyRequestsException).
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
 	code := http.StatusInternalServerError
+	wireType := "InternalServerErrorException"
 
 	switch {
 	case errors.Is(err, errInvalidRequest), errors.Is(err, ErrUnknownOperation),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		code = http.StatusBadRequest
+		code, wireType = http.StatusBadRequest, errTypeBadRequest
 	case errors.Is(err, ErrAlreadyExists):
-		code = http.StatusBadRequest
+		code, wireType = http.StatusBadRequest, errTypeBadRequest
 	case errors.Is(err, ErrValidation):
-		code = http.StatusBadRequest
+		code, wireType = http.StatusBadRequest, errTypeBadRequest
 	case errors.Is(err, ErrNotFound), errors.Is(err, ErrTagSyncTaskNotFound):
-		code = http.StatusNotFound
+		code, wireType = http.StatusNotFound, "NotFoundException"
 	}
+
+	c.Response().Header().Set(amznErrorTypeHeader, wireType)
 
 	return c.JSON(code, map[string]string{"message": err.Error()})
 }

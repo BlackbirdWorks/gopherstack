@@ -2,7 +2,6 @@ package grafana_test
 
 import (
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	grafanasdk "github.com/aws/aws-sdk-go-v2/service/grafana"
@@ -74,7 +73,7 @@ func TestListVersions_CreatableAndUpgradePath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, types.WorkspaceStatusVersionUpdating, desc.Workspace.Status)
 
-	time.Sleep(workspaceTransitionWait)
+	waitForWorkspaceActive(t, client, id)
 
 	// Downgrade must be rejected outright.
 	_, err = client.UpdateWorkspaceConfiguration(t.Context(), &grafanasdk.UpdateWorkspaceConfigurationInput{

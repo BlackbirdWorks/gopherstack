@@ -139,42 +139,6 @@ func newTagsCopy(tags map[string]string) map[string]string {
 	return cp
 }
 
-// copyAnyMap returns a shallow copy of an opaque JSON-object field (LoRaWAN,
-// Sidewalk, TraceContent, Update, ...), or nil for nil input. These fields
-// hold whatever nested configuration object a client submitted verbatim
-// (see the WirelessDevice.LoRaWAN doc comment in models.go); a shallow
-// top-level copy is enough to prevent callers from mutating the backend's
-// stored map through a returned reference, matching the isolation newTagsCopy
-// provides for Tags.
-func copyAnyMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-
-	cp := make(map[string]any, len(m))
-	maps.Copy(cp, m)
-
-	return cp
-}
-
-// mergeAnyMap merges update key-by-key into a copy of existing, matching the
-// partial-update semantics real AWS Update* operations use for nested
-// LoRaWAN/Sidewalk configuration objects (only the sub-fields present in the
-// update request change; unset sub-fields keep their prior value). Returns
-// nil if both inputs are empty, so an untouched resource doesn't grow an
-// empty non-nil map.
-func mergeAnyMap(existing, update map[string]any) map[string]any {
-	if len(update) == 0 {
-		return existing
-	}
-
-	merged := make(map[string]any, len(existing)+len(update))
-	maps.Copy(merged, existing)
-	maps.Copy(merged, update)
-
-	return merged
-}
-
 // storeResourceTagsLocked initialises the resource tag entry for the given ARN.
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) storeResourceTagsLocked(arn string, tags map[string]string) {

@@ -32,7 +32,10 @@ func TestIntegration_EC2_InstanceRunningWaiter(t *testing.T) {
 	require.NotEmpty(t, instanceID)
 
 	t.Cleanup(func() {
-		_, _ = client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 			InstanceIds: []string{instanceID},
 		})
 	})
@@ -73,7 +76,10 @@ func TestIntegration_EC2_InstanceStoppedWaiter(t *testing.T) {
 	instanceID := aws.ToString(out.Instances[0].InstanceId)
 
 	t.Cleanup(func() {
-		_, _ = client.TerminateInstances(ctx, &ec2sdk.TerminateInstancesInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
 			InstanceIds: []string{instanceID},
 		})
 	})

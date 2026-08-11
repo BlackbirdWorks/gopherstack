@@ -125,7 +125,7 @@ func TestHandler_RouteMatcher(t *testing.T) {
 		wantMatch bool
 	}{
 		{name: "batch_path", path: "/v1/createcomputeenvironment", wantMatch: true},
-		{name: "tags_path", path: "/v1/tags/some-arn", wantMatch: true},
+		{name: "tags_path_non_arn_excluded", path: "/v1/tags/some-arn", wantMatch: false},
 		{
 			name:      "tags_batch_arn",
 			path:      "/v1/tags/arn%3Aaws%3Abatch%3Aus-east-1%3A123%3Acompute-environment%2Ftest",

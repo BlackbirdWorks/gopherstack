@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,6 +37,18 @@ func newBackend(t *testing.T) *resourcegroupstaggingapi.InMemoryBackend {
 	t.Helper()
 
 	return resourcegroupstaggingapi.NewInMemoryBackend(testAccountID, testRegion)
+}
+
+// arnOfLength builds a syntactically valid ARN string padded to exactly n characters,
+// for exercising the ResourceARN shape's length ceiling (see tag_resources.go's
+// maxResourceARNLength).
+func arnOfLength(t *testing.T, n int) string {
+	t.Helper()
+
+	const prefix = "arn:aws:sqs:us-east-1:000000000000:"
+	require.GreaterOrEqual(t, n, len(prefix), "requested length shorter than fixed ARN prefix")
+
+	return prefix + strings.Repeat("q", n-len(prefix))
 }
 
 // seedResources registers a provider that returns the given resources.
@@ -656,9 +669,9 @@ func TestHandler_ValidationErrors_Return400(t *testing.T) {
 			want: http.StatusBadRequest,
 		},
 		{
-			name: "GetResources_invalid_resource_type_filter",
+			name: "GetResources_resource_type_filter_too_long",
 			op:   "GetResources",
-			body: map[string]any{"ResourceTypeFilters": []string{"SQS:Queue"}},
+			body: map[string]any{"ResourceTypeFilters": []string{strings.Repeat("a", 257)}},
 			want: http.StatusBadRequest,
 		},
 		{

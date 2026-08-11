@@ -2,6 +2,7 @@ package sagemaker
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -32,11 +33,13 @@ type InferenceRecommendationsJob struct {
 	JobDescription   string            `json:"JobDescription,omitempty"`
 	Status           string            `json:"Status"`
 	RoleArn          string            `json:"RoleArn,omitempty"`
+	InputConfig      json.RawMessage   `json:"InputConfig,omitempty"`
 }
 
 func cloneInferenceRecommendationsJob(j *InferenceRecommendationsJob) *InferenceRecommendationsJob {
 	cp := *j
 	cp.Tags = maps.Clone(j.Tags)
+	cp.InputConfig = append(json.RawMessage(nil), j.InputConfig...)
 
 	return &cp
 }
@@ -48,6 +51,7 @@ type CreateInferenceRecommendationsJobOptions struct {
 	JobType        string
 	JobDescription string
 	RoleArn        string
+	InputConfig    json.RawMessage
 }
 
 // CreateInferenceRecommendationsJob creates an inference recommendations job.
@@ -82,6 +86,7 @@ func (b *InMemoryBackend) CreateInferenceRecommendationsJob(
 		JobDescription:   opts.JobDescription,
 		Status:           "IN_PROGRESS",
 		RoleArn:          opts.RoleArn,
+		InputConfig:      opts.InputConfig,
 		Tags:             mergeTags(nil, opts.Tags),
 		CreationTime:     now,
 		LastModifiedTime: now,

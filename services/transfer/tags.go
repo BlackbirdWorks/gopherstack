@@ -48,6 +48,34 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) map[string]str
 	return out
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingTransfer).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Transfer Family resource ARN (servers,
+// users, connectors, certificates, profiles, web apps, workflows,
+// agreements, host keys) that currently has at least one tag applied via
+// TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tagsStore))
+
+	for arn, t := range b.tagsStore {
+		if len(t) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	return out
+}
+
 // initTagsStore seeds tagsStore[resourceARN] with creation-time tags so that
 // ListTagsForResource returns them even before any TagResource call.
 // Caller must hold b.mu (write lock).

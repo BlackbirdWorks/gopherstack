@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
@@ -18,15 +19,27 @@ type EmailTemplateContent struct {
 
 // EmailTemplate represents a SES v2 email template.
 type EmailTemplate struct {
-	CreatedAt       time.Time             `json:"createdAt"`
 	TemplateContent *EmailTemplateContent `json:"templateContent"`
+	Tags            map[string]string     `json:"tags,omitempty"`
+	CreatedAt       time.Time             `json:"createdAt"`
 	TemplateName    string                `json:"templateName"`
+}
+
+// emailTemplateARN builds the ARN for an email template:
+// arn:{partition}:ses:{region}:{account}:template/{name}. Confirmed against
+// terraform-provider-aws's templateARN (internal/service/ses/template.go),
+// which must construct this exact ARN to tag/import real templates -- also
+// matches tenants.go's existing resourceTypeFromARN, which already treats
+// ":template/" as EMAIL_TEMPLATE.
+func (b *InMemoryBackend) emailTemplateARN(name string) string {
+	return arn.Build("ses", b.region, b.accountID, "template/"+name)
 }
 
 // CreateEmailTemplate creates a new email template.
 func (b *InMemoryBackend) CreateEmailTemplate(
 	templateName string,
 	content *EmailTemplateContent,
+	tags map[string]string,
 ) (*EmailTemplate, error) {
 	if strings.TrimSpace(templateName) == "" {
 		return nil, fmt.Errorf("%w: TemplateName is required", ErrInvalidInput)
@@ -53,8 +66,13 @@ func (b *InMemoryBackend) CreateEmailTemplate(
 		TemplateName:    templateName,
 		TemplateContent: contentCopy,
 		CreatedAt:       time.Now(),
+		Tags:            tags,
 	}
 	b.emailTemplates.Put(t)
+
+	if len(tags) > 0 {
+		b.putResourceTagsLocked(b.emailTemplateARN(templateName), tags)
+	}
 
 	cp := *t
 

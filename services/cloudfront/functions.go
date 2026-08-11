@@ -2,6 +2,7 @@ package cloudfront
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -31,6 +32,7 @@ func (b *InMemoryBackend) functionARN(name string) string {
 // CreateFunction creates a new CloudFront Function.
 func (b *InMemoryBackend) CreateFunction(
 	name, comment, runtime, functionCode string,
+	tags map[string]string,
 ) (*Function, error) {
 	if err := validateRuntime(runtime); err != nil {
 		return nil, err
@@ -58,6 +60,9 @@ func (b *InMemoryBackend) CreateFunction(
 		ARN:              b.functionARN(name),
 		CreatedTime:      now,
 		LastModifiedTime: now,
+	}
+	if len(tags) > 0 {
+		fn.Tags = maps.Clone(tags)
 	}
 	b.functions.Put(fn)
 	cp := *fn

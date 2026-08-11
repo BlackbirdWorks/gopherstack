@@ -27,7 +27,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 
 	// ---- seed one entry per converted store.Table ----
 
-	_, err := b.CreateNamespace(testAccountID, ns, testRegion)
+	_, err := b.CreateNamespace(testAccountID, ns, testRegion, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateGroup(testAccountID, ns, "group1", "a group")
@@ -36,7 +36,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateGroupMembership(testAccountID, ns, "group1", "user1")
 	require.NoError(t, err)
 
-	_, err = b.RegisterUser(testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "")
+	_, err = b.RegisterUser(testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(testAccountID, "ds1", "DataSource1", "MYSQL", nil, nil)
@@ -60,10 +60,10 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateFolderMembership(testAccountID, "folder1", "dash1", "DASHBOARD")
 	require.NoError(t, err)
 
-	_, err = b.CreateTemplate(testAccountID, "tmpl1", "Template1", "", nil, nil, nil)
+	_, err = b.CreateTemplate(testAccountID, "tmpl1", "Template1", "", "", nil, nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateTheme(testAccountID, "theme1", "Theme1", "", nil, nil, nil)
+	_, err = b.CreateTheme(testAccountID, "theme1", "Theme1", "", "", nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateTopic(testAccountID, "topic1", "Topic1", "", "", nil, nil, nil)
@@ -78,13 +78,13 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateAccountCustomization(testAccountID, ns, "theme1", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateBrand(testAccountID, "brand1", map[string]any{"BrandName": "Brand1"})
+	_, err = b.CreateBrand(testAccountID, "brand1", map[string]any{"BrandName": "Brand1"}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateCustomPermissions(testAccountID, "cp1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateOAuthClientApplication(testAccountID, "client1", "App1", nil)
+	_, err = b.CreateOAuthClientApplication(testAccountID, "client1", "App1", nil, nil)
 	require.NoError(t, err)
 
 	err = b.UpdateIdentityPropagationConfig(
@@ -92,7 +92,9 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.StartAssetBundleExportJob(testAccountID, "exportjob1", "", []string{dash.Arn}, false)
+	_, err = b.StartAssetBundleExportJob(
+		testAccountID, "exportjob1", "", "", []string{dash.Arn}, false, false, false, false,
+	)
 	require.NoError(t, err)
 
 	_, err = b.StartAssetBundleImportJob(testAccountID, "importjob1", "")

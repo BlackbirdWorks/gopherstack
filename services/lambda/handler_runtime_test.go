@@ -324,7 +324,12 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			srv := newTestRuntimeServer(t, tt.port)
+			srv := newPublicRuntimeServer(t, tt.port)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				srv.Stop(ctx)
+			})
 
 			if tt.cancelCtx {
 				ctx, cancel := context.WithCancel(t.Context())
@@ -335,7 +340,14 @@ func TestRuntimeServer_InvokeStop(t *testing.T) {
 					errCh <- err
 				}()
 
-				time.Sleep(50 * time.Millisecond)
+				// srv runs a real loopback HTTP server, so this can't be bubbled
+				// (network I/O isn't durably blocking). Poll the queue length
+				// instead of sleeping: once the invocation is enqueued, Invoke
+				// has moved on to the result/ctx.Done() select, so cancelling
+				// now is guaranteed to hit that path.
+				require.Eventually(t, func() bool {
+					return lambda.QueueLen(srv.inner) >= 1
+				}, time.Second, time.Millisecond, "invocation was never enqueued")
 				cancel()
 
 				select {
@@ -364,7 +376,7 @@ func newTestRuntimeServer(t *testing.T, port int) testRuntimeServerIface {
 
 	srv := newPublicRuntimeServer(t, port)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		srv.Stop(ctx)
 	})
@@ -413,10 +425,12 @@ func (p *publicRuntimeServer) Stop(ctx context.Context) {
 func simulateContainerNext(t *testing.T, port int) string {
 	t.Helper()
 
-	// Poll until the invocation is queued (the invoke goroutine may not have run yet).
-	var resp *http.Response
+	// Polls a real loopback HTTP server (the invoke goroutine may not have run
+	// yet), so this can't be driven by a synctest fake clock -- network I/O is
+	// not durably blocking. require.Eventually is the fallback.
+	var requestID string
 
-	for range 20 {
+	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(
 			t.Context(),
 			http.MethodGet,
@@ -425,27 +439,20 @@ func simulateContainerNext(t *testing.T, port int) string {
 		)
 		require.NoError(t, err)
 
-		var doErr error
+		resp, doErr := http.DefaultClient.Do(req)
+		if doErr != nil {
+			return false
+		}
+		defer resp.Body.Close()
 
-		resp, doErr = http.DefaultClient.Do(req)
-		if doErr == nil && resp.StatusCode == http.StatusOK {
-			break
+		if resp.StatusCode != http.StatusOK {
+			return false
 		}
 
-		if resp != nil {
-			resp.Body.Close()
-		}
+		requestID = resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
 
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	require.NotNil(t, resp)
-	defer resp.Body.Close()
-
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-
-	requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
-	require.NotEmpty(t, requestID)
+		return requestID != ""
+	}, time.Second, 50*time.Millisecond, "invocation was never queued")
 
 	return requestID
 }
@@ -730,34 +737,41 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 				resultCh <- invokeErr
 			}()
 
-			time.Sleep(200 * time.Millisecond)
-
+			// bk runs the invocation over a real Docker-mock + loopback runtime
+			// API server, so this can't be bubbled (real I/O isn't durably
+			// blocking). The runtime server's bound port isn't known up front,
+			// and it may not be listening yet, so retry the whole port-range
+			// scan (rather than sleeping first) until one port answers.
 			var runtimePort int
 
-			for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
-				req, reqErr := http.NewRequestWithContext(
-					t.Context(),
-					http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
-				)
-				if reqErr != nil {
-					continue
-				}
+			require.Eventually(t, func() bool {
+				for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
+					req, reqErr := http.NewRequestWithContext(
+						t.Context(),
+						http.MethodGet, fmt.Sprintf("http://127.0.0.1:%d/2018-06-01/runtime/invocation/next", p), nil,
+					)
+					if reqErr != nil {
+						continue
+					}
 
-				client := &http.Client{Timeout: 200 * time.Millisecond}
-				resp, doErr := client.Do(req)
+					client := &http.Client{Timeout: 200 * time.Millisecond}
+					resp, doErr := client.Do(req)
 
-				if doErr == nil && resp != nil {
-					requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
-					resp.Body.Close()
+					if doErr == nil && resp != nil {
+						requestID := resp.Header.Get("Lambda-Runtime-Aws-Request-Id")
+						resp.Body.Close()
 
-					if requestID != "" {
-						runtimePort = p
-						simulateContainerResponse(t, p, requestID, `{"result":"ok"}`)
+						if requestID != "" {
+							runtimePort = p
+							simulateContainerResponse(t, p, requestID, `{"result":"ok"}`)
 
-						break
+							return true
+						}
 					}
 				}
-			}
+
+				return false
+			}, 4*time.Second, 50*time.Millisecond)
 
 			select {
 			case invokeErr := <-resultCh:
@@ -829,7 +843,10 @@ func TestRuntimeServer_InvokeTimeoutRace(t *testing.T) {
 
 			requestID := simulateContainerNext(t, tt.port)
 
-			// Optionally delay the container response to force a timeout race.
+			// Optionally delay the container response to force a timeout race
+			// against srv's real loopback HTTP server; not bubbleable (real
+			// network I/O) and there's no boolean condition to poll here since
+			// the delay itself is the thing under test.
 			if tt.responseDelay > 0 {
 				time.Sleep(tt.responseDelay)
 			}

@@ -1,5 +1,7 @@
 package grafana
 
+import "context"
+
 // ListPermissions returns the permission grants for a workspace, optionally
 // filtered by groupID, userID, and/or userType -- mirroring ListPermissionsInput's
 // groupId/userId/userType query parameters.
@@ -39,9 +41,19 @@ func (b *InMemoryBackend) ListPermissions(workspaceID, groupID, userID, userType
 // (never nil) when the instruction is malformed, in which case the caller
 // records it in UpdatePermissionsOutput.Errors rather than applying it --
 // this is the batch's partial-failure surface.
-func (b *InMemoryBackend) applyUpdateInstruction(workspaceID string, instr *updateInstructionWire) error {
+func (b *InMemoryBackend) applyUpdateInstruction(
+	ctx context.Context, workspaceID string, instr *updateInstructionWire,
+) error {
 	if len(instr.Users) == 0 {
 		return validationError("update instruction specifies no users")
+	}
+
+	if instr.Action == UpdateActionAdd {
+		for _, u := range instr.Users {
+			if err := b.validatePermissionUser(ctx, u); err != nil {
+				return err
+			}
+		}
 	}
 
 	for _, u := range instr.Users {
@@ -69,7 +81,7 @@ func (b *InMemoryBackend) applyUpdateInstruction(workspaceID string, instr *upda
 // malformed instruction is recorded in the returned error slice rather
 // than aborting the whole batch.
 func (b *InMemoryBackend) UpdatePermissions(
-	workspaceID string, instructions []updateInstructionWire,
+	ctx context.Context, workspaceID string, instructions []updateInstructionWire,
 ) ([]updateErrorWire, error) {
 	b.mu.Lock("UpdatePermissions")
 	defer b.mu.Unlock()
@@ -84,7 +96,7 @@ func (b *InMemoryBackend) UpdatePermissions(
 
 	for i := range instructions {
 		instr := instructions[i]
-		if err := b.applyUpdateInstruction(workspaceID, &instr); err != nil {
+		if err := b.applyUpdateInstruction(ctx, workspaceID, &instr); err != nil {
 			errs = append(errs, updateErrorWire{
 				CausedBy: &instr,
 				Code:     validationErrorCode,

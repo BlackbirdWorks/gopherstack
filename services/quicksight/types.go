@@ -213,6 +213,8 @@ type ThemeAlias struct {
 }
 
 // Topic represents a QuickSight topic (a natural-language Q&A data source).
+// DataSetsV2/DataSetRelations/CustomInstructions/PublishOption are V2-only;
+// DataSets/UserExperienceVersion are V1-only -- see topics_v2.go.
 type Topic struct {
 	CreatedTime           time.Time
 	LastUpdatedTime       time.Time
@@ -221,7 +223,11 @@ type Topic struct {
 	Name                  string
 	Description           string
 	UserExperienceVersion string
+	CustomInstructions    string
+	PublishOption         string
 	DataSets              []map[string]any
+	DataSetsV2            []map[string]any
+	DataSetRelations      []map[string]any
 	Permissions           []ResourcePermission
 }
 
@@ -282,6 +288,7 @@ type IAMPolicyAssignment struct {
 	AssignmentStatus string
 	PolicyArn        string
 	Namespace        string
+	AwsAccountID     string
 }
 
 // AccountSettings represents a QuickSight account's account-wide settings.
@@ -374,14 +381,18 @@ type IdentityPropagationConfig struct {
 
 // AssetBundleExportJob represents an asynchronous asset-bundle export job.
 type AssetBundleExportJob struct {
-	CreatedTime            time.Time
-	JobID                  string
-	Arn                    string
-	Status                 string
-	ExportFormat           string
-	DownloadURL            string
-	ResourceArns           []string
-	IncludeAllDependencies bool
+	CreatedTime              time.Time
+	JobID                    string
+	Arn                      string
+	Status                   string
+	ExportFormat             string
+	DownloadURL              string
+	IncludeFolderMembers     string
+	ResourceArns             []string
+	IncludeAllDependencies   bool
+	IncludeFolderMemberships bool
+	IncludePermissions       bool
+	IncludeTags              bool
 }
 
 // AssetBundleImportJob represents an asynchronous asset-bundle import job.
@@ -421,11 +432,11 @@ type QAResult struct {
 
 // RefreshSchedule represents a QuickSight dataset SPICE refresh schedule.
 type RefreshSchedule struct {
+	StartAfterDateTime time.Time
 	ScheduleFrequency  map[string]any
 	ScheduleID         string
 	Arn                string
 	RefreshType        string
-	StartAfterDateTime string
 }
 
 // DataSetRefreshProperties represents a QuickSight dataset's SPICE refresh
@@ -647,6 +658,7 @@ type SelfUpgradeRequestDetail struct {
 	RequestStatus           string
 	RequestedRole           string
 	UpgradeRequestID        string
+	UserName                string
 	CreationTime            int64
 	LastUpdateAttemptTime   int64
 }

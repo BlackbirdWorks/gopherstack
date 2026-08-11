@@ -35,6 +35,11 @@ const (
 
 const idByteLen = 12 // number of random bytes used when generating resource IDs
 
+// idPatternLen truncates generateID() to match ClusterSchedulerConfigId /
+// ComputeQuotaId's wire pattern `[a-z0-9]{12}` — botocore sagemaker/2017-07-24
+// service-2.json.gz shapes ClusterSchedulerConfigId, ComputeQuotaId.
+const idPatternLen = 12
+
 const sagemakerDefaultPageSize = 100
 
 const (
@@ -206,6 +211,9 @@ func (b *InMemoryBackend) initARNIndexMaps() {
 	b.modelPackageARNIndex = make(map[string]map[string]string)
 	b.processingJobARNIndex = make(map[string]map[string]string)
 	b.transformJobARNIndex = make(map[string]map[string]string)
+	b.modelPackageGroupARNIndex = make(map[string]map[string]string)
+	b.workteamARNIndex = make(map[string]map[string]string)
+	b.workforceARNIndex = make(map[string]map[string]string)
 }
 
 // initJobMaps (re)initialises the processing/transform/edge/device/inference-

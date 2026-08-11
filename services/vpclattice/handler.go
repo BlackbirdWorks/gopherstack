@@ -17,15 +17,21 @@ import (
 const (
 	matchPriority = service.PriorityPathVersioned
 
-	pathServices                          = "/services"
-	pathServiceNetworks                   = "/servicenetworks"
-	pathServiceNetworkServiceAssociations = "/servicenetworkserviceassociations"
-	pathServiceNetworkVpcAssociations     = "/servicenetworkvpcassociations"
-	pathTargetGroups                      = "/targetgroups"
-	pathAccessLogSubscriptions            = "/accesslogsubscriptions"
-	pathAuthPolicy                        = "/authpolicy"
-	pathResourcePolicy                    = "/resourcepolicy"
-	pathTags                              = "/tags"
+	pathServices                              = "/services"
+	pathServiceNetworks                       = "/servicenetworks"
+	pathServiceNetworkServiceAssociations     = "/servicenetworkserviceassociations"
+	pathServiceNetworkVpcAssociations         = "/servicenetworkvpcassociations"
+	pathTargetGroups                          = "/targetgroups"
+	pathAccessLogSubscriptions                = "/accesslogsubscriptions"
+	pathAuthPolicy                            = "/authpolicy"
+	pathResourcePolicy                        = "/resourcepolicy"
+	pathTags                                  = "/tags"
+	pathResourceGateways                      = "/resourcegateways"
+	pathResourceConfigurations                = "/resourceconfigurations"
+	pathServiceNetworkResourceAssociations    = "/servicenetworkresourceassociations"
+	pathDomainVerifications                   = "/domainverifications"
+	pathResourceEndpointAssociations          = "/resourceendpointassociations"
+	pathServiceNetworkVpcEndpointAssociations = "/servicenetworkvpcendpointassociations"
 
 	opUnknown = "Unknown"
 
@@ -54,6 +60,20 @@ const (
 	keyHostedZoneID       = "hostedZoneId"
 	keyPrivateDNSEnabled  = "privateDnsEnabled"
 	keyNameRequired       = "name is required"
+	keyDestinationARN     = "destinationArn"
+
+	keyType                        = "type"
+	keyVpcIdentifier               = "vpcIdentifier"
+	keyIPAddressType               = "ipAddressType"
+	keyResourceConfigDNSResolution = "resourceConfigDnsResolution"
+	keyIpv4AddressesPerENI         = "ipv4AddressesPerEni"
+	keySecurityGroupIDs            = "securityGroupIds"
+	keySubnetIDs                   = "subnetIds"
+	keyCreatedBy                   = "createdBy"
+
+	defKindArnResource = "arnResource"
+	defKindDNSResource = "dnsResource"
+	defKindIPResource  = "ipResource"
 
 	opBatchUpdateRule      = "BatchUpdateRule"
 	opCreateALS            = "CreateAccessLogSubscription"
@@ -107,6 +127,32 @@ const (
 	opUpdateSN             = "UpdateServiceNetwork"
 	opUpdateSNVA           = "UpdateServiceNetworkVpcAssociation"
 	opUpdateTG             = "UpdateTargetGroup"
+
+	opCreateResourceGateway = "CreateResourceGateway"
+	opGetResourceGateway    = "GetResourceGateway"
+	opUpdateResourceGateway = "UpdateResourceGateway"
+	opDeleteResourceGateway = "DeleteResourceGateway"
+	opListResourceGateways  = "ListResourceGateways"
+
+	opCreateResourceConfiguration = "CreateResourceConfiguration"
+	opGetResourceConfiguration    = "GetResourceConfiguration"
+	opUpdateResourceConfiguration = "UpdateResourceConfiguration"
+	opDeleteResourceConfiguration = "DeleteResourceConfiguration"
+	opListResourceConfigurations  = "ListResourceConfigurations"
+
+	opCreateSNRA = "CreateServiceNetworkResourceAssociation"
+	opGetSNRA    = "GetServiceNetworkResourceAssociation"
+	opDeleteSNRA = "DeleteServiceNetworkResourceAssociation"
+	opListSNRAs  = "ListServiceNetworkResourceAssociations"
+
+	opStartDomainVerification  = "StartDomainVerification"
+	opGetDomainVerification    = "GetDomainVerification"
+	opDeleteDomainVerification = "DeleteDomainVerification"
+	opListDomainVerifications  = "ListDomainVerifications"
+
+	opListResourceEndpointAssociations          = "ListResourceEndpointAssociations"
+	opDeleteResourceEndpointAssociation         = "DeleteResourceEndpointAssociation"
+	opListServiceNetworkVpcEndpointAssociations = "ListServiceNetworkVpcEndpointAssociations"
 )
 
 // Handler handles VPC Lattice HTTP requests.
@@ -180,22 +226,64 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateSN,
 		opUpdateSNVA,
 		opUpdateTG,
+		opCreateResourceGateway,
+		opGetResourceGateway,
+		opUpdateResourceGateway,
+		opDeleteResourceGateway,
+		opListResourceGateways,
+		opCreateResourceConfiguration,
+		opGetResourceConfiguration,
+		opUpdateResourceConfiguration,
+		opDeleteResourceConfiguration,
+		opListResourceConfigurations,
+		opCreateSNRA,
+		opGetSNRA,
+		opDeleteSNRA,
+		opListSNRAs,
+		opStartDomainVerification,
+		opGetDomainVerification,
+		opDeleteDomainVerification,
+		opListDomainVerifications,
+		opListResourceEndpointAssociations,
+		opDeleteResourceEndpointAssociation,
+		opListServiceNetworkVpcEndpointAssociations,
 	}
 }
+
+// onceRoutedPathPrefixes lazily builds the list of top-level path prefixes
+// RouteMatcher owns, exactly once. Every operation family's collection path
+// lives here so RouteMatcher stays a simple data-driven scan instead of a
+// long OR chain (which cyclop flags past ~10 families).
+//
+//nolint:gochecknoglobals // read-only package-level lookup table, built once via sync.OnceValue
+var onceRoutedPathPrefixes = sync.OnceValue(func() []string {
+	return []string{
+		pathServices,
+		pathServiceNetworks,
+		pathServiceNetworkServiceAssociations,
+		pathServiceNetworkVpcAssociations,
+		pathTargetGroups,
+		pathAccessLogSubscriptions,
+		pathResourceGateways,
+		pathResourceConfigurations,
+		pathServiceNetworkResourceAssociations,
+		pathDomainVerifications,
+		pathResourceEndpointAssociations,
+	}
+})
 
 // RouteMatcher returns a function that matches VPC Lattice API requests.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		return path == pathServices || strings.HasPrefix(path, pathServices+"/") ||
-			path == pathServiceNetworks || strings.HasPrefix(path, pathServiceNetworks+"/") ||
-			path == pathServiceNetworkServiceAssociations ||
-			strings.HasPrefix(path, pathServiceNetworkServiceAssociations+"/") ||
-			path == pathServiceNetworkVpcAssociations ||
-			strings.HasPrefix(path, pathServiceNetworkVpcAssociations+"/") ||
-			path == pathTargetGroups || strings.HasPrefix(path, pathTargetGroups+"/") ||
-			path == pathAccessLogSubscriptions || strings.HasPrefix(path, pathAccessLogSubscriptions+"/") ||
+		for _, p := range onceRoutedPathPrefixes() {
+			if path == p || strings.HasPrefix(path, p+"/") {
+				return true
+			}
+		}
+
+		return path == pathServiceNetworkVpcEndpointAssociations ||
 			strings.HasPrefix(path, pathAuthPolicy+"/") ||
 			strings.HasPrefix(path, pathResourcePolicy+"/") ||
 			isVPCLatticeTagPath(path)
@@ -406,6 +494,71 @@ var onceOpHandlers = sync.OnceValue(func() map[string]opHandlerFunc {
 		opListTagsForResource: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
 			return h.handleListTagsForResource(c, id1)
 		},
+		opCreateResourceGateway: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateResourceGateway(c, body)
+		},
+		opGetResourceGateway: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetResourceGateway(c, id1)
+		},
+		opUpdateResourceGateway: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateResourceGateway(c, id1, body)
+		},
+		opDeleteResourceGateway: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteResourceGateway(c, id1)
+		},
+		opListResourceGateways: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListResourceGateways(c)
+		},
+		opCreateResourceConfiguration: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateResourceConfiguration(c, body)
+		},
+		opGetResourceConfiguration: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetResourceConfiguration(c, id1)
+		},
+		opUpdateResourceConfiguration: func(h *Handler, c *echo.Context, id1, _, _ string, body map[string]any) error {
+			return h.handleUpdateResourceConfiguration(c, id1, body)
+		},
+		opDeleteResourceConfiguration: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteResourceConfiguration(c, id1)
+		},
+		opListResourceConfigurations: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListResourceConfigurations(c)
+		},
+		opCreateSNRA: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleCreateSNRA(c, body)
+		},
+		opGetSNRA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetSNRA(c, id1)
+		},
+		opDeleteSNRA: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteSNRA(c, id1)
+		},
+		opListSNRAs: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListSNRAs(c)
+		},
+		opStartDomainVerification: func(h *Handler, c *echo.Context, _, _, _ string, body map[string]any) error {
+			return h.handleStartDomainVerification(c, body)
+		},
+		opGetDomainVerification: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleGetDomainVerification(c, id1)
+		},
+		opDeleteDomainVerification: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteDomainVerification(c, id1)
+		},
+		opListDomainVerifications: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListDomainVerifications(c)
+		},
+		opListResourceEndpointAssociations: func(h *Handler, c *echo.Context, _, _, _ string, _ map[string]any) error {
+			return h.handleListResourceEndpointAssociations(c)
+		},
+		opDeleteResourceEndpointAssociation: func(h *Handler, c *echo.Context, id1, _, _ string, _ map[string]any) error {
+			return h.handleDeleteResourceEndpointAssociation(c, id1)
+		},
+		opListServiceNetworkVpcEndpointAssociations: func(
+			h *Handler, c *echo.Context, _, _, _ string, _ map[string]any,
+		) error {
+			return h.handleListServiceNetworkVpcEndpointAssociations(c)
+		},
 	}
 })
 
@@ -434,20 +587,35 @@ func (h *Handler) handleREST(c *echo.Context) error {
 	return fn(h, c, id1, id2, id3, body)
 }
 
-// handleError converts backend errors to HTTP responses.
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// handleError converts backend errors to HTTP responses. Wire types are
+// verified against this service's own deserializer error lists
+// (vpclattice@v1.25.5 deserializers.go: CreateService/GetService/DeleteService/
+// UpdateService/CreateServiceNetwork/CreateTargetGroup model exactly
+// AccessDeniedException, ConflictException, InternalServerException,
+// ResourceNotFoundException, ServiceQuotaExceededException,
+// ThrottlingException, ValidationException).
 func (h *Handler) handleError(c *echo.Context, err error) error {
+	status := http.StatusInternalServerError
+	wireType := "InternalServerException"
+
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusNotFound, map[string]any{keyMessage: err.Error()})
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
-	case errors.Is(err, awserr.ErrConflict):
-		return c.JSON(http.StatusConflict, map[string]any{keyMessage: err.Error()})
+		status, wireType = http.StatusNotFound, "ResourceNotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists), errors.Is(err, awserr.ErrConflict):
+		status, wireType = http.StatusConflict, "ConflictException"
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: err.Error()})
+		status, wireType = http.StatusBadRequest, "ValidationException"
 	}
 
-	return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+	c.Response().Header().Set(amznErrorTypeHeader, wireType)
+
+	return c.JSON(status, map[string]any{keyMessage: err.Error()})
 }
 
 // ------- Path classification -------
@@ -500,6 +668,26 @@ var onceCollectionRoutes = sync.OnceValue(func() []collectionRoute {
 			path: pathAccessLogSubscriptions, subPrefix: pathAccessLogSubscriptions + "/",
 			createOp: opCreateALS, listOp: opListALSs,
 			subHandler: classifyALSPath,
+		},
+		{
+			path: pathResourceGateways, subPrefix: pathResourceGateways + "/",
+			createOp: opCreateResourceGateway, listOp: opListResourceGateways,
+			subHandler: classifyResourceGatewayPath,
+		},
+		{
+			path: pathResourceConfigurations, subPrefix: pathResourceConfigurations + "/",
+			createOp: opCreateResourceConfiguration, listOp: opListResourceConfigurations,
+			subHandler: classifyResourceConfigurationPath,
+		},
+		{
+			path: pathServiceNetworkResourceAssociations, subPrefix: pathServiceNetworkResourceAssociations + "/",
+			createOp: opCreateSNRA, listOp: opListSNRAs,
+			subHandler: classifySNRAPath,
+		},
+		{
+			path: pathDomainVerifications, subPrefix: pathDomainVerifications + "/",
+			createOp: opStartDomainVerification, listOp: opListDomainVerifications,
+			subHandler: classifyDomainVerificationPath,
 		},
 	}
 })
@@ -554,6 +742,24 @@ func classifyPath(method, path string) (string, string, string, string) {
 		if strings.HasPrefix(path, r.subPrefix) {
 			return r.subHandler(method, path)
 		}
+	}
+
+	// ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation are
+	// list-only families in the real API (real AWS populates them solely via
+	// EC2 CreateVpcEndpoint, not a vpc-lattice Create op -- see
+	// service_network_resource_associations.go), so they aren't
+	// onceCollectionRoutes entries (which always assume POST=create at the
+	// collection path).
+	if path == pathResourceEndpointAssociations && method == http.MethodGet {
+		return opListResourceEndpointAssociations, "", "", ""
+	}
+
+	if id, ok := strings.CutPrefix(path, pathResourceEndpointAssociations+"/"); ok && method == http.MethodDelete {
+		return opDeleteResourceEndpointAssociation, id, "", ""
+	}
+
+	if path == pathServiceNetworkVpcEndpointAssociations && method == http.MethodGet {
+		return opListServiceNetworkVpcEndpointAssociations, "", "", ""
 	}
 
 	if op, id, ok := classifySingletonPath(path, pathAuthPolicy, method, onceAuthPolicyOps()); ok {
@@ -776,6 +982,62 @@ func classifyTargetGroupPath(
 	}
 
 	return opUnknown, tgID, "", ""
+}
+
+// classifyResourceGatewayPath handles /resourcegateways/{id}.
+func classifyResourceGatewayPath(method, path string) (string, string, string, string) {
+	id := strings.TrimPrefix(path, pathResourceGateways+"/")
+	switch method {
+	case http.MethodGet:
+		return opGetResourceGateway, id, "", ""
+	case http.MethodPatch:
+		return opUpdateResourceGateway, id, "", ""
+	case http.MethodDelete:
+		return opDeleteResourceGateway, id, "", ""
+	}
+
+	return opUnknown, id, "", ""
+}
+
+// classifyResourceConfigurationPath handles /resourceconfigurations/{id}.
+func classifyResourceConfigurationPath(method, path string) (string, string, string, string) {
+	id := strings.TrimPrefix(path, pathResourceConfigurations+"/")
+	switch method {
+	case http.MethodGet:
+		return opGetResourceConfiguration, id, "", ""
+	case http.MethodPatch:
+		return opUpdateResourceConfiguration, id, "", ""
+	case http.MethodDelete:
+		return opDeleteResourceConfiguration, id, "", ""
+	}
+
+	return opUnknown, id, "", ""
+}
+
+// classifySNRAPath handles /servicenetworkresourceassociations/{id}.
+func classifySNRAPath(method, path string) (string, string, string, string) {
+	id := strings.TrimPrefix(path, pathServiceNetworkResourceAssociations+"/")
+	switch method {
+	case http.MethodGet:
+		return opGetSNRA, id, "", ""
+	case http.MethodDelete:
+		return opDeleteSNRA, id, "", ""
+	}
+
+	return opUnknown, id, "", ""
+}
+
+// classifyDomainVerificationPath handles /domainverifications/{id}.
+func classifyDomainVerificationPath(method, path string) (string, string, string, string) {
+	id := strings.TrimPrefix(path, pathDomainVerifications+"/")
+	switch method {
+	case http.MethodGet:
+		return opGetDomainVerification, id, "", ""
+	case http.MethodDelete:
+		return opDeleteDomainVerification, id, "", ""
+	}
+
+	return opUnknown, id, "", ""
 }
 
 // classifyALSPath handles /accesslogsubscriptions/{id}.

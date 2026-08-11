@@ -148,8 +148,19 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
-// ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "bedrockruntime" }
+// ChaosServiceName returns the lowercase AWS service name for fault rule
+// matching. This must be "bedrock", not "bedrockruntime": real Bedrock
+// Runtime signs every request with SigV4 service name "bedrock" (verified in
+// aws-sdk-go-v2/service/bedrockruntime@v1.57.1's auth.go, serviceAuthOptions
+// -- unconditional for every operation, no per-operation override), the same
+// signing name the sibling services/bedrock (control plane) handler already
+// declares. pkgs/chaos's Middleware extracts the fault-matching "service"
+// string straight from the real Authorization header's SigV4 credential
+// scope, so a ChaosServiceName that doesn't match the real signing name can
+// never match real client traffic -- getTargets already merges entries that
+// share one signing name across multiple handlers (its own doc comment cites
+// S3/S3 Control as the existing precedent for this exact situation).
+func (h *Handler) ChaosServiceName() string { return "bedrock" }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }

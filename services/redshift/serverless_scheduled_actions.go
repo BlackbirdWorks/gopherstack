@@ -1,52 +1,78 @@
 package redshift
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
 // ---------------------------------------------------------------------------
 // Serverless Scheduled Actions
 // ---------------------------------------------------------------------------
 
+// CreateScheduledActionParams holds the fields accepted by
+// CreateScheduledAction. RoleArn/Schedule/ScheduledActionName/TargetAction are
+// required by the real API (CreateScheduledActionInput); Schedule/TargetAction
+// are raw JSON, see ServerlessScheduledAction's doc comment.
+type CreateScheduledActionParams struct {
+	StartTime                  time.Time
+	EndTime                    time.Time
+	Enabled                    *bool
+	ScheduledActionName        string
+	NamespaceName              string
+	RoleArn                    string
+	ScheduledActionDescription string
+	Schedule                   json.RawMessage
+	TargetAction               json.RawMessage
+}
+
+// UpdateScheduledActionParams holds the mutable fields accepted by
+// UpdateScheduledAction.
+type UpdateScheduledActionParams struct {
+	StartTime                  time.Time
+	EndTime                    time.Time
+	ScheduledActionDescription *string
+	Enabled                    *bool
+	RoleArn                    string
+	Schedule                   json.RawMessage
+	TargetAction               json.RawMessage
+}
+
 // CreateServerlessScheduledAction creates a serverless scheduled action.
 func (b *InMemoryBackend) CreateServerlessScheduledAction(
-	scheduledActionName, namespaceName, schedule, targetAction string,
-	startTime, endTime time.Time,
+	p CreateScheduledActionParams,
 ) (*ServerlessScheduledAction, error) {
 	b.mu.Lock("CreateServerlessScheduledAction")
 	defer b.mu.Unlock()
 
-	if _, ok := b.slScheduledActions.Get(scheduledActionName); ok {
+	if _, ok := b.slScheduledActions.Get(p.ScheduledActionName); ok {
 		return nil, fmt.Errorf(
 			"%w: scheduled action %q already exists",
 			ErrServerlessConflict,
-			scheduledActionName,
+			p.ScheduledActionName,
 		)
 	}
 
-	saArn := arn.Build(
-		"redshift-serverless",
-		b.region,
-		b.accountID,
-		"scheduledaction/"+scheduledActionName,
-	)
+	state := slStateActive
+	if p.Enabled != nil && !*p.Enabled {
+		state = slStateDisabled
+	}
 
 	sa := &ServerlessScheduledAction{
-		ScheduledActionArn:  saArn,
-		ScheduledActionName: scheduledActionName,
-		NamespaceName:       namespaceName,
-		Schedule:            schedule,
-		StartTime:           startTime,
-		EndTime:             endTime,
-		Status:              slStatusActive,
-		TargetAction:        targetAction,
+		ScheduledActionName:        p.ScheduledActionName,
+		NamespaceName:              p.NamespaceName,
+		RoleArn:                    p.RoleArn,
+		Schedule:                   p.Schedule,
+		TargetAction:               p.TargetAction,
+		ScheduledActionDescription: p.ScheduledActionDescription,
+		ScheduledActionUUID:        randomUUID(),
+		StartTime:                  p.StartTime,
+		EndTime:                    p.EndTime,
+		State:                      state,
 	}
 	b.slScheduledActions.Put(sa)
-	b.slScheduledActionIdx.insert(scheduledActionName)
+	b.slScheduledActionIdx.insert(p.ScheduledActionName)
 
 	return cloneServerlessScheduledAction(sa), nil
 }
@@ -125,8 +151,8 @@ func (b *InMemoryBackend) ListServerlessScheduledActions(
 
 // UpdateServerlessScheduledAction updates a serverless scheduled action.
 func (b *InMemoryBackend) UpdateServerlessScheduledAction(
-	scheduledActionName, schedule, targetAction string,
-	startTime, endTime time.Time,
+	scheduledActionName string,
+	p UpdateScheduledActionParams,
 ) (*ServerlessScheduledAction, error) {
 	b.mu.Lock("UpdateServerlessScheduledAction")
 	defer b.mu.Unlock()
@@ -140,20 +166,36 @@ func (b *InMemoryBackend) UpdateServerlessScheduledAction(
 		)
 	}
 
-	if schedule != "" {
-		sa.Schedule = schedule
+	if len(p.Schedule) > 0 {
+		sa.Schedule = p.Schedule
 	}
 
-	if targetAction != "" {
-		sa.TargetAction = targetAction
+	if len(p.TargetAction) > 0 {
+		sa.TargetAction = p.TargetAction
 	}
 
-	if !startTime.IsZero() {
-		sa.StartTime = startTime
+	if p.RoleArn != "" {
+		sa.RoleArn = p.RoleArn
 	}
 
-	if !endTime.IsZero() {
-		sa.EndTime = endTime
+	if p.ScheduledActionDescription != nil {
+		sa.ScheduledActionDescription = *p.ScheduledActionDescription
+	}
+
+	if !p.StartTime.IsZero() {
+		sa.StartTime = p.StartTime
+	}
+
+	if !p.EndTime.IsZero() {
+		sa.EndTime = p.EndTime
+	}
+
+	if p.Enabled != nil {
+		if *p.Enabled {
+			sa.State = slStateActive
+		} else {
+			sa.State = slStateDisabled
+		}
 	}
 
 	return cloneServerlessScheduledAction(sa), nil
@@ -184,6 +226,23 @@ func (b *InMemoryBackend) DeleteServerlessScheduledAction(
 
 func cloneServerlessScheduledAction(sa *ServerlessScheduledAction) *ServerlessScheduledAction {
 	cp := *sa
+	if sa.Schedule != nil {
+		cp.Schedule = append(json.RawMessage(nil), sa.Schedule...)
+	}
+
+	if sa.TargetAction != nil {
+		cp.TargetAction = append(json.RawMessage(nil), sa.TargetAction...)
+	}
 
 	return &cp
+}
+
+// randomUUID produces a UUID-v4-shaped string (8-4-4-4-12 hex digits). Not
+// cryptographically significant here -- ScheduledActionUUID just needs to
+// look like the real API's identifier, which this backend does not otherwise
+// track.
+func randomUUID() string {
+	h := randomHex(slUUIDHexBytes) // 16 bytes -> 32 hex chars
+
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }

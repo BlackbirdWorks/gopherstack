@@ -157,6 +157,32 @@ func (b *InMemoryBackend) StartRun(
 	b.mu.Lock("StartRun")
 	defer b.mu.Unlock()
 
+	run := b.startRunLocked(
+		workflowID,
+		roleARN,
+		name,
+		runGroupID,
+		runBatchID,
+		"",
+		networkingMode,
+		runOutputURI,
+		params,
+		tags,
+	)
+
+	result := *run
+
+	return &result, nil
+}
+
+// startRunLocked creates one Run (plus its stub task) and, when tags is non-nil,
+// records it in the generic resource-tags map. Shared by StartRun and StartRunBatch's
+// constituent-run creation. Caller must hold the write lock.
+func (b *InMemoryBackend) startRunLocked(
+	workflowID, roleARN, name, runGroupID, runBatchID, runSettingID, networkingMode, runOutputURI string,
+	params map[string]any,
+	tags map[string]string,
+) *Run {
 	id := newID()
 	now := time.Now().UTC()
 	run := &Run{
@@ -166,6 +192,7 @@ func (b *InMemoryBackend) StartRun(
 		RoleARN:        roleARN,
 		RunGroupID:     runGroupID,
 		RunBatchID:     runBatchID,
+		RunSettingID:   runSettingID,
 		NetworkingMode: networkingMode,
 		RunOutputURI:   runOutputURI,
 		UUID:           newID(),
@@ -193,9 +220,7 @@ func (b *InMemoryBackend) StartRun(
 		b.tags[run.Arn] = copyTags(tags)
 	}
 
-	result := *run
-
-	return &result, nil
+	return run
 }
 
 // CancelRun cancels a run.
@@ -487,27 +512,121 @@ func (b *InMemoryBackend) UpdateRunCache(id, name, description string) error {
 // RunBatch
 // ────────────────────────────────────────────────────────────────────────────
 
-// StartRunBatch starts a new run batch.
-func (b *InMemoryBackend) StartRunBatch(workflowID, roleARN, name string) (*RunBatch, error) {
+// StartRunBatch starts a new run batch: it creates the RunBatch resource, then
+// immediately creates one constituent Run per entry in inlineSettings (real
+// BatchRunSettings.InlineSettings), merging each with def (real DefaultRunSetting) --
+// a run-level field is used when set, falling back to the batch default otherwise,
+// matching the documented override semantics of types.InlineSetting. A duplicate
+// RunSettingID within the same request is a submission failure for that entry (not a
+// fatal error for the whole batch), matching real AWS's per-run submission-outcome
+// model (see SubmissionSummary).
+func (b *InMemoryBackend) StartRunBatch(
+	batchName string,
+	def DefaultRunSetting,
+	inlineSettings []InlineRunSetting,
+	tags map[string]string,
+) (*RunBatch, error) {
 	b.mu.Lock("StartRunBatch")
 	defer b.mu.Unlock()
 
 	id := newID()
+	now := time.Now().UTC()
+	// Real AWS caps inlineSettings at 100 entries, well within int32 range.
+	totalRuns := int32(len(inlineSettings)) //nolint:gosec // bounded by the 100-entry inlineSettings cap
 	rb := &RunBatch{
-		ID:           id,
-		Name:         name,
-		WorkflowID:   workflowID,
-		RoleARN:      roleARN,
-		Status:       statusProcessed,
-		CreationTime: time.Now().UTC(),
+		ID:            id,
+		Name:          batchName,
+		WorkflowID:    def.WorkflowID,
+		RoleARN:       def.RoleARN,
+		RunGroupID:    def.RunGroupID,
+		OutputURI:     def.OutputURI,
+		Tags:          copyTags(tags),
+		Status:        statusProcessed,
+		CreationTime:  now,
+		SubmittedTime: now,
+		ProcessedTime: now,
+		TotalRuns:     totalRuns,
 	}
 	rb.Arn = arn.Build("omics", b.defaultRegion, b.accountID, "runBatch/"+id)
+	rb.UUID = newID()
+
+	seenSettingIDs := make(map[string]bool, len(inlineSettings))
+
+	for _, inline := range inlineSettings {
+		if inline.RunSettingID == "" || seenSettingIDs[inline.RunSettingID] {
+			rb.SubmissionFailureCount++
+
+			continue
+		}
+
+		seenSettingIDs[inline.RunSettingID] = true
+
+		name := def.Name
+		if inline.Name != "" {
+			name = inline.Name
+		}
+
+		outputURI := def.OutputURI
+		if inline.OutputURI != "" {
+			outputURI = inline.OutputURI
+		}
+
+		runTags := def.RunTags
+		if inline.RunTags != nil {
+			runTags = inline.RunTags
+		}
+
+		b.startRunLocked(
+			def.WorkflowID,
+			def.RoleARN,
+			name,
+			def.RunGroupID,
+			id,
+			inline.RunSettingID,
+			"",
+			outputURI,
+			nil,
+			runTags,
+		)
+		rb.SubmissionSuccessCount++
+	}
+
+	if tags != nil {
+		b.tags[rb.Arn] = copyTags(tags)
+	}
 
 	b.runBatches.Put(rb)
 
 	result := *rb
 
 	return &result, nil
+}
+
+// summarizeRunBatchLocked computes the live RunSummary counts for a batch's
+// surviving constituent Run rows. Caller must hold at least a read lock.
+func (b *InMemoryBackend) summarizeRunBatchLocked(batchID string) RunBatchSummary {
+	var summary RunBatchSummary
+
+	for _, r := range b.runs.All() {
+		if r.RunBatchID != batchID {
+			continue
+		}
+
+		switch r.Status {
+		case statusPending:
+			summary.PendingRunCount++
+		case statusRunning:
+			summary.RunningRunCount++
+		case statusCompleted:
+			summary.CompletedRunCount++
+		case statusCancelled:
+			summary.CancelledRunCount++
+		case statusFailed:
+			summary.FailedRunCount++
+		}
+	}
+
+	return summary
 }
 
 // CancelRunBatch cancels a run batch.
@@ -588,6 +707,28 @@ func (b *InMemoryBackend) GetRunBatch(id string) (*RunBatch, error) {
 	return &result, nil
 }
 
+// RunBatchSummary is the RunSummary breakdown (real types.RunSummary) computed live
+// from a batch's surviving constituent Run rows.
+type RunBatchSummary struct {
+	PendingRunCount   int32
+	RunningRunCount   int32
+	CompletedRunCount int32
+	CancelledRunCount int32
+	FailedRunCount    int32
+}
+
+// GetRunBatchSummary computes the live RunSummary breakdown for GetBatch's response.
+func (b *InMemoryBackend) GetRunBatchSummary(id string) (RunBatchSummary, error) {
+	b.mu.RLock("GetRunBatchSummary")
+	defer b.mu.RUnlock()
+
+	if !b.runBatches.Has(id) {
+		return RunBatchSummary{}, fmt.Errorf("%w: run batch %s not found", ErrNotFound, id)
+	}
+
+	return b.summarizeRunBatchLocked(id), nil
+}
+
 // ListRunBatches lists run batches, optionally filtered by name/status (real
 // AWS ListBatchInput query parameters). filter.RunGroupID is accepted for
 // wire compatibility but not applied: real ListBatch filters by the run
@@ -645,6 +786,7 @@ func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
 
 		delete(b.tags, r.Arn)
 		b.runs.Delete(r.ID)
+		rb.DeletedRunCount++
 
 		for _, t := range slices.Clone(b.runTasksByRun.Get(r.ID)) {
 			b.runTasks.Delete(parentKey(r.ID, t.TaskID))
@@ -660,12 +802,11 @@ func (b *InMemoryBackend) DeleteRunsInBatch(batchID string) error {
 	return nil
 }
 
-// ListRunsInBatch lists runs that belong to a run batch, optionally filtered
-// by runId (real AWS ListRunsInBatchInput "runId" query parameter).
-// filter.RunSettingID/SubmissionStatus are accepted for wire compatibility
-// but not applied: this backend has no concept of a per-run "run setting ID"
-// or async submission-status, since batches complete synchronously (see the
-// PARITY.md RunBatch note).
+// ListRunsInBatch lists runs that belong to a run batch, optionally filtered by runId
+// and runSettingId (real AWS ListRunsInBatchInput query parameters).
+// filter.SubmissionStatus is accepted for wire compatibility but not applied: this
+// backend has no async submission-status state machine, since batches complete
+// submission synchronously (see the PARITY.md RunBatch note).
 func (b *InMemoryBackend) ListRunsInBatch(
 	batchID string,
 	filter *RunsInBatchFilter,
@@ -687,6 +828,10 @@ func (b *InMemoryBackend) ListRunsInBatch(
 		}
 
 		if filter != nil && filter.RunID != "" && r.ID != filter.RunID {
+			continue
+		}
+
+		if filter != nil && filter.RunSettingID != "" && r.RunSettingID != filter.RunSettingID {
 			continue
 		}
 

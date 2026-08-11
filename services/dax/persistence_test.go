@@ -96,6 +96,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	subnetGroups, _, err := fresh.DescribeSubnetGroups([]string{"full-subnets"}, 0, "")
 	require.NoError(t, err)
 	require.Len(t, subnetGroups, 1)
+	require.Len(t, subnetGroups[0].Subnets, 1)
+	assert.Equal(t, []string{dax.NetworkTypeIPv4}, subnetGroups[0].Subnets[0].SupportedNetworkTypes)
 
 	// tags (raw field), including the tag index rebuild from cluster.Tags.
 	tags, _, err := fresh.ListTags(cluster.ClusterArn, "")

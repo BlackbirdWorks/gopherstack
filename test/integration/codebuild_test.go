@@ -53,7 +53,10 @@ func TestIntegration_CodeBuild_ProjectLifecycle(t *testing.T) {
 	assert.Equal(t, projectName, aws.ToString(createOut.Project.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteProject(ctx, &codebuildsdk.DeleteProjectInput{Name: aws.String(projectName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteProject(cleanupCtx, &codebuildsdk.DeleteProjectInput{Name: aws.String(projectName)})
 	})
 
 	// ListProjects should include the new project.

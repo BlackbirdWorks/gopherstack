@@ -215,7 +215,7 @@ func TestCreateMaintenanceWindow_Success(t *testing.T) {
 // StartDate/EndDate/ScheduleTimezone/ScheduleOffset, which were entirely
 // absent from CreateMaintenanceWindowInput/UpdateMaintenanceWindowInput and
 // silently discarded even when a client sent them. Confirmed present in
-// aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreateMaintenanceWindow.go and
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_CreateMaintenanceWindow.go and
 // api_op_UpdateMaintenanceWindow.go (the latter also updates
 // AllowUnassociatedTargets, previously create-only in this emulator).
 func TestMaintenanceWindow_ScheduleFieldsRoundTrip(t *testing.T) {

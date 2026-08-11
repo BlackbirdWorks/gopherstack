@@ -2,6 +2,10 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import { isAllRegions, currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getElastiCacheClient } from '$lib/aws-client';
 	import {
 		DescribeCacheClustersCommand,
@@ -92,14 +96,24 @@
 		| 'docs';
 	let activeTab = $state<TopTab>('clusters');
 
+	// Clusters is the only tab that fans out across regions -- every row
+	// carries the region its DescribeCacheClusters call was made against, so
+	// row actions (reboot/delete) can target THAT region rather than the
+	// page's shared `ec()` client. The other tabs (replication groups,
+	// parameter groups, subnet groups, snapshots, users, user groups,
+	// serverless, events, reserved) are independent, account+region-level
+	// resource lists rather than children of a selected cluster, and stay on
+	// the single active-region client, matching the picker.
+	type Regioned<T> = T & { region: string };
+
 	// ─── Shared ───────────────────────────────────────────────────────────────
 	let loading = $state(false);
 	let searchQuery = $state('');
 	let seedingDemo = $state(false);
 
 	// ─── Clusters ─────────────────────────────────────────────────────────────
-	let clusters = $state<CacheCluster[]>([]);
-	let selectedCluster = $state<CacheCluster | null>(null);
+	let clusters = $state<Regioned<CacheCluster>[]>([]);
+	let selectedCluster = $state<Regioned<CacheCluster> | null>(null);
 	let showCreateClusterModal = $state(false);
 	let newClusterId = $state('');
 	let clusterEngine = $state('redis');
@@ -275,11 +289,23 @@
 	}
 
 	// ─── Cluster actions ──────────────────────────────────────────────────────
+	// In All mode, fans DescribeCacheClusters out across every region with
+	// data and tags each row; single-region mode issues exactly one call.
 	async function loadClusters() {
 		loading = true;
 		try {
-			const res = await ec().send(new DescribeCacheClustersCommand({ ShowCacheNodeInfo: true }));
-			clusters = res.CacheClusters ?? [];
+			if (isAllRegions()) {
+				const result = await multiRegionList(
+					(region) => getElastiCacheClient(region).send(new DescribeCacheClustersCommand({ ShowCacheNodeInfo: true })),
+					(r) => r.CacheClusters ?? []
+				);
+				clusters = result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<CacheCluster>);
+				if (result.errors.length > 0) toast.error(`Failed to load clusters from ${result.errors.length} region(s)`);
+			} else {
+				const res = await ec().send(new DescribeCacheClustersCommand({ ShowCacheNodeInfo: true }));
+				const region = currentRegion();
+				clusters = (res.CacheClusters ?? []).map((c) => ({ ...c, region }) as Regioned<CacheCluster>);
+			}
 		} catch (err: unknown) {
 			toast.error(`Failed to load clusters: ${(err as Error).message}`);
 		} finally {
@@ -321,7 +347,7 @@
 		clusterMaintWindow = 'sun:05:00-sun:06:00';
 	}
 
-	async function deleteCluster(id: string) {
+	async function deleteCluster(id: string, region: string) {
 		if (
 			!(await confirmDestructive({
 				title: 'Delete Cluster',
@@ -330,7 +356,7 @@
 		)
 			return;
 		try {
-			await ec().send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
+			await getElastiCacheClient(region).send(new DeleteCacheClusterCommand({ CacheClusterId: id }));
 			toast.success(`Cluster "${id}" deletion initiated`);
 			if (selectedCluster?.CacheClusterId === id) selectedCluster = null;
 			await loadClusters();
@@ -339,7 +365,7 @@
 		}
 	}
 
-	async function rebootCluster(id: string) {
+	async function rebootCluster(id: string, region: string) {
 		if (
 			!(await confirmDestructive({
 				title: 'Reboot Cluster',
@@ -350,7 +376,7 @@
 		)
 			return;
 		try {
-			await ec().send(
+			await getElastiCacheClient(region).send(
 				new RebootCacheClusterCommand({ CacheClusterId: id, CacheNodeIdsToReboot: ['0001'] })
 			);
 			toast.success(`Cluster "${id}" reboot initiated`);
@@ -1106,6 +1132,7 @@
 						<option value="creating">Creating</option>
 						<option value="deleting">Deleting</option>
 					</select>
+					<WriteRegionHint />
 					<button
 						onclick={() => (showCreateClusterModal = true)}
 						class="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-medium text-sm shadow-lg shadow-cyan-600/20 transition-all active:scale-95 whitespace-nowrap"
@@ -1228,9 +1255,9 @@
 									</tr>
 								{/each}
 							{:else}
-								{#each filteredClusters as cluster}
+								{#each filteredClusters as cluster (cluster.region + '::' + cluster.CacheClusterId)}
 									<tr
-										class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all cursor-pointer {selectedCluster?.CacheClusterId === cluster.CacheClusterId ? 'bg-cyan-500/5 dark:bg-cyan-500/10' : ''}"
+										class="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-all cursor-pointer {selectedCluster && selectedCluster.CacheClusterId === cluster.CacheClusterId && selectedCluster.region === cluster.region ? 'bg-cyan-500/5 dark:bg-cyan-500/10' : ''}"
 										onclick={() => (selectedCluster = cluster)}
 									>
 										<td class="px-6 py-4">
@@ -1239,8 +1266,9 @@
 													<Database class="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
 												</div>
 												<div>
-													<div class="font-bold text-slate-900 dark:text-white">
+													<div class="font-bold text-slate-900 dark:text-white flex items-center gap-2">
 														{cluster.CacheClusterId}
+														<RegionChip region={cluster.region} />
 													</div>
 													<div class="text-[10px] text-slate-400 font-mono">
 														{cluster.CacheNodeType} · v{cluster.EngineVersion}
@@ -1273,7 +1301,7 @@
 												<button
 													onclick={(e) => {
 														e.stopPropagation();
-														rebootCluster(cluster.CacheClusterId!);
+														rebootCluster(cluster.CacheClusterId!, cluster.region);
 													}}
 													class="p-2 text-slate-400 hover:text-amber-500 rounded-lg transition-colors"
 													title="Reboot"
@@ -1283,7 +1311,7 @@
 												<button
 													onclick={(e) => {
 														e.stopPropagation();
-														deleteCluster(cluster.CacheClusterId!);
+														deleteCluster(cluster.CacheClusterId!, cluster.region);
 													}}
 													class="p-2 text-slate-400 hover:text-red-500 rounded-lg transition-colors"
 													title="Delete"
@@ -1315,8 +1343,9 @@
 					{#if selectedCluster}
 						<div class="space-y-5">
 							<div class="flex items-center justify-between">
-								<h2 class="text-lg font-bold text-slate-900 dark:text-white">
+								<h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
 									{selectedCluster.CacheClusterId}
+									<RegionChip region={selectedCluster.region} />
 								</h2>
 								<span
 									class="text-xs px-2 py-0.5 rounded-full font-medium {getStatusBadge(selectedCluster.CacheClusterStatus)}"
@@ -1447,13 +1476,13 @@
 							<!-- Actions -->
 							<div class="flex flex-col gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/50">
 								<button
-									onclick={() => selectedCluster && rebootCluster(selectedCluster.CacheClusterId!)}
+									onclick={() => selectedCluster && rebootCluster(selectedCluster.CacheClusterId!, selectedCluster.region)}
 									class="w-full flex items-center justify-center gap-2 py-2.5 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 rounded-xl font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-600 transition-all active:scale-[0.98]"
 								>
 									<RefreshCw class="w-4 h-4" /> Reboot Nodes
 								</button>
 								<button
-									onclick={() => selectedCluster && deleteCluster(selectedCluster.CacheClusterId!)}
+									onclick={() => selectedCluster && deleteCluster(selectedCluster.CacheClusterId!, selectedCluster.region)}
 									class="w-full flex items-center justify-center gap-2 py-2.5 bg-rose-600 text-white rounded-xl font-bold text-sm hover:bg-rose-700 transition-all shadow-lg shadow-rose-600/20 active:scale-[0.98]"
 								>
 									<Trash2 class="w-4 h-4" /> Delete Cluster

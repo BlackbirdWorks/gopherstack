@@ -61,7 +61,10 @@ func TestIntegration_MediaTailor_SourceLocationLifecycle(t *testing.T) {
 			assert.Equal(t, tt.slName, aws.ToString(createOut.SourceLocationName))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteSourceLocation(ctx, &mediatailorsdk.DeleteSourceLocationInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteSourceLocation(cleanupCtx, &mediatailorsdk.DeleteSourceLocationInput{
 					SourceLocationName: aws.String(tt.slName),
 				})
 			})

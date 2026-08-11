@@ -12,9 +12,10 @@ import (
 
 func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                         map[string]string `json:"Tags"`
-		StudioLifecycleConfigName    string            `json:"StudioLifecycleConfigName"`
-		StudioLifecycleConfigAppType string            `json:"StudioLifecycleConfigAppType"`
+		StudioLifecycleConfigName    string      `json:"StudioLifecycleConfigName"`
+		StudioLifecycleConfigAppType string      `json:"StudioLifecycleConfigAppType"`
+		StudioLifecycleConfigContent string      `json:"StudioLifecycleConfigContent"`
+		Tags                         []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -26,7 +27,8 @@ func (h *Handler) handleCreateStudioLifecycleConfig(ctx context.Context, body []
 	}
 
 	result, err := h.Backend.CreateStudioLifecycleConfig(ctx,
-		req.StudioLifecycleConfigName, req.StudioLifecycleConfigAppType, req.Tags,
+		req.StudioLifecycleConfigName, req.StudioLifecycleConfigAppType, req.StudioLifecycleConfigContent,
+		fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/services/textract"
 )
 
@@ -23,6 +24,42 @@ func TestInMemoryBackend_LendingJobHistoryCap(t *testing.T) {
 
 	assert.Equal(t, 2, textract.LendingJobCount(b),
 		"lending jobs map should be capped at 2 once over the cap")
+}
+
+// TestInMemoryBackend_StartLendingAnalysisWithOptions_TrimmedBeforeReadback covers gopherstack-0ho6.
+func TestInMemoryBackend_StartLendingAnalysisWithOptions_TrimmedBeforeReadback(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		maxJobs int
+		wantErr bool
+	}{
+		{name: "zero_cap", maxJobs: 0, wantErr: true},
+		{name: "normal_cap", maxJobs: 5, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := textract.NewInMemoryBackendWithCap(tt.maxJobs)
+
+			job, err := b.StartLendingAnalysisWithOptions(
+				context.Background(), "s3://bucket/loan.pdf", nil, nil, "", "",
+			)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, awserr.ErrNotFound)
+				assert.Nil(t, job)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotEmpty(t, job.JobID)
+		})
+	}
 }
 
 func TestInMemoryBackend_StartLendingAnalysisWithOptions_ClientRequestTokenIdempotency(t *testing.T) {

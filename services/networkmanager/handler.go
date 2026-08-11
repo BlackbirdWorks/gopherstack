@@ -79,7 +79,16 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Region} }
 // to a known route via matchRoute.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		_, _, ok := matchRoute(h.routeTable(), c.Request().Method, rawPathSegments(c.Request()))
+		segs := rawPathSegments(c.Request())
+
+		// The tags/:arn pattern is a positional wildcard match, so it must
+		// not claim another service's /tags/{arn} request -- only the ARN's
+		// own service segment disambiguates the true owner.
+		if len(segs) > 0 && segs[0] == "tags" {
+			return httputils.MatchesTaggedResourceARN(c.Request().URL.Path, networkManagerServiceName)
+		}
+
+		_, _, ok := matchRoute(h.routeTable(), c.Request().Method, segs)
 
 		return ok
 	}

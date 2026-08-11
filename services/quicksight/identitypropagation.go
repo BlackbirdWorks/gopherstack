@@ -2,6 +2,8 @@ package quicksight
 
 import (
 	"sort"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 )
 
 // storedIdentityPropagationConfig is the persisted representation of one
@@ -21,10 +23,14 @@ func (c *storedIdentityPropagationConfig) toIdentityPropagationConfig() *Identit
 	}
 }
 
+// isValidServiceType derives its answer from types.ServiceType.Values() so it
+// cannot drift from the real enum -- the previous hand-copied list was
+// missing GLUE_DATA_CATALOG.
 func isValidServiceType(service string) bool {
-	switch service {
-	case "REDSHIFT", "QBUSINESS", "ATHENA":
-		return true
+	for _, v := range sdktypes.ServiceType("").Values() {
+		if string(v) == service {
+			return true
+		}
 	}
 
 	return false

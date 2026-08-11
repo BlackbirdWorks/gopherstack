@@ -149,8 +149,127 @@ func (b *InMemoryBackend) DeletePrivacyBudgetTemplate(membershipID, templateID s
 	return nil
 }
 
+// privacyBudgetTypeDifferentialPrivacy is the only PrivacyBudgetType this
+// backend models a real budget for (types.PrivacyBudgetTypeDifferentialPrivacy).
+// ACCESS_BUDGET (types.PrivacyBudgetTypeAccessBudget) is a real, separate
+// budget kind this backend does not model -- see PARITY.md gaps.
+const privacyBudgetTypeDifferentialPrivacy = "DIFFERENTIAL_PRIVACY"
+
+// dpAggregationScaleFactor converts an epsilon/usersNoisePerQuery pair into a
+// deterministic aggregation-count budget. AWS's real formula is proprietary
+// and undocumented in the SDK; this is a documented, order-preserving
+// approximation (more epsilon or less noise-per-query yields a larger
+// budget), matching this codebase's established approximation pattern (e.g.
+// cloudwatch's StatisticSet percentile synthesis) -- not a claim of numeric
+// parity with real AWS.
+const dpAggregationScaleFactor = 100
+
+// differentialPrivacyAggregationTypes are the 5 real
+// DifferentialPrivacyAggregationType enum values (types/enums.go).
+func differentialPrivacyAggregationTypes() []string {
+	return []string{"AVG", "COUNT", "COUNT_DISTINCT", "SUM", "STDDEV"}
+}
+
+// asInt64 converts a decoded-JSON numeric value (float64 from encoding/json,
+// or occasionally an int/int64 when constructed directly by a test) to int64.
+func asInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return int64(n), true
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+// extractDPEpsilonNoise pulls epsilon/usersNoisePerQuery out of a
+// PrivacyBudgetTemplateParametersInput-shaped map
+// ({"differentialPrivacy": {"epsilon": N, "usersNoisePerQuery": M}}, the
+// real wire shape verified against
+// awsRestjson1_serializeDocumentDifferentialPrivacyTemplateParametersInput).
+func extractDPEpsilonNoise(parameters map[string]any) (int64, int64, bool) {
+	dp, isMap := parameters["differentialPrivacy"].(map[string]any)
+	if !isMap {
+		return 0, 0, false
+	}
+
+	epsilon, epsilonOK := asInt64(dp["epsilon"])
+	noise, noiseOK := asInt64(dp["usersNoisePerQuery"])
+
+	return epsilon, noise, epsilonOK && noiseOK
+}
+
+// dpMaxAggregationCount derives the per-aggregation-type budget from
+// epsilon/usersNoisePerQuery (see dpAggregationScaleFactor).
+func dpMaxAggregationCount(epsilon, usersNoisePerQuery int64) int64 {
+	if usersNoisePerQuery <= 0 || epsilon <= 0 {
+		return 0
+	}
+
+	return epsilon * dpAggregationScaleFactor / usersNoisePerQuery
+}
+
+// differentialPrivacyBudgetPayload builds the real DifferentialPrivacyPrivacyBudget
+// wire shape ({"differentialPrivacy": {"epsilon": N, "aggregations": [...]}}, see
+// awsRestjson1_deserializeDocumentDifferentialPrivacyPrivacyBudget). No query-time
+// consumption tracking exists in this backend (StartProtectedQuery's differentialPrivacy
+// parameter is not modeled, see PARITY.md), so remainingCount always equals maxCount --
+// a fresh, unconsumed budget, not a fabricated partial one.
+func differentialPrivacyBudgetPayload(epsilon, usersNoisePerQuery int64) map[string]any {
+	maxCount := dpMaxAggregationCount(epsilon, usersNoisePerQuery)
+
+	aggregations := make([]map[string]any, 0, len(differentialPrivacyAggregationTypes()))
+	for _, t := range differentialPrivacyAggregationTypes() {
+		aggregations = append(aggregations, map[string]any{
+			"type":           t,
+			"maxCount":       maxCount,
+			"remainingCount": maxCount,
+		})
+	}
+
+	return map[string]any{
+		"differentialPrivacy": map[string]any{
+			"epsilon":      epsilon,
+			"aggregations": aggregations,
+		},
+	}
+}
+
+// toPrivacyBudget builds a real PrivacyBudgetSummary (see PrivacyBudget doc
+// comment) for a differential-privacy template. Returns nil for a template
+// whose Parameters don't carry a well-formed differentialPrivacy epsilon/
+// usersNoisePerQuery pair (e.g. an ACCESS_BUDGET template, or one with only
+// niche fields set) rather than fabricating one.
+func toPrivacyBudget(t *PrivacyBudgetTemplate) *PrivacyBudget {
+	if t.PrivacyBudgetType != privacyBudgetTypeDifferentialPrivacy {
+		return nil
+	}
+
+	epsilon, noise, ok := extractDPEpsilonNoise(t.Parameters)
+	if !ok {
+		return nil
+	}
+
+	return &PrivacyBudget{
+		Budget:                   differentialPrivacyBudgetPayload(epsilon, noise),
+		ID:                       t.ID,
+		PrivacyBudgetTemplateArn: t.Arn,
+		PrivacyBudgetTemplateID:  t.ID,
+		CollaborationArn:         t.CollaborationArn,
+		CollaborationID:          t.CollaborationID,
+		MembershipArn:            t.MembershipArn,
+		MembershipID:             t.MembershipID,
+		PrivacyBudgetType:        t.PrivacyBudgetType,
+		CreateTime:               t.CreateTime,
+		UpdateTime:               t.UpdateTime,
+	}
+}
+
 func (b *InMemoryBackend) ListPrivacyBudgets(
-	membershipID, _, _, _ string,
+	membershipID, privacyBudgetType, _, _ string,
 ) ([]*PrivacyBudget, string, error) {
 	b.mu.RLock("ListPrivacyBudgets")
 	defer b.mu.RUnlock()
@@ -158,11 +277,22 @@ func (b *InMemoryBackend) ListPrivacyBudgets(
 		return nil, "", ErrNotFound
 	}
 
-	return []*PrivacyBudget{}, "", nil
+	budgets := make([]*PrivacyBudget, 0)
+	for _, t := range b.privacyBudgetTemplatesByMembership.Get(membershipID) {
+		if privacyBudgetType != "" && t.PrivacyBudgetType != privacyBudgetType {
+			continue
+		}
+
+		if pb := toPrivacyBudget(t); pb != nil {
+			budgets = append(budgets, pb)
+		}
+	}
+
+	return budgets, "", nil
 }
 
 func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
-	collaborationID, _, _, _ string,
+	collaborationID, privacyBudgetType, _, _ string,
 ) ([]*PrivacyBudget, string, error) {
 	b.mu.RLock("ListCollaborationPrivacyBudgets")
 	defer b.mu.RUnlock()
@@ -170,7 +300,24 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgets(
 		return nil, "", ErrNotFound
 	}
 
-	return []*PrivacyBudget{}, "", nil
+	budgets := make([]*PrivacyBudget, 0)
+	b.privacyBudgetTemplates.Range(func(t *PrivacyBudgetTemplate) bool {
+		if t.CollaborationID != collaborationID {
+			return true
+		}
+
+		if privacyBudgetType != "" && t.PrivacyBudgetType != privacyBudgetType {
+			return true
+		}
+
+		if pb := toPrivacyBudget(t); pb != nil {
+			budgets = append(budgets, pb)
+		}
+
+		return true
+	})
+
+	return budgets, "", nil
 }
 
 func (b *InMemoryBackend) GetCollaborationPrivacyBudgetTemplate(
@@ -216,9 +363,14 @@ func (b *InMemoryBackend) ListCollaborationPrivacyBudgetTemplates(
 	return page, next, nil
 }
 
+// PreviewPrivacyImpact computes the DifferentialPrivacyPrivacyImpact shape
+// (aggregations: [{type, maxCount}]) from the requested epsilon/
+// usersNoisePerQuery using the same dpMaxAggregationCount approximation
+// ListPrivacyBudgets uses -- this is a preview, so it never mutates any
+// stored budget.
 func (b *InMemoryBackend) PreviewPrivacyImpact(
 	membershipID string,
-	_ map[string]any,
+	parameters map[string]any,
 ) (map[string]any, error) {
 	b.mu.RLock("PreviewPrivacyImpact")
 	defer b.mu.RUnlock()
@@ -226,5 +378,27 @@ func (b *InMemoryBackend) PreviewPrivacyImpact(
 		return nil, ErrNotFound
 	}
 
-	return map[string]any{"privacyImpact": map[string]any{"aggregationCount": []any{}}}, nil
+	// PreviewPrivacyImpactParametersInput serializes the identical
+	// {"differentialPrivacy": {"epsilon", "usersNoisePerQuery"}} shape as the
+	// template parameters (verified against
+	// awsRestjson1_serializeDocumentDifferentialPrivacyPreviewParametersInput).
+	epsilon, noise, ok := extractDPEpsilonNoise(parameters)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: parameters.differentialPrivacy.{epsilon,usersNoisePerQuery} are required", ErrValidation,
+		)
+	}
+
+	maxCount := dpMaxAggregationCount(epsilon, noise)
+	aggregations := make([]map[string]any, 0, len(differentialPrivacyAggregationTypes()))
+
+	for _, t := range differentialPrivacyAggregationTypes() {
+		aggregations = append(aggregations, map[string]any{"type": t, "maxCount": maxCount})
+	}
+
+	return map[string]any{
+		"privacyImpact": map[string]any{
+			"differentialPrivacy": map[string]any{"aggregations": aggregations},
+		},
+	}, nil
 }

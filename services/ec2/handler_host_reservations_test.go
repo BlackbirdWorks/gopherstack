@@ -71,15 +71,10 @@ func TestHostReservations_HTTP_Lifecycle(t *testing.T) { //nolint:paralleltest /
 	assert.NotContains(t, describeHostsResp, hostID)
 }
 
-// TestHostReservation_TagDualWritePathVisibility proves that
-// host_reservations.go's HostReservation consolidated onto the shared tag
-// store: a tag supplied at create time (TagSpecification) and a tag added
-// afterwards via CreateTags are BOTH visible through DescribeHostReservations
-// AND through the generic DescribeTags call. Before the fix, HostReservation
-// carried its own embedded Tags field populated only at create time,
-// invisible to a post-creation CreateTags call. (PurchaseHostReservation's
-// response itself only echoes purchase line items, not TagSet, matching the
-// real API -- so the create-time tag is checked via Describe.)
+// TestHostReservation_TagDualWritePathVisibility proves a create-time tag and
+// one added later via CreateTags are BOTH visible through
+// DescribeHostReservations and DescribeTags. PurchaseHostReservation's response
+// itself only echoes purchase line items, not TagSet, matching the real API.
 func TestHostReservation_TagDualWritePathVisibility(t *testing.T) {
 	t.Parallel()
 

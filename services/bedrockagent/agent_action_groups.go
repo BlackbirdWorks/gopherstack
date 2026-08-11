@@ -83,9 +83,19 @@ func (b *InMemoryBackend) GetAgentActionGroup(
 }
 
 // UpdateAgentActionGroup updates an action group.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Create.
 func (b *InMemoryBackend) UpdateAgentActionGroup(
 	_ context.Context, agentID, agentVersion, actionGroupID string, cfg ActionGroupConfig,
 ) (*AgentActionGroup, error) {
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -129,9 +139,19 @@ func applyActionGroupConfig(ag *AgentActionGroup, cfg ActionGroupConfig) {
 }
 
 // DeleteAgentActionGroup deletes an action group.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Create.
 func (b *InMemoryBackend) DeleteAgentActionGroup(
 	_ context.Context, agentID, agentVersion, actionGroupID string,
 ) error {
+	if agentVersion != defaultAgentVersion {
+		return fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

@@ -126,7 +126,9 @@ type StorageBackend interface {
 	ListMigrations(applicationID, statusFilter string) ([]*Migration, error)
 
 	// Application operations
-	CreateApplication(name string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)
+	CreateApplication(
+		name string, appConfigs []AppConfig, dataSources []AppDataSource, tagMap map[string]string,
+	) (*Application, error)
 	GetApplication(id string) (*Application, error)
 	ListApplications() []*Application
 	UpdateApplication(id string, appConfigs []AppConfig, dataSources []AppDataSource) (*Application, error)

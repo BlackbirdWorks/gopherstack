@@ -71,7 +71,10 @@ func TestIntegration_MemoryDB_ClusterLifecycle(t *testing.T) {
 			clusterARN := aws.ToString(createOut.Cluster.ARN)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteCluster(ctx, &memorydbSDK.DeleteClusterInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteCluster(cleanupCtx, &memorydbSDK.DeleteClusterInput{
 					ClusterName: aws.String(uniqueName),
 				})
 			})
@@ -148,7 +151,10 @@ func TestIntegration_MemoryDB_ACLLifecycle(t *testing.T) {
 			assert.Equal(t, uniqueName, aws.ToString(createOut.ACL.Name))
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteACL(ctx, &memorydbSDK.DeleteACLInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteACL(cleanupCtx, &memorydbSDK.DeleteACLInput{
 					ACLName: aws.String(uniqueName),
 				})
 			})
@@ -205,7 +211,10 @@ func TestIntegration_MemoryDB_Tags(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteCluster(ctx, &memorydbSDK.DeleteClusterInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteCluster(cleanupCtx, &memorydbSDK.DeleteClusterInput{
 					ClusterName: aws.String(uniqueName),
 				})
 			})

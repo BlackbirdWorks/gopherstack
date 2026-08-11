@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import {
 		Globe,
 		Plus,
@@ -66,6 +69,12 @@
 
 	const apigwv2 = regionalClient(getAPIGatewayV2Client);
 
+	// Every row carries the region its Get*Command call was made against.
+	// Row actions must use THIS region, not the page's shared `apigwv2()`
+	// client -- in All mode the same name can legitimately exist in two
+	// different regions.
+	type Regioned<T> = T & { region: string };
+
 	// ─── Top-level state ──────────────────────────────────────────────────────────
 	type TopTab = 'apis' | 'domainnames' | 'vpclinkstab' | 'metrics' | 'docs';
 	let topTab = $state<TopTab>('apis');
@@ -73,9 +82,27 @@
 	let creating = $state(false);
 	let searchQuery = $state('');
 
+	async function loadRegioned<TResponse, TItem>(
+		label: string,
+		regionCall: (region: string) => Promise<TResponse>,
+		extractItems: (r: TResponse) => TItem[],
+		assign: (items: Regioned<TItem>[]) => void
+	) {
+		loading = true;
+		try {
+			const result = await multiRegionList(regionCall, extractItems);
+			assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+			if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
+		} catch (e) {
+			toast.error(`Failed to load ${label}: ${e}`);
+		} finally {
+			loading = false;
+		}
+	}
+
 	// ─── HTTP APIs ────────────────────────────────────────────────────────────────
-	let apis = $state<Api[]>([]);
-	let selectedApi = $state<Api | null>(null);
+	let apis = $state<Regioned<Api>[]>([]);
+	let selectedApi = $state<Regioned<Api> | null>(null);
 	let loadingApiDetail = $state(false);
 	type ApiDetailTab = 'routes' | 'stages' | 'integrations' | 'authorizers' | 'deployments';
 	let apiDetailTab = $state<ApiDetailTab>('routes');
@@ -136,7 +163,7 @@
 	);
 
 	// ─── Domain Names ─────────────────────────────────────────────────────────────
-	let domainNames = $state<DomainName[]>([]);
+	let domainNames = $state<Regioned<DomainName>[]>([]);
 	let showCreateDomainModal = $state(false);
 	let newDomainName = $state('');
 	let newDomainCertArn = $state('');
@@ -146,7 +173,7 @@
 	);
 
 	// ─── VPC Links ────────────────────────────────────────────────────────────────
-	let vpcLinks = $state<VpcLink[]>([]);
+	let vpcLinks = $state<Regioned<VpcLink>[]>([]);
 	let showCreateVpcLinkModal = $state(false);
 	let newVpcLinkName = $state('');
 	let newVpcLinkSubnets = $state('');
@@ -195,18 +222,13 @@
 
 	// ─── Data loaders ─────────────────────────────────────────────────────────────
 	async function loadApis() {
-		loading = true;
-		try {
-			const res = await apigwv2().send(new GetApisCommand({}));
-			apis = res.Items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load APIs: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('APIs',
+			(region) => getAPIGatewayV2Client(region).send(new GetApisCommand({})),
+			(r) => r.Items ?? [],
+			(items) => apis = items);
 	}
 
-	async function loadApiDetail(api: Api) {
+	async function loadApiDetail(api: Regioned<Api>) {
 		// Every create/delete handler for a sub-resource (route, stage,
 		// integration, authorizer, deployment) refreshes by re-calling this
 		// same function with the already-selected API, to pick up the new
@@ -225,13 +247,14 @@
 		apiDeployments = [];
 		if (isNewSelection) apiDetailTab = 'routes';
 		try {
+			const client = getAPIGatewayV2Client(api.region);
 			const [routesRes, stagesRes, integrationsRes, authorizersRes, deploymentsRes] =
 				await Promise.all([
-					apigwv2().send(new GetRoutesCommand({ ApiId: api.ApiId })),
-					apigwv2().send(new GetStagesCommand({ ApiId: api.ApiId })),
-					apigwv2().send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
-					apigwv2().send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
-					apigwv2().send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
+					client.send(new GetRoutesCommand({ ApiId: api.ApiId })),
+					client.send(new GetStagesCommand({ ApiId: api.ApiId })),
+					client.send(new GetIntegrationsCommand({ ApiId: api.ApiId })),
+					client.send(new GetAuthorizersCommand({ ApiId: api.ApiId })),
+					client.send(new GetDeploymentsCommand({ ApiId: api.ApiId })),
 				]);
 			apiRoutes = routesRes.Items ?? [];
 			apiStages = stagesRes.Items ?? [];
@@ -246,27 +269,17 @@
 	}
 
 	async function loadDomainNames() {
-		loading = true;
-		try {
-			const res = await apigwv2().send(new GetDomainNamesCommand({}));
-			domainNames = res.Items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load domain names: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('domain names',
+			(region) => getAPIGatewayV2Client(region).send(new GetDomainNamesCommand({})),
+			(r) => r.Items ?? [],
+			(items) => domainNames = items);
 	}
 
 	async function loadVpcLinks() {
-		loading = true;
-		try {
-			const res = await apigwv2().send(new GetVpcLinksCommand({}));
-			vpcLinks = res.Items ?? [];
-		} catch (e) {
-			toast.error(`Failed to load VPC links: ${e}`);
-		} finally {
-			loading = false;
-		}
+		await loadRegioned('VPC links',
+			(region) => getAPIGatewayV2Client(region).send(new GetVpcLinksCommand({})),
+			(r) => r.Items ?? [],
+			(items) => vpcLinks = items);
 	}
 
 	// ─── CRUD ─────────────────────────────────────────────────────────────────────
@@ -293,14 +306,14 @@
 		}
 	}
 
-	async function deleteApi(api: Api) {
+	async function deleteApi(api: Regioned<Api>) {
 		if (
 			!api.ApiId ||
 			!(await confirmDestructive({ title: 'Delete API', message: `Delete API "${api.Name}"?` }))
 		)
 			return;
 		try {
-			await apigwv2().send(new DeleteApiCommand({ ApiId: api.ApiId }));
+			await getAPIGatewayV2Client(api.region).send(new DeleteApiCommand({ ApiId: api.ApiId }));
 			toast.success(`API "${api.Name}" deleted`);
 			if (selectedApi?.ApiId === api.ApiId) selectedApi = null;
 			await loadApis();
@@ -313,7 +326,7 @@
 		if (!selectedApi?.ApiId || !newRouteKey.trim()) return;
 		creating = true;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new CreateRouteCommand({
 					ApiId: selectedApi.ApiId,
 					RouteKey: newRouteKey.trim(),
@@ -337,7 +350,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Route', message: `Delete route "${route.RouteKey}"?` })))
 			return;
 		try {
-			await apigwv2().send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
+			await getAPIGatewayV2Client(selectedApi.region).send(new DeleteRouteCommand({ ApiId: selectedApi.ApiId, RouteId: route.RouteId }));
 			toast.success(`Route "${route.RouteKey}" deleted`);
 			await loadApiDetail(selectedApi);
 		} catch (e) {
@@ -349,7 +362,7 @@
 		if (!selectedApi?.ApiId || !newStageName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new CreateStageCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: newStageName.trim(),
@@ -380,7 +393,7 @@
 		)
 			return;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new DeleteStageCommand({ ApiId: selectedApi.ApiId, StageName: stage.StageName })
 			);
 			toast.success(`Stage "${stage.StageName}" deleted`);
@@ -394,7 +407,7 @@
 		if (!selectedApi?.ApiId) return;
 		creating = true;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new CreateIntegrationCommand({
 					ApiId: selectedApi.ApiId,
 					IntegrationType: newIntegType,
@@ -423,7 +436,7 @@
 		)
 			return;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new DeleteIntegrationCommand({ ApiId: selectedApi.ApiId, IntegrationId: integ.IntegrationId })
 			);
 			toast.success('Integration deleted');
@@ -437,7 +450,7 @@
 		if (!selectedApi?.ApiId || !newAuthName.trim()) return;
 		creating = true;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new CreateAuthorizerCommand({
 					ApiId: selectedApi.ApiId,
 					Name: newAuthName.trim(),
@@ -475,7 +488,7 @@
 		)
 			return;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new DeleteAuthorizerCommand({ ApiId: selectedApi.ApiId, AuthorizerId: auth.AuthorizerId })
 			);
 			toast.success(`Authorizer "${auth.Name}" deleted`);
@@ -489,7 +502,7 @@
 		if (!selectedApi?.ApiId || !deployStageName.trim()) return;
 		deploying = true;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new CreateDeploymentCommand({
 					ApiId: selectedApi.ApiId,
 					StageName: deployStageName.trim() || undefined,
@@ -513,7 +526,7 @@
 		if (!(await confirmDestructive({ title: 'Delete Deployment', message: `Delete deployment ${depl.DeploymentId}?` })))
 			return;
 		try {
-			await apigwv2().send(
+			await getAPIGatewayV2Client(selectedApi.region).send(
 				new DeleteDeploymentCommand({ ApiId: selectedApi.ApiId, DeploymentId: depl.DeploymentId })
 			);
 			toast.success('Deployment deleted');
@@ -547,14 +560,14 @@
 		}
 	}
 
-	async function deleteDomainName(dn: DomainName) {
+	async function deleteDomainName(dn: Regioned<DomainName>) {
 		if (
 			!dn.DomainName ||
 			!(await confirmDestructive({ title: 'Delete Domain', message: `Delete domain "${dn.DomainName}"?` }))
 		)
 			return;
 		try {
-			await apigwv2().send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
+			await getAPIGatewayV2Client(dn.region).send(new DeleteDomainNameCommand({ DomainName: dn.DomainName }));
 			toast.success(`Domain "${dn.DomainName}" deleted`);
 			await loadDomainNames();
 		} catch (e) {
@@ -585,14 +598,14 @@
 		}
 	}
 
-	async function deleteVpcLink(vl: VpcLink) {
+	async function deleteVpcLink(vl: Regioned<VpcLink>) {
 		if (
 			!vl.VpcLinkId ||
 			!(await confirmDestructive({ title: 'Delete VPC Link', message: `Delete VPC link "${vl.Name}"?` }))
 		)
 			return;
 		try {
-			await apigwv2().send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
+			await getAPIGatewayV2Client(vl.region).send(new DeleteVpcLinkCommand({ VpcLinkId: vl.VpcLinkId }));
 			toast.success(`VPC Link "${vl.Name}" deleted`);
 			await loadVpcLinks();
 		} catch (e) {
@@ -838,6 +851,7 @@
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 				/>
 			</div>
+			<WriteRegionHint />
 			<button
 				onclick={() => (showCreateApiModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90"
@@ -862,9 +876,9 @@
 			</div>
 		{:else}
 			<div class="grid gap-3">
-				{#each filteredApis as api (api.ApiId)}
+				{#each filteredApis as api (api.region + '::' + api.ApiId)}
 					<div
-						class="flex cursor-pointer items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50 {selectedApi?.ApiId === api.ApiId ? 'ring-2 ring-primary' : ''}"
+						class="flex cursor-pointer items-center justify-between rounded-lg border bg-card p-4 transition-colors hover:bg-accent/50 {selectedApi && selectedApi.ApiId === api.ApiId && selectedApi.region === api.region ? 'ring-2 ring-primary' : ''}"
 						role="button"
 						tabindex="0"
 						onclick={() => loadApiDetail(api)}
@@ -885,6 +899,7 @@
 									<span class="rounded-full px-2 py-0.5 text-xs font-semibold {api.ProtocolType === 'WEBSOCKET' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'}">
 										{api.ProtocolType}
 									</span>
+									<RegionChip region={api.region} />
 								</div>
 								<p class="text-xs text-muted-foreground truncate">{api.Description ?? 'No description'}</p>
 								<div class="flex items-center gap-1 mt-0.5">
@@ -924,7 +939,7 @@
 			<div class="mt-4 rounded-lg border bg-card">
 				<div class="flex items-center justify-between border-b p-4">
 					<div>
-						<h2 class="font-semibold">{selectedApi.Name}</h2>
+						<h2 class="font-semibold flex items-center gap-2"><span>{selectedApi.Name}</span><RegionChip region={selectedApi.region} /></h2>
 						<p class="text-xs text-muted-foreground font-mono">{selectedApi.ApiId}</p>
 					</div>
 					<div class="flex gap-2">
@@ -1170,6 +1185,7 @@
 				<input type="text" placeholder="Search domains…" bind:value={searchQuery}
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 			</div>
+			<WriteRegionHint />
 			<button onclick={() => (showCreateDomainModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">
 				<Plus class="h-4 w-4" />Add Domain
@@ -1182,12 +1198,12 @@
 			</div>
 		{:else}
 			<div class="space-y-2">
-				{#each filteredDomains as dn (dn.DomainName)}
+				{#each filteredDomains as dn (dn.region + '::' + dn.DomainName)}
 					<div class="flex items-center justify-between rounded-lg border bg-card p-4">
 						<div class="flex items-center gap-3">
 							<Link class="h-5 w-5 text-blue-500 flex-shrink-0" />
 							<div>
-								<p class="font-medium">{dn.DomainName}</p>
+								<p class="font-medium flex items-center gap-2"><span>{dn.DomainName}</span><RegionChip region={dn.region} /></p>
 								{#each dn.DomainNameConfigurations ?? [] as cfg}
 									<p class="text-xs text-muted-foreground">{cfg.EndpointType ?? ''} · {cfg.DomainNameStatus ?? ''}</p>
 								{/each}
@@ -1211,6 +1227,7 @@
 				<input type="text" placeholder="Search VPC links…" bind:value={searchQuery}
 					class="w-full rounded-md border bg-background pl-9 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary" />
 			</div>
+			<WriteRegionHint />
 			<button onclick={() => (showCreateVpcLinkModal = true)}
 				class="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90">
 				<Plus class="h-4 w-4" />Create VPC Link
@@ -1223,12 +1240,12 @@
 			</div>
 		{:else}
 			<div class="space-y-2">
-				{#each filteredVpcLinks as vl (vl.VpcLinkId)}
+				{#each filteredVpcLinks as vl (vl.region + '::' + vl.VpcLinkId)}
 					<div class="flex items-center justify-between rounded-lg border bg-card p-4">
 						<div class="flex items-center gap-3">
 							<Network class="h-5 w-5 text-green-500 flex-shrink-0" />
 							<div>
-								<p class="font-medium">{vl.Name}</p>
+								<p class="font-medium flex items-center gap-2"><span>{vl.Name}</span><RegionChip region={vl.region} /></p>
 								<p class="text-xs text-muted-foreground font-mono">{vl.VpcLinkId}</p>
 								<div class="flex gap-2 mt-1">
 									<span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900/30 dark:text-green-300">

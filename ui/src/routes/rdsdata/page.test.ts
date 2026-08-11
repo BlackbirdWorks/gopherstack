@@ -229,7 +229,7 @@ describe("RDSData Page", () => {
     expect(screen.getByRole("textbox", { name: "Legacy SQL Statements" })).toBeInTheDocument();
   });
 
-  it("runs ExecuteSql and shows only numberOfRecordsUpdated, no result rows", async () => {
+  it("runs ExecuteSql and shows numberOfRecordsUpdated for a DML statement", async () => {
     mockSend.mockResolvedValueOnce({ sqlStatementResults: [{ numberOfRecordsUpdated: 3 }] });
 
     render(RDSDataPage);
@@ -248,5 +248,29 @@ describe("RDSData Page", () => {
     expect(request.input.awsSecretStoreArn).toBe(
       "arn:aws:secretsmanager:us-east-1:123456789012:secret:my-secret",
     );
+  });
+
+  it("runs ExecuteSql and shows resultFrame rows for a SELECT", async () => {
+    mockSend.mockResolvedValueOnce({
+      sqlStatementResults: [
+        {
+          numberOfRecordsUpdated: 0,
+          resultFrame: {
+            resultSetMetadata: { columnCount: 1, columnMetadata: [{ name: "id" }] },
+            records: [{ values: [{ bigIntValue: 42 }] }],
+          },
+        },
+      ],
+    });
+
+    render(RDSDataPage);
+    await fillConnection();
+    await fireEvent.click(screen.getByRole("tab", { name: "ExecuteSql (legacy)" }));
+    await fireEvent.click(screen.getByText("Run").closest("button")!);
+
+    await waitFor(() => {
+      expect(screen.getByRole("columnheader", { name: "id" })).toBeInTheDocument();
+      expect(screen.getByRole("cell", { name: "42" })).toBeInTheDocument();
+    });
   });
 });

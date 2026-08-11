@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/acm/types"
 )
 
 // autoValidate transitions a certificate from PENDING_VALIDATION to ISSUED after a
@@ -106,16 +108,18 @@ func (b *InMemoryBackend) ResendValidationEmail(ctx context.Context, certARN, do
 	return nil
 }
 
-// validRevocationReasons reports whether a given RevocationReason string is valid.
+// validRevocationReason derives its answer from types.RevocationReason.Values()
+// so it cannot drift from the real enum -- the previous hand-copied list was
+// missing SUPERCEDED, the deprecated misspelling AWS keeps accepting
+// alongside SUPERSEDED.
 func validRevocationReason(r string) bool {
-	switch r {
-	case "UNSPECIFIED", "KEY_COMPROMISE", "CA_COMPROMISE", "AFFILIATION_CHANGED",
-		"SUPERSEDED", "CESSATION_OF_OPERATION", "CERTIFICATE_HOLD",
-		"REMOVE_FROM_CRL", "PRIVILEGE_WITHDRAWN", "A_A_COMPROMISE":
-		return true
-	default:
-		return false
+	for _, v := range sdktypes.RevocationReason("").Values() {
+		if string(v) == r {
+			return true
+		}
 	}
+
+	return false
 }
 
 // RevokeCertificate marks the certificate as REVOKED with the given reason.

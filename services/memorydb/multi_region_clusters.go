@@ -26,6 +26,12 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 		return nil, ErrMultiRegionClusterAlreadyExists
 	}
 
+	if req.MultiRegionParameterGroupName != "" {
+		if _, ok := b.multiRegionParameterGroups.Get(req.MultiRegionParameterGroupName); !ok {
+			return nil, ErrMultiRegionParameterGroupNotFound
+		}
+	}
+
 	mrARN := arn.Build("memorydb", region, b.accountID, "multiregioncluster/"+fullName)
 
 	engineVersion := req.EngineVersion
@@ -132,6 +138,10 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 	}
 
 	if req.MultiRegionParameterGroupName != "" {
+		if _, mrpgOK := b.multiRegionParameterGroups.Get(req.MultiRegionParameterGroupName); !mrpgOK {
+			return nil, ErrMultiRegionParameterGroupNotFound
+		}
+
 		mrc.MultiRegionParameterGroupName = req.MultiRegionParameterGroupName
 	}
 

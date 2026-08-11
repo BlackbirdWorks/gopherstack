@@ -254,7 +254,7 @@ type exportTaskItem struct {
 	State                 string                    `xml:"state,omitempty"`
 	StatusMessage         string                    `xml:"statusMessage,omitempty"`
 	InstanceExportDetails instanceExportDetailsItem `xml:"instanceExportDetails"`
-	ExportToS3Task        exportToS3TaskItem        `xml:"exportToS3Task"`
+	ExportToS3Task        exportToS3TaskItem        `xml:"exportToS3"`
 }
 
 func toExportTaskItem(t *ExportTask) exportTaskItem {
@@ -405,10 +405,10 @@ func (h *Handler) handleCreateInstanceExportTask(vals url.Values, reqID string) 
 		vals.Get("InstanceId"),
 		vals.Get("Description"),
 		vals.Get("TargetEnvironment"),
-		vals.Get("ExportToS3Task.DiskImageFormat"),
-		vals.Get("ExportToS3Task.ContainerFormat"),
-		vals.Get("ExportToS3Task.S3Bucket"),
-		vals.Get("ExportToS3Task.S3Prefix"),
+		vals.Get("ExportToS3.DiskImageFormat"),
+		vals.Get("ExportToS3.ContainerFormat"),
+		vals.Get("ExportToS3.S3Bucket"),
+		vals.Get("ExportToS3.S3Prefix"),
 	)
 	if err != nil {
 		return nil, err

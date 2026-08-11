@@ -4,19 +4,19 @@ import (
 	"time"
 )
 
-// ServiceUpdate represents an in-memory MemoryDB service update.
-//
-// NOTE: the real SDK's ServiceUpdate type also has "ClusterName" and
-// "NodesUpdated" fields (confirmed via deserializers.go's
-// awsAwsjson11_deserializeDocumentServiceUpdate), reflecting that a real
-// ServiceUpdate entry is scoped to a specific cluster it applies to. This
-// backend models service updates as global (not tied to specific clusters),
-// so those two fields aren't modeled -- see PARITY.md gaps (adding fabricated
-// placeholder values would itself violate the no-stub rule).
+// ServiceUpdate represents a MemoryDB service update, scoped to one cluster
+// it applies to -- matching the real SDK's ServiceUpdate.ClusterName field
+// (confirmed via deserializers.go's awsAwsjson11_deserializeDocumentServiceUpdate).
+// b.serviceUpdates stores update *definitions* (ClusterName ""); DescribeServiceUpdates
+// fans a definition out into one ServiceUpdate per matching cluster, filling in
+// ClusterName. NodesUpdated is left "" -- this backend has no per-node update
+// tracking, and the real field is honestly absent rather than fabricated.
 type ServiceUpdate struct {
 	ReleaseDate         time.Time `json:"releaseDate"`
 	AutoUpdateStartDate time.Time `json:"autoUpdateStartDate"`
 	ServiceUpdateName   string    `json:"serviceUpdateName"`
+	ClusterName         string    `json:"clusterName,omitempty"`
+	NodesUpdated        string    `json:"nodesUpdated,omitempty"`
 	Description         string    `json:"description"`
 	Status              string    `json:"status"`
 	Type                string    `json:"type"`
@@ -32,12 +32,13 @@ type describeServiceUpdatesRequest struct {
 }
 
 // serviceUpdateObject.ReleaseDate/AutoUpdateStartDate are epoch seconds
-// (float64), matching the real ServiceUpdate TStamp shapes. Engine added
-// (real field, confirmed via deserializers.go's
-// awsAwsjson11_deserializeDocumentServiceUpdate); ClusterName/NodesUpdated
-// intentionally not modeled, see ServiceUpdate's doc comment.
+// (float64), matching the real ServiceUpdate TStamp shapes. ClusterName/
+// NodesUpdated/Engine confirmed real fields via deserializers.go's
+// awsAwsjson11_deserializeDocumentServiceUpdate.
 type serviceUpdateObject struct {
 	ServiceUpdateName   string  `json:"ServiceUpdateName,omitempty"`
+	ClusterName         string  `json:"ClusterName,omitempty"`
+	NodesUpdated        string  `json:"NodesUpdated,omitempty"`
 	Description         string  `json:"Description,omitempty"`
 	Status              string  `json:"Status,omitempty"`
 	Type                string  `json:"Type,omitempty"`

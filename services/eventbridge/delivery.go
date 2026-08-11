@@ -49,6 +49,19 @@ type ECSTaskRunner interface {
 	RunTask(ctx context.Context, clusterARN string, payload []byte) error
 }
 
+// ECSTaskRunnerWithParams is an optional extension of ECSTaskRunner for
+// adapters that can honor the target's full EcsParameters (TaskDefinitionArn,
+// LaunchType, TaskCount, NetworkConfiguration, ...) instead of depending on
+// the delivered payload happening to carry a "TaskDefinition" key. deliverToECS
+// probes dt.ECS for this interface via a type assertion -- the same
+// optional-capability pattern services/sts uses for AccountSettingsLookup
+// (see services/iam/account.go's "Outbound Web Identity Federation" section)
+// -- so ECSTaskRunner implementations that only implement RunTask keep
+// compiling and working exactly as before.
+type ECSTaskRunnerWithParams interface {
+	RunTaskWithParams(ctx context.Context, clusterARN string, params *EcsParameters, payload []byte) error
+}
+
 // StepFunctionsExecutor can start a Step Functions state machine execution.
 type StepFunctionsExecutor interface {
 	// StartExecution starts an execution of the state machine identified by stateMachineARN.
@@ -517,7 +530,7 @@ func deliverToTarget(
 	case isKinesisStreamARN(targetARN):
 		return deliverToKinesisStream(ctx, dt.KinesisStream, targetARN, payload)
 	case isECSARN(targetARN):
-		return deliverToECS(ctx, dt.ECS, targetARN, payload)
+		return deliverToECS(ctx, dt.ECS, targetARN, payload, target.EcsParameters)
 	case isStateMachineARN(targetARN):
 		return deliverToStepFunctions(ctx, dt.StepFunctions, targetARN, payload)
 	case isCloudWatchLogsARN(targetARN):
@@ -611,11 +624,23 @@ func deliverToKinesisStream(
 	return false
 }
 
-func deliverToECS(ctx context.Context, svc ECSTaskRunner, arn, payload string) bool {
+// deliverToECS runs the target's ECS task. When svc also implements
+// ECSTaskRunnerWithParams, the target's EcsParameters (TaskDefinitionArn,
+// LaunchType, TaskCount, NetworkConfiguration, ...) are threaded through
+// instead of relying on the payload to carry a "TaskDefinition" key.
+func deliverToECS(ctx context.Context, svc ECSTaskRunner, arn, payload string, params *EcsParameters) bool {
 	if svc == nil {
 		return false
 	}
-	if err := svc.RunTask(ctx, arn, []byte(payload)); err != nil {
+
+	var err error
+	if withParams, ok := svc.(ECSTaskRunnerWithParams); ok {
+		err = withParams.RunTaskWithParams(ctx, arn, params, []byte(payload))
+	} else {
+		err = svc.RunTask(ctx, arn, []byte(payload))
+	}
+
+	if err != nil {
 		logger.Load(ctx).
 			WarnContext(ctx, "EventBridge failed to run ECS task", "arn", arn, "error", err)
 

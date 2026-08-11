@@ -225,9 +225,17 @@ func (b *InMemoryBackend) StartReferenceImportJob(
 				b.accountID,
 				fmt.Sprintf("referenceStore/%s/reference/%s", referenceStoreID, refID),
 			),
-			Name:         src.Name,
-			Description:  src.Description,
-			Status:       statusActive,
+			Name:        src.Name,
+			Description: src.Description,
+			Status:      statusActive,
+			// Files.source.contentLength reflects the empty body this backend actually
+			// stores for imported references (see referenceBytes below, and
+			// GetReferenceBytes) -- real AWS reads and hashes the S3 source file, which
+			// this emulator has no way to do (real omics@v1.49.5 FileInformation has no
+			// required members, so an honest partial value is valid here).
+			Files: map[string]any{
+				"source": map[string]any{keyContentLength: int64(0)},
+			},
 			CreationTime: time.Now().UTC(),
 			UpdateTime:   time.Now().UTC(),
 		}

@@ -8,8 +8,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/glacier"
 )
 
 const selectTestArchive = "1,alice,30\n2,bob,25\n3,carol,40\n"
@@ -147,6 +145,24 @@ func TestInitiateJob_Select_Validation(t *testing.T) {
 			wantCode:   "InvalidParameterValueException",
 		},
 		{
+			// Real S3 Glacier Select does not support LIMIT (it is documented as
+			// "Amazon S3 Select only" -- see select_sql.go's parse()), so this must
+			// be rejected exactly like any other malformed expression.
+			name:      "limit_clause_unsupported",
+			archiveID: true,
+			overrides: map[string]any{
+				"SelectParameters": map[string]any{
+					"Expression":          "SELECT * FROM archive LIMIT 5",
+					"ExpressionType":      "SQL",
+					"InputSerialization":  validSelect["InputSerialization"],
+					"OutputSerialization": validSelect["OutputSerialization"],
+				},
+				"OutputLocation": validOutputLoc,
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "InvalidParameterValueException",
+		},
+		{
 			name:      "missing_input_serialization",
 			archiveID: true,
 			overrides: map[string]any{
@@ -263,11 +279,6 @@ func TestGetJobOutput_Select_ExecutesQuery(t *testing.T) {
 			name:       "where_and",
 			expression: "SELECT * FROM archive WHERE _3 > 20 AND _3 < 35",
 			want:       "1,alice,30\n2,bob,25\n",
-		},
-		{
-			name:       "limit",
-			expression: "SELECT * FROM archive LIMIT 1",
-			want:       "1,alice,30\n",
 		},
 		{
 			name:       "no_match",
@@ -437,14 +448,4 @@ func TestDescribeJob_Select_EchoesParameters(t *testing.T) {
 	// select job").
 	_, hasSize := resp["ArchiveSizeInBytes"]
 	assert.False(t, hasSize)
-}
-
-// TestParseSelectExpression_ExportedHelperSmoke is a minimal sanity check that the
-// exported test hook itself behaves as documented (deeper coverage lives in
-// select_sql_test.go).
-func TestParseSelectExpression_ExportedHelperSmoke(t *testing.T) {
-	t.Parallel()
-
-	require.NoError(t, glacier.ParseSelectExpression("SELECT * FROM archive"))
-	require.Error(t, glacier.ParseSelectExpression("not sql"))
 }

@@ -3,6 +3,7 @@ package cloudwatch
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -224,14 +225,24 @@ func (b *InMemoryBackend) PutMetricData(
 	// Update LastUpdateDate for matched streams outside the metrics write lock.
 	if len(matchingStreams) > 0 {
 		now := time.Now().UTC()
-		b.mu.Lock("PutMetricData.streamDelivery")
-		defer b.mu.Unlock()
+		streams := make([]metricStreamDeliveryTarget, 0, len(matchingStreams))
 
+		b.mu.Lock("PutMetricData.streamDelivery")
 		for _, name := range matchingStreams {
 			if s, ok := b.metricStreams.Get(name); ok && s.State == metricStreamStateRunning {
 				s.LastUpdateDate = now
+				streams = append(streams, metricStreamDeliveryTarget{
+					Name:           s.Name,
+					FirehoseArn:    s.FirehoseArn,
+					OutputFormat:   s.OutputFormat,
+					IncludeFilters: slices.Clone(s.IncludeFilters),
+					ExcludeFilters: slices.Clone(s.ExcludeFilters),
+				})
 			}
 		}
+		b.mu.Unlock()
+
+		b.deliverMetricStreams(streams, namespace, data)
 	}
 
 	return nil

@@ -21,6 +21,8 @@ const (
 	awsDataCatalog   = "AwsDataCatalog"
 	millisToSeconds  = 1000.0
 
+	dataCatalogTypeFederated = "FEDERATED"
+
 	stateAuto       = "AUTO"
 	stateSucceeded  = "SUCCEEDED"
 	stateFailed     = "FAILED"
@@ -38,7 +40,7 @@ const (
 // validDataCatalogTypes is the set of accepted DataCatalog type values.
 func isValidDataCatalogType(t string) bool {
 	switch t {
-	case "LAMBDA", "GLUE", "HIVE", "FEDERATED":
+	case "LAMBDA", "GLUE", "HIVE", dataCatalogTypeFederated:
 		return true
 	default:
 		return false

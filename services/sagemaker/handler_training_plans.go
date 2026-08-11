@@ -12,10 +12,10 @@ import (
 
 func (h *Handler) handleCreateTrainingPlan(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                             map[string]string `json:"Tags"`
-		TrainingPlanName                 string            `json:"TrainingPlanName"`
-		TrainingPlanOfferingID           string            `json:"TrainingPlanOfferingId"`
-		SpareInstanceCountPerUltraServer int32             `json:"SpareInstanceCountPerUltraServer"`
+		TrainingPlanName                 string      `json:"TrainingPlanName"`
+		TrainingPlanOfferingID           string      `json:"TrainingPlanOfferingId"`
+		Tags                             []tagObject `json:"Tags"`
+		SpareInstanceCountPerUltraServer int32       `json:"SpareInstanceCountPerUltraServer"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -28,7 +28,7 @@ func (h *Handler) handleCreateTrainingPlan(ctx context.Context, body []byte) ([]
 
 	result, err := h.Backend.CreateTrainingPlan(
 		ctx, req.TrainingPlanName, req.TrainingPlanOfferingID,
-		req.SpareInstanceCountPerUltraServer, req.Tags,
+		req.SpareInstanceCountPerUltraServer, fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err

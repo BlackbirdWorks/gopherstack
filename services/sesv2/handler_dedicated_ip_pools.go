@@ -8,8 +8,9 @@ import (
 )
 
 type createDedicatedIPPoolInput struct {
-	PoolName    string `json:"PoolName"`
-	ScalingMode string `json:"ScalingMode"`
+	PoolName    string     `json:"PoolName"`
+	ScalingMode string     `json:"ScalingMode"`
+	Tags        []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreateDedicatedIPPool(c *echo.Context) (any, error) {
@@ -19,7 +20,7 @@ func (h *Handler) handleCreateDedicatedIPPool(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if _, err := h.Backend.CreateDedicatedIPPool(in.PoolName, in.ScalingMode); err != nil {
+	if _, err := h.Backend.CreateDedicatedIPPool(in.PoolName, in.ScalingMode, tagsFromEntries(in.Tags)); err != nil {
 		return nil, err
 	}
 

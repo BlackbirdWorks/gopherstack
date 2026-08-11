@@ -125,23 +125,21 @@ func (b *InMemoryBackend) ListFleetsSortedBy(sortBy string) []string {
 	return arns
 }
 
-// DeleteFleet removes a fleet by ARN.
+// DeleteFleet removes a fleet by ARN or bare name (convenience). Idempotent:
+// real AWS's DeleteFleet declares no ResourceNotFoundException (botocore
+// codebuild/2016-10-06/service-2.json operations.DeleteFleet.errors: only
+// InvalidInputException), so deleting an already-gone fleet is not an error.
 func (b *InMemoryBackend) DeleteFleet(arnStr string) error {
 	b.mu.Lock("DeleteFleet")
 	defer b.mu.Unlock()
 
 	if matches := b.fleetsByARN.Get(arnStr); len(matches) > 0 {
 		b.fleets.Delete(matches[0].Name)
-
-		return nil
+	} else {
+		b.fleets.Delete(arnStr) // also try by name for convenience
 	}
 
-	// also try by name for convenience
-	if b.fleets.Delete(arnStr) {
-		return nil
-	}
-
-	return ErrNotFound
+	return nil
 }
 
 // UpdateFleetOptions carries UpdateFleet's optional fields. An empty string
@@ -158,6 +156,7 @@ type UpdateFleetOptions struct {
 	ProxyConfiguration   *ProxyConfiguration
 	VpcConfig            *VpcConfig
 	ScalingConfiguration *ScalingConfiguration
+	Tags                 map[string]string
 	ComputeType          string
 	EnvironmentType      string
 	OverflowBehavior     string
@@ -212,6 +211,12 @@ func (b *InMemoryBackend) UpdateFleet(arnStr string, baseCapacity int32, opts Up
 
 	if opts.ScalingConfiguration != nil {
 		f.ScalingConfiguration = outputScalingConfiguration(opts.ScalingConfiguration, baseCapacity)
+	}
+
+	if opts.Tags != nil {
+		tagsCopy := make(map[string]string, len(opts.Tags))
+		maps.Copy(tagsCopy, opts.Tags)
+		f.Tags = tagsCopy
 	}
 
 	f.LastModified = float64(time.Now().Unix())

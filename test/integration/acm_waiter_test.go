@@ -29,7 +29,10 @@ func TestIntegration_ACM_CertificateValidatedWaiter(t *testing.T) {
 	certARN := aws.ToString(reqOut.CertificateArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteCertificate(ctx, &acmsdk.DeleteCertificateInput{CertificateArn: aws.String(certARN)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteCertificate(cleanupCtx, &acmsdk.DeleteCertificateInput{CertificateArn: aws.String(certARN)})
 	})
 
 	// Certificate starts in PENDING_VALIDATION with DNS validation

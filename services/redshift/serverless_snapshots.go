@@ -3,6 +3,7 @@ package redshift
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -12,9 +13,13 @@ import (
 // Serverless Snapshots
 // ---------------------------------------------------------------------------
 
-// CreateServerlessSnapshot creates a snapshot of a serverless namespace.
+// CreateServerlessSnapshot creates a snapshot of a serverless namespace. tags
+// holds CreateSnapshotInput's "tags" (confirmed present on
+// CreateSnapshotRequest in service-2.json).
 func (b *InMemoryBackend) CreateServerlessSnapshot(
 	snapshotName, namespaceName string,
+	retentionPeriod int,
+	tags map[string]string,
 ) (*ServerlessSnapshot, error) {
 	b.mu.Lock("CreateServerlessSnapshot")
 	defer b.mu.Unlock()
@@ -35,31 +40,39 @@ func (b *InMemoryBackend) CreateServerlessSnapshot(
 	snapArn := arn.Build("redshift-serverless", b.region, b.accountID, "snapshot/"+snapshotName)
 
 	snap := &ServerlessSnapshot{
-		SnapshotCreateTime: time.Now(),
-		SnapshotArn:        snapArn,
-		SnapshotName:       snapshotName,
-		NamespaceName:      namespaceName,
-		NamespaceArn:       ns.NamespaceArn,
-		Status:             slStatusAvailable,
-		AdminUsername:      ns.AdminUsername,
+		SnapshotCreateTime:      time.Now(),
+		SnapshotArn:             snapArn,
+		SnapshotName:            snapshotName,
+		NamespaceName:           namespaceName,
+		NamespaceArn:            ns.NamespaceArn,
+		Status:                  slStatusAvailable,
+		AdminUsername:           ns.AdminUsername,
+		SnapshotRetentionPeriod: retentionPeriod,
 	}
 	b.slSnapshots.Put(snap)
 	b.slSnapshotIdx.insert(snapshotName)
+	b.putServerlessTagsLocked(snapArn, tags)
 
 	return cloneServerlessSnapshot(snap), nil
 }
 
-// GetServerlessSnapshot returns a serverless snapshot by name.
-func (b *InMemoryBackend) GetServerlessSnapshot(snapshotName string) (*ServerlessSnapshot, error) {
+// GetServerlessSnapshot returns a serverless snapshot by name or ARN
+// (GetSnapshotInput accepts either SnapshotName or SnapshotArn).
+func (b *InMemoryBackend) GetServerlessSnapshot(nameOrArn string) (*ServerlessSnapshot, error) {
 	b.mu.RLock("GetServerlessSnapshot")
 	defer b.mu.RUnlock()
 
-	snap, ok := b.slSnapshots.Get(snapshotName)
+	name := nameOrArn
+	if idx := strings.LastIndex(nameOrArn, "/"); strings.Contains(nameOrArn, ":snapshot/") && idx >= 0 {
+		name = nameOrArn[idx+1:]
+	}
+
+	snap, ok := b.slSnapshots.Get(name)
 	if !ok {
 		return nil, fmt.Errorf(
 			"%w: snapshot %q not found",
 			ErrServerlessSnapshotNotFound,
-			snapshotName,
+			nameOrArn,
 		)
 	}
 
@@ -144,8 +157,7 @@ func (b *InMemoryBackend) DeleteServerlessSnapshot(
 
 func cloneServerlessSnapshot(snap *ServerlessSnapshot) *ServerlessSnapshot {
 	cp := *snap
-	cp.AccountsWithRestoreAccess = make([]string, len(snap.AccountsWithRestoreAccess))
-	copy(cp.AccountsWithRestoreAccess, snap.AccountsWithRestoreAccess)
+	cp.AccountsWithRestoreAccess = cloneStrings(snap.AccountsWithRestoreAccess)
 
 	return &cp
 }

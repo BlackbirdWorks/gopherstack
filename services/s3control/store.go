@@ -34,15 +34,13 @@ const (
 
 // InMemoryBackend is the in-memory store for S3 Control resources.
 //
-// Phase 3.3 datalayer refactor: every map[string]*T resource field is backed
-// by a *store.Table[T] (see pkgs/store and store_setup.go). "Clean" tables
-// key off fields the value type already carries and are registered on
-// registry, so Reset/Snapshot/Restore collapse to one registry call each.
-// "Dirty" tables (mrapRequests, accessPointPABs) key off a field with no
-// natural home on the value type and are NOT registered on registry --
-// persistence.go instead round-trips them through an ephemeral DTO
-// store.Registry. See store_setup.go's file doc comment for the full
-// breakdown.
+// Every map[string]*T resource field is backed by a *store.Table[T] (see
+// pkgs/store and store_setup.go). "Clean" tables key off fields the value
+// type already carries and are registered on registry, so Reset/Snapshot/
+// Restore collapse to one registry call each. "Dirty" tables (mrapRequests,
+// accessPointPABs) key off a field with no natural home on the value type
+// and are NOT registered on registry — persistence.go round-trips them
+// through an ephemeral DTO store.Registry instead.
 type InMemoryBackend struct {
 	mu       *lockmetrics.RWMutex
 	registry *store.Registry

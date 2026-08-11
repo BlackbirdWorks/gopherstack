@@ -8,16 +8,16 @@ type StorageBackend interface {
 
 	CreateWirelessDevice(
 		accountID, region, name, devType, destinationName, description, positioning string,
-		loRaWAN, sidewalk map[string]any,
+		loRaWAN *LoRaWANDevice, sidewalk *SidewalkCreateWirelessDevice,
 		tags map[string]string,
 	) (*WirelessDevice, error)
 	GetWirelessDevice(accountID, region, id string) (*WirelessDevice, error)
-	ListWirelessDevices(accountID, region string) []*WirelessDevice
+	ListWirelessDevices(accountID, region string, filter ListWirelessDevicesFilter) []*WirelessDevice
 	DeleteWirelessDevice(accountID, region, id string) error
 
 	CreateWirelessGateway(
 		accountID, region, name, description string,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANGateway,
 		tags map[string]string,
 	) (*WirelessGateway, error)
 	GetWirelessGateway(accountID, region, id string) (*WirelessGateway, error)
@@ -26,7 +26,7 @@ type StorageBackend interface {
 
 	CreateServiceProfile(
 		accountID, region, name string,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANServiceProfile,
 		tags map[string]string,
 	) (*ServiceProfile, error)
 	GetServiceProfile(accountID, region, id string) (*ServiceProfile, error)
@@ -43,7 +43,8 @@ type StorageBackend interface {
 
 	CreateDeviceProfile(
 		accountID, region, name string,
-		loRaWAN, sidewalk map[string]any,
+		loRaWAN *LoRaWANDeviceProfile,
+		sidewalk *SidewalkCreateDeviceProfile,
 		tags map[string]string,
 	) (*DeviceProfile, error)
 	GetDeviceProfile(accountID, region, id string) (*DeviceProfile, error)
@@ -53,32 +54,39 @@ type StorageBackend interface {
 	CreateFuotaTask(
 		accountID, region, name, description, firmwareUpdateImage, firmwareUpdateRole, descriptor string,
 		fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANFuotaTask,
 		tags map[string]string,
 	) (*FuotaTask, error)
 	GetFuotaTask(accountID, region, id string) (*FuotaTask, error)
 	ListFuotaTasks(accountID, region string) []*FuotaTask
 	DeleteFuotaTask(accountID, region, id string) error
-	UpdateFuotaTask(accountID, region, id, name, description string) error
+	UpdateFuotaTask(
+		accountID, region, id, name, description, descriptor, firmwareUpdateImage, firmwareUpdateRole string,
+		fragmentIntervalMS, fragmentSizeBytes, redundancyPercent int32,
+		loRaWAN *LoRaWANFuotaTask,
+	) error
 
-	UpdateWirelessGateway(accountID, region, id, name, description string, loRaWANUpdates map[string]any) error
+	UpdateWirelessGateway(
+		accountID, region, id, name, description string,
+		joinEuiFilters [][]string, netIDFilters []string, maxEirp *float32,
+	) error
 
 	UpdateDestination(accountID, region, name, expression, expressionType, roleArn, description string) error
 
 	CreateMulticastGroup(
 		accountID, region, name, description string,
-		loRaWAN map[string]any,
+		loRaWAN *LoRaWANMulticast,
 		tags map[string]string,
 	) (*MulticastGroup, error)
 	GetMulticastGroup(accountID, region, id string) (*MulticastGroup, error)
 	ListMulticastGroups(accountID, region string) []*MulticastGroup
 	DeleteMulticastGroup(accountID, region, id string) error
-	UpdateMulticastGroup(accountID, region, id, name, description string) error
+	UpdateMulticastGroup(accountID, region, id, name, description string, loRaWAN *LoRaWANMulticast) error
 
 	CreateNetworkAnalyzerConfig(
 		accountID, region, name, description string,
 		wirelessDevices, wirelessGateways, multicastGroups []string,
-		traceContent map[string]any,
+		traceContent *TraceContent,
 		tags map[string]string,
 	) (*NetworkAnalyzerConfig, error)
 	GetNetworkAnalyzerConfig(accountID, region, name string) (*NetworkAnalyzerConfig, error)
@@ -87,7 +95,7 @@ type StorageBackend interface {
 	UpdateNetworkAnalyzerConfig(
 		accountID, region, name, description string,
 		wirelessDevices, wirelessGateways []string,
-		traceContent map[string]any,
+		traceContent *TraceContent,
 	) error
 
 	AssociateAwsAccountWithPartnerAccount(
@@ -118,7 +126,7 @@ type StorageBackend interface {
 	GetWirelessGatewayThingArn(gatewayID string) string
 
 	// Extended operations implemented across the various <family>.go files.
-	StartFuotaTask(accountID, region, id string) error
+	StartFuotaTask(accountID, region, id string, startTime *time.Time) error
 	DisassociateWirelessDeviceFromFuotaTask(fuotaTaskID, wirelessDeviceID string) error
 	ListMulticastGroupsByFuotaTask(accountID, region, fuotaTaskID string) []*MulticastGroup
 	DisassociateMulticastGroupFromFuotaTask(fuotaTaskID, multicastGroupID string) error
@@ -132,7 +140,7 @@ type StorageBackend interface {
 
 	UpdateWirelessDevice(
 		accountID, region, id, name, description, destinationName, positioning string,
-		loRaWAN, sidewalk map[string]any,
+		loRaWAN *LoRaWANUpdateDevice, sidewalk *SidewalkUpdateWirelessDevice,
 	) error
 	DisassociateWirelessDeviceFromThing(accountID, region, wirelessDeviceID string) error
 
@@ -153,7 +161,7 @@ type StorageBackend interface {
 	CreateWirelessGatewayTaskDefinition(
 		accountID, region, name string,
 		autoCreateTasks bool,
-		update map[string]any,
+		update *UpdateWirelessGatewayTaskCreate,
 	) (*GatewayTaskDefinition, error)
 	GetWirelessGatewayTaskDefinition(id string) (*GatewayTaskDefinition, error)
 	ListWirelessGatewayTaskDefinitions() []*GatewayTaskDefinition

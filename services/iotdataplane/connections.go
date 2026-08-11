@@ -183,7 +183,12 @@ func (b *InMemoryBackend) ListSubscriptions(clientID string) ([]SubscriptionSumm
 // clients -- any live subscriber of topic really does observe the message.
 // This fallback is a documented, deliberate divergence from real per-client
 // delivery -- see PARITY.md gaps.
-func (b *InMemoryBackend) SendDirectMessage(clientID, topic string, payload []byte, qos int32) error {
+func (b *InMemoryBackend) SendDirectMessage(
+	clientID, topic string,
+	payload []byte,
+	qos int32,
+	props MQTT5Properties,
+) error {
 	if strings.HasPrefix(clientID, "$") {
 		return fmt.Errorf("%w: clientId may not start with '$'", ErrValidation)
 	}
@@ -206,7 +211,7 @@ func (b *InMemoryBackend) SendDirectMessage(clientID, topic string, payload []by
 		qosByte = 1
 	}
 
-	delivered, err := broker.SendToClient(clientID, topic, payload, qosByte)
+	delivered, err := broker.SendToClientWithProperties(clientID, topic, payload, qosByte, props)
 	if err != nil {
 		return err
 	}
@@ -215,5 +220,5 @@ func (b *InMemoryBackend) SendDirectMessage(clientID, topic string, payload []by
 		return nil
 	}
 
-	return broker.Publish(topic, payload, false, qosByte)
+	return broker.PublishWithProperties(topic, payload, false, qosByte, props)
 }

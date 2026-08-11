@@ -8,41 +8,24 @@ import (
 
 // CreateBucket creates an S3 Outposts bucket.
 //
-// accountID here is whatever accountIDFromRequest(c) resolves to (see
-// handler_bucket.go) -- almost always the literal "default", because a real
-// aws-sdk-go-v2 CreateBucket request carries no AccountId at all. Confirmed
-// against the installed aws-sdk-go-v2/service/s3control's CreateBucketInput:
-// its members are Bucket/ACL/CreateBucketConfiguration/GrantFullControl/
-// GrantRead/GrantReadACP/GrantWrite/GrantWriteACP/ObjectLockEnabledForBucket/
-// OutpostId -- nothing account-related, unlike EVERY other Create* op in
-// this service (CreateAccessPoint, CreateJob, CreateMultiRegionAccessPoint,
-// CreateAccessGrant*, CreateStorageLensGroup, ... all bind AccountId to the
-// X-Amz-Account-Id header). Real S3 on Outposts substitutes OutpostId for
-// that role: an Outpost is provisioned to, and always addressed as belonging
-// to, exactly one AWS account, so the bucket's owner is implied by which
-// Outpost it's created on rather than by an explicit request field.
+// accountID is whatever accountIDFromRequest(c) resolves to (handler_bucket.go)
+// — almost always "default", because real CreateBucketInput carries no
+// AccountId field at all, unlike every other Create* op in this service
+// (CreateAccessPoint, CreateJob, etc., all bind AccountId to the
+// X-Amz-Account-Id header). Real S3 on Outposts uses OutpostId for that
+// role instead: an Outpost belongs to exactly one account, so the bucket's
+// owner is implied by the Outpost, not an explicit request field.
 //
 // GetBucket/DeleteBucket/ListRegionalBuckets (and every bucket sub-resource
-// op: lifecycle/policy/tagging/versioning/replication) DO bind an AccountId
-// to that same header -- but it's optional, and a real caller that
-// configures one consistently across their whole session has no way to
-// supply that same value on CreateBucket, since the field doesn't exist
-// there. Storing this resource keyed by "accountID:bucketName" (as every
-// sibling resource in this service correctly does, since their Create ops
-// really do carry AccountId) would mean a bucket created via the real,
-// headerless CreateBucket shape lands under the "default" partition while
-// the same client's real, account-bearing Get/Delete/List calls look
-// elsewhere and never find it -- see gopherstack-eje5.
-//
-// The fix: OutpostsBucket identity (outpostsBucketKeyFn, store_setup.go) and
-// every piece of its sub-resource state (bucketLifecycle/bucketPolicies/
-// bucketTagging/bucketVersioning/bucketReplication, all below) are keyed by
-// bucket Name ALONE. AccountID is still recorded on the struct (it flows
-// into BucketArn) but is no longer part of any lookup key in this file --
-// it cannot be, without inventing a persistent OutpostId->account registry
-// this service has no other reason to carry. This mirrors real S3's own
-// bucket namespace, which is likewise globally unique by name rather than
-// partitioned per caller.
+// op) DO accept AccountId on that header, optionally. Keying this resource
+// by "accountID:bucketName" like every sibling resource would strand a
+// bucket created via the headerless CreateBucket under "default" while a
+// caller's account-bearing Get/Delete/List calls look elsewhere and never
+// find it. Fix: OutpostsBucket identity (outpostsBucketKeyFn, store_setup.go)
+// and its sub-resource state (bucketLifecycle/bucketPolicies/bucketTagging/
+// bucketVersioning/bucketReplication) are keyed by bucket Name alone.
+// AccountID still flows into BucketArn but isn't part of any lookup key —
+// mirroring real S3's own globally-unique-by-name bucket namespace.
 func (b *InMemoryBackend) CreateBucket(accountID, bucketName string) *OutpostsBucket {
 	b.mu.Lock("CreateBucket")
 	defer b.mu.Unlock()

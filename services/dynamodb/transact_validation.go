@@ -145,13 +145,10 @@ func validateTransactUpdateKeys(ti types.TransactWriteItem, tables map[string]*T
 
 // validateTransactUnusedExpressionAttrs rejects a TransactWriteItem whose
 // ExpressionAttributeNames or ExpressionAttributeValues declare a placeholder
-// that no expression on that item actually references (ConditionExpression
-// for Put/Delete/ConditionCheck; UpdateExpression + ConditionExpression for
-// Update) — the same requirement plain PutItem/UpdateItem/DeleteItem enforce
-// via checkUnusedExpressionAttributeNames/Values (see item_ops_crud.go).
-// Before this check, a transactional Put/Update/Delete/ConditionCheck with an
-// unused EAN/EAV silently succeeded instead of returning ValidationException
-// like the single-item equivalent.
+// that no expression on that item actually references (ConditionExpression for
+// Put/Delete/ConditionCheck; UpdateExpression + ConditionExpression for
+// Update) -- the same requirement plain PutItem/UpdateItem/DeleteItem enforce
+// via checkUnusedExpressionAttributeNames/Values (item_ops_crud.go).
 func validateTransactUnusedExpressionAttrs(ti types.TransactWriteItem) error {
 	switch {
 	case ti.Put != nil:

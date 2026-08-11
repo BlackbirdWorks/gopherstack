@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: pinpoint
-sdk_module: aws-sdk-go-v2/service/pinpoint@v1.39.19
+sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
 last_audit_commit: 31283c0f
 last_audit_date: 2026-07-23
 overall: A            # genuine field-diff bugs found and fixed this pass across the template family

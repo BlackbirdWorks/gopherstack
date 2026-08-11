@@ -13,6 +13,8 @@ type azureBlobSasConfigInput struct {
 
 type createLocationAzureBlobInput struct {
 	SasConfiguration   *azureBlobSasConfigInput `json:"SasConfiguration"`
+	CmkSecretConfig    *cmkSecretConfigWire     `json:"CmkSecretConfig"`
+	CustomSecretConfig *customSecretConfigWire  `json:"CustomSecretConfig"`
 	ContainerURL       string                   `json:"ContainerUrl"`
 	Subdirectory       string                   `json:"Subdirectory,omitempty"`
 	BlobType           string                   `json:"BlobType,omitempty"`
@@ -38,6 +40,10 @@ func (h *Handler) handleCreateLocationAzureBlob(
 		return nil, fmt.Errorf("%w: AuthenticationType is required", errInvalidRequest)
 	}
 
+	if err := validateSecretConfig(in.CmkSecretConfig, in.CustomSecretConfig); err != nil {
+		return nil, err
+	}
+
 	tags := tagsFromInput(in.Tags)
 
 	var sasConfig *SasConfiguration
@@ -45,9 +51,14 @@ func (h *Handler) handleCreateLocationAzureBlob(
 		sasConfig = &SasConfiguration{Token: in.SasConfiguration.Token}
 	}
 
+	secretConfig := SecretConfig{
+		Cmk:    cmkSecretConfigFromWire(in.CmkSecretConfig),
+		Custom: customSecretConfigFromWire(in.CustomSecretConfig),
+	}
+
 	l, err := h.Backend.CreateLocationAzureBlob(
 		in.ContainerURL, in.Subdirectory, in.BlobType, in.AccessTier, in.AuthenticationType,
-		sasConfig, in.AgentArns, tags,
+		sasConfig, in.AgentArns, tags, secretConfig,
 	)
 	if err != nil {
 		return nil, err
@@ -67,15 +78,21 @@ type describeLocationAzureBlobInput struct {
 // into LocationUri only -- and has no separate ContainerUrl member either
 // (LocationUri's own doc string is literally "The URL of the Azure Blob
 // Storage container involved in your transfer"). It does have
-// AuthenticationType.
+// AuthenticationType, CmkSecretConfig, and CustomSecretConfig. It has no
+// ManagedSecretConfig echo: gopherstack doesn't provision a Secrets Manager
+// secret when neither CmkSecretConfig nor CustomSecretConfig is supplied, so
+// leaving it absent is an honest omission (ManagedSecretConfig is
+// documented ReadOnly, populated by AWS itself -- see PARITY.md).
 type describeLocationAzureBlobOutput struct {
-	LocationArn        string   `json:"LocationArn"`
-	LocationURI        string   `json:"LocationUri"`
-	BlobType           string   `json:"BlobType,omitempty"`
-	AccessTier         string   `json:"AccessTier,omitempty"`
-	AuthenticationType string   `json:"AuthenticationType,omitempty"`
-	AgentArns          []string `json:"AgentArns,omitempty"`
-	CreationTime       int64    `json:"CreationTime"`
+	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig,omitempty"`
+	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig,omitempty"`
+	LocationArn        string                  `json:"LocationArn"`
+	LocationURI        string                  `json:"LocationUri"`
+	BlobType           string                  `json:"BlobType,omitempty"`
+	AccessTier         string                  `json:"AccessTier,omitempty"`
+	AuthenticationType string                  `json:"AuthenticationType,omitempty"`
+	AgentArns          []string                `json:"AgentArns,omitempty"`
+	CreationTime       int64                   `json:"CreationTime"`
 }
 
 func (h *Handler) handleDescribeLocationAzureBlob(
@@ -99,11 +116,15 @@ func (h *Handler) handleDescribeLocationAzureBlob(
 		AuthenticationType: l.AuthenticationType,
 		AgentArns:          l.AgentArns,
 		CreationTime:       l.CreationTime.Unix(),
+		CmkSecretConfig:    cmkSecretConfigToWire(l.CmkSecretConfig),
+		CustomSecretConfig: customSecretConfigToWire(l.CustomSecretConfig),
 	}, nil
 }
 
 type updateLocationAzureBlobInput struct {
 	SasConfiguration   *azureBlobSasConfigInput `json:"SasConfiguration"`
+	CmkSecretConfig    *cmkSecretConfigWire     `json:"CmkSecretConfig"`
+	CustomSecretConfig *customSecretConfigWire  `json:"CustomSecretConfig"`
 	LocationArn        string                   `json:"LocationArn"`
 	ContainerURL       string                   `json:"ContainerUrl,omitempty"`
 	Subdirectory       string                   `json:"Subdirectory,omitempty"`
@@ -123,14 +144,23 @@ func (h *Handler) handleUpdateLocationAzureBlob(
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}
 
+	if err := validateSecretConfig(in.CmkSecretConfig, in.CustomSecretConfig); err != nil {
+		return nil, err
+	}
+
 	var sasConfig *SasConfiguration
 	if in.SasConfiguration != nil {
 		sasConfig = &SasConfiguration{Token: in.SasConfiguration.Token}
 	}
 
+	secretConfig := SecretConfig{
+		Cmk:    cmkSecretConfigFromWire(in.CmkSecretConfig),
+		Custom: customSecretConfigFromWire(in.CustomSecretConfig),
+	}
+
 	if err := h.Backend.UpdateLocationAzureBlob(
 		in.LocationArn, in.ContainerURL, in.Subdirectory, in.BlobType, in.AccessTier, in.AuthenticationType,
-		sasConfig, in.AgentArns,
+		sasConfig, in.AgentArns, secretConfig,
 	); err != nil {
 		return nil, err
 	}

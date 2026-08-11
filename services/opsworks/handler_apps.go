@@ -93,7 +93,7 @@ func appsToJSON(apps []*App) []map[string]any {
 			keyStackID:   a.StackID,
 			keyName:      a.Name,
 			keyType:      a.Type,
-			keyCreatedAt: a.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt: formatOpsWorksTime(a.CreatedAt),
 		})
 	}
 

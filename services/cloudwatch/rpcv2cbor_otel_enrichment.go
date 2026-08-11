@@ -13,7 +13,7 @@ func (h *Handler) cborGetOTelEnrichment(_ cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	return writeCBOR(c, cbor.Map{"Status": cbor.String(status)})
+	return writeCBOR(c, cbor.Map{keyStatus: cbor.String(status)})
 }
 
 func (h *Handler) cborStartOTelEnrichment(_ cbor.Map, c *echo.Context) error {

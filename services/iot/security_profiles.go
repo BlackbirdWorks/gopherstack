@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // AttachSecurityProfile attaches a security profile to a target. Real AWS
@@ -83,21 +84,13 @@ func (b *InMemoryBackend) ListSecurityProfilesForTarget(targetARN string) []stri
 
 // SecurityProfile represents an IoT security profile.
 //
-// Field-diffed against types.CreateSecurityProfileInput/
-// DescribeSecurityProfileOutput/UpdateSecurityProfileOutput in v1.76.0:
-// Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
-// MetricsExportConfig were entirely unmodeled -- CreateSecurityProfile silently
-// dropped every one of them (the "dropped request field" bug class flagged
-// elsewhere in this campaign). All five are now modeled and persisted.
-//
 // Tags is internal-storage-only (json:"-"): real DescribeSecurityProfileOutput
-// and UpdateSecurityProfileOutput have NO "tags" field at all (confirmed
-// against v1.76.0's awsRestjson1_deserializeOpDocumentDescribeSecurityProfileOutput/
-// UpdateSecurityProfileOutput -- tags attached at creation time are only ever
-// retrievable via the separate ListTagsForResource op), so surfacing it here
-// would be the same "invented field" bug class already fixed for Job/
-// JobTemplate's leaked "tags" field elsewhere in this service. Kept on the
-// struct (rather than dropped) purely for internal storage.
+// and UpdateSecurityProfileOutput have no "tags" field at all
+// (awsRestjson1_deserializeOpDocumentDescribeSecurityProfileOutput/
+// UpdateSecurityProfileOutput, v1.77.4) — tags attached at creation are only
+// retrievable via the separate ListTagsForResource op, so surfacing it here
+// would be the same "invented field" bug class fixed for Job/JobTemplate's
+// leaked "tags" elsewhere in this service.
 type SecurityProfile struct {
 	Tags                        map[string]string                     `json:"-"`
 	AlertTargets                map[string]SecurityProfileAlertTarget `json:"alertTargets,omitempty"`
@@ -286,13 +279,14 @@ func (b *InMemoryBackend) SecurityProfileARN(name string) string {
 
 // CreateSecurityProfileInput holds input for CreateSecurityProfile.
 //
-// Field-diffed against types.CreateSecurityProfileInput (v1.76.0): Behaviors/
+// Field-diffed against types.CreateSecurityProfileInput (v1.77.4): Behaviors/
 // AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/
 // MetricsExportConfig are now modeled and wired through to the stored
 // SecurityProfile (previously silently dropped -- see SecurityProfile's own
 // doc comment).
 type CreateSecurityProfileInput struct {
-	Tags                        map[string]string                     `json:"tags,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:4507, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                        []tags.KV                             `json:"tags,omitempty"`
 	AlertTargets                map[string]SecurityProfileAlertTarget `json:"alertTargets,omitempty"`
 	MetricsExportConfig         *SecurityProfileMetricsExportConfig   `json:"metricsExportConfig,omitempty"`
 	SecurityProfileName         string                                `json:"securityProfileName"`
@@ -320,7 +314,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		SecurityProfileName:         input.SecurityProfileName,
 		SecurityProfileARN:          b.securityProfileARN(input.SecurityProfileName),
 		SecurityProfileDescription:  input.SecurityProfileDescription,
-		Tags:                        input.Tags,
+		Tags:                        tags.MapFromKV(input.Tags),
 		Behaviors:                   input.Behaviors,
 		AlertTargets:                input.AlertTargets,
 		AdditionalMetricsToRetain:   input.AdditionalMetricsToRetain,
@@ -331,6 +325,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 		LastModifiedDate:            now,
 	}
 	b.securityProfiles.Put(sp)
+	b.putResourceTagsLocked(sp.SecurityProfileARN, sp.Tags)
 
 	return cloneSecurityProfile(sp), nil
 }
@@ -359,16 +354,10 @@ func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
 	return out
 }
 
-// UpdateSecurityProfileInput holds input for UpdateSecurityProfile.
-//
-// Field-diffed against types.UpdateSecurityProfileInput (v1.76.0): previously
-// only SecurityProfileDescription was accepted (Behaviors/AlertTargets/
-// AdditionalMetricsToRetain(V2)/MetricsExportConfig/ExpectedVersion/Delete*
-// flags were entirely unmodeled, the same "dropped request field" gap as
-// CreateSecurityProfile's). Each DeleteX flag clears the corresponding
-// field; real AWS documents that supplying BOTH a DeleteX flag and a
-// non-nil value for that same field in one call is invalid ("If any X are
-// defined in the current invocation, an exception occurs"), enforced in
+// UpdateSecurityProfileInput holds input for UpdateSecurityProfile
+// (types.UpdateSecurityProfileInput, v1.77.4). Each DeleteX flag clears the
+// corresponding field; supplying both a DeleteX flag and a non-nil value
+// for that same field in one call is invalid per real AWS, enforced in
 // applySecurityProfileUpdate.
 type UpdateSecurityProfileInput struct {
 	AlertTargets                    map[string]SecurityProfileAlertTarget
@@ -566,16 +555,12 @@ type SecurityProfileBehaviorCriteria struct {
 	ConsecutiveDatapointsToClear int32                                `json:"consecutiveDatapointsToClear,omitempty"`
 }
 
-// behaviorCriteriaTypeOf derives the real AWS types.BehaviorCriteriaType
+// behaviorCriteriaTypeOf derives types.BehaviorCriteriaType
 // ("STATIC"/"STATISTICAL"/"MACHINE_LEARNING") for a behavior criteria. Real
-// AWS's three criteria shapes are mutually exclusive by construction: a
-// criteria uses EITHER a static value comparison (comparisonOperator +
-// value), OR a percentile statisticalThreshold, OR an ML
-// mlDetectionConfig -- confirmed against types.BehaviorCriteria and
-// types.BehaviorCriteriaType's three enum values (enums.go). A nil criteria
-// has no criteria type (""); nil MlDetectionConfig/StatisticalThreshold
-// with a non-nil criteria defaults to STATIC, the criteria type that needs
-// no companion sub-message to be well-formed.
+// AWS's three shapes are mutually exclusive: static value comparison, OR a
+// percentile statisticalThreshold, OR mlDetectionConfig. Nil criteria has no
+// type (""); a non-nil criteria with neither sub-message set defaults to
+// STATIC, the one that needs none to be well-formed.
 func behaviorCriteriaTypeOf(c *SecurityProfileBehaviorCriteria) string {
 	switch {
 	case c == nil:

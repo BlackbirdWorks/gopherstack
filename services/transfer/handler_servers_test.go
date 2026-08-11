@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -31,51 +32,50 @@ func mustCreateServer(t *testing.T, h *transfer.Handler) string {
 func TestHandler_DeleteServerCascade(t *testing.T) {
 	t.Parallel()
 
-	b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
-	h := transfer.NewHandler(b)
+	synctest.Test(t, func(t *testing.T) {
+		b := transfer.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
+		h := transfer.NewHandler(b)
 
-	createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
-	require.Equal(t, http.StatusOK, createRec.Code)
+		createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+		require.Equal(t, http.StatusOK, createRec.Code)
 
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	serverID := createResp["ServerId"].(string)
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		serverID := createResp["ServerId"].(string)
 
-	// Create access and agreement on the server
-	doTransferRequest(t, h, "CreateAccess", map[string]any{
-		"ServerId":   serverID,
-		"ExternalId": "S-1-5-21-9999",
-	})
-	doTransferRequest(t, h, "CreateAgreement", map[string]any{
-		"ServerId":         serverID,
-		"LocalProfileId":   "p-local",
-		"PartnerProfileId": "p-partner",
-		"BaseDirectory":    "/base",
-		"AccessRole":       "arn:role",
-	})
+		// Create access and agreement on the server
+		doTransferRequest(t, h, "CreateAccess", map[string]any{
+			"ServerId":   serverID,
+			"ExternalId": "S-1-5-21-9999",
+		})
+		doTransferRequest(t, h, "CreateAgreement", map[string]any{
+			"ServerId":         serverID,
+			"LocalProfileId":   "p-local",
+			"PartnerProfileId": "p-partner",
+			"BaseDirectory":    "/base",
+			"AccessRole":       "arn:role",
+		})
 
-	assert.Equal(t, 1, transfer.AccessCount(b))
-	assert.Equal(t, 1, transfer.AgreementCount(b))
+		assert.Equal(t, 1, transfer.AccessCount(b))
+		assert.Equal(t, 1, transfer.AgreementCount(b))
 
-	// AWS requires server to be OFFLINE before deletion.
-	stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, stopRec.Code)
-	for range 30 {
+		// AWS requires server to be OFFLINE before deletion.
+		stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, stopRec.Code)
+		time.Sleep(serverTransitionWait)
+
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
 		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
-		if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
-	deleteRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, deleteRec.Code)
+		deleteRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, deleteRec.Code)
 
-	assert.Equal(t, 0, transfer.ServerCount(b))
-	assert.Equal(t, 0, transfer.AccessCount(b))
-	assert.Equal(t, 0, transfer.AgreementCount(b))
+		assert.Equal(t, 0, transfer.ServerCount(b))
+		assert.Equal(t, 0, transfer.AccessCount(b))
+		assert.Equal(t, 0, transfer.AgreementCount(b))
+	})
 }
 
 // TestHandler_DeleteServerOnlineReturnsConflict verifies that DeleteServer
@@ -83,36 +83,34 @@ func TestHandler_DeleteServerCascade(t *testing.T) {
 func TestHandler_DeleteServerOnlineReturnsConflict(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
-	rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
-	require.Equal(t, http.StatusOK, rec.Code)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
+		rec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+		require.Equal(t, http.StatusOK, rec.Code)
 
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
-	serverID := createResp["ServerId"].(string)
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+		serverID := createResp["ServerId"].(string)
 
-	// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
-	startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, startRec.Code)
+		// Servers are created OFFLINE; start it so it is ONLINE before delete is attempted.
+		startRec := doTransferRequest(t, h, "StartServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, startRec.Code)
+		time.Sleep(serverTransitionWait)
 
-	for range 30 {
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
 		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
-		if resp["Server"].(map[string]any)["State"].(string) == "ONLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "ONLINE", resp["Server"].(map[string]any)["State"].(string))
 
-	// Server is ONLINE; delete should fail.
-	delRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
-	assert.Equal(t, http.StatusBadRequest, delRec.Code)
+		// Server is ONLINE; delete should fail.
+		delRec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
+		assert.Equal(t, http.StatusBadRequest, delRec.Code)
 
-	var errResp map[string]any
-	require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &errResp))
-	// The handler maps ErrConflict to ResourceExistsException.
-	assert.Contains(t, errResp["__type"], "ResourceExistsException")
+		var errResp map[string]any
+		require.NoError(t, json.Unmarshal(delRec.Body.Bytes(), &errResp))
+		// The handler maps ErrConflict to ResourceExistsException.
+		assert.Contains(t, errResp["__type"], "ResourceExistsException")
+	})
 }
 
 // TestHandler_ListServersIncludesIdentityProviderType verifies ListServers
@@ -354,35 +352,33 @@ func TestHandler_StartStopServer(t *testing.T) {
 func TestHandler_DeleteServer(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler(t)
+	synctest.Test(t, func(t *testing.T) {
+		h := newTestHandler(t)
 
-	createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
-	require.Equal(t, http.StatusOK, createRec.Code)
+		createRec := doTransferRequest(t, h, "CreateServer", map[string]any{})
+		require.Equal(t, http.StatusOK, createRec.Code)
 
-	var createResp map[string]any
-	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-	serverID := createResp["ServerId"].(string)
+		var createResp map[string]any
+		require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+		serverID := createResp["ServerId"].(string)
 
-	// AWS requires server to be OFFLINE before deletion; stop it first.
-	stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
-	require.Equal(t, http.StatusOK, stopRec.Code)
-	// Poll until OFFLINE.
-	for range 30 {
+		// AWS requires server to be OFFLINE before deletion; stop it first.
+		stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+		require.Equal(t, http.StatusOK, stopRec.Code)
+		time.Sleep(serverTransitionWait)
+
 		descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 		var resp map[string]any
 		_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
-		if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
+		require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 
-	rec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
-	assert.Equal(t, http.StatusOK, rec.Code)
+		rec := doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
+		assert.Equal(t, http.StatusOK, rec.Code)
 
-	// Second delete should fail
-	rec = doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+		// Second delete should fail
+		rec = doTransferRequest(t, h, "DeleteServer", map[string]any{"ServerId": serverID})
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
 }
 
 func TestHandler_UpdateServer(t *testing.T) {
@@ -495,40 +491,39 @@ func TestHandler_StartStopDeleteServer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler(t)
-			createRec := doTransferRequest(t, h, "CreateServer", map[string]any{
-				"Domain":               "S3",
-				"EndpointType":         "PUBLIC",
-				"IdentityProviderType": "SERVICE_MANAGED",
-			})
-			require.Equal(t, http.StatusOK, createRec.Code)
+			synctest.Test(t, func(t *testing.T) {
+				h := newTestHandler(t)
+				createRec := doTransferRequest(t, h, "CreateServer", map[string]any{
+					"Domain":               "S3",
+					"EndpointType":         "PUBLIC",
+					"IdentityProviderType": "SERVICE_MANAGED",
+				})
+				require.Equal(t, http.StatusOK, createRec.Code)
 
-			var createResp map[string]any
-			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
-			serverID := createResp["ServerId"].(string)
+				var createResp map[string]any
+				require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+				serverID := createResp["ServerId"].(string)
 
-			body := tt.body
-			if id, ok := body["ServerId"]; ok && id == "PLACEHOLDER" {
-				body = map[string]any{"ServerId": serverID}
-			}
+				body := tt.body
+				if id, ok := body["ServerId"]; ok && id == "PLACEHOLDER" {
+					body = map[string]any{"ServerId": serverID}
+				}
 
-			// DeleteServer requires the server to be OFFLINE first.
-			if tt.action == "DeleteServer" {
-				stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
-				require.Equal(t, http.StatusOK, stopRec.Code)
-				for range 30 {
+				// DeleteServer requires the server to be OFFLINE first.
+				if tt.action == "DeleteServer" {
+					stopRec := doTransferRequest(t, h, "StopServer", map[string]any{"ServerId": serverID})
+					require.Equal(t, http.StatusOK, stopRec.Code)
+					time.Sleep(serverTransitionWait)
+
 					descRec := doTransferRequest(t, h, "DescribeServer", map[string]any{"ServerId": serverID})
 					var resp map[string]any
 					_ = json.Unmarshal(descRec.Body.Bytes(), &resp)
-					if resp["Server"].(map[string]any)["State"].(string) == "OFFLINE" {
-						break
-					}
-					time.Sleep(15 * time.Millisecond)
+					require.Equal(t, "OFFLINE", resp["Server"].(map[string]any)["State"].(string))
 				}
-			}
 
-			rec := doTransferRequest(t, h, tt.action, body)
-			assert.Equal(t, tt.wantCode, rec.Code)
+				rec := doTransferRequest(t, h, tt.action, body)
+				assert.Equal(t, tt.wantCode, rec.Code)
+			})
 		})
 	}
 }

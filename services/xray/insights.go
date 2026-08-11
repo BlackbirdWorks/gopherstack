@@ -53,6 +53,15 @@ func (b *InMemoryBackend) maybeOpenInsight(w *serviceInsightWindow, svcName stri
 		State:          statusActive,
 		StartTime:      now,
 		LastUpdateTime: now,
+		// gopherstack only detects fault-rate anomalies (see the threshold check
+		// above); InsightCategory has no other value in the SDK either
+		// (types/enums.go: InsightCategoryFault is the sole InsightCategory constant).
+		Categories: []string{"FAULT"},
+		ClientRequestImpactStatistics: &RequestImpactStatistics{
+			OkCount:    w.Total - w.FaultCount,
+			FaultCount: w.FaultCount,
+			TotalCount: w.Total,
+		},
 		Summary: fmt.Sprintf(
 			"Elevated fault rate detected for service %q (%.0f%%)",
 			svcName, rate*pctMultiplier,

@@ -729,9 +729,13 @@ type batchEntry struct {
 }
 
 // snsListTagsResult is the inner result element for ListTagsForResource.
+// The real deserializer (awsAwsquery_deserializeDocumentTagList,
+// sns@v1.42.4 deserializers.go:9181) wraps each tag in <member>, not <Tag>;
+// a client silently sees an empty list against the wrong wrapper name since
+// unrecognized elements are skipped rather than erroring.
 type snsListTagsResult struct {
 	XMLName xml.Name     `xml:"ListTagsForResourceResult"`
-	Tags    []svcTags.KV `xml:"Tags>Tag"`
+	Tags    []svcTags.KV `xml:"Tags>member"`
 }
 
 // snsListTagsResponse is the XML response for ListTagsForResource.

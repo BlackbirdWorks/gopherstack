@@ -1,6 +1,8 @@
 package cloudfront
 
 import (
+	"context"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -17,6 +19,7 @@ func (p *Provider) Name() string { return "CloudFront" }
 func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	accountID := config.DefaultAccountID
 	region := config.DefaultRegion
+	janitorCtx := context.Background()
 
 	if ctx != nil {
 		if cp, ok := ctx.Config.(config.Provider); ok {
@@ -24,9 +27,13 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 			accountID = cfg.GetAccountID()
 			region = cfg.GetRegion()
 		}
+
+		if ctx.JanitorCtx != nil {
+			janitorCtx = ctx.JanitorCtx
+		}
 	}
 
-	backend := NewInMemoryBackend(accountID, region)
+	backend := NewInMemoryBackend(janitorCtx, accountID, region)
 	handler := NewHandler(backend)
 
 	return handler, nil

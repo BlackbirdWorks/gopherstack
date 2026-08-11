@@ -36,7 +36,10 @@ func TestIntegration_EKS_ClusterLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.Cluster.Arn))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteCluster(ctx, &eks.DeleteClusterInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteCluster(cleanupCtx, &eks.DeleteClusterInput{
 			Name: aws.String(clusterName),
 		})
 	})
@@ -95,11 +98,14 @@ func TestIntegration_EKS_NodegroupLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteNodegroup(ctx, &eks.DeleteNodegroupInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteNodegroup(cleanupCtx, &eks.DeleteNodegroupInput{
 			ClusterName:   aws.String(clusterName),
 			NodegroupName: aws.String(ngName),
 		})
-		_, _ = client.DeleteCluster(ctx, &eks.DeleteClusterInput{
+		_, _ = client.DeleteCluster(cleanupCtx, &eks.DeleteClusterInput{
 			Name: aws.String(clusterName),
 		})
 	})

@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getSSMClient } from '$lib/aws-client';
 	import {
 		DescribeParametersCommand,
@@ -20,10 +23,16 @@
 
 	const ssm = regionalClient(getSSMClient);
 
+	// Every parameter/window row carries the region its Describe/Get call
+	// was made against. Row and detail actions must use THIS region, not the
+	// page's shared `ssm()` client -- in All mode the same parameter name or
+	// window name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
-	let parameters = $state<ParameterMetadata[]>([]);
+	let parameters = $state<Regioned<ParameterMetadata>[]>([]);
 	let searchPath = $state('');
-	let selectedParam = $state<ParameterMetadata | null>(null);
+	let selectedParam = $state<Regioned<ParameterMetadata> | null>(null);
 	let selectedValue = $state<string | null>(null);
 	let loadingValue = $state(false);
 	let showValue = $state(false);
@@ -31,7 +40,7 @@
 	let listView = $state<'flat' | 'tree'>('flat');
 	let collapsedFolders = $state(new Set<string>());
 
-	type TreeNode = { name: string; path: string; children: TreeNode[]; param?: ParameterMetadata };
+	type TreeNode = { name: string; path: string; children: TreeNode[]; param?: Regioned<ParameterMetadata> };
 
 	// Build a folder tree from parameter names delimited by "/".
 	const paramTree = $derived.by(() => {
@@ -81,6 +90,8 @@
 		SecureString: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
 	};
 
+	// Fans out across every region with data in All mode (single-region mode
+	// collapses to exactly one call).
 	async function loadParameters() {
 		loading = true;
 		// `searchPath` is read with `untrack` so it never becomes a dependency
@@ -89,32 +100,39 @@
 		// effect would end up reading `searchPath` on every run.
 		const currentSearchPath = untrack(() => searchPath.trim());
 		try {
+			let result;
 			if (currentSearchPath.startsWith('/')) {
 				// Path-based search
-				const res = await ssm().send(new GetParametersByPathCommand({
-					Path: currentSearchPath,
-					Recursive: true,
-					WithDecryption: false,
-					MaxResults: 50
-				}));
-				parameters = (res.Parameters ?? []).map((p) => ({
-					Name: p.Name,
-					Type: p.Type,
-					LastModifiedDate: p.LastModifiedDate,
-					ARN: p.ARN,
-					DataType: p.DataType,
-					Version: p.Version
-				}));
+				result = await multiRegionList(
+					(region) => getSSMClient(region).send(new GetParametersByPathCommand({
+						Path: currentSearchPath,
+						Recursive: true,
+						WithDecryption: false,
+						MaxResults: 50
+					})),
+					(res) => (res.Parameters ?? []).map((p) => ({
+						Name: p.Name,
+						Type: p.Type,
+						LastModifiedDate: p.LastModifiedDate,
+						ARN: p.ARN,
+						DataType: p.DataType,
+						Version: p.Version
+					}))
+				);
 			} else {
 				const filters = currentSearchPath
 					? [{ Key: 'Name', Option: 'Contains', Values: [currentSearchPath] }]
 					: undefined;
-				const res = await ssm().send(new DescribeParametersCommand({
-					ParameterFilters: filters,
-					MaxResults: 50
-				}));
-				parameters = res.Parameters ?? [];
+				result = await multiRegionList(
+					(region) => getSSMClient(region).send(new DescribeParametersCommand({
+						ParameterFilters: filters,
+						MaxResults: 50
+					})),
+					(res) => res.Parameters ?? []
+				);
 			}
+			parameters = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load parameters from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load parameters: ${(err as Error).message}`);
 		} finally {
@@ -122,13 +140,13 @@
 		}
 	}
 
-	async function getValue(param: ParameterMetadata) {
+	async function getValue(param: Regioned<ParameterMetadata>) {
 		selectedParam = param;
 		selectedValue = null;
 		showValue = false;
 		loadingValue = true;
 		try {
-			const res = await ssm().send(new GetParameterCommand({
+			const res = await getSSMClient(param.region).send(new GetParameterCommand({
 				Name: param.Name,
 				WithDecryption: true
 			}));
@@ -140,6 +158,10 @@
 		}
 	}
 
+	// '' means "no specific row region known yet" -- save() then falls back
+	// to `ssm()` (the picker's default region), matching WriteRegionHint.
+	let modalRegion = $state('');
+
 	function openCreate() {
 		isEditing = false;
 		modalName = '';
@@ -148,10 +170,11 @@
 		modalDescription = '';
 		modalTier = 'Standard';
 		modalOverwrite = false;
+		modalRegion = '';
 		showModal = true;
 	}
 
-	function openEdit(param: ParameterMetadata) {
+	function openEdit(param: Regioned<ParameterMetadata>) {
 		isEditing = true;
 		modalName = param.Name ?? '';
 		modalValue = selectedValue ?? '';
@@ -159,6 +182,7 @@
 		modalDescription = '';
 		modalTier = 'Standard';
 		modalOverwrite = true;
+		modalRegion = param.region;
 		showModal = true;
 	}
 
@@ -166,7 +190,8 @@
 		if (!modalName.trim() || !modalValue.trim()) return;
 		saving = true;
 		try {
-			await ssm().send(new PutParameterCommand({
+			const target = modalRegion ? getSSMClient(modalRegion) : ssm();
+			await target.send(new PutParameterCommand({
 				Name: modalName.trim(),
 				Value: modalValue,
 				Type: modalType,
@@ -184,10 +209,10 @@
 		}
 	}
 
-	async function deleteParameter(name: string) {
+	async function deleteParameter(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Parameter', message: `Delete parameter "${name}"? Any applications reading this parameter will receive an error.` })) return;
 		try {
-			await ssm().send(new DeleteParameterCommand({ Name: name }));
+			await getSSMClient(region).send(new DeleteParameterCommand({ Name: name }));
 			toast.success(`Parameter "${name}" deleted`);
 			if (selectedParam?.Name === name) { selectedParam = null; selectedValue = null; }
 			await loadParameters();
@@ -203,7 +228,7 @@
 	// Maintenance Windows
 	let activeTab = $state<'parameters' | 'maintenance-windows'>('parameters');
 	let mwLoading = $state(false);
-	let maintenanceWindows = $state<MaintenanceWindowIdentity[]>([]);
+	let maintenanceWindows = $state<Regioned<MaintenanceWindowIdentity>[]>([]);
 
 	// Create maintenance window modal
 	let showMWModal = $state(false);
@@ -218,8 +243,12 @@
 	async function loadMaintenanceWindows() {
 		mwLoading = true;
 		try {
-			const res = await ssm().send(new DescribeMaintenanceWindowsCommand({ MaxResults: 50 }));
-			maintenanceWindows = (res.WindowIdentities ?? []) as MaintenanceWindowIdentity[];
+			const result = await multiRegionList(
+				(region) => getSSMClient(region).send(new DescribeMaintenanceWindowsCommand({ MaxResults: 50 })),
+				(res) => (res.WindowIdentities ?? []) as MaintenanceWindowIdentity[]
+			);
+			maintenanceWindows = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load maintenance windows from ${result.errors.length} region(s)`);
 		} catch (err: unknown) {
 			toast.error(`Failed to load maintenance windows: ${(err as Error).message}`);
 		} finally {
@@ -259,10 +288,10 @@
 		}
 	}
 
-	async function deleteMW(windowId: string, name: string) {
+	async function deleteMW(windowId: string, name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Maintenance Window', message: `Delete maintenance window "${name}"?` })) return;
 		try {
-			await ssm().send(new DeleteMaintenanceWindowCommand({ WindowId: windowId }));
+			await getSSMClient(region).send(new DeleteMaintenanceWindowCommand({ WindowId: windowId }));
 			toast.success(`Maintenance window "${name}" deleted`);
 			await loadMaintenanceWindows();
 		} catch (err: unknown) {
@@ -293,6 +322,7 @@
 				<button onclick={() => loadParameters()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 					<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 				</button>
+				<WriteRegionHint />
 				<button onclick={openCreate} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />
 					Create Parameter
@@ -301,6 +331,7 @@
 				<button onclick={() => loadMaintenanceWindows()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 					<RefreshCw class="w-5 h-5 {mwLoading ? 'animate-spin' : ''}" />
 				</button>
+				<WriteRegionHint />
 				<button onclick={openCreateMW} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />
 					Create Window
@@ -370,7 +401,10 @@
 						>
 							<div class="flex items-start justify-between">
 								<div class="min-w-0 flex-1">
-									<p class="font-medium text-slate-900 dark:text-white text-sm truncate">{param.Name}</p>
+									<div class="flex items-center gap-2">
+										<p class="font-medium text-slate-900 dark:text-white text-sm truncate">{param.Name}</p>
+										<RegionChip region={param.region} />
+									</div>
 									<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{formatDate(param.LastModifiedDate)}</p>
 								</div>
 								<span class="ml-2 flex-shrink-0 px-2 py-0.5 text-xs rounded-full {typeColors[param.Type ?? 'String'] ?? typeColors.String}">{param.Type}</span>
@@ -395,6 +429,7 @@
 					>
 						<FileText class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
 						<span class="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">{node.name}</span>
+						<RegionChip region={node.param.region} />
 						<span class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-full {typeColors[node.param.Type ?? 'String'] ?? typeColors.String}">{node.param.Type}</span>
 					</button>
 				{:else}
@@ -424,6 +459,7 @@
 							>
 								<FileText class="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
 								<span class="text-sm text-slate-700 dark:text-slate-200 truncate flex-1">(self)</span>
+								<RegionChip region={node.param.region} />
 								<span class="flex-shrink-0 px-1.5 py-0.5 text-[10px] rounded-full {typeColors[node.param.Type ?? 'String'] ?? typeColors.String}">{node.param.Type}</span>
 							</button>
 						{/if}
@@ -438,7 +474,10 @@
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 space-y-4">
 					<div class="flex items-start justify-between">
 						<div>
-							<h2 class="text-lg font-bold text-slate-900 dark:text-white font-mono break-all">{selectedParam.Name}</h2>
+							<div class="flex items-center gap-2">
+								<h2 class="text-lg font-bold text-slate-900 dark:text-white font-mono break-all">{selectedParam.Name}</h2>
+								<RegionChip region={selectedParam.region} />
+							</div>
 							<span class="mt-1 inline-block px-2 py-0.5 text-xs rounded-full {typeColors[selectedParam.Type ?? 'String'] ?? typeColors.String}">{selectedParam.Type}</span>
 						</div>
 						<div class="flex gap-2">
@@ -449,7 +488,7 @@
 								<Edit2 class="w-4 h-4" />Edit
 							</button>
 							<button
-								onclick={() => deleteParameter(selectedParam?.Name ?? '')}
+								onclick={() => deleteParameter(selectedParam?.Name ?? '', selectedParam?.region ?? '')}
 								class="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 flex items-center gap-1.5 text-sm"
 							>
 								<Trash2 class="w-4 h-4" />Delete
@@ -522,7 +561,10 @@
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-3">
 					<div class="flex items-start justify-between">
 						<div class="min-w-0 flex-1">
-							<p class="font-semibold text-slate-900 dark:text-white truncate">{mw.Name}</p>
+							<div class="flex items-center gap-2">
+								<p class="font-semibold text-slate-900 dark:text-white truncate">{mw.Name}</p>
+								<RegionChip region={mw.region} />
+							</div>
 							{#if mw.Description}
 								<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">{mw.Description}</p>
 							{/if}
@@ -547,7 +589,7 @@
 					</div>
 					<div class="flex justify-end">
 						<button
-							onclick={() => deleteMW(mw.WindowId ?? '', mw.Name ?? '')}
+							onclick={() => deleteMW(mw.WindowId ?? '', mw.Name ?? '', mw.region)}
 							class="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded-lg hover:bg-red-200 flex items-center gap-1.5 text-sm"
 						>
 							<Trash2 class="w-4 h-4" />Delete

@@ -77,6 +77,34 @@ func TestQuickSight_TemplateCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
 
+// ---- CreateTemplate/UpdateTemplate.VersionDescription round-trips into
+// TemplateVersion.Description ----
+
+func TestQuickSight_Template_VersionDescription(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/templates/tpl1"), map[string]any{
+		"Name": "Tpl1", "VersionDescription": "first cut",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/templates/tpl1"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	version := parseBody(t, describeRec)["Template"].(map[string]any)["Version"].(map[string]any)
+	assert.Equal(t, "first cut", version["Description"])
+
+	updateRec := doRequest(t, h, http.MethodPut, accountPath("/templates/tpl1"), map[string]any{
+		"Name": "Tpl1", "VersionDescription": "second cut",
+	})
+	require.Equal(t, http.StatusOK, updateRec.Code)
+
+	describeAfterUpdate := doRequest(t, h, http.MethodGet, accountPath("/templates/tpl1"), nil)
+	afterVersion := parseBody(t, describeAfterUpdate)["Template"].(map[string]any)["Version"].(map[string]any)
+	assert.Equal(t, "second cut", afterVersion["Description"])
+}
+
 // ---- Template missing Name/TemplateId -> validation error ----
 
 func TestQuickSight_CreateTemplate_Validation(t *testing.T) {

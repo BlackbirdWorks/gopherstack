@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
-sdk_module: aws-sdk-go-v2/service/appstream@v1.64.0
+sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
 last_audit_commit: HEAD
 last_audit_date: 2026-07-26
 overall: A            # CI-blocking regression fixed this pass: the eb437919a dep bump to SDK

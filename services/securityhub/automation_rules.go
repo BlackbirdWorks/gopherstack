@@ -58,6 +58,15 @@ func (b *InMemoryBackend) CreateAutomationRule(rule map[string]any) (string, str
 		Actions:     actionMaps,
 	})
 
+	if t, ok := rule["Tags"].(map[string]any); ok && len(t) > 0 {
+		tags := make(map[string]string, len(t))
+		for k, v := range t {
+			tags[k], _ = v.(string)
+		}
+
+		b.tags[ruleArn] = tags
+	}
+
 	return ruleArn, now
 }
 

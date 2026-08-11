@@ -9,6 +9,30 @@ import (
 
 // ---- Reserved node XML types ----
 
+// recurringChargeFrequencyHourly is the only frequency value real Redshift
+// documents for RecurringCharge.RecurringChargeFrequency.
+const recurringChargeFrequencyHourly = "Hourly"
+
+type xmlRecurringCharge struct {
+	RecurringChargeFrequency string  `xml:"RecurringChargeFrequency,omitempty"`
+	RecurringChargeAmount    float64 `xml:"RecurringChargeAmount"`
+}
+
+// recurringChargesFor derives RecurringCharges from the node's own UsagePrice --
+// this backend's real per-offering pricing model (see defaultReservedNodeOfferings)
+// -- rather than fabricating a value: a zero UsagePrice (e.g. "All Upfront"
+// offerings) yields no recurring charge, matching real AWS behavior.
+func recurringChargesFor(n *ReservedNode) []xmlRecurringCharge {
+	if n.UsagePrice <= 0 {
+		return nil
+	}
+
+	return []xmlRecurringCharge{{
+		RecurringChargeAmount:    n.UsagePrice,
+		RecurringChargeFrequency: recurringChargeFrequencyHourly,
+	}}
+}
+
 type xmlReservedNodeOffering struct {
 	ReservedNodeOfferingID   string  `xml:"ReservedNodeOfferingId"`
 	ReservedNodeOfferingType string  `xml:"ReservedNodeOfferingType,omitempty"`
@@ -68,6 +92,7 @@ func reservedNodeToXML(n *ReservedNode) xmlReservedNode {
 		FixedPrice:             n.FixedPrice,
 		UsagePrice:             n.UsagePrice,
 		NodeCount:              n.NodeCount,
+		RecurringCharges:       recurringChargesFor(n),
 	}
 }
 
@@ -213,16 +238,17 @@ func (h *Handler) handleGetReservedNodeExchangeConfigurationOptions(_ url.Values
 // ---- AcceptReservedNodeExchange ----
 
 type xmlReservedNode struct {
-	ReservedNodeID         string  `xml:"ReservedNodeId"`
-	ReservedNodeOfferingID string  `xml:"ReservedNodeOfferingId"`
-	NodeType               string  `xml:"NodeType"`
-	CurrencyCode           string  `xml:"CurrencyCode"`
-	State                  string  `xml:"State"`
-	OfferingType           string  `xml:"OfferingType"`
-	Duration               int     `xml:"Duration"`
-	FixedPrice             float64 `xml:"FixedPrice"`
-	UsagePrice             float64 `xml:"UsagePrice"`
-	NodeCount              int     `xml:"NodeCount"`
+	ReservedNodeID         string               `xml:"ReservedNodeId"`
+	ReservedNodeOfferingID string               `xml:"ReservedNodeOfferingId"`
+	NodeType               string               `xml:"NodeType"`
+	CurrencyCode           string               `xml:"CurrencyCode"`
+	State                  string               `xml:"State"`
+	OfferingType           string               `xml:"OfferingType"`
+	RecurringCharges       []xmlRecurringCharge `xml:"RecurringCharges>RecurringCharge,omitempty"`
+	Duration               int                  `xml:"Duration"`
+	FixedPrice             float64              `xml:"FixedPrice"`
+	UsagePrice             float64              `xml:"UsagePrice"`
+	NodeCount              int                  `xml:"NodeCount"`
 }
 
 type acceptReservedNodeExchangeResponse struct {
@@ -241,18 +267,7 @@ func (h *Handler) handleAcceptReservedNodeExchange(vals url.Values) (any, error)
 	}
 
 	return &acceptReservedNodeExchangeResponse{
-		Xmlns: redshiftXMLNS,
-		ExchangedNode: xmlReservedNode{
-			ReservedNodeID:         node.ReservedNodeID,
-			ReservedNodeOfferingID: node.ReservedNodeOfferingID,
-			NodeType:               node.NodeType,
-			Duration:               node.Duration,
-			FixedPrice:             node.FixedPrice,
-			UsagePrice:             node.UsagePrice,
-			CurrencyCode:           node.CurrencyCode,
-			NodeCount:              node.NodeCount,
-			State:                  node.State,
-			OfferingType:           node.OfferingType,
-		},
+		Xmlns:         redshiftXMLNS,
+		ExchangedNode: reservedNodeToXML(node),
 	}, nil
 }

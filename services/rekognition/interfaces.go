@@ -47,7 +47,7 @@ type StorageBackend interface {
 	DescribeProjectVersions(projectARN string, versionNames []string, maxResults int32, nextToken string) (
 		[]*ProjectVersion, string, error)
 	CopyProjectVersion(sourceProjectVersionARN, destinationProjectARN, versionName string) (*ProjectVersion, error)
-	StartProjectVersion(projectVersionARN string, minInferenceUnits int32) error
+	StartProjectVersion(projectVersionARN string, minInferenceUnits, maxInferenceUnits int32) error
 	StopProjectVersion(projectVersionARN string) error
 	ListProjectPolicies(projectARN string, maxResults int32, nextToken string) ([]*ProjectPolicy, string, error)
 	PutProjectPolicy(projectARN, policyName, policyDocument, policyRevisionID string) (string, error)
@@ -82,7 +82,7 @@ type StorageBackend interface {
 	GetFaceLivenessSessionResults(sessionID string) (*LivenessSessionResult, error)
 
 	// Async video jobs
-	StartAsyncJob(jobType, collectionID string) (string, error)
+	StartAsyncJob(params StartAsyncJobParams) (string, error)
 	GetAsyncJob(jobID string) (*AsyncJob, error)
 	StartMediaAnalysisJob(jobName string) (string, error)
 	GetMediaAnalysisJob(jobID string) (*MediaAnalysisJob, error)
@@ -235,33 +235,41 @@ type Project struct {
 
 // ProjectVersion represents a model version within a project.
 type ProjectVersion struct {
-	CreationTimestamp       time.Time
-	Tags                    map[string]string
-	ProjectVersionARN       string
-	ProjectARN              string
-	VersionName             string
-	Status                  string
-	StatusMessage           string
-	OutputConfigS3Bucket    string
-	OutputConfigS3KeyPrefix string
-	KmsKeyID                string
-	VersionDescription      string
-	MinInferenceUnits       int32
+	CreationTimestamp                       time.Time
+	Tags                                    map[string]string
+	FeatureConfigContentModConfidenceThresh *float32
+	StatusMessage                           string
+	VersionName                             string
+	Status                                  string
+	ProjectARN                              string
+	OutputConfigS3Bucket                    string
+	OutputConfigS3KeyPrefix                 string
+	KmsKeyID                                string
+	VersionDescription                      string
+	SourceProjectVersionARN                 string
+	ProjectVersionARN                       string
+	MinInferenceUnits                       int32
+	MaxInferenceUnits                       int32
 }
 
 // CreateProjectVersionParams groups CreateProjectVersionInput's fields
 // beyond ProjectArn/VersionName/Tags (OutputConfig/KmsKeyId/
 // VersionDescription), so the CreateProjectVersion backend method signature
-// stays manageable as fields are added. TrainingData/TestingData/
-// FeatureConfig (the external-manifest / feature-customization fields) are
-// intentionally NOT modeled here -- see PARITY.md deferred: they describe a
-// Custom Labels training-data manifest with no corresponding backing
-// resource this in-memory backend can meaningfully echo back.
+// stays manageable as fields are added. FeatureConfigContentModConfidenceThresh
+// is CustomizationFeatureConfig.ContentModeration.ConfidenceThreshold, a
+// 2-level struct with no unions (types.go:486,495) -- shallow enough to model
+// verbatim. TrainingData/TestingData are intentionally NOT modeled: both
+// reference an external Custom Labels S3 manifest that this in-memory backend
+// never trains against, so there is nowhere downstream (TrainingDataResult/
+// TestingDataResult require a training-completion lifecycle this backend
+// doesn't have) to surface a stored copy -- see PARITY.md deferred. Their
+// presence is still cross-validated (see handleCreateProjectVersion).
 type CreateProjectVersionParams struct {
-	OutputConfigS3Bucket    string
-	OutputConfigS3KeyPrefix string
-	KmsKeyID                string
-	VersionDescription      string
+	FeatureConfigContentModConfidenceThresh *float32
+	OutputConfigS3Bucket                    string
+	OutputConfigS3KeyPrefix                 string
+	KmsKeyID                                string
+	VersionDescription                      string
 }
 
 // ProjectPolicy represents a project policy.
@@ -339,9 +347,28 @@ type LivenessSessionResult struct {
 
 // AsyncJob represents a Rekognition async video analysis job.
 type AsyncJob struct {
-	JobID     string
-	JobStatus string
-	NextToken string
+	JobID          string
+	JobStatus      string
+	NextToken      string
+	JobTag         string
+	VideoS3Bucket  string
+	VideoS3Name    string
+	VideoS3Version string
+	SegmentTypes   []string
+}
+
+// StartAsyncJobParams groups the StartXxx request fields common to every
+// async video job family (Video/JobTag are echoed back verbatim by the
+// matching GetXxx response; SegmentTypes only applies to
+// StartSegmentDetection but is harmless zero-valued for the others).
+type StartAsyncJobParams struct {
+	JobType        string
+	CollectionID   string
+	JobTag         string
+	VideoS3Bucket  string
+	VideoS3Name    string
+	VideoS3Version string
+	SegmentTypes   []string
 }
 
 // MediaAnalysisJob represents a Rekognition media analysis job.

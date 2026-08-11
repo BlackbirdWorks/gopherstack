@@ -934,6 +934,8 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			CurrentState:  inst.State,
 		})
 
+		b.releaseOutpostCapacityIfFirstTermination(inst, id, prev)
+
 		// Mirror AWS behaviour: when the backing instance of a spot request is
 		// terminated, the request transitions to "closed" (not stateCancelled).
 		for _, req := range b.spotRequests.All() {
@@ -943,14 +945,10 @@ func (b *InMemoryBackend) TerminateInstances(ids []string) ([]*InstanceStateChan
 			}
 		}
 
-		// Resolve ENIs attached to the terminated instance per real AWS's
-		// per-attachment DeleteOnTermination flag: the primary interface
-		// auto-created at launch (DeleteOnTermination=true) is deleted and its
-		// private IP recycled; an interface created separately via
-		// CreateNetworkInterface and attached later (DeleteOnTermination=false,
-		// the real default for that path) is only detached - it survives
-		// termination in "available" state, matching AWS's well-documented
-		// "leftover ENI" behaviour, not deleted.
+		// Per real AWS's per-attachment DeleteOnTermination flag: the
+		// launch-created primary ENI (true) is deleted; an ENI attached later via
+		// CreateNetworkInterface (false, the real default) only detaches and
+		// survives termination in "available" state ("leftover ENI" behaviour).
 		eniIDs := b.eniIDsByInstance[id]
 		for eniID := range eniIDs {
 			eni, exists := b.networkInterfaces.Get(eniID)

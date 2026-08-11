@@ -1,6 +1,7 @@
 package redshift_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -245,17 +246,52 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateIdcApplication(
-		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r",
+		"rt-idcapp", "arn:aws:sso::000000000000:instance/1", "display", "arn:aws:iam::000000000000:role/r", "None",
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateNamespace("rt-namespace", "admin", "rtdb", "", nil, nil)
+	ns, err := b.CreateNamespace(redshift.CreateNamespaceParams{
+		NamespaceName: "rt-namespace",
+		AdminUsername: "admin",
+		DBName:        "rtdb",
+		Tags:          map[string]string{"env": "rt"},
+	})
 	require.NoError(t, err)
 
-	_, err = b.CreateWorkgroup("rt-workgroup", "rt-namespace", 32, nil, nil)
+	_, err = b.CreateWorkgroup(
+		"rt-workgroup", "rt-namespace", redshift.WorkgroupParams{BaseCapacity: 32}, nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace")
+	_, err = b.CreateServerlessSnapshot("rt-slsnapshot", "rt-namespace", 0, nil)
+	require.NoError(t, err)
+
+	rtRecoveryPoints, _ := b.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	require.Len(t, rtRecoveryPoints, 1, "CreateWorkgroup must have generated exactly one recovery point")
+	rtRecoveryPointID := rtRecoveryPoints[0].RecoveryPointID
+
+	rtTableRestore, err := b.RestoreTableFromSnapshotSL(redshift.RestoreTableFromSnapshotParams{
+		NamespaceName:      "rt-namespace",
+		WorkgroupName:      "rt-workgroup",
+		NewTableName:       "rt-newtable",
+		SnapshotName:       "rt-slsnapshot",
+		SourceDatabaseName: "rt-srcdb",
+		SourceTableName:    "rt-srctable",
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateCustomDomainAssociationSL(
+		"rt.example.com", "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", "rt-workgroup",
+	)
+	require.NoError(t, err)
+
+	_, err = b.PutResourcePolicySL(ns.NamespaceArn, `{"Version":"2012-10-17"}`)
+	require.NoError(t, err)
+
+	scc, err := b.CreateSnapshotCopyConfigurationSL("rt-namespace", "us-west-2", "", 7)
+	require.NoError(t, err)
+
+	_, err = b.CreateEndpointAccessSL("rt-slendpoint", "rt-workgroup", "", []string{"subnet-1"}, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateServerlessUsageLimit(
@@ -264,10 +300,17 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateServerlessScheduledAction(
-		"rt-slscheduledaction", "rt-namespace", "at(2030-01-01T00:00:00)", "",
-		time.Now(), time.Now().Add(time.Hour),
-	)
+	_, err = b.CreateServerlessScheduledAction(redshift.CreateScheduledActionParams{
+		ScheduledActionName: "rt-slscheduledaction",
+		NamespaceName:       "rt-namespace",
+		RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
+		Schedule:            json.RawMessage(`{"at":1893456000}`),
+		TargetAction: json.RawMessage(
+			`{"createSnapshot":{"namespaceName":"rt-namespace","snapshotName":"rt-slsnapshot2"}}`,
+		),
+		StartTime: time.Now(),
+		EndTime:   time.Now().Add(time.Hour),
+	})
 	require.NoError(t, err)
 
 	// The three raw (unconverted) maps.
@@ -349,6 +392,42 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	_, err = fresh.GetServerlessScheduledAction("rt-slscheduledaction")
 	require.NoError(t, err)
+
+	nsTags, err := fresh.ListServerlessResourceTags(ns.NamespaceArn)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"env": "rt"}, nsTags)
+
+	assoc, err := fresh.GetCustomDomainAssociationSL("rt.example.com", "rt-workgroup")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:acm:us-east-1:000000000000:certificate/rt-1", assoc.CustomDomainCertificateArn)
+
+	rp, err := fresh.GetResourcePolicySL(ns.NamespaceArn)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"Version":"2012-10-17"}`, rp.Policy)
+
+	sccList, _ := fresh.ListSnapshotCopyConfigurationsSL("rt-namespace", 0, "")
+	require.Len(t, sccList, 1)
+	assert.Equal(t, scc.SnapshotCopyConfigurationID, sccList[0].SnapshotCopyConfigurationID)
+
+	recoveryPoint, err := fresh.GetRecoveryPointSL(rtRecoveryPointID)
+	require.NoError(t, err)
+	assert.Equal(t, "rt-namespace", recoveryPoint.NamespaceName)
+
+	recoveryPointList, _ := fresh.ListRecoveryPointsSL("rt-namespace", "", 0, "")
+	require.Len(t, recoveryPointList, 1, "sorted index must survive the round trip, not just the underlying table")
+
+	tr, err := fresh.GetTableRestoreStatusSL(rtTableRestore.TableRestoreRequestID)
+	require.NoError(t, err)
+	assert.Equal(t, "rt-newtable", tr.NewTableName)
+
+	tableRestoreList, _ := fresh.ListTableRestoreStatusSL("rt-namespace", "", 0, "")
+	require.Len(t, tableRestoreList, 1, "sorted index must survive the round trip, not just the underlying table")
+
+	_, err = fresh.GetEndpointAccessSL("rt-slendpoint")
+	require.NoError(t, err)
+
+	endpointList, _ := fresh.ListEndpointAccessSL("rt-workgroup", "", 0, "")
+	require.Len(t, endpointList, 1, "sorted index must survive the round trip, not just the underlying table")
 
 	// Disabling snapshot copy only succeeds if snapshotCopyConfigs (raw map)
 	// survived the round trip with the rt-cluster entry intact.

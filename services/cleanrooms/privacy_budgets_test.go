@@ -266,33 +266,42 @@ func TestPrivacyBudgetTemplates_Delete(t *testing.T) {
 func TestPreviewPrivacyImpact(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		body   map[string]any
-		method string
-	}
-	type wants struct {
-		status int
-	}
-
 	tests := []struct {
-		name  string
-		args  args
-		wants wants
+		body       map[string]any
+		name       string
+		wantStatus int
+		wantMax    float64
 	}{
 		{
 			name: "valid_preview",
-			args: args{
-				method: http.MethodPost,
-				body: map[string]any{
-					"parameters": map[string]any{
-						"differentialPrivacy": map[string]any{
-							"epsilon":            1.0,
-							"usersNoisePerQuery": 100,
-						},
+			body: map[string]any{
+				"parameters": map[string]any{
+					"differentialPrivacy": map[string]any{
+						"epsilon":            1.0,
+						"usersNoisePerQuery": 100,
 					},
 				},
 			},
-			wants: wants{status: http.StatusOK},
+			wantStatus: http.StatusOK,
+			wantMax:    1,
+		},
+		{
+			name: "higher_epsilon_larger_budget",
+			body: map[string]any{
+				"parameters": map[string]any{
+					"differentialPrivacy": map[string]any{
+						"epsilon":            10.0,
+						"usersNoisePerQuery": 100,
+					},
+				},
+			},
+			wantStatus: http.StatusOK,
+			wantMax:    10,
+		},
+		{
+			name:       "missing_parameters",
+			body:       map[string]any{},
+			wantStatus: http.StatusBadRequest,
 		},
 	}
 
@@ -302,8 +311,22 @@ func TestPreviewPrivacyImpact(t *testing.T) {
 			e := newTestServer(t)
 			_, mID := setupTestEnvironment(t, e)
 
-			rec := doRequest(t, e, tt.args.method, "/memberships/"+mID+"/previewprivacyimpact", tt.args.body)
-			require.Equal(t, tt.wants.status, rec.Code)
+			rec := doRequest(t, e, http.MethodPost, "/memberships/"+mID+"/previewprivacyimpact", tt.body)
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			impact := resp["privacyImpact"].(map[string]any)["differentialPrivacy"].(map[string]any)
+			aggs := impact["aggregations"].([]any)
+			require.Len(t, aggs, 5)
+
+			for _, a := range aggs {
+				assert.InEpsilon(t, tt.wantMax, a.(map[string]any)["maxCount"], 0.0001)
+			}
 		})
 	}
 }
@@ -311,34 +334,36 @@ func TestPreviewPrivacyImpact(t *testing.T) {
 func TestListPrivacyBudgets(t *testing.T) {
 	t.Parallel()
 
-	type args struct {
-		method string
-	}
-	type wants struct {
-		status int
-	}
+	e := newTestServer(t)
+	_, mID := setupTestEnvironment(t, e)
+	tmplID := createBudgetTemplate(t, e, mID)
 
-	tests := []struct {
-		name  string
-		args  args
-		wants wants
-	}{
-		{
-			name:  "list_budgets",
-			args:  args{method: http.MethodGet},
-			wants: wants{status: http.StatusOK},
-		},
-	}
+	rec := doRequest(t, e, http.MethodGet, "/memberships/"+mID+"/privacybudgets", nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			e := newTestServer(t)
-			_, mID := setupTestEnvironment(t, e)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	budgets := resp["privacyBudgetSummaries"].([]any)
+	require.Len(t, budgets, 1)
 
-			rec := doRequest(t, e, tt.args.method, "/memberships/"+mID+"/privacybudgets", nil)
-			require.Equal(t, tt.wants.status, rec.Code)
-		})
+	budget := budgets[0].(map[string]any)
+	assert.Equal(t, tmplID, budget["privacyBudgetTemplateId"])
+	assert.Equal(t, "DIFFERENTIAL_PRIVACY", budget["type"])
+	assert.NotContains(t, budget, "privacyBudgetType")
+	assert.NotContains(t, budget, "privacyBudgetTemplateIdentifier")
+	assert.NotContains(t, budget, "collaborationIdentifier")
+	assert.NotContains(t, budget, "membershipIdentifier")
+	assert.NotEmpty(t, budget["createTime"])
+	assert.NotEmpty(t, budget["updateTime"])
+
+	dpBudget := budget["budget"].(map[string]any)["differentialPrivacy"].(map[string]any)
+	assert.InEpsilon(t, 1.0, dpBudget["epsilon"], 0.0001)
+	aggs := dpBudget["aggregations"].([]any)
+	require.Len(t, aggs, 5)
+	for _, a := range aggs {
+		agg := a.(map[string]any)
+		assert.InEpsilon(t, 1.0, agg["maxCount"], 0.0001)
+		assert.Equal(t, agg["maxCount"], agg["remainingCount"])
 	}
 }
 

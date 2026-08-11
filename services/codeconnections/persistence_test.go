@@ -110,9 +110,9 @@ func seedFullState(t *testing.T, b *codeconnections.InMemoryBackend) seededState
 // round trip across every store.Table-backed resource family the Phase 3.3
 // conversion touched: connections, hosts (clean, ARN-keyed), repositoryLinks,
 // and syncConfigurations (dirty, region-composite-keyed). It also proves the
-// byName/byRegion secondary indexes survive the round trip (duplicate
-// creates are rejected, region-scoped listings are correct, cross-region
-// lookups still fail) rather than merely checking the primary key lookups.
+// byRegion secondary indexes survive the round trip (region-scoped listings
+// are correct, cross-region lookups still fail, and duplicate names remain
+// accepted) rather than merely checking the primary key lookups.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +130,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ctxEast := codeconnections.CtxRegion("us-east-1")
 	ctxWest := codeconnections.CtxRegion("us-west-2")
 
-	// connections: primary lookup (region-scoped) + byRegion + byName (duplicate-name reject).
+	// connections: primary lookup (region-scoped) + byRegion.
 	gotEastConn, err := restored.GetConnection(ctxEast, eastConn.ConnectionArn)
 	require.NoError(t, err)
 	assert.Equal(t, "GitHub", gotEastConn.ProviderType)
@@ -149,9 +149,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Len(t, restored.ListConnections(ctxEast, "", ""), 1)
 	assert.Len(t, restored.ListConnections(ctxWest, "", ""), 1)
 
+	// CreateConnection has no ResourceAlreadyExistsException in its real
+	// error list (see TestConnectionNameNotUnique), so a same-named
+	// connection created after restore must succeed, not be rejected.
 	_, err = restored.CreateConnection(ctxEast, "shared-conn", "GitHub", "", nil)
-	require.ErrorIs(t, err, codeconnections.ErrAlreadyExists,
-		"byName index must be rebuilt so the duplicate-name check still fires after restore")
+	require.NoError(t, err, "duplicate connection names are accepted, including after restore")
 
 	// hosts.
 	gotHost, err := restored.GetHost(ctxEast, eastHost.HostArn)
@@ -159,9 +161,10 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "https://east.example.com", gotHost.ProviderEndpoint)
 	assert.Equal(t, "v", gotHost.Tags["k"])
 
+	// CreateHost has no ResourceAlreadyExistsException in its real error
+	// list either (see TestCreateHostNameNotUnique).
 	_, err = restored.CreateHost(ctxEast, "shared-host", "GitHubEnterpriseServer", "https://other.example.com", nil)
-	require.ErrorIs(t, err, codeconnections.ErrAlreadyExists,
-		"host byName index must be rebuilt so the duplicate-name check still fires after restore")
+	require.NoError(t, err, "duplicate host names are accepted, including after restore")
 
 	// repositoryLinks: ctx-region-scoped lookup (not ARN-derived).
 	gotLink, err := restored.GetRepositoryLink(ctxEast, eastLink.RepositoryLinkID)
@@ -256,14 +259,16 @@ func TestSnapshotRestore(t *testing.T) {
 	}
 }
 
-// TestSnapshotRestoreHostsByName verifies the hostsByName index is preserved in a snapshot.
-func TestSnapshotRestoreHostsByName(t *testing.T) {
+// TestSnapshotRestoreHostNameNotUnique verifies a post-restore host is fully
+// usable and that same-named hosts are still accepted after restore (see
+// TestCreateHostNameNotUnique).
+func TestSnapshotRestoreHostNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name string
 	}{
-		{name: "hosts_by_name_restored"},
+		{name: "hosts_restored"},
 	}
 
 	for _, tt := range tests {
@@ -271,7 +276,7 @@ func TestSnapshotRestoreHostsByName(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler()
-			createHost(t, h, "snap-host", "GitHubEnterpriseServer", "https://ghe.example.com")
+			hostArn1 := createHost(t, h, "snap-host", "GitHubEnterpriseServer", "https://ghe.example.com")
 
 			snap := h.Backend.Snapshot(t.Context())
 			require.NotNil(t, snap)
@@ -279,15 +284,19 @@ func TestSnapshotRestoreHostsByName(t *testing.T) {
 			newBackend := codeconnections.NewInMemoryBackend("123456789012", "us-east-1")
 			require.NoError(t, newBackend.Restore(t.Context(), snap))
 
-			// Attempting to create a host with same name should fail (name index restored).
-			_, err := newBackend.CreateHost(
+			got, err := newBackend.GetHost(context.Background(), hostArn1)
+			require.NoError(t, err)
+			assert.Equal(t, "snap-host", got.Name)
+
+			host2, err := newBackend.CreateHost(
 				context.Background(),
 				"snap-host",
 				"GitHubEnterpriseServer",
 				"https://new.example.com",
 				nil,
 			)
-			require.Error(t, err, "duplicate host name should fail after restore")
+			require.NoError(t, err, "duplicate host name must succeed after restore")
+			assert.NotEqual(t, hostArn1, host2.HostArn)
 		})
 	}
 }

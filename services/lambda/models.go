@@ -244,6 +244,9 @@ type UpdateFunctionConfigurationInput struct {
 type GetFunctionOutput struct {
 	Configuration *FunctionConfiguration `json:"Configuration"`
 	Code          *FunctionCodeLocation  `json:"Code,omitempty"`
+	// Tags is a sibling of Configuration in the real GetFunctionResponse shape
+	// (botocore lambda/2015-03-31), not a member of FunctionConfiguration.
+	Tags map[string]string `json:"Tags,omitempty"`
 }
 
 // FunctionCodeLocation describes where the function code is stored.

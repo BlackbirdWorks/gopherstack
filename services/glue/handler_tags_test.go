@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/services/glue"
 )
 
@@ -128,6 +129,167 @@ func TestTagValidation(t *testing.T) {
 				"Tags":          tt.tags,
 			})
 			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestTagResource_BlueprintDevEndpointMLTransformUDF covers TagResource/
+// UntagResource/GetTags dispatch for the four resource kinds tagResource's
+// ARN dispatcher previously did not recognize (gopherstack-dol3): Blueprint,
+// DevEndpoint, MLTransform, UserDefinedFunction. Also proves creation-time
+// tags survive: for MLTransform/UDF they previously vanished entirely (no
+// Tags field existed on either struct, and the internal tagResource(ARN, ...)
+// call made from CreateMLTransformWithOptions/CreateUserDefinedFunction
+// silently failed against the un-dispatched ARN).
+func TestTagResource_BlueprintDevEndpointMLTransformUDF(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create func(t *testing.T, b *glue.InMemoryBackend) string
+		name   string
+	}{
+		{
+			name: "blueprint",
+			create: func(t *testing.T, b *glue.InMemoryBackend) string {
+				t.Helper()
+
+				bp, err := b.CreateBlueprint("bp1", "s3://bucket/bp", "", map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return arn.Build("glue", b.Region(), b.AccountID(), "blueprint/"+bp.Name)
+			},
+		},
+		{
+			name: "devendpoint",
+			create: func(t *testing.T, b *glue.InMemoryBackend) string {
+				t.Helper()
+
+				dep, err := b.CreateDevEndpoint("dep1", glue.DevEndpointInput{}, "arn:aws:iam::000000000000:role/R",
+					map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return dep.ARN
+			},
+		},
+		{
+			name: "mltransform",
+			create: func(t *testing.T, b *glue.InMemoryBackend) string {
+				t.Helper()
+
+				m, err := b.CreateMLTransformWithOptions("mt1", "", "arn:aws:iam::000000000000:role/R", nil,
+					glue.MLTransformParameter{}, map[string]string{"env": "prod"}, glue.MLTransformOptions{})
+				require.NoError(t, err)
+
+				return arn.Build("glue", b.Region(), b.AccountID(), "mlTransform/"+m.TransformID)
+			},
+		},
+		{
+			name: "udf",
+			create: func(t *testing.T, b *glue.InMemoryBackend) string {
+				t.Helper()
+
+				_, err := b.CreateDatabase(glue.DatabaseInput{Name: "udfdb"}, nil)
+				require.NoError(t, err)
+
+				u, err := b.CreateUserDefinedFunction("udfdb", glue.UserDefinedFunction{FunctionName: "fn1"},
+					map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return u.FunctionARN
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glue.NewInMemoryBackend(testAccountID, testRegion)
+			resourceARN := tt.create(t, b)
+
+			got, err := b.GetTags(resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]string{"env": "prod"}, got)
+
+			require.NoError(t, b.TagResource(resourceARN, map[string]string{"team": "data"}))
+
+			got, err = b.GetTags(resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]string{"env": "prod", "team": "data"}, got)
+
+			require.NoError(t, b.UntagResource(resourceARN, []string{"env"}))
+
+			got, err = b.GetTags(resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]string{"team": "data"}, got)
+		})
+	}
+}
+
+// TestTagResource_SurvivesUpdate covers a second bug found alongside the ARN
+// dispatch gap (gopherstack-dol3): UpdateMLTransform/UpdateUserDefinedFunction
+// replace the whole stored record with the caller-supplied input, and neither
+// UpdateMLTransformRequest nor UpdateUserDefinedFunctionInput carries Tags on
+// the real wire (AWS updates tags only via TagResource/UntagResource) -- so
+// without explicitly carrying the existing Tags forward, any Update call
+// silently wiped a resource's tags.
+func TestTagResource_SurvivesUpdate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *glue.InMemoryBackend) (resourceARN string, doUpdate func(t *testing.T))
+		name  string
+	}{
+		{
+			name: "mltransform",
+			setup: func(t *testing.T, b *glue.InMemoryBackend) (string, func(t *testing.T)) {
+				t.Helper()
+
+				m, err := b.CreateMLTransformWithOptions("mt-upd", "", "arn:aws:iam::000000000000:role/R", nil,
+					glue.MLTransformParameter{}, map[string]string{"env": "prod"}, glue.MLTransformOptions{})
+				require.NoError(t, err)
+
+				resourceARN := arn.Build("glue", b.Region(), b.AccountID(), "mlTransform/"+m.TransformID)
+
+				return resourceARN, func(t *testing.T) {
+					t.Helper()
+					require.NoError(t, b.UpdateMLTransform(m.TransformID, glue.MLTransform{Description: "updated"}))
+				}
+			},
+		},
+		{
+			name: "udf",
+			setup: func(t *testing.T, b *glue.InMemoryBackend) (string, func(t *testing.T)) {
+				t.Helper()
+
+				_, err := b.CreateDatabase(glue.DatabaseInput{Name: "udfdb-upd"}, nil)
+				require.NoError(t, err)
+
+				u, err := b.CreateUserDefinedFunction("udfdb-upd", glue.UserDefinedFunction{FunctionName: "fn1"},
+					map[string]string{"env": "prod"})
+				require.NoError(t, err)
+
+				return u.FunctionARN, func(t *testing.T) {
+					t.Helper()
+					require.NoError(t, b.UpdateUserDefinedFunction("udfdb-upd", "fn1",
+						glue.UserDefinedFunction{FunctionName: "fn1", ClassName: "com.example.Fn"}))
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := glue.NewInMemoryBackend(testAccountID, testRegion)
+			resourceARN, doUpdate := tt.setup(t, b)
+
+			doUpdate(t)
+
+			got, err := b.GetTags(resourceARN)
+			require.NoError(t, err)
+			assert.Equal(t, map[string]string{"env": "prod"}, got)
 		})
 	}
 }

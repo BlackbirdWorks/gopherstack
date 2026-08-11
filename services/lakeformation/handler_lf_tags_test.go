@@ -371,48 +371,137 @@ func TestAddLFTagsToResource_TableResource(t *testing.T) {
 	assert.Empty(t, out["Failures"])
 }
 
-func TestAddLFTagsToResource_CatalogResource(t *testing.T) {
+// TestAddLFTagsToResource_RejectsNonTaggableResourceKinds covers the
+// resource-kind restriction documented on AddLFTagsToResourceInput.Resource:
+// "The database, table, or column resource to which to attach an LF-tag."
+// (api_op_AddLFTagsToResource.go:29-31, aws-sdk-go-v2/service/lakeformation
+// @v1.50.4). Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/
+// LFTagPolicy are real types.Resource union members but are not valid here --
+// gopherstack previously accepted all of them (a superset of what AWS
+// accepts), which these two cases used to assert as 200 OK.
+func TestAddLFTagsToResource_RejectsNonTaggableResourceKinds(t *testing.T) {
 	t.Parallel()
 
-	b := lakeformation.NewInMemoryBackend()
-	h := lakeformation.NewHandler(b)
-	b.AddLFTagInternal("cat", "level", []string{"gold"})
-
-	rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
-		"CatalogId": "cat",
-		"Resource":  map[string]any{"Catalog": map[string]any{}},
-		"LFTags": []map[string]any{
-			{"TagKey": "level", "TagValues": []string{"gold"}},
+	tests := []struct {
+		resource map[string]any
+		name     string
+	}{
+		{name: "catalog", resource: map[string]any{"Catalog": map[string]any{}}},
+		{
+			name:     "data-location",
+			resource: map[string]any{"DataLocation": map[string]any{"ResourceArn": "arn:aws:s3:::mybucket"}},
 		},
-	})
-	require.Equal(t, http.StatusOK, rec.Code)
+	}
 
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out["Failures"])
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := lakeformation.NewInMemoryBackend()
+			h := lakeformation.NewHandler(b)
+			b.AddLFTagInternal("cat", "level", []string{"gold"})
+
+			rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
+				"CatalogId": "cat",
+				"Resource":  tt.resource,
+				"LFTags": []map[string]any{
+					{"TagKey": "level", "TagValues": []string{"gold"}},
+				},
+			})
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+	}
 }
 
-func TestAddLFTagsToResource_DataLocationResource(t *testing.T) {
+// TestAddLFTagsToResource_TableWithColumnsIsolated proves resourceToKey
+// previously had no TableWithColumns case at all (only Catalog/Database/
+// Table/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy), so
+// every TableWithColumns resource fell through to the same "" key --
+// AddLFTagsToResource on one table-with-columns leaked into
+// GetResourceLFTags on a completely different one.
+func TestAddLFTagsToResource_TableWithColumnsIsolated(t *testing.T) {
 	t.Parallel()
 
 	b := lakeformation.NewInMemoryBackend()
 	h := lakeformation.NewHandler(b)
-	b.AddLFTagInternal("cat", "zone", []string{"raw"})
+	b.AddLFTagInternal("", "env", []string{"prod", "dev"})
 
 	rec := postJSON(t, h, "/AddLFTagsToResource", map[string]any{
-		"CatalogId": "cat",
 		"Resource": map[string]any{
-			"DataLocation": map[string]any{"ResourceArn": "arn:aws:s3:::mybucket"},
+			"TableWithColumns": map[string]any{
+				"DatabaseName": "db1", "Name": "tbl1", "ColumnNames": []string{"col_a"},
+			},
 		},
-		"LFTags": []map[string]any{
-			{"TagKey": "zone", "TagValues": []string{"raw"}},
+		"LFTags": []any{map[string]any{"TagKey": "env", "TagValues": []string{"prod"}}},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = postJSON(t, h, "/GetResourceLFTags", map[string]any{
+		"Resource": map[string]any{
+			"TableWithColumns": map[string]any{
+				"DatabaseName": "db2", "Name": "tbl2", "ColumnNames": []string{"col_b"},
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Empty(t, out["Failures"])
+	require.NoError(t, jsonDecode(rec.Body, &out))
+	assert.Empty(t, out["LFTagsOnTable"], "tags on an unrelated TableWithColumns resource must not leak")
+	assert.Empty(t, out["LFTagsOnColumns"], "tags on an unrelated TableWithColumns resource must not leak")
+}
+
+// TestGetResourceLFTags_ColumnsWireShape covers the real
+// GetResourceLFTagsOutput.LFTagsOnColumns wire shape: []types.ColumnLFTag
+// (Name + LFTags), not a flat []types.LFTagPair -- gopherstack's
+// getResourceLFTagsOutput.LFTagsOnColumns was typed []LFTagPair, and the
+// field was never populated by any code path (a disguised stub: present on
+// the wire struct but dead).
+func TestGetResourceLFTags_ColumnsWireShape(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+	b.AddLFTagInternal("", "env", []string{"prod"})
+
+	postJSON(t, h, "/AddLFTagsToResource", map[string]any{
+		"Resource": map[string]any{
+			"TableWithColumns": map[string]any{
+				"DatabaseName": "db1", "Name": "tbl1", "ColumnNames": []string{"col_a", "col_b"},
+			},
+		},
+		"LFTags": []any{map[string]any{"TagKey": "env", "TagValues": []string{"prod"}}},
+	})
+
+	rec := postJSON(t, h, "/GetResourceLFTags", map[string]any{
+		"Resource": map[string]any{
+			"TableWithColumns": map[string]any{
+				"DatabaseName": "db1", "Name": "tbl1", "ColumnNames": []string{"col_a", "col_b"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, jsonDecode(rec.Body, &out))
+	require.Empty(t, out["LFTagOnDatabase"])
+	require.Empty(t, out["LFTagsOnTable"])
+
+	cols, ok := out["LFTagsOnColumns"].([]any)
+	require.True(t, ok, "LFTagsOnColumns must be a list of ColumnLFTag objects")
+	require.Len(t, cols, 2)
+
+	for _, c := range cols {
+		col, colOK := c.(map[string]any)
+		require.True(t, colOK)
+		assert.Contains(t, []any{"col_a", "col_b"}, col["Name"])
+
+		tags, tagsOK := col["LFTags"].([]any)
+		require.True(t, tagsOK)
+		require.Len(t, tags, 1)
+		pair := tags[0].(map[string]any)
+		assert.Equal(t, "env", pair["TagKey"])
+	}
 }
 
 func TestRemoveLFTagsFromResource_Success(t *testing.T) {
@@ -472,7 +561,39 @@ func TestRemoveLFTagsFromResource_MissingResource(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+// TestRemoveLFTagsFromResource_RejectsNonTaggableResourceKinds mirrors
+// TestAddLFTagsToResource_RejectsNonTaggableResourceKinds: "Only database,
+// table, or tableWithColumns resource are allowed."
+// (api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/
+// lakeformation@v1.50.4).
+func TestRemoveLFTagsFromResource_RejectsNonTaggableResourceKinds(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	rec := postJSON(t, h, "/RemoveLFTagsFromResource", map[string]any{
+		"Resource": map[string]any{"Catalog": map[string]any{}},
+		"LFTags":   []any{map[string]any{"TagKey": "k", "TagValues": []string{"v"}}},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
 // --- GetResourceLFTags tests ---
+
+func TestGetResourceLFTags_RejectsNonTaggableResourceKind(t *testing.T) {
+	t.Parallel()
+
+	b := lakeformation.NewInMemoryBackend()
+	h := lakeformation.NewHandler(b)
+
+	rec := postJSON(t, h, "/GetResourceLFTags", map[string]any{
+		"Resource": map[string]any{"DataLocation": map[string]any{"ResourceArn": "arn:aws:s3:::b"}},
+	})
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
 
 func TestGetResourceLFTags_Empty(t *testing.T) {
 	t.Parallel()

@@ -45,6 +45,16 @@ type ARNTagger func(ctx context.Context, arn string, tags map[string]string) (bo
 // The context carries the per-request AWS region.
 type ARNUntagger func(ctx context.Context, arn string, keys []string) (bool, error)
 
+// TagPolicyProvider returns this account's effective TAG_POLICY document content --
+// the same JSON a real DescribeEffectivePolicy(PolicyType=TAG_POLICY) call against
+// AWS Organizations would return (see services/organizations/effective_policy.go) --
+// and whether one is configured at all. ListRequiredTags uses this to derive real
+// required-tag data instead of always returning an empty list. Central wiring (cli.go)
+// is expected to register the organizations backend's effective policy for this
+// account; with no provider registered, ListRequiredTags accurately reports the real
+// AWS behavior for an account with no tag policy attached: an empty list.
+type TagPolicyProvider func() (content string, ok bool)
+
 // resourceCache holds a cached snapshot of GetResources results.
 type resourceCache struct {
 	expiresAt time.Time
@@ -92,6 +102,17 @@ func (b *InMemoryBackend) RegisterARNUntagger(u ARNUntagger) {
 	defer b.mu.Unlock()
 
 	b.untaggers = append(b.untaggers, u)
+}
+
+// RegisterTagPolicyProvider sets the single provider ListRequiredTags consults for
+// this account's effective TAG_POLICY document. A second call replaces the first --
+// there is exactly one effective tag policy per account, unlike the many-provider
+// registries above.
+func (b *InMemoryBackend) RegisterTagPolicyProvider(p TagPolicyProvider) {
+	b.mu.Lock("RegisterTagPolicyProvider")
+	defer b.mu.Unlock()
+
+	b.tagPolicyProvider = p
 }
 
 // getResources collects all resources from registered providers.

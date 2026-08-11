@@ -169,6 +169,7 @@ type putConfigRuleBody struct {
 
 type putConfigRuleInput struct {
 	ConfigRule putConfigRuleBody `json:"ConfigRule"`
+	Tags       []Tag             `json:"Tags,omitempty"`
 }
 
 func (h *Handler) handlePutConfigRule(
@@ -198,7 +199,17 @@ func (h *Handler) handlePutConfigRule(
 		}
 	}
 
-	return &emptyOutput{}, h.Backend.PutConfigRule(rule)
+	if err := h.Backend.PutConfigRule(rule); err != nil {
+		return nil, err
+	}
+
+	if len(in.Tags) > 0 {
+		if err := h.Backend.TagResource(rule.ConfigRuleArn, in.Tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &emptyOutput{}, nil
 }
 
 // DescribeConfigRuleEvaluationStatus request/response types and handler.

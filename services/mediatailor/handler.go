@@ -36,6 +36,9 @@ const (
 	sigV4Service = "mediatailor"
 
 	keyMessage = "Message"
+	// amznErrorTypeHeader carries the modeled exception type name for the
+	// restjson1 protocol -- see errType's doc comment.
+	amznErrorTypeHeader = "X-Amzn-Errortype"
 	// keyTags is the wire name for the Tags map on every MediaTailor operation.
 	// Unlike every other field (which is PascalCase), the real MediaTailor
 	// restjson1 model gives this member a "tags" (lowercase) locationName —
@@ -50,6 +53,7 @@ const (
 	keyChannelName        = "ChannelName"
 	keySourceGroup        = "SourceGroup"
 	keyVodSourceName      = "VodSourceName"
+	keyBaseURL            = "BaseUrl"
 	keyLiveSourceName     = "LiveSourceName"
 
 	splitTwo   = 2
@@ -681,6 +685,28 @@ func errStatus(err error) int {
 	}
 }
 
+// errType returns the AWS modeled exception type name for err, matching the
+// literal strings errors.go's sentinels wrap (ErrNotFound wraps
+// "NotFoundException", etc). This travels in the X-Amzn-Errortype header --
+// aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// checks that header before falling back to a "code"/"__type" body field, and
+// without it every mediatailor error deserializes client-side as a generic
+// UnknownError regardless of the real failure.
+func errType(err error) string {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return "NotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return "ConflictException"
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return "BadRequestException"
+	default:
+		return "InternalFailure"
+	}
+}
+
 func respondErr(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errType(err))
+
 	return c.JSON(errStatus(err), map[string]any{keyMessage: err.Error()})
 }

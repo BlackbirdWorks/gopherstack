@@ -289,15 +289,56 @@ func (h *Handler) handleTerminateEnvironment(ctx context.Context, vals url.Value
 
 // --- Environment Resources ---
 
+// asgMemberType through triggerMemberType mirror elasticbeanstalk@v1.37.4
+// types.AutoScalingGroup/Instance/LaunchConfiguration/LaunchTemplate/
+// LoadBalancer/Queue/Trigger (types.go:162,709,796,805,826,1185,1428):
+// each is a one- or two-field member of an EnvironmentResourceDescription
+// list, not a bare string.
+
+type asgMemberType struct {
+	Name string `xml:"Name,omitempty"`
+}
+
+type instanceMemberType struct {
+	ID string `xml:"Id,omitempty"`
+}
+
+type launchConfigMemberType struct {
+	Name string `xml:"Name,omitempty"`
+}
+
+type launchTemplateMemberType struct {
+	ID string `xml:"Id,omitempty"`
+}
+
+type loadBalancerMemberType struct {
+	Name string `xml:"Name,omitempty"`
+}
+
+type queueMemberType struct {
+	Name string `xml:"Name,omitempty"`
+	URL  string `xml:"URL,omitempty"`
+}
+
+type triggerMemberType struct {
+	Name string `xml:"Name,omitempty"`
+}
+
+// environmentResourceDescType mirrors types.EnvironmentResourceDescription
+// (elasticbeanstalk@v1.37.4 types.go:605). Each list uses a two-segment path
+// with a struct element so encoding/xml repeats <member> per item; a
+// three-segment path onto a []string (e.g. "AutoScalingGroups>member>Name")
+// nests every element under ONE shared <member> instead of one per item,
+// collapsing multi-item lists to their last value (gopherstack-5pim).
 type environmentResourceDescType struct {
-	EnvironmentName      string   `xml:"EnvironmentName"`
-	AutoScalingGroups    []string `xml:"AutoScalingGroups>member>Name"`
-	Instances            []string `xml:"Instances>member>Id"`
-	LaunchConfigurations []string `xml:"LaunchConfigurations>member>Name"`
-	LaunchTemplates      []string `xml:"LaunchTemplates>member>Id"`
-	LoadBalancers        []string `xml:"LoadBalancers>member>Name"`
-	Queues               []string `xml:"Queues>member>URL"`
-	Triggers             []string `xml:"Triggers>member>Name"`
+	EnvironmentName      string                     `xml:"EnvironmentName"`
+	AutoScalingGroups    []asgMemberType            `xml:"AutoScalingGroups>member"`
+	Instances            []instanceMemberType       `xml:"Instances>member"`
+	LaunchConfigurations []launchConfigMemberType   `xml:"LaunchConfigurations>member"`
+	LaunchTemplates      []launchTemplateMemberType `xml:"LaunchTemplates>member"`
+	LoadBalancers        []loadBalancerMemberType   `xml:"LoadBalancers>member"`
+	Queues               []queueMemberType          `xml:"Queues>member"`
+	Triggers             []triggerMemberType        `xml:"Triggers>member"`
 }
 
 type describeEnvironmentResourcesResult struct {
@@ -330,14 +371,15 @@ func (h *Handler) handleDescribeEnvironmentResources(ctx context.Context, vals u
 	env := envs[0]
 	resources := environmentResourceDescType{
 		EnvironmentName:      env.EnvironmentName,
-		AutoScalingGroups:    []string{env.EnvironmentName + "-asg"},
-		Instances:            []string{"i-" + strings.TrimPrefix(env.EnvironmentID, "e-")},
-		LaunchConfigurations: []string{env.EnvironmentName + "-lc"},
+		AutoScalingGroups:    []asgMemberType{{Name: env.EnvironmentName + "-asg"}},
+		Instances:            []instanceMemberType{{ID: "i-" + strings.TrimPrefix(env.EnvironmentID, "e-")}},
+		LaunchConfigurations: []launchConfigMemberType{{Name: env.EnvironmentName + "-lc"}},
 	}
 	if env.TierName == "Worker" {
-		resources.Queues = []string{"https://sqs." + env.Region + ".amazonaws.com/" + env.EnvironmentName}
+		queueURL := "https://sqs." + env.Region + ".amazonaws.com/" + env.EnvironmentName
+		resources.Queues = []queueMemberType{{URL: queueURL}}
 	} else {
-		resources.LoadBalancers = []string{env.EnvironmentName + "-lb"}
+		resources.LoadBalancers = []loadBalancerMemberType{{Name: env.EnvironmentName + "-lb"}}
 	}
 
 	return &describeEnvironmentResourcesResponse{

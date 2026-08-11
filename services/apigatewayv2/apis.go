@@ -57,14 +57,16 @@ func (b *InMemoryBackend) CreateAPI(ctx context.Context, input CreateAPIInput) (
 
 	id := randomID()
 	api := API{
-		APIID:                     id,
-		Name:                      input.Name,
-		Description:               input.Description,
-		ProtocolType:              input.ProtocolType,
-		RouteSelectionExpression:  rse,
-		Version:                   input.Version,
-		Tags:                      copyTags(input.Tags),
-		APIEndpoint:               "https://" + id + ".execute-api." + regionFromCtx(ctx) + ".amazonaws.com",
+		APIID:                    id,
+		Name:                     input.Name,
+		Description:              input.Description,
+		ProtocolType:             input.ProtocolType,
+		RouteSelectionExpression: rse,
+		Version:                  input.Version,
+		Tags:                     copyTags(input.Tags),
+		APIEndpoint: "https://" + id + ".execute-api." + regionFromCtx(
+			ctx,
+		) + ".amazonaws.com",
 		CreatedDate:               isoTime{time.Now()},
 		APIKeySelectionExpression: keySelExpr,
 		IPAddressType:             ipAddressType,
@@ -242,7 +244,9 @@ func (b *InMemoryBackend) deleteAPIChildrenLocked(apiID string) {
 
 	for _, i := range slices.Clone(b.integrationsByAPI.Get(apiID)) {
 		for _, ir := range slices.Clone(b.integrationResponsesByIntegration.Get(integrationKey(apiID, i.IntegrationID))) {
-			b.integrationResponses.Delete(integrationResponseKey(apiID, i.IntegrationID, ir.IntegrationResponseID))
+			b.integrationResponses.Delete(
+				integrationResponseKey(apiID, i.IntegrationID, ir.IntegrationResponseID),
+			)
 		}
 
 		b.integrations.Delete(integrationKey(apiID, i.IntegrationID))
@@ -283,7 +287,9 @@ func (b *InMemoryBackend) DeleteAPI(apiID string) error {
 	return nil
 }
 
-// UpdateAPI updates fields on an existing API.
+// UpdateAPI updates fields on an existing API. All of input is validated
+// before any field is mutated, so a rejected update never leaves the API (or
+// its quick-create route/integration) in a partially-applied state.
 func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, error) {
 	b.mu.Lock("UpdateAPI")
 	defer b.mu.Unlock()
@@ -291,6 +297,17 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 	api, ok := b.apis.Get(apiID)
 	if !ok {
 		return nil, ErrAPINotFound
+	}
+
+	if input.IPAddressType != "" {
+		if err := validateIPAddressType(input.IPAddressType); err != nil {
+			return nil, err
+		}
+	}
+
+	route, integration, err := b.validateQuickCreateUpdateLocked(apiID, input)
+	if err != nil {
+		return nil, err
 	}
 
 	if input.Name != "" {
@@ -331,54 +348,93 @@ func (b *InMemoryBackend) UpdateAPI(apiID string, input UpdateAPIInput) (*API, e
 	}
 
 	if input.IPAddressType != "" {
-		if err := validateIPAddressType(input.IPAddressType); err != nil {
-			return nil, err
-		}
-
 		api.IPAddressType = input.IPAddressType
 	}
 
-	if err := b.applyQuickCreateUpdateLocked(apiID, input); err != nil {
-		return nil, err
-	}
+	applyQuickCreateUpdateMutateLocked(route, integration, input)
 
 	cp := *api
 
 	return &cp, nil
 }
 
-// applyQuickCreateUpdateLocked applies UpdateApiInput's routeKey/target
-// fields, which are "part of quick create": each independently replaces the
-// route key / integration target+type of the API's existing quick-create
-// route/integration (found via APIGatewayManaged), matching AWS ("you can
-// update a quick-created target, but you can't remove it from an API").
-// Callers must already hold b.mu.
-func (b *InMemoryBackend) applyQuickCreateUpdateLocked(apiID string, input UpdateAPIInput) error {
+// validateQuickCreateUpdateLocked validates UpdateApiInput's routeKey/target/
+// credentialsArn fields, which are "part of quick create", against the API's
+// existing quick-create route/integration (found via APIGatewayManaged),
+// matching AWS ("you can update a quick-created target, but you can't remove
+// it from an API"). It does not mutate the route/integration -- callers
+// apply the change via applyQuickCreateUpdateMutateLocked only after every
+// field on the whole UpdateAPIInput has validated successfully. Callers must
+// already hold b.mu.
+func (b *InMemoryBackend) validateQuickCreateUpdateLocked(
+	apiID string,
+	input UpdateAPIInput,
+) (*Route, *Integration, error) {
+	var route *Route
+
 	if input.RouteKey != "" {
-		route := findManagedRoute(b.routesByAPI.Get(apiID))
+		route = findManagedRoute(b.routesByAPI.Get(apiID))
 		if route == nil {
-			return fmt.Errorf("%w: API has no quick-create route to update", ErrBadRequest)
+			return nil, nil, fmt.Errorf(
+				"%w: API has no quick-create route to update",
+				ErrBadRequest,
+			)
 		}
 
 		if err := validateHTTPRouteKey(input.RouteKey); err != nil {
-			return err
+			return nil, nil, err
 		}
 
 		for _, existing := range b.routesByAPI.Get(apiID) {
 			if existing.RouteID != route.RouteID && existing.RouteKey == input.RouteKey {
-				return fmt.Errorf("%w: route key %q already exists", ErrAlreadyExists, input.RouteKey)
+				return nil, nil, fmt.Errorf(
+					"%w: route key %q already exists",
+					ErrAlreadyExists,
+					input.RouteKey,
+				)
 			}
 		}
+	}
 
+	var integration *Integration
+
+	if input.Target != "" {
+		integration = findManagedIntegration(b.integrationsByAPI.Get(apiID))
+		if integration == nil {
+			return nil, nil, fmt.Errorf(
+				"%w: API has no quick-create target to update",
+				ErrBadRequest,
+			)
+		}
+	}
+
+	if input.CredentialsArn != "" && integration == nil {
+		integration = findManagedIntegration(b.integrationsByAPI.Get(apiID))
+		if integration == nil {
+			return nil, nil, fmt.Errorf(
+				"%w: API has no quick-create integration to update",
+				ErrBadRequest,
+			)
+		}
+	}
+
+	return route, integration, nil
+}
+
+// applyQuickCreateUpdateMutateLocked applies the routeKey/target/
+// credentialsArn changes validateQuickCreateUpdateLocked already validated.
+// route/integration are nil when the corresponding input field was unset.
+// Callers must already hold b.mu.
+func applyQuickCreateUpdateMutateLocked(
+	route *Route,
+	integration *Integration,
+	input UpdateAPIInput,
+) {
+	if input.RouteKey != "" {
 		route.RouteKey = input.RouteKey
 	}
 
 	if input.Target != "" {
-		integration := findManagedIntegration(b.integrationsByAPI.Get(apiID))
-		if integration == nil {
-			return fmt.Errorf("%w: API has no quick-create target to update", ErrBadRequest)
-		}
-
 		integration.IntegrationURI = input.Target
 		integration.IntegrationType = integrationTypeHTTPProxy
 
@@ -387,28 +443,9 @@ func (b *InMemoryBackend) applyQuickCreateUpdateLocked(apiID string, input Updat
 		}
 	}
 
-	return b.applyQuickCreateCredentialsUpdateLocked(apiID, input.CredentialsArn)
-}
-
-// applyQuickCreateCredentialsUpdateLocked applies UpdateApiInput's
-// CredentialsArn, also "part of quick create": if set, it independently
-// replaces the credentials on the API's existing quick-create integration
-// (found via APIGatewayManaged), matching AWS ("this value replaces the
-// credentials associated with the quick create integration"). Callers must
-// already hold b.mu.
-func (b *InMemoryBackend) applyQuickCreateCredentialsUpdateLocked(apiID, credentialsArn string) error {
-	if credentialsArn == "" {
-		return nil
+	if input.CredentialsArn != "" {
+		integration.CredentialsArn = input.CredentialsArn
 	}
-
-	integration := findManagedIntegration(b.integrationsByAPI.Get(apiID))
-	if integration == nil {
-		return fmt.Errorf("%w: API has no quick-create integration to update", ErrBadRequest)
-	}
-
-	integration.CredentialsArn = credentialsArn
-
-	return nil
 }
 
 // findManagedRoute returns the quick-create-provisioned route among routes,

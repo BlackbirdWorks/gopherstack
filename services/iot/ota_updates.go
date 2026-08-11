@@ -36,6 +36,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	id, description, roleARN string,
 	targets []string,
 	files []any,
+	tags map[string]string,
 ) (*OTAUpdate, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -56,6 +57,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 		LastModifiedDate: now,
 	}
 	b.otaUpdates.Put(o)
+	b.putResourceTagsLocked(o.OTAUpdateARN, tags)
 
 	return cloneOTAUpdate(o), nil
 }

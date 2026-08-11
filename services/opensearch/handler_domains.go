@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // domainNamePattern matches valid OpenSearch domain names: starts with a lowercase letter,
@@ -39,28 +40,25 @@ func validateDomainName(name string) error {
 
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
-	ClusterConfig               *domainClusterConfig                `json:"ClusterConfig,omitempty"`
-	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
+	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
+	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
-	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
+	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
 	NodeToNodeEncryptionOptions *nodeToNodeEncryptJSON              `json:"NodeToNodeEncryptionOptions,omitempty"`
 	DomainEndpointOptions       *domainEndpointOptionsJSON          `json:"DomainEndpointOptions,omitempty"`
 	AdvancedSecurityOptions     *advancedSecurityOptionsJSON        `json:"AdvancedSecurityOptions,omitempty"`
 	VPCOptions                  *vpcOptionsJSON                     `json:"VPCOptions,omitempty"`
-	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
-	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
-	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
+	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
+	ClusterConfig               *domainClusterConfig                `json:"ClusterConfig,omitempty"`
+	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"SoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
-	Tags                        map[string]string                   `json:"TagList,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	EngineVersion               string                              `json:"EngineVersion"`
 	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
 	DryRunMode                  string                              `json:"DryRunMode,omitempty"`
-	// DryRun applies only to UpdateDomainConfig: when true the request must be
-	// validated without mutating the domain (see aws-sdk-go-v2
-	// UpdateDomainConfigInput.DryRun).
-	DryRun bool `json:"DryRun,omitempty"`
+	Tags                        []svcTags.KV                        `json:"TagList,omitempty"`
+	DryRun                      bool                                `json:"DryRun,omitempty"`
 }
 
 // domainStatusJSON is the JSON response for domain operations.
@@ -75,7 +73,7 @@ type domainStatusJSON struct {
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	OffPeakWindowOptions        *offPeakWindowOptionsJSON           `json:"OffPeakWindowOptions"`
 	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"EnableSoftwareUpdateOptions"`
+	EnableSoftwareUpdateOptions *enableSoftwareUpdateOptionsJSON    `json:"SoftwareUpdateOptions"`
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	ARN                         string                              `json:"ARN"`
@@ -144,7 +142,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		Name:                        req.DomainName,
 		EngineVersion:               upd.EngineVersion,
 		AccessPolicies:              upd.AccessPolicies,
-		Tags:                        req.Tags,
+		Tags:                        svcTags.MapFromKV(req.Tags),
 		ClusterConfig:               parseClusterConfigFromReq(req.ClusterConfig),
 		EBSOptions:                  upd.EBSOptions,
 		SnapshotOptions:             upd.SnapshotOptions,

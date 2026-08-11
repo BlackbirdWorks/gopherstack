@@ -149,7 +149,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.NotNil(t, refBytes)
 
 	// SequenceStore + readSets + readSetImportJobs.
-	seqStore, err := original.CreateSequenceStore("seq-store-1", "desc", map[string]string{"env": "test"})
+	seqStore, err := original.CreateSequenceStore("seq-store-1", "desc", "", "", map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	readSetImportJob, err := original.StartReadSetImportJob(seqStore.ID, "role-arn", []omics.ReadSetImportJobSource{
@@ -256,7 +256,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	// RunBatch.
-	runBatch, err := original.StartRunBatch(workflow.ID, "role-arn", "run-batch-1")
+	runBatch, err := original.StartRunBatch(
+		"run-batch-1",
+		omics.DefaultRunSetting{WorkflowID: workflow.ID, RoleARN: "role-arn"},
+		[]omics.InlineRunSetting{{RunSettingID: "setting-1"}},
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Configuration.

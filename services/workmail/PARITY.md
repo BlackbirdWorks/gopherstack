@@ -1,6 +1,6 @@
 ---
 service: workmail
-sdk_module: aws-sdk-go-v2/service/workmail@v1.37.2
+sdk_module: aws-sdk-go-v2/service/workmail@v1.39.4
 last_audit_commit: dc877102
 last_audit_date: 2026-07-23
 overall: A            # 6 gaps + 1 (already-fixed, stale-labeled) deferred item closed; 1 real leak class fixed; banned nolint removed

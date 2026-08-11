@@ -119,7 +119,7 @@ func TestStackSet_CRUD(t *testing.T) {
 // TestStackSet_DescribeFieldCompleteness locks in the DescribeStackSetResult.StackSet
 // fields that were previously silently dropped (parity gap: only
 // StackSetId/StackSetName/Status/Description were returned). Field-diffed against
-// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// aws-sdk-go-v2/service/cloudformation@v1.76.1's
 // awsAwsquery_deserializeDocumentStackSet.
 func TestStackSet_DescribeFieldCompleteness(t *testing.T) {
 	t.Parallel()
@@ -429,7 +429,7 @@ func TestDescribeStackSetOperation_Action(t *testing.T) {
 // distinguishes its two modeled not-found errors: StackSetNotFoundException when the
 // StackSetName itself doesn't exist, vs OperationNotFoundException when the StackSet
 // exists but the OperationId doesn't. Field-diffed against
-// aws-sdk-go-v2/service/cloudformation@v1.71.7's
+// aws-sdk-go-v2/service/cloudformation@v1.76.1's
 // awsAwsquery_deserializeOpErrorDescribeStackSetOperation, which models both cases.
 func TestDescribeStackSetOperation_NotFoundErrorCodes(t *testing.T) {
 	t.Parallel()

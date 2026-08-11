@@ -118,6 +118,9 @@ func (b *InMemoryBackend) create(kind resourceKind, name string, data map[string
 	}
 	table.Put(resource)
 	b.arnIndex[resource.ARN] = arnEntry{kind: kind, name: name}
+	if tags := tagsFromInput(data); len(tags) > 0 {
+		b.tags[resource.ARN] = tags
+	}
 	if kind == kindMonitor {
 		b.evaluations[resource.ARN] = []MonitorEvaluation{newEvaluation(resource)}
 	}
@@ -150,6 +153,10 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 	resource, ok := b.lookupLocked(kind, nameOrARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
+	}
+
+	if err := b.validateUpdateFieldsLocked(kind, data); err != nil {
+		return nil, err
 	}
 
 	for key, value := range data {

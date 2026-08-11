@@ -157,13 +157,13 @@ func TestEventSubscription_AllSourceIDs(t *testing.T) {
 
 	h := newTestHandler(t)
 	rr := doRequest(t, h, url.Values{
-		"Action":             {"CreateEventSubscription"},
-		"Version":            {"2014-10-31"},
-		"SubscriptionName":   {"sub-sources"},
-		"SnsTopicArn":        {"arn:aws:sns:us-east-1:000000000000:test-topic"},
-		"SourceIds.member.1": {"cluster-a"},
-		"SourceIds.member.2": {"cluster-b"},
-		"SourceIds.member.3": {"cluster-c"},
+		"Action":               {"CreateEventSubscription"},
+		"Version":              {"2014-10-31"},
+		"SubscriptionName":     {"sub-sources"},
+		"SnsTopicArn":          {"arn:aws:sns:us-east-1:000000000000:test-topic"},
+		"SourceIds.SourceId.1": {"cluster-a"},
+		"SourceIds.SourceId.2": {"cluster-b"},
+		"SourceIds.SourceId.3": {"cluster-c"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()

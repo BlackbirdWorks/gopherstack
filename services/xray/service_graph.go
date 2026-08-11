@@ -70,12 +70,15 @@ func accumulateNodeStats(node *serviceNode, seg *Segment) {
 	}
 }
 
-// buildEdgeSet returns the set of directed edges between service nodes.
-func buildEdgeSet(
+// buildEdgeStats aggregates per-edge response statistics from the downstream segment
+// of each parent/child pair. Edge direction is caller->callee (Service.Edges is
+// documented as "Connections to downstream services", aws-sdk-go-v2/service/xray
+// types/types.go:1192), so the stats live on the caller's edge to the callee.
+func buildEdgeStats(
 	traceSegs map[string][]*Segment,
 	segToService map[string]serviceKey,
-) map[edgeKey]bool {
-	edgeSet := map[edgeKey]bool{}
+) map[edgeKey]*serviceNode {
+	edgeStats := map[edgeKey]*serviceNode{}
 
 	for _, segs := range traceSegs {
 		for _, seg := range segs {
@@ -89,68 +92,93 @@ func buildEdgeSet(
 			}
 
 			childKey := segToService[seg.ID]
-			if childKey != parentKey {
-				edgeSet[edgeKey{From: childKey, To: parentKey}] = true
+			if childKey == parentKey {
+				continue
 			}
+
+			key := edgeKey{From: parentKey, To: childKey}
+
+			edge, ok := edgeStats[key]
+			if !ok {
+				edge = &serviceNode{}
+				edgeStats[key] = edge
+			}
+
+			accumulateNodeStats(edge, seg)
 		}
 	}
 
-	return edgeSet
+	return edgeStats
+}
+
+// summaryStatisticsView builds the shared {OkCount,ErrorStatistics,FaultStatistics,
+// TotalCount,TotalResponseTime} shape used by both Service.SummaryStatistics and
+// Edge.SummaryStatistics (aws-sdk-go-v2/service/xray types/types.go:142 EdgeStatistics
+// is a strict subset of ServiceStatistics's fields).
+func summaryStatisticsView(s *serviceNode) map[string]any {
+	return map[string]any{
+		"OkCount": s.OkCount,
+		"ErrorStatistics": map[string]any{
+			"ThrottleCount":        s.ThrottleCount,
+			"OtherCount":           s.ErrorCount,
+			serviceGraphTotalCount: s.ThrottleCount + s.ErrorCount,
+		},
+		"FaultStatistics": map[string]any{
+			serviceGraphTotalCount: s.FaultCount,
+		},
+		serviceGraphTotalCount: s.TotalCount,
+		"TotalResponseTime":    s.TotalRespTime,
+	}
 }
 
 // nodeToView converts a service node to its JSON output representation.
 func nodeToView(
 	key serviceKey,
 	node *serviceNode,
-	edgeSet map[edgeKey]bool,
+	edgeStats map[edgeKey]*serviceNode,
 	nodeMap map[serviceKey]*serviceNode,
 ) map[string]any {
 	nodeEdges := make([]map[string]any, 0)
 
-	for e := range edgeSet {
-		if e.From == key {
-			to := nodeMap[e.To]
-			nodeEdges = append(nodeEdges, map[string]any{
-				"ReferenceId": to.ReferenceID,
-			})
+	for e, stats := range edgeStats {
+		if e.From != key {
+			continue
 		}
+
+		to := nodeMap[e.To]
+		nodeEdges = append(nodeEdges, map[string]any{
+			"ReferenceId":       to.ReferenceID,
+			keyStartTime:        stats.StartTime,
+			keyEndTime:          stats.EndTime,
+			"SummaryStatistics": summaryStatisticsView(stats),
+		})
 	}
 
+	nodeStats := summaryStatisticsView(node)
+	nodeStats["DurationHistogram"] = []any{}
+
 	return map[string]any{
-		"ReferenceId": node.ReferenceID,
-		"Name":        node.Name,
-		"Type":        node.Type,
-		"State":       "active",
-		"Root":        node.IsRoot,
-		"StartTime":   node.StartTime,
-		"EndTime":     node.EndTime,
-		"Edges":       nodeEdges,
-		"SummaryStatistics": map[string]any{
-			"OkCount": node.OkCount,
-			"ErrorStatistics": map[string]any{
-				"ThrottleCount":        node.ThrottleCount,
-				"OtherCount":           node.ErrorCount,
-				serviceGraphTotalCount: node.ThrottleCount + node.ErrorCount,
-			},
-			"FaultStatistics": map[string]any{
-				serviceGraphTotalCount: node.FaultCount,
-			},
-			serviceGraphTotalCount: node.TotalCount,
-			"TotalResponseTime":    node.TotalRespTime,
-			"DurationHistogram":    []any{},
-		},
+		"ReferenceId":       node.ReferenceID,
+		"Name":              node.Name,
+		"Type":              node.Type,
+		"State":             "active",
+		"Root":              node.IsRoot,
+		keyStartTime:        node.StartTime,
+		keyEndTime:          node.EndTime,
+		"Edges":             nodeEdges,
+		"SummaryStatistics": nodeStats,
 	}
 }
 
 // buildServiceGraph builds service nodes from a map of traceID → segments.
 func buildServiceGraph(traceSegs map[string][]*Segment) []map[string]any {
 	nodeMap, segToService := accumulateServiceNodes(traceSegs)
-	edgeSet := buildEdgeSet(traceSegs, segToService)
+	edgeStats := buildEdgeStats(traceSegs, segToService)
 
 	nodes := make([]map[string]any, 0, len(nodeMap))
 
 	for key, node := range nodeMap {
-		nodes = append(nodes, nodeToView(key, node, edgeSet, nodeMap))
+		nodes = append(nodes, nodeToView(key, node, edgeStats, nodeMap))
 	}
 
 	sort.Slice(nodes, func(i, j int) bool {

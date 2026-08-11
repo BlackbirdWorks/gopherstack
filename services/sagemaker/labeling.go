@@ -148,7 +148,7 @@ type LabelingJob struct {
 	LabelingJobOutput           *LabelingJobOutput             `json:"LabelingJobOutput,omitempty"`
 	StoppingConditions          *LabelingJobStoppingConditions `json:"StoppingConditions,omitempty"`
 	LabelingJobAlgorithmsConfig *LabelingJobAlgorithmsConfig   `json:"LabelingJobAlgorithmsConfig,omitempty"`
-	Tags                        map[string]string              `json:"-"`
+	Tags                        map[string]string              `json:"Tags,omitempty"`
 	OutputConfig                LabelingJobOutputConfig        `json:"OutputConfig"`
 	LabelingJobName             string                         `json:"LabelingJobName"`
 	LabelingJobArn              string                         `json:"LabelingJobArn"`

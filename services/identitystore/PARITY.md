@@ -1,6 +1,6 @@
 ---
 service: identitystore
-sdk_module: aws-sdk-go-v2/service/identitystore@v1.36.3   # version audited against
+sdk_module: aws-sdk-go-v2/service/identitystore@v1.39.4   # version audited against
 last_audit_commit: a872ba9b                       # HEAD when the previous manifest was written (git not run this pass)
 last_audit_date: 2026-07-25
 overall: A            # all 5 previously-dismissed gaps re-investigated: 1 real bug fixed, 3 implemented with concrete evidence, 1 kept as documented (justified) superset; a 6th, previously-unflagged wire bug found and fixed (CreateUser accepted an invented ExternalIds field)

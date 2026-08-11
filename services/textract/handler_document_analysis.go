@@ -7,8 +7,10 @@ import (
 
 // documentInput is the input for synchronous document operations.
 type documentInput struct {
-	QueriesConfig *QueriesConfig `json:"QueriesConfig"`
-	Document      struct {
+	QueriesConfig   *QueriesConfig   `json:"QueriesConfig"`
+	AdaptersConfig  *AdaptersConfig  `json:"AdaptersConfig"`
+	HumanLoopConfig *HumanLoopConfig `json:"HumanLoopConfig"`
+	Document        struct {
 		S3Object struct {
 			Bucket string `json:"Bucket"`
 			Name   string `json:"Name"`
@@ -20,8 +22,9 @@ type documentInput struct {
 
 // analyzeDocumentResponse is the response for AnalyzeDocument.
 type analyzeDocumentResponse struct {
-	AnalyzeDocumentModelVersion string  `json:"AnalyzeDocumentModelVersion"`
-	Blocks                      []Block `json:"Blocks"`
+	HumanLoopActivationOutput   *HumanLoopActivationOutput `json:"HumanLoopActivationOutput,omitempty"`
+	AnalyzeDocumentModelVersion string                     `json:"AnalyzeDocumentModelVersion"`
+	Blocks                      []Block                    `json:"Blocks"`
 	DocumentMetadata            struct {
 		Pages int `json:"Pages"`
 	} `json:"DocumentMetadata"`
@@ -39,11 +42,19 @@ func (h *Handler) handleAnalyzeDocument(
 		return nil, err
 	}
 
+	if err := validateHumanLoopConfig(in.HumanLoopConfig); err != nil {
+		return nil, err
+	}
+
 	uri := documentURI(in.Document.S3Object.Bucket, in.Document.S3Object.Name)
 
 	var blocks []Block
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if err := b.ValidateAdaptersConfig(ctx, in.AdaptersConfig); err != nil {
+			return nil, err
+		}
+
 		blocks = b.AnalyzeDocumentWithFeatures(ctx, uri, in.FeatureTypes, in.QueriesConfig)
 	} else {
 		blocks = h.Backend.AnalyzeDocument(ctx, uri)
@@ -84,6 +95,10 @@ func (h *Handler) handleStartDocumentAnalysis(
 	var err error
 
 	if b, ok := h.Backend.(*InMemoryBackend); ok {
+		if err = b.ValidateAdaptersConfig(ctx, in.AdaptersConfig); err != nil {
+			return nil, err
+		}
+
 		job, err = b.StartDocumentAnalysisWithOptions(
 			ctx,
 			uri,

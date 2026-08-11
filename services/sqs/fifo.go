@@ -39,6 +39,31 @@ func checkFIFOPerGroupRateLimit(q *Queue, group string, now time.Time) error {
 	return nil
 }
 
+// fifoThroughputPairingValid reports whether the effective FifoThroughputLimit/
+// DeduplicationScope combination — incoming attributes overlaid on existing
+// queue state — is legal. AWS: "The perMessageGroupId value is allowed only
+// when the value for DeduplicationScope is messageGroup" (aws-sdk-go-v2/
+// service/sqs@v1.46.4 api_op_SetQueueAttributes.go:179-180). existing is nil
+// for CreateQueue, which has no prior state to merge.
+func fifoThroughputPairingValid(existing, incoming map[string]string) bool {
+	limit, ok := incoming[attrFifoThroughputLimit]
+	if !ok {
+		limit = existing[attrFifoThroughputLimit]
+	}
+
+	if limit != fifoThroughputLimitPerMessageGroupID {
+		return true
+	}
+
+	scope, ok := incoming[attrDeduplicationScope]
+	if !ok {
+		scope = existing[attrDeduplicationScope]
+	}
+
+	// Unset scope defaults to messageGroup (see dedupKey), which is compatible.
+	return scope == "" || scope == fifoDedupScopePerMessageGroup
+}
+
 // fifoPreflight is the outcome of preflightFIFOSend. handled=true means the
 // caller should return Output/Err immediately; handled=false means proceed
 // with normal send flow.

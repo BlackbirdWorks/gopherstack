@@ -1,11 +1,13 @@
 package integration_test
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cloudformationsdk "github.com/aws/aws-sdk-go-v2/service/cloudformation"
+	cftypes "github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,14 +40,19 @@ func TestIntegration_CloudFormation_ResourceIntrospection(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
+	// DescribeStackResource – wait for "MyBucket" to reach CREATE_COMPLETE.
+	var descResOut *cloudformationsdk.DescribeStackResourceOutput
+	require.Eventually(t, func() bool {
+		var descErr error
+		descResOut, descErr = client.DescribeStackResource(ctx, &cloudformationsdk.DescribeStackResourceInput{
+			StackName:         aws.String(stackName),
+			LogicalResourceId: aws.String("MyBucket"),
+		})
 
-	// DescribeStackResource – get the specific "MyBucket" resource.
-	descResOut, err := client.DescribeStackResource(ctx, &cloudformationsdk.DescribeStackResourceInput{
-		StackName:         aws.String(stackName),
-		LogicalResourceId: aws.String("MyBucket"),
-	})
-	require.NoError(t, err)
+		return descErr == nil && descResOut.StackResourceDetail != nil &&
+			descResOut.StackResourceDetail.ResourceStatus == cftypes.ResourceStatusCreateComplete
+	}, 10*time.Second, 50*time.Millisecond)
+
 	require.NotNil(t, descResOut.StackResourceDetail)
 	assert.Equal(t, "MyBucket", *descResOut.StackResourceDetail.LogicalResourceId)
 	assert.Equal(t, "AWS::S3::Bucket", *descResOut.StackResourceDetail.ResourceType)
@@ -98,20 +105,31 @@ func TestIntegration_CloudFormation_CrossStackExports(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
-	// ListExports – the export should appear.
-	exportsOut, err := client.ListExports(ctx, &cloudformationsdk.ListExportsInput{})
-	require.NoError(t, err)
+	// ListExports – wait for the export to appear.
+	var exportsOut *cloudformationsdk.ListExportsOutput
 	var foundExport bool
+	require.Eventually(t, func() bool {
+		var listErr error
+		exportsOut, listErr = client.ListExports(ctx, &cloudformationsdk.ListExportsInput{})
+		if listErr != nil {
+			return false
+		}
+
+		for _, exp := range exportsOut.Exports {
+			if aws.ToString(exp.Name) == exportName {
+				foundExport = true
+			}
+		}
+
+		return foundExport
+	}, 10*time.Second, 50*time.Millisecond, "expected export %q to be present in ListExports", exportName)
+
 	for _, exp := range exportsOut.Exports {
 		if aws.ToString(exp.Name) == exportName {
-			foundExport = true
 			assert.NotEmpty(t, aws.ToString(exp.Value))
 			assert.NotEmpty(t, aws.ToString(exp.ExportingStackId))
 		}
 	}
-	assert.True(t, foundExport, "expected export %q to be present in ListExports", exportName)
 
 	// Create an importing stack that references the export.
 	importTmpl := `{"AWSTemplateFormatVersion":"2010-09-09",` +
@@ -124,13 +142,17 @@ func TestIntegration_CloudFormation_CrossStackExports(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
+	// ListImports – wait for the importing stack to appear.
+	var importsOut *cloudformationsdk.ListImportsOutput
+	require.Eventually(t, func() bool {
+		var listErr error
+		importsOut, listErr = client.ListImports(ctx, &cloudformationsdk.ListImportsInput{
+			ExportName: aws.String(exportName),
+		})
 
-	// ListImports – the importing stack should appear.
-	importsOut, err := client.ListImports(ctx, &cloudformationsdk.ListImportsInput{
-		ExportName: aws.String(exportName),
-	})
-	require.NoError(t, err)
+		return listErr == nil && slices.Contains(importsOut.Imports, importStackName)
+	}, 10*time.Second, 50*time.Millisecond)
+
 	assert.Contains(t, importsOut.Imports, importStackName)
 
 	// Cleanup.
@@ -140,13 +162,19 @@ func TestIntegration_CloudFormation_CrossStackExports(t *testing.T) {
 	_, err = client.DeleteStack(ctx, &cloudformationsdk.DeleteStackInput{StackName: aws.String(exportStackName)})
 	require.NoError(t, err)
 
-	// After deletion, the export should no longer appear.
-	time.Sleep(200 * time.Millisecond)
+	// After deletion, wait for the export to disappear.
+	require.Eventually(t, func() bool {
+		exportsOut2, listErr := client.ListExports(ctx, &cloudformationsdk.ListExportsInput{})
+		if listErr != nil {
+			return false
+		}
 
-	exportsOut2, err := client.ListExports(ctx, &cloudformationsdk.ListExportsInput{})
-	require.NoError(t, err)
+		for _, exp := range exportsOut2.Exports {
+			if aws.ToString(exp.Name) == exportName {
+				return false
+			}
+		}
 
-	for _, exp := range exportsOut2.Exports {
-		assert.NotEqual(t, exportName, aws.ToString(exp.Name), "export should be removed after stack deletion")
-	}
+		return true
+	}, 10*time.Second, 50*time.Millisecond, "export should be removed after stack deletion")
 }

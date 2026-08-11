@@ -54,12 +54,14 @@ type StorageBackend interface {
 		sasConfig *SasConfiguration,
 		agentArns []string,
 		tags map[string]string,
+		secretConfig SecretConfig,
 	) (*Location, error)
 	DescribeLocationAzureBlob(locationArn string) (*LocationAzureBlob, error)
 	UpdateLocationAzureBlob(
 		locationArn, containerURL, subdirectory, blobType, accessTier, authenticationType string,
 		sasConfig *SasConfiguration,
 		agentArns []string,
+		secretConfig SecretConfig,
 	) error
 
 	// Location operations (EFS)
@@ -108,9 +110,13 @@ type StorageBackend interface {
 		fsxFilesystemArn, subdirectory, domain, user, password string,
 		securityGroupArns []string,
 		tags map[string]string,
+		secretConfig SecretConfig,
 	) (*Location, error)
 	DescribeLocationFsxWindows(locationArn string) (*LocationFsxWindows, error)
-	UpdateLocationFsxWindows(locationArn, subdirectory, domain, user, password string) error
+	UpdateLocationFsxWindows(
+		locationArn, subdirectory, domain, user, password string,
+		secretConfig SecretConfig,
+	) error
 
 	// Location operations (HDFS)
 	CreateLocationHdfs(
@@ -122,6 +128,7 @@ type StorageBackend interface {
 		qopConfig *QopConfiguration,
 		agentArns []string,
 		tags map[string]string,
+		secretConfig SecretConfig,
 	) (*Location, error)
 	DescribeLocationHdfs(locationArn string) (*LocationHdfs, error)
 	UpdateLocationHdfs(
@@ -132,6 +139,7 @@ type StorageBackend interface {
 		replicationFactor int32,
 		qopConfig *QopConfiguration,
 		agentArns []string,
+		secretConfig SecretConfig,
 	) error
 
 	// Location operations (NFS)
@@ -150,12 +158,14 @@ type StorageBackend interface {
 		serverPort int32,
 		agentArns []string,
 		tags map[string]string,
+		secretConfig SecretConfig,
 	) (*Location, error)
 	DescribeLocationObjectStorage(locationArn string) (*LocationObjectStorage, error)
 	UpdateLocationObjectStorage(
 		locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
 		serverPort int32,
 		agentArns []string,
+		secretConfig SecretConfig,
 	) error
 
 	// Location operations (SMB)
@@ -164,12 +174,16 @@ type StorageBackend interface {
 		mountOptions *MountOptions,
 		agentArns []string,
 		tags map[string]string,
+		smbKerberos SmbKerberosConfig,
+		secretConfig SecretConfig,
 	) (*Location, error)
 	DescribeLocationSmb(locationArn string) (*LocationSmb, error)
 	UpdateLocationSmb(
 		locationArn, subdirectory, domain, user, password, authenticationType string,
 		mountOptions *MountOptions,
 		agentArns []string,
+		smbKerberos SmbKerberosConfig,
+		secretConfig SecretConfig,
 	) error
 
 	// Tag operations
@@ -316,11 +330,49 @@ type SasConfiguration struct {
 	Token string
 }
 
+// CmkSecretConfig holds configuration for a DataSync-managed secret
+// encrypted with a customer-managed KMS key (CmkSecretConfig, botocore
+// datasync 2018-11-09 model).
+type CmkSecretConfig struct {
+	SecretArn string
+	KmsKeyArn string
+}
+
+// CustomSecretConfig holds configuration for a customer-managed Secrets
+// Manager secret (CustomSecretConfig, botocore datasync 2018-11-09 model).
+type CustomSecretConfig struct {
+	SecretArn           string
+	SecretAccessRoleArn string
+}
+
+// SmbKerberosConfig groups the SMB location fields that apply only when
+// AuthenticationType is KERBEROS (DnsIpAddresses, KerberosPrincipal,
+// KerberosKeytab, KerberosKrb5Conf; botocore datasync 2018-11-09 model,
+// CreateLocationSmbRequest). KerberosKeytab/KerberosKrb5Conf are write-only
+// credential blobs, matching AWS: DescribeLocationSmbResponse has neither.
+type SmbKerberosConfig struct {
+	KerberosPrincipal string
+	KerberosKeytab    string
+	KerberosKrb5Conf  string
+	DNSIPAddresses    []string
+}
+
+// SecretConfig groups the two mutually exclusive secret-config alternatives
+// that CreateLocation*/UpdateLocation* requests accept for location types
+// that support DataSync-managed secrets. A zero value means neither was
+// supplied.
+type SecretConfig struct {
+	Cmk    *CmkSecretConfig
+	Custom *CustomSecretConfig
+}
+
 // LocationAzureBlob is a DataSync Azure Blob location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationAzureBlob struct {
 	CreationTime       time.Time
 	SasConfiguration   *SasConfiguration
+	CmkSecretConfig    *CmkSecretConfig
+	CustomSecretConfig *CustomSecretConfig
 	LocationArn        string
 	LocationURI        string
 	ContainerURL       string
@@ -414,14 +466,16 @@ type LocationFsxOpenZfs struct {
 // LocationFsxWindows is a DataSync FSx Windows location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationFsxWindows struct {
-	CreationTime      time.Time
-	LocationArn       string
-	LocationURI       string
-	FsxFilesystemArn  string
-	Domain            string
-	User              string
-	Subdirectory      string
-	SecurityGroupArns []string
+	CreationTime       time.Time
+	CmkSecretConfig    *CmkSecretConfig
+	CustomSecretConfig *CustomSecretConfig
+	LocationArn        string
+	LocationURI        string
+	FsxFilesystemArn   string
+	Domain             string
+	User               string
+	Subdirectory       string
+	SecurityGroupArns  []string
 }
 
 // HdfsNameNode is an HDFS name node endpoint.
@@ -441,6 +495,8 @@ type QopConfiguration struct {
 type LocationHdfs struct {
 	CreationTime       time.Time
 	QopConfiguration   *QopConfiguration
+	CmkSecretConfig    *CmkSecretConfig
+	CustomSecretConfig *CustomSecretConfig
 	KmsKeyProviderURI  string
 	LocationArn        string
 	LocationURI        string
@@ -469,16 +525,18 @@ type LocationNfs struct {
 // LocationObjectStorage is a DataSync object storage location with full details.
 // CreationTime is first: time.Time's non-pointer prefix reduces GC pointer bytes.
 type LocationObjectStorage struct {
-	CreationTime   time.Time
-	LocationArn    string
-	LocationURI    string
-	ServerHostname string
-	ServerProtocol string
-	BucketName     string
-	AccessKey      string
-	Subdirectory   string
-	AgentArns      []string
-	ServerPort     int32
+	CreationTime       time.Time
+	CmkSecretConfig    *CmkSecretConfig
+	CustomSecretConfig *CustomSecretConfig
+	LocationArn        string
+	LocationURI        string
+	ServerHostname     string
+	ServerProtocol     string
+	BucketName         string
+	AccessKey          string
+	Subdirectory       string
+	AgentArns          []string
+	ServerPort         int32
 }
 
 // LocationSmb is a DataSync SMB location with full details.
@@ -486,14 +544,18 @@ type LocationObjectStorage struct {
 type LocationSmb struct {
 	CreationTime       time.Time
 	MountOptions       *MountOptions
+	CmkSecretConfig    *CmkSecretConfig
+	CustomSecretConfig *CustomSecretConfig
 	LocationArn        string
 	LocationURI        string
 	ServerHostname     string
 	Domain             string
 	User               string
 	AuthenticationType string
+	KerberosPrincipal  string
 	Subdirectory       string
 	AgentArns          []string
+	DNSIPAddresses     []string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

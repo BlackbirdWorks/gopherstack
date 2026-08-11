@@ -63,6 +63,9 @@ func (h *Handler) handleDescribeEcsClusters(_ context.Context, body []byte) (any
 	return map[string]any{"EcsClusters": ecsClustersToJSON(clusters)}, nil
 }
 
+// ecsClustersToJSON omits Status: the real types.EcsCluster has no such
+// member (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// types/types.go). e.Status is kept on the internal domain struct only.
 func ecsClustersToJSON(clusters []*EcsCluster) []map[string]any {
 	result := make([]map[string]any, 0, len(clusters))
 	for _, e := range clusters {
@@ -70,8 +73,7 @@ func ecsClustersToJSON(clusters []*EcsCluster) []map[string]any {
 			"EcsClusterArn":  e.EcsClusterArn,
 			"EcsClusterName": e.EcsClusterName,
 			keyStackID:       e.StackID,
-			keyStatus:        e.Status,
-			"RegisteredAt":   e.RegisteredAt.Format("2006-01-02T15:04:05+00:00"),
+			"RegisteredAt":   formatOpsWorksTime(e.RegisteredAt),
 		})
 	}
 

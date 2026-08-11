@@ -34,16 +34,12 @@ type registerContainerInstanceOutput struct {
 	ContainerInstance containerInstanceView `json:"containerInstance"`
 }
 
-// ec2InstanceIDFromIdentityDocument extracts the "instanceId" field from an
-// EC2 instance identity document (the JSON blob served at
-// http://169.254.169.254/latest/dynamic/instance-identity/document/, which
-// real EC2-launch-type container agents pass verbatim as
-// instanceIdentityDocument). If doc is empty or does not parse as such a
-// document, it returns "" rather than fabricating a plausible-looking ID:
-// callers that omit the identity document (e.g. Fargate-style or
-// externally-registered instances, or tests exercising other behavior)
-// simply get an empty EC2InstanceID, matching what real ECS would show for
-// an instance it cannot identify.
+// ec2InstanceIDFromIdentityDocument extracts the "instanceId" field from an EC2
+// instance identity document (the JSON blob real EC2-launch-type container
+// agents pass verbatim as instanceIdentityDocument). If doc is empty or doesn't
+// parse as such a document, it returns "" rather than fabricating a
+// plausible-looking ID -- Fargate-style/externally-registered instances simply
+// get an empty EC2InstanceID, matching real ECS.
 func ec2InstanceIDFromIdentityDocument(doc string) string {
 	if doc == "" {
 		return ""

@@ -297,46 +297,9 @@ func TestSupport_AddAttachmentsToSet_TooManyPerSet(t *testing.T) {
 // reachable (not a stub): once the sliding window is saturated, the next
 // creation is rejected with the correct wire type; after seeding fewer than
 // the threshold, creation still succeeds.
-func TestSupport_AddAttachmentsToSet_AttachmentLimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	t.Run("at_threshold_rejected", func(t *testing.T) {
-		t.Parallel()
-
-		b := support.NewInMemoryBackend()
-		support.SeedAttachmentSetCreationTimes(b, support.MaxAttachmentSetCreationsPerWindow)
-
-		_, _, err := b.AddAttachmentsToSetWithAttachments("", []support.Attachment{
-			{FileName: "f.txt", Data: []byte("x")},
-		})
-		require.ErrorIs(t, err, support.ErrAttachmentLimitExceeded)
-	})
-
-	t.Run("below_threshold_succeeds", func(t *testing.T) {
-		t.Parallel()
-
-		b := support.NewInMemoryBackend()
-		support.SeedAttachmentSetCreationTimes(b, support.MaxAttachmentSetCreationsPerWindow-1)
-
-		_, _, err := b.AddAttachmentsToSetWithAttachments("", []support.Attachment{
-			{FileName: "f.txt", Data: []byte("x")},
-		})
-		require.NoError(t, err)
-	})
-}
-
-// TestSupport_DescribeAttachment_LimitExceeded verifies the
-// DescribeAttachmentLimitExceeded rate limit is real and reachable.
-func TestSupport_DescribeAttachment_LimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	b := support.NewInMemoryBackend()
-	b.AddAttachmentInternal(&support.Attachment{AttachmentID: "att-rl", FileName: "f.txt", Data: []byte("x")})
-	support.SeedDescribeAttachmentCallTimes(b, support.MaxDescribeAttachmentCallsPerWindow)
-
-	_, err := b.DescribeAttachment("att-rl")
-	require.ErrorIs(t, err, support.ErrDescribeAttachmentLimitExceeded)
-}
+// TestSupport_AddAttachmentsToSet_AttachmentLimitExceeded and
+// TestSupport_DescribeAttachment_LimitExceeded live in whitebox_test.go: they
+// need direct access to the unexported rate-limit windows.
 
 // TestSupport_AddAttachmentInternal_DeepCopyData verifies data bytes are deep-copied.
 func TestSupport_AddAttachmentInternal_DeepCopyData(t *testing.T) {

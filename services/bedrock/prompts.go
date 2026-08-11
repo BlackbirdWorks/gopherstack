@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreatePrompt(
 
 	b.promptCounter++
 	id := fmt.Sprintf("prompt-%08d", b.promptCounter)
-	promptArn := arn.Build("bedrock-agent", b.region, b.accountID, "prompt/"+id)
+	promptArn := arn.Build("bedrock", b.region, b.accountID, "prompt/"+id)
 	now := time.Now()
 
 	tagsCopy := make(map[string]string, len(tags))

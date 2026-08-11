@@ -104,7 +104,10 @@ func TestDomainNameConfiguration_ApiGatewayDomainName_Contains_DomainName(t *tes
 	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
 		DomainNameValue: "api.mycompany.com",
 		DomainNameConfigurations: []apigatewayv2.DomainNameConfiguration{
-			{CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc", EndpointType: "REGIONAL"},
+			{
+				CertificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/abc",
+				EndpointType:   "REGIONAL",
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -248,6 +251,276 @@ func Test_UpdateDomainName_RoutingMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ROUTING_RULE_ONLY", updated.RoutingMode)
 
-	_, err = b.UpdateDomainName(dn.DomainNameValue, apigatewayv2.UpdateDomainNameInput{RoutingMode: "BOGUS"})
+	_, err = b.UpdateDomainName(
+		dn.DomainNameValue,
+		apigatewayv2.UpdateDomainNameInput{RoutingMode: "BOGUS"},
+	)
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+}
+
+// Test_UpdateDomainName_RejectedRoutingModeDoesNotMutateTags proves a
+// rejected UpdateDomainName call (invalid routingMode) never leaves
+// earlier-applied fields from the same call (tags) partially committed.
+func Test_UpdateDomainName_RejectedRoutingModeDoesNotMutateTags(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	dn, err := b.CreateDomainName(context.Background(), apigatewayv2.CreateDomainNameInput{
+		DomainNameValue: "rejected-routingmode.example.com",
+	})
+	require.NoError(t, err)
+	require.Empty(t, dn.Tags)
+
+	_, err = b.UpdateDomainName(dn.DomainNameValue, apigatewayv2.UpdateDomainNameInput{
+		Tags:        map[string]string{"env": "prod"},
+		RoutingMode: "BOGUS",
+	})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetDomainName(dn.DomainNameValue)
+	require.NoError(t, err)
+	assert.Empty(t, got.Tags, "rejected update must not leave partially-applied tags")
+}
+
+func setupRoutingRuleFixture(t *testing.T, b *apigatewayv2.InMemoryBackend) (string, string, string) {
+	t.Helper()
+
+	ctx := context.Background()
+
+	dn, err := b.CreateDomainName(
+		ctx,
+		apigatewayv2.CreateDomainNameInput{DomainNameValue: "rr-fixture.example.com"},
+	)
+	require.NoError(t, err)
+
+	api, err := b.CreateAPI(ctx, apigatewayv2.CreateAPIInput{Name: "rr-api", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	stage, err := b.CreateStage(api.APIID, apigatewayv2.CreateStageInput{StageName: "prod"})
+	require.NoError(t, err)
+
+	return dn.DomainNameValue, api.APIID, stage.StageName
+}
+
+func TestCreateRoutingRule_TypedActionsAndConditions(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	domainName, apiID, stageName := setupRoutingRuleFixture(t, b)
+
+	rule, err := b.CreateRoutingRule(
+		context.Background(),
+		domainName,
+		apigatewayv2.CreateRoutingRuleInput{
+			Priority: 5,
+			Actions: []apigatewayv2.RoutingRuleAction{
+				{
+					InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{
+						APIID:         apiID,
+						Stage:         stageName,
+						StripBasePath: true,
+					},
+				},
+			},
+			Conditions: []apigatewayv2.RoutingRuleCondition{
+				{MatchBasePaths: &apigatewayv2.RoutingRuleMatchBasePaths{AnyOf: []string{"/foo"}}},
+				{MatchHeaders: &apigatewayv2.RoutingRuleMatchHeaders{
+					AnyOf: []apigatewayv2.RoutingRuleMatchHeaderValue{
+						{Header: "x-env", ValueGlob: "prod*"},
+					},
+				}},
+			},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, rule.Actions, 1)
+	require.NotNil(t, rule.Actions[0].InvokeAPI)
+	assert.Equal(t, apiID, rule.Actions[0].InvokeAPI.APIID)
+	assert.Equal(t, stageName, rule.Actions[0].InvokeAPI.Stage)
+	require.Len(t, rule.Conditions, 2)
+	require.NotNil(t, rule.Conditions[0].MatchBasePaths)
+	assert.Equal(t, []string{"/foo"}, rule.Conditions[0].MatchBasePaths.AnyOf)
+	require.NotNil(t, rule.Conditions[1].MatchHeaders)
+	assert.Equal(t, "x-env", rule.Conditions[1].MatchHeaders.AnyOf[0].Header)
+
+	got, err := b.GetRoutingRule(domainName, rule.RoutingRuleID)
+	require.NoError(t, err)
+	assert.Equal(t, rule.Actions, got.Actions)
+	assert.Equal(t, rule.Conditions, got.Conditions)
+}
+
+func TestCreateRoutingRule_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantErr error
+		mutate  func(apiID, stageName string) apigatewayv2.CreateRoutingRuleInput
+		name    string
+	}{
+		{
+			name: "priority too low",
+			mutate: func(_, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{Priority: 0}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+		{
+			name: "priority too high",
+			mutate: func(_, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{Priority: 1000001}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+		{
+			name: "action missing invokeApi",
+			mutate: func(_, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Actions:  []apigatewayv2.RoutingRuleAction{{}},
+				}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+		{
+			name: "action missing stage",
+			mutate: func(apiID, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Actions: []apigatewayv2.RoutingRuleAction{
+						{InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{APIID: apiID}},
+					},
+				}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+		{
+			name: "action targets nonexistent api",
+			mutate: func(_, stageName string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Actions: []apigatewayv2.RoutingRuleAction{
+						{
+							InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{
+								APIID: "does-not-exist",
+								Stage: stageName,
+							},
+						},
+					},
+				}
+			},
+			wantErr: apigatewayv2.ErrAPINotFound,
+		},
+		{
+			name: "action targets nonexistent stage",
+			mutate: func(apiID, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Actions: []apigatewayv2.RoutingRuleAction{
+						{
+							InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{
+								APIID: apiID,
+								Stage: "does-not-exist",
+							},
+						},
+					},
+				}
+			},
+			wantErr: apigatewayv2.ErrStageNotFound,
+		},
+		{
+			name: "matchBasePaths empty anyOf",
+			mutate: func(_, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Conditions: []apigatewayv2.RoutingRuleCondition{
+						{MatchBasePaths: &apigatewayv2.RoutingRuleMatchBasePaths{}},
+					},
+				}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+		{
+			name: "matchHeaders entry missing valueGlob",
+			mutate: func(_, _ string) apigatewayv2.CreateRoutingRuleInput {
+				return apigatewayv2.CreateRoutingRuleInput{
+					Priority: 1,
+					Conditions: []apigatewayv2.RoutingRuleCondition{
+						{MatchHeaders: &apigatewayv2.RoutingRuleMatchHeaders{
+							AnyOf: []apigatewayv2.RoutingRuleMatchHeaderValue{{Header: "x-env"}},
+						}},
+					},
+				}
+			},
+			wantErr: apigatewayv2.ErrBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigatewayv2.NewInMemoryBackend()
+			domainName, apiID, stageName := setupRoutingRuleFixture(t, b)
+
+			_, err := b.CreateRoutingRule(
+				context.Background(),
+				domainName,
+				tt.mutate(apiID, stageName),
+			)
+			require.ErrorIs(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestPutRoutingRule_Validation(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+	domainName, apiID, stageName := setupRoutingRuleFixture(t, b)
+
+	rule, err := b.CreateRoutingRule(
+		context.Background(),
+		domainName,
+		apigatewayv2.CreateRoutingRuleInput{Priority: 1},
+	)
+	require.NoError(t, err)
+
+	_, err = b.PutRoutingRule(
+		domainName,
+		rule.RoutingRuleID,
+		apigatewayv2.PutRoutingRuleInput{Priority: 0},
+	)
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	_, err = b.PutRoutingRule(domainName, rule.RoutingRuleID, apigatewayv2.PutRoutingRuleInput{
+		Priority: 2,
+		Actions: []apigatewayv2.RoutingRuleAction{
+			{
+				InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{
+					APIID: apiID,
+					Stage: "missing-stage",
+				},
+			},
+		},
+	})
+	require.ErrorIs(t, err, apigatewayv2.ErrStageNotFound)
+
+	updated, err := b.PutRoutingRule(
+		domainName,
+		rule.RoutingRuleID,
+		apigatewayv2.PutRoutingRuleInput{
+			Priority: 3,
+			Actions: []apigatewayv2.RoutingRuleAction{
+				{
+					InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{
+						APIID: apiID,
+						Stage: stageName,
+					},
+				},
+			},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(3), updated.Priority)
 }

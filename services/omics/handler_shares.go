@@ -54,7 +54,8 @@ func (h *Handler) handleGetShare(c *echo.Context, shareID string) error {
 
 func (h *Handler) handleListShares(c *echo.Context) error {
 	var req struct {
-		ResourceOwner string `json:"resourceOwner"`
+		Filter        *ShareFilter `json:"filter"`
+		ResourceOwner string       `json:"resourceOwner"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
@@ -63,7 +64,7 @@ func (h *Handler) handleListShares(c *echo.Context) error {
 
 	maxResults, nextToken := listQueryParams(c)
 
-	shares, next, err := h.Backend.ListShares(req.ResourceOwner, maxResults, nextToken)
+	shares, next, err := h.Backend.ListShares(req.ResourceOwner, req.Filter, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}

@@ -68,7 +68,7 @@ func TestComputeHookLifecycle(t *testing.T) {
 			assertAfter: func(t *testing.T, b *InMemoryBackend, c *stubCompute) {
 				t.Helper()
 
-				kp, err := b.CreateKeyPair("demo")
+				kp, err := b.CreateKeyPair("demo", nil)
 				require.NoError(t, err)
 				assert.NotEmpty(t, kp.PublicKey, "CreateKeyPair must derive an OpenSSH public key")
 
@@ -203,14 +203,10 @@ func TestComputeHookPublishesDNSAndTags(t *testing.T) {
 	assert.Equal(t, []string{"ctr-dns"}, c.terminateCalls)
 }
 
-// TestGeneratedResourceIDs_HexOnlyShape guards against gopherstack-28ce: IDs
-// built as "<prefix>-" + uuid.New().String()[:N] embed literal "-"
-// characters once N crosses a hyphen boundary in the 8-4-4-4-12 hyphenated
-// UUID string, producing shapes real AWS never returns (e.g.
-// "subnet-44eea3bc-ae2c-4c2"). Every generator below must strip the UUID's
-// hyphens first, so the suffix is hex-only. This covers a representative
-// set of resource families across the package, including ones that use a
-// named prefix-length constant instead of a literal.
+// TestGeneratedResourceIDs_HexOnlyShape guards against IDs built as "<prefix>-"
+// + uuid.New().String()[:N] embedding a literal "-" once N crosses a hyphen
+// boundary in the 8-4-4-4-12 UUID string, producing shapes AWS never returns.
+// Every generator must strip hyphens first.
 func TestGeneratedResourceIDs_HexOnlyShape(t *testing.T) {
 	t.Parallel()
 

@@ -51,6 +51,33 @@ func TestXRay_PersistenceSnapshotRestore(t *testing.T) {
 				assert.True(t, ruleNames["Default"], "Default rule should always be present")
 			},
 		},
+		{
+			name: "insight_categories_and_impact_statistics_preserved",
+			setup: func(b *xray.InMemoryBackend) {
+				b.AddInsightInternal(xray.Insight{
+					InsightID:  "insight-boost",
+					State:      "ACTIVE",
+					Summary:    "elevated fault rate",
+					Categories: []string{"FAULT"},
+					ClientRequestImpactStatistics: &xray.RequestImpactStatistics{
+						OkCount: 5, FaultCount: 15, TotalCount: 20,
+					},
+				})
+			},
+			verify: func(t *testing.T, b *xray.InMemoryBackend) {
+				t.Helper()
+
+				summaries, err := b.GetInsightSummaries([]string{"ACTIVE"})
+				require.NoError(t, err)
+				require.NotEmpty(t, summaries)
+
+				assert.Equal(t, []string{"FAULT"}, summaries[0].Categories)
+				require.NotNil(t, summaries[0].ClientRequestImpactStatistics)
+				assert.EqualValues(t, 20, summaries[0].ClientRequestImpactStatistics.TotalCount)
+				assert.EqualValues(t, 15, summaries[0].ClientRequestImpactStatistics.FaultCount)
+				assert.EqualValues(t, 5, summaries[0].ClientRequestImpactStatistics.OkCount)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -118,9 +145,9 @@ func TestXRay_PersistenceFullStateRoundTrip(t *testing.T) {
 	require.NotEmpty(t, token)
 
 	// samplingStats.
-	_, unprocessedStats := b.GetSamplingTargets([]xray.SamplingStatisticsDocument{
+	_, unprocessedStats, _ := b.GetSamplingTargets([]xray.SamplingStatisticsDocument{
 		{RuleName: "my-rule", ClientID: "client-1", RequestCount: 10, SampledCount: 5},
-	})
+	}, nil)
 	require.Empty(t, unprocessedStats)
 
 	// encryptionConfig.

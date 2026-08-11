@@ -42,11 +42,16 @@ type Job struct {
 	// While time.Now() is before readyAt the job stays InProgress; on read it is then
 	// promoted to Succeeded. It is internal state and never serialized.
 	readyAt time.Time
-
-	VaultARN       string `json:"vaultARN"`
-	VaultName      string `json:"vaultName"`
-	JobID          string `json:"jobID"`
-	JobDescription string `json:"jobDescription,omitempty"`
+	// OutputLocation/SelectParameters are only set for Select jobs -- internal state,
+	// echoed back on DescribeJob/ListJobs, and used by handleSelectJobOutput to
+	// actually execute the query against the archive (see select.go).
+	SelectParameters *selectParametersDTO `json:"selectParameters,omitempty"`
+	OutputLocation   *outputLocationDTO   `json:"outputLocation,omitempty"`
+	// SHA256TreeHash is the tree hash of the *retrieved range*; per AWS it is only
+	// populated once the job has Completed (null while InProgress). For whole-archive
+	// retrievals it equals ArchiveSHA256TreeHash.
+	SHA256TreeHash string `json:"sha256TreeHash,omitempty"`
+	SNSTopic       string `json:"snsTopic,omitempty"`
 	Action         string `json:"action"`
 	ArchiveID      string `json:"archiveID,omitempty"`
 	// ArchiveDescription is the description of the archive being retrieved, copied
@@ -61,17 +66,13 @@ type Job struct {
 	CreationDate       string `json:"creationDate"`
 	CompletionDate     string `json:"completionDate,omitempty"`
 	Tier               string `json:"tier,omitempty"`
-	// SHA256TreeHash is the tree hash of the *retrieved range*; per AWS it is only
-	// populated once the job has Completed (null while InProgress). For whole-archive
-	// retrievals it equals ArchiveSHA256TreeHash.
-	SHA256TreeHash string `json:"sha256TreeHash,omitempty"`
+	JobID              string `json:"jobID"`
 	// ArchiveSHA256TreeHash is the tree hash of the entire archive, present as soon
 	// as the archive-retrieval job is created (it is archive metadata, not
 	// job-completion-dependent) -- distinct from SHA256TreeHash on the real wire.
 	ArchiveSHA256TreeHash string `json:"archiveSHA256TreeHash,omitempty"`
-	SNSTopic              string `json:"snsTopic,omitempty"`
+	JobDescription        string `json:"jobDescription,omitempty"`
 	RetrievalByteRange    string `json:"retrievalByteRange,omitempty"`
-
 	// InventoryRetrievalStartDate/EndDate/Limit/Marker hold the (optional)
 	// InventoryRetrievalParameters supplied at InitiateJob time for InventoryRetrieval
 	// jobs -- internal state, echoed back on DescribeJob/ListJobs via
@@ -81,21 +82,22 @@ type Job struct {
 	InventoryRetrievalEndDate   string `json:"inventoryRetrievalEndDate,omitempty"`
 	InventoryRetrievalLimit     string `json:"inventoryRetrievalLimit,omitempty"`
 	InventoryRetrievalMarker    string `json:"inventoryRetrievalMarker,omitempty"`
-
-	// OutputLocation/SelectParameters are only set for Select jobs -- internal state,
-	// echoed back on DescribeJob/ListJobs, and used by handleSelectJobOutput to
-	// actually execute the query against the archive (see select.go).
-	OutputLocation   *outputLocationDTO   `json:"outputLocation,omitempty"`
-	SelectParameters *selectParametersDTO `json:"selectParameters,omitempty"`
-	// JobOutputPath is the (synthetic -- gopherstack has no real S3 write-back)
-	// s3:// URI a Select job's OutputLocation would have been written to, echoed on
-	// InitiateJob (x-amz-job-output-path header) and DescribeJob/ListJobs.
-	JobOutputPath string `json:"jobOutputPath,omitempty"`
-
-	ArchiveSizeInBytes   int64 `json:"archiveSizeInBytes,omitempty"`
-	InventorySizeInBytes int64 `json:"inventorySizeInBytes,omitempty"`
-
-	Completed bool `json:"completed"`
+	VaultName                   string `json:"vaultName"`
+	VaultARN                    string `json:"vaultARN"`
+	// JobOutputPath is the s3:// URI a Select job's OutputLocation results are
+	// written to, echoed on InitiateJob (x-amz-job-output-path header) and
+	// DescribeJob/ListJobs.
+	JobOutputPath        string `json:"jobOutputPath,omitempty"`
+	ArchiveSizeInBytes   int64  `json:"archiveSizeInBytes,omitempty"`
+	InventorySizeInBytes int64  `json:"inventorySizeInBytes,omitempty"`
+	// SelectOutputWritten marks that this Select job's real S3 output-location
+	// objects (job.txt/results/result_manifest.txt, see select_output.go) have
+	// already been written, matching real AWS's "written once, never updated"
+	// job.txt semantics. Internal state, not part of the DescribeJob wire response;
+	// persisted so a restored job never re-writes (and potentially duplicates)
+	// output after a snapshot round trip.
+	SelectOutputWritten bool `json:"selectOutputWritten,omitempty"`
+	Completed           bool `json:"completed"`
 }
 
 // vaultLockPolicyRequest is the request body for InitiateVaultLock.

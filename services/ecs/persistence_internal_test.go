@@ -4,15 +4,11 @@ import (
 	"testing"
 )
 
-// Test_Snapshot_Restore_FullState is the Phase 3.3 (pkgs/store conversion)
-// round-trip test: it seeds one instance of every resource kind the backend
-// tracks -- both the store.Table-backed resources (clusters, services, tasks,
-// container instances, task sets, capacity providers, account settings, task
-// protections, service deployments, express gateway services, daemons, daemon
-// revisions, daemon deployments) and the resources deliberately left as raw
-// maps by the conversion (attributes, resourceTags, daemonTaskDefinitions) --
-// snapshots the backend, restores into a fresh one, and asserts every
-// resource survived the round-trip with its identifying fields intact.
+// Test_Snapshot_Restore_FullState seeds one instance of every resource kind the
+// backend tracks -- both store.Table-backed resources and the ones deliberately
+// left as raw maps (attributes, resourceTags, daemonTaskDefinitions) --
+// snapshots the backend, restores into a fresh one, and asserts every resource
+// survived the round-trip with its identifying fields intact.
 func Test_Snapshot_Restore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -328,15 +324,10 @@ func assertRawMapResourcesRestored(t *testing.T, b *InMemoryBackend, f fullState
 
 // Test_Restore_RebuildsServiceIndex proves that after a Snapshot/Restore
 // round-trip, the deployment reconciler still sees pre-existing services.
-//
-// getServicesForReconciler (store.go) reads only the flat serviceIndex map
-// with no linear-scan fallback (unlike tasksByInstance, which
-// enrichContainerInstance falls back to scanning for). Restore previously
-// loaded b.services from the snapshot but never rebuilt b.serviceIndex, so a
-// restored service was permanently invisible to the reconciler: its
-// DesiredCount would never be reconciled again after a restart, silently
-// freezing scaling and deployments for every service that existed at
-// snapshot time.
+// getServicesForReconciler (store.go) reads only the flat serviceIndex map with
+// no linear-scan fallback -- if Restore loaded b.services but never rebuilt
+// b.serviceIndex, a restored service would be permanently invisible to the
+// reconciler, silently freezing scaling and deployments for it.
 func Test_Restore_RebuildsServiceIndex(t *testing.T) {
 	t.Parallel()
 

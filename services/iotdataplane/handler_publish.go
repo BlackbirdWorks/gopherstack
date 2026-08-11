@@ -69,23 +69,42 @@ const (
 	headerMQTTUserProperties         = "X-Amz-Mqtt5-User-Properties"
 )
 
-// mqtt5PublishParams holds the PublishInput fields beyond topic/qos/payload/retain.
-// All are optional. Of these, only UserProperties currently has an AWS-visible
-// effect in gopherstack: it's persisted onto the retained message (mirrors
-// GetRetainedMessageOutput.UserProperties) when retain=true. The others aren't
-// forwarded to live MQTT subscribers -- see the Publish/broker-wiring gap noted
-// in PARITY.md; there is no other AWS-modeled response surface that echoes them.
+// mqtt5PublishParams holds the PublishInput/SendDirectMessageInput fields
+// beyond topic/qos/payload/retain -- both ops share the same wire locations
+// (see handleSendDirectMessage). All are optional. UserProperties is
+// persisted onto the retained message (mirrors
+// GetRetainedMessageOutput.UserProperties) when Publish's retain=true; every
+// field now also reaches the broker for live-subscriber delivery via
+// toMQTT5Properties (see PublishWithProperties/SendToClientWithProperties).
 type mqtt5PublishParams struct {
 	ContentType            string
-	CorrelationData        string
 	PayloadFormatIndicator string
 	ResponseTopic          string
+	CorrelationData        []byte
 	UserProperties         []byte
+	UserPropertiesParsed   []MQTT5UserProperty
 	MessageExpiry          int64
 }
 
-// parseMQTT5PublishParams parses and validates the optional MQTT5 Publish
-// fields from the request's query string and headers.
+// toMQTT5Properties converts the parsed/validated MQTT5 Publish fields into
+// the MQTTPublisher-facing shape the broker forwards as real MQTT5 packet
+// properties.
+func (p mqtt5PublishParams) toMQTT5Properties() MQTT5Properties {
+	return MQTT5Properties{
+		ContentType:            p.ContentType,
+		ResponseTopic:          p.ResponseTopic,
+		PayloadFormatIndicator: p.PayloadFormatIndicator,
+		CorrelationData:        p.CorrelationData,
+		UserProperties:         p.UserPropertiesParsed,
+		MessageExpiry:          p.MessageExpiry,
+	}
+}
+
+// parseMQTT5PublishParams parses and validates the optional MQTT5 fields
+// shared by Publish and SendDirectMessage from the request's query string
+// and headers (identical header/query names for both ops -- confirmed via
+// awsRestjson1_serializeOpHttpBindingsSendDirectMessageInput alongside
+// Publish's own serializer, aws-sdk-go-v2/service/iotdataplane@v1.35.4).
 func parseMQTT5PublishParams(c *echo.Context) (mqtt5PublishParams, error) {
 	q := c.Request().URL.Query()
 	reqHeader := c.Request().Header
@@ -105,18 +124,29 @@ func parseMQTT5PublishParams(c *echo.Context) (mqtt5PublishParams, error) {
 		return mqtt5PublishParams{}, pfiErr
 	}
 
+	correlationData, err := decodeCorrelationData(reqHeader.Get(headerMQTTCorrelationData))
+	if err != nil {
+		return mqtt5PublishParams{}, err
+	}
+
 	userProperties, err := decodeUserProperties(reqHeader.Get(headerMQTTUserProperties))
+	if err != nil {
+		return mqtt5PublishParams{}, err
+	}
+
+	userPropertiesParsed, err := parseUserProperties(userProperties)
 	if err != nil {
 		return mqtt5PublishParams{}, err
 	}
 
 	return mqtt5PublishParams{
 		ContentType:            q.Get("contentType"),
-		CorrelationData:        reqHeader.Get(headerMQTTCorrelationData),
+		CorrelationData:        correlationData,
 		MessageExpiry:          messageExpiry,
 		PayloadFormatIndicator: payloadFormatIndicator,
 		ResponseTopic:          responseTopic,
 		UserProperties:         userProperties,
+		UserPropertiesParsed:   userPropertiesParsed,
 	}, nil
 }
 
@@ -125,12 +155,12 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 	log := logger.Load(c.Request().Context())
 
 	if c.Request().Method != http.MethodPost {
-		return c.JSON(http.StatusMethodNotAllowed, map[string]string{keyError: errMethodNotAllowed})
+		return methodNotAllowedResponse(c)
 	}
 
 	topic := strings.TrimPrefix(c.Request().URL.Path, "/topics/")
 	if topic == "" {
-		return c.JSON(http.StatusBadRequest, map[string]string{keyError: "topic is required"})
+		return invalidRequestResponse(c, "topic is required")
 	}
 
 	if err := validateTopic(topic); err != nil {
@@ -154,18 +184,27 @@ func (h *Handler) handlePublish(c *echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusRequestEntityTooLarge, map[string]string{keyError: "request body too large"})
+		// No X-Amzn-Errortype header here: Publish models only
+		// InternalFailureException, InvalidRequestException,
+		// MethodNotAllowedException, ThrottlingException and
+		// UnauthorizedException (iotdataplane@v1.35.4 deserializers.go) --
+		// unlike SendDirectMessage/UpdateThingShadow, it does not model
+		// RequestEntityTooLargeException, so there's no verified type to emit.
+		return c.JSON(
+			http.StatusRequestEntityTooLarge,
+			map[string]string{keyError: "request body too large"},
+		)
 	}
 
 	payload := unwrapPublishPayload(body, contentType)
 
-	if publishErr := h.Backend.Publish(topic, payload, qos, retain); publishErr != nil {
+	if publishErr := h.Backend.Publish(topic, payload, qos, retain, mqtt5.toMQTT5Properties()); publishErr != nil {
 		if errors.Is(publishErr, ErrNoBroker) {
 			log.Warn("iot data plane: no broker configured, message dropped", "topic", topic)
 		} else {
 			log.Error("iot data plane publish failed", "topic", topic, "error", publishErr)
 
-			return c.JSON(http.StatusInternalServerError, map[string]string{keyError: publishErr.Error()})
+			return h.handleError(c, publishErr)
 		}
 	}
 

@@ -579,9 +579,17 @@ func TestConnectionCreate(t *testing.T) {
 			},
 		},
 		{
-			name:     "duplicate name returns error",
+			// CreateConnection has no ResourceAlreadyExistsException in its
+			// real error list (see TestConnectionNameNotUnique), so a
+			// second create with the same name must also succeed.
+			name:     "duplicate name also succeeds",
 			body:     map[string]any{"ConnectionName": "dup-conn", "ProviderType": "GitHub"},
-			wantCode: http.StatusBadRequest,
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, m map[string]any) {
+				t.Helper()
+
+				assert.NotEmpty(t, m["ConnectionArn"])
+			},
 		},
 		{
 			name:     "missing provider type returns error",
@@ -596,7 +604,7 @@ func TestConnectionCreate(t *testing.T) {
 
 			h := newHandlerFixedAccount(t)
 
-			if tt.name == "duplicate name returns error" {
+			if tt.name == "duplicate name also succeeds" {
 				rec := doJSON(t, h, "CreateConnection", tt.body)
 				require.Equal(t, http.StatusOK, rec.Code)
 			}

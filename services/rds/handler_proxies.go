@@ -22,6 +22,8 @@ func (h *Handler) handleCreateDBProxy(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, proxy.DBProxyARN)
+
 	return createDBProxyResponse{
 		Xmlns:   rdsXMLNS,
 		DBProxy: toXMLProxy(proxy),
@@ -216,6 +218,8 @@ func (h *Handler) handleCreateDBProxyEndpoint(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, ep.DBProxyEndpointARN)
+
 	return createDBProxyEndpointResponse{
 		Xmlns:           rdsXMLNS,
 		DBProxyEndpoint: toXMLProxyEndpoint(ep),
@@ -357,7 +361,7 @@ type xmlUserAuthConfig struct {
 }
 
 type xmlUserAuthConfigList struct {
-	Members []xmlUserAuthConfig `xml:"UserAuthConfig"`
+	Members []xmlUserAuthConfig `xml:"member"`
 }
 
 type xmlConnectionPoolConfig struct {

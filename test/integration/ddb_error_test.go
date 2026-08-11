@@ -18,8 +18,12 @@ func TestIntegration_DDB_ErrorSimulation(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 	client := createDynamoDBClient(t)
 
-	// Wait a bit to ensure container readiness
-	time.Sleep(100 * time.Millisecond)
+	// Ensure the container is accepting requests before running error-path tests.
+	require.Eventually(t, func() bool {
+		_, err := client.ListTables(t.Context(), &dynamodb.ListTablesInput{})
+
+		return err == nil
+	}, 10*time.Second, 50*time.Millisecond)
 
 	type testCase struct {
 		operation func(t *testing.T, ctx context.Context, tableName string) error

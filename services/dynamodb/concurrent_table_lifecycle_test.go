@@ -15,50 +15,26 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
-// concurrent_table_lifecycle_test.go is a regression suite for two real
-// db.mu / table.mu lock-discipline defects found in the v15.0.0 -> HEAD
-// store.go/table_ops.go rewrite (the map[string]map[string]*Table ->
-// *store.Table[Table] conversion). Both were reachable only through code
-// paths that (like the real HTTP handler) run the background janitor and/or
-// serve concurrent requests against shared tables -- calling the backend
-// directly, single-threaded, never exercised them.
+// concurrent_table_lifecycle_test.go is a regression suite for two db.mu /
+// table.mu lock-discipline defects, both reachable only through code paths
+// that (like the real HTTP handler) run the background janitor and/or serve
+// concurrent requests against shared tables -- calling the backend directly,
+// single-threaded, never exercised them.
 //
-//  1. TestConcurrentTableLifecycle_NoDataRace reproduces a genuine `-race`
-//     failure: CreateTable/PutItem/BatchWriteItem/DeleteTable/
-//     UpdateTimeToLive driven concurrently, with the REAL background janitor
-//     running (both of its tickers via Janitor.Run, not the single-goroutine
-//     SweepOnce helper most other tests use) and a live CREATING->ACTIVE
-//     window. Two unsynchronized reads used to race here:
-//       - DeleteTable (table_ops.go) read table.Items and
-//         table.GlobalSecondaryIndexes without table.mu, while
-//         PutItem/BatchWriteItem write those same fields under table.mu --
-//         a PutItem that already resolved the *Table before a concurrent
-//         DeleteTable moved it to db.deletingTables still mutates it.
-//       - buildCreateTableOutput (table_ops.go) read t.Status (and other
-//         fields) without table.mu immediately after CreateTable makes the
-//         table visible, racing the activation timer that flips t.Status
-//         under table.mu on another goroutine.
+// This backend's documented lock order is db.mu -> table.mu (acquire db.mu
+// first, then nest table.mu inside it, as TaggedTables and
+// ListContributorInsights correctly do). executeTransactWrite previously did
+// the reverse -- held every target table's table.mu, then acquired db.mu.Lock
+// to commit the idempotency token -- which is a textbook ABBA deadlock against
+// any goroutine holding db.mu and wanting that same table.mu
+// (TestConcurrentTableLifecycle_NoABBADeadlock). Fixed by releasing every table
+// lock before ever touching db.mu.
 //
-//  2. TestConcurrentTableLifecycle_NoABBADeadlock reproduces a genuine
-//     mutex ABBA deadlock (not a data race): TransactWriteItems'
-//     executeTransactWrite (transact_ops.go) held every target table's
-//     table.mu (via lockTablesWrite) and only then acquired db.mu.Lock to
-//     commit the idempotency token -- backwards relative to this backend's
-//     documented db.mu -> table.mu order. TaggedTables (store.go) and the
-//     handler-reachable ListContributorInsights (extra_ops.go) both hold
-//     db.mu.RLock for their entire body while nested-RLocking each table's
-//     table.mu, i.e. the correct order. One goroutine holding table.mu and
-//     wanting db.mu, while another holds db.mu and wants that same
-//     table.mu, is a textbook two-goroutine deadlock that never resolves on
-//     its own. A goroutine-dump captured from this exact test before the fix
-//     showed the cycle directly:
-//       - 4 goroutines blocked in sync.(*RWMutex).Lock inside
-//         executeTransactWrite (transact_ops.go, the tokenCommit db.mu.Lock
-//         call), each already holding a table's table.mu.
-//       - 3 goroutines blocked in sync.(*RWMutex).RLock inside TaggedTables
-//         (store.go:652, the per-table `table.mu.RLock("TaggedTables.tag")`
-//         call), each already holding db.mu.RLock.
-//     Fixed by releasing every table lock before ever touching db.mu.
+// TestConcurrentTableLifecycle_NoDataRace covers a separate `-race` failure:
+// DeleteTable read table.Items/table.GlobalSecondaryIndexes without table.mu
+// while PutItem/BatchWriteItem wrote those same fields under table.mu, and
+// buildCreateTableOutput read t.Status without table.mu while the activation
+// timer flipped it under table.mu on another goroutine.
 
 // TestConcurrentTableLifecycle_NoDataRace exercises the full table lifecycle
 // (Create -> wait-for-ACTIVE -> enable TTL -> Put -> BatchWrite -> Delete ->

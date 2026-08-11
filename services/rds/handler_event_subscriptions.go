@@ -29,18 +29,19 @@ func toXMLEventSubscription(sub *EventSubscription) xmlEventSubscription {
 	copy(cats, sub.EventCategories)
 
 	return xmlEventSubscription{
-		CustSubscriptionID:  sub.SubscriptionName,
-		SnsTopicArn:         sub.SnsTopicArn,
-		Status:              sub.Status,
-		SourceType:          sub.SourceType,
-		Enabled:             sub.Enabled,
-		SourceIDsList:       xmlSourceIDList{Members: ids},
-		EventCategoriesList: xmlEventCategoryList{Members: cats},
+		CustSubscriptionID:   sub.SubscriptionName,
+		SnsTopicArn:          sub.SnsTopicArn,
+		EventSubscriptionArn: sub.EventSubscriptionArn,
+		Status:               sub.Status,
+		SourceType:           sub.SourceType,
+		Enabled:              sub.Enabled,
+		SourceIDsList:        xmlSourceIDList{Members: ids},
+		EventCategoriesList:  xmlEventCategoryList{Members: cats},
 	}
 }
 
 type xmlSourceIDList struct {
-	Members []string `xml:"member"`
+	Members []string `xml:"SourceId"`
 }
 
 type xmlEventCategoryList struct {
@@ -48,13 +49,14 @@ type xmlEventCategoryList struct {
 }
 
 type xmlEventSubscription struct {
-	CustSubscriptionID  string               `xml:"CustSubscriptionId"`
-	SnsTopicArn         string               `xml:"SnsTopicArn,omitempty"`
-	Status              string               `xml:"Status"`
-	SourceType          string               `xml:"SourceType,omitempty"`
-	SourceIDsList       xmlSourceIDList      `xml:"SourceIdsList"`
-	EventCategoriesList xmlEventCategoryList `xml:"EventCategoriesList,omitempty"`
-	Enabled             bool                 `xml:"Enabled,omitempty"`
+	CustSubscriptionID   string               `xml:"CustSubscriptionId"`
+	SnsTopicArn          string               `xml:"SnsTopicArn,omitempty"`
+	EventSubscriptionArn string               `xml:"EventSubscriptionArn,omitempty"`
+	Status               string               `xml:"Status"`
+	SourceType           string               `xml:"SourceType,omitempty"`
+	SourceIDsList        xmlSourceIDList      `xml:"SourceIdsList"`
+	EventCategoriesList  xmlEventCategoryList `xml:"EventCategoriesList,omitempty"`
+	Enabled              bool                 `xml:"Enabled,omitempty"`
 }
 
 type addSourceIdentifierToSubscriptionResponse struct {
@@ -88,26 +90,16 @@ func (h *Handler) handleCreateEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
-	var sourceIDs []string
-	for i := 1; ; i++ {
-		id := vals.Get("SourceIds.member." + strconv.Itoa(i))
-		if id == "" {
-			break
-		}
-		sourceIDs = append(sourceIDs, id)
-	}
-	var eventCategories []string
-	for i := 1; ; i++ {
-		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
-		if cat == "" {
-			break
-		}
-		eventCategories = append(eventCategories, cat)
-	}
+	// rds@v1.124.1 serializers.go: SourceIds/EventCategories serialize as
+	// "SourceId"/"EventCategory", not the smithy default "member".
+	sourceIDs := parseMultiValueParam(vals, "SourceIds.SourceId")
+	eventCategories := parseMultiValueParam(vals, "EventCategories.EventCategory")
 	sub, err := h.Backend.CreateEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories)
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, sub.EventSubscriptionArn)
 
 	return &createEventSubscriptionResponse{
 		Xmlns:             rdsXMLNS,
@@ -149,28 +141,15 @@ func (h *Handler) handleModifyEventSubscription(vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
 	snsTopicARN := vals.Get("SnsTopicArn")
 	sourceType := vals.Get("SourceType")
-	var sourceIDs []string
-	for i := 1; ; i++ {
-		id := vals.Get("SourceIds.member." + strconv.Itoa(i))
-		if id == "" {
-			break
-		}
-		sourceIDs = append(sourceIDs, id)
-	}
-	var eventCategories []string
-	for i := 1; ; i++ {
-		cat := vals.Get("EventCategories.member." + strconv.Itoa(i))
-		if cat == "" {
-			break
-		}
-		eventCategories = append(eventCategories, cat)
-	}
+	// ModifyEventSubscriptionInput has no SourceIds member (rds@v1.124.1
+	// serializers.go) -- only EventCategories, serialized as "EventCategory".
+	eventCategories := parseMultiValueParam(vals, "EventCategories.EventCategory")
 	var enabled *bool
 	if v := vals.Get("Enabled"); v != "" {
 		b := strings.EqualFold(v, "true")
 		enabled = &b
 	}
-	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, sourceIDs, eventCategories, enabled)
+	sub, err := h.Backend.ModifyEventSubscription(name, snsTopicARN, sourceType, nil, eventCategories, enabled)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +184,7 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 			SourceIdentifier: ev.SourceIdentifier,
 			SourceType:       ev.SourceType,
 			Message:          ev.Message,
-			Date:             ev.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Date:             ev.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 		}
 	})
 	if err != nil {

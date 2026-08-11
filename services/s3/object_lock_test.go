@@ -214,7 +214,11 @@ func TestObjectLock_PutGetConfiguration(t *testing.T) {
 	t.Parallel()
 
 	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "lock-bucket")
+	_, err := backend.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket:                     aws.String("lock-bucket"),
+		ObjectLockEnabledForBucket: aws.Bool(true),
+	})
+	require.NoError(t, err)
 
 	configXML := `<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
 		`<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`
@@ -232,6 +236,36 @@ func TestObjectLock_PutGetConfiguration(t *testing.T) {
 	serveS3Handler(handler, rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "ObjectLockEnabled")
+}
+
+// TestObjectLock_PutConfiguration_RequiresBucketObjectLockEnabled verifies the
+// gopherstack-pzth fix: real S3 returns 409 InvalidBucketState for
+// PutObjectLockConfiguration on a bucket that was not created with
+// x-amz-bucket-object-lock-enabled: true, and this cannot be turned on after
+// the fact.
+func TestObjectLock_PutConfiguration_RequiresBucketObjectLockEnabled(t *testing.T) {
+	t.Parallel()
+
+	handler, backend := newTestHandler(t)
+	mustCreateBucket(t, backend, "not-lock-enabled-bucket")
+
+	configXML := `<ObjectLockConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">` +
+		`<ObjectLockEnabled>Enabled</ObjectLockEnabled></ObjectLockConfiguration>`
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/not-lock-enabled-bucket?object-lock",
+		strings.NewReader(configXML),
+	)
+	rec := httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	assert.Contains(t, rec.Body.String(), "InvalidBucketState")
+
+	req = httptest.NewRequest(http.MethodGet, "/not-lock-enabled-bucket?object-lock", nil)
+	rec = httptest.NewRecorder()
+	serveS3Handler(handler, rec, req)
+	require.Equal(t, http.StatusNotFound, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ObjectLockConfigurationNotFoundError")
 }
 
 func TestObjectLock_GetConfiguration_NotFound(t *testing.T) {

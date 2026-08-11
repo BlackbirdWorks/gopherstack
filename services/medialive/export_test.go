@@ -106,16 +106,6 @@ func SdiSourceCount(b *InMemoryBackend) int {
 	return b.sdiSources.Len()
 }
 
-// TagStoreCount returns the number of entries in the legacy per-ARN tag
-// store (b.tags), used to detect ghost rows left behind after a taggable
-// resource is deleted without its ARN being removed from b.tags.
-func TagStoreCount(b *InMemoryBackend) int {
-	b.mu.RLock("TagStoreCount")
-	defer b.mu.RUnlock()
-
-	return len(b.tags)
-}
-
 // ForceClusterState sets the state of a cluster directly, for testing purposes.
 func ForceClusterState(b *InMemoryBackend, clusterID, state string) {
 	b.mu.Lock("ForceClusterState")

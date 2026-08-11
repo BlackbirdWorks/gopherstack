@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acmpca
-sdk_module: aws-sdk-go-v2/service/acmpca@v1.46.10   # version audited against
+sdk_module: aws-sdk-go-v2/service/acmpca@v1.50.0   # version audited against
 last_audit_commit: 1c4ee34e                          # HEAD when this manifest was written
 last_audit_date: 2026-07-23
 overall: A            # all 8 gaps + both deferred families closed (fully or partially, see notes); 2 new wire bugs found+fixed

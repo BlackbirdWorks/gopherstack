@@ -9,9 +9,13 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// FlowStatus is not SCREAMING_SNAKE_CASE on the wire like most bedrock-agent
+// status enums: aws-sdk-go-v2/service/bedrockagent/types.FlowStatus values
+// are "Prepared"/"Preparing"/"NotPrepared"/"Failed" (see
+// services/bedrockagent/models.go, which already got this right).
 const (
-	flowStatusNotPrepared = "NOT_PREPARED"
-	flowStatusPrepared    = "PREPARED"
+	flowStatusNotPrepared = "NotPrepared"
+	flowStatusPrepared    = "Prepared"
 )
 
 // CreateFlow creates a new Bedrock Flow.
@@ -28,7 +32,7 @@ func (b *InMemoryBackend) CreateFlow(
 
 	b.flowCounter++
 	id := fmt.Sprintf("flow-%08d", b.flowCounter)
-	flowArn := arn.Build("bedrock-agent", b.region, b.accountID, "flow/"+id)
+	flowArn := arn.Build("bedrock", b.region, b.accountID, "flow/"+id)
 	now := time.Now()
 
 	tagsCopy := make(map[string]string, len(tags))

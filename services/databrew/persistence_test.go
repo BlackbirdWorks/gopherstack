@@ -217,6 +217,78 @@ func assertResourceTablesRestored(ctx context.Context, t *testing.T, fresh *InMe
 	assert.Equal(t, seed.job.Name, gotSchedule.JobNames[0])
 }
 
+// TestDataBrew_SnapshotRestore_TypedJobFields proves the typed shapes that
+// replaced map[string]any (JobSample, DataCatalogOutputs, DatabaseOutputs,
+// DatasetFormatOptions.Csv/Excel/Json) still round-trip through Snapshot ->
+// Restore: a raw JSON blob round-trips through map[string]any trivially, but
+// a typed struct field can silently lose data if its json tags don't match
+// what was written, or if a pointer field decodes to nil.
+func TestDataBrew_SnapshotRestore_TypedJobFields(t *testing.T) {
+	t.Parallel()
+
+	ctx := databrewCtxRegion("us-east-1")
+	original := NewInMemoryBackend("123456789012", "us-east-1")
+
+	headerRow := true
+	_, err := original.CreateDataset(
+		ctx, "typed-ds", "CSV", DatasetInput{S3InputDefinition: &S3Location{Bucket: "b"}},
+		DatasetFormatOptions{
+			Csv:   &CsvOptions{Delimiter: ";", HeaderRow: &headerRow},
+			Excel: &ExcelOptions{SheetNames: []string{"Sheet1"}},
+			JSON:  &JSONOptions{MultiLine: true},
+		},
+		nil, nil,
+	)
+	require.NoError(t, err)
+
+	job, err := original.CreateJob(
+		ctx, "typed-job", "RECIPE", "typed-ds", "", "", "arn:aws:iam::123456789012:role/r",
+		nil, nil,
+		JobExtras{
+			JobSample: &JobSample{Mode: "CUSTOM_ROWS", Size: 42},
+			DataCatalogOutputs: []DataCatalogOutput{{
+				DatabaseName: "db1", TableName: "t1", Overwrite: true,
+			}},
+			DatabaseOutputs: []DatabaseOutput{{
+				GlueConnectionName: "conn1",
+				DatabaseOptions:    &DatabaseTableOutputOptions{TableName: "t2"},
+			}},
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, job.JobSample)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := NewInMemoryBackend("000000000000", "eu-west-1")
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	gotDS, err := fresh.DescribeDataset(ctx, "typed-ds")
+	require.NoError(t, err)
+	require.NotNil(t, gotDS.FormatOptions.Csv)
+	assert.Equal(t, ";", gotDS.FormatOptions.Csv.Delimiter)
+	require.NotNil(t, gotDS.FormatOptions.Csv.HeaderRow)
+	assert.True(t, *gotDS.FormatOptions.Csv.HeaderRow)
+	require.NotNil(t, gotDS.FormatOptions.Excel)
+	assert.Equal(t, []string{"Sheet1"}, gotDS.FormatOptions.Excel.SheetNames)
+	require.NotNil(t, gotDS.FormatOptions.JSON)
+	assert.True(t, gotDS.FormatOptions.JSON.MultiLine)
+
+	gotJob, err := fresh.DescribeJob(ctx, "typed-job")
+	require.NoError(t, err)
+	require.NotNil(t, gotJob.JobSample)
+	assert.Equal(t, "CUSTOM_ROWS", gotJob.JobSample.Mode)
+	assert.Equal(t, int64(42), gotJob.JobSample.Size)
+	require.Len(t, gotJob.DataCatalogOutputs, 1)
+	assert.Equal(t, "db1", gotJob.DataCatalogOutputs[0].DatabaseName)
+	assert.True(t, gotJob.DataCatalogOutputs[0].Overwrite)
+	require.Len(t, gotJob.DatabaseOutputs, 1)
+	assert.Equal(t, "conn1", gotJob.DatabaseOutputs[0].GlueConnectionName)
+	require.NotNil(t, gotJob.DatabaseOutputs[0].DatabaseOptions)
+	assert.Equal(t, "t2", gotJob.DatabaseOutputs[0].DatabaseOptions.TableName)
+}
+
 // assertJobRunsRestored checks the raw (non-store.Table) jobRuns map: the two
 // seeded runs must both survive the round trip and ListJobRuns must still
 // return them newest-first (run2 before run1), proving chronological

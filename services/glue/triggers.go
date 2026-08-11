@@ -237,26 +237,64 @@ func (b *InMemoryBackend) StartTrigger(name string) error {
 
 	if onDemand {
 		// Fire outside the trigger lock: StartJobRun/StartCrawler take the same
-		// coarse backend lock, and it is not reentrant.
-		b.fireTriggerActions(actions)
+		// coarse backend lock, and it is not reentrant. workflowRunID is empty
+		// here: firing a trigger directly (rather than via StartWorkflowRun)
+		// creates no WorkflowRun to link the resulting runs to.
+		b.fireTriggerActions(actions, name, "")
 	}
 
 	return nil
 }
 
-// fireTriggerActions starts the job run or crawler run for each action of a fired
-// on-demand trigger. Per-action errors are not propagated: AWS's StartTrigger
-// returns as soon as the trigger fires, before the resulting job runs/crawls
-// complete or are even guaranteed to start successfully.
-func (b *InMemoryBackend) fireTriggerActions(actions []TriggerAction) {
+// fireTriggerActions starts the job run or crawler run for each action of a
+// fired trigger, stamping TriggerName (JobRun's real wire field, aws-sdk-go-v2/
+// service/glue@v1.152.0 types.go:7350-7351) and workflowRunID (this backend's
+// internal correlation used only for WorkflowRunStatistics -- Crawl/
+// CrawlerHistory and JobRun have no run-scoped link on the wire; see
+// types.go:2815-2836,7134-7352). Per-action errors are not propagated: AWS's
+// StartTrigger/StartWorkflowRun return as soon as the trigger fires, before the
+// resulting job runs/crawls complete or are even guaranteed to start successfully.
+func (b *InMemoryBackend) fireTriggerActions(actions []TriggerAction, triggerName, workflowRunID string) {
 	for _, a := range actions {
 		switch {
 		case a.JobName != "":
-			_, _ = b.StartJobRun(a.JobName, a.Arguments)
+			if run, err := b.StartJobRun(a.JobName, a.Arguments); err == nil {
+				b.stampTriggeredJobRun(run, triggerName, workflowRunID)
+			}
 		case a.CrawlerName != "":
-			_ = b.StartCrawler(a.CrawlerName)
+			if err := b.StartCrawler(a.CrawlerName); err == nil {
+				b.stampTriggeredCrawl(a.CrawlerName, workflowRunID)
+			}
 		}
 	}
+}
+
+// stampTriggeredJobRun sets the trigger/workflow-run link on a just-started job
+// run. run is the live pointer StartJobRun stored in b.jobRuns, so this mutates
+// the real record. Reacquires b.mu itself since fireTriggerActions runs after
+// StartJobRun has already released it.
+func (b *InMemoryBackend) stampTriggeredJobRun(run *JobRun, triggerName, workflowRunID string) {
+	b.mu.Lock("stampTriggeredJobRun")
+	defer b.mu.Unlock()
+
+	run.TriggerName = triggerName
+	run.WorkflowRunID = workflowRunID
+}
+
+// stampTriggeredCrawl sets workflowRunID on the crawl StartCrawler just
+// appended for crawlerName. StartCrawler having just succeeded guarantees that
+// entry is the crawler's sole in-flight crawl (StartCrawler rejects a second
+// concurrent run), so grabbing the last history entry is unambiguous.
+func (b *InMemoryBackend) stampTriggeredCrawl(crawlerName, workflowRunID string) {
+	b.mu.Lock("stampTriggeredCrawl")
+	defer b.mu.Unlock()
+
+	hist := b.crawlHistory[crawlerName]
+	if len(hist) == 0 {
+		return
+	}
+
+	hist[len(hist)-1].WorkflowRunID = workflowRunID
 }
 
 // StopTrigger deactivates a Glue trigger. On-demand triggers never enter the

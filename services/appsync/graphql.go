@@ -22,6 +22,9 @@ var (
 	ErrOperationNotFound = errors.New("operation not found")
 	// ErrDataSourceNotFound is returned when a data source is not found.
 	ErrDataSourceNotFound = errors.New("data source not found")
+	// ErrFunctionNotFound is returned when a PIPELINE resolver's PipelineConfig
+	// references a function ID that doesn't exist.
+	ErrFunctionNotFound = errors.New("function not found")
 	// ErrUnsupportedDataSource is returned for unsupported data source types.
 	ErrUnsupportedDataSource = errors.New("unsupported data source type")
 	// ErrUnsupportedDynamoDBOp is returned for unsupported DynamoDB operations.
@@ -60,6 +63,7 @@ func executeGraphQL(
 	schema *Schema,
 	resolvers map[string]*Resolver,
 	datasources map[string]*DataSource,
+	functions map[string]*Function,
 	query, operationName string,
 	variables map[string]any,
 ) (map[string]any, error) {
@@ -100,7 +104,9 @@ func executeGraphQL(
 	// Determine the parent type name based on operation type.
 	parentTypeName := operationTypeName(op.Operation)
 
-	result, err := executeSelectionSet(ctx, backend, resolvers, datasources, parentTypeName, op.SelectionSet, variables)
+	result, err := executeSelectionSet(
+		ctx, backend, resolvers, datasources, functions, parentTypeName, op.SelectionSet, variables,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +147,7 @@ func executeSelectionSet(
 	backend *InMemoryBackend,
 	resolvers map[string]*Resolver,
 	datasources map[string]*DataSource,
+	functions map[string]*Function,
 	parentTypeName string,
 	selectionSet ast.SelectionSet,
 	variables map[string]any,
@@ -166,7 +173,7 @@ func executeSelectionSet(
 			continue
 		}
 
-		val, err := resolveField(ctx, backend, resolver, datasources, fieldArgs)
+		val, err := resolveField(ctx, backend, resolver, datasources, functions, fieldArgs)
 		if err != nil {
 			return nil, fmt.Errorf("error resolving %s.%s: %w", parentTypeName, field.Name, err)
 		}
@@ -236,26 +243,209 @@ func resolveValue(val *ast.Value, variables map[string]any) any {
 	}
 }
 
-// resolveField executes a single field resolver.
+// mappingUnit is the request/response-mapping configuration shared by a
+// UNIT-kind Resolver and a pipeline Function: real AppSync gives both the
+// identical RequestMappingTemplate/ResponseMappingTemplate/Code shape (a
+// Function is a resolver's data-source step factored out for pipeline
+// reuse). FieldName/TypeName are resolver-only -- used to build the default
+// AppSync Lambda event when no request mapping is configured -- and left
+// empty for pipeline functions, which carry no field/type identity of their
+// own and so fall back to a smaller default (see buildLambdaEvent).
+type mappingUnit struct {
+	RequestTemplate  string
+	ResponseTemplate string
+	Code             string
+	FieldName        string
+	TypeName         string
+}
+
+func resolverMappingUnit(r *Resolver) mappingUnit {
+	return mappingUnit{
+		RequestTemplate:  r.RequestMappingTemplate,
+		ResponseTemplate: r.ResponseMappingTemplate,
+		Code:             r.Code,
+		FieldName:        r.FieldName,
+		TypeName:         r.TypeName,
+	}
+}
+
+func functionMappingUnit(f *Function) mappingUnit {
+	return mappingUnit{
+		RequestTemplate:  f.RequestMappingTemplate,
+		ResponseTemplate: f.ResponseMappingTemplate,
+		Code:             f.Code,
+	}
+}
+
+// evalRequestMapping evaluates mu's configured request mapping -- an
+// APPSYNC_JS module's exported `request` handler (mu.Code) or a VTL
+// RequestMappingTemplate -- against args/prevResult. Real AppSync
+// resolvers/functions configure exactly one runtime, never both; Code takes
+// precedence when both happen to be set. ok is false when neither is
+// configured, signaling the caller to apply its own data-source-specific
+// default request shape.
+func evalRequestMapping(mu mappingUnit, args map[string]any, prevResult any) (any, bool, error) {
+	switch {
+	case mu.Code != "":
+		ctxJSON, mErr := json.Marshal(map[string]any{
+			jsCtxKeyArguments: args,
+			jsCtxKeyPrev:      map[string]any{jsCtxKeyResult: prevResult},
+		})
+		if mErr != nil {
+			return nil, true, mErr
+		}
+
+		out, evalErr := evaluateAppSyncJS(mu.Code, string(ctxJSON), jsHandlerRequest)
+		if evalErr != nil {
+			return nil, true, evalErr
+		}
+
+		return unmarshalOrRaw(out), true, nil
+	case mu.RequestTemplate != "":
+		rendered, vtlErr := renderVTLWithPrev(mu.RequestTemplate, args, nil, prevResult)
+		if vtlErr != nil {
+			return nil, true, vtlErr
+		}
+
+		return unmarshalOrRaw(rendered), true, nil
+	default:
+		return nil, false, nil
+	}
+}
+
+// evalResponseMapping evaluates mu's configured response mapping (Code's
+// `response` handler or a VTL ResponseMappingTemplate) against the data
+// source's raw result, returning result unmodified when neither is
+// configured.
+func evalResponseMapping(mu mappingUnit, args map[string]any, result any) (any, error) {
+	switch {
+	case mu.Code != "":
+		ctxJSON, err := json.Marshal(map[string]any{jsCtxKeyArguments: args, jsCtxKeyResult: result})
+		if err != nil {
+			return nil, err
+		}
+
+		out, err := evaluateAppSyncJS(mu.Code, string(ctxJSON), jsHandlerResponse)
+		if err != nil {
+			return nil, err
+		}
+
+		return unmarshalOrRaw(out), nil
+	case mu.ResponseTemplate != "":
+		rendered, err := renderVTL(mu.ResponseTemplate, args, result)
+		if err != nil {
+			return nil, err
+		}
+
+		return unmarshalOrRaw(rendered), nil
+	default:
+		return result, nil
+	}
+}
+
+// unmarshalOrRaw JSON-decodes s, returning it as the raw string when it
+// isn't valid JSON (a Lambda payload, for instance, need not be a JSON
+// object -- callers that require one check the decoded type themselves).
+func unmarshalOrRaw(s string) any {
+	var v any
+	if err := json.Unmarshal([]byte(s), &v); err == nil {
+		return v
+	}
+
+	return s
+}
+
+// resolveField executes a single field resolver -- a UNIT resolver (one
+// data source, request/response mapping) or a PIPELINE resolver (a chain of
+// Functions, each its own data-source step).
 func resolveField(
 	ctx context.Context,
 	backend *InMemoryBackend,
 	resolver *Resolver,
 	datasources map[string]*DataSource,
+	functions map[string]*Function,
 	args map[string]any,
 ) (any, error) {
-	ds := datasources[resolver.DataSourceName]
+	if resolver.Kind == resolverKindPipeline {
+		return executePipeline(ctx, backend, resolver, datasources, functions, args)
+	}
+
+	return executeDataSourceStep(
+		ctx, backend, resolverMappingUnit(resolver), resolver.DataSourceName, datasources, args, nil,
+	)
+}
+
+// executePipeline runs a PIPELINE resolver: each configured Function's
+// data-source step in order (each function's own result becomes
+// ctx.prev.result for the next function's request mapping), then the
+// resolver's own after-mapping (ResponseMappingTemplate or Code's
+// `response` handler) over the last function's result.
+//
+// The resolver-level before-mapping (RequestMappingTemplate / Code's
+// `request` handler) is intentionally NOT evaluated: on real AppSync its
+// only effects beyond a request object nothing here consumes are writing to
+// ctx.stash and short-circuiting the pipeline (via util.error / an early
+// return) -- neither of which this evaluator's documented subset (see
+// jseval.go's doc comment) implements. Evaluating it and discarding the
+// result would be pointless; skipping it honestly reflects what's actually
+// supported rather than fabricating stash semantics. See PARITY.md.
+func executePipeline(
+	ctx context.Context,
+	backend *InMemoryBackend,
+	resolver *Resolver,
+	datasources map[string]*DataSource,
+	functions map[string]*Function,
+	args map[string]any,
+) (any, error) {
+	var prevResult any
+
+	for _, funcID := range resolver.PipelineConfig {
+		fn := functions[funcID]
+		if fn == nil {
+			return nil, fmt.Errorf("%w: %q", ErrFunctionNotFound, funcID)
+		}
+
+		result, err := executeDataSourceStep(
+			ctx, backend, functionMappingUnit(fn), fn.DataSourceName, datasources, args, prevResult,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("pipeline function %q: %w", fn.Name, err)
+		}
+
+		prevResult = result
+	}
+
+	after := mappingUnit{ResponseTemplate: resolver.ResponseMappingTemplate, Code: resolver.Code}
+
+	return evalResponseMapping(after, args, prevResult)
+}
+
+// executeDataSourceStep builds mu's request mapping, invokes dsName's data
+// source, and applies mu's response mapping -- the single-data-source unit
+// shared by a UNIT resolver and each function in a PIPELINE resolver's
+// chain. prevResult feeds ctx.prev.result for the request mapping (nil for
+// a UNIT resolver, the previous pipeline function's result otherwise).
+func executeDataSourceStep(
+	ctx context.Context,
+	backend *InMemoryBackend,
+	mu mappingUnit,
+	dsName string,
+	datasources map[string]*DataSource,
+	args map[string]any,
+	prevResult any,
+) (any, error) {
+	ds := datasources[dsName]
 	if ds == nil {
-		return nil, fmt.Errorf("%w: %q", ErrDataSourceNotFound, resolver.DataSourceName)
+		return nil, fmt.Errorf("%w: %q", ErrDataSourceNotFound, dsName)
 	}
 
 	switch ds.Type {
 	case DataSourceTypeLambda:
-		return invokeLambdaResolver(ctx, backend, resolver, ds, args)
+		return invokeLambdaDataSource(ctx, backend, mu, ds, args, prevResult)
 	case DataSourceTypeDynamoDB:
-		return invokeDynamoDBResolver(ctx, backend, resolver, ds, args)
+		return invokeDynamoDBDataSource(ctx, backend, mu, ds, args, prevResult)
 	case DataSourceTypeNone:
-		return invokeNoneResolver(resolver, args)
+		return invokeNoneDataSource(mu, args, prevResult)
 	case DataSourceTypeHTTP, DataSourceTypeRelational, DataSourceTypeOpenSearch:
 		return nil, fmt.Errorf("%w: %s", ErrUnsupportedDataSource, ds.Type)
 	default:
@@ -263,13 +453,15 @@ func resolveField(
 	}
 }
 
-// invokeLambdaResolver invokes the configured Lambda function with the request payload.
-func invokeLambdaResolver(
+// invokeLambdaDataSource invokes the configured Lambda function with mu's
+// mapped request as payload.
+func invokeLambdaDataSource(
 	ctx context.Context,
 	backend *InMemoryBackend,
-	resolver *Resolver,
+	mu mappingUnit,
 	ds *DataSource,
 	args map[string]any,
+	prevResult any,
 ) (any, error) {
 	if backend.lambdaFn == nil {
 		return nil, ErrLambdaNotConfigured
@@ -279,8 +471,7 @@ func invokeLambdaResolver(
 		return nil, ErrLambdaMissingConfig
 	}
 
-	// Build the AppSync Lambda event payload.
-	payload, err := buildLambdaPayload(resolver, args)
+	payload, err := buildLambdaEvent(mu, args, prevResult)
 	if err != nil {
 		return nil, err
 	}
@@ -295,59 +486,48 @@ func invokeLambdaResolver(
 		return nil, fmt.Errorf("lambda invocation failed: %w", err)
 	}
 
-	// Apply response mapping template.
 	var lambdaResult any
 
 	if jsonErr := json.Unmarshal(result, &lambdaResult); jsonErr != nil {
 		lambdaResult = string(result)
 	}
 
-	if resolver.ResponseMappingTemplate != "" {
-		rendered, vtlErr := renderVTL(resolver.ResponseMappingTemplate, args, lambdaResult)
-		if vtlErr != nil {
-			return nil, vtlErr
-		}
-
-		var out any
-		if jsonErr := json.Unmarshal([]byte(rendered), &out); jsonErr == nil {
-			return out, nil
-		}
-
-		return rendered, nil
-	}
-
-	return lambdaResult, nil
+	return evalResponseMapping(mu, args, lambdaResult)
 }
 
-// buildLambdaPayload constructs the AppSync Lambda invocation payload.
-func buildLambdaPayload(resolver *Resolver, args map[string]any) ([]byte, error) {
-	if resolver.RequestMappingTemplate == "" {
-		// Default: pass through arguments directly.
-		event := map[string]any{
-			"field":     resolver.FieldName,
-			"typeName":  resolver.TypeName,
-			"arguments": args,
-		}
-
-		return json.Marshal(event)
-	}
-
-	// Evaluate request mapping template.
-	rendered, err := renderVTL(resolver.RequestMappingTemplate, args, nil)
+// buildLambdaEvent constructs the AppSync Lambda invocation payload from
+// mu's request mapping, falling back to the real default AppSync Lambda
+// event shape ({field, typeName, arguments}) when no mapping is configured.
+// That default only includes field/typeName for a UNIT resolver
+// (mu.FieldName set); a pipeline function has no field/type identity of its
+// own, so its default degrades to just {arguments}.
+func buildLambdaEvent(mu mappingUnit, args map[string]any, prevResult any) ([]byte, error) {
+	value, ok, err := evalRequestMapping(mu, args, prevResult)
 	if err != nil {
 		return nil, err
 	}
 
-	return []byte(rendered), nil
+	if ok {
+		return json.Marshal(value)
+	}
+
+	event := map[string]any{jsCtxKeyArguments: args}
+	if mu.FieldName != "" {
+		event["field"] = mu.FieldName
+		event["typeName"] = mu.TypeName
+	}
+
+	return json.Marshal(event)
 }
 
-// invokeDynamoDBResolver executes the request template against DynamoDB.
-func invokeDynamoDBResolver(
+// invokeDynamoDBDataSource executes mu's mapped request against DynamoDB.
+func invokeDynamoDBDataSource(
 	ctx context.Context,
 	backend *InMemoryBackend,
-	resolver *Resolver,
+	mu mappingUnit,
 	ds *DataSource,
 	args map[string]any,
+	prevResult any,
 ) (any, error) {
 	if backend.ddbBackend == nil {
 		return nil, ErrDynamoDBNotConfigured
@@ -357,16 +537,16 @@ func invokeDynamoDBResolver(
 		return nil, ErrDynamoDBMissingConfig
 	}
 
-	// Apply request mapping template to build the DynamoDB operation.
-	var request map[string]any
-	if resolver.RequestMappingTemplate != "" {
-		rendered, err := renderVTL(resolver.RequestMappingTemplate, args, nil)
-		if err != nil {
-			return nil, err
-		}
+	value, ok, err := evalRequestMapping(mu, args, prevResult)
+	if err != nil {
+		return nil, err
+	}
 
-		if jsonErr := json.Unmarshal([]byte(rendered), &request); jsonErr != nil {
-			return nil, fmt.Errorf("request mapping template did not produce valid JSON: %w", jsonErr)
+	var request map[string]any
+
+	if ok {
+		if request, ok = value.(map[string]any); !ok {
+			return nil, fmt.Errorf("%w: request mapping did not produce a JSON object", ErrValidation)
 		}
 	} else {
 		request = map[string]any{"operation": "GetItem", "key": args}
@@ -375,8 +555,6 @@ func invokeDynamoDBResolver(
 	operation, _ := request["operation"].(string)
 
 	var result any
-
-	var err error
 
 	switch operation {
 	case "GetItem":
@@ -402,57 +580,27 @@ func invokeDynamoDBResolver(
 		return nil, err
 	}
 
-	// Apply response mapping template.
-	if resolver.ResponseMappingTemplate == "" {
-		return result, nil
-	}
-
-	rendered, vtlErr := renderVTL(resolver.ResponseMappingTemplate, args, result)
-	if vtlErr != nil {
-		return nil, vtlErr
-	}
-
-	var out any
-	if jsonErr := json.Unmarshal([]byte(rendered), &out); jsonErr == nil {
-		return out, nil
-	}
-
-	return rendered, nil
+	return evalResponseMapping(mu, args, result)
 }
 
-// invokeNoneResolver executes a NONE data source using the mapping templates.
-func invokeNoneResolver(resolver *Resolver, args map[string]any) (any, error) {
-	if resolver.ResponseMappingTemplate == "" {
+// invokeNoneDataSource executes a NONE data source: mu's request mapping
+// output becomes the "result" mu's response mapping (if any) sees. Matches
+// the real API's use of NONE data sources for local/pass-through resolvers.
+func invokeNoneDataSource(mu mappingUnit, args map[string]any, prevResult any) (any, error) {
+	if mu.ResponseTemplate == "" && mu.Code == "" {
 		return args, nil
 	}
 
-	// For NONE type, apply the response template with the request result as context.
-	var reqResult any
-
-	if resolver.RequestMappingTemplate != "" {
-		rendered, err := renderVTL(resolver.RequestMappingTemplate, args, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		if jsonErr := json.Unmarshal([]byte(rendered), &reqResult); jsonErr != nil {
-			reqResult = rendered
-		}
-	} else {
-		reqResult = args
-	}
-
-	rendered, err := renderVTL(resolver.ResponseMappingTemplate, args, reqResult)
+	reqResult, ok, err := evalRequestMapping(mu, args, prevResult)
 	if err != nil {
 		return nil, err
 	}
 
-	var out any
-	if jsonErr := json.Unmarshal([]byte(rendered), &out); jsonErr == nil {
-		return out, nil
+	if !ok {
+		reqResult = args
 	}
 
-	return rendered, nil
+	return evalResponseMapping(mu, args, reqResult)
 }
 
 // parseGraphQLRequest parses the GraphQL request body.
@@ -495,6 +643,13 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 		datasourcesCopy[ds.Name] = ds
 	}
 
+	apiFunctions := b.functionsByAPI.Get(apiID)
+	functionsCopy := make(map[string]*Function, len(apiFunctions))
+
+	for _, fn := range apiFunctions {
+		functionsCopy[fn.FunctionID] = fn
+	}
+
 	b.mu.RUnlock()
 
 	if !apiOK {
@@ -503,5 +658,7 @@ func (b *InMemoryBackend) ExecuteGraphQL(
 
 	_ = api
 
-	return executeGraphQL(ctx, b, schema, resolversCopy, datasourcesCopy, query, operationName, variables)
+	return executeGraphQL(
+		ctx, b, schema, resolversCopy, datasourcesCopy, functionsCopy, query, operationName, variables,
+	)
 }

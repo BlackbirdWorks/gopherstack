@@ -1,6 +1,7 @@
 package codecommit
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"time"
@@ -97,6 +98,18 @@ func (b *InMemoryBackend) CreateCommit(
 			"%w: parentCommitId %s does not match current branch tip %s",
 			ErrParentCommitIDOutdated, parentCommitID, currentTip,
 		)
+	}
+
+	// AWS rejects a commit whose putFiles entry has content identical to
+	// what's already at that path with SameFileContentException, checked
+	// before any mutation so a rejected commit leaves no partial state.
+	for _, pf := range putFiles {
+		if existing, ok := b.files.Get(fileKey(repositoryName, pf.FilePath)); ok &&
+			bytes.Equal(existing.FileContent, pf.FileContent) {
+			return nil, nil, nil, fmt.Errorf(
+				"%w: file %s content is unchanged", ErrSameFileContent, pf.FilePath,
+			)
+		}
 	}
 
 	commitID := uuid.NewString()

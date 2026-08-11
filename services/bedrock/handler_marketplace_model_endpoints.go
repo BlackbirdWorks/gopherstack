@@ -94,7 +94,7 @@ func (h *Handler) routeMarketplaceEndpointSub(c *echo.Context, path, method stri
 	case method == http.MethodPost && isReg:
 		id := decodePath(strings.TrimSuffix(rest, "/registration"))
 
-		return true, h.handleRegisterMarketplaceModelEndpoint(c, id)
+		return true, h.handleRegisterMarketplaceModelEndpoint(c, id, body)
 	case method == http.MethodDelete && isReg:
 		id := decodePath(strings.TrimSuffix(rest, "/registration"))
 
@@ -227,8 +227,8 @@ type listMarketplaceModelEndpointsOutput struct {
 }
 
 func (h *Handler) handleListMarketplaceModelEndpoints(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(nextToken)
+	q := c.Request().URL.Query()
+	endpoints, outToken := h.Backend.ListMarketplaceModelEndpoints(q.Get("nextToken"), q.Get("modelSourceIdentifier"))
 	summaries := make([]marketplaceEndpointOutput, 0, len(endpoints))
 
 	for _, ep := range endpoints {
@@ -263,12 +263,24 @@ func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id strin
 	return c.JSON(http.StatusOK, marketplaceEndpointToOutput(ep))
 }
 
-func (h *Handler) handleRegisterMarketplaceModelEndpoint(c *echo.Context, id string) error {
-	if err := h.Backend.RegisterMarketplaceModelEndpoint(id); err != nil {
-		return h.writeError(c, err)
+type registerMarketplaceModelEndpointInput struct {
+	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
+}
+
+func (h *Handler) handleRegisterMarketplaceModelEndpoint(c *echo.Context, id string, body []byte) error {
+	in, err := parseBody[registerMarketplaceModelEndpointInput](body)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid request body"))
 	}
 
-	return c.NoContent(http.StatusOK)
+	ep, opErr := h.Backend.RegisterMarketplaceModelEndpoint(id, in.ModelSourceIdentifier)
+	if opErr != nil {
+		return h.writeError(c, opErr)
+	}
+
+	return c.JSON(http.StatusOK, createMarketplaceModelEndpointOutput{
+		MarketplaceModelEndpoint: marketplaceEndpointToOutput(ep),
+	})
 }
 
 func (h *Handler) handleDeregisterMarketplaceModelEndpoint(c *echo.Context, id string) error {

@@ -503,6 +503,58 @@ func TestHandler_CreateCommit_ParentCommitIdOutdated(t *testing.T) {
 	assert.Equal(t, "ParentCommitIdOutdatedException", resp["__type"])
 }
 
+// TestHandler_CreateCommit_SameFileContent verifies CreateCommit rejects a
+// putFiles entry whose content matches what's already at that path with
+// SameFileContentException (previously declared but never returned by any
+// backend path), and that no commit is created as a side effect of the
+// rejected attempt.
+func TestHandler_CreateCommit_SameFileContent(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateRepository", map[string]any{"repositoryName": "same-content-commit-repo"})
+
+	putFiles := []map[string]any{
+		{"filePath": "main.go", "fileContent": "cGFja2FnZSBtYWlu"}, // "package main"
+	}
+	rec := doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "same-content-commit-repo",
+		"branchName":     "main",
+		"commitMessage":  "initial",
+		"putFiles":       putFiles,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var firstResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &firstResp))
+	firstCommitID, _ := firstResp["commitId"].(string)
+	require.NotEmpty(t, firstCommitID)
+
+	rec = doRequest(t, h, "CreateCommit", map[string]any{
+		"repositoryName": "same-content-commit-repo",
+		"branchName":     "main",
+		"commitMessage":  "no-op",
+		"parentCommitId": firstCommitID,
+		"putFiles":       putFiles,
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var errResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+	assert.Equal(t, "SameFileContentException", errResp["__type"])
+
+	branchRec := doRequest(t, h, "GetBranch", map[string]any{
+		"repositoryName": "same-content-commit-repo", "branchName": "main",
+	})
+	require.Equal(t, http.StatusOK, branchRec.Code)
+
+	var branchResp map[string]any
+	require.NoError(t, json.Unmarshal(branchRec.Body.Bytes(), &branchResp))
+	branch, ok := branchResp["branch"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, firstCommitID, branch["commitId"], "rejected commit must not move the branch tip")
+}
+
 // TestGetCommit_ParentsNotNull verifies that GetCommit always returns "parents" as a JSON
 // array, never null. AWS always returns "parents": [] even for root commits.
 func TestGetCommit_ParentsNotNull(t *testing.T) {

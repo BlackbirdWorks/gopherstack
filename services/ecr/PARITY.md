@@ -1,6 +1,6 @@
 ---
 service: ecr
-sdk_module: aws-sdk-go-v2/service/ecr@v1.59.0
+sdk_module: aws-sdk-go-v2/service/ecr@v1.60.4
 last_audit_commit: fba3c784+uncommitted  # this pass's changes are uncommitted working-tree edits; see Notes
 last_audit_date: 2026-07-24
 overall: A  # round 3 closed every remaining gaps: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.

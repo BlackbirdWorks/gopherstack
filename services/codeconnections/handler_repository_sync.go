@@ -78,7 +78,7 @@ type getResourceSyncStatusInput struct {
 }
 
 // revisionItem is the wire shape of a Revision (aws-sdk-go-v2/service/
-// codeconnections@v1.10.22 types.Revision -- all six members are required).
+// codeconnections@v1.13.4 types.Revision -- all six members are required).
 type revisionItem struct {
 	Branch         string `json:"Branch"`
 	Directory      string `json:"Directory"`
@@ -96,7 +96,7 @@ func revisionToItem(r Revision) revisionItem {
 }
 
 // resourceSyncAttemptItem is the wire shape of a resource sync attempt
-// (aws-sdk-go-v2/service/codeconnections@v1.10.22 types.ResourceSyncAttempt).
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 types.ResourceSyncAttempt).
 // StartedAt is an epoch-seconds JSON number on the wire, not an RFC3339
 // string. Events/InitialRevision/StartedAt/Status/Target/TargetRevision are
 // all required wire members -- InitialRevision/Target/TargetRevision were
@@ -194,7 +194,7 @@ type repositorySyncDefinitionItem struct {
 // wire shape. The real output has an optional NextToken member, but the real
 // input (ListRepositorySyncDefinitionsInput) has NO NextToken/MaxResults
 // member at all (confirmed against aws-sdk-go-v2/service/codeconnections@
-// v1.10.22's ListRepositorySyncDefinitionsInput struct and botocore's
+// v1.13.4's ListRepositorySyncDefinitionsInput struct and botocore's
 // paginators-1.json, which has an empty pagination config for this op) --
 // a real client has no way to ever request a further page, so this
 // emulation always returns every definition in one response and NextToken

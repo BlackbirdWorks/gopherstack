@@ -34,6 +34,13 @@ var (
 	// "ValidationException" rather than a fabricated
 	// "InvalidStorageClassException".
 	ErrInvalidStorageClass = awserr.New("ValidationException", awserr.ErrInvalidParameter)
+
+	// ErrInvalidUploadAvailability is returned when x-amz-upload-availability
+	// is set to a value other than the two real enum members (STANDARD,
+	// STREAMING -- aws-sdk-go-v2/service/mediastoredata/types.
+	// UploadAvailability's only Values()). See [ErrInvalidPath]'s doc comment
+	// for why the wire __type is "ValidationException".
+	ErrInvalidUploadAvailability = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
 // isValidStorageClass reports whether sc is a known MediaStore Data storage
@@ -45,6 +52,13 @@ var (
 // accepted here.
 func isValidStorageClass(sc string) bool {
 	return sc == "TEMPORAL"
+}
+
+// isValidUploadAvailability reports whether ua is a known MediaStore Data
+// UploadAvailability value ("STANDARD" or "STREAMING" -- see
+// aws-sdk-go-v2/service/mediastoredata/types.UploadAvailability).
+func isValidUploadAvailability(ua string) bool {
+	return ua == "STANDARD" || ua == "STREAMING"
 }
 
 // normalizePath normalises an object path (strips leading slash).

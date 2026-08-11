@@ -8,10 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
-	"github.com/labstack/echo/v5"
 )
 
 // ---- path classification ----
@@ -70,6 +72,7 @@ var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeCla
 		pathSegTemplates:           classifyTemplatePaths,
 		pathSegThemes:              classifyThemePaths,
 		pathSegTopics:              classifyTopicPaths,
+		pathSegTopicsV2:            classifyTopicV2Paths,
 		pathSegVPCConnections:      classifyVPCConnectionPaths,
 		pathSegActionConnectors:    classifyActionConnectorPaths,
 		pathSegBrands:              classifyBrandPaths,
@@ -883,6 +886,8 @@ func classifySearchPaths(method string, segs []string, n int) (string, string) {
 		return opSearchActionConnectors, ""
 	case pathSegTopics:
 		return opSearchTopics, ""
+	case pathSegTopicsV2:
+		return opSearchTopicsV2, ""
 	case pathSegAgents:
 		return opSearchAgents, ""
 	case pathSegKnowledgeBases:
@@ -940,6 +945,22 @@ func intField(body map[string]any, key string) int32 {
 	}
 
 	return 0
+}
+
+// epochField parses a JSON number field as AWS's unixTimestamp wire format
+// (seconds since the epoch, real SDK reference: smithytime.ParseEpochSeconds
+// in aws-sdk-go-v2/service/quicksight/deserializers.go). Zero value means
+// absent.
+func epochField(body map[string]any, key string) time.Time {
+	v, ok := body[key].(float64)
+	if !ok {
+		return time.Time{}
+	}
+
+	sec := int64(v)
+	nsec := int64((v - float64(sec)) * float64(time.Second))
+
+	return time.Unix(sec, nsec).UTC()
 }
 
 // strSliceField extracts a []string from a JSON array field, used for

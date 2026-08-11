@@ -46,6 +46,33 @@ func TestQuickSight_AssetBundleExportJob_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missingRec.Code)
 }
 
+// ---- StartAssetBundleExportJobInput's Include* request flags round-trip
+// into DescribeAssetBundleExportJobOutput ----
+
+func TestQuickSight_AssetBundleExportJob_IncludeFlags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	startRec := doRequest(t, h, http.MethodPost, accountPath("/asset-bundle-export-jobs"), map[string]any{
+		"AssetBundleExportJobId":   "job1",
+		"ResourceArns":             []string{"arn:aws:quicksight:us-east-1:000000000000:dashboard/dash1"},
+		"IncludeFolderMembers":     "RECURSE",
+		"IncludeFolderMemberships": true,
+		"IncludePermissions":       true,
+		"IncludeTags":              true,
+	})
+	require.Equal(t, http.StatusOK, startRec.Code)
+
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/asset-bundle-export-jobs/job1"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	body := parseBody(t, describeRec)
+	assert.Equal(t, "RECURSE", body["IncludeFolderMembers"])
+	assert.Equal(t, true, body["IncludeFolderMemberships"])
+	assert.Equal(t, true, body["IncludePermissions"])
+	assert.Equal(t, true, body["IncludeTags"])
+}
+
 func TestQuickSight_ListAssetBundleExportJobs_Pagination(t *testing.T) {
 	t.Parallel()
 

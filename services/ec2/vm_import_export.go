@@ -10,14 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
-// vm_import_export.go implements the VM Import/Export, Bundle Instance, and
-// Conversion Task family: BundleInstance/CancelBundleTask/DescribeBundleTasks;
-// ImportInstance/ImportVolume/DescribeConversionTasks/CancelConversionTask;
-// CreateInstanceExportTask/CancelExportTask/DescribeExportTasks; and ExportImage/
-// DescribeExportImageTasks (the latter integrates with the ImportImage-adjacent
-// b.exportImageTasks map, populated by ExportImage in backend_batch3.go).
-// CancelImportTask (for ImportImage/ImportSnapshot tasks) is also implemented here since
-// it operates across the imageImportTasks/snapshotImportTasks maps owned by batch3.
+// vm_import_export.go: VM Import/Export, Bundle Instance, and Conversion Task
+// family. ExportImage/DescribeExportImageTasks integrate with the
+// b.exportImageTasks map populated by ExportImage in backend_batch3.go;
+// CancelImportTask operates across batch3's imageImportTasks/snapshotImportTasks.
 
 // ---- Errors ----
 

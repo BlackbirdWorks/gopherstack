@@ -85,9 +85,13 @@ func cloneMemberFrameworkAttributes(fa *MemberFrameworkAttributesState) *MemberF
 	return cp
 }
 
-// CreateMember creates a new member in an existing network.
+// CreateMember creates a new member in an existing network. invitationID must name a
+// PENDING invitation issued for networkID -- real AWS requires InvitationId on every
+// CreateMember call (aws-sdk-go-v2 managedblockchain validators.go:805-806, v1.34.4) and
+// documents ACCEPTED as the status an invitation moves to once used (types/enums.go:111).
+// On success the invitation is consumed (marked ACCEPTED) so it cannot be reused.
 func (b *InMemoryBackend) CreateMember(
-	region, accountID, networkID, name, description, adminUsername, kmsKeyArn string,
+	region, accountID, networkID, invitationID, name, description, adminUsername, kmsKeyArn string,
 	tags map[string]string,
 ) (*Member, error) {
 	b.mu.Lock("CreateMember")
@@ -95,6 +99,19 @@ func (b *InMemoryBackend) CreateMember(
 
 	if _, exists := b.networks.Get(networkID); !exists {
 		return nil, ErrNetworkNotFound
+	}
+
+	inv, exists := b.invitations.Get(invitationID)
+	if !exists {
+		return nil, ErrInvitationNotFound
+	}
+
+	if inv.NetworkID != networkID {
+		return nil, ErrInvitationNetworkMismatch
+	}
+
+	if inv.Status != invitationStatusPending {
+		return nil, ErrInvitationNotPending
 	}
 
 	now := time.Now().UTC()
@@ -119,6 +136,8 @@ func (b *InMemoryBackend) CreateMember(
 
 	b.members.Put(member)
 	b.arnToResource[member.Arn] = member
+
+	inv.Status = invitationStatusAccepted
 
 	return cloneMember(member), nil
 }

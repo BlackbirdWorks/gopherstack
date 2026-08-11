@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"sort"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/dashboard"
+	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 // fakeConfigManager is a minimal dashboard.ConfigManager implementation for
@@ -137,5 +139,57 @@ func TestSystemSettings_NoSecretShapedKeys(t *testing.T) {
 	secretLike := regexp.MustCompile(`(?i)secret|password|token|credential|accesskey`)
 	for key := range body {
 		assert.NotRegexp(t, secretLike, key, "response key %q looks credential-shaped", key)
+	}
+}
+
+// TestSystemRegions seeds synthetic region names into the process-global
+// tracker (pkgs/service.KnownRegions is shared across the whole test binary)
+// and checks each case's regions are present in the response, rather than
+// asserting exact equality, so the test is safe alongside other packages'
+// parallel tests touching the same global set. It also pins the "empty set
+// serializes as [], not null" contract, which holds regardless of what else
+// has been seeded.
+func TestSystemRegions(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		seed         []string
+		wantContains []string
+	}{
+		{
+			name:         "returns seeded regions sorted and deduped",
+			seed:         []string{"ui-test-region-b", "ui-test-region-a", "ui-test-region-a"},
+			wantContains: []string{"ui-test-region-a", "ui-test-region-b"},
+		},
+		{
+			name:         "single seeded region present",
+			seed:         []string{"ui-test-region-solo"},
+			wantContains: []string{"ui-test-region-solo"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			service.SeedRegions(tt.seed...)
+
+			h := dashboard.NewHandler(dashboard.Config{})
+
+			rec := doGet(t, h, "/dashboard/api/system/regions")
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.NotContains(t, rec.Body.String(), "null", "empty set must serialize as [], not null")
+
+			var body struct {
+				Regions []string `json:"regions"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+			for _, want := range tt.wantContains {
+				assert.Contains(t, body.Regions, want)
+			}
+			assert.True(t, sort.StringsAreSorted(body.Regions))
+		})
 	}
 }

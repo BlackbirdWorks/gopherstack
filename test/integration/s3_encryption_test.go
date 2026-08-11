@@ -89,7 +89,10 @@ func TestIntegration_S3_Encryption(t *testing.T) {
 			require.NoError(t, err)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 			})
 
 			tt.setup(t, client, bucket)
@@ -137,7 +140,10 @@ func TestIntegration_S3_DeleteBucketEncryption(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	// Put an encryption config.

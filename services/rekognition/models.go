@@ -108,18 +108,21 @@ func (p *storedProject) toProject() *Project {
 
 // storedProjectVersion holds a model version within a project.
 type storedProjectVersion struct {
-	CreationTimestamp       time.Time         `json:"creationTimestamp"`
-	Tags                    map[string]string `json:"tags"`
-	ProjectVersionARN       string            `json:"projectVersionArn"`
-	ProjectARN              string            `json:"projectArn"`
-	VersionName             string            `json:"versionName"`
-	Status                  string            `json:"status"`
-	StatusMessage           string            `json:"statusMessage"`
-	OutputConfigS3Bucket    string            `json:"outputConfigS3Bucket,omitempty"`
-	OutputConfigS3KeyPrefix string            `json:"outputConfigS3KeyPrefix,omitempty"`
-	KmsKeyID                string            `json:"kmsKeyId,omitempty"`
-	VersionDescription      string            `json:"versionDescription,omitempty"`
-	MinInferenceUnits       int32             `json:"minInferenceUnits"`
+	CreationTimestamp                       time.Time         `json:"creationTimestamp"`
+	Tags                                    map[string]string `json:"tags"`
+	FeatureConfigContentModConfidenceThresh *float32          `json:"featureConfigContentModConfidenceThresh,omitempty"`
+	StatusMessage                           string            `json:"statusMessage"`
+	VersionName                             string            `json:"versionName"`
+	Status                                  string            `json:"status"`
+	ProjectARN                              string            `json:"projectArn"`
+	OutputConfigS3Bucket                    string            `json:"outputConfigS3Bucket,omitempty"`
+	OutputConfigS3KeyPrefix                 string            `json:"outputConfigS3KeyPrefix,omitempty"`
+	KmsKeyID                                string            `json:"kmsKeyId,omitempty"`
+	VersionDescription                      string            `json:"versionDescription,omitempty"`
+	SourceProjectVersionARN                 string            `json:"sourceProjectVersionArn,omitempty"`
+	ProjectVersionARN                       string            `json:"projectVersionArn"`
+	MinInferenceUnits                       int32             `json:"minInferenceUnits"`
+	MaxInferenceUnits                       int32             `json:"maxInferenceUnits,omitempty"`
 }
 
 func (v *storedProjectVersion) toProjectVersion() *ProjectVersion {
@@ -127,18 +130,21 @@ func (v *storedProjectVersion) toProjectVersion() *ProjectVersion {
 	maps.Copy(tags, v.Tags)
 
 	return &ProjectVersion{
-		CreationTimestamp:       v.CreationTimestamp,
-		Tags:                    tags,
-		ProjectVersionARN:       v.ProjectVersionARN,
-		ProjectARN:              v.ProjectARN,
-		VersionName:             v.VersionName,
-		Status:                  v.Status,
-		StatusMessage:           v.StatusMessage,
-		OutputConfigS3Bucket:    v.OutputConfigS3Bucket,
-		OutputConfigS3KeyPrefix: v.OutputConfigS3KeyPrefix,
-		KmsKeyID:                v.KmsKeyID,
-		VersionDescription:      v.VersionDescription,
-		MinInferenceUnits:       v.MinInferenceUnits,
+		CreationTimestamp:                       v.CreationTimestamp,
+		Tags:                                    tags,
+		ProjectVersionARN:                       v.ProjectVersionARN,
+		ProjectARN:                              v.ProjectARN,
+		VersionName:                             v.VersionName,
+		Status:                                  v.Status,
+		StatusMessage:                           v.StatusMessage,
+		OutputConfigS3Bucket:                    v.OutputConfigS3Bucket,
+		OutputConfigS3KeyPrefix:                 v.OutputConfigS3KeyPrefix,
+		KmsKeyID:                                v.KmsKeyID,
+		SourceProjectVersionARN:                 v.SourceProjectVersionARN,
+		FeatureConfigContentModConfidenceThresh: v.FeatureConfigContentModConfidenceThresh,
+		MaxInferenceUnits:                       v.MaxInferenceUnits,
+		VersionDescription:                      v.VersionDescription,
+		MinInferenceUnits:                       v.MinInferenceUnits,
 	}
 }
 
@@ -216,11 +222,16 @@ type storedLivenessSession struct {
 
 // storedAsyncJob holds an async video analysis job.
 type storedAsyncJob struct {
-	JobID        string `json:"jobId"`
-	JobType      string `json:"jobType"`
-	CollectionID string `json:"collectionId"`
-	JobStatus    string `json:"jobStatus"`
-	PollCount    int    `json:"pollCount"`
+	JobID          string   `json:"jobId"`
+	JobType        string   `json:"jobType"`
+	CollectionID   string   `json:"collectionId"`
+	JobStatus      string   `json:"jobStatus"`
+	JobTag         string   `json:"jobTag,omitempty"`
+	VideoS3Bucket  string   `json:"videoS3Bucket,omitempty"`
+	VideoS3Name    string   `json:"videoS3Name,omitempty"`
+	VideoS3Version string   `json:"videoS3Version,omitempty"`
+	SegmentTypes   []string `json:"segmentTypes,omitempty"`
+	PollCount      int      `json:"pollCount"`
 }
 
 // storedMediaAnalysisJob holds a media analysis job.

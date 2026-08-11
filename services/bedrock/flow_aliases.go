@@ -24,7 +24,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 	b.flowAliasCounter++
 	aliasID := fmt.Sprintf("flowAlias-%08d", b.flowAliasCounter)
 	aliasArn := arn.Build(
-		"bedrock-agent",
+		"bedrock",
 		b.region,
 		b.accountID,
 		"flow/"+flowID+"/alias/"+aliasID,

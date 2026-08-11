@@ -43,9 +43,20 @@ type StorageBackend interface {
 	StopChannel(name string) error
 
 	// SourceLocation
-	CreateSourceLocation(name, baseURL string, tags map[string]string) (*SourceLocation, error)
+	CreateSourceLocation(
+		name, baseURL string,
+		accessConfig *AccessConfiguration,
+		defaultSegmentDelivery *DefaultSegmentDeliveryConfiguration,
+		segmentDeliveryConfigs []SegmentDeliveryConfiguration,
+		tags map[string]string,
+	) (*SourceLocation, error)
 	DescribeSourceLocation(name string) (*SourceLocation, error)
-	UpdateSourceLocation(name, baseURL string) (*SourceLocation, error)
+	UpdateSourceLocation(
+		name, baseURL string,
+		accessConfig *AccessConfiguration,
+		defaultSegmentDelivery *DefaultSegmentDeliveryConfiguration,
+		segmentDeliveryConfigs []SegmentDeliveryConfiguration,
+	) (*SourceLocation, error)
 	DeleteSourceLocation(name string) error
 	ListSourceLocations(maxResults int, nextToken string) ([]*SourceLocationSummary, string, error)
 
@@ -267,24 +278,59 @@ type DashPlaylistSettings struct {
 	SuggestedPresentationDelaySeconds int `json:"suggestedPresentationDelaySeconds"`
 }
 
+// AccessConfiguration is the authentication configuration for a source
+// location's HttpConfiguration.BaseUrl.
+type AccessConfiguration struct {
+	SecretsManagerAccessTokenConfiguration *SecretsManagerAccessTokenConfiguration
+	AccessType                             string
+}
+
+// SecretsManagerAccessTokenConfiguration is the AWS Secrets Manager access
+// token configuration for AccessConfiguration's
+// SECRETS_MANAGER_ACCESS_TOKEN AccessType.
+type SecretsManagerAccessTokenConfiguration struct {
+	HeaderName      string
+	SecretArn       string
+	SecretStringKey string
+}
+
+// DefaultSegmentDeliveryConfiguration is the default host for a source
+// location's segment delivery server.
+type DefaultSegmentDeliveryConfiguration struct {
+	BaseURL string
+}
+
+// SegmentDeliveryConfiguration is a named segment delivery server for a
+// source location.
+type SegmentDeliveryConfiguration struct {
+	BaseURL string
+	Name    string
+}
+
 // SourceLocation represents a MediaTailor source location.
 type SourceLocation struct {
-	CreationTime         time.Time
-	LastModified         time.Time
-	Tags                 map[string]string
-	Name                 string
-	ARN                  string
-	HTTPConfigurationURL string
+	CreationTime                        time.Time
+	LastModified                        time.Time
+	AccessConfiguration                 *AccessConfiguration
+	DefaultSegmentDeliveryConfiguration *DefaultSegmentDeliveryConfiguration
+	Tags                                map[string]string
+	Name                                string
+	ARN                                 string
+	HTTPConfigurationURL                string
+	SegmentDeliveryConfigurations       []SegmentDeliveryConfiguration
 }
 
 // SourceLocationSummary is a source location in a list response.
 type SourceLocationSummary struct {
-	CreationTime         time.Time
-	LastModified         time.Time
-	Tags                 map[string]string
-	Name                 string
-	ARN                  string
-	HTTPConfigurationURL string
+	CreationTime                        time.Time
+	LastModified                        time.Time
+	AccessConfiguration                 *AccessConfiguration
+	DefaultSegmentDeliveryConfiguration *DefaultSegmentDeliveryConfiguration
+	Tags                                map[string]string
+	Name                                string
+	ARN                                 string
+	HTTPConfigurationURL                string
+	SegmentDeliveryConfigurations       []SegmentDeliveryConfiguration
 }
 
 // VodSource represents a MediaTailor VOD source.

@@ -50,7 +50,7 @@ func (b *InMemoryBackend) CreateProvisionedModelThroughput(
 
 	id := b.newProvisionedID()
 	pmtARN := arn.Build("bedrock", b.region, b.accountID, "provisioned-model/"+id)
-	modelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+modelID)
+	modelARN := foundationModelARN(b.region, modelID)
 	now := time.Now().UTC()
 
 	tagsCopy := make([]Tag, len(tags))
@@ -139,8 +139,7 @@ func (b *InMemoryBackend) UpdateProvisionedModelThroughput(
 	}
 
 	if desiredModelID != "" {
-		modelARN := arn.Build("bedrock", b.region, b.accountID, "foundation-model/"+desiredModelID)
-		pmt.DesiredModelArn = modelARN
+		pmt.DesiredModelArn = foundationModelARN(b.region, desiredModelID)
 	}
 
 	if newName != "" && newName != pmt.ProvisionedModelName {

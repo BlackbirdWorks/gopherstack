@@ -139,28 +139,56 @@ func (b *InMemoryBackend) SetTypeConfiguration(typeName, configuration string) e
 }
 
 func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
-	typeConfigIdentifiers []string,
-) ([]TypeConfigurationDetail, error) {
+	identifiers []TypeConfigurationIdentifier,
+) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier) {
 	b.mu.RLock("BatchDescribeTypeConfigurations")
 	defer b.mu.RUnlock()
-	details := make([]TypeConfigurationDetail, 0, len(typeConfigIdentifiers))
-	for _, id := range typeConfigIdentifiers {
-		cfg := b.typeConfigs[id]
+
+	var (
+		details     []TypeConfigurationDetail
+		errs        []BatchDescribeTypeConfigurationsError
+		unprocessed []TypeConfigurationIdentifier
+	)
+
+	for _, ident := range identifiers {
+		name := ident.TypeName
+		if name == "" {
+			name = ident.TypeConfigurationArn
+		}
+		if name == "" {
+			unprocessed = append(unprocessed, ident)
+
+			continue
+		}
+
+		typeArn := ident.TypeArn
+		if typeArn == "" {
+			typeArn = "arn:aws:cloudformation:::type/resource/" + name
+		}
+		cfg, hasCfg := b.typeConfigs[name]
+		_, registered := b.typeRegistry.Get(typeArn)
+		if !hasCfg && !registered {
+			errs = append(errs, BatchDescribeTypeConfigurationsError{
+				TypeConfigurationIdentifier: &ident,
+				ErrorCode:                   "TypeNotFoundException",
+				ErrorMessage:                fmt.Sprintf("type configuration not found: %s", name),
+			})
+
+			continue
+		}
 		if cfg == "" {
-			// Also check by looking up the registry entry (typeName may be a key in typeConfigs).
-			typeArn := "arn:aws:cloudformation:::type/resource/" + id
-			if t, ok := b.typeRegistry.Get(typeArn); ok {
-				cfg = t.Configuration
-			}
+			cfg = "{}"
 		}
 		details = append(details, TypeConfigurationDetail{
-			TypeName:               id,
+			TypeName:               name,
+			TypeArn:                typeArn,
+			Alias:                  ident.TypeConfigurationAlias,
 			Configuration:          cfg,
-			IsDefaultConfiguration: true,
+			IsDefaultConfiguration: !hasCfg,
 		})
 	}
 
-	return details, nil
+	return details, errs, unprocessed
 }
 
 func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {

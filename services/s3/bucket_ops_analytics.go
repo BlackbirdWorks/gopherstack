@@ -361,24 +361,16 @@ func (h *S3Handler) listBucketMetricsConfigurations(
 	writeConfigListXML(w, "ListMetricsConfigurationsResult", configs)
 }
 
-// writeConfigListXML writes a generic XML list response containing zero or
-// more config elements.
+// writeConfigListXML writes a generic XML list response containing zero or more
+// config elements.
 //
-// Each string in configs is the RAW request body that PutBucket*Configuration
-// stored verbatim (see e.g. bucket_analytics.go's PutBucketAnalyticsConfiguration).
-// Per the real SDK's serializer (awsRestxml_serializeOpPutBucketAnalyticsConfiguration
-// and its Inventory/Metrics/IntelligentTiering siblings), that body's root
-// element already is e.g. a complete
-// `<AnalyticsConfiguration>...</AnalyticsConfiguration>` document, not just
-// its inner fields. The real SDK's List deserializer likewise treats each
-// top-level `<AnalyticsConfiguration>` (etc.) element directly under the list
-// root as one unwrapped list entry (see
-// awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped).
-//
-// So configs must be emitted AS-IS here, not re-wrapped in another element —
-// doing so previously produced doubly-nested XML
-// (<AnalyticsConfiguration><AnalyticsConfiguration>...) that no real SDK
-// client could correctly parse back into its Id/Filter/etc fields.
+// Each string in configs is the RAW request body PutBucket*Configuration stored
+// verbatim -- already a complete `<AnalyticsConfiguration>...</AnalyticsConfiguration>`
+// document per the real SDK's serializer, and the SDK's List deserializer treats
+// each top-level element directly under the list root as one unwrapped entry
+// (awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped). So configs
+// must be emitted AS-IS, not re-wrapped -- doing so produces doubly-nested XML no
+// real SDK client can parse back.
 func writeConfigListXML(w http.ResponseWriter, rootTag string, configs []string) {
 	var sb strings.Builder
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)

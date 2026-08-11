@@ -93,8 +93,8 @@ func TestHandler_LogGroupDeletionProtection(t *testing.T) {
 			name:   "PutLogGroupDeletionProtection/Enable",
 			action: "PutLogGroupDeletionProtection",
 			body: map[string]any{
-				"logGroupIdentifier": "/aws/lambda/fn",
-				"deletionProtected":  true,
+				"logGroupIdentifier":        "/aws/lambda/fn",
+				"deletionProtectionEnabled": true,
 			},
 			wantCode: http.StatusOK,
 		},
@@ -102,8 +102,8 @@ func TestHandler_LogGroupDeletionProtection(t *testing.T) {
 			name:   "PutLogGroupDeletionProtection/Disable",
 			action: "PutLogGroupDeletionProtection",
 			body: map[string]any{
-				"logGroupIdentifier": "/aws/lambda/fn",
-				"deletionProtected":  false,
+				"logGroupIdentifier":        "/aws/lambda/fn",
+				"deletionProtectionEnabled": false,
 			},
 			wantCode: http.StatusOK,
 		},
@@ -111,8 +111,8 @@ func TestHandler_LogGroupDeletionProtection(t *testing.T) {
 			name:   "PutLogGroupDeletionProtection/EmptyIdentifier",
 			action: "PutLogGroupDeletionProtection",
 			body: map[string]any{
-				"logGroupIdentifier": "",
-				"deletionProtected":  true,
+				"logGroupIdentifier":        "",
+				"deletionProtectionEnabled": true,
 			},
 			wantCode: http.StatusBadRequest,
 		},
@@ -131,6 +131,45 @@ func TestHandler_LogGroupDeletionProtection(t *testing.T) {
 			require.NoError(t, err)
 			rec := doLogsRequest(t, h, e, tt.action, string(bodyBytes))
 			assert.Equal(t, tt.wantCode, rec.Code)
+		})
+	}
+}
+
+// TestHandler_PutLogGroupDeletionProtection_WireName pins the request member
+// name to the botocore model (logs/2014-03-28): deletionProtectionEnabled,
+// not deletionProtected. A client sending the real wire name must actually
+// flip backend state, not just get a 200.
+func TestHandler_PutLogGroupDeletionProtection_WireName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "enable", enabled: true},
+		{name: "disable", enabled: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			handler := cloudwatchlogs.NewHandler(backend)
+
+			const lg = "/aws/lambda/wire-name-fn"
+			require.NoError(t, backend.SetLogGroupDeletionProtection(lg, !tt.enabled))
+
+			body, err := json.Marshal(map[string]any{
+				"logGroupIdentifier":        lg,
+				"deletionProtectionEnabled": tt.enabled,
+			})
+			require.NoError(t, err)
+
+			rec := doLogsRequest(t, handler, e, "PutLogGroupDeletionProtection", string(body))
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.enabled, backend.IsLogGroupDeletionProtected(lg))
 		})
 	}
 }

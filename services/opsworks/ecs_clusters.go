@@ -5,9 +5,12 @@ import (
 	"time"
 )
 
-// RegisterEcsCluster registers an ECS cluster with a stack.
+// RegisterEcsCluster registers an ECS cluster with a stack. EcsClusterArn
+// and StackId are both "This member is required" on the real
+// RegisterEcsClusterInput (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_RegisterEcsCluster.go).
 func (b *InMemoryBackend) RegisterEcsCluster(ecsClusterArn, stackID string) (string, error) {
-	if ecsClusterArn == "" {
+	if ecsClusterArn == "" || stackID == "" {
 		return "", ErrValidation
 	}
 

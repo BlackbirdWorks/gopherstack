@@ -63,7 +63,7 @@ func TestHarvestJob_Create(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Equal(t, "job-1", resp["id"])
-				assert.Equal(t, "SUCCEEDED", resp["status"])
+				assert.Equal(t, "IN_PROGRESS", resp["status"])
 				assert.NotEmpty(t, resp["arn"])
 				assert.NotEmpty(t, resp["channelId"])
 				assert.NotEmpty(t, resp["createdAt"])
@@ -177,7 +177,7 @@ func TestHarvestJob_Describe(t *testing.T) {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(body, &resp))
 				assert.Equal(t, "job-desc", resp["id"])
-				assert.Equal(t, "SUCCEEDED", resp["status"])
+				assert.Equal(t, "IN_PROGRESS", resp["status"])
 				assert.NotEmpty(t, resp["arn"])
 			},
 		},
@@ -263,7 +263,7 @@ func TestHarvestJob_List(t *testing.T) {
 		{
 			name:       "filter by status returns matching",
 			wantCode:   http.StatusOK,
-			queryParam: "includeStatus=SUCCEEDED",
+			queryParam: "includeStatus=IN_PROGRESS",
 			check: func(t *testing.T, body []byte) {
 				t.Helper()
 
@@ -273,7 +273,7 @@ func TestHarvestJob_List(t *testing.T) {
 				assert.Len(t, jobs, 3)
 				for _, j := range jobs {
 					jm := j.(map[string]any)
-					assert.Equal(t, "SUCCEEDED", jm["status"])
+					assert.Equal(t, "IN_PROGRESS", jm["status"])
 				}
 			},
 		},
@@ -372,6 +372,38 @@ func TestHarvestJob_CycleCreateDescribeList(t *testing.T) {
 	s3 := job["s3Destination"].(map[string]any)
 	assert.Equal(t, "cycle-bucket", s3["bucketName"])
 	assert.Equal(t, "cycle/manifest.m3u8", s3["manifestKey"])
+}
+
+// TestHarvestJob_Create_NeverClaimsSuccessBeforeWorkHappens verifies
+// CreateHarvestJob does not synchronously claim SUCCEEDED. Real MediaPackage
+// harvest jobs start IN_PROGRESS and transition to SUCCEEDED/FAILED
+// asynchronously as content is actually copied to S3 (types.HarvestJob.Status
+// doc comment, aws-sdk-go-v2/service/mediapackage@v1.42.4,
+// types/types.go:291-294); this backend does not perform that copy, so
+// SUCCEEDED on create would claim S3 work that never happened.
+func TestHarvestJob_Create_NeverClaimsSuccessBeforeWorkHappens(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	chID := createTestChannel(t, h)
+	createTestOriginEndpointForHarvest(t, h, chID, "ep-async")
+
+	rec := doRequest(t, h, http.MethodPost, "/harvest_jobs", map[string]any{
+		"id":               "job-async",
+		"originEndpointId": "ep-async",
+		"startTime":        "2024-01-01T00:00:00Z",
+		"endTime":          "2024-01-01T01:00:00Z",
+		"s3Destination": map[string]any{
+			"bucketName":  "b",
+			"manifestKey": "m",
+			"roleArn":     "r",
+		},
+	})
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "IN_PROGRESS", resp["status"])
 }
 
 // TestHarvestJob_RequiredFields verifies that missing required fields

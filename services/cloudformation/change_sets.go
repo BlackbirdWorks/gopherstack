@@ -17,6 +17,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 	stackName, changeSetName, templateBody, description string,
 	params []Parameter,
 	capabilities []string,
+	tags []Tag,
 ) (*ChangeSet, error) {
 	b.mu.Lock("CreateChangeSet")
 	defer b.mu.Unlock()
@@ -57,6 +58,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 		TemplateBody:    templateBody,
 		Parameters:      params,
 		Capabilities:    capabilities,
+		Tags:            tags,
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)

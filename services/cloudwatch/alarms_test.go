@@ -500,7 +500,7 @@ func TestCloudWatchBackend_DescribeAlarmsForMetric(t *testing.T) {
 // "CompositeAlarm", but -- per DescribeAlarmsInput.AlarmTypes's own doc
 // comment ("If you omit this parameter, only metric alarms are returned,
 // even if composite alarms or log alarms exist in the account", confirmed
-// against aws-sdk-go-v2/service/cloudwatch@v1.65.0/api_op_DescribeAlarms.go)
+// against aws-sdk-go-v2/service/cloudwatch@v1.66.3/api_op_DescribeAlarms.go)
 // -- is NOT returned when AlarmTypes is omitted (bd gopherstack-yvb7: this
 // backend previously defaulted composite alarms in alongside metric alarms,
 // contradicting the documented default that only LogAlarm already honored

@@ -101,7 +101,16 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 
 	changeReq, err := b.CreateCollaborationChangeRequest(
 		collab.CollaborationIdentifier,
-		[]map[string]any{{"specificationType": "MEMBER", "specification": map[string]any{"reason": "test"}}},
+		[]cleanrooms.Change{{
+			SpecificationType: "MEMBER",
+			Types:             []string{"ADD_MEMBER"},
+			Specification: cleanrooms.ChangeSpecification{
+				Member: &cleanrooms.MemberChangeSpecification{
+					AccountID:       "222222222222",
+					MemberAbilities: []string{"CAN_QUERY"},
+				},
+			},
+		}},
 	)
 	require.NoError(t, err)
 
@@ -284,7 +293,7 @@ func assertCollaborationNestedRestored(t *testing.T, fresh *cleanrooms.InMemoryB
 
 	gotChangeReq, err := fresh.GetCollaborationChangeRequest(collaborationID, seed.changeReq.ChangeRequestIdentifier)
 	require.NoError(t, err)
-	assert.Equal(t, seed.changeReq.Type, gotChangeReq.Type)
+	assert.Equal(t, seed.changeReq.Changes, gotChangeReq.Changes)
 	changeReqItems, _, err := fresh.ListCollaborationChangeRequests(collaborationID, "", "")
 	require.NoError(t, err)
 	assert.Len(t, changeReqItems, 1)

@@ -684,16 +684,10 @@ func TestHandler_CapacityManagerMonitoredTagKeys_GetReflectsUpdates(t *testing.T
 	assert.Contains(t, getRec2.Body.String(), "<status>suspended</status>")
 }
 
-// TestHandler_CapacityFamily_TagDualWritePathVisibility proves that the four
-// taggable resources in the capacity family (CapacityReservationFleet,
-// CapacityBlock, CapacityManagerDataExport, CapacityReservationCancellation
-// Quote) consolidated onto the shared tag store: a tag supplied at create
-// time (TagSpecification) and a tag added afterwards via CreateTags are BOTH
-// visible through the resource's own Describe call AND through the generic
-// DescribeTags call. Before the fix, these types carried their own embedded
-// Tags field that was populated only at create time, so a post-creation
-// CreateTags call was invisible to Describe. Each subtest uses a fresh
-// backend and describes with no ID filter, since the backend starts empty.
+// TestHandler_CapacityFamily_TagDualWritePathVisibility proves a tag from
+// TagSpecification and one added later via CreateTags are BOTH visible through
+// the resource's own Describe and through DescribeTags, for all four taggable
+// capacity-family resources.
 func TestHandler_CapacityFamily_TagDualWritePathVisibility(t *testing.T) {
 	t.Parallel()
 

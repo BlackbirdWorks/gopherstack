@@ -54,6 +54,16 @@ const defaultAvailabilityZone = "us-east-1a"
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
+	// ec2Launcher, when set (see SetEC2Launcher), routes scale-out/scale-in
+	// through the EC2 backend so ASG membership stays consistent with EC2
+	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
+	// behavior.
+	ec2Launcher EC2Launcher
+	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
+	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
+	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames
+	// being stored and echoed with no effect on ELBv2.
+	elbv2Registrar          ELBv2TargetRegistrar
 	groups                  *store.Table[AutoScalingGroup]
 	launchConfigurations    *store.Table[LaunchConfiguration]
 	activities              map[string][]ScalingActivity
@@ -73,16 +83,9 @@ type InMemoryBackend struct {
 	// instanceIndex maps instanceID → groupName for O(1) lookup.
 	instanceIndex map[string]string
 	mu            *lockmetrics.RWMutex
-	// ec2Launcher, when set (see SetEC2Launcher), routes scale-out/scale-in
-	// through the EC2 backend so ASG membership stays consistent with EC2
-	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
-	// behavior.
-	ec2Launcher EC2Launcher
-	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
-	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
-	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames
-	// being stored and echoed with no effect on ELBv2.
-	elbv2Registrar ELBv2TargetRegistrar
+	// nextHookSeq assigns LifecycleHook.Sequence on first registration (see
+	// putLifecycleHookLocked); recomputed from restored data by Restore.
+	nextHookSeq int64
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.

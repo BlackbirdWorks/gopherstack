@@ -105,14 +105,11 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
-	// Destination SSE: a CopyObject request can specify server-side
-	// encryption for the NEW (destination) object independently of whatever
-	// encryption the source object used, via the plain (non copy-source-
-	// prefixed) X-Amz-Server-Side-Encryption* headers — the same headers
-	// PutObject reads. Stash it on ctx now so Backend.PutObject below
-	// encrypts with it; copySourceData (called next) derives its own
-	// request-scoped context for the copy-source SSE-C key and does not
-	// disturb this value.
+	// Destination SSE: CopyObject can specify encryption for the NEW object
+	// independently of the source's, via the plain (non copy-source-prefixed)
+	// X-Amz-Server-Side-Encryption* headers. Stash it on ctx now so
+	// Backend.PutObject below encrypts with it; copySourceData derives its own
+	// context for the copy-source SSE-C key and doesn't disturb this value.
 	destSSE, destSSEErr := extractSSEInfo(r)
 	if destSSEErr != nil {
 		WriteError(ctx, w, r, destSSEErr)
@@ -270,14 +267,11 @@ func (h *S3Handler) writeCopyResponse(
 }
 
 // copyChecksumAlgorithm decides which checksum algorithm (if any) the
-// destination object's PutObject should compute. Real S3 CopyObject
-// recomputes a checksum on the destination in two cases: the request
-// explicitly names an algorithm via x-amz-checksum-algorithm (letting the
-// caller pick a different algorithm than the source used), or — when no
-// algorithm is requested — the source object itself carried a checksum, in
-// which case the same algorithm is carried forward onto the copy. With
-// neither, the destination gets no checksum, matching PutObject's own
-// opt-in checksum behavior.
+// destination object's PutObject should compute. Real S3 CopyObject recomputes
+// one when the request explicitly names an algorithm via
+// x-amz-checksum-algorithm, or -- when none is requested -- carries forward the
+// source's own checksum algorithm if it had one. With neither, the destination
+// gets no checksum, matching PutObject's opt-in behavior.
 func copyChecksumAlgorithm(r *http.Request, srcVer *s3.GetObjectOutput) types.ChecksumAlgorithm {
 	if algo := r.Header.Get("X-Amz-Checksum-Algorithm"); algo != "" {
 		return types.ChecksumAlgorithm(strings.ToUpper(algo))

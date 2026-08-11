@@ -826,10 +826,14 @@ type getResourceLFTagsInput struct {
 }
 
 // getResourceLFTagsOutput is the response body for GetResourceLFTags.
+// LFTagsOnColumns is []ColumnLFTag (Name + LFTags), not a flat []LFTagPair --
+// matches types.GetResourceLFTagsOutput.LFTagsOnColumns
+// (api_op_GetResourceLFTags.go:53, aws-sdk-go-v2/service/lakeformation
+// @v1.50.4).
 type getResourceLFTagsOutput struct {
-	LFTagOnDatabase []LFTagPair `json:"LFTagOnDatabase,omitempty"`
-	LFTagsOnColumns []LFTagPair `json:"LFTagsOnColumns,omitempty"`
-	LFTagsOnTable   []LFTagPair `json:"LFTagsOnTable,omitempty"`
+	LFTagOnDatabase []LFTagPair   `json:"LFTagOnDatabase,omitempty"`
+	LFTagsOnColumns []ColumnLFTag `json:"LFTagsOnColumns,omitempty"`
+	LFTagsOnTable   []LFTagPair   `json:"LFTagsOnTable,omitempty"`
 }
 
 // listDataCellsFilterInput is the request body for ListDataCellsFilter.

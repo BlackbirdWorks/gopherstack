@@ -115,6 +115,10 @@ func (h *Handler) iamServerCertWriteDispatch() map[string]iamActionFn {
 				return nil, err
 			}
 
+			if tags := parseIAMTags(vals); len(tags) > 0 {
+				h.setTags("cert:"+cert.ServerCertificateName, tags)
+			}
+
 			return &uploadServerCertificateResponse{
 				XMLName: xml.Name{Local: "UploadServerCertificateResponse"},
 				Xmlns:   iamXMLNS,

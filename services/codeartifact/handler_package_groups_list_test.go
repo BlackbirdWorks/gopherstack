@@ -31,7 +31,7 @@ func TestHandler_ListAllowedRepositoriesForGroup(t *testing.T) {
 				setupDomain(t, h, "larg-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=larg-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-group-allowed-repositories?domain=larg-domain&package-group=/npm/*" + restrictionSuffix,
@@ -116,7 +116,7 @@ func TestHandler_ListAssociatedPackages(t *testing.T) {
 				setupDomain(t, h, "lap-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=lap-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/list-associated-packages?domain=lap-domain&package-group=/npm/*",
@@ -170,28 +170,44 @@ func TestHandler_ListAssociatedPackages_MostSpecificMatch(t *testing.T) {
 	setupDomain(t, h, "lapms-domain")
 	setupRepo(t, h, "lapms-domain", "lapms-repo")
 
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=lapms-domain", map[string]any{"pattern": "/npm/*"})
 	doRequest(
-		t, h, http.MethodPost, "/v1/package-group?domain=lapms-domain", map[string]any{"pattern": "/npm/space/*"},
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=lapms-domain",
+		map[string]any{"packageGroup": "/npm/*"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=lapms-domain",
+		map[string]any{"packageGroup": "/npm/space/*"},
 	)
 
 	// react has no namespace, so it only matches the broader "/npm/*" group.
 	doRawRequest(
-		t, h,
-		"/v1/package/versions/publish?domain=lapms-domain&repository=lapms-repo&format=npm&package=react"+
+		t,
+		h,
+		"/v1/package/version/publish?domain=lapms-domain&repository=lapms-repo&format=npm&package=react"+
 			"&version=18.0.0&asset=react.tgz",
 		[]byte("content"),
 	)
 	// utils is namespaced under "space", so it matches the more specific "/npm/space/*" group.
 	doRawRequest(
-		t, h,
-		"/v1/package/versions/publish?domain=lapms-domain&repository=lapms-repo&format=npm&namespace=space"+
+		t,
+		h,
+		"/v1/package/version/publish?domain=lapms-domain&repository=lapms-repo&format=npm&namespace=space"+
 			"&package=utils&version=1.0.0&asset=utils.tgz",
 		[]byte("content"),
 	)
 
 	broadRec := doRequest(
-		t, h, http.MethodGet, "/v1/list-associated-packages?domain=lapms-domain&package-group=/npm/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/list-associated-packages?domain=lapms-domain&package-group=/npm/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, broadRec.Code)
 
@@ -203,7 +219,11 @@ func TestHandler_ListAssociatedPackages_MostSpecificMatch(t *testing.T) {
 	assert.Equal(t, "STRONG", broadPkgs[0].(map[string]any)["associationType"])
 
 	specificRec := doRequest(
-		t, h, http.MethodGet, "/v1/list-associated-packages?domain=lapms-domain&package-group=/npm/space/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/list-associated-packages?domain=lapms-domain&package-group=/npm/space/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, specificRec.Code)
 
@@ -215,6 +235,73 @@ func TestHandler_ListAssociatedPackages_MostSpecificMatch(t *testing.T) {
 	assert.Equal(t, "space", specificPkgs[0].(map[string]any)["namespace"])
 }
 
+// TestHandler_ListAssociatedPackages_WeakMatch verifies dependency-confusion
+// variations (case, dash/dot/underscore) of a package group's exact pattern
+// value are reported as associationType WEAK, and stay attributed to the
+// same most-specific group rather than rolling up to a broader one, per
+// AWS's documented "Strong and weak match" behavior.
+func TestHandler_ListAssociatedPackages_WeakMatch(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	setupDomain(t, h, "weak-domain")
+	setupRepo(t, h, "weak-domain", "weak-repo")
+
+	doRequest(
+		t, h, http.MethodPost, "/v1/package-group?domain=weak-domain",
+		map[string]any{"packageGroup": "/npm//my-package$"},
+	)
+
+	// Strong match: the exact package name.
+	doRawRequest(
+		t,
+		h,
+		"/v1/package/version/publish?domain=weak-domain&repository=weak-repo&format=npm&package=my-package"+
+			"&version=1.0.0&asset=a.tgz",
+		[]byte("content"),
+	)
+	// Weak match: a case + separator variation of the same name.
+	doRawRequest(
+		t,
+		h,
+		"/v1/package/version/publish?domain=weak-domain&repository=weak-repo&format=npm&package=My.Package"+
+			"&version=1.0.0&asset=a.tgz",
+		[]byte("content"),
+	)
+
+	rec := doRequest(
+		t,
+		h,
+		http.MethodGet,
+		"/v1/list-associated-packages?domain=weak-domain&package-group=/npm//my-package$",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	pkgs, _ := resp["packages"].([]any)
+	require.Len(t, pkgs, 2, "both the strong and weak variant are associated with the same group")
+
+	byName := map[string]string{}
+	for _, p := range pkgs {
+		m := p.(map[string]any) //nolint:forcetypeassert // test fixture, shape is controlled above
+		byName[m["package"].(string)] = m["associationType"].(string)
+	}
+	assert.Equal(t, "STRONG", byName["my-package"])
+	assert.Equal(t, "WEAK", byName["My.Package"])
+
+	getRec := doRequest(
+		t, h, http.MethodGet,
+		"/v1/get-associated-package-group?domain=weak-domain&format=npm&package=My.Package", nil,
+	)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	assert.Equal(t, "WEAK", getResp["associationType"])
+}
+
 // TestHandler_GetAssociatedPackageGroup_MostSpecificMatch verifies GetAssociatedPackageGroup
 // picks the most specific of several matching groups, per AWS's pattern-specificity rule.
 func TestHandler_GetAssociatedPackageGroup_MostSpecificMatch(t *testing.T) {
@@ -223,16 +310,31 @@ func TestHandler_GetAssociatedPackageGroup_MostSpecificMatch(t *testing.T) {
 	h := newTestHandler(t)
 	setupDomain(t, h, "gapgms-domain")
 
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=gapgms-domain", map[string]any{"pattern": "/*"})
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=gapgms-domain", map[string]any{"pattern": "/npm/*"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=gapgms-domain",
+		map[string]any{"packageGroup": "/*"},
+	)
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=gapgms-domain",
+		map[string]any{"packageGroup": "/npm/*"},
+	)
 	doRequest(
 		t, h, http.MethodPost, "/v1/package-group?domain=gapgms-domain",
-		map[string]any{"pattern": "/npm/space/react$"},
+		map[string]any{"packageGroup": "/npm/space/react$"},
 	)
 
 	rec := doRequest(
-		t, h, http.MethodGet,
-		"/v1/get-associated-package-group?domain=gapgms-domain&format=npm&namespace=space&package=react", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/get-associated-package-group?domain=gapgms-domain&format=npm&namespace=space&package=react",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -286,14 +388,14 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lpg2-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 				doRequest(
 					t,
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lpg2-domain",
-					map[string]any{"pattern": "/pypi/*"},
+					map[string]any{"packageGroup": "/pypi/*"},
 				)
 			},
 			path:       "/v1/package-groups?domain=lpg2-domain",
@@ -309,14 +411,14 @@ func TestHandler_ListPackageGroups(t *testing.T) {
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lpg3-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 				doRequest(
 					t,
 					h,
 					http.MethodPost,
 					"/v1/package-group?domain=lpg3-domain",
-					map[string]any{"pattern": "/pypi/*"},
+					map[string]any{"packageGroup": "/pypi/*"},
 				)
 			},
 			path:       "/v1/package-groups?domain=lpg3-domain&prefix=/npm",
@@ -388,7 +490,7 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 				setupDomain(t, h, "upg-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upg-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-group?domain=upg-domain&packageGroup=/npm/*",
@@ -401,7 +503,7 @@ func TestHandler_UpdatePackageGroup(t *testing.T) {
 				setupDomain(t, h, "upg2-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upg2-domain",
-					map[string]any{"pattern": "/pypi/*"},
+					map[string]any{"packageGroup": "/pypi/*"},
 				)
 			},
 			path:       "/v1/package-group?domain=upg2-domain&packageGroup=/pypi/*",
@@ -460,7 +562,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 				setupDomain(t, h, "upgoc-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upgoc-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-group-origin-configuration?domain=upgoc-domain&package-group=/npm/*",
@@ -491,7 +593,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 				setupDomain(t, h, "upgoc2-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upgoc2-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-group-origin-configuration?domain=upgoc2-domain&package-group=/npm/*",
@@ -504,7 +606,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 				setupDomain(t, h, "upgoc3-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upgoc3-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path:       "/v1/package-group-origin-configuration?domain=upgoc3-domain&package-group=/npm/*",
@@ -517,7 +619,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration(t *testing.T) {
 				setupDomain(t, h, "upgoc4-domain")
 				doRequest(
 					t, h, http.MethodPost, "/v1/package-group?domain=upgoc4-domain",
-					map[string]any{"pattern": "/npm/*"},
+					map[string]any{"packageGroup": "/npm/*"},
 				)
 			},
 			path: "/v1/package-group-origin-configuration?domain=upgoc4-domain&package-group=/npm/*",
@@ -573,7 +675,7 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_AllowedRepositories(t *te
 	setupRepo(t, h, "upgocr-domain", "upgocr-repo")
 	doRequest(
 		t, h, http.MethodPost, "/v1/package-group?domain=upgocr-domain",
-		map[string]any{"pattern": "/npm/*"},
+		map[string]any{"packageGroup": "/npm/*"},
 	)
 
 	addRec := doRequest(
@@ -659,15 +761,25 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_Inheritance(t *testing.T)
 
 	h := newTestHandler(t)
 	setupDomain(t, h, "inherit-domain")
-	doRequest(t, h, http.MethodPost, "/v1/package-group?domain=inherit-domain", map[string]any{"pattern": "/npm/*"})
+	doRequest(
+		t,
+		h,
+		http.MethodPost,
+		"/v1/package-group?domain=inherit-domain",
+		map[string]any{"packageGroup": "/npm/*"},
+	)
 	doRequest(
 		t, h, http.MethodPost, "/v1/package-group?domain=inherit-domain",
-		map[string]any{"pattern": "/npm/space/*"},
+		map[string]any{"packageGroup": "/npm/space/*"},
 	)
 
 	// No restriction ever configured on either group: effective mode defaults to ALLOW.
 	descRec := doRequest(
-		t, h, http.MethodGet, "/v1/package-group?domain=inherit-domain&package-group=/npm/space/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-group?domain=inherit-domain&package-group=/npm/space/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, descRec.Code)
 
@@ -684,13 +796,20 @@ func TestHandler_UpdatePackageGroupOriginConfiguration_Inheritance(t *testing.T)
 	// Block PUBLISH on the parent (/npm/*): the child (/npm/space/*), still left at its
 	// default INHERIT, must now resolve its effective mode from that parent.
 	blockRec := doRequest(
-		t, h, http.MethodPut, "/v1/package-group-origin-configuration?domain=inherit-domain&package-group=/npm/*",
+		t,
+		h,
+		http.MethodPut,
+		"/v1/package-group-origin-configuration?domain=inherit-domain&package-group=/npm/*",
 		map[string]any{"restrictions": map[string]any{"PUBLISH": "BLOCK"}},
 	)
 	require.Equal(t, http.StatusOK, blockRec.Code)
 
 	descRec2 := doRequest(
-		t, h, http.MethodGet, "/v1/package-group?domain=inherit-domain&package-group=/npm/space/*", nil,
+		t,
+		h,
+		http.MethodGet,
+		"/v1/package-group?domain=inherit-domain&package-group=/npm/space/*",
+		nil,
 	)
 	require.Equal(t, http.StatusOK, descRec2.Code)
 
@@ -718,7 +837,7 @@ func TestListPackageGroups_Pagination(t *testing.T) {
 
 	for i := range 5 {
 		doRequest(t, h, http.MethodPost, "/v1/package-group?domain=pgpag-domain",
-			map[string]any{"pattern": fmt.Sprintf("/ns/pkg-%02d/*", i)},
+			map[string]any{"packageGroup": fmt.Sprintf("/ns/pkg-%02d/*", i)},
 		)
 	}
 

@@ -14,6 +14,10 @@ func (b *InMemoryBackend) CreateSite(req *createSiteRequest) (*Site, error) {
 	b.mu.Lock("CreateSite")
 	defer b.mu.Unlock()
 
+	if b.sites.Len() >= maxSitesPerRegion {
+		return nil, quotaExceededError("maximum number of sites per Region reached")
+	}
+
 	id := newSiteID()
 	t := tags.New("outposts.site." + id + ".tags")
 	t.Merge(req.Tags)
@@ -186,14 +190,15 @@ func (b *InMemoryBackend) ListSites(f listSitesFilter, token string, limit int) 
 }
 
 // siteHasInProgressOrderLocked reports whether any Outpost belonging to
-// siteID has an order still PREPARING (this backend's only "in progress"
-// state -- see orders.go). UpdateSiteAddress/UpdateSiteRackPhysicalProperties
-// reject while true, matching both operations' doc comments ("rejected
-// while an order is IN_PROGRESS for that site"). Callers must hold b.mu.
+// siteID has an order still PREPARING or IN_PROGRESS (this backend's two
+// pre-delivery states -- see orders.go). UpdateSiteAddress's doc comment
+// says "You can't update a site address if there is an order in progress";
+// UpdateSiteRackPhysicalProperties's says "an order of IN_PROGRESS" -- both
+// reject while true. Callers must hold b.mu.
 func (b *InMemoryBackend) siteHasInProgressOrderLocked(siteID string) bool {
 	for _, o := range b.outpostsBySite.Get(siteID) {
 		for _, ord := range b.ordersByOutpost.Get(o.ID) {
-			if ord.Status == OrderStatusPreparing {
+			if ord.Status == OrderStatusPreparing || ord.Status == OrderStatusInProgress {
 				return true
 			}
 		}

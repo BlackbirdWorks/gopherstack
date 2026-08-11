@@ -200,7 +200,7 @@ func (h *Handler) handleDisassociateMembers(c *echo.Context, body map[string]any
 	}
 
 	if err := h.Backend.DisassociateMembers(accountIDs); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

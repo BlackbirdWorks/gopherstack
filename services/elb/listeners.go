@@ -5,6 +5,28 @@ import (
 	"fmt"
 )
 
+// validateListenerCertificates checks every HTTPS/SSL listener's
+// SSLCertificateId against the wired CertificateResolver. Callers must hold
+// b.mu. A nil certResolver (the default) accepts every certificate id
+// unvalidated.
+func (b *InMemoryBackend) validateListenerCertificates(ctx context.Context, listeners []Listener) error {
+	if b.certResolver == nil {
+		return nil
+	}
+
+	for _, l := range listeners {
+		if l.SSLCertificateID == "" {
+			continue
+		}
+
+		if !b.certResolver.ResolveCertificate(ctx, l.SSLCertificateID) {
+			return fmt.Errorf("%w: %s", ErrCertificateNotFound, l.SSLCertificateID)
+		}
+	}
+
+	return nil
+}
+
 // CreateLoadBalancerListeners adds listeners to an existing load balancer.
 // Idempotent: if a listener on the same port already exists with identical settings,
 // it is a no-op. Returns DuplicateListener if the port is in use with different settings.
@@ -15,6 +37,10 @@ func (b *InMemoryBackend) CreateLoadBalancerListeners(ctx context.Context, name 
 	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	if certErr := b.validateListenerCertificates(ctx, listeners); certErr != nil {
+		return certErr
 	}
 
 	// Real AWS's CreateLoadBalancerListeners typed-error switch recognizes
@@ -100,6 +126,10 @@ func (b *InMemoryBackend) SetLoadBalancerListenerSSLCertificate(
 	lb, ok := b.lbs.Get(lbTableKey(getRegion(ctx, b.region), name))
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrLoadBalancerNotFound, name)
+	}
+
+	if b.certResolver != nil && !b.certResolver.ResolveCertificate(ctx, certID) {
+		return fmt.Errorf("%w: %s", ErrCertificateNotFound, certID)
 	}
 
 	for i := range lb.Listeners {

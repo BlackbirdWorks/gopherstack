@@ -4,6 +4,8 @@ import (
 	"maps"
 	"sort"
 	"strings"
+
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 )
 
 // storedCustomPermissions is the persisted representation of one QuickSight
@@ -22,11 +24,15 @@ func (c *storedCustomPermissions) toCustomPermissions() *CustomPermissions {
 	}
 }
 
+// isValidRole derives its answer from types.Role.Values() so it cannot drift
+// from the real enum -- the previous hand-copied list invented two roles
+// (RESTRICTED_AUTHOR, RESTRICTED_READER) that don't exist in the real API,
+// the more-permissive-than-AWS class.
 func isValidRole(role string) bool {
-	switch role {
-	case "ADMIN", "AUTHOR", "READER", "ADMIN_PRO", "AUTHOR_PRO", "READER_PRO",
-		"RESTRICTED_AUTHOR", "RESTRICTED_READER":
-		return true
+	for _, v := range sdktypes.Role("").Values() {
+		if string(v) == role {
+			return true
+		}
 	}
 
 	return false

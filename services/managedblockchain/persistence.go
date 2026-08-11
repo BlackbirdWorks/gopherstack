@@ -186,6 +186,10 @@ func (b *InMemoryBackend) rebuildARNIndexLocked() {
 	for _, a := range b.accessors.All() {
 		b.arnToResource[a.Arn] = a
 	}
+
+	for _, p := range b.proposals.All() {
+		b.arnToResource[p.Arn] = p
+	}
 }
 
 // Snapshot implements persistence.Persistable by delegating to the backend.

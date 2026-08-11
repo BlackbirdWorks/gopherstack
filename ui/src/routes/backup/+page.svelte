@@ -2,6 +2,9 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getBackupClient } from '$lib/aws-client';
 	import {
 		ListBackupPlansCommand,
@@ -35,12 +38,17 @@
 
 	const backup = regionalClient(getBackupClient);
 
+	// Every row carries the region its List call was made against.
+	// Detail/action calls must build a client for THAT region -- in All mode
+	// the same resource name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
 	let activeTab = $state<'plans' | 'vaults' | 'jobs' | 'recovery-points'>('plans');
 	let searchQuery = $state('');
 
 	// Backup Plans
-	let plans = $state<BackupPlansListMember[]>([]);
+	let plans = $state<Regioned<BackupPlansListMember>[]>([]);
 	let selectedPlan = $state<{
 		BackupPlanId?: string;
 		BackupPlanName?: string;
@@ -53,15 +61,15 @@
 	let newPlanSchedule = $state('cron(0 5 ? * * *)');
 
 	// Vaults
-	let vaults = $state<BackupVaultListMember[]>([]);
+	let vaults = $state<Regioned<BackupVaultListMember>[]>([]);
 
 	// Recovery Points
 	let recoveryPoints = $state<RecoveryPointByBackupVault[]>([]);
-	let selectedVaultForRP = $state('');
+	let selectedVaultForRP = $state<Regioned<BackupVaultListMember> | null>(null);
 	let rpLoading = $state(false);
 
 	// Jobs
-	let jobs = $state<BackupJob[]>([]);
+	let jobs = $state<Regioned<BackupJob>[]>([]);
 	let restoreJobs = $state<RestoreJobsListMember[]>([]);
 	let jobStatus = $state<'all' | 'RUNNING' | 'COMPLETED' | 'FAILED'>('all');
 
@@ -92,8 +100,12 @@
 	async function loadPlans() {
 		loading = true;
 		try {
-			const res = await backup().send(new ListBackupPlansCommand({ IncludeDeleted: false }));
-			plans = res.BackupPlansList ?? [];
+			const result = await multiRegionList(
+				(region) => getBackupClient(region).send(new ListBackupPlansCommand({ IncludeDeleted: false })),
+				(r) => r.BackupPlansList ?? []
+			);
+			plans = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load backup plans from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error(`Failed to load backup plans: ${e}`);
 		} finally {
@@ -104,8 +116,12 @@
 	async function loadVaults() {
 		loading = true;
 		try {
-			const res = await backup().send(new ListBackupVaultsCommand({}));
-			vaults = res.BackupVaultList ?? [];
+			const result = await multiRegionList(
+				(region) => getBackupClient(region).send(new ListBackupVaultsCommand({})),
+				(r) => r.BackupVaultList ?? []
+			);
+			vaults = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load vaults from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error(`Failed to load vaults: ${e}`);
 		} finally {
@@ -116,8 +132,12 @@
 	async function loadJobs() {
 		loading = true;
 		try {
-			const res = await backup().send(new ListBackupJobsCommand({ MaxResults: 100 }));
-			jobs = res.BackupJobs ?? [];
+			const result = await multiRegionList(
+				(region) => getBackupClient(region).send(new ListBackupJobsCommand({ MaxResults: 100 })),
+				(r) => r.BackupJobs ?? []
+			);
+			jobs = result.items.map(({ region, item }) => ({ ...item, region }));
+			if (result.errors.length > 0) toast.error(`Failed to load jobs from ${result.errors.length} region(s)`);
 		} catch (e) {
 			toast.error(`Failed to load jobs: ${e}`);
 		} finally {
@@ -125,10 +145,10 @@
 		}
 	}
 
-	async function viewPlan(plan: BackupPlansListMember) {
+	async function viewPlan(plan: Regioned<BackupPlansListMember>) {
 		if (!plan.BackupPlanId) return;
 		try {
-			const res = await backup().send(new GetBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
+			const res = await getBackupClient(plan.region).send(new GetBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			selectedPlan = {
 				BackupPlanId: res.BackupPlanId,
 				BackupPlanName: res.BackupPlan?.BackupPlanName,
@@ -143,10 +163,10 @@
 		}
 	}
 
-	async function deletePlan(plan: BackupPlansListMember) {
+	async function deletePlan(plan: Regioned<BackupPlansListMember>) {
 		if (!plan.BackupPlanId || !await confirmDestructive({ title: 'Delete Backup Plan', message: `Delete backup plan "${plan.BackupPlanName}"? Scheduled backups will no longer run.` })) return;
 		try {
-			await backup().send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
+			await getBackupClient(plan.region).send(new DeleteBackupPlanCommand({ BackupPlanId: plan.BackupPlanId }));
 			toast.success(`Plan "${plan.BackupPlanName}" deleted`);
 			await loadPlans();
 		} catch (e) {
@@ -187,8 +207,8 @@
 		if (!selectedVaultForRP) return;
 		rpLoading = true;
 		try {
-			const res = await backup().send(
-				new ListRecoveryPointsByBackupVaultCommand({ BackupVaultName: selectedVaultForRP })
+			const res = await getBackupClient(selectedVaultForRP.region).send(
+				new ListRecoveryPointsByBackupVaultCommand({ BackupVaultName: selectedVaultForRP.BackupVaultName })
 			);
 			recoveryPoints = res.RecoveryPoints ?? [];
 		} catch (e) {
@@ -202,6 +222,7 @@
 		if (
 			!rp.BackupVaultName ||
 			!rp.RecoveryPointArn ||
+			!selectedVaultForRP ||
 			!(await confirmDestructive({
 				title: 'Delete Recovery Point',
 				message: `Delete recovery point ${rp.RecoveryPointArn?.slice(-12)}? This cannot be undone.`
@@ -209,7 +230,7 @@
 		)
 			return;
 		try {
-			await backup().send(
+			await getBackupClient(selectedVaultForRP.region).send(
 				new DeleteRecoveryPointCommand({
 					BackupVaultName: rp.BackupVaultName,
 					RecoveryPointArn: rp.RecoveryPointArn
@@ -244,7 +265,7 @@
 		} else if (tab === 'vaults') {
 			loadVaults();
 		} else if (tab === 'recovery-points') {
-			selectedVaultForRP = '';
+			selectedVaultForRP = null;
 			recoveryPoints = [];
 			loadVaults();
 		} else {
@@ -262,13 +283,16 @@
 				<p class="text-sm text-muted-foreground">Centralized backup management for AWS services</p>
 			</div>
 		</div>
-		<button
-			onclick={() => (activeTab === 'plans' ? loadPlans() : activeTab === 'vaults' ? loadVaults() : loadJobs())}
-			class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
-		>
-			<RefreshCw class="h-4 w-4" />
-			Refresh
-		</button>
+		<div class="flex items-center gap-2">
+			<WriteRegionHint />
+			<button
+				onclick={() => (activeTab === 'plans' ? loadPlans() : activeTab === 'vaults' ? loadVaults() : loadJobs())}
+				class="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-accent"
+			>
+				<RefreshCw class="h-4 w-4" />
+				Refresh
+			</button>
+		</div>
 	</div>
 
 	<!-- Tabs -->
@@ -320,6 +344,7 @@
 					<thead class="bg-muted/50">
 						<tr>
 							<th class="px-4 py-3 text-left font-medium">Plan Name</th>
+							<th class="px-4 py-3 text-left font-medium">Region</th>
 							<th class="px-4 py-3 text-left font-medium">Version</th>
 							<th class="px-4 py-3 text-left font-medium">Created</th>
 							<th class="px-4 py-3 text-right font-medium">Actions</th>
@@ -332,6 +357,7 @@
 								onclick={() => viewPlan(plan)}
 							>
 								<td class="px-4 py-3 font-medium">{plan.BackupPlanName}</td>
+								<td class="px-4 py-3"><RegionChip region={plan.region} /></td>
 								<td class="px-4 py-3 text-xs text-muted-foreground">{plan.VersionId ?? '—'}</td>
 								<td class="px-4 py-3 text-xs text-muted-foreground">
 									{plan.CreationDate ? new Date(plan.CreationDate).toLocaleDateString() : '—'}
@@ -403,6 +429,7 @@
 						<div class="flex items-center gap-2">
 							<HardDrive class="h-5 w-5 text-orange-500" />
 							<span class="font-medium truncate">{vault.BackupVaultName}</span>
+							<RegionChip region={vault.region} />
 						</div>
 						<p class="text-xs text-muted-foreground">
 							Recovery points: {vault.NumberOfRecoveryPoints ?? 0}
@@ -454,6 +481,7 @@
 					<thead class="bg-muted/50">
 						<tr>
 							<th class="px-4 py-3 text-left font-medium">Job ID</th>
+							<th class="px-4 py-3 text-left font-medium">Region</th>
 							<th class="px-4 py-3 text-left font-medium">Resource</th>
 							<th class="px-4 py-3 text-left font-medium">Vault</th>
 							<th class="px-4 py-3 text-left font-medium">State</th>
@@ -464,6 +492,7 @@
 						{#each filteredJobs as job}
 							<tr class="hover:bg-muted/30">
 								<td class="px-4 py-3 font-mono text-xs">{(job.BackupJobId ?? '').slice(0, 8)}…</td>
+								<td class="px-4 py-3"><RegionChip region={job.region} /></td>
 								<td class="px-4 py-3 text-xs text-muted-foreground truncate max-w-[200px]">
 									{job.ResourceArn ?? '—'}
 								</td>
@@ -493,9 +522,9 @@
 			onchange={loadRecoveryPoints}
 			class="rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
 		>
-			<option value="">Select a vault...</option>
+			<option value={null}>Select a vault...</option>
 			{#each vaults as vault}
-				<option value={vault.BackupVaultName}>{vault.BackupVaultName}</option>
+				<option value={vault}>{vault.BackupVaultName} ({vault.region})</option>
 			{/each}
 		</select>
 		{#if selectedVaultForRP}
@@ -521,7 +550,7 @@
 	{:else if recoveryPoints.length === 0}
 		<div class="flex flex-col items-center justify-center py-12 text-muted-foreground">
 			<Archive class="h-12 w-12 mb-3 opacity-30" />
-			<p>No recovery points found in "{selectedVaultForRP}"</p>
+			<p>No recovery points found in "{selectedVaultForRP?.BackupVaultName}"</p>
 		</div>
 	{:else}
 		<div class="rounded-lg border overflow-hidden">
@@ -574,7 +603,7 @@
 				</tbody>
 			</table>
 		</div>
-		<p class="text-xs text-muted-foreground">{recoveryPoints.length} recovery point{recoveryPoints.length !== 1 ? 's' : ''} in "{selectedVaultForRP}"</p>
+		<p class="text-xs text-muted-foreground">{recoveryPoints.length} recovery point{recoveryPoints.length !== 1 ? 's' : ''} in "{selectedVaultForRP?.BackupVaultName}"</p>
 	{/if}
 {/if}
 

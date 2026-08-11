@@ -9,32 +9,99 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudwatch"
 )
 
-// ---------------------------------------------------------------------------
-// AlarmMuteRule: CRUD
-// ---------------------------------------------------------------------------
-
 func TestBackend_AlarmMuteRule_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := cloudwatch.NewInMemoryBackend()
 
 	require.NoError(t, b.PutAlarmMuteRule(&cloudwatch.AlarmMuteRule{
-		MuteName:     "mute1",
-		AlarmNames:   []string{"alarm1", "alarm2"},
-		MuteDuration: 3600,
+		Name:       "mute1",
+		AlarmNames: []string{"alarm1", "alarm2"},
+		Schedule: cloudwatch.AlarmMuteRuleSchedule{
+			Expression: "cron(0 2 * * *)",
+			Duration:   "PT1H",
+		},
 	}))
 
 	rule, err := b.GetAlarmMuteRule("mute1")
 	require.NoError(t, err)
-	assert.Equal(t, "mute1", rule.MuteName)
+	assert.Equal(t, "mute1", rule.Name)
 	assert.Len(t, rule.AlarmNames, 2)
+	assert.Equal(t, "RECURRING", rule.MuteType())
 
 	require.NoError(t, b.DeleteAlarmMuteRule("mute1"))
 	_, err = b.GetAlarmMuteRule("mute1")
 	assert.Error(t, err)
 }
 
-// TestBackend_ListAlarmMuteRules verifies pagination and ordering.
+func TestBackend_PutAlarmMuteRule_Validation(t *testing.T) {
+	t.Parallel()
+
+	validSchedule := cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "PT1H"}
+
+	tests := []struct {
+		name string
+		rule cloudwatch.AlarmMuteRule
+	}{
+		{name: "missing name", rule: cloudwatch.AlarmMuteRule{Schedule: validSchedule}},
+		{name: "missing expression", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Duration: "PT1H"},
+		}},
+		{name: "missing duration", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)"},
+		}},
+		{name: "malformed duration", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "1 hour"},
+		}},
+		{name: "duration below one minute", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "PT30S"},
+		}},
+		{name: "duration above fifteen days", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * *)", Duration: "P16D"},
+		}},
+		{name: "six field cron rejected", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "cron(0 2 * * ? *)", Duration: "PT1H"},
+		}},
+		{name: "at expression with seconds rejected", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "at(2030-05-10T14:00:00)", Duration: "PT1H"},
+		}},
+		{name: "unrecognised expression style", rule: cloudwatch.AlarmMuteRule{
+			Name:     "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{Expression: "rate(5 minutes)", Duration: "PT1H"},
+		}},
+		{name: "unknown timezone", rule: cloudwatch.AlarmMuteRule{
+			Name: "r",
+			Schedule: cloudwatch.AlarmMuteRuleSchedule{
+				Expression: "cron(0 2 * * *)", Duration: "PT1H", Timezone: "Not/A_Zone",
+			},
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			b := cloudwatch.NewInMemoryBackend()
+			err := b.PutAlarmMuteRule(&tc.rule)
+			require.ErrorIs(t, err, cloudwatch.ErrValidation)
+		})
+	}
+}
+
+func TestBackend_DeleteAlarmMuteRule_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	b := cloudwatch.NewInMemoryBackend()
+	require.NoError(t, b.DeleteAlarmMuteRule("does-not-exist"))
+}
+
+// TestBackend_ListAlarmMuteRules verifies pagination, ordering, and filtering.
 func TestBackend_ListAlarmMuteRules(t *testing.T) {
 	t.Parallel()
 
@@ -42,6 +109,8 @@ func TestBackend_ListAlarmMuteRules(t *testing.T) {
 		name       string
 		wantFirst  string
 		seed       []cloudwatch.AlarmMuteRule
+		alarmName  string
+		statuses   []string
 		maxResults int
 		wantLen    int
 	}{
@@ -53,9 +122,9 @@ func TestBackend_ListAlarmMuteRules(t *testing.T) {
 		{
 			name: "alphabetical order",
 			seed: []cloudwatch.AlarmMuteRule{
-				{MuteName: "z-rule", MuteDuration: 60},
-				{MuteName: "a-rule", MuteDuration: 60},
-				{MuteName: "m-rule", MuteDuration: 60},
+				{Name: "z-rule"},
+				{Name: "a-rule"},
+				{Name: "m-rule"},
 			},
 			wantLen:   3,
 			wantFirst: "a-rule",
@@ -63,12 +132,22 @@ func TestBackend_ListAlarmMuteRules(t *testing.T) {
 		{
 			name: "maxResults limits page",
 			seed: []cloudwatch.AlarmMuteRule{
-				{MuteName: "r1", MuteDuration: 60},
-				{MuteName: "r2", MuteDuration: 60},
-				{MuteName: "r3", MuteDuration: 60},
+				{Name: "r1"},
+				{Name: "r2"},
+				{Name: "r3"},
 			},
 			maxResults: 2,
 			wantLen:    2,
+		},
+		{
+			name: "filter by alarm name",
+			seed: []cloudwatch.AlarmMuteRule{
+				{Name: "r1", AlarmNames: []string{"alarm-a"}},
+				{Name: "r2", AlarmNames: []string{"alarm-b"}},
+			},
+			alarmName: "alarm-a",
+			wantLen:   1,
+			wantFirst: "r1",
 		},
 	}
 
@@ -80,11 +159,11 @@ func TestBackend_ListAlarmMuteRules(t *testing.T) {
 				b.PutAlarmMuteRuleInternal(&tc.seed[i])
 			}
 
-			p, err := b.ListAlarmMuteRules("", tc.maxResults)
+			p, err := b.ListAlarmMuteRules("", tc.maxResults, tc.alarmName, tc.statuses)
 			require.NoError(t, err)
 			assert.Len(t, p.Data, tc.wantLen)
 			if tc.wantFirst != "" && len(p.Data) > 0 {
-				assert.Equal(t, tc.wantFirst, p.Data[0].MuteName)
+				assert.Equal(t, tc.wantFirst, p.Data[0].Name)
 			}
 		})
 	}

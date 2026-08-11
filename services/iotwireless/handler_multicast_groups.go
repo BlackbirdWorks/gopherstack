@@ -22,13 +22,13 @@ type createMulticastGroupResponse struct {
 }
 
 type getMulticastGroupResponse struct {
-	LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
-	Arn         string         `json:"Arn"`
-	ID          string         `json:"Id"`
-	Name        string         `json:"Name"`
-	Description string         `json:"Description,omitempty"`
-	Status      string         `json:"Status"`
-	CreatedAt   float64        `json:"CreatedAt,omitempty"`
+	LoRaWAN     *LoRaWANMulticastGet `json:"LoRaWAN,omitempty"`
+	Arn         string               `json:"Arn"`
+	ID          string               `json:"Id"`
+	Name        string               `json:"Name"`
+	Description string               `json:"Description,omitempty"`
+	Status      string               `json:"Status"`
+	CreatedAt   float64              `json:"CreatedAt,omitempty"`
 }
 
 type getMulticastGroupSessionResponse struct {
@@ -52,10 +52,10 @@ type sendDataToMulticastGroupResponse struct {
 
 func (h *Handler) createMulticastGroup(c *echo.Context) error {
 	var req struct {
-		LoRaWAN     map[string]any `json:"LoRaWAN,omitempty"`
-		Name        string         `json:"Name"`
-		Description string         `json:"Description"`
-		Tags        []tags.KV      `json:"Tags"`
+		LoRaWAN     *LoRaWANMulticast `json:"LoRaWAN,omitempty"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
+		Tags        []tags.KV         `json:"Tags"`
 	}
 
 	body := readStubBody(c)
@@ -85,13 +85,16 @@ func (h *Handler) getMulticastGroup(c *echo.Context, id string) error {
 		return handleError(c, err)
 	}
 
+	//nolint:gosec // device count is bounded by real associations
+	devicesInGroup := int32(len(h.Backend.ListMulticastGroupDeviceIDs(mg.ID)))
+
 	resp := getMulticastGroupResponse{
 		Arn:         mg.ARN,
 		ID:          mg.ID,
 		Name:        mg.Name,
 		Description: mg.Description,
 		Status:      mg.Status,
-		LoRaWAN:     mg.LoRaWAN,
+		LoRaWAN:     loRaWANMulticastGetFrom(mg.LoRaWAN, devicesInGroup),
 	}
 	if !mg.CreatedAt.IsZero() {
 		resp.CreatedAt = awstime.Epoch(mg.CreatedAt)
@@ -132,14 +135,17 @@ func (h *Handler) deleteMulticastGroup(c *echo.Context, id string) error {
 
 func (h *Handler) updateMulticastGroup(c *echo.Context, id string) error {
 	var req struct {
-		Name        string `json:"Name"`
-		Description string `json:"Description"`
+		LoRaWAN     *LoRaWANMulticast `json:"LoRaWAN,omitempty"`
+		Name        string            `json:"Name"`
+		Description string            `json:"Description"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	if err := h.Backend.UpdateMulticastGroup(h.AccountID, h.DefaultRegion, id, req.Name, req.Description); err != nil {
+	if err := h.Backend.UpdateMulticastGroup(
+		h.AccountID, h.DefaultRegion, id, req.Name, req.Description, req.LoRaWAN,
+	); err != nil {
 		return handleError(c, err)
 	}
 

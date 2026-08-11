@@ -115,6 +115,11 @@ const (
 	ResourceSourceDiscovered  = "Discovered"
 )
 
+// eksClusterResourceType is the CFN-style ResourceType string for a
+// discovered EKS cluster, following the same raw-CFN-type-string convention
+// as every other PhysicalResource.ResourceType in this service.
+const eksClusterResourceType = "AWS::EKS::Cluster"
+
 // TemplateFormat wire values (types.TemplateFormat).
 const (
 	TemplateFormatCfnYaml = "CfnYaml"

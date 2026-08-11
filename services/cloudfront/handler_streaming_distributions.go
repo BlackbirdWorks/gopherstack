@@ -38,8 +38,11 @@ type streamingDistributionConfigXML struct {
 
 // streamingDistributionConfigWithTagsXML models an incoming StreamingDistributionConfigWithTags body.
 type streamingDistributionConfigWithTagsXML struct {
-	XMLName                     xml.Name                       `xml:"StreamingDistributionConfigWithTags"`
-	Tags                        []tagXML                       `xml:"Tags>Tag"`
+	XMLName xml.Name `xml:"StreamingDistributionConfigWithTags"`
+	// Tags is *types.Tags on the wire: Items wraps the Tag list, not a bare
+	// Tags>Tag path (cloudfront@v1.67.4 serializers.go
+	// awsRestxml_serializeDocumentTags).
+	Tags                        []tagXML                       `xml:"Tags>Items>Tag"`
 	StreamingDistributionConfig streamingDistributionConfigXML `xml:"StreamingDistributionConfig"`
 }
 

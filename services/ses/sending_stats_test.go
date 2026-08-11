@@ -353,6 +353,45 @@ func TestSESBackend_GetSendStatistics_14DayWindow(t *testing.T) {
 	assert.InDelta(t, float64(1), points[0].DeliveryAttempts, 0)
 }
 
+func TestGetSendStatistics_SimulatorAddresses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		recipient      string
+		wantBounces    float64
+		wantComplaints float64
+	}{
+		{name: "bounce_simulator", recipient: "bounce@simulator.amazonses.com", wantBounces: 1},
+		{name: "complaint_simulator", recipient: "complaint@simulator.amazonses.com", wantComplaints: 1},
+		{name: "suppressionlist_simulator", recipient: "suppressionlist@simulator.amazonses.com", wantBounces: 1},
+		{name: "success_simulator", recipient: "success@simulator.amazonses.com"},
+		{name: "ordinary_address", recipient: "to@example.com"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ses.NewInMemoryBackend()
+			require.NoError(t, b.VerifyEmailIdentity("s@example.com"))
+
+			_, err := b.SendEmail(ses.SendEmailInput{
+				From:     "s@example.com",
+				To:       []string{tt.recipient},
+				Subject:  "test",
+				BodyText: "body",
+			})
+			require.NoError(t, err)
+
+			points := b.GetSendStatistics()
+			require.Len(t, points, 1)
+			assert.InDelta(t, tt.wantBounces, points[0].Bounces, 0)
+			assert.InDelta(t, tt.wantComplaints, points[0].Complaints, 0)
+		})
+	}
+}
+
 func TestSESHandler_GetAccountSendingEnabled(t *testing.T) {
 	t.Parallel()
 

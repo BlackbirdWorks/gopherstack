@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateDeployment creates a deployment and associated stage.
@@ -29,6 +31,7 @@ func (b *InMemoryBackend) CreateDeployment(restAPIID, stageName, description str
 		// AWS: stage description comes from stageDescription (a separate field),
 		// not from the deployment description. New stages start with empty description.
 		stage := &Stage{
+			Tags:            tags.New("apigw.stage." + restAPIID + "." + stageName + ".tags"),
 			StageName:       stageName,
 			RestAPIID:       restAPIID,
 			DeploymentID:    deplID,

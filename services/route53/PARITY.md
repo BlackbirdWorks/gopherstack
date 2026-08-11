@@ -1,6 +1,6 @@
 ---
 service: route53
-sdk_module: aws-sdk-go-v2/service/route53@v1.62.3
+sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
 last_audit_commit: ee7d2bae
 last_audit_date: 2026-07-23
 overall: A          # this pass: closed BOTH tracked gaps (AssociateVPCWithHostedZone

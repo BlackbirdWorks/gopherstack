@@ -21,7 +21,7 @@ func TestFlowAliasCRUD(t *testing.T) {
 
 	var fb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fb))
-	flowID := fb["flow"].(map[string]any)["flowId"].(string)
+	flowID, _ := fb["id"].(string)
 
 	// Create alias
 	rec = doAgentRequest(
@@ -33,7 +33,7 @@ func TestFlowAliasCRUD(t *testing.T) {
 
 	var ab map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ab))
-	aliasID := ab["flowAlias"].(map[string]any)["flowAliasId"].(string)
+	aliasID, _ := ab["id"].(string)
 
 	// Get alias
 	rec = doAgentRequest(t, h, http.MethodGet,

@@ -437,7 +437,7 @@ func TestAWSConfigBackend_GetAggregateComplianceDetailsByConfigRule(t *testing.T
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 		require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule1"}))
 		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
 			{
@@ -473,7 +473,7 @@ func TestAWSConfigBackend_GetAggregateConfigRuleComplianceSummary(t *testing.T) 
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
 			{ConfigRuleName: "rule1", ComplianceType: "COMPLIANT"},
 		}))
@@ -488,7 +488,7 @@ func TestAWSConfigBackend_GetAggregateConfigRuleComplianceSummary(t *testing.T) 
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+		require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 		require.NoError(t, b.PutEvaluations([]awsconfig.EvaluationResult{
 			{ConfigRuleName: "rule1", ComplianceType: "COMPLIANT"},
 		}))

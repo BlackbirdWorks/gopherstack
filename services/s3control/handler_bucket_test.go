@@ -404,24 +404,11 @@ func TestCreateBucket(t *testing.T) {
 	}
 }
 
-// TestHTTP_CreateBucket_RealSDKShape_RoundTrip locks in gopherstack-eje5: a
-// real aws-sdk-go-v2 CreateBucket request has NO AccountId member at all
-// (confirmed against the installed aws-sdk-go-v2/service/s3control's
-// CreateBucketInput -- its members are Bucket/ACL/CreateBucketConfiguration/
-// Grant*/ObjectLockEnabledForBucket/OutpostId, nothing account-related),
-// unlike GetBucket/DeleteBucket/ListRegionalBuckets, which all bind an
-// (optional) AccountId to the X-Amz-Account-Id header. A real client
-// therefore never sends that header on CreateBucket, while it commonly DOES
-// send its actual AWS account ID on the read-side ops. A previous version of
-// this handler resolved CreateBucket's owner via the same
-// accountIDFromRequest() helper every other op uses, which silently fell
-// back to the literal string "default" when the header was absent -- so a
-// bucket created by a real client landed under account "default" while that
-// same client's later Get/Delete/List calls (sent with its actual account
-// ID) looked for it under a different key and never found it. This
-// exercises the real, headerless CreateBucket shape and then reads it back
-// using an explicit, different AccountId on every read op, exactly as a
-// real SDK client would.
+// TestHTTP_CreateBucket_RealSDKShape_RoundTrip: real CreateBucketInput has
+// no AccountId member at all, unlike GetBucket/DeleteBucket/ListRegionalBuckets
+// which bind an optional AccountId to X-Amz-Account-Id. This exercises the
+// real, headerless CreateBucket shape and reads it back using an explicit,
+// different AccountId on every read op, exactly as a real SDK client would.
 // Deliberately NOT split into t.Run subtests: List/Get must observe the
 // bucket before Delete removes it, so the three reads share one strict
 // sequence rather than running in parallel.
@@ -515,19 +502,12 @@ func TestListRegionalBuckets_Pagination(t *testing.T) {
 	}
 }
 
-// TestBucketTagging_WireShape locks in two gopherstack-tir4 findings for
-// PutBucketTagging/GetBucketTagging:
-//
-//  1. PutBucketTaggingInput's Tagging field is "payload"-bound in the real
-//     SDK: the ENTIRE request body root is "<Tagging>", with no
-//     "<PutBucketTaggingRequest>" wrapper (confirmed via
-//     awsRestxml_serializeOpPutBucketTaggingRequest). A previous version of
-//     this handler expected an extra wrapper level, which would reject
-//     every real aws-sdk-go-v2 client's request outright (root-element
-//     mismatch).
-//  2. TagSet (the shared S3TagSet type) serializes entries as "<member>",
-//     not "<Tag>" -- confirmed via awsRestxml_serializeDocumentS3TagSet,
-//     the same type job tagging uses (see handler_jobs.go).
+// TestBucketTagging_WireShape covers PutBucketTagging/GetBucketTagging:
+// Tagging is "payload"-bound, so the entire request body root is
+// "<Tagging>", no "<PutBucketTaggingRequest>" wrapper
+// (awsRestxml_serializeOpPutBucketTaggingRequest); and TagSet serializes
+// entries as "<member>", not "<Tag>" (awsRestxml_serializeDocumentS3TagSet
+// — same type job tagging uses, handler_jobs.go).
 func TestBucketTagging_WireShape(t *testing.T) {
 	t.Parallel()
 
@@ -560,17 +540,11 @@ func TestBucketTagging_WireShape(t *testing.T) {
 	assert.Equal(t, "prod", out.Tags[0].Value)
 }
 
-// TestBucketVersioning_WireShape locks in a gopherstack-tir4 finding:
-// PutBucketVersioningInput's VersioningConfiguration field is
-// "payload"-bound in the real SDK: the ENTIRE request body root is
-// "<VersioningConfiguration>" with Status as its direct child, with no
-// "<PutBucketVersioningRequest>" wrapper and no extra
-// "<VersioningConfiguration>" nesting level (confirmed via
-// awsRestxml_serializeOpPutBucketVersioningRequest). A previous version of
-// this handler expected
-// "<PutBucketVersioningRequest><VersioningConfiguration><Status>", which a
-// real aws-sdk-go-v2 client's request would never match (root-element
-// mismatch), rejecting every real PutBucketVersioning call outright.
+// TestBucketVersioning_WireShape covers: VersioningConfiguration is
+// "payload"-bound, so the entire request body root is
+// "<VersioningConfiguration>" with Status as its direct child, no
+// "<PutBucketVersioningRequest>" wrapper
+// (awsRestxml_serializeOpPutBucketVersioningRequest).
 func TestBucketVersioning_WireShape(t *testing.T) {
 	t.Parallel()
 
@@ -594,18 +568,12 @@ func TestBucketVersioning_WireShape(t *testing.T) {
 	assert.Equal(t, "Enabled", out.Status)
 }
 
-// TestBucketPolicy_WireShape locks in a bug found finishing the
-// gopherstack-tir4 field-diff: unlike PutBucketLifecycleConfiguration/
-// PutBucketTagging/PutBucketVersioning, PutBucketPolicyInput.Policy is NOT
-// payload-bound -- the real request body root is "<PutBucketPolicyRequest>"
+// TestBucketPolicy_WireShape covers: unlike PutBucketLifecycleConfiguration/
+// PutBucketTagging/PutBucketVersioning, PutBucketPolicyInput.Policy is not
+// payload-bound — the real request body root is "<PutBucketPolicyRequest>"
 // with the policy JSON document as the text of a nested "<Policy>" element
-// (confirmed via awsRestxml_serializeOpDocumentPutBucketPolicyInput). The
-// previous handler treated the whole raw request body as "the policy" (a
-// pattern that IS correct for the payload-bound ops above, but not this
-// one), so a real client's policy round-tripped through GetBucketPolicy came
-// back as the XML-escaped PutBucketPolicyRequest envelope itself instead of
-// the plain policy JSON -- GetBucketPolicy re-wrapped that stored envelope
-// in a second "<Policy>" element, double-nesting and XML-escaping it.
+// (awsRestxml_serializeOpDocumentPutBucketPolicyInput), not the whole raw
+// body treated as "the policy".
 func TestBucketPolicy_WireShape(t *testing.T) {
 	t.Parallel()
 

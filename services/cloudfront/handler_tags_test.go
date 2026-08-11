@@ -189,7 +189,13 @@ func TestTagging(t *testing.T) {
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "ListTagsForResourceResponse")
+				// Real ListTagsForResourceOutput binds Tags as the sole httpPayload
+				// member, so the wire root is <Tags> directly -- no
+				// ListTagsForResourceResponse envelope (cloudfront@v1.67.4
+				// deserializers.go: HandleDeserialize decodes straight off the
+				// document root into awsRestxml_deserializeDocumentTags).
+				assert.Contains(t, rec.Body.String(), "<Tags ")
+				assert.NotContains(t, rec.Body.String(), "ListTagsForResourceResponse")
 			},
 		},
 	}
@@ -198,7 +204,7 @@ func TestTagging(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			arn := tt.setup(t, h)
 			path := "/2020-05-31/tagging?Resource=" + arn
 
@@ -213,7 +219,7 @@ func TestTagging(t *testing.T) {
 func TestSortedTags(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create a distribution via handler.
 	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
@@ -254,7 +260,7 @@ func TestSortedTags(t *testing.T) {
 func TestUntagResource(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	// Create distribution.
 	rec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",

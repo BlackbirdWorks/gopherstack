@@ -104,7 +104,7 @@ func newPersistenceTestBackend(t *testing.T) (*InMemoryBackend, persistenceFixtu
 	)
 	require.NoError(t, vpcErr)
 
-	_, err = b.StartApplication(ctx, app.ApplicationName, nil)
+	_, err = b.StartApplication(ctx, app.ApplicationName, nil, nil)
 	require.NoError(t, err)
 
 	snap, err := b.CreateApplicationSnapshot(ctx, app.ApplicationName, "snap1")
@@ -302,7 +302,7 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.StartApplication(ctx, "persist-app", nil)
+	_, err = b.StartApplication(ctx, "persist-app", nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateApplicationSnapshot(ctx, "persist-app", "snap-1")
@@ -468,4 +468,77 @@ func TestPersistence_ExtendedConfigSurvivesRoundTrip(t *testing.T) {
 	assert.Equal(t, before.ApplicationVersionCreateTimestamp.Unix(), after.ApplicationVersionCreateTimestamp.Unix())
 	require.NotNil(t, after.ApplicationVersionUpdatedFrom)
 	assert.Equal(t, *before.ApplicationVersionUpdatedFrom, *after.ApplicationVersionUpdatedFrom)
+}
+
+// TestPersistence_ZeppelinConfigSurvivesRoundTrip verifies
+// Application.ZeppelinConfig (new this pass) round-trips through
+// Snapshot/Restore without a kinesisanalyticsv2SnapshotVersion bump --
+// it is additive (persistedApplication.ZeppelinConfig uses omitempty), so a
+// v2 snapshot with no Zeppelin config still decodes fine as before.
+// InputDescription.InputStartingPositionConfiguration (also new this pass,
+// set via StartApplication's SqlRunConfigurations) is covered too, since it
+// travels inside the already-persisted InputDescriptions slice.
+func TestPersistence_ZeppelinConfigSurvivesRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := NewInMemoryBackend("000000000000", "us-east-1")
+
+	_, err := b.CreateApplication(ctx, "zep-persist-app", "ZEPPELIN-FLINK-3_0", "", "", "INTERACTIVE", nil)
+	require.NoError(t, err)
+	require.NoError(t, b.SeedApplicationConfiguration(ctx, "zep-persist-app", SeedConfig{
+		Inputs: []InputDescription{
+			{
+				NamePrefix: "SOURCE",
+				KinesisStreamsInputDescription: &KinesisStreamsInputDesc{
+					ResourceARN: "arn:aws:kinesis:us-east-1:000000000000:stream/in",
+				},
+			},
+		},
+		ZeppelinConfig: &ZeppelinApplicationConfigDescription{
+			MonitoringConfigurationDescription: &ZeppelinMonitoringConfigDesc{LogLevel: "INFO"},
+			CatalogConfigurationDescription: &CatalogConfigDescription{
+				GlueDataCatalogConfigurationDescription: &GlueDataCatalogConfigDesc{
+					DatabaseARN: "arn:aws:glue:us-east-1:000000000000:database/db",
+				},
+			},
+		},
+	}))
+
+	before, err := b.DescribeApplication(ctx, "zep-persist-app")
+	require.NoError(t, err)
+	inputID := before.InputDescriptions[0].InputID
+
+	_, err = b.StartApplication(ctx, "zep-persist-app", nil, []SQLRunConfigInput{
+		{
+			InputID:                            inputID,
+			InputStartingPositionConfiguration: &InputStartingPositionConfig{InputStartingPosition: "TRIM_HORIZON"},
+		},
+	})
+	require.NoError(t, err)
+
+	h := NewHandler(b)
+	data := h.Snapshot(ctx)
+	require.NotNil(t, data)
+
+	b2 := NewInMemoryBackend("000000000000", "us-east-1")
+	h2 := NewHandler(b2)
+	require.NoError(t, h2.Restore(ctx, data))
+
+	after, err := b2.DescribeApplication(ctx, "zep-persist-app")
+	require.NoError(t, err)
+
+	require.NotNil(t, after.ZeppelinConfig)
+	require.NotNil(t, after.ZeppelinConfig.MonitoringConfigurationDescription)
+	assert.Equal(t, "INFO", after.ZeppelinConfig.MonitoringConfigurationDescription.LogLevel)
+	require.NotNil(t, after.ZeppelinConfig.CatalogConfigurationDescription)
+	assert.Equal(
+		t,
+		"arn:aws:glue:us-east-1:000000000000:database/db",
+		after.ZeppelinConfig.CatalogConfigurationDescription.GlueDataCatalogConfigurationDescription.DatabaseARN,
+	)
+
+	require.Len(t, after.InputDescriptions, 1)
+	require.NotNil(t, after.InputDescriptions[0].InputStartingPositionConfiguration)
+	assert.Equal(t, "TRIM_HORIZON", after.InputDescriptions[0].InputStartingPositionConfiguration.InputStartingPosition)
 }

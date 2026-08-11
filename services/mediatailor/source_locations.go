@@ -3,19 +3,72 @@ package mediatailor
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+const (
+	accessTypeS3SigV4                   = "S3_SIGV4"
+	accessTypeSecretsManagerAccessToken = "SECRETS_MANAGER_ACCESS_TOKEN"
+	accessTypeAutodetectSigV4           = "AUTODETECT_SIGV4"
+)
+
 type storedSourceLocation struct {
-	CreationTime         time.Time         `json:"creationTime"`
-	LastModified         time.Time         `json:"lastModified"`
-	Tags                 map[string]string `json:"tags"`
-	Name                 string            `json:"name"`
-	ARN                  string            `json:"arn"`
-	HTTPConfigurationURL string            `json:"httpConfigurationUrl"`
+	CreationTime                        time.Time                            `json:"creationTime"`
+	LastModified                        time.Time                            `json:"lastModified"`
+	AccessConfiguration                 *AccessConfiguration                 `json:"accessConfiguration,omitempty"`
+	DefaultSegmentDeliveryConfiguration *DefaultSegmentDeliveryConfiguration `json:"defaultSegmentDelivery,omitempty"`
+	Tags                                map[string]string                    `json:"tags"`
+	Name                                string                               `json:"name"`
+	ARN                                 string                               `json:"arn"`
+	HTTPConfigurationURL                string                               `json:"httpConfigurationUrl"`
+	SegmentDeliveryConfigurations       []SegmentDeliveryConfiguration       `json:"segmentDeliveryConfigs,omitempty"`
+}
+
+func cloneAccessConfiguration(in *AccessConfiguration) *AccessConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+
+	if in.SecretsManagerAccessTokenConfiguration != nil {
+		cfg := *in.SecretsManagerAccessTokenConfiguration
+		out.SecretsManagerAccessTokenConfiguration = &cfg
+	}
+
+	return &out
+}
+
+func cloneDefaultSegmentDeliveryConfiguration(
+	in *DefaultSegmentDeliveryConfiguration,
+) *DefaultSegmentDeliveryConfiguration {
+	if in == nil {
+		return nil
+	}
+
+	out := *in
+
+	return &out
+}
+
+func validateAccessConfiguration(cfg *AccessConfiguration) error {
+	if cfg == nil {
+		return nil
+	}
+
+	switch cfg.AccessType {
+	case "", accessTypeS3SigV4, accessTypeSecretsManagerAccessToken, accessTypeAutodetectSigV4:
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: AccessConfiguration.AccessType must be %s, %s, or %s",
+			ErrInvalidParameter, accessTypeS3SigV4, accessTypeSecretsManagerAccessToken, accessTypeAutodetectSigV4,
+		)
+	}
 }
 
 func (s *storedSourceLocation) toSourceLocation() *SourceLocation {
@@ -23,12 +76,17 @@ func (s *storedSourceLocation) toSourceLocation() *SourceLocation {
 	maps.Copy(tags, s.Tags)
 
 	return &SourceLocation{
-		CreationTime:         s.CreationTime,
-		LastModified:         s.LastModified,
-		Tags:                 tags,
-		Name:                 s.Name,
-		ARN:                  s.ARN,
-		HTTPConfigurationURL: s.HTTPConfigurationURL,
+		CreationTime:        s.CreationTime,
+		LastModified:        s.LastModified,
+		AccessConfiguration: cloneAccessConfiguration(s.AccessConfiguration),
+		DefaultSegmentDeliveryConfiguration: cloneDefaultSegmentDeliveryConfiguration(
+			s.DefaultSegmentDeliveryConfiguration,
+		),
+		Tags:                          tags,
+		SegmentDeliveryConfigurations: slices.Clone(s.SegmentDeliveryConfigurations),
+		Name:                          s.Name,
+		ARN:                           s.ARN,
+		HTTPConfigurationURL:          s.HTTPConfigurationURL,
 	}
 }
 
@@ -37,12 +95,17 @@ func (s *storedSourceLocation) toSummary() *SourceLocationSummary {
 	maps.Copy(tags, s.Tags)
 
 	return &SourceLocationSummary{
-		CreationTime:         s.CreationTime,
-		LastModified:         s.LastModified,
-		Tags:                 tags,
-		Name:                 s.Name,
-		ARN:                  s.ARN,
-		HTTPConfigurationURL: s.HTTPConfigurationURL,
+		CreationTime:        s.CreationTime,
+		LastModified:        s.LastModified,
+		AccessConfiguration: cloneAccessConfiguration(s.AccessConfiguration),
+		DefaultSegmentDeliveryConfiguration: cloneDefaultSegmentDeliveryConfiguration(
+			s.DefaultSegmentDeliveryConfiguration,
+		),
+		Tags:                          tags,
+		SegmentDeliveryConfigurations: slices.Clone(s.SegmentDeliveryConfigurations),
+		Name:                          s.Name,
+		ARN:                           s.ARN,
+		HTTPConfigurationURL:          s.HTTPConfigurationURL,
 	}
 }
 
@@ -51,6 +114,9 @@ func (s *storedSourceLocation) toSummary() *SourceLocationSummary {
 // CreateSourceLocation creates a new source location.
 func (b *InMemoryBackend) CreateSourceLocation(
 	name, baseURL string,
+	accessConfig *AccessConfiguration,
+	defaultSegmentDelivery *DefaultSegmentDeliveryConfiguration,
+	segmentDeliveryConfigs []SegmentDeliveryConfiguration,
 	tags map[string]string,
 ) (*SourceLocation, error) {
 	if name == "" {
@@ -59,6 +125,10 @@ func (b *InMemoryBackend) CreateSourceLocation(
 
 	if baseURL == "" {
 		return nil, fmt.Errorf("%w: HttpConfiguration.BaseUrl required", ErrInvalidParameter)
+	}
+
+	if err := validateAccessConfiguration(accessConfig); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateSourceLocation")
@@ -71,12 +141,15 @@ func (b *InMemoryBackend) CreateSourceLocation(
 	now := time.Now().UTC()
 	slARN := b.sourceLocationARN(name)
 	sl := &storedSourceLocation{
-		CreationTime:         now,
-		LastModified:         now,
-		Tags:                 copyTags(tags),
-		Name:                 name,
-		ARN:                  slARN,
-		HTTPConfigurationURL: baseURL,
+		CreationTime:                        now,
+		LastModified:                        now,
+		AccessConfiguration:                 cloneAccessConfiguration(accessConfig),
+		DefaultSegmentDeliveryConfiguration: cloneDefaultSegmentDeliveryConfiguration(defaultSegmentDelivery),
+		Tags:                                copyTags(tags),
+		SegmentDeliveryConfigurations:       slices.Clone(segmentDeliveryConfigs),
+		Name:                                name,
+		ARN:                                 slARN,
+		HTTPConfigurationURL:                baseURL,
 	}
 
 	b.sourceLocations.Put(sl)
@@ -102,8 +175,18 @@ func (b *InMemoryBackend) DescribeSourceLocation(name string) (*SourceLocation, 
 	return result, nil
 }
 
-// UpdateSourceLocation updates a source location's base URL.
-func (b *InMemoryBackend) UpdateSourceLocation(name, baseURL string) (*SourceLocation, error) {
+// UpdateSourceLocation updates a source location's base URL and optional
+// access/segment-delivery configuration.
+func (b *InMemoryBackend) UpdateSourceLocation(
+	name, baseURL string,
+	accessConfig *AccessConfiguration,
+	defaultSegmentDelivery *DefaultSegmentDeliveryConfiguration,
+	segmentDeliveryConfigs []SegmentDeliveryConfiguration,
+) (*SourceLocation, error) {
+	if err := validateAccessConfiguration(accessConfig); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateSourceLocation")
 	defer b.mu.Unlock()
 
@@ -116,6 +199,9 @@ func (b *InMemoryBackend) UpdateSourceLocation(name, baseURL string) (*SourceLoc
 		sl.HTTPConfigurationURL = baseURL
 	}
 
+	sl.AccessConfiguration = cloneAccessConfiguration(accessConfig)
+	sl.DefaultSegmentDeliveryConfiguration = cloneDefaultSegmentDeliveryConfiguration(defaultSegmentDelivery)
+	sl.SegmentDeliveryConfigurations = slices.Clone(segmentDeliveryConfigs)
 	sl.LastModified = time.Now().UTC()
 
 	return sl.toSourceLocation(), nil

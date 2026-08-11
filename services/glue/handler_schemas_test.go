@@ -441,6 +441,89 @@ func TestSchemaRegistry_SchemaVersion_CRUD(t *testing.T) {
 	assert.True(t, checkValidityOut["Valid"].(bool))
 }
 
+// TestCreateSchema_WithDefinition_PopulatesVersionFields verifies the wire
+// response for gopherstack-i60f: once CreateSchema can carry the first
+// schema definition, CreateSchemaOutput's version fields (SchemaVersionId,
+// SchemaVersionStatus, LatestSchemaVersion, NextSchemaVersion) must reflect
+// it -- aws-sdk-go-v2/service/glue@v1.152.0 api_op_CreateSchema.go:129-132
+// (LatestSchemaVersion/NextSchemaVersion), 154-157 (SchemaVersionId/Status).
+func TestCreateSchema_WithDefinition_PopulatesVersionFields(t *testing.T) {
+	t.Parallel()
+
+	const def = `{"type":"record","name":"A","fields":[{"name":"id","type":"int"}]}`
+
+	tests := []struct {
+		name          string
+		definition    string
+		wantVersionID bool
+		wantLatest    float64
+		wantNext      float64
+	}{
+		{name: "with_definition", definition: def, wantVersionID: true, wantLatest: 1, wantNext: 2},
+		{name: "without_definition", definition: "", wantVersionID: false, wantLatest: 0, wantNext: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createRegistry(t, h, "reg")
+
+			body := map[string]any{
+				"RegistryId": map[string]any{"RegistryName": "reg"},
+				"SchemaName": "sch",
+				"DataFormat": "AVRO",
+			}
+			if tt.definition != "" {
+				body["SchemaDefinition"] = tt.definition
+			}
+
+			rec := doGlueRequest(t, h, "CreateSchema", body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+			assert.InDelta(t, tt.wantLatest, out["LatestSchemaVersion"], 0)
+			assert.InDelta(t, tt.wantNext, out["NextSchemaVersion"], 0)
+
+			if !tt.wantVersionID {
+				assert.NotContains(t, out, "SchemaVersionId")
+				assert.NotContains(t, out, "SchemaVersionStatus")
+
+				return
+			}
+
+			assert.NotEmpty(t, out["SchemaVersionId"])
+			assert.Equal(t, "AVAILABLE", out["SchemaVersionStatus"])
+		})
+	}
+}
+
+// TestCreateSchema_RejectsInvalidDefinition verifies a malformed
+// SchemaDefinition fails CreateSchema atomically -- no half-created schema
+// left behind, per gopherstack-i60f.
+func TestCreateSchema_RejectsInvalidDefinition(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRegistry(t, h, "reg")
+
+	rec := doGlueRequest(t, h, "CreateSchema", map[string]any{
+		"RegistryId":       map[string]any{"RegistryName": "reg"},
+		"SchemaName":       "sch",
+		"DataFormat":       "AVRO",
+		"SchemaDefinition": "not json",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	getRec := doGlueRequest(t, h, "GetSchema", map[string]any{
+		"SchemaId": map[string]any{"RegistryName": "reg", "SchemaName": "sch"},
+	})
+	assert.Equal(t, http.StatusBadRequest, getRec.Code, "a rejected definition must not leave a half-created schema")
+}
+
 // setupTestSchema creates a registry, schema, and registers two versions.
 // Returns the schema version IDs of the two registered versions.
 func setupTestSchema(t *testing.T, h *glue.Handler) string {

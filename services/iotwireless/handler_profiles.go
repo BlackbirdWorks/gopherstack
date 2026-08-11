@@ -16,10 +16,10 @@ import (
 )
 
 type createDeviceProfileRequest struct {
-	LoRaWAN  map[string]any `json:"LoRaWAN,omitempty"`
-	Sidewalk map[string]any `json:"Sidewalk,omitempty"`
-	Name     string         `json:"Name"`
-	Tags     []tags.KV      `json:"Tags"`
+	LoRaWAN  *LoRaWANDeviceProfile        `json:"LoRaWAN,omitempty"`
+	Sidewalk *SidewalkCreateDeviceProfile `json:"Sidewalk,omitempty"`
+	Name     string                       `json:"Name"`
+	Tags     []tags.KV                    `json:"Tags"`
 }
 
 type createDeviceProfileResponse struct {
@@ -32,11 +32,11 @@ type createDeviceProfileResponse struct {
 // confirmed against types.DeviceProfile, which real AWS's
 // ListDeviceProfilesOutput uses and which carries only Arn/Id/Name.
 type deviceProfileEntry struct {
-	LoRaWAN  map[string]any `json:"LoRaWAN,omitempty"`
-	Sidewalk map[string]any `json:"Sidewalk,omitempty"`
-	Arn      string         `json:"Arn"`
-	ID       string         `json:"Id"`
-	Name     string         `json:"Name"`
+	LoRaWAN  *LoRaWANDeviceProfile     `json:"LoRaWAN,omitempty"`
+	Sidewalk *SidewalkGetDeviceProfile `json:"Sidewalk,omitempty"`
+	Arn      string                    `json:"Arn"`
+	ID       string                    `json:"Id"`
+	Name     string                    `json:"Name"`
 }
 
 type deviceProfileListEntry struct {
@@ -112,9 +112,9 @@ func (h *Handler) deleteDeviceProfile(c *echo.Context, id string) error {
 }
 
 type createServiceProfileRequest struct {
-	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
-	Name    string         `json:"Name"`
-	Tags    []tags.KV      `json:"Tags"`
+	LoRaWAN *LoRaWANServiceProfile `json:"LoRaWAN,omitempty"`
+	Name    string                 `json:"Name"`
+	Tags    []tags.KV              `json:"Tags"`
 }
 
 type createServiceProfileResponse struct {
@@ -126,10 +126,10 @@ type createServiceProfileResponse struct {
 // List entries use the narrower serviceProfileListEntry -- confirmed
 // against types.ServiceProfile, which carries only Arn/Id/Name.
 type serviceProfileEntry struct {
-	LoRaWAN map[string]any `json:"LoRaWAN,omitempty"`
-	Arn     string         `json:"Arn"`
-	ID      string         `json:"Id"`
-	Name    string         `json:"Name"`
+	LoRaWAN *LoRaWANGetServiceProfileInfo `json:"LoRaWAN,omitempty"`
+	Arn     string                        `json:"Arn"`
+	ID      string                        `json:"Id"`
+	Name    string                        `json:"Name"`
 }
 
 type serviceProfileListEntry struct {
@@ -175,7 +175,7 @@ func (h *Handler) getServiceProfile(c *echo.Context, id string) error {
 		Arn:     sp.ARN,
 		ID:      sp.ID,
 		Name:    sp.Name,
-		LoRaWAN: sp.LoRaWAN,
+		LoRaWAN: loRaWANGetServiceProfileInfoFrom(sp.LoRaWAN),
 	})
 }
 

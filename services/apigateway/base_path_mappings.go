@@ -107,5 +107,19 @@ func (b *InMemoryBackend) UpdateBasePathMapping(input UpdateBasePathMappingInput
 		m.Stage = input.Stage
 	}
 
-	return m, nil
+	if input.NewBasePath != nil && *input.NewBasePath != input.BasePath {
+		newKey := basePathMappingKey(input.DomainName, *input.NewBasePath)
+		if b.basePathMappings.Has(newKey) {
+			return nil, fmt.Errorf("%w: base path mapping already exists for domain %q path %q",
+				ErrAlreadyExists, input.DomainName, *input.NewBasePath)
+		}
+
+		b.basePathMappings.Delete(key)
+		m.BasePath = *input.NewBasePath
+		b.basePathMappings.Put(m)
+	}
+
+	cp := *m
+
+	return &cp, nil
 }

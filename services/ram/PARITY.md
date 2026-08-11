@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ram
-sdk_module: aws-sdk-go-v2/service/ram@v1.36.1   # version audited against
+sdk_module: aws-sdk-go-v2/service/ram@v1.39.4   # version audited against
 last_audit_commit: e259b2f8                     # HEAD when this manifest was written
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-23: genuine fixes found (state-corruption bugs + wire-shape bugs)

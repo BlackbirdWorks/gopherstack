@@ -21,18 +21,21 @@ import (
 const (
 	opBatchAssociateScramSecret     = "BatchAssociateScramSecret"
 	opBatchDisassociateScramSecret  = "BatchDisassociateScramSecret"
+	opCreateChannel                 = "CreateChannel"
 	opCreateCluster                 = "CreateCluster"
 	opCreateClusterV2               = "CreateClusterV2"
 	opCreateConfiguration           = "CreateConfiguration"
 	opCreateReplicator              = "CreateReplicator"
 	opCreateTopic                   = "CreateTopic"
 	opCreateVpcConnection           = "CreateVpcConnection"
+	opDeleteChannel                 = "DeleteChannel"
 	opDeleteCluster                 = "DeleteCluster"
 	opDeleteClusterPolicy           = "DeleteClusterPolicy"
 	opDeleteConfiguration           = "DeleteConfiguration"
 	opDeleteReplicator              = "DeleteReplicator"
 	opDeleteTopic                   = "DeleteTopic"
 	opDeleteVpcConnection           = "DeleteVpcConnection"
+	opDescribeChannel               = "DescribeChannel"
 	opDescribeCluster               = "DescribeCluster"
 	opDescribeClusterOperation      = "DescribeClusterOperation"
 	opDescribeClusterOperationV2    = "DescribeClusterOperationV2"
@@ -46,6 +49,7 @@ const (
 	opGetBootstrapBrokers           = "GetBootstrapBrokers"
 	opGetClusterPolicy              = "GetClusterPolicy"
 	opGetCompatibleKafkaVersions    = "GetCompatibleKafkaVersions"
+	opListChannels                  = "ListChannels"
 	opListClientVpcConnections      = "ListClientVpcConnections"
 	opListClusterOperations         = "ListClusterOperations"
 	opListClusterOperationsV2       = "ListClusterOperationsV2"
@@ -68,6 +72,7 @@ const (
 	opUpdateBrokerCount             = "UpdateBrokerCount"
 	opUpdateBrokerStorage           = "UpdateBrokerStorage"
 	opUpdateBrokerType              = "UpdateBrokerType"
+	opUpdateChannel                 = "UpdateChannel"
 	opUpdateClusterConfiguration    = "UpdateClusterConfiguration"
 	opUpdateClusterKafkaVersion     = "UpdateClusterKafkaVersion"
 	opUpdateConfiguration           = "UpdateConfiguration"
@@ -96,6 +101,7 @@ const (
 	tagsPrefix                  = "/v1/tags/"
 	bootstrapBrokersSuffix      = "/bootstrap-brokers"
 	scramSecretsSuffix          = "/scram-secrets"
+	channelsSuffix              = "/channels"
 	topicsSuffix                = "/topics"
 	topicPartitionsSuffix       = "/partitions"
 	policySuffix                = "/policy"
@@ -155,18 +161,21 @@ func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opBatchAssociateScramSecret,
 		opBatchDisassociateScramSecret,
+		opCreateChannel,
 		opCreateCluster,
 		opCreateClusterV2,
 		opCreateConfiguration,
 		opCreateReplicator,
 		opCreateTopic,
 		opCreateVpcConnection,
+		opDeleteChannel,
 		opDeleteCluster,
 		opDeleteClusterPolicy,
 		opDeleteConfiguration,
 		opDeleteReplicator,
 		opDeleteTopic,
 		opDeleteVpcConnection,
+		opDescribeChannel,
 		opDescribeCluster,
 		opDescribeClusterOperation,
 		opDescribeClusterOperationV2,
@@ -180,6 +189,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetBootstrapBrokers,
 		opGetClusterPolicy,
 		opGetCompatibleKafkaVersions,
+		opListChannels,
 		opListClientVpcConnections,
 		opListClusterOperations,
 		opListClusterOperationsV2,
@@ -202,6 +212,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opUpdateBrokerCount,
 		opUpdateBrokerStorage,
 		opUpdateBrokerType,
+		opUpdateChannel,
 		opUpdateClusterConfiguration,
 		opUpdateClusterKafkaVersion,
 		opUpdateConfiguration,
@@ -229,9 +240,15 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		p := c.Request().URL.Path
 
+		// "/v1/configurations" is also MQ's real CreateConfiguration/
+		// ListConfigurations wire path; scope by SigV4 so a correctly-signed MQ
+		// request isn't swallowed here (see gopherstack-61i8).
+		if strings.HasPrefix(p, "/v1/configurations") {
+			return httputils.ScopedPrefixMatch(c.Request(), p, "/v1/configurations", "kafka")
+		}
+
 		return strings.HasPrefix(p, "/v1/clusters") ||
 			strings.HasPrefix(p, "/api/v2/clusters") ||
-			strings.HasPrefix(p, "/v1/configurations") ||
 			strings.HasPrefix(p, "/v1/operations/") ||
 			strings.HasPrefix(p, "/api/v2/operations/") ||
 			strings.HasPrefix(p, "/replication/v1/replicators") ||
@@ -367,7 +384,36 @@ func (h *Handler) dispatch(
 		return err
 	}
 
+	if ok, err := h.dispatchChannelOps(ctx, c, op, resource, body); ok {
+		return err
+	}
+
 	return h.writeError(c, http.StatusNotFound, "NotFoundException", "unknown operation: "+op)
+}
+
+// dispatchChannelOps handles MSK Channel operations (Express cluster topic ->
+// S3/Iceberg streaming), added in aws-sdk-go-v2/service/kafka v1.57. Returns
+// (true, err) if the operation was handled, (false, nil) otherwise.
+func (h *Handler) dispatchChannelOps(
+	ctx context.Context,
+	c *echo.Context,
+	op, resource string,
+	body []byte,
+) (bool, error) {
+	switch op {
+	case opCreateChannel:
+		return true, h.handleCreateChannel(ctx, c, resource, body)
+	case opDeleteChannel:
+		return true, h.handleDeleteChannel(ctx, c, resource)
+	case opDescribeChannel:
+		return true, h.handleDescribeChannel(ctx, c, resource)
+	case opListChannels:
+		return true, h.handleListChannels(ctx, c, resource)
+	case opUpdateChannel:
+		return true, h.handleUpdateChannel(ctx, c, resource, body)
+	}
+
+	return false, nil
 }
 
 // dispatchCoreOps handles cluster, configuration, and tag operations.

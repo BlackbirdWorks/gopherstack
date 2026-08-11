@@ -314,14 +314,11 @@ func TestRoundTrip_VcenterClients(t *testing.T) {
 	require.Empty(t, describedAfter.Items)
 }
 
-// TestRoundTrip_ExportImport drives StartExport/ListExports/ListExportErrors
-// and StartImport/ListImports/ListImportErrors, confirming StartExport's
-// counts are real (a live snapshot of this account's resources) and
-// StartImport's are now ALSO real: it genuinely reads the S3 object and
-// parses it per this package's documented CSV schema (s3import.go),
-// creating one real SourceServer per valid row -- never a fabricated count
-// (gopherstack-i6oz). See TestStartImport_CSVSchema for the malformed-row
-// and unreadable-object edge cases.
+// TestRoundTrip_ExportImport drives StartExport/ListExports/ListExportErrors and
+// StartImport/ListImports/ListImportErrors, confirming both counts are real, not
+// fabricated: StartExport reflects a live snapshot of this account's resources,
+// and StartImport genuinely reads and parses the S3 object (s3import.go). See
+// TestStartImport_CSVSchema for malformed-row and unreadable-object edge cases.
 func TestRoundTrip_ExportImport(t *testing.T) {
 	t.Parallel()
 
@@ -347,7 +344,8 @@ func TestRoundTrip_ExportImport(t *testing.T) {
 	require.Empty(t, exportErrs.Items)
 
 	s3 := newMockS3()
-	s3.put("import-bucket", "servers.csv", "hostname,fqdn\nweb-1,web-1.example.com\ndb-1,db-1.example.com\n")
+	s3.put("import-bucket", "servers.csv",
+		"mgn:server:hostname,mgn:server:fqdn\nweb-1,web-1.example.com\ndb-1,db-1.example.com\n")
 	h.Backend.SetS3Backend(s3)
 
 	imported, err := client.StartImport(ctx, &mgnsdk.StartImportInput{
@@ -402,36 +400,26 @@ func TestStartImport_CSVSchema(t *testing.T) {
 	}{
 		{
 			name:        "single valid row creates one source server",
-			csv:         "hostname\nweb-1.example.com\n",
+			csv:         "mgn:server:hostname\nweb-1.example.com\n",
 			wantStatus:  types.ImportStatusSucceeded,
 			wantCreated: 1,
 		},
 		{
 			name: "every optional column populated",
-			csv: "hostname,fqdn,userProvidedID,operatingSystem,recommendedInstanceType," +
-				"cpuCores,cpuModelName,ramBytes,diskDeviceName,diskBytes," +
-				"networkInterfaceMac,networkInterfaceIPs\n" +
-				"db-1,db-1.corp.example.com,my-id-1,Ubuntu 22.04,m5.large," +
-				"4,Intel Xeon,17179869184,/dev/sda1,107374182400," +
-				"aa:bb:cc:dd:ee:ff,10.0.0.5;10.0.0.6\n",
+			csv: "mgn:server:hostname,mgn:server:fqdn-for-action-framework,mgn:server:user-provided-id," +
+				"mgn:server:tag:team\n" +
+				"db-1,db-1.corp.example.com,my-id-1,payments\n",
 			wantStatus:  types.ImportStatusSucceeded,
 			wantCreated: 1,
 		},
 		{
 			// A blank CSV line is silently ignored by encoding/csv itself
-			// (not a malformed row) -- an empty *field* within an otherwise
-			// well-formed row is this test's actual malformed-hostname case.
-			name:        "blank hostname field fails only that row",
-			csv:         "hostname,note\nweb-1,ok\n,missing-hostname\nweb-2,ok\n",
+			// (not a malformed row) -- a row with no identification hint at
+			// all is this test's actual malformed-row case.
+			name:        "row with no identification hint fails only that row",
+			csv:         "mgn:server:hostname,note\nweb-1,ok\n,missing-hostname\nweb-2,ok\n",
 			wantStatus:  types.ImportStatusSucceeded,
 			wantCreated: 2,
-			wantErrors:  1,
-		},
-		{
-			name:        "malformed numeric column fails the row",
-			csv:         "hostname,ramBytes\nweb-1,not-a-number\n",
-			wantStatus:  types.ImportStatusSucceeded,
-			wantCreated: 0,
 			wantErrors:  1,
 		},
 		{
@@ -494,6 +482,67 @@ func TestStartImport_CSVSchema(t *testing.T) {
 			require.Len(t, errs.Items, tt.wantErrors)
 		})
 	}
+}
+
+// TestStartImport_ModifiedCount drives two StartImport calls sharing the same
+// mgn:server:user-provided-id, confirming the second run updates the first
+// run's SourceServer (ModifiedCount) instead of creating a second one --
+// AWS's own documented dedup-by-user-provided-id behavior (MGN User Guide,
+// "Import parameters": "used by MGN to consistently recognize the server
+// replication, and avoid duplication when importing inventory from a CSV
+// file").
+func TestStartImport_ModifiedCount(t *testing.T) {
+	t.Parallel()
+
+	h, client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	s3 := newMockS3()
+	h.Backend.SetS3Backend(s3)
+
+	runImport := func(key, csvBody string) types.ImportTaskSummary {
+		s3.put("bucket", key, csvBody)
+
+		started, err := client.StartImport(ctx, &mgnsdk.StartImportInput{
+			S3BucketSource: &types.S3BucketSource{S3Bucket: aws.String("bucket"), S3Key: aws.String(key)},
+		})
+		require.NoError(t, err)
+		importID := aws.ToString(started.ImportTask.ImportID)
+
+		var final types.ImportTask
+
+		require.Eventually(t, func() bool {
+			out, listErr := client.ListImports(ctx, &mgnsdk.ListImportsInput{
+				Filters: &types.ListImportsRequestFilters{ImportIDs: []string{importID}},
+			})
+			if listErr != nil || len(out.Items) != 1 || out.Items[0].Status != types.ImportStatusSucceeded {
+				return false
+			}
+
+			final = out.Items[0]
+
+			return true
+		}, defaultAsyncWait, defaultAsyncPoll, "import task never reached SUCCEEDED")
+
+		return *final.Summary
+	}
+
+	first := runImport("import-1.csv",
+		"mgn:server:hostname,mgn:server:user-provided-id\nweb-1.example.com,dedup-id-1\n")
+	require.EqualValues(t, 1, first.Servers.CreatedCount)
+	require.EqualValues(t, 0, first.Servers.ModifiedCount)
+
+	second := runImport("import-2.csv",
+		"mgn:server:hostname,mgn:server:user-provided-id\nweb-1-renamed.example.com,dedup-id-1\n",
+	)
+	require.EqualValues(t, 0, second.Servers.CreatedCount)
+	require.EqualValues(t, 1, second.Servers.ModifiedCount)
+
+	described, err := client.DescribeSourceServers(ctx, &mgnsdk.DescribeSourceServersInput{})
+	require.NoError(t, err)
+	require.Len(t, described.Items, 1, "the second import must update the existing server, not create a new one")
+	require.Equal(t, "web-1-renamed.example.com",
+		aws.ToString(described.Items[0].SourceProperties.IdentificationHints.Hostname))
 }
 
 // TestRoundTrip_PostLaunchActions drives Put/List/RemoveSourceServerAction

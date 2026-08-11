@@ -1,6 +1,6 @@
 ---
 service: athena
-sdk_module: aws-sdk-go-v2/service/athena@v1.57.2
+sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
 last_audit_commit: c47d785b7
 last_audit_date: 2026-07-23
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service

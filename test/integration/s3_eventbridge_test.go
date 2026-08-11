@@ -38,7 +38,10 @@ func TestIntegration_S3_NotificationToEventBridge(t *testing.T) {
 	require.NoError(t, err)
 	queueURL := aws.ToString(queueOut.QueueUrl)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(t.Context(), &sqssdk.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: aws.String(queueURL)})
 	})
 
 	// Get the queue ARN.
@@ -60,10 +63,13 @@ func TestIntegration_S3_NotificationToEventBridge(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.RemoveTargets(t.Context(), &eventbridgesdk.RemoveTargetsInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.RemoveTargets(cleanupCtx, &eventbridgesdk.RemoveTargetsInput{
 			Rule: aws.String(ruleName), EventBusName: aws.String("default"), Ids: []string{"t1"},
 		})
-		_, _ = ebClient.DeleteRule(t.Context(), &eventbridgesdk.DeleteRuleInput{
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name: aws.String(ruleName), EventBusName: aws.String("default"),
 		})
 	})
@@ -83,15 +89,18 @@ func TestIntegration_S3_NotificationToEventBridge(t *testing.T) {
 	_, err = s3Client.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucket)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		out, _ := s3Client.ListObjects(t.Context(), &s3.ListObjectsInput{Bucket: aws.String(bucket)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		out, _ := s3Client.ListObjects(cleanupCtx, &s3.ListObjectsInput{Bucket: aws.String(bucket)})
 		if out != nil {
 			for _, obj := range out.Contents {
-				_, _ = s3Client.DeleteObject(t.Context(), &s3.DeleteObjectInput{
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3.DeleteObjectInput{
 					Bucket: aws.String(bucket), Key: obj.Key,
 				})
 			}
 		}
-		_, _ = s3Client.DeleteBucket(t.Context(), &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)})
 	})
 
 	// Enable EventBridge notifications on the bucket.

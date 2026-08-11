@@ -26,6 +26,7 @@ func (b *InMemoryBackend) CreateDBClusterEndpoint(
 	ep := &DBClusterEndpoint{
 		DBClusterEndpointIdentifier: endpointID,
 		DBClusterIdentifier:         clusterID,
+		DBClusterEndpointArn:        b.rdsARN("cluster-endpoint", endpointID),
 		EndpointType:                endpointType,
 		Status:                      instanceStatusAvailable,
 		Endpoint: fmt.Sprintf(

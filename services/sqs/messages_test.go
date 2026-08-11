@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -748,33 +749,35 @@ func TestLongPolling(t *testing.T) {
 func TestLongPollingWakesOnMessageArrival(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend(t)
-	qURL := createTestQueue(t, b, "wake-queue")
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend(t)
+		qURL := createTestQueue(t, b, "wake-queue")
 
-	// Send a message after a short delay while ReceiveMessage is blocking.
-	sendErr := make(chan error, 1)
-	go func() {
-		time.Sleep(150 * time.Millisecond)
-		_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "wake"})
-		sendErr <- err
-	}()
+		// Send a message after a short delay while ReceiveMessage is blocking.
+		sendErr := make(chan error, 1)
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			_, err := b.SendMessage(&sqs.SendMessageInput{QueueURL: qURL, MessageBody: "wake"})
+			sendErr <- err
+		}()
 
-	start := time.Now()
+		start := time.Now()
 
-	out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-		QueueURL:            qURL,
-		MaxNumberOfMessages: 1,
-		VisibilityTimeout:   30,
-		WaitTimeSeconds:     5,
+		out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+			QueueURL:            qURL,
+			MaxNumberOfMessages: 1,
+			VisibilityTimeout:   30,
+			WaitTimeSeconds:     5,
+		})
+
+		elapsed := time.Since(start)
+
+		require.NoError(t, <-sendErr)
+		require.NoError(t, err)
+		require.Len(t, out.Messages, 1)
+		// Should wake well before the 5-second deadline.
+		assert.Less(t, elapsed, 2*time.Second)
 	})
-
-	elapsed := time.Since(start)
-
-	require.NoError(t, <-sendErr)
-	require.NoError(t, err)
-	require.Len(t, out.Messages, 1)
-	// Should wake well before the 5-second deadline.
-	assert.Less(t, elapsed, 2*time.Second)
 }
 
 func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
@@ -807,60 +810,63 @@ func TestLongPollingTimesOutWithNoMessages(t *testing.T) {
 func TestLongPollingConcurrentReceivers(t *testing.T) {
 	t.Parallel()
 
-	b := newBackend(t)
-	qURL := createTestQueue(t, b, "concurrent-recv-queue")
+	synctest.Test(t, func(t *testing.T) {
+		b := newBackend(t)
+		qURL := createTestQueue(t, b, "concurrent-recv-queue")
 
-	const numReceivers = 3
-	const numMessages = 3
+		const numReceivers = 3
+		const numMessages = 3
 
-	results := make(chan *sqs.ReceiveMessageOutput, numReceivers)
-	errs := make(chan error, numReceivers)
+		results := make(chan *sqs.ReceiveMessageOutput, numReceivers)
+		errs := make(chan error, numReceivers)
 
-	// ready is closed once all receiver goroutines have been launched;
-	// each goroutine is guaranteed to start before the first send.
-	ready := make(chan struct{})
+		// ready is closed once all receiver goroutines have been launched;
+		// each goroutine is guaranteed to start before the first send.
+		ready := make(chan struct{})
 
-	var wg sync.WaitGroup
+		var wg sync.WaitGroup
 
-	wg.Add(numReceivers)
+		wg.Add(numReceivers)
 
-	for range numReceivers {
-		go func() {
-			wg.Done()
-			<-ready
-			out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-				QueueURL:            qURL,
-				MaxNumberOfMessages: 1,
-				VisibilityTimeout:   30,
-				WaitTimeSeconds:     5,
+		for range numReceivers {
+			go func() {
+				wg.Done()
+				<-ready
+				out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            qURL,
+					MaxNumberOfMessages: 1,
+					VisibilityTimeout:   30,
+					WaitTimeSeconds:     5,
+				})
+				errs <- err
+				results <- out
+			}()
+		}
+
+		// Block until all receiver goroutines have started, signal them to enter
+		// ReceiveMessage, then wait until they are durably blocked in the
+		// long-poll select before the first message is sent. This matches the
+		// approach used in TestLongPollingWakesOnMessageArrival and ensures the
+		// test exercises the notify wake-up path rather than the initial
+		// receiveOnce fast-path.
+		wg.Wait()
+		close(ready)
+		synctest.Wait()
+
+		for i := range numMessages {
+			_, err := b.SendMessage(&sqs.SendMessageInput{
+				QueueURL:    qURL,
+				MessageBody: fmt.Sprintf("msg-%d", i),
 			})
-			errs <- err
-			results <- out
-		}()
-	}
+			require.NoError(t, err)
+		}
 
-	// Block until all receiver goroutines have started, signal them to enter
-	// ReceiveMessage, then sleep briefly so they reach the long-poll select
-	// before the first message is sent.  This matches the approach used in
-	// TestLongPollingWakesOnMessageArrival and ensures the test exercises the
-	// notify wake-up path rather than the initial receiveOnce fast-path.
-	wg.Wait()
-	close(ready)
-	time.Sleep(50 * time.Millisecond)
-
-	for i := range numMessages {
-		_, err := b.SendMessage(&sqs.SendMessageInput{
-			QueueURL:    qURL,
-			MessageBody: fmt.Sprintf("msg-%d", i),
-		})
-		require.NoError(t, err)
-	}
-
-	for range numReceivers {
-		require.NoError(t, <-errs)
-		out := <-results
-		require.Len(t, out.Messages, 1)
-	}
+		for range numReceivers {
+			require.NoError(t, <-errs)
+			out := <-results
+			require.Len(t, out.Messages, 1)
+		}
+	})
 }
 
 func TestApproximateFirstReceiveTimestamp_SetOnFirstReceive(t *testing.T) {
@@ -1182,59 +1188,61 @@ func TestLongPollBroadcastWakeup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend(t)
-			qURL := createTestQueue(t, b, "broadcast-wake-queue")
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend(t)
+				qURL := createTestQueue(t, b, "broadcast-wake-queue")
 
-			ready := make(chan struct{})
-			results := make(chan int, tt.numReceivers)
+				ready := make(chan struct{})
+				results := make(chan int, tt.numReceivers)
 
-			var wg sync.WaitGroup
+				var wg sync.WaitGroup
 
-			wg.Add(tt.numReceivers)
+				wg.Add(tt.numReceivers)
 
-			for range tt.numReceivers {
-				go func() {
-					wg.Done() // signal that this goroutine has started
-					<-ready   // wait until released by the test
-					out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-						QueueURL:            qURL,
-						MaxNumberOfMessages: 1,
-						WaitTimeSeconds:     5,
-					})
-					if err == nil {
-						results <- len(out.Messages)
-					} else {
-						results <- -1
-					}
-				}()
-			}
-
-			// Ensure all goroutines have been scheduled before releasing them.
-			wg.Wait()
-			close(ready)
-
-			// Sleep briefly so all goroutines enter the long-poll select before
-			// any message is sent.
-			time.Sleep(50 * time.Millisecond)
-
-			// Send one message per receiver so each one should wake and return a msg.
-			for i := range tt.numMessages {
-				_, err := b.SendMessage(&sqs.SendMessageInput{
-					QueueURL:    qURL,
-					MessageBody: strings.Repeat("m", i+1),
-				})
-				require.NoError(t, err)
-			}
-
-			deadline := time.After(3 * time.Second)
-			for range tt.numReceivers {
-				select {
-				case n := <-results:
-					assert.Equal(t, 1, n)
-				case <-deadline:
-					require.FailNow(t, "at least one long-poll receiver did not wake in time")
+				for range tt.numReceivers {
+					go func() {
+						wg.Done() // signal that this goroutine has started
+						<-ready   // wait until released by the test
+						out, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+							QueueURL:            qURL,
+							MaxNumberOfMessages: 1,
+							WaitTimeSeconds:     5,
+						})
+						if err == nil {
+							results <- len(out.Messages)
+						} else {
+							results <- -1
+						}
+					}()
 				}
-			}
+
+				// Ensure all goroutines have been scheduled before releasing them.
+				wg.Wait()
+				close(ready)
+
+				// Wait until all goroutines are durably blocked in the long-poll
+				// select before any message is sent.
+				synctest.Wait()
+
+				// Send one message per receiver so each one should wake and return a msg.
+				for i := range tt.numMessages {
+					_, err := b.SendMessage(&sqs.SendMessageInput{
+						QueueURL:    qURL,
+						MessageBody: strings.Repeat("m", i+1),
+					})
+					require.NoError(t, err)
+				}
+
+				deadline := time.After(3 * time.Second)
+				for range tt.numReceivers {
+					select {
+					case n := <-results:
+						assert.Equal(t, 1, n)
+					case <-deadline:
+						require.FailNow(t, "at least one long-poll receiver did not wake in time")
+					}
+				}
+			})
 		})
 	}
 }
@@ -1260,35 +1268,37 @@ func TestMessageRetentionPeriodExpiry(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newBackend(t)
-			// Create with a valid retention period, then immediately lower it via
-			// SetQueueAttributes so the test can use a sub-60-second window without
-			// triggering the CreateQueue attribute-range validation.
-			out, err := b.CreateQueue(&sqs.CreateQueueInput{
-				QueueName: "retention-queue",
-				Endpoint:  testEndpoint,
+			synctest.Test(t, func(t *testing.T) {
+				b := newBackend(t)
+				// Create with a valid retention period, then immediately lower it via
+				// SetQueueAttributes so the test can use a sub-60-second window without
+				// triggering the CreateQueue attribute-range validation.
+				out, err := b.CreateQueue(&sqs.CreateQueueInput{
+					QueueName: "retention-queue",
+					Endpoint:  testEndpoint,
+				})
+				require.NoError(t, err)
+
+				// Bypass the 60-second minimum by injecting via SetQueueAttributes directly.
+				// SetQueueAttributes also validates ranges, so force via a direct attribute update here.
+				b.SetRetentionForTest(out.QueueURL, tt.retentionSecs)
+
+				_, err = b.SendMessage(&sqs.SendMessageInput{
+					QueueURL:    out.QueueURL,
+					MessageBody: "old-msg",
+				})
+				require.NoError(t, err)
+
+				// Wait for the retention period to pass.
+				time.Sleep(time.Duration(tt.retentionSecs+1) * time.Second)
+
+				recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
+					QueueURL:            out.QueueURL,
+					MaxNumberOfMessages: 10,
+				})
+				require.NoError(t, err)
+				assert.Len(t, recv.Messages, tt.wantMsgCount)
 			})
-			require.NoError(t, err)
-
-			// Bypass the 60-second minimum by injecting via SetQueueAttributes directly.
-			// SetQueueAttributes also validates ranges, so force via a direct attribute update here.
-			b.SetRetentionForTest(out.QueueURL, tt.retentionSecs)
-
-			_, err = b.SendMessage(&sqs.SendMessageInput{
-				QueueURL:    out.QueueURL,
-				MessageBody: "old-msg",
-			})
-			require.NoError(t, err)
-
-			// Wait for the retention period to pass.
-			time.Sleep(time.Duration(tt.retentionSecs+1) * time.Second)
-
-			recv, err := b.ReceiveMessage(&sqs.ReceiveMessageInput{
-				QueueURL:            out.QueueURL,
-				MaxNumberOfMessages: 10,
-			})
-			require.NoError(t, err)
-			assert.Len(t, recv.Messages, tt.wantMsgCount)
 		})
 	}
 }

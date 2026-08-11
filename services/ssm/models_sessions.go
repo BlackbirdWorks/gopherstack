@@ -2,7 +2,7 @@ package ssm
 
 // SessionFilter filters DescribeSessions results. Wire key casing ("key"/
 // "value", lowercase) is a deliberate AWS quirk confirmed against
-// aws-sdk-go-v2/service/ssm@v1.71.0's serializers.go
+// aws-sdk-go-v2/service/ssm@v1.73.4's serializers.go
 // (awsAwsjson11_serializeDocumentSessionFilter) — every other SSM shape uses
 // PascalCase field names, but SessionFilter does not.
 type SessionFilter struct {
@@ -91,7 +91,7 @@ type TerminateSessionOutput struct {
 //
 // OutputUrl (types.SessionManagerOutputUrl, members CloudWatchOutputUrl/
 // S3OutputUrl) and Details are both documented "Reserved for future use" in
-// aws-sdk-go-v2/service/ssm@v1.71.0's types/types.go — real AWS never
+// aws-sdk-go-v2/service/ssm@v1.73.4's types/types.go — real AWS never
 // populates them today, and StartSessionInput has no field that could drive
 // them (it only accepts Target/DocumentName/Parameters/Reason). Both are
 // therefore omitted here entirely rather than modeled with a

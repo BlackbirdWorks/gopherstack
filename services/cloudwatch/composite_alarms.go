@@ -111,7 +111,15 @@ func (b *InMemoryBackend) fireCompositeTransitions(
 	deps alarmActionDeps,
 ) {
 	compositeDeps := alarmActionDeps{snsPub: deps.snsPub, lambdaInv: deps.lambdaInv}
+	now := time.Now().UTC()
+
 	for _, tr := range transitions {
+		if muteRule, muted := b.activeMuteRule(tr.alarmName, now); muted {
+			b.appendMutedActionHistory(tr.alarmName, "CompositeAlarm", muteRule)
+
+			continue
+		}
+
 		payload := b.buildAlarmActionPayload(
 			tr.alarmName, tr.alarmDesc, tr.alarmArn,
 			tr.oldState, tr.newState, tr.reason,

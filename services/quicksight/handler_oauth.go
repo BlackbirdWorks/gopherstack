@@ -52,11 +52,13 @@ func (h *Handler) dispatchOAuth(c *echo.Context, op string) error {
 // isOAuthAppModeledField reports whether k is a request-body field that AWS
 // accepts on Create/UpdateOAuthClientApplication but never echoes back on
 // Describe (the real OAuthClientApplication response shape has no
-// ClientId/ClientSecret members), or is otherwise modeled as its own field
-// rather than passed through in the Extra bag.
+// ClientId/ClientSecret/Tags members -- confirmed against
+// aws-sdk-go-v2/service/quicksight@v1.123.1/types/types.go:14837), or is
+// otherwise modeled as its own field rather than passed through in the Extra
+// bag.
 func isOAuthAppModeledField(k string) bool {
 	switch k {
-	case keyOAuthClientApplicationID, keyName, "ClientId", "ClientSecret":
+	case keyOAuthClientApplicationID, keyName, "ClientId", "ClientSecret", "Tags":
 		return true
 	}
 
@@ -64,8 +66,8 @@ func isOAuthAppModeledField(k string) bool {
 }
 
 // oauthAppExtraFields returns every request-body field except
-// OAuthClientApplicationId, Name, ClientId, and ClientSecret, stored as a
-// passthrough bag alongside the modeled fields.
+// OAuthClientApplicationId, Name, ClientId, ClientSecret, and Tags, stored as
+// a passthrough bag alongside the modeled fields.
 func oauthAppExtraFields(body map[string]any) map[string]any {
 	extra := make(map[string]any, len(body))
 	for k, v := range body {
@@ -103,7 +105,9 @@ func (h *Handler) handleCreateOAuthClientApp(c *echo.Context) error {
 	clientID := strField(body, keyOAuthClientApplicationID)
 	name := strField(body, keyName)
 
-	app, err := h.Backend.CreateOAuthClientApplication(accountID, clientID, name, oauthAppExtraFields(body))
+	app, err := h.Backend.CreateOAuthClientApplication(
+		accountID, clientID, name, oauthAppExtraFields(body), tagsFromBody(body),
+	)
 	if err != nil {
 		if errors.Is(err, ErrOAuthClientAppAlreadyExists) {
 			return writeError(c, http.StatusConflict, errResourceExistsCode, err.Error())

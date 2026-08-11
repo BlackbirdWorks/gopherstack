@@ -1,6 +1,6 @@
 ---
 service: personalize
-sdk_module: aws-sdk-go-v2/service/personalize@v1.47.11
+sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
 sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.2]  # GetRecommendations/GetPersonalizedRanking; see the Runtime family below
 last_audit_commit: 12cf224d
 last_audit_date: 2026-07-23
@@ -20,11 +20,11 @@ ops:
   DeleteSchema: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchemas: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateSolution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: added FK validation on datasetGroupArn (always required) and recipeArn (required only when performAutoML is false); added eventType (a plain CreateSolutionInput member that was completely unread) and solutionConfig (opaque round-trip) and autoMLResult (populated with a deterministic bestRecipeArn when performAutoML is true). Prior pass: added performAutoTraining (default true)/performIncrementalUpdate, previously silently dropped'}
-  DescribeSolution: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeSolution: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'now populates latestSolutionVersion (types.SolutionVersionSummary, a cross-table lookup over solutionVersions picking the max CreationDateTime for this solutionArn) -- previously absent entirely. Not added to ListSolutions: types.SolutionSummary has no latestSolutionVersion member'}
   UpdateSolution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: now populates latestSolutionUpdate (types.SolutionUpdateSummary-shaped) on every successful call, absent until the first update, matching the real API. Prior pass: was reading performAutoML/performHPO, fields that do not exist on the real UpdateSolutionInput -- real SDK calls were a silent no-op. Now reads performAutoTraining/performIncrementalUpdate (*bool, nil = unchanged)'}
   DeleteSolution: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSolutions: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateSolutionVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added FK validation on solutionArn; solutionConfig is now inherited from the parent solution onto the version (the configuration actually used to train it), matching the real SolutionVersion.solutionConfig field'}
+  CreateSolutionVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'this pass: datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn are now also copied from the parent Solution at creation time (types.SolutionVersion, types.go:2074), snapshotted as plain field copies so a later UpdateSolution cannot retroactively change an already-created version. Prior pass: added FK validation on solutionArn; solutionConfig is inherited from the parent solution onto the version, matching the real SolutionVersion.solutionConfig field'}
   DescribeSolutionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSolutionVersions: {wire: ok, errors: ok, state: ok, persist: ok}
   StopSolutionVersionCreation: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was setting status to "STOPPED", not a valid SolutionVersion.Status enum member; fixed to "CREATE STOPPED"'}
@@ -81,43 +81,15 @@ ops:
   GetPersonalizedRanking: {wire: ok, errors: ok, state: ok, persist: n/a, note: "same as GetRecommendations -- real personalizeruntime.Client op, now checked against the correct sibling client"}
 families:
   DatasetGroup/Dataset/Schema: {status: fixed, note: 'ARNs, timestamps (awstime.Epoch), field shapes verified against types.DatasetGroup/Dataset/DatasetSchema deserializers; Schema correctly has no status field (matches real API). This pass: domain enum validation on DatasetGroup/Schema, datasetType enum validation + datasetGroupArn/schemaArn FK validation on Dataset (see ops)'}
-  Solution/SolutionVersion: {status: fixed, note: 'This pass: datasetGroupArn/recipeArn/solutionArn FK validation, eventType/solutionConfig/autoMLResult/latestSolutionUpdate wire fields added (see ops) -- verified against types.Solution/types.SolutionVersion field-by-field. Prior pass: CreateSolution/UpdateSolution wire bug fixed; StopSolutionVersionCreation status-string bug fixed. Deferred: SolutionVersion still does not model datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn/failureReason (copies of the parent Solution''s fields at training time) or Solution.latestSolutionVersion (a SolutionVersionSummary of the most recent version) -- see deferred'}
-  Campaign/EventTracker/Filter/Recommender: {status: fixed, note: 'Create/Describe/Update/Delete/List field shapes verified against types.CampaignSummary/EventTrackerSummary/FilterSummary/RecommenderSummary -- gopherstack returns a superset (extra fields harmless, ignored by real deserializers per default case). This pass: datasetGroupArn FK validation on EventTracker/Filter, datasetGroupArn+solutionVersionArn+recipeArn FK validation on Campaign/Recommender, campaignConfig/recommenderConfig full round-trip + latestCampaignUpdate/latestRecommenderUpdate (see ops)'}
+  Solution/SolutionVersion: {status: fixed, note: 'This pass: SolutionVersion now models datasetGroupArn/eventType/performAutoML/performHPO/performIncrementalUpdate/recipeArn/failureReason, snapshotted from the parent Solution at CreateSolutionVersion time (not a live lookup); Solution.latestSolutionVersion (types.SolutionVersionSummary) now populated on DescribeSolution via a solutionVersions cross-table lookup; SolutionConfig deep-typed (see Campaign/Recommender family note) -- verified field-by-field against types.Solution/types.SolutionVersion/types.SolutionVersionSummary. Prior pass: datasetGroupArn/recipeArn/solutionArn FK validation, eventType/solutionConfig/autoMLResult/latestSolutionUpdate wire fields added; CreateSolution/UpdateSolution wire bug fixed; StopSolutionVersionCreation status-string bug fixed'}
+  Campaign/EventTracker/Filter/Recommender: {status: fixed, note: 'Create/Describe/Update/Delete/List field shapes verified against types.CampaignSummary/EventTrackerSummary/FilterSummary/RecommenderSummary -- gopherstack returns a superset (extra fields harmless, ignored by real deserializers per default case). This pass: CampaignConfig/RecommenderConfig (and SolutionConfig, above) are now deep-typed real Go structs (types.CampaignConfig/RecommenderConfig/SolutionConfig and their nested sub-objects, types.go) instead of opaque map[string]any passthrough -- a caller-supplied field with no counterpart in the real API is now dropped rather than echoed back; Recommender''s duplicated minRecommendationRequestsPerSecond bookkeeping now stays in sync with recommenderConfig''s own typed field instead of being hand-merged in the response builder. Prior pass: datasetGroupArn FK validation on EventTracker/Filter, datasetGroupArn+solutionVersionArn+recipeArn FK validation on Campaign/Recommender, campaignConfig/recommenderConfig full round-trip + latestCampaignUpdate/latestRecommenderUpdate (see ops)'}
   MetricAttribution: {status: fixed, note: 'Prior pass: metrics/addMetrics/removeMetrics/ListMetricAttributionMetrics fixed. This pass: datasetGroupArn FK validation added (see ops)'}
   Async jobs (DatasetImportJob/DatasetExportJob/BatchInferenceJob/BatchSegmentJob/DataDeletionJob): {status: fixed, note: 'no Delete/Update ops in the real API either -- gopherstack correctly omits them; Create/Describe/List shapes verified. This pass: datasetArn/solutionVersionArn/datasetGroupArn FK validation added to every Create* op (see ops)'}
   Recipe/Algorithm/FeatureTransformation: {status: ok, note: built-in read-only catalogs, ARNs/status/timestamps verified}
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
   Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
-gaps:
-  - >-
-    SolutionVersion does not model datasetGroupArn/eventType/performAutoML/
-    performHPO/performIncrementalUpdate/recipeArn/failureReason -- real AWS
-    copies these from the parent Solution onto each trained version (verified
-    against types.SolutionVersion). Discovered field-diffing this pass;
-    additive-only, low-traffic fields, deferred rather than fixed alongside
-    the FK-validation/config-round-trip work (needs a bd issue).
-  - >-
-    Solution.latestSolutionVersion (types.SolutionVersionSummary of the most
-    recently created version) is not modeled on DescribeSolution -- would
-    require a cross-table lookup (scan solutionVersions for the given
-    solutionArn, pick the max by CreationDateTime) that the current
-    describeSolution/solutionToMap pure-function shape doesn't have backend
-    access to do; deferred rather than plumbed through piecemeal this pass
-    (needs a bd issue).
-deferred:
-  - >-
-    SolutionVersion/Solution.latestSolutionVersion missing fields (see gaps)
-  - >-
-    itemExplorationConfig/trainingDataConfig/AutoMLConfig/AutoTrainingConfig/
-    HPOConfig/EventsConfig sub-objects inside CampaignConfig/
-    RecommenderConfig/SolutionConfig are round-tripped opaquely (whatever the
-    caller sends comes back unmodified on Describe/List) rather than deeply
-    typed/interpreted server-side -- matches the DataSource/JobOutput/
-    MetricsOutputConfig pattern used elsewhere in this backend for deeply
-    nested optional AWS structures. This is sufficient for wire-shape parity
-    (an emulator has no training loop to actually interpret HPO/AutoML
-    hyperparameters against) but is noted here since it is a deliberate
-    modeling simplification, not an oversight.
+gaps: []
+deferred: []
 leaks: {status: clean, note: no goroutines/janitors in this backend; all state is synchronous map/table mutation under lockmetrics.RWMutex. This pass added no new goroutines, tickers, or persistence-relevant fields requiring cleanup.}
 ---
 
@@ -194,6 +166,46 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
   `TestPersonalize_Solution_ConfigEventTypeAndAutoMLResult` before landing.
   `UpdateRecommenderInput.recommenderConfig` is a *required* member on the
   real API (unlike the optional field on Create) and is now enforced.
+
+- **SolutionVersion parent-field copy, Solution.latestSolutionVersion, and
+  CampaignConfig/RecommenderConfig/SolutionConfig deep-typing (this pass,
+  gopherstack-b5mw)**: the three gaps recorded above are now fixed.
+  `CreateSolutionVersion` copies `datasetGroupArn`/`eventType`/
+  `performAutoML`/`performHPO`/`performIncrementalUpdate`/`recipeArn` from
+  the parent `Solution` (`types.SolutionVersion`, `types.go:2074`) as plain
+  field copies at creation time -- verified snapshot (not live-lookup)
+  semantics with `TestPersonalize_SolutionVersion_SnapshotNotLiveLookup`,
+  which updates the parent solution after the version exists and asserts the
+  version keeps its original value while the parent reflects the update.
+  `failureReason` is modeled but never populated (this backend has no
+  asynchronous training failure path) and is correctly omitted, not a
+  fabricated empty string. `DescribeSolution` now populates
+  `latestSolutionVersion` (`types.SolutionVersionSummary`, `types.go:2164`,
+  confirmed against the "latestSolutionVersion" case in
+  `deserializers.go:15334`) via a `solutionVersions` cross-table scan for the
+  max `CreationDateTime`; `trainingType` is hardcoded `"MANUAL"` since this
+  backend has no autotraining scheduler (every version is created via an
+  explicit `CreateSolutionVersion` call). `ListSolutions` deliberately does
+  *not* get this field: `types.SolutionSummary` has no `latestSolutionVersion`
+  member. `SolutionConfig`/`CampaignConfig`/`RecommenderConfig` and their
+  sub-objects (`AutoMLConfig`, `AutoTrainingConfig`, `EventsConfig`,
+  `EventParameters`, `HPOConfig`, `HPOObjective`, `HPOResourceConfig`,
+  `HyperParameterRanges` and its three range types, `OptimizationObjective`,
+  `TrainingDataConfig`) are now real Go structs in `configs.go`, each cited
+  against its `types.go` line, replacing the `map[string]any` passthrough
+  the prior pass's note above described. `ItemExplorationConfig` and
+  `RankingInfluence` stay `map[string]string`/`map[string]float64` --
+  genuinely free-form key/value maps in the real API, not modeled
+  sub-structs. A generic `decodeConfig[T]` helper (`handler.go`) round-trips
+  the already-`map[string]any`-decoded request body through
+  `json.Marshal`/`Unmarshal` into the typed struct; a caller-supplied field
+  with no counterpart in the real type is now silently dropped instead of
+  echoed back verbatim (locked by `TestPersonalize_Config_DeepTyping`, which
+  sends a bogus field inside each of the three config types and asserts it
+  does not appear on Describe). `Recommender`'s
+  `MinRecommendationRequestsPerSecond` bookkeeping field is kept in sync with
+  `RecommenderConfig.MinRecommendationRequestsPerSecond` via a `withMinRPS`
+  helper instead of the previous response-time merge in `recommenderToMap`.
 
 - **DatasetType/Domain enum validation added this pass**: `CreateDataset`
   now rejects a `datasetType` outside the documented

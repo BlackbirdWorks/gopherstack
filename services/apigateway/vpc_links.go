@@ -3,6 +3,8 @@ package apigateway
 import (
 	"fmt"
 	"sort"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // statusAvailable is the shared "AVAILABLE" status literal reused across
@@ -25,7 +27,7 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 		Description: input.Description,
 		Status:      statusAvailable,
 		TargetARNs:  input.TargetARNs,
-		Tags:        input.Tags,
+		Tags:        tags.FromMap("apigw.vpclink."+id+".tags", input.Tags),
 	}
 
 	b.mu.Lock("CreateVpcLink")
@@ -33,7 +35,9 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 
 	b.vpcLinks.Put(link)
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }
 
 // GetVpcLink retrieves a VPC link by ID.
@@ -46,7 +50,9 @@ func (b *InMemoryBackend) GetVpcLink(id string) (*VpcLink, error) {
 		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
 	}
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }
 
 // GetVpcLinks retrieves all VPC links.
@@ -97,5 +103,7 @@ func (b *InMemoryBackend) UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, err
 		link.Description = input.Description
 	}
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }

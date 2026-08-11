@@ -1,16 +1,13 @@
 package ecs
 
-// Code in this file supports Phase 3.3 of the datalayer refactor: every
-// map[string]*T resource field on InMemoryBackend that is a pure function of
-// the stored value's own identity is registered exactly once, here, as a
-// *store.Table[T] on b.registry. See pkgs/store's package doc and the ec2
-// (commit 12e611a4) and sqs (commit 0f09d77c) conversions this follows.
+// Every map[string]*T resource field on InMemoryBackend that is a pure function
+// of the stored value's own identity is registered exactly once, here, as a
+// *store.Table[T] on b.registry (see pkgs/store's package doc).
 //
-// Resources that used to be nested map[string]map[string]*T (cluster ->
-// resource-name -> value) are flattened into a single Table keyed by a
-// composite "cluster/name" string, with a secondary store.Index grouping by
-// cluster so the old "all X in cluster Y" access pattern (b.tasks[cluster],
-// b.services[cluster], ...) still resolves in O(k).
+// Resources nested as map[string]map[string]*T (cluster -> resource-name ->
+// value) are flattened into a single Table keyed by a composite "cluster/name"
+// string, with a secondary store.Index grouping by cluster so the old "all X in
+// cluster Y" access pattern still resolves in O(k).
 //
 // A handful of fields are deliberately NOT registered here and remain plain
 // maps -- see the comment above registerAllTables for the list and why.
@@ -63,39 +60,22 @@ func daemonTaskDefByArnKeyFn(v *DaemonTaskDefinition) string { return v.DaemonTa
 
 // registerAllTables registers every converted resource map on b.registry
 // exactly once, and constructs the two unregistered ARN-cache tables. It must
-// be called during construction only (immediately after b.registry is
-// created), never on every Reset() -- store.Register panics on a duplicate
-// name, so runtime resets go through registry.ResetAll() (plus the two
-// unregistered caches' own .Reset()) instead; see InMemoryBackend.Reset in
-// store.go.
+// be called during construction only (immediately after b.registry is created),
+// never on every Reset() -- store.Register panics on a duplicate name, so
+// runtime resets go through registry.ResetAll() (plus the two unregistered
+// caches' own .Reset()) instead; see InMemoryBackend.Reset in store.go.
 //
-// The following resource fields are deliberately left as plain maps (not
-// registered here):
-//   - taskDefinitions, daemonTaskDefinitions, daemonTaskDefs: value type is a
-//     slice ([]*T), not a single *T -- store.Table wraps map[string]*V, so a
-//     map[string][]*T container is out of scope for this conversion (matches
-//     the ec2 precedent of leaving map[string][]*T fields such as
-//     ipamPoolCidrs/spotFleetHistory/subnetCIDRAssociations raw). Ordering
-//     within each family's revision slice is also load-bearing (latest
-//     revision = last element) in a way a store.Index's Table.Restore-driven,
-//     primary-key-sorted rebuild would not reliably preserve for a
-//     multi-digit revision family.
-//   - resourceTags: value type []Tag, same slice-shape exclusion.
-//   - tasksByInstance: three levels of map keyed by bool, not a *T value at
-//     all -- an internal reverse-index set, not a resource collection.
-//   - serviceIndex: keyed by the svcRef struct, not a string, and its value is
-//     bool, not *T.
-//   - attributes: composite key (cluster, attributeKey(name, targetID))
-//     requires the cluster, which is not stored on the Attribute value itself
-//     -- matches the ec2 precedent for vpcCidrAssociations ("key composite
-//     requires vpcID which is not stored on the value").
-//   - lifecycle: value type taskLifecycle carries no identity field of its
-//     own (no task ARN field); it is keyed externally by task ARN -- matches
-//     the ec2 precedent for instanceIMDSOptions/vpcPeeringOptions-style
-//     exclusions ("value type carries no identity field of its own").
-//   - serviceRevisions, serviceRevisionsByArn: both are intentionally never
-//     populated (see the comment on InMemoryBackend.serviceRevisions in
-//     store.go -- this backend derives ServiceRevision snapshots on demand
+// Deliberately left as plain maps, not registered here:
+//   - taskDefinitions, daemonTaskDefinitions, daemonTaskDefs, resourceTags:
+//     slice-valued ([]*T/[]Tag), out of scope for store.Table's map[string]*V
+//     shape. Task-def revision-slice ordering (latest = last element) is also
+//     load-bearing in a way a primary-key-sorted rebuild wouldn't preserve.
+//   - tasksByInstance: a bool-keyed reverse-index set, not a resource collection.
+//   - serviceIndex: keyed by the svcRef struct, bool-valued.
+//   - attributes: composite key needs the cluster, not stored on the value itself.
+//   - lifecycle: value type carries no identity field; keyed externally by task ARN.
+//   - serviceRevisions, serviceRevisionsByArn: intentionally never populated
+//     (see InMemoryBackend.serviceRevisions in store.go -- derived on demand
 //     instead), and serviceRevisions is additionally slice-valued.
 func registerAllTables(b *InMemoryBackend) {
 	b.clusters = store.Register(b.registry, "clusters", store.New(clustersKeyFn))
@@ -132,14 +112,11 @@ func registerAllTables(b *InMemoryBackend) {
 	b.daemonTaskDefByArn = store.New(daemonTaskDefByArnKeyFn)
 }
 
-// The helpers below replace the old "delete an entire per-cluster/per-service
-// submap in one shot" idiom (e.g. delete(b.tasks, clusterName)) that the
-// pre-conversion nested map[string]map[string]*T shape supported directly. A
-// store.Index's Get returns a slice OWNED by the index -- it must not be
+// A store.Index's Get returns a slice OWNED by the index -- it must not be
 // mutated or ranged over while concurrently deleting from the backing Table
-// (each Table.Delete calls idx.remove, which mutates that same backing
-// slice) -- so every one of these snapshots the group into a private copy
-// first via append(nil, ...). All must be called with the write lock held.
+// (each Table.Delete calls idx.remove, which mutates that same backing slice) --
+// so every helper below snapshots the group into a private copy first via
+// append(nil, ...). All must be called with the write lock held.
 
 // tasksInClusterLocked returns a snapshot copy of every task in clusterName.
 func (b *InMemoryBackend) tasksInClusterLocked(clusterName string) []*Task {

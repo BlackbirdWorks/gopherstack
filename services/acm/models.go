@@ -5,6 +5,7 @@ import "time"
 const (
 	validationMethodDNS      = "DNS"
 	validationMethodEMAIL    = "EMAIL"
+	validationMethodHTTP     = "HTTP"
 	statusPendingValidation  = "PENDING_VALIDATION"
 	statusIssued             = "ISSUED"
 	statusRevoked            = "REVOKED"
@@ -27,6 +28,15 @@ const (
 
 	// keyAlgorithmEC is the AWS ACM key algorithm name for ECDSA P-256 keys.
 	keyAlgorithmEC = "EC_prime256v1"
+	// keyAlgorithmRSA1024/2048/3072/4096 and keyAlgorithmECSecp384r1/521r1
+	// are the remaining real values of the KeyAlgorithm enum
+	// (aws-sdk-go-v2/service/acm/types.KeyAlgorithm, enums.go:416-442, v1.43.4).
+	keyAlgorithmRSA1024     = "RSA_1024"
+	keyAlgorithmRSA2048     = "RSA_2048"
+	keyAlgorithmRSA3072     = "RSA_3072"
+	keyAlgorithmRSA4096     = "RSA_4096"
+	keyAlgorithmECSecp384r1 = "EC_secp384r1"
+	keyAlgorithmECSecp521r1 = "EC_secp521r1"
 	// signatureAlgorithmECDSA is the signature algorithm string for ECDSA with SHA-256.
 
 	// maxDomainLength is the maximum length of a domain name per RFC 1035 / AWS ACM constraints.
@@ -56,9 +66,21 @@ type ResourceRecord struct {
 	Value string `json:"value"`
 }
 
+// HTTPRedirect holds HTTP-based domain validation details, populated only
+// when ValidationMethod is HTTP -- real AWS restricts this to AMAZON_ISSUED
+// certificates requested through CloudFront (types.DomainValidation.HttpRedirect
+// doc comment, types.go:1053-1056, v1.43.4); gopherstack has no CloudFront
+// issuance pipeline, so this is a synthetic value in the correct wire shape,
+// same class as the synthetic DNS ResourceRecord/EMAIL addresses below.
+type HTTPRedirect struct {
+	RedirectFrom string `json:"redirectFrom"`
+	RedirectTo   string `json:"redirectTo"`
+}
+
 // DomainValidationOption holds the validation details for a single domain.
 type DomainValidationOption struct {
 	ResourceRecord   *ResourceRecord `json:"resourceRecord,omitempty"`
+	HTTPRedirect     *HTTPRedirect   `json:"httpRedirect,omitempty"`
 	DomainName       string          `json:"domainName"`
 	ValidationDomain string          `json:"validationDomain"`
 	ValidationStatus string          `json:"validationStatus"`
@@ -155,6 +177,31 @@ type RenewalSummary struct {
 	DomainValidationOptions []DomainValidationOption `json:"DomainValidationOptions,omitempty"`
 }
 
+// copyDomainValidationOptions deep-copies a DomainValidationOption slice so
+// none of its pointer/slice fields are shared with the original.
+func copyDomainValidationOptions(src []DomainValidationOption) []DomainValidationOption {
+	dst := make([]DomainValidationOption, len(src))
+	copy(dst, src)
+
+	for i, dvo := range src {
+		if dvo.ResourceRecord != nil {
+			rr := *dvo.ResourceRecord
+			dst[i].ResourceRecord = &rr
+		}
+
+		if dvo.HTTPRedirect != nil {
+			hr := *dvo.HTTPRedirect
+			dst[i].HTTPRedirect = &hr
+		}
+
+		if len(dvo.ValidationEmails) > 0 {
+			dst[i].ValidationEmails = append([]string(nil), dvo.ValidationEmails...)
+		}
+	}
+
+	return dst
+}
+
 // copyCert returns a deep copy of a Certificate, ensuring all pointer fields
 // and the DomainValidationOptions slice are not shared with the original.
 func copyCert(c *Certificate) Certificate {
@@ -192,28 +239,13 @@ func copyCert(c *Certificate) Certificate {
 	}
 
 	if len(c.DomainValidationOptions) > 0 {
-		cp.DomainValidationOptions = make([]DomainValidationOption, len(c.DomainValidationOptions))
-		copy(cp.DomainValidationOptions, c.DomainValidationOptions)
-
-		for i, dvo := range c.DomainValidationOptions {
-			if dvo.ResourceRecord != nil {
-				rr := *dvo.ResourceRecord
-				cp.DomainValidationOptions[i].ResourceRecord = &rr
-			}
-
-			if len(dvo.ValidationEmails) > 0 {
-				cp.DomainValidationOptions[i].ValidationEmails = append([]string(nil), dvo.ValidationEmails...)
-			}
-		}
+		cp.DomainValidationOptions = copyDomainValidationOptions(c.DomainValidationOptions)
 	}
 
 	if c.RenewalSummary != nil {
 		rs := *c.RenewalSummary
 		if len(c.RenewalSummary.DomainValidationOptions) > 0 {
-			rs.DomainValidationOptions = append(
-				[]DomainValidationOption(nil),
-				c.RenewalSummary.DomainValidationOptions...,
-			)
+			rs.DomainValidationOptions = copyDomainValidationOptions(c.RenewalSummary.DomainValidationOptions)
 		}
 
 		cp.RenewalSummary = &rs

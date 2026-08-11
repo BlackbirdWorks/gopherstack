@@ -46,16 +46,12 @@ const (
 // load-balancer-scoped scans. Callers must hold b.mu while accessing either
 // table or index.
 type InMemoryBackend struct {
-	registry *store.Registry
-	// lbs stores load balancers keyed by region+"|"+loadBalancerName.
-	lbs *store.Table[LoadBalancer]
-	// lbsByRegion indexes lbs by region for region-scoped listing.
-	lbsByRegion *store.Index[LoadBalancer]
-	// policies stores load balancer policies keyed by
-	// region+"|"+loadBalancerName+"/"+policyName.
-	policies *store.Table[LoadBalancerPolicy]
-	// policiesByLB indexes policies by their owning load balancer
-	// (region+"|"+loadBalancerName) for per-LB listing and cascade delete.
+	ec2Resolver  EC2Resolver
+	certResolver CertificateResolver
+	registry     *store.Registry
+	lbs          *store.Table[LoadBalancer]
+	lbsByRegion  *store.Index[LoadBalancer]
+	policies     *store.Table[LoadBalancerPolicy]
 	policiesByLB *store.Index[LoadBalancerPolicy]
 	mu           *lockmetrics.RWMutex
 	accountID    string
@@ -79,6 +75,27 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Region returns the AWS region this backend was configured with. It is the
 // fallback region used when a request context carries no region.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// SetEC2Resolver wires the backend to validate SecurityGroups/Subnets
+// against the real services/ec2 backend -- see EC2Resolver's doc comment.
+// Called from cli.go's wireComputeAndObservabilityIntegrations.
+func (b *InMemoryBackend) SetEC2Resolver(r EC2Resolver) {
+	b.mu.Lock("SetEC2Resolver")
+	defer b.mu.Unlock()
+
+	b.ec2Resolver = r
+}
+
+// SetCertificateResolver wires the backend to validate SSLCertificateId
+// against the real services/acm and services/iam backends -- see
+// CertificateResolver's doc comment. Called from cli.go's
+// wireComputeAndObservabilityIntegrations.
+func (b *InMemoryBackend) SetCertificateResolver(r CertificateResolver) {
+	b.mu.Lock("SetCertificateResolver")
+	defer b.mu.Unlock()
+
+	b.certResolver = r
+}
 
 // Reset clears all backend state across every region. All Tags registries are
 // closed to avoid metric leaks.

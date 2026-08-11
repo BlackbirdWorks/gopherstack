@@ -484,3 +484,39 @@ func TestBackend_Persistence_UserGroupIds(t *testing.T) {
 	require.Len(t, page.Data, 1)
 	assert.Contains(t, page.Data[0].UserGroupIDs, "persist-ug")
 }
+
+// TestBackend_Persistence_UserGroupServerlessCaches verifies that
+// UserGroup.AssignedServerlessCacheIDs (wire ServerlessCaches, the reverse
+// of ServerlessCache.UserGroupID) survives a Snapshot/Restore round trip.
+// The field itself is never persisted (like AssignedReplicationGroupIDs, it
+// is recomputed from the serverless caches map on every read), so this
+// locks that the recomputation still finds the association after the
+// underlying ServerlessCache.UserGroupID has round-tripped through
+// persistence.
+func TestBackend_Persistence_UserGroupServerlessCaches(t *testing.T) {
+	t.Parallel()
+
+	b1 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+
+	_, err := b1.CreateUserGroup(context.Background(), "persist-ug-sc", "redis", nil)
+	require.NoError(t, err)
+
+	_, err = b1.CreateServerlessCacheFull(context.Background(), elasticache.ServerlessCreateOpts{
+		Name:        "persist-sc",
+		Engine:      "redis",
+		UserGroupID: "persist-ug-sc",
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	b2 := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
+	err = b2.Restore(t.Context(), snap)
+	require.NoError(t, err)
+
+	page, err := b2.DescribeUserGroups(context.Background(), "persist-ug-sc", "", 0)
+	require.NoError(t, err)
+	require.Len(t, page.Data, 1)
+	assert.Contains(t, page.Data[0].AssignedServerlessCacheIDs, "persist-sc")
+}

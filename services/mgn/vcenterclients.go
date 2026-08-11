@@ -5,16 +5,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family H (2 ops -- no create op): DescribeVcenterClients
-// (the only non-tagging GET in this service), DeleteVcenterClient.
-//
-// Same "hard design problem" as SourceServer (sourceservers.go's doc
-// comment): no CreateVcenterClient op exists anywhere in this 95-op
-// surface. A VcenterClient record is created only by the on-prem vCenter
-// connector appliance registering itself with AWS -- not exposed by any
-// public API. This backend's resolution is identical to SourceServer's:
-// SeedVcenterClient below, an EXPORTED, non-SDK, gopherstack-only
-// convenience, never routed as an SDK operation.
+// No CreateVcenterClient op exists anywhere in this SDK surface: a VcenterClient
+// record is created only by the on-prem vCenter connector appliance registering
+// itself with AWS, not exposed by any public API. SeedVcenterClient below is an
+// EXPORTED, non-SDK, gopherstack-only convenience, never routed as an SDK operation.
 
 // SeedVcenterClientOptions configures SeedVcenterClient. Every field is
 // optional.

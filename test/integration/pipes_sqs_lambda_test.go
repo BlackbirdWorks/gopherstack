@@ -204,17 +204,9 @@ func TestIntegration_Pipes_SQS_To_Lambda(t *testing.T) {
 	require.NoError(t, err)
 
 	// --- Step 5: Wait for Lambda to be invoked ---
-	deadline := time.Now().Add(pipesPollTimeout)
-
-	for time.Now().Before(deadline) {
-		if mockInvoker.CallCount() >= 1 {
-			break
-		}
-
-		time.Sleep(pipesPollInterval)
-	}
-
-	require.GreaterOrEqual(t, mockInvoker.CallCount(), 1, "Lambda should be invoked by the Pipes runner")
+	require.Eventually(t, func() bool {
+		return mockInvoker.CallCount() >= 1
+	}, pipesPollTimeout, pipesPollInterval, "Lambda should be invoked by the Pipes runner")
 
 	// --- Step 6: Verify the event payload ---
 	mockInvoker.mu.Lock()

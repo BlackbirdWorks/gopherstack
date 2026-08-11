@@ -79,5 +79,7 @@ func (h *Handler) cborPutCompositeAlarm(input cbor.Map, c *echo.Context) error {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreationTags(input, alarm.AlarmArn)
+
 	return writeCBOR(c, cbor.Map{})
 }

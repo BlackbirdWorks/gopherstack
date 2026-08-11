@@ -84,40 +84,28 @@ func (h *Handler) handleDeleteApplicationInputProcessingConfiguration(
 
 // handleDiscoverInputSchema validates the request the way real AWS does (exactly one of a
 // streaming source or an S3Configuration, with the corresponding role/location fields all
-// present) and, once the request is well-formed, returns a fixed-shape schema.
-//
-// NOTE: real schema inference by sampling a live Kinesis/Firehose stream or S3 object is out
-// of scope -- this emulator has no data plane to read from and no SQL/type-inference engine.
-// The response shape matches the real AWS wire format (InputSchema/ParsedInputRecords/
-// ProcessedInputRecords/RawInputRecords) so SDK consumers parse it without error, but its
-// content is a fixed synthetic sample rather than a real inference result. What IS real here
-// is the request validation: a malformed request (no source, both sources, or a source missing
-// its required role/location sub-fields) is rejected with InvalidArgumentException exactly as
-// real AWS would reject it, instead of always synthesizing a "successful" response regardless
-// of input.
+// present), then samples real records from that source via h.Backend.DiscoverInputSchema and
+// infers RecordColumns from them. ProcessedInputRecords mirrors RawInputRecords: an
+// InputProcessingConfiguration's Lambda preprocessor is not invoked (no Lambda call is made),
+// a documented gap rather than a fabricated transform.
 func (h *Handler) handleDiscoverInputSchema(
-	_ context.Context,
+	ctx context.Context,
 	in *discoverInputSchemaInput,
 ) (*discoverInputSchemaOutput, error) {
 	if err := validateDiscoverInputSchemaInput(in); err != nil {
 		return nil, err
 	}
 
+	schema, raw, parsed, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.S3Configuration)
+	if err != nil {
+		return nil, err
+	}
+
 	return &discoverInputSchemaOutput{
-		InputSchema: &SourceSchema{
-			RecordFormat: RecordFormat{
-				RecordFormatType: recordFormatJSON,
-				MappingParameters: &MappingParameters{
-					JSONMappingParameters: &JSONMappingParameters{RecordRowPath: "$"},
-				},
-			},
-			RecordColumns: []RecordColumn{
-				{Name: "COL_1", SQLType: "VARCHAR(4)"},
-			},
-		},
-		ParsedInputRecords:    [][]string{{"value1"}},
-		ProcessedInputRecords: []string{`{"COL_1":"value1"}`},
-		RawInputRecords:       []string{`{"COL_1":"value1"}`},
+		InputSchema:           schema,
+		ParsedInputRecords:    parsed,
+		ProcessedInputRecords: raw,
+		RawInputRecords:       raw,
 	}, nil
 }
 

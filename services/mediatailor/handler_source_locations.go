@@ -11,8 +11,13 @@ import (
 func (h *Handler) handleCreateSourceLocation(c *echo.Context, name string, body map[string]any) error {
 	baseURL := extractBaseURL(body)
 	tags := extractTags(body)
+	accessConfig := extractAccessConfiguration(body)
+	defaultSegmentDelivery := extractDefaultSegmentDeliveryConfiguration(body)
+	segmentDeliveryConfigs := extractSegmentDeliveryConfigurations(body)
 
-	sl, err := h.Backend.CreateSourceLocation(name, baseURL, tags)
+	sl, err := h.Backend.CreateSourceLocation(
+		name, baseURL, accessConfig, defaultSegmentDelivery, segmentDeliveryConfigs, tags,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -31,8 +36,13 @@ func (h *Handler) handleDescribeSourceLocation(c *echo.Context, name string) err
 
 func (h *Handler) handleUpdateSourceLocation(c *echo.Context, name string, body map[string]any) error {
 	baseURL := extractBaseURL(body)
+	accessConfig := extractAccessConfiguration(body)
+	defaultSegmentDelivery := extractDefaultSegmentDeliveryConfiguration(body)
+	segmentDeliveryConfigs := extractSegmentDeliveryConfigurations(body)
 
-	sl, err := h.Backend.UpdateSourceLocation(name, baseURL)
+	sl, err := h.Backend.UpdateSourceLocation(
+		name, baseURL, accessConfig, defaultSegmentDelivery, segmentDeliveryConfigs,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -61,11 +71,14 @@ func (h *Handler) handleListSourceLocations(c *echo.Context) error {
 			keySourceLocationName: s.Name,
 			keyArn:                s.ARN,
 			"HttpConfiguration": map[string]any{
-				"BaseUrl": s.HTTPConfigurationURL,
+				keyBaseURL: s.HTTPConfigurationURL,
 			},
 			keyTags: nilToEmpty(s.Tags),
 		}
 		addTimestamps(item, s.CreationTime, s.LastModified)
+		addAccessConfiguration(item, s.AccessConfiguration)
+		addDefaultSegmentDeliveryConfiguration(item, s.DefaultSegmentDeliveryConfiguration)
+		addSegmentDeliveryConfigurations(item, s.SegmentDeliveryConfigurations)
 		out = append(out, item)
 	}
 
@@ -82,11 +95,56 @@ func toSourceLocationOutput(sl *SourceLocation) map[string]any {
 		keySourceLocationName: sl.Name,
 		keyArn:                sl.ARN,
 		"HttpConfiguration": map[string]any{
-			"BaseUrl": sl.HTTPConfigurationURL,
+			keyBaseURL: sl.HTTPConfigurationURL,
 		},
 		keyTags: nilToEmpty(sl.Tags),
 	}
 	addTimestamps(out, sl.CreationTime, sl.LastModified)
+	addAccessConfiguration(out, sl.AccessConfiguration)
+	addDefaultSegmentDeliveryConfiguration(out, sl.DefaultSegmentDeliveryConfiguration)
+	addSegmentDeliveryConfigurations(out, sl.SegmentDeliveryConfigurations)
 
 	return out
+}
+
+func addAccessConfiguration(out map[string]any, cfg *AccessConfiguration) {
+	if cfg == nil {
+		return
+	}
+
+	entry := map[string]any{}
+	if cfg.AccessType != "" {
+		entry["AccessType"] = cfg.AccessType
+	}
+
+	if smat := cfg.SecretsManagerAccessTokenConfiguration; smat != nil {
+		entry["SecretsManagerAccessTokenConfiguration"] = map[string]any{
+			"HeaderName":      smat.HeaderName,
+			"SecretArn":       smat.SecretArn,
+			"SecretStringKey": smat.SecretStringKey,
+		}
+	}
+
+	out["AccessConfiguration"] = entry
+}
+
+func addDefaultSegmentDeliveryConfiguration(out map[string]any, cfg *DefaultSegmentDeliveryConfiguration) {
+	if cfg == nil {
+		return
+	}
+
+	out["DefaultSegmentDeliveryConfiguration"] = map[string]any{keyBaseURL: cfg.BaseURL}
+}
+
+func addSegmentDeliveryConfigurations(out map[string]any, cfgs []SegmentDeliveryConfiguration) {
+	if len(cfgs) == 0 {
+		return
+	}
+
+	items := make([]map[string]any, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		items = append(items, map[string]any{keyBaseURL: cfg.BaseURL, keyName: cfg.Name})
+	}
+
+	out["SegmentDeliveryConfigurations"] = items
 }

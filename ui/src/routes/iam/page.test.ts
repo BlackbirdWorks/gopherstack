@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import IAMPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 import {
   ListUsersCommand,
   ListRolesCommand,
@@ -61,6 +62,7 @@ describe("IAM Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockImplementation(defaultMockImpl);
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -379,5 +381,43 @@ describe("IAM Page", () => {
       .map((c) => c[0])
       .find((c) => c instanceof GenerateCredentialReportCommand);
     expect(genCmd).toBeTruthy();
+  });
+
+  describe("global service treatment", () => {
+    it("tags each user row with a global chip instead of a region", async () => {
+      mockSend.mockImplementation((cmd: unknown) => {
+        if (cmd instanceof ListUsersCommand) return Promise.resolve({ Users: [mockUser] });
+        return defaultMockImpl(cmd);
+      });
+      render(IAMPage);
+      await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+      const row = screen.getByText("alice").closest("div[role='button']") as HTMLElement;
+      expect(within(row).getByTestId("region-chip").textContent).toBe("global");
+    });
+
+    it("issues exactly one ListUsers call under Region: All -- IAM never fans out", async () => {
+      setStoredRegion(ALL_REGIONS);
+      mockSend.mockImplementation((cmd: unknown) => {
+        if (cmd instanceof ListUsersCommand) return Promise.resolve({ Users: [mockUser] });
+        return defaultMockImpl(cmd);
+      });
+      render(IAMPage);
+      await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+      const listCalls = mockSend.mock.calls.filter(([cmd]) => cmd instanceof ListUsersCommand);
+      expect(listCalls).toHaveLength(1);
+    });
+
+    it("keeps users visible after switching from All to a specific region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      mockSend.mockImplementation((cmd: unknown) => {
+        if (cmd instanceof ListUsersCommand) return Promise.resolve({ Users: [mockUser] });
+        return defaultMockImpl(cmd);
+      });
+      render(IAMPage);
+      await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+
+      setStoredRegion("eu-west-1");
+      await waitFor(() => expect(screen.getByText("alice")).toBeInTheDocument());
+    });
   });
 });

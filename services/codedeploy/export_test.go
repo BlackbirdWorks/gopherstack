@@ -44,12 +44,3 @@ func (b *InMemoryBackend) DeploymentConfigCount() int {
 
 	return b.deploymentConfigs.Len()
 }
-
-// ApplicationRevisionCount returns the number of registered application
-// revisions stored in the backend. Used only in tests.
-func (b *InMemoryBackend) ApplicationRevisionCount() int {
-	b.mu.RLock("ApplicationRevisionCount")
-	defer b.mu.RUnlock()
-
-	return b.applicationRevisions.Len()
-}

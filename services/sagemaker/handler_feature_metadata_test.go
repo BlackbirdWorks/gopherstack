@@ -67,10 +67,15 @@ func TestBackend_FeatureMetadata_Direct(t *testing.T) {
 	b := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
 
 	// Create feature group.
-	_, err := b.CreateFeatureGroup(context.Background(), "meta-fg", "id", "event_time", []sagemaker.FeatureDefinition{
-		{FeatureName: "id", FeatureType: "Integral"},
-		{FeatureName: "event_time", FeatureType: "String"},
-	}, nil)
+	_, err := b.CreateFeatureGroup(context.Background(), sagemaker.CreateFeatureGroupOptions{
+		FeatureGroupName:            "meta-fg",
+		RecordIdentifierFeatureName: "id",
+		EventTimeFeatureName:        "event_time",
+		FeatureDefinitions: []sagemaker.FeatureDefinition{
+			{FeatureName: "id", FeatureType: "Integral"},
+			{FeatureName: "event_time", FeatureType: "String"},
+		},
+	})
 	require.NoError(t, err)
 
 	// UpdateFeatureMetadata.

@@ -370,7 +370,7 @@ func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
 	_, err = b.AuthorizeVpcEndpointAccess("snap-domain", "111122223333", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateApplication("my-app", nil, nil)
+	_, err = b.CreateApplication("my-app", nil, nil, nil)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -390,7 +390,7 @@ func TestOpenSearchHandler_Persistence_AdditionalResources(t *testing.T) {
 	assert.Equal(t, "ACTIVE", conn.Status)
 
 	// Verify application persists
-	app, err := fresh.CreateApplication("another-app", nil, nil)
+	app, err := fresh.CreateApplication("another-app", nil, nil, nil)
 	require.NoError(t, err)
 	assert.NotEmpty(t, app.ID)
 }
@@ -541,7 +541,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.CreateVpcEndpoint(domain.ARN, map[string]any{"SubnetIds": []string{"subnet-1"}})
 	require.NoError(t, err)
 
-	app, err := original.CreateApplication("full-app", nil, nil)
+	app, err := original.CreateApplication("full-app", nil, nil, nil)
 	require.NoError(t, err)
 
 	pkg, err := original.CreatePackage("full-pkg", "TXT-DICTIONARY", "a package", nil, nil)

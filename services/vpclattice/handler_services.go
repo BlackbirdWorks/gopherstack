@@ -90,8 +90,8 @@ func serviceToJSON(s *Service) map[string]any {
 		keyName:          s.Name,
 		"authType":       s.AuthType,
 		keyStatus:        s.Status,
-		keyCreatedAt:     s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: s.LastUpdatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		"dnsEntry":       dnsEntryToJSON(s.DNSName, s.HostedZoneID),
 	}
 
@@ -112,7 +112,7 @@ func serviceSummaryToJSON(s *ServiceSummary) map[string]any {
 		"id":         s.ID,
 		keyName:      s.Name,
 		keyStatus:    s.Status,
-		keyCreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt: s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 
 	if s.DNSName != "" {

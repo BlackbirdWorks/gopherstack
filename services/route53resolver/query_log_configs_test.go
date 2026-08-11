@@ -476,3 +476,228 @@ func TestListResolverQueryLogConfigs_Pagination(t *testing.T) {
 		})
 	}
 }
+
+func TestListResolverQueryLogConfigs_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": "s3-cfg", "DestinationArn": "arn:aws:s3:::my-bucket",
+			"CreatorRequestId": "req-s3",
+		})
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name":           "cwl-cfg",
+			"DestinationArn": "arn:aws:logs:us-east-1:000000000000:log-group:/my/group",
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "name canonical",
+			filter:    map[string]any{"Name": "Name", "Values": []string{"s3-cfg"}},
+			wantNames: []string{"s3-cfg"},
+		},
+		{
+			name:      "name legacy uppercase",
+			filter:    map[string]any{"Name": "NAME", "Values": []string{"cwl-cfg"}},
+			wantNames: []string{"cwl-cfg"},
+		},
+		{
+			name:      "creator request id",
+			filter:    map[string]any{"Name": "CreatorRequestId", "Values": []string{"req-s3"}},
+			wantNames: []string{"s3-cfg"},
+		},
+		{
+			name:      "destination derived from arn kind",
+			filter:    map[string]any{"Name": "Destination", "Values": []string{"CloudWatchLogs"}},
+			wantNames: []string{"cwl-cfg"},
+		},
+		{
+			name:      "values are OR-combined",
+			filter:    map[string]any{"Name": "Destination", "Values": []string{"S3", "CloudWatchLogs"}},
+			wantNames: []string{"s3-cfg", "cwl-cfg"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+				"Filters": []map[string]any{tt.filter},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			cfgs, _ := resp["ResolverQueryLogConfigs"].([]any)
+			gotNames := make([]string, len(cfgs))
+			for i, c := range cfgs {
+				gotNames[i] = c.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverQueryLogConfigs_Sort(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": "charlie", "DestinationArn": "arn:aws:s3:::bucket",
+		})
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": "alpha", "DestinationArn": "arn:aws:s3:::bucket",
+		})
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": "bravo", "DestinationArn": "arn:aws:s3:::bucket",
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		body      map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "sort_by_name_ascending_explicit",
+			body:      map[string]any{"SortBy": "Name", "SortOrder": "ASCENDING"},
+			wantNames: []string{"alpha", "bravo", "charlie"},
+		},
+		{
+			name:      "sort_by_name_default_order",
+			body:      map[string]any{"SortBy": "Name"},
+			wantNames: []string{"alpha", "bravo", "charlie"},
+		},
+		{
+			name:      "sort_by_name_descending",
+			body:      map[string]any{"SortBy": "Name", "SortOrder": "DESCENDING"},
+			wantNames: []string{"charlie", "bravo", "alpha"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverQueryLogConfigs", tt.body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			resp := decodeJSON(t, rec)
+			cfgs, _ := resp["ResolverQueryLogConfigs"].([]any)
+			gotNames := make([]string, len(cfgs))
+			for i, c := range cfgs {
+				gotNames[i] = c.(map[string]any)["Name"].(string)
+			}
+			assert.Equal(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverQueryLogConfigs_SortAppliesBeforePagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	names := []string{"delta", "alpha", "charlie", "bravo"}
+	for _, n := range names {
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": n, "DestinationArn": "arn:aws:s3:::bucket",
+		})
+	}
+
+	// DESCENDING: the backend's own incidental ordering (see
+	// ListResolverQueryLogConfigs's sort.Slice by Name ascending) is the
+	// opposite direction, so this only passes once SortBy/SortOrder are
+	// actually honored -- an ASCENDING-only assertion here would pass by
+	// coincidence even with SortBy fully dropped.
+	rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"SortBy": "Name", "SortOrder": "DESCENDING", "MaxResults": float64(2),
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	page1 := decodeJSON(t, rec)
+	cfgs, _ := page1["ResolverQueryLogConfigs"].([]any)
+	require.Len(t, cfgs, 2)
+	assert.Equal(t, "delta", cfgs[0].(map[string]any)["Name"])
+	assert.Equal(t, "charlie", cfgs[1].(map[string]any)["Name"])
+	nextToken, _ := page1["NextToken"].(string)
+	require.NotEmpty(t, nextToken)
+
+	rec = doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"SortBy": "Name", "SortOrder": "DESCENDING", "NextToken": nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	page2 := decodeJSON(t, rec)
+	cfgs, _ = page2["ResolverQueryLogConfigs"].([]any)
+	require.Len(t, cfgs, 2)
+	assert.Equal(t, "bravo", cfgs[0].(map[string]any)["Name"])
+	assert.Equal(t, "alpha", cfgs[1].(map[string]any)["Name"])
+}
+
+func TestListResolverQueryLogConfigs_UnknownSortByRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+		"Name": "cfg1", "DestinationArn": "arn:aws:s3:::bucket",
+	})
+
+	rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"SortBy": "NotARealSortKey",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := decodeJSON(t, rec)
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}
+
+func TestListResolverQueryLogConfigs_UnknownSortOrderRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+		"Name": "cfg1", "DestinationArn": "arn:aws:s3:::bucket",
+	})
+
+	rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"SortBy": "Name", "SortOrder": "SIDEWAYS",
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	resp := decodeJSON(t, rec)
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}
+
+func TestListResolverQueryLogConfigs_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+		"Name": "cfg1", "DestinationArn": "arn:aws:s3:::bucket",
+	})
+
+	rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}

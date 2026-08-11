@@ -2,6 +2,7 @@ package glacier
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,8 @@ func (h *Handler) handleInitiateJob(c *echo.Context, vaultName string, body []by
 		return h.writeBackendError(c, err)
 	}
 
+	h.materializeSelectOutput(c.Request().Context(), vaultName, j.JobID)
+
 	location := "/" + h.AccountID + "/vaults/" + vaultName + "/jobs/" + j.JobID
 
 	c.Response().Header().Set("X-Amz-Job-Id", j.JobID)
@@ -50,7 +53,23 @@ func (h *Handler) handleDescribeJob(c *echo.Context, vaultName, jobID string) er
 		return h.writeBackendError(c, err)
 	}
 
+	h.materializeSelectOutput(c.Request().Context(), vaultName, j.JobID)
+
 	return c.JSON(http.StatusOK, toDescribeJobResponse(j))
+}
+
+// materializeSelectOutput writes a completed Select job's real S3 OutputLocation
+// output (see select_output.go), if an S3 backend is wired. A no-op for any other
+// job/action/state, so it is safe to call unconditionally after every operation
+// that can observe a job transition to Succeeded (InitiateJob, DescribeJob,
+// GetJobOutput).
+func (h *Handler) materializeSelectOutput(ctx context.Context, vaultName, jobID string) {
+	mem, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	mem.materializeSelectOutput(ctx, h.AccountID, h.DefaultRegion, vaultName, jobID)
 }
 
 func (h *Handler) handleListJobs(c *echo.Context, vaultName string) error {
@@ -160,6 +179,8 @@ func (h *Handler) handleGetJobOutput(c *echo.Context, vaultName, jobID string) e
 			ErrJobNotComplete.Error())
 	}
 
+	h.materializeSelectOutput(c.Request().Context(), vaultName, j.JobID)
+
 	if j.SHA256TreeHash != "" {
 		c.Response().Header().Set("X-Amz-Sha256-Tree-Hash", j.SHA256TreeHash)
 	}
@@ -195,9 +216,11 @@ func (h *Handler) handleInventoryJobOutput(c *echo.Context, j *Job, vaultName st
 
 // handleSelectJobOutput executes the select job's SQL expression against the
 // retrieved archive and serves the (real, not stubbed -- see select.go's package doc)
-// result. Real AWS never serves select results via GetJobOutput (they go to S3); this
-// is a documented gopherstack-specific delivery path in lieu of cross-service S3
-// write-back.
+// result directly. The job's real S3 OutputLocation output is separately written by
+// materializeSelectOutput (called just above, in handleGetJobOutput) when an S3
+// backend is wired; this handler remains a documented gopherstack convenience for
+// callers without one, and for callers of this endpoint itself, which AWS's own
+// GetJobOutput contract never documents a behavior for on a Select job.
 func (h *Handler) handleSelectJobOutput(c *echo.Context, j *Job) error {
 	data, hasData := h.Backend.GetArchiveData(j.ArchiveID)
 	if !hasData {

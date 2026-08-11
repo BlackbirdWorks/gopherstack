@@ -113,12 +113,12 @@ func identitySourceToConfigJSON(is *IdentitySource) *identitySourceConfigJSON {
 			tok := &oidcTokenSelectionJSON{}
 
 			switch sel.TokenType {
-			case "IDENTITY":
+			case tokenTypeIdentity:
 				tok.IdentityTokenOnly = &oidcIdentityTokenOnlyJSON{
 					PrincipalIDClaim: sel.PrincipalIDClaim,
 					ClientIDs:        sel.Audiences,
 				}
-			case "ACCESS":
+			case tokenTypeAccess:
 				tok.AccessTokenOnly = &oidcAccessTokenOnlyJSON{
 					PrincipalIDClaim: sel.PrincipalIDClaim,
 					Audiences:        sel.Audiences,
@@ -188,12 +188,12 @@ func configJSONToBackend(cfg identitySourceConfigJSON) IdentitySourceConfig {
 		if cfg.OpenIDConnect.TokenSelection != nil {
 			if cfg.OpenIDConnect.TokenSelection.IdentityTokenOnly != nil {
 				tok := cfg.OpenIDConnect.TokenSelection.IdentityTokenOnly
-				out.TokenType = "IDENTITY"
+				out.TokenType = tokenTypeIdentity
 				out.PrincipalIDClaim = tok.PrincipalIDClaim
 				out.Audiences = tok.ClientIDs
 			} else if cfg.OpenIDConnect.TokenSelection.AccessTokenOnly != nil {
 				tok := cfg.OpenIDConnect.TokenSelection.AccessTokenOnly
-				out.TokenType = "ACCESS"
+				out.TokenType = tokenTypeAccess
 				out.PrincipalIDClaim = tok.PrincipalIDClaim
 				out.Audiences = tok.Audiences
 			}

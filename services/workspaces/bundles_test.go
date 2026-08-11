@@ -3,6 +3,7 @@ package workspaces_test
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -116,11 +117,12 @@ func TestDescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 
 		if hasUserStorage {
 			us := usRaw.(map[string]any)
-			capacity, _ := us["Capacity"].(float64)
-			assert.Greater(
+			capacityStr, _ := us["Capacity"].(string)
+			capacity, convErr := strconv.Atoi(capacityStr)
+			require.NoError(t, convErr, "bundle %s UserStorage.Capacity must be numeric", bundleID)
+			assert.Positive(
 				t,
 				capacity,
-				float64(0),
 				"bundle %s UserStorage.Capacity must be > 0",
 				bundleID,
 			)
@@ -131,11 +133,12 @@ func TestDescribeWorkspaceBundles_ComputeTypeAndStorage(t *testing.T) {
 
 		if hasRootStorage {
 			rs := rsRaw.(map[string]any)
-			capacity, _ := rs["Capacity"].(float64)
-			assert.Greater(
+			capacityStr, _ := rs["Capacity"].(string)
+			capacity, convErr := strconv.Atoi(capacityStr)
+			require.NoError(t, convErr, "bundle %s RootStorage.Capacity must be numeric", bundleID)
+			assert.Positive(
 				t,
 				capacity,
-				float64(0),
 				"bundle %s RootStorage.Capacity must be > 0",
 				bundleID,
 			)
@@ -152,8 +155,8 @@ func TestDescribeWorkspaceBundles_ByOwnerAmazon(t *testing.T) {
 	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
 		"BundleName":  "MyBundle",
 		"ComputeType": map[string]any{"Name": "STANDARD"},
-		"UserStorage": map[string]any{"Capacity": 50},
-		"RootStorage": map[string]any{"Capacity": 80},
+		"UserStorage": map[string]any{"Capacity": "50"},
+		"RootStorage": map[string]any{"Capacity": "80"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -182,8 +185,8 @@ func TestDescribeWorkspaceBundles_IncludesCustomBundle(t *testing.T) {
 		"BundleName":        "MyCustomBundle",
 		"BundleDescription": "A test bundle",
 		"ComputeType":       map[string]any{"Name": "STANDARD"},
-		"UserStorage":       map[string]any{"Capacity": 50},
-		"RootStorage":       map[string]any{"Capacity": 80},
+		"UserStorage":       map[string]any{"Capacity": "50"},
+		"RootStorage":       map[string]any{"Capacity": "80"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -246,8 +249,8 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 				"BundleDescription": tc.description,
 				"ImageId":           "wsi-00000001",
 				"ComputeType":       map[string]string{"Name": "VALUE"},
-				"UserStorage":       map[string]int32{"Capacity": 10},
-				"RootStorage":       map[string]int32{"Capacity": 80},
+				"UserStorage":       map[string]string{"Capacity": "10"},
+				"RootStorage":       map[string]string{"Capacity": "80"},
 			})
 			if rec.Code != http.StatusOK {
 				t.Fatalf("create: expected 200, got %d: %s", rec.Code, rec.Body)
@@ -263,13 +266,28 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 				t.Fatal("expected non-empty BundleId")
 			}
 
-			// Update
+			// Update -- UpdateWorkspaceBundle validates ImageId references a
+			// real image (see TestUpdateWorkspaceBundle_UnknownImage), so use
+			// one actually created rather than a made-up ID.
+			imgRec := doTargetRequest(t, h, "CreateWorkspaceImage", map[string]any{
+				"Name":        "img-for-bundle-update",
+				"Description": "test",
+			})
+			if imgRec.Code != http.StatusOK {
+				t.Fatalf("create image: expected 200, got %d: %s", imgRec.Code, imgRec.Body)
+			}
+
+			var imgOut struct {
+				ImageID string `json:"ImageId"`
+			}
+			decodeJSON(t, imgRec.Body.Bytes(), &imgOut)
+
 			rec2 := doTargetRequest(t, h, "UpdateWorkspaceBundle", map[string]any{
 				"BundleId": bundleID,
-				"ImageId":  "wsi-00000002",
+				"ImageId":  imgOut.ImageID,
 			})
 			if rec2.Code != http.StatusOK {
-				t.Fatalf("update: expected 200, got %d", rec2.Code)
+				t.Fatalf("update: expected 200, got %d: %s", rec2.Code, rec2.Body)
 			}
 
 			// Delete
@@ -280,5 +298,42 @@ func TestWorkspaceBundleCRUD(t *testing.T) { //nolint:paralleltest // existing i
 				t.Fatalf("delete: expected 200, got %d", rec3.Code)
 			}
 		})
+	}
+}
+
+// TestUpdateWorkspaceBundle_UnknownImage verifies UpdateWorkspaceBundle
+// rejects an ImageId that doesn't reference a real image (previously
+// accepted unconditionally and silently pointed the bundle at a phantom
+// image ID) -- ResourceNotFoundException is in this operation's real error
+// list.
+func TestUpdateWorkspaceBundle_UnknownImage(t *testing.T) {
+	t.Parallel()
+
+	h, _ := newTestHandlerWithBackend(t)
+
+	rec := doTargetRequest(t, h, "CreateWorkspaceBundle", map[string]any{
+		"BundleName":        "unknown-image-bundle",
+		"BundleDescription": "test",
+		"ImageId":           "wsi-00000001",
+		"ComputeType":       map[string]string{"Name": "VALUE"},
+		"UserStorage":       map[string]string{"Capacity": "10"},
+		"RootStorage":       map[string]string{"Capacity": "80"},
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: expected 200, got %d: %s", rec.Code, rec.Body)
+	}
+
+	var createOut struct {
+		WorkspaceBundle map[string]any `json:"WorkspaceBundle"`
+	}
+	decodeJSON(t, rec.Body.Bytes(), &createOut)
+	bundleID, _ := createOut.WorkspaceBundle["BundleId"].(string)
+
+	rec2 := doTargetRequest(t, h, "UpdateWorkspaceBundle", map[string]any{
+		"BundleId": bundleID,
+		"ImageId":  "wsi-does-not-exist",
+	})
+	if rec2.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec2.Code, rec2.Body)
 	}
 }

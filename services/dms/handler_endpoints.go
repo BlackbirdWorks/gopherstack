@@ -2,6 +2,7 @@ package dms
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -9,6 +10,95 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
+
+// engineSettingsFields lists every engine-specific settings block accepted by
+// real CreateEndpoint/ModifyEndpoint (CreateEndpointInput/ModifyEndpointInput,
+// api_op_CreateEndpoint.go:37, api_op_ModifyEndpoint.go:37,
+// databasemigrationservice@v1.66.4) that this emulator does not model: no real
+// database or broker connections exist for them to configure, and the ~300
+// fields across these 19 structs are too large to model faithfully in one
+// pass. Rather than silently drop them like encoding/json would with unknown
+// fields, presence of any of these is rejected explicitly -- see
+// errUnsupportedEndpointSettingsMsg and unsupportedFieldName.
+type engineSettingsFields struct {
+	DmsTransferSettings        json.RawMessage `json:"DmsTransferSettings,omitempty"`
+	DocDBSettings              json.RawMessage `json:"DocDbSettings,omitempty"`
+	DynamoDBSettings           json.RawMessage `json:"DynamoDbSettings,omitempty"`
+	ElasticsearchSettings      json.RawMessage `json:"ElasticsearchSettings,omitempty"`
+	GcpMySQLSettings           json.RawMessage `json:"GcpMySQLSettings,omitempty"`
+	IBMDb2Settings             json.RawMessage `json:"IBMDb2Settings,omitempty"`
+	KafkaSettings              json.RawMessage `json:"KafkaSettings,omitempty"`
+	KinesisSettings            json.RawMessage `json:"KinesisSettings,omitempty"`
+	MicrosoftSQLServerSettings json.RawMessage `json:"MicrosoftSQLServerSettings,omitempty"`
+	MongoDBSettings            json.RawMessage `json:"MongoDbSettings,omitempty"`
+	MySQLSettings              json.RawMessage `json:"MySQLSettings,omitempty"`
+	NeptuneSettings            json.RawMessage `json:"NeptuneSettings,omitempty"`
+	OracleSettings             json.RawMessage `json:"OracleSettings,omitempty"`
+	PostgreSQLSettings         json.RawMessage `json:"PostgreSQLSettings,omitempty"`
+	RedisSettings              json.RawMessage `json:"RedisSettings,omitempty"`
+	RedshiftSettings           json.RawMessage `json:"RedshiftSettings,omitempty"`
+	S3Settings                 json.RawMessage `json:"S3Settings,omitempty"`
+	SybaseSettings             json.RawMessage `json:"SybaseSettings,omitempty"`
+	TimestreamSettings         json.RawMessage `json:"TimestreamSettings,omitempty"`
+}
+
+// errUnsupportedEndpointSettingsMsg explains why CreateEndpoint/ModifyEndpoint
+// reject engine-specific settings instead of accepting-and-dropping them:
+// this emulator makes no real database/broker connections for them to
+// configure, and honoring them faithfully means modeling ~300 fields across
+// 19 heterogeneous structs, which is out of scope here.
+const errUnsupportedEndpointSettingsMsg = "engine-specific endpoint settings are not supported by this emulator; " +
+	"omit this field (EndpointType/EngineName/ServerName/Port/DatabaseName/Username/Password are honored)"
+
+// rawIsSet reports whether a json.RawMessage field was present in the request
+// body with a non-null value.
+func rawIsSet(raw json.RawMessage) bool {
+	return len(raw) > 0 && string(raw) != "null"
+}
+
+// entries pairs each settings field with its wire name, in the same order as
+// engineSettingsFields, for unsupportedFieldName to scan.
+func (f engineSettingsFields) entries() []struct {
+	name string
+	raw  json.RawMessage
+} {
+	return []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"DmsTransferSettings", f.DmsTransferSettings},
+		{"DocDbSettings", f.DocDBSettings},
+		{"DynamoDbSettings", f.DynamoDBSettings},
+		{"ElasticsearchSettings", f.ElasticsearchSettings},
+		{"GcpMySQLSettings", f.GcpMySQLSettings},
+		{"IBMDb2Settings", f.IBMDb2Settings},
+		{"KafkaSettings", f.KafkaSettings},
+		{"KinesisSettings", f.KinesisSettings},
+		{"MicrosoftSQLServerSettings", f.MicrosoftSQLServerSettings},
+		{"MongoDbSettings", f.MongoDBSettings},
+		{"MySQLSettings", f.MySQLSettings},
+		{"NeptuneSettings", f.NeptuneSettings},
+		{"OracleSettings", f.OracleSettings},
+		{"PostgreSQLSettings", f.PostgreSQLSettings},
+		{"RedisSettings", f.RedisSettings},
+		{"RedshiftSettings", f.RedshiftSettings},
+		{"S3Settings", f.S3Settings},
+		{"SybaseSettings", f.SybaseSettings},
+		{"TimestreamSettings", f.TimestreamSettings},
+	}
+}
+
+// unsupportedFieldName returns the name of the first engine-specific settings
+// field set on the request, or "" if none were sent.
+func (f engineSettingsFields) unsupportedFieldName() string {
+	for _, e := range f.entries() {
+		if rawIsSet(e.raw) {
+			return e.name
+		}
+	}
+
+	return ""
+}
 
 type createEndpointInput struct {
 	EndpointIdentifier *string    `json:"EndpointIdentifier"`
@@ -20,6 +110,7 @@ type createEndpointInput struct {
 	Password           *string    `json:"Password"`
 	Port               *int32     `json:"Port"`
 	Tags               []tagEntry `json:"Tags"`
+	engineSettingsFields
 }
 
 type createEndpointOutput struct {
@@ -93,6 +184,10 @@ func (h *Handler) handleCreateEndpoint(
 
 	if !validEngineNames(engineName) {
 		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
+	}
+
+	if field := in.unsupportedFieldName(); field != "" {
+		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
 	}
 
 	kv := tagsToMap(in.Tags)
@@ -374,6 +469,7 @@ type modifyEndpointInput struct {
 	Username     *string `json:"Username"`
 	Password     *string `json:"Password"`
 	Port         *int32  `json:"Port"`
+	engineSettingsFields
 }
 
 type modifyEndpointOutput struct {
@@ -391,6 +487,10 @@ func (h *Handler) handleModifyEndpoint(
 	engineName := ptrconv.String(in.EngineName)
 	if engineName != "" && !validEngineNames(engineName) {
 		return nil, fmt.Errorf("%w: invalid EngineName %q", ErrValidation, engineName)
+	}
+
+	if field := in.unsupportedFieldName(); field != "" {
+		return nil, fmt.Errorf("%w: %s %s", ErrValidation, field, errUnsupportedEndpointSettingsMsg)
 	}
 
 	ep, err := h.Backend.ModifyEndpoint(

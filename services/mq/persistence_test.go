@@ -81,7 +81,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NoError(t, original.CreateUser(br.BrokerID, "second", "anothersecretpassword2", nil, false))
+	require.NoError(t, original.CreateUser(br.BrokerID, "second", "anothersecretpassword2", nil, false, false))
 
 	cfg, err := original.CreateConfiguration(
 		"config-1", "initial config", mq.EngineTypeActiveMQ, "", map[string]string{"team": "infra"},
@@ -90,9 +90,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, err = original.UpdateConfiguration(cfg.ID, "second revision", "ZGF0YQ==")
 	require.NoError(t, err)
-
-	standaloneARN := "arn:aws:mq:us-west-2:111122223333:standalone-tag"
-	require.NoError(t, original.CreateTags(standaloneARN, map[string]string{"k": "v"}))
 
 	wantBrokers := mq.BrokerCount(original)
 	wantConfigurations := mq.ConfigurationCount(original)
@@ -139,9 +136,13 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// Shared-pointer invariant: b.tags[arn] and resource.Tags must reflect
 	// the same content after restore, exactly as CreateTags/DeleteTags rely
 	// on pre-restore.
-	assert.Equal(t, restoredBroker.Tags, restored.ListTags(restoredBroker.BrokerArn))
-	assert.Equal(t, restoredCfg.Tags, restored.ListTags(restoredCfg.Arn))
-	assert.Equal(t, map[string]string{"k": "v"}, restored.ListTags(standaloneARN))
+	restoredBrokerTags, err := restored.ListTags(restoredBroker.BrokerArn)
+	require.NoError(t, err)
+	assert.Equal(t, restoredBroker.Tags, restoredBrokerTags)
+
+	restoredCfgTags, err := restored.ListTags(restoredCfg.Arn)
+	require.NoError(t, err)
+	assert.Equal(t, restoredCfg.Tags, restoredCfgTags)
 }
 
 // TestPersistenceRoundTrip exercises a broker + configuration snapshot/restore

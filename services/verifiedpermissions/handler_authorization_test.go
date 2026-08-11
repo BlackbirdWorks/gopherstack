@@ -648,3 +648,264 @@ func TestVPHandler_IsAuthorizedWithToken_MultipleIdentitySources_MatchByIssuer(t
 	assert.Equal(t, "ALLOW", resp["decision"],
 		"token from issuer B must resolve to the Customer identity source, not the first-created Employee one")
 }
+
+// TestVPHandler_IsAuthorizedWithToken_ClientIDValidation locks in real AWS's
+// documented client ID / audience validation (cognito-validation.html,
+// oidc-validation.html): when an identity source has one or more configured
+// client IDs/audiences, a token whose aud/client_id claim isn't among them
+// must not resolve a principal from that source (DENY), matching the
+// security direction real AWS takes -- a token meant for a different app
+// must not be accepted just because the issuer matches.
+func TestVPHandler_IsAuthorizedWithToken_ClientIDValidation(t *testing.T) {
+	t.Parallel()
+
+	cognitoIssuer := "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test"
+	cognitoArn := "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_test"
+
+	tests := []struct {
+		isCfg   map[string]any
+		claims  map[string]any
+		name    string
+		wantDec string
+	}{
+		{
+			name: "cognito client id matches allows",
+			isCfg: map[string]any{
+				"cognitoUserPoolConfiguration": map[string]any{
+					"userPoolArn": cognitoArn,
+					"clientIds":   []string{"app-client-1"},
+				},
+			},
+			claims:  map[string]any{"sub": "alice", "iss": cognitoIssuer, "client_id": "app-client-1"},
+			wantDec: "ALLOW",
+		},
+		{
+			name: "cognito client id mismatch denies",
+			isCfg: map[string]any{
+				"cognitoUserPoolConfiguration": map[string]any{
+					"userPoolArn": cognitoArn,
+					"clientIds":   []string{"app-client-1"},
+				},
+			},
+			claims:  map[string]any{"sub": "alice", "iss": cognitoIssuer, "client_id": "some-other-client"},
+			wantDec: "DENY",
+		},
+		{
+			name: "cognito unconfigured client ids accepts any",
+			isCfg: map[string]any{
+				"cognitoUserPoolConfiguration": map[string]any{
+					"userPoolArn": cognitoArn,
+				},
+			},
+			claims:  map[string]any{"sub": "alice", "iss": cognitoIssuer, "client_id": "anything"},
+			wantDec: "ALLOW",
+		},
+		{
+			name: "oidc access token audience mismatch denies",
+			isCfg: map[string]any{
+				"openIdConnectConfiguration": map[string]any{
+					"issuer": "https://issuer.example.com",
+					"tokenSelection": map[string]any{
+						"accessTokenOnly": map[string]any{
+							"principalIdClaim": "sub",
+							"audiences":        []string{"https://myapp.example.com"},
+						},
+					},
+				},
+			},
+			claims: map[string]any{
+				"sub": "alice",
+				"iss": "https://issuer.example.com",
+				"aud": "https://otherapp.example.com",
+			},
+			wantDec: "DENY",
+		},
+		{
+			name: "oidc access token audience match allows",
+			isCfg: map[string]any{
+				"openIdConnectConfiguration": map[string]any{
+					"issuer": "https://issuer.example.com",
+					"tokenSelection": map[string]any{
+						"accessTokenOnly": map[string]any{
+							"principalIdClaim": "sub",
+							"audiences":        []string{"https://myapp.example.com"},
+						},
+					},
+				},
+			},
+			claims: map[string]any{
+				"sub": "alice",
+				"iss": "https://issuer.example.com",
+				"aud": "https://myapp.example.com",
+			},
+			wantDec: "ALLOW",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestVPHandler(t)
+			storeID := createTestPolicyStore(t, h)
+
+			policyRec := doVPRequest(t, h, "CreatePolicy", map[string]any{
+				"policyStoreId": storeID,
+				"definition": map[string]any{
+					// Scoped to "principal is User" -- an unqualified
+					// "permit(principal, ...)" would ALLOW even with no
+					// principal resolved at all, defeating this test.
+					"static": map[string]any{"statement": `permit(principal is User, action, resource);`},
+				},
+			})
+			require.Equal(t, http.StatusOK, policyRec.Code, "policy body: %s", policyRec.Body.String())
+
+			isRec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+				"policyStoreId":       storeID,
+				"principalEntityType": "User",
+				"configuration":       tt.isCfg,
+			})
+			require.Equal(t, http.StatusOK, isRec.Code, "identity source body: %s", isRec.Body.String())
+
+			token := makeTestJWT(tt.claims)
+			rec := doVPRequest(t, h, "IsAuthorizedWithToken", map[string]any{
+				"policyStoreId": storeID,
+				"accessToken":   token,
+				"action":        map[string]any{"actionType": "Action", "actionId": "view"},
+				"resource":      map[string]any{"entityType": "Resource", "entityId": "res1"},
+			})
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, tt.wantDec, resp["decision"])
+		})
+	}
+}
+
+// TestVPHandler_IsAuthorizedWithToken_ResponseIncludesPrincipal locks in the
+// real SDK's IsAuthorizedWithTokenOutput.Principal field (EntityIdentifier,
+// optional): present with the resolved principal when the token yields one,
+// absent when it doesn't (e.g. an unparseable token).
+func TestVPHandler_IsAuthorizedWithToken_ResponseIncludesPrincipal(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolved token echoes principal", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestVPHandler(t)
+		storeID := createTestPolicyStore(t, h)
+
+		isRec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+			"policyStoreId":       storeID,
+			"principalEntityType": "User",
+			"configuration": map[string]any{
+				"openIdConnectConfiguration": map[string]any{
+					"issuer": "https://issuer.example.com",
+					"tokenSelection": map[string]any{
+						"accessTokenOnly": map[string]any{"principalIdClaim": "sub"},
+					},
+				},
+			},
+		})
+		require.Equal(t, http.StatusOK, isRec.Code, "body: %s", isRec.Body.String())
+
+		token := makeTestJWT(map[string]any{"sub": "alice", "iss": "https://issuer.example.com"})
+		rec := doVPRequest(t, h, "IsAuthorizedWithToken", map[string]any{
+			"policyStoreId": storeID,
+			"accessToken":   token,
+			"action":        map[string]any{"actionType": "Action", "actionId": "view"},
+			"resource":      map[string]any{"entityType": "Resource", "entityId": "res1"},
+		})
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		principal, ok := resp["principal"].(map[string]any)
+		require.True(t, ok, "response must echo the resolved principal, got: %v", resp)
+		assert.Equal(t, "User", principal["entityType"])
+		assert.Equal(t, "alice", principal["entityId"])
+	})
+
+	t.Run("unparseable token omits principal", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestVPHandler(t)
+		storeID := createTestPolicyStore(t, h)
+
+		rec := doVPRequest(t, h, "IsAuthorizedWithToken", map[string]any{
+			"policyStoreId": storeID,
+			"accessToken":   "not-a-jwt",
+			"action":        map[string]any{"actionType": "Action", "actionId": "view"},
+			"resource":      map[string]any{"entityType": "Resource", "entityId": "res1"},
+		})
+		require.Equal(
+			t,
+			http.StatusOK,
+			rec.Code,
+			"malformed token must fail closed, not error: body: %s",
+			rec.Body.String(),
+		)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		assert.Equal(t, "DENY", resp["decision"])
+		assert.NotContains(t, resp, "principal")
+	})
+}
+
+// TestVPHandler_BatchIsAuthorizedWithToken_RequestEcho_Shape verifies each
+// result's echoed "request" carries only action/resource (matching the real
+// SDK's BatchIsAuthorizedWithTokenInputItem, which -- unlike
+// BatchIsAuthorizedInputItem -- has no principal field: the principal comes
+// from the token, not the per-item request), and that the resolved principal
+// is instead echoed once at the top level (BatchIsAuthorizedWithTokenOutput.Principal).
+func TestVPHandler_BatchIsAuthorizedWithToken_RequestEcho_Shape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestVPHandler(t)
+	storeID := createTestPolicyStore(t, h)
+
+	isRec := doVPRequest(t, h, "CreateIdentitySource", map[string]any{
+		"policyStoreId":       storeID,
+		"principalEntityType": "User",
+		"configuration": map[string]any{
+			"openIdConnectConfiguration": map[string]any{
+				"issuer": "https://issuer.example.com",
+				"tokenSelection": map[string]any{
+					"accessTokenOnly": map[string]any{"principalIdClaim": "sub"},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, isRec.Code, "body: %s", isRec.Body.String())
+
+	token := makeTestJWT(map[string]any{"sub": "alice", "iss": "https://issuer.example.com"})
+	rec := doVPRequest(t, h, "BatchIsAuthorizedWithToken", map[string]any{
+		"policyStoreId": storeID,
+		"accessToken":   token,
+		"requests": []any{
+			map[string]any{
+				"action":   map[string]any{"actionType": "Action", "actionId": "view"},
+				"resource": map[string]any{"entityType": "Resource", "entityId": "res1"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+	principal, ok := resp["principal"].(map[string]any)
+	require.True(t, ok, "top-level principal must be echoed, got: %v", resp)
+	assert.Equal(t, "User", principal["entityType"])
+	assert.Equal(t, "alice", principal["entityId"])
+
+	results := resp["results"].([]any)
+	require.Len(t, results, 1)
+	result := results[0].(map[string]any)
+	request, ok := result["request"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, request, "principal",
+		"BatchIsAuthorizedWithTokenInputItem has no principal field -- it must not be echoed per-item")
+}

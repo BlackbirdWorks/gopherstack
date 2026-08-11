@@ -1,8 +1,8 @@
 ---
 service: mediapackage
-sdk_module: aws-sdk-go-v2/service/mediapackage@v1.39.25
+sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
 last_audit_commit: f942b4d6b9d0353bd693cc733196bc7228ededd9
-last_audit_date: 2026-07-24
+last_audit_date: 2026-08-10
 overall: A            # genuine fixes found: invented ops deleted, missing required-field validation added
 ops:
   CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "added missing createdAt"}
@@ -13,12 +13,12 @@ ops:
   ConfigureLogs: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised no-op -- fixed, see Notes"}
   RotateChannelCredentials: {wire: ok, errors: ok, state: ok, persist: ok, note: "route path AND rotation semantics were wrong -- fixed, see Notes"}
   RotateIngestEndpointCredentials: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "packaging blocks were discarded -- fixed, see Notes"}
+  CreateOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "Authorization/MssPackage now typed+validated; Hls/Dash/Cmaf remain opaque passthrough -- see Notes"}
   DescribeOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "packaging blocks were discarded -- fixed, see Notes"}
+  UpdateOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "Authorization/MssPackage now typed+validated; Hls/Dash/Cmaf remain opaque passthrough -- see Notes"}
   DeleteOriginEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
   ListOriginEndpoints: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "always created SUCCEEDED, no IN_PROGRESS phase -- see gaps; now validates all 5 SDK-required members (Id/OriginEndpointId/StartTime/EndTime/S3Destination.{BucketName,ManifestKey,RoleArn})"}
+  CreateHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "now starts IN_PROGRESS (was synchronously SUCCEEDED) and never transitions further -- see Notes; validates all 5 SDK-required members (Id/OriginEndpointId/StartTime/EndTime/S3Destination.{BucketName,ManifestKey,RoleArn})"}
   DescribeHarvestJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListHarvestJobs: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -26,24 +26,110 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   Channel: {status: ok, note: "CreatedAt, EgressAccessLogs/IngressAccessLogs added; RotateChannelCredentials route+semantics fixed"}
-  OriginEndpoint: {status: ok, note: "CreatedAt added; Authorization/HlsPackage/DashPackage/CmafPackage/MssPackage now round-trip (opaque passthrough, see Notes)"}
-  HarvestJob: {status: ok, note: "no changes this pass; simplistic SUCCEEDED-on-create status noted as a gap"}
+  OriginEndpoint: {status: ok, note: "CreatedAt added; Authorization/MssPackage fully typed+SPEKE-validated; Hls/Dash/Cmaf remain opaque passthrough (see Notes)"}
+  HarvestJob: {status: ok, note: "CreateHarvestJob now starts IN_PROGRESS instead of synchronously SUCCEEDED -- see Notes"}
   Tags: {status: ok, note: "no changes this pass; prior sweep already wired tag<->resource sync"}
-gaps:
-  - "CreateHarvestJob always sets Status=SUCCEEDED synchronously; real MediaPackage harvest jobs start IN_PROGRESS and transition asynchronously. Low priority: most test suites just assert job existence/S3Destination, not the IN_PROGRESS state transition. Deliberately not implemented as a goroutine-driven async transition this pass -- that would trade a documented wire-shape simplification for a new leak-surface (timer/goroutine lifecycle tied to Reset/Snapshot) for a low-value behavior. (bd: TODO -- file issue if async harvest-job semantics become relevant)"
 deferred:
-  - "Packaging protocol nested config (HlsPackage/DashPackage/CmafPackage/MssPackage/Authorization) is stored and echoed back as an opaque map[string]any -- NOT semantically validated or interpreted (no SPEKE/encryption-contract logic, no ad-marker logic). This closes the 'discards config' bug (values now round-trip through Create/Update/Describe/List) but a client asserting on server-side validation of e.g. required Authorization sub-fields would not get real AWS's validation errors. Next pass: consider modeling the concrete sub-shapes if a consumer needs semantic validation."
+  - "HlsPackage/DashPackage/CmafPackage remain an opaque map[string]any passthrough -- NOT semantically validated (no ad-marker/encryption logic for these three). Sized this pass: HlsPackage has 12 leaf fields across 3 enum types plus a nested HlsEncryption/SpekeKeyProvider chain; DashPackage has 14 leaf fields across 5 enum types plus DashEncryption/SpekeKeyProvider; CmafPackage additionally nests a *list* of HlsManifest sub-resources (~10 fields each) -- a materially larger, separate unit of work from Authorization/MssPackage (2 and ~11 leaf fields, single level of nesting, no repeated sub-resources), which this pass modeled to full depth instead of shaving fields to fit. Next pass: model Hls/Dash/Cmaf to the same full depth if a consumer needs it."
 leaks: {status: clean, note: "no goroutines/timers introduced; all ops are synchronous map operations under the existing lockmetrics.RWMutex"}
 ---
 
 ## Notes
 
 **Protocol**: REST-JSON (restjson1), matching the real SDK's `awsRestjson1_*`
-serializers/deserializers in `aws-sdk-go-v2/service/mediapackage@v1.39.25`.
+serializers/deserializers in `aws-sdk-go-v2/service/mediapackage@v1.42.4`.
 Very few timestamps (createdAt/harvest-job start/end) and they are all
 ISO8601 *string* wire values, not epoch numbers -- confirmed against the
 SDK's `deserializeOpDocument*` functions, which decode `createdAt` etc. as
 plain JSON strings via `ptr.String(jtv)`.
+
+### SDK pin correction
+
+The audit frontmatter above previously cited `v1.39.25` while `go.mod` pins
+`v1.42.4` -- a stale-pin mismatch found this pass (the same class flagged
+across the campaign today). All wire claims in this file are now verified
+against `v1.42.4`; the `Status` enum, `HlsManifest`/`SpekeKeyProvider`/
+`EncryptionContractConfiguration` shapes, and field counts cited below are
+all from that version's `types/types.go` and `types/enums.go`. No API surface
+changed between the two versions for this service (still 19 ops, same field
+sets on every type touched this pass).
+
+### CreateHarvestJob: IN_PROGRESS instead of synchronous SUCCEEDED
+
+`CreateHarvestJob` set `Status=SUCCEEDED` synchronously on every create. Real
+MediaPackage harvest jobs start `IN_PROGRESS` and transition to
+`SUCCEEDED`/`FAILED` asynchronously as content is actually copied to the
+target S3 bucket (`types.HarvestJob.Status` doc comment: "Consider setting up
+a CloudWatch Event to listen for HarvestJobs as they succeed or fail" --
+`types/types.go:291-294`). This backend never performs that S3 copy, so
+claiming `SUCCEEDED` on create asserted work had completed that never
+happened -- a stronger, false claim than a job that simply never reaches a
+terminal state.
+
+This differs from the emrserverless/elasticsearch/kinesisanalytics async-op
+simplifications audited today, which start in a legitimate non-terminal state
+and never transition further -- self-consistent because no other field in
+their wire shape claims otherwise. This service had inverted that pattern:
+it jumped straight to a terminal state instead of stopping short of one.
+Fixed to match the same *shape* of simplification those three use: `Status`
+now starts `IN_PROGRESS` (`harvestJobStatusInProgress`, `harvest_jobs.go`)
+and this backend never transitions it further -- no goroutine or timer
+introduced, so no new leak surface, and every other field (`CreatedAt`,
+`S3Destination`, etc.) remains internally consistent with "submitted, not yet
+complete."
+
+The enum itself was also incomplete: `types.Status` defines `IN_PROGRESS`,
+`SUCCEEDED`, and `FAILED` (`types/enums.go:302-317`), but gopherstack only
+had a `harvestJobStatusSucceeded` constant -- `IN_PROGRESS` did not exist as
+a Go value anywhere in the package, which is a wire-completeness gap
+independent of whether this backend ever reaches that state. Now declared
+and used as the initial (and only) status this backend sets; `SUCCEEDED`/
+`FAILED` are documented in a comment rather than declared as unused
+identifiers (this backend never reaches either).
+
+### Packaging protocol blocks: Authorization and MssPackage modeled to full depth
+
+Per the modeling standard (full real-SDK depth or leave it and say why -- no
+field-shaving), each opaque `map[string]any` packaging block was sized
+against `types/types.go` in `aws-sdk-go-v2/service/mediapackage@v1.42.4`
+before deciding what to model:
+
+- **Authorization** (`types.go:10-26`): 2 required string fields
+  (`CdnIdentifierSecret`, `SecretsRoleArn`), no nesting. Modeled fully as a
+  typed `Authorization` struct (`interfaces.go`); `CreateOriginEndpoint`/
+  `UpdateOriginEndpoint` now 422 if the block is present but either field is
+  empty (previously any partial/malformed authorization map was silently
+  accepted).
+- **MssPackage** (`types.go:575-590`): 4 top-level fields, one level of
+  nesting via `MssEncryption`→`SpekeKeyProvider` (`types.go:563-572,
+  681-721`, 5 fields + nested `EncryptionContractConfiguration`,
+  `types.go:246-259`, 2 fields) and `StreamSelection` (`types.go:724-736`, 3
+  fields) -- 11 leaf fields total, no repeated sub-resources. Modeled fully
+  as typed `MssPackage`/`MssEncryption`/`SpekeKeyProvider`/
+  `EncryptionContractConfiguration`/`StreamSelection` structs; validates the
+  SPEKE required-together chain (`SpekeKeyProvider` required if
+  `Encryption` is present; `ResourceId`/`RoleArn`/`SystemIds`/`Url` required
+  if `SpekeKeyProvider` is present; `PresetSpeke20Audio`/`PresetSpeke20Video`
+  required together if `EncryptionContractConfiguration` is present) --
+  closing the "no SPEKE handling" gap for this block.
+- **HlsPackage/DashPackage/CmafPackage** are left as opaque passthrough --
+  see `deferred` in the frontmatter for exact sizes. These are materially
+  larger (12-16 leaf fields each across several enum types, and CmafPackage
+  additionally nests a *list* of `HlsManifest` sub-resources, ~10 fields
+  each) -- a distinct, larger unit of work than Authorization/MssPackage, not
+  something to partially model and call done.
+
+`PackagingConfig`/`OriginEndpoint`/`storedOriginEndpoint`/
+`originEndpointOutput` all changed `Authorization`/`MssPackage` from
+`map[string]any` to the new typed pointers; the JSON field names are
+unchanged (`cdnIdentifierSecret`, `secretsRoleArn`, `resourceId`, `roleArn`,
+`url`, `systemIds`, `certificateArn`, `encryptionContractConfiguration`,
+`presetSpeke20Audio`, `presetSpeke20Video`, `manifestWindowSeconds`,
+`segmentDurationSeconds`, `streamSelection`, `maxVideoBitsPerSecond`,
+`minVideoBitsPerSecond`, `streamOrder`, `encryption`, `spekeKeyProvider`),
+verified against both `serializers.go` and `deserializers.go` for symmetry,
+so this is additive/compatible for any snapshot already using real field
+names; the snapshot version was not bumped.
 
 ### Bugs found and fixed this pass
 

@@ -1,19 +1,44 @@
 package awsconfig
 
-import "fmt"
+import (
+	"fmt"
 
-// PutStoredQuery stores a query by name.
-func (b *InMemoryBackend) PutStoredQuery(name string) error {
+	"github.com/google/uuid"
+)
+
+// storedQueryArn returns the ARN for the stored query named name.
+func (b *InMemoryBackend) storedQueryArn(name string) string {
+	return fmt.Sprintf("arn:aws:config:%s:%s:stored-query/%s", b.region, b.accountID, name)
+}
+
+// PutStoredQuery creates or updates a stored query by name. A pre-existing
+// query keeps its QueryId across updates, matching real AWS Config Put
+// (create-or-update) semantics.
+func (b *InMemoryBackend) PutStoredQuery(name, description, expression string, tags []Tag) (string, error) {
 	if name == "" {
-		return nil
+		return "", fmt.Errorf("%w: QueryName is required", ErrValidation)
 	}
 
 	b.mu.Lock("PutStoredQuery")
 	defer b.mu.Unlock()
 
-	b.storedQueries.Put(&StoredQuery{QueryName: name})
+	queryID := uuid.NewString()
+	if existing, ok := b.storedQueries.Get(name); ok {
+		queryID = existing.QueryID
+	}
 
-	return nil
+	arn := b.storedQueryArn(name)
+
+	b.storedQueries.Put(&StoredQuery{
+		QueryName:   name,
+		QueryID:     queryID,
+		QueryArn:    arn,
+		Description: description,
+		Expression:  expression,
+	})
+	b.setResourceTagsLocked(arn, tags)
+
+	return arn, nil
 }
 
 // ListStoredQueries returns metadata for all stored queries.
@@ -25,14 +50,11 @@ func (b *InMemoryBackend) ListStoredQueries() []StoredQueryMetadata {
 	out := make([]StoredQueryMetadata, 0, len(all))
 
 	for _, q := range all {
-		arn := fmt.Sprintf(
-			"arn:aws:config:%s:%s:stored-query/%s",
-			b.region, b.accountID, q.QueryName,
-		)
 		out = append(out, StoredQueryMetadata{
-			QueryArn:  arn,
-			QueryID:   q.QueryID,
-			QueryName: q.QueryName,
+			QueryArn:    q.QueryArn,
+			QueryID:     q.QueryID,
+			QueryName:   q.QueryName,
+			Description: q.Description,
 		})
 	}
 

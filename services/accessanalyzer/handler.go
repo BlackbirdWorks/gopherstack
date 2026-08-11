@@ -44,6 +44,7 @@ const (
 	keyStatus       = "status"
 	keyAnalyzerArn  = "analyzerArn"
 	keyResourceType = "resourceType"
+	keyResourceArn  = "resourceArn"
 )
 
 // Handler handles Access Analyzer HTTP requests.

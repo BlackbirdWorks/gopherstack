@@ -169,7 +169,139 @@ func TestPersonalize_Solution_Update(t *testing.T) {
 	assert.Equal(t, true, sol["performIncrementalUpdate"])
 }
 
+// TestPersonalize_Solution_LatestSolutionVersion locks that DescribeSolution
+// populates latestSolutionVersion (types.SolutionVersionSummary,
+// types.go:2164) once a solution version exists, and that it is absent
+// beforehand -- matching real AWS, where a Solution with no trained versions
+// yet has no latestSolutionVersion member at all.
+func TestPersonalize_Solution_LatestSolutionVersion(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	solArn := personalizeCreateSolution(t, h, "latest-version-sol")
+
+	rec := personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sol := personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.NotContains(t, sol, "latestSolutionVersion")
+
+	rec = personalizeDo(t, h, "CreateSolutionVersion", map[string]any{
+		"solutionArn":  solArn,
+		"trainingMode": "FULL",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn, _ := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	require.NotEmpty(t, svArn)
+
+	rec = personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sol = personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	latest, ok := sol["latestSolutionVersion"].(map[string]any)
+	require.True(t, ok, "latestSolutionVersion must appear once a solution version exists")
+	assert.Equal(t, svArn, latest["solutionVersionArn"])
+	assert.Equal(t, "ACTIVE", latest["status"])
+	assert.Equal(t, "FULL", latest["trainingMode"])
+	assert.NotEmpty(t, latest["creationDateTime"])
+
+	// ListSolutions returns types.SolutionSummary, which has no
+	// latestSolutionVersion member -- confirms no per-item cross-table
+	// lookup leaks into the list path.
+	rec = personalizeDo(t, h, "ListSolutions", map[string]any{})
+	require.Equal(t, http.StatusOK, rec.Code)
+	listed := personalizeUnmarshal(t, rec)["solutions"].([]any)
+	require.Len(t, listed, 1)
+	assert.NotContains(t, listed[0].(map[string]any), "latestSolutionVersion")
+}
+
 // --- SolutionVersion ---
+
+// TestPersonalize_SolutionVersion_InheritsParentFields locks that
+// CreateSolutionVersion copies datasetGroupArn/eventType/performAutoML/
+// performHPO/performIncrementalUpdate/recipeArn from the parent Solution
+// (types.SolutionVersion, types.go:2074 -- confirmed against
+// deserializers.go:15783, which decodes all seven as SolutionVersion's own
+// members).
+func TestPersonalize_SolutionVersion_InheritsParentFields(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "inherit-dg")
+
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":                     "inherit-sol",
+		"datasetGroupArn":          dgArn,
+		"recipeArn":                "arn:aws:personalize:::recipe/aws-user-personalization",
+		"eventType":                "click",
+		"performAutoML":            false,
+		"performHPO":               true,
+		"performIncrementalUpdate": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn, _ := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+	require.NotEmpty(t, solArn)
+
+	rec = personalizeDo(t, h, "CreateSolutionVersion", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn, _ := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	require.NotEmpty(t, svArn)
+
+	rec = personalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sv := personalizeUnmarshal(t, rec)["solutionVersion"].(map[string]any)
+	assert.Equal(t, dgArn, sv["datasetGroupArn"])
+	assert.Equal(t, "click", sv["eventType"])
+	assert.Equal(t, "arn:aws:personalize:::recipe/aws-user-personalization", sv["recipeArn"])
+	assert.Equal(t, false, sv["performAutoML"])
+	assert.Equal(t, true, sv["performHPO"])
+	assert.Equal(t, true, sv["performIncrementalUpdate"])
+	// This backend never fails a training job synchronously, so
+	// failureReason must stay absent, not a fabricated empty string.
+	assert.NotContains(t, sv, "failureReason")
+}
+
+// TestPersonalize_SolutionVersion_SnapshotNotLiveLookup locks that the
+// fields copied from the parent Solution are a snapshot taken at
+// CreateSolutionVersion time, not a live read through solutionArn -- an
+// UpdateSolution call after the version already exists must not
+// retroactively change it.
+func TestPersonalize_SolutionVersion_SnapshotNotLiveLookup(t *testing.T) {
+	t.Parallel()
+
+	h := personalizeHandler(t)
+	dgArn := personalizeCreateDatasetGroup(t, h, "snapshot-dg")
+
+	rec := personalizeDo(t, h, "CreateSolution", map[string]any{
+		"name":                     "snapshot-sol",
+		"datasetGroupArn":          dgArn,
+		"recipeArn":                "arn:aws:personalize:::recipe/aws-user-personalization",
+		"performIncrementalUpdate": false,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	solArn, _ := personalizeUnmarshal(t, rec)["solutionArn"].(string)
+	require.NotEmpty(t, solArn)
+
+	rec = personalizeDo(t, h, "CreateSolutionVersion", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	svArn, _ := personalizeUnmarshal(t, rec)["solutionVersionArn"].(string)
+	require.NotEmpty(t, svArn)
+
+	rec = personalizeDo(t, h, "UpdateSolution", map[string]any{
+		"solutionArn":              solArn,
+		"performIncrementalUpdate": true,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = personalizeDo(t, h, "DescribeSolution", map[string]any{"solutionArn": solArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sol := personalizeUnmarshal(t, rec)["solution"].(map[string]any)
+	assert.Equal(t, true, sol["performIncrementalUpdate"], "the parent solution must reflect the update")
+
+	rec = personalizeDo(t, h, "DescribeSolutionVersion", map[string]any{"solutionVersionArn": svArn})
+	require.Equal(t, http.StatusOK, rec.Code)
+	sv := personalizeUnmarshal(t, rec)["solutionVersion"].(map[string]any)
+	assert.Equal(t, false, sv["performIncrementalUpdate"],
+		"the already-created version must keep the value it was created with")
+}
 
 func TestPersonalize_SolutionVersion_Lifecycle(t *testing.T) {
 	t.Parallel()

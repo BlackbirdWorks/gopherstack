@@ -12,7 +12,7 @@ type StorageBackend interface {
 	Reset()
 	Snapshot(ctx context.Context) []byte
 	Restore(ctx context.Context, data []byte) error
-	CreateInstance(name, ownerAccountID, identityStoreID string) (*Instance, error)
+	CreateInstance(name, ownerAccountID, identityStoreID string, tags map[string]string) (*Instance, error)
 	ListInstances() []*Instance
 	DescribeInstance(instanceArn string) (*Instance, error)
 	DeleteInstance(instanceArn string) error
@@ -22,7 +22,7 @@ type StorageBackend interface {
 	) (*PermissionSet, error)
 	DescribePermissionSet(instanceArn, permissionSetArn string) (*PermissionSet, error)
 	ListPermissionSets(instanceArn string) []*PermissionSet
-	ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string
+	ListPermissionSetsProvisionedToAccount(instanceArn, accountID, filterStatus string) []string
 	DeletePermissionSet(instanceArn, permissionSetArn string) error
 	UpdatePermissionSet(instanceArn, permissionSetArn, description, sessionDuration, relayState string) error
 	CreateAccountAssignment(instanceArn, permissionSetArn, accountID, principalID, principalType string) (string, error)
@@ -128,7 +128,7 @@ type StorageBackend interface {
 	DescribeRegion(instanceArn, regionName string) (*RegionMetadata, error)
 	UpdateInstance(instanceArn, name string) error
 	UpdateInstanceAccessControlAttributeConfiguration(instanceArn string, attributes []AccessControlAttribute) error
-	ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn string) ([]string, error)
+	ListAccountsForProvisionedPermissionSet(instanceArn, permissionSetArn, filterStatus string) ([]string, error)
 	ListApplicationAssignmentsForPrincipal(instanceArn, principalID, principalType string) []*ApplicationAssignment
 }
 

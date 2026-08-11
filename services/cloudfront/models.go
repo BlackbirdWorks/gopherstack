@@ -53,14 +53,28 @@ type Invalidation struct {
 
 // AnycastIPList represents a CloudFront Anycast IP list.
 type AnycastIPList struct {
-	Tags       map[string]string `json:"tags,omitempty"`
-	ID         string            `json:"id"`
-	ARN        string            `json:"arn"`
-	Name       string            `json:"name"`
-	Status     string            `json:"status"`
-	ETag       string            `json:"eTag"`
-	AnycastIPs []string          `json:"anycastIps,omitempty"`
-	IPCount    int32             `json:"ipCount"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	ID               string            `json:"id"`
+	ARN              string            `json:"arn"`
+	Name             string            `json:"name"`
+	Status           string            `json:"status"`
+	ETag             string            `json:"eTag"`
+	IPAddressType    string            `json:"ipAddressType,omitempty"`
+	LastModifiedTime string            `json:"lastModifiedTime,omitempty"`
+	AnycastIPs       []string          `json:"anycastIps,omitempty"`
+	IpamCidrConfigs  []IpamCidrConfig  `json:"ipamCidrConfigs,omitempty"`
+	IPCount          int32             `json:"ipCount"`
+}
+
+// IpamCidrConfig is a member of Create/UpdateAnycastIpListInput and the AnycastIpList
+// output's IpamConfig.IpamCidrConfigs (cloudfront@v1.67.4 types/types.go:3732-3752).
+// gopherstack stores it verbatim and echoes it back; it does not validate IpamPoolARN
+// against a real IPAM pool or allocate AnycastIP from one -- that is a separate feature.
+type IpamCidrConfig struct {
+	Cidr        string `json:"cidr,omitempty"`
+	IpamPoolARN string `json:"ipamPoolArn,omitempty"`
+	AnycastIP   string `json:"anycastIp,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 // CachePolicyHeadersConfig specifies which headers the policy forwards and caches.
@@ -259,15 +273,16 @@ type ResponseHeadersPolicy struct {
 
 // Function represents a CloudFront Function.
 type Function struct {
-	Name             string `json:"name"`
-	Comment          string `json:"comment,omitempty"`
-	Runtime          string `json:"runtime"`
-	FunctionCode     string `json:"functionCode"`
-	Status           string `json:"status"` // DEVELOPMENT or LIVE
-	ETag             string `json:"eTag"`
-	ARN              string `json:"arn"`
-	CreatedTime      string `json:"createdTime"`
-	LastModifiedTime string `json:"lastModifiedTime"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	Name             string            `json:"name"`
+	Comment          string            `json:"comment,omitempty"`
+	Runtime          string            `json:"runtime"`
+	FunctionCode     string            `json:"functionCode"`
+	Status           string            `json:"status"` // DEVELOPMENT or LIVE
+	ETag             string            `json:"eTag"`
+	ARN              string            `json:"arn"`
+	CreatedTime      string            `json:"createdTime"`
+	LastModifiedTime string            `json:"lastModifiedTime"`
 }
 
 // ORPHeadersConfig controls which request headers are forwarded to the origin.
@@ -370,11 +385,12 @@ type RealtimeLogConfig struct {
 
 // KeyValueStore represents a CloudFront Key Value Store.
 type KeyValueStore struct {
-	ID      string `json:"id"`
-	ARN     string `json:"arn"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	Tags    map[string]string `json:"tags,omitempty"`
+	ID      string            `json:"id"`
+	ARN     string            `json:"arn"`
+	Name    string            `json:"name"`
+	Comment string            `json:"comment,omitempty"`
+	ETag    string            `json:"eTag"`
 	// Status reflects the provisioning state (AWS: PROVISIONING → READY). The
 	// emulator provisions synchronously and reports READY immediately.
 	Status string `json:"status"`
@@ -385,10 +401,11 @@ type KeyValueStore struct {
 
 // VpcOrigin represents a CloudFront VPC Origin.
 type VpcOrigin struct {
-	ID   string `json:"id"`
-	ARN  string `json:"arn"`
-	Name string `json:"name"`
-	ETag string `json:"eTag"`
+	Tags map[string]string `json:"tags,omitempty"`
+	ID   string            `json:"id"`
+	ARN  string            `json:"arn"`
+	Name string            `json:"name"`
+	ETag string            `json:"eTag"`
 }
 
 // OriginRequestPolicyConfig carries optional full-config inputs for CreateOriginRequestPolicy.

@@ -93,7 +93,7 @@ func layersToJSON(layers []*Layer) []map[string]any {
 			keyType:      l.Type,
 			keyName:      l.Name,
 			"Shortname":  l.Shortname,
-			keyCreatedAt: l.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt: formatOpsWorksTime(l.CreatedAt),
 		})
 	}
 

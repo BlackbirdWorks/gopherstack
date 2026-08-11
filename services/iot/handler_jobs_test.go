@@ -65,7 +65,7 @@ func TestJobExecutions(t *testing.T) {
 // TestDescribeJob_WireShape verifies DescribeJob's response matches real AWS
 // IoT: documentSource is a top-level field (not nested inside "job"), and
 // the nested "job" object has no "document"/"documentSource"/"tags" fields
-// at all -- aws-sdk-go-v2/service/iot/types.Job (v1.76.0) has none of the
+// at all -- aws-sdk-go-v2/service/iot/types.Job (v1.77.4) has none of the
 // three. A previous version of this backend echoed all three back inside
 // "job", which real AWS never does (document is only retrievable via
 // GetJobDocument).
@@ -167,20 +167,13 @@ func TestJobExecution(t *testing.T) {
 	iotOK(t, h, http.MethodDelete, "/things/my-thing/jobs/exec-job/executionNumber/1", nil)
 }
 
-// TestJobExecution_RoutingAndStateGuards is a table-driven regression test
-// covering two classes of previously-undiscovered bugs found while closing
-// PARITY.md's job_and_jobtemplate gap:
-//
-//   - DescribeJobExecution/CancelJobExecution/DeleteJobExecution were routed
-//     under /jobs/{jobId}/things/{thingName}[...], a path no real AWS SDK
-//     client ever sends (real AWS uses /things/{thingName}/jobs/{jobId}[...],
-//     confirmed against aws-sdk-go-v2/service/iot@v1.76.0's serializers.go
-//     http bindings) -- all three ops were completely unreachable by a real
-//     client.
-//   - CancelJobExecution/DeleteJobExecution ignored force/expectedVersion/
-//     statusDetails entirely; real AWS rejects canceling/deleting a
-//     non-terminal execution without force=true (InvalidStateTransitionException),
-//     and rejects a mismatched expectedVersion (VersionConflictException).
+// TestJobExecution_RoutingAndStateGuards covers: DescribeJobExecution/
+// CancelJobExecution/DeleteJobExecution route under
+// /things/{thingName}/jobs/{jobId}[...], not /jobs/{jobId}/things/{thingName}[...]
+// (aws-sdk-go-v2/service/iot@v1.77.4's serializers.go http bindings); and
+// CancelJobExecution/DeleteJobExecution reject a non-terminal execution
+// without force=true (InvalidStateTransitionException) or a mismatched
+// expectedVersion (VersionConflictException).
 func TestJobExecution_RoutingAndStateGuards(t *testing.T) {
 	t.Parallel()
 
@@ -369,13 +362,9 @@ func TestJobExecution_RoutingAndStateGuards(t *testing.T) {
 
 // newIoTSDKClient stands up a real HTTP server fronting a fresh IoT handler
 // and returns a real generated AWS SDK v2 IoT client pointed at it, plus the
-// backing InMemoryBackend for setup that has no public HTTP surface (e.g.
-// AddThingToThingGroup has no corresponding CreateJob-time semantics to
-// probe). Round-tripping through a real client's own serializer/deserializer
-// is what proves the wire shape is actually correct, rather than merely
-// matching gopherstack's own JSON encoding -- see parity-principles.md rule 3
-// and PARITY.md's elasticache note ("the previous backend-struct assertions
-// could not see it").
+// backing InMemoryBackend for setup that has no public HTTP surface.
+// Round-tripping through a real client's serializer/deserializer proves the
+// wire shape is actually correct, per parity-principles.md rule 3.
 func newIoTSDKClient(t *testing.T) (*iotsdk.Client, *iot.InMemoryBackend) {
 	t.Helper()
 
@@ -405,20 +394,12 @@ func newIoTSDKClient(t *testing.T) (*iotsdk.Client, *iot.InMemoryBackend) {
 	return client, b
 }
 
-// TestJob_FanOutAndAdvancedFields_SDKRoundTrip is a table-driven regression
-// test, asserted through a real generated AWS SDK v2 IoT client, covering
-// this pass's two job_and_jobtemplate fixes:
-//
-//   - CreateJob now fans a real QUEUED JobExecution out to every thing a job
-//     targets (directly, or as a member of a targeted thing group), instead
-//     of only ever materializing an execution lazily via
-//     CancelJobExecution's create-on-miss fallback. DeleteThing cascades the
-//     cleanup so a deleted thing never leaves a ghost JobExecution behind.
-//   - Job's previously-unmodeled advanced fields (jobExecutionsRetryConfig,
-//     presignedUrlConfig, schedulingConfig incl. maintenanceWindows,
-//     destinationPackageVersions, and the computed jobProcessDetails rollup)
-//     round-trip end to end: request parsing, backend state, and response
-//     wire shape.
+// TestJob_FanOutAndAdvancedFields_SDKRoundTrip covers: CreateJob fans a real
+// QUEUED JobExecution out to every targeted thing (directly, or via a
+// targeted thing group), with DeleteThing cascading cleanup; and Job's
+// advanced fields (jobExecutionsRetryConfig, presignedUrlConfig,
+// schedulingConfig incl. maintenanceWindows, destinationPackageVersions, the
+// computed jobProcessDetails rollup) round-trip end to end.
 func TestJob_FanOutAndAdvancedFields_SDKRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -635,15 +616,9 @@ func TestJob_FanOutAndAdvancedFields_SDKRoundTrip(t *testing.T) {
 			},
 		},
 		{
-			// ListJobs (GET /jobs, no trailing slash) and the entire
-			// /job-templates family were both missing from this service's
-			// RouteMatcher whitelist -- a real client's request would never
-			// even reach the IoT handler's op dispatch (it matched no
-			// registered service route at all), a distinct bug class from
-			// the CreateJob/CreateJobTemplate method mismatches covered
-			// above. Only a real SDK client driven through the actual
-			// service.Router path (as this whole table does) can catch it;
-			// direct h.Handler() invocation bypasses RouteMatcher entirely.
+			// Route registration is a distinct bug class from method mismatches:
+			// a real client driven through service.Router catches it; direct
+			// h.Handler() invocation would not.
 			name: "listJobs_and_jobTemplate_CRUD_reach_the_handler_through_the_real_router",
 			run: func(t *testing.T, ctx context.Context, client *iotsdk.Client) {
 				t.Helper()

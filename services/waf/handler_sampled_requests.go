@@ -21,7 +21,10 @@ func (h *Handler) opGetSampledRequests(body []byte) (any, error) {
 		return nil, err
 	}
 
-	samples := h.Backend.GetSampledRequests(in.WebAclId, in.RuleId, in.MaxItems)
+	samples, err := h.Backend.GetSampledRequests(in.WebAclId, in.RuleId, in.MaxItems)
+	if err != nil {
+		return nil, err
+	}
 
 	return map[string]any{
 		"SampledRequests": samples,

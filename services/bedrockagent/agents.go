@@ -181,19 +181,7 @@ func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
 	delete(b.agentVersionCtrs, agentID)
 
 	for _, v := range versions {
-		scope := agentVersionScope(agentID, v)
-
-		for _, ag := range slices.Clone(b.actionGroupsByAgentVersion.Get(scope)) {
-			b.actionGroups.Delete(agActionGroupKey(ag.AgentID, ag.AgentVersion, ag.ActionGroupID))
-		}
-
-		for _, cb := range slices.Clone(b.agentCollaboratorsByAgentVersion.Get(scope)) {
-			b.agentCollaborators.Delete(agentCollabKey(cb.AgentID, cb.AgentVersion, cb.CollaboratorID))
-		}
-
-		for _, kba := range slices.Clone(b.agentKBAssocsByAgentVersion.Get(scope)) {
-			b.agentKBAssocs.Delete(agKBKey(kba.AgentID, kba.AgentVersion, kba.KnowledgeBaseID))
-		}
+		b.deleteSubResourcesLocked(agentID, v)
 	}
 
 	for _, al := range slices.Clone(b.agentAliasesByAgent.Get(agentID)) {

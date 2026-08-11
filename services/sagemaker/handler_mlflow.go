@@ -12,10 +12,10 @@ import (
 
 func (h *Handler) handleCreateMlflowTrackingServer(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		TrackingServerName string            `json:"TrackingServerName"`
-		RoleArn            string            `json:"RoleArn"`
-		MlflowVersion      string            `json:"MlflowVersion"`
+		TrackingServerName string      `json:"TrackingServerName"`
+		RoleArn            string      `json:"RoleArn"`
+		MlflowVersion      string      `json:"MlflowVersion"`
+		Tags               []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -27,7 +27,7 @@ func (h *Handler) handleCreateMlflowTrackingServer(ctx context.Context, body []b
 	}
 
 	result, err := h.Backend.CreateMlflowTrackingServer(ctx,
-		req.TrackingServerName, req.RoleArn, req.MlflowVersion, req.Tags,
+		req.TrackingServerName, req.RoleArn, req.MlflowVersion, fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -132,13 +132,13 @@ func (h *Handler) handleCreatePresignedMlflowTrackingServerURL(ctx context.Conte
 
 func (h *Handler) handleCreateMlflowApp(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                  map[string]string `json:"Tags"`
-		Name                  string            `json:"Name"`
-		ArtifactStoreURI      string            `json:"ArtifactStoreUri"`
-		RoleArn               string            `json:"RoleArn"`
-		AccountDefaultStatus  string            `json:"AccountDefaultStatus,omitempty"`
-		ModelRegistrationMode string            `json:"ModelRegistrationMode,omitempty"`
-		DefaultDomainIDList   []string          `json:"DefaultDomainIdList,omitempty"`
+		Tags                  []tagObject `json:"Tags"`
+		Name                  string      `json:"Name"`
+		ArtifactStoreURI      string      `json:"ArtifactStoreUri"`
+		RoleArn               string      `json:"RoleArn"`
+		AccountDefaultStatus  string      `json:"AccountDefaultStatus,omitempty"`
+		ModelRegistrationMode string      `json:"ModelRegistrationMode,omitempty"`
+		DefaultDomainIDList   []string    `json:"DefaultDomainIdList,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -156,7 +156,7 @@ func (h *Handler) handleCreateMlflowApp(ctx context.Context, body []byte) ([]byt
 		AccountDefaultStatus:  req.AccountDefaultStatus,
 		ModelRegistrationMode: req.ModelRegistrationMode,
 		DefaultDomainIDList:   req.DefaultDomainIDList,
-		Tags:                  req.Tags,
+		Tags:                  fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err

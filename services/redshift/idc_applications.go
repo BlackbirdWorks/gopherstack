@@ -4,7 +4,7 @@ import "fmt"
 
 // CreateIdcApplication creates a new Redshift IDC application.
 func (b *InMemoryBackend) CreateIdcApplication(
-	appName, idcInstanceArn, idcDisplayName, iamRoleArn string,
+	appName, idcInstanceArn, idcDisplayName, iamRoleArn, applicationType string,
 ) (*IdcApplication, error) {
 	if appName == "" {
 		return nil, fmt.Errorf("%w: IdcApplicationName is required", ErrInvalidParameter)
@@ -24,6 +24,7 @@ func (b *InMemoryBackend) CreateIdcApplication(
 		IdcInstanceArn:     idcInstanceArn,
 		IdcDisplayName:     idcDisplayName,
 		IamRoleArn:         iamRoleArn,
+		ApplicationType:    applicationType,
 	}
 	b.idcApplications.Put(app)
 

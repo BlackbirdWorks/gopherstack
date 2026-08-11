@@ -34,7 +34,10 @@ func TestIntegration_DDB_Coverage(t *testing.T) {
 	require.NoError(t, createErr)
 
 	t.Cleanup(func() {
-		client.DeleteTable(t.Context(), &dynamodb.DeleteTableInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		client.DeleteTable(cleanupCtx, &dynamodb.DeleteTableInput{
 			TableName: aws.String(tableName),
 		})
 	})

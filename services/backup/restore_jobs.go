@@ -62,9 +62,9 @@ func (b *InMemoryBackend) StartRestoreJob(
 		AccountID:        b.accountID,
 	}
 
-	// Enrich from the source recovery point when this backend tracks it
-	// (VOLATILE, so a caller may legitimately restore from an ARN it never
-	// registered through this emulator's own Backup APIs).
+	// Enrich from the source recovery point when this backend tracks it --
+	// a caller may legitimately restore from an ARN it never registered
+	// through this emulator's own Backup APIs.
 	if srcRP, found := b.findRecoveryPointByArn(recoveryPointArn); found {
 		job.ResourceArn = srcRP.ResourceArn
 		job.BackupVaultName = srcRP.BackupVaultName

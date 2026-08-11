@@ -62,7 +62,13 @@ func TestIntegration_FSx_FileSystemLifecycle(t *testing.T) {
 			assert.Equal(t, tt.fileSystemType, createOut.FileSystem.FileSystemType)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteFileSystem(ctx, &fsxsdk.DeleteFileSystemInput{FileSystemId: aws.String(fsID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteFileSystem(
+					cleanupCtx,
+					&fsxsdk.DeleteFileSystemInput{FileSystemId: aws.String(fsID)},
+				)
 			})
 
 			descOut, err := client.DescribeFileSystems(ctx, &fsxsdk.DescribeFileSystemsInput{
@@ -106,7 +112,13 @@ func TestIntegration_FSx_BackupLifecycle(t *testing.T) {
 			fsID := aws.ToString(fsOut.FileSystem.FileSystemId)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteFileSystem(ctx, &fsxsdk.DeleteFileSystemInput{FileSystemId: aws.String(fsID)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteFileSystem(
+					cleanupCtx,
+					&fsxsdk.DeleteFileSystemInput{FileSystemId: aws.String(fsID)},
+				)
 			})
 
 			backupOut, err := client.CreateBackup(ctx, &fsxsdk.CreateBackupInput{

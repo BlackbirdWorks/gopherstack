@@ -50,9 +50,7 @@ func (h *Handler) createCacheParameterGroup(ctx context.Context, c *echo.Context
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
-	if initialTags := parseFormTags(form); len(initialTags) > 0 {
-		_ = h.Backend.AddTagsToResource(ctx, pg.ARN, initialTags)
-	}
+	h.applyCreateTimeTags(ctx, form, pg.ARN)
 
 	type result struct {
 		XMLName             xml.Name               `xml:"CreateCacheParameterGroupResponse"`

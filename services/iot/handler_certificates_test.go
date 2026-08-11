@@ -201,7 +201,7 @@ func TestDescribeCertificate_ReturnsLastModifiedDate(t *testing.T) {
 // TestDescribeCertificate_WireShape verifies DescribeCertificate's
 // certificateDescription includes the full real CertificateDescription field
 // set (ownedBy, generationId, certificateMode, customerVersion, validity),
-// field-diffed against aws-sdk-go-v2/service/iot@v1.76.0. These fields were
+// field-diffed against aws-sdk-go-v2/service/iot@v1.77.4. These fields were
 // entirely missing before this pass (bd: gopherstack-jy57). It also verifies
 // creationDate/lastModifiedDate are JSON numbers of epoch seconds, not
 // RFC3339 strings (the restjson1 protocol's DateType wire format).
@@ -292,13 +292,10 @@ func TestCertificateTransferLifecycle_WireShape(t *testing.T) {
 
 // TestListCertificates_WireShape verifies ListCertificates returns the real
 // AWS IoT "Certificate" summary shape (certificateArn, certificateId,
-// certificateMode, creationDate, status), field-diffed against
-// aws-sdk-go-v2/service/iot@v1.76.0's awsRestjson1_deserializeDocumentCertificate.
-// Unlike DescribeCertificate's richer CertificateDescription,
-// ListCertificates does NOT include lastModifiedDate -- a previous version
-// of this test incorrectly asserted the opposite. It also verifies
-// creationDate is a JSON number of epoch seconds (not an RFC3339 string),
-// since the restjson1 protocol's DateType wire format requires a number.
+// certificateMode, creationDate, status) — no lastModifiedDate, unlike
+// DescribeCertificate's CertificateDescription — and creationDate as an
+// epoch-second JSON number, per restjson1's DateType wire format
+// (aws-sdk-go-v2/service/iot@v1.77.4's awsRestjson1_deserializeDocumentCertificate).
 func TestListCertificates_WireShape(t *testing.T) {
 	t.Parallel()
 

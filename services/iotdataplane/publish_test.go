@@ -39,7 +39,8 @@ func TestHandler_PublishEmptyTopic(t *testing.T) {
 // subscriptions (if any) clientSubs[clientID] holds. sendToClientTopic/
 // sendToClientPayload/sendToClientQos record the last SendToClient call
 // separately from Publish's topic/payload/qos, so tests can tell direct
-// per-client delivery apart from a topic broadcast.
+// per-client delivery apart from a topic broadcast. props/sendToClientProps
+// record the MQTT5Properties passed to the *WithProperties variants.
 type mockMQTTPublisher struct {
 	sendToClientErr     error
 	clientSubs          map[string]map[string]byte
@@ -49,16 +50,25 @@ type mockMQTTPublisher struct {
 	sendToClientClient  string
 	payload             []byte
 	sendToClientPayload []byte
+	props               iotdataplane.MQTT5Properties
+	sendToClientProps   iotdataplane.MQTT5Properties
 	qos                 byte
 	sendToClientQos     byte
 	retain              bool
 }
 
 func (m *mockMQTTPublisher) Publish(topic string, payload []byte, retain bool, qos byte) error {
+	return m.PublishWithProperties(topic, payload, retain, qos, iotdataplane.MQTT5Properties{})
+}
+
+func (m *mockMQTTPublisher) PublishWithProperties(
+	topic string, payload []byte, retain bool, qos byte, props iotdataplane.MQTT5Properties,
+) error {
 	m.topic = topic
 	m.payload = payload
 	m.retain = retain
 	m.qos = qos
+	m.props = props
 
 	return nil
 }
@@ -76,7 +86,23 @@ func (m *mockMQTTPublisher) ClientSubscriptions(clientID string) (map[string]byt
 	return subs, true
 }
 
-func (m *mockMQTTPublisher) SendToClient(clientID, topic string, payload []byte, qos byte) (bool, error) {
+func (m *mockMQTTPublisher) SendToClient(
+	clientID, topic string,
+	payload []byte,
+	qos byte,
+) (bool, error) {
+	return m.SendToClientWithProperties(
+		clientID,
+		topic,
+		payload,
+		qos,
+		iotdataplane.MQTT5Properties{},
+	)
+}
+
+func (m *mockMQTTPublisher) SendToClientWithProperties(
+	clientID, topic string, payload []byte, qos byte, props iotdataplane.MQTT5Properties,
+) (bool, error) {
 	if m.sendToClientErr != nil {
 		return false, m.sendToClientErr
 	}
@@ -89,6 +115,7 @@ func (m *mockMQTTPublisher) SendToClient(clientID, topic string, payload []byte,
 	m.sendToClientTopic = topic
 	m.sendToClientPayload = payload
 	m.sendToClientQos = qos
+	m.sendToClientProps = props
 
 	return true, nil
 }
@@ -128,7 +155,7 @@ func TestBackend_Publish(t *testing.T) {
 				b.SetBroker(mock)
 			}
 
-			err := b.Publish(tt.topic, tt.payload, 0, false)
+			err := b.Publish(tt.topic, tt.payload, 0, false, iotdataplane.MQTT5Properties{})
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -618,7 +645,13 @@ func Test_RetainMatrix(t *testing.T) {
 			}
 
 			h := iotdataplane.NewHandler(b)
-			rec := doRequest(t, h, http.MethodPost, "/topics/sensor/temp?retain="+tt.retain, tt.payload)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/topics/sensor/temp?retain="+tt.retain,
+				tt.payload,
+			)
 			require.Equal(t, http.StatusOK, rec.Code)
 
 			assert.Equal(t, tt.wantCount, iotdataplane.RetainedMessageCount(b))
@@ -678,8 +711,15 @@ func Test_Publish_BinaryContentType_NoUnwrap(t *testing.T) {
 
 // doRequestHeaders issues a request like doRequest but with extra headers set
 // (used to exercise the MQTT5 Publish headers: X-Amz-Mqtt5-*).
+// doRequestHeaders always issues a POST -- every current caller exercises a
+// POST-only wire path (Publish, SendDirectMessage); add a method parameter
+// back if a future caller needs another verb.
 func doRequestHeaders(
-	t *testing.T, h *iotdataplane.Handler, method, path string, body []byte, headers map[string]string,
+	t *testing.T,
+	h *iotdataplane.Handler,
+	path string,
+	body []byte,
+	headers map[string]string,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -690,7 +730,7 @@ func doRequestHeaders(
 		r = bytes.NewReader(nil)
 	}
 
-	req := httptest.NewRequest(method, path, r)
+	req := httptest.NewRequest(http.MethodPost, path, r)
 	req.Header.Set("Content-Type", "application/octet-stream")
 
 	for k, v := range headers {
@@ -725,7 +765,7 @@ func Test_Publish_MQTT5Fields_AcceptedAndValidated(t *testing.T) {
 			name:  "all_fields_valid",
 			query: "?contentType=text%2Fplain&messageExpiry=60&responseTopic=reply/topic",
 			headers: map[string]string{
-				"X-Amz-Mqtt5-Correlation-Data":         "abc123",
+				"X-Amz-Mqtt5-Correlation-Data":         "aGVsbG8=", // valid base64 ("hello") -- see decodeCorrelationData
 				"X-Amz-Mqtt5-Payload-Format-Indicator": "UTF8_DATA",
 			},
 			wantCode: http.StatusOK,
@@ -740,8 +780,10 @@ func Test_Publish_MQTT5Fields_AcceptedAndValidated(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name:     "unspecified_bytes_indicator_valid",
-			headers:  map[string]string{"X-Amz-Mqtt5-Payload-Format-Indicator": "UNSPECIFIED_BYTES"},
+			name: "unspecified_bytes_indicator_valid",
+			headers: map[string]string{
+				"X-Amz-Mqtt5-Payload-Format-Indicator": "UNSPECIFIED_BYTES",
+			},
 			wantCode: http.StatusOK,
 		},
 		{
@@ -764,6 +806,30 @@ func Test_Publish_MQTT5Fields_AcceptedAndValidated(t *testing.T) {
 			headers:  map[string]string{"X-Amz-Mqtt5-User-Properties": "not-valid-base64!!"},
 			wantCode: http.StatusBadRequest,
 		},
+		{
+			name:     "invalid_base64_correlation_data_rejected",
+			headers:  map[string]string{"X-Amz-Mqtt5-Correlation-Data": "not-valid-base64!!"},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "user_properties_wrong_shape_rejected",
+			headers: map[string]string{
+				// valid base64, but decodes to a single multi-key object rather
+				// than an array of single-key objects (see parseUserProperties).
+				"X-Amz-Mqtt5-User-Properties": base64.StdEncoding.EncodeToString(
+					[]byte(`{"deviceName":"alpha"}`),
+				),
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "user_properties_well_formed_accepted",
+			headers: map[string]string{
+				"X-Amz-Mqtt5-User-Properties": base64.StdEncoding.EncodeToString(
+					[]byte(`[{"deviceName":"alpha"},{"deviceCnt":"45"}]`)),
+			},
+			wantCode: http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -771,7 +837,13 @@ func Test_Publish_MQTT5Fields_AcceptedAndValidated(t *testing.T) {
 			t.Parallel()
 
 			h := iotdataplane.NewHandler(iotdataplane.NewInMemoryBackend())
-			rec := doRequestHeaders(t, h, http.MethodPost, "/topics/test/topic"+tt.query, []byte("payload"), tt.headers)
+			rec := doRequestHeaders(
+				t,
+				h,
+				"/topics/test/topic"+tt.query,
+				[]byte("payload"),
+				tt.headers,
+			)
 			assert.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
 		})
 	}
@@ -790,7 +862,7 @@ func Test_Publish_UserProperties_PersistedOnRetainedMessage(t *testing.T) {
 	rawProps := `[{"deviceName":"alpha"}]`
 	encoded := base64.StdEncoding.EncodeToString([]byte(rawProps))
 
-	rec := doRequestHeaders(t, h, http.MethodPost, "/topics/sensor/temp?retain=true", []byte("25"),
+	rec := doRequestHeaders(t, h, "/topics/sensor/temp?retain=true", []byte("25"),
 		map[string]string{"X-Amz-Mqtt5-User-Properties": encoded})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -816,6 +888,60 @@ func Test_Publish_NoUserProperties_RetainedMessageHasNone(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, msg.UserProperties)
 }
+
+// Test_Publish_MQTT5Fields_ForwardedToBroker verifies every optional MQTT5
+// Publish field (contentType/correlationData/messageExpiry/
+// payloadFormatIndicator/responseTopic/userProperties) now reaches the
+// broker as a real iotdataplane.MQTT5Properties value via
+// MQTTPublisher.PublishWithProperties. Before this, MQTTPublisher.Publish
+// carried only topic/payload/retain/qos -- there was no properties-carrying
+// method at all, so none of these fields could reach a live subscriber
+// (see PARITY.md's now-resolved gap).
+func Test_Publish_MQTT5Fields_ForwardedToBroker(t *testing.T) {
+	t.Parallel()
+
+	b := iotdataplane.NewInMemoryBackend()
+	mock := &mockMQTTPublisher{}
+	b.SetBroker(mock)
+	h := iotdataplane.NewHandler(b)
+
+	query := "?contentType=text%2Fplain&messageExpiry=60&responseTopic=reply/topic"
+	headers := map[string]string{
+		"X-Amz-Mqtt5-Correlation-Data": base64.StdEncoding.EncodeToString(
+			[]byte("corr-id-1"),
+		),
+		"X-Amz-Mqtt5-Payload-Format-Indicator": "UTF8_DATA",
+		"X-Amz-Mqtt5-User-Properties": base64.StdEncoding.EncodeToString(
+			[]byte(`[{"deviceName":"alpha"},{"deviceCnt":"45"}]`)),
+	}
+
+	rec := doRequestHeaders(
+		t,
+		h,
+		"/topics/test/topic"+query,
+		[]byte("payload"),
+		headers,
+	)
+	require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+	assert.Equal(t, "text/plain", mock.props.ContentType)
+	assert.Equal(t, "reply/topic", mock.props.ResponseTopic)
+	assert.Equal(t, "UTF8_DATA", mock.props.PayloadFormatIndicator)
+	assert.Equal(t, []byte("corr-id-1"), mock.props.CorrelationData)
+	assert.EqualValues(t, 60, mock.props.MessageExpiry)
+	require.Len(t, mock.props.UserProperties, 2)
+	assert.Equal(
+		t,
+		iotdataplane.MQTT5UserProperty{Key: "deviceName", Value: "alpha"},
+		mock.props.UserProperties[0],
+	)
+	assert.Equal(
+		t,
+		iotdataplane.MQTT5UserProperty{Key: "deviceCnt", Value: "45"},
+		mock.props.UserProperties[1],
+	)
+}
+
 func Test_TopicValidation_Matrix(t *testing.T) {
 	t.Parallel()
 
@@ -843,7 +969,13 @@ func Test_TopicValidation_Matrix(t *testing.T) {
 
 			err := iotdataplane.ValidateTopic(tt.topic)
 			if tt.wantErr {
-				require.ErrorIs(t, err, iotdataplane.ErrValidation, "topic %q should be invalid", tt.topic)
+				require.ErrorIs(
+					t,
+					err,
+					iotdataplane.ErrValidation,
+					"topic %q should be invalid",
+					tt.topic,
+				)
 			} else {
 				assert.NoError(t, err, "topic %q should be valid", tt.topic)
 			}

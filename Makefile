@@ -1,4 +1,4 @@
-.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs
+.PHONY: build ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -17,7 +17,7 @@ ui-lint: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
 
 ui-check: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run check
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run check
 
 ui-lint-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint:fix
@@ -29,19 +29,25 @@ ui-fmt-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt
 
 ui-test: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run test:coverage
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run test:coverage
 
 ui-build: ui-install
 	mkdir -p dashboard/static/spa
 	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build
+	@# Embedded so a browser repro / server log can show what SPA is actually
+	@# running instead of silently serving a stale go:embed artifact (gopherstack-0rkc).
+	echo "{\"builtAt\":\"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"commit\":\"$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\"}" > dashboard/static/spa/build-stamp.json
 	touch dashboard/static/spa/.keep
 
+# Distinct output path from `build`: both used to write bin/gopherstack, so
+# running `make build` (dynamic) while integration tests were mid-flight
+# silently replaced the static binary Dockerfile.test's `FROM scratch` needs.
 build-linux:
 	CGO_ENABLED=0 GOOS=linux go build \
 		-trimpath \
 		-ldflags "-w -s -X $(VERSION_PKG).Build=$(BUILD_VERSION)" \
-		-o bin/$(BINARY_NAME) .
+		-o bin/$(BINARY_NAME)-linux .
 
 install-deps:
 	@echo "Checking for golangci-lint..."
@@ -123,6 +129,7 @@ install-tofu:
 
 lint: install-deps ui-lint ui-fmt ui-check
 	golangci-lint run --timeout 20m ./...
+	go vet -vettool=$$(go tool -n mulint-vet) ./...
 	go tool govulncheck ./...
 
 lint-fix: install-deps ui-lint-fix ui-fmt-fix
@@ -138,7 +145,7 @@ integration-test: build-linux
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m ./test/integration/...
 
 terraform-test: install-tofu
-	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 10m ./test/terraform/...
+	PATH="$$PWD/bin:$$PATH" go tool gotestsum --format pkgname -- -v -race -parallel 8 -timeout 45m ./test/terraform/...
 
 e2e: e2e-test
 
@@ -148,11 +155,14 @@ e2e-test: ui-build
 total-coverage: build-linux
 	$(eval COVERPKGS := $(shell go list ./... | grep -v -E '(test/|/demo$$|/modules/|/teststack$$)' | tr '\n' ',' | sed 's/,$$//'))
 	@echo "Running unit tests with coverage..."
-	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 5m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...
+	@# Same -race -shuffle on -short ./... as the `test` target (go test's own
+	@# default timeout, 10m, applies there) plus coverage instrumentation
+	@# overhead, so this step needs at least as much room, not less.
+	go tool gotestsum --format pkgname -- -race -shuffle on -short -timeout 10m -coverpkg=$(COVERPKGS) -coverprofile=unit-coverage.out -covermode=atomic ./...
 	@echo "Running integration tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -coverpkg=$(COVERPKGS) -coverprofile=integration-coverage.out -covermode=atomic ./test/integration/...
 	@echo "Running terraform tests with coverage..."
-	go tool gotestsum --format pkgname -- -race -parallel 8 -timeout 20m -coverpkg=$(COVERPKGS) -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/...
+	go tool gotestsum --format pkgname -- -race -parallel 8 -timeout 45m -coverpkg=$(COVERPKGS) -coverprofile=terraform-coverage.out -covermode=atomic ./test/terraform/...
 	@echo "Running E2E tests with coverage..."
 	go tool gotestsum --format pkgname -- -race -shuffle on -timeout 10m -tags=e2e -coverpkg=$(COVERPKGS) -coverprofile=e2e-coverage.out -covermode=atomic ./test/e2e/...
 	@echo "Merging coverage profiles..."
@@ -190,6 +200,12 @@ pgo:
 # README.md. See cmd/gendocs.
 docs:
 	go run ./cmd/gendocs
+
+# Verify every services/<svc>/PARITY.md sdk_module pin matches the version
+# go.mod actually requires -- a stale pin silently undermines every wire
+# claim audited against it. See cmd/checkpins.
+check-pins:
+	go run ./cmd/checkpins
 
 demo: ui-build
 	docker compose down

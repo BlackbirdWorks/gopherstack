@@ -74,6 +74,31 @@ func (b *InMemoryBackend) ListTagsForResource(
 	return refs, next, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every App Mesh resource ARN that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceArn, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 // arnExists checks whether the given ARN belongs to any known resource.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) arnExists(arn string) bool {

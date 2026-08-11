@@ -49,7 +49,7 @@ func (h *Handler) MatchPriority() int { return service.PriorityHeaderExact }
 // RouteMatcher matches AppStream 2.0 requests on either wire protocol: the
 // legacy X-Amz-Target header (awsjson1.1, still used by older pinned SDKs,
 // the Terraform provider, and gopherstack's own unit tests) or the
-// rpc-v2-cbor path used by aws-sdk-go-v2/service/appstream >= v1.64.0.
+// rpc-v2-cbor path used by aws-sdk-go-v2/service/appstream >= v1.64.5.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		r := c.Request()

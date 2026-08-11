@@ -40,6 +40,17 @@ const (
 	StateClosed            State = "CLOSED"
 )
 
+// PrimaryEmailUpdateStatus represents the status of the most recent primary
+// email update request, as reported by GetPrimaryEmailUpdateStatus.
+type PrimaryEmailUpdateStatus string
+
+const (
+	PrimaryEmailUpdateStatusPending   PrimaryEmailUpdateStatus = "PENDING"
+	PrimaryEmailUpdateStatusAccepted  PrimaryEmailUpdateStatus = "ACCEPTED"
+	PrimaryEmailUpdateStatusCompleted PrimaryEmailUpdateStatus = "COMPLETED"
+	PrimaryEmailUpdateStatusFailed    PrimaryEmailUpdateStatus = "FAILED"
+)
+
 // Info holds the fields returned by GetAccountInformation.
 type Info struct {
 	AccountID          string `json:"AccountId"`

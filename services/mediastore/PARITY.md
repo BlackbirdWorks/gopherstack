@@ -1,6 +1,6 @@
 ---
 service: mediastore
-sdk_module: aws-sdk-go-v2/service/mediastore@v1.29.23
+sdk_module: aws-sdk-go-v2/service/mediastore@v1.32.4
 last_audit_commit: 7e4e35369
 last_audit_date: 2026-07-24
 overall: A            # all three prior gaps genuinely closed in code this pass, with tests

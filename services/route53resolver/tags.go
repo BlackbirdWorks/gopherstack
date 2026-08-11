@@ -76,6 +76,40 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	return nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Route 53 Resolver resource ARN that
+// currently has at least one tag, across every region (unlike
+// TagResource/UntagResource/ListTagsForResource, which are scoped to the
+// caller's own region via getRegion).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for _, regionTags := range b.tags {
+		for resourceARN, kvs := range regionTags {
+			if len(kvs) == 0 {
+				continue
+			}
+
+			m := make(map[string]string, len(kvs))
+			for _, kv := range kvs {
+				m[kv.Key] = kv.Value
+			}
+
+			out = append(out, TaggedEntry{ARN: resourceARN, Tags: m})
+		}
+	}
+
+	return out
+}
+
 // ListTagsForResource returns the tags for a resource identified by its ARN.
 func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) []svcTags.KV {
 	b.mu.RLock("ListTagsForResource")

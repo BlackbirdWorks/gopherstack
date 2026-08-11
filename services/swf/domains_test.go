@@ -207,7 +207,7 @@ func TestDeprecateDomain_CascadesToRegisteredTypes(t *testing.T) {
 	assert.Equal(t, "DEPRECATED", alreadyDeprecated.Status)
 
 	// The already-running execution must be untouched by the cascade.
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", exec.Status)
 }

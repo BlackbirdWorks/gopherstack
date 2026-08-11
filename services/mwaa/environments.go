@@ -102,12 +102,17 @@ func resolveCreateDefaults(req *createEnvironmentRequest) createDefaults {
 		d.minWorkers = defaultMinWorkers
 	}
 
+	webserversDefault := defaultMaxWebservers
+	if d.envClass == environmentClassMicro {
+		webserversDefault = microWebservers
+	}
+
 	if d.maxWebservers == 0 {
-		d.maxWebservers = defaultMaxWebservers
+		d.maxWebservers = webserversDefault
 	}
 
 	if d.minWebservers == 0 {
-		d.minWebservers = defaultMinWebservers
+		d.minWebservers = webserversDefault
 	}
 
 	if d.schedulers == 0 {
@@ -258,17 +263,12 @@ func (b *InMemoryBackend) UpdateEnvironment(
 		)
 	}
 
+	if err := validateUpdateSizingAgainstEnv(env, req); err != nil {
+		return nil, err
+	}
+
 	applyUpdateScalars(env, req)
 	applyUpdateS3Paths(env, req)
-
-	if env.MinWorkers > env.MaxWorkers {
-		return nil, fmt.Errorf(
-			"%w: MinWorkers (%d) must be <= MaxWorkers (%d)",
-			ErrInvalidParameter,
-			env.MinWorkers,
-			env.MaxWorkers,
-		)
-	}
 
 	if req.WebserverAccessMode != "" {
 		env.WebserverAccessMode = req.WebserverAccessMode
@@ -311,6 +311,44 @@ func (b *InMemoryBackend) UpdateEnvironment(
 	env.Status = envStatusUpdating
 
 	return env, nil
+}
+
+// validateUpdateSizingAgainstEnv validates the mw1.micro webserver-count restriction
+// and the MinWorkers<=MaxWorkers bound using the request's values merged over env's
+// current ones, BEFORE any mutation of env: env is the live stored pointer, so
+// validating after applyUpdateScalars would silently persist a rejected request's
+// other fields.
+func validateUpdateSizingAgainstEnv(env *Environment, req *updateEnvironmentRequest) error {
+	if req.MaxWebservers != 0 || req.MinWebservers != 0 {
+		effectiveClass := env.EnvironmentClass
+		if req.EnvironmentClass != "" {
+			effectiveClass = req.EnvironmentClass
+		}
+
+		if err := validateWebserversForClass(effectiveClass, req.MinWebservers, req.MaxWebservers); err != nil {
+			return err
+		}
+	}
+
+	effectiveMinWorkers, effectiveMaxWorkers := env.MinWorkers, env.MaxWorkers
+	if req.MinWorkers != 0 {
+		effectiveMinWorkers = req.MinWorkers
+	}
+
+	if req.MaxWorkers != 0 {
+		effectiveMaxWorkers = req.MaxWorkers
+	}
+
+	if effectiveMinWorkers > effectiveMaxWorkers {
+		return fmt.Errorf(
+			"%w: MinWorkers (%d) must be <= MaxWorkers (%d)",
+			ErrInvalidParameter,
+			effectiveMinWorkers,
+			effectiveMaxWorkers,
+		)
+	}
+
+	return nil
 }
 
 // applyUpdateScalars applies basic scalar field updates from req to env in place.

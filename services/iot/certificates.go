@@ -295,6 +295,7 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 	}
 
 	b.certificateProviders.Put(cp)
+	b.putResourceTagsLocked(cp.ARN, input.Tags)
 
 	return cp, nil
 }
@@ -395,7 +396,7 @@ func (b *InMemoryBackend) caCertARN(id string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cacert/%s", id))
 }
 
-func (b *InMemoryBackend) RegisterCACertificate(pem, status string) (*CACertificate, error) {
+func (b *InMemoryBackend) RegisterCACertificate(pem, status string, tags map[string]string) (*CACertificate, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -415,6 +416,7 @@ func (b *InMemoryBackend) RegisterCACertificate(pem, status string) (*CACertific
 		ca.Status = "ACTIVE"
 	}
 	b.caCertificates.Put(ca)
+	b.putResourceTagsLocked(ca.CertificateARN, tags)
 
 	return cloneCACert(ca), nil
 }

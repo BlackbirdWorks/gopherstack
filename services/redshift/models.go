@@ -292,6 +292,11 @@ type IdcApplication struct {
 	IdcInstanceArn     string `json:"idcInstanceArn"`
 	IdcDisplayName     string `json:"idcDisplayName"`
 	IamRoleArn         string `json:"iamRoleArn"`
+	// ApplicationType mirrors types.ApplicationType ("None" or "Lakehouse"); it is
+	// set only on create -- real ModifyRedshiftIdcApplicationInput has no field
+	// for it (confirmed against aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go
+	// awsAwsquery_serializeOpDocumentModifyRedshiftIdcApplicationInput).
+	ApplicationType string `json:"applicationType,omitempty"`
 }
 
 // Qev2IdcApplication represents an Amazon Redshift Query Editor (QEV2) IAM

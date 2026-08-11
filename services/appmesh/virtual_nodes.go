@@ -85,6 +85,7 @@ func (b *InMemoryBackend) DeleteVirtualNode(meshName, name string) (*VirtualNode
 	}
 	b.virtualNodes.Delete(key)
 	delete(b.tags, vn.Meta.Arn)
+	vn.Status = statusDeleted
 
 	return vn, nil
 }

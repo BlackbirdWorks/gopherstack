@@ -66,7 +66,13 @@ func TestIntegration_AppRunner_ServiceLifecycle(t *testing.T) {
 			require.NotEmpty(t, serviceArn, "service ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteService(ctx, &apprunnersdk.DeleteServiceInput{ServiceArn: aws.String(serviceArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteService(
+					cleanupCtx,
+					&apprunnersdk.DeleteServiceInput{ServiceArn: aws.String(serviceArn)},
+				)
 			})
 
 			descOut, err := client.DescribeService(ctx, &apprunnersdk.DescribeServiceInput{
@@ -126,8 +132,11 @@ func TestIntegration_AppRunner_ConnectionLifecycle(t *testing.T) {
 			connArn := aws.ToString(createOut.Connection.ConnectionArn)
 
 			t.Cleanup(func() {
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
 				_, _ = client.DeleteConnection(
-					ctx,
+					cleanupCtx,
 					&apprunnersdk.DeleteConnectionInput{ConnectionArn: aws.String(connArn)},
 				)
 			})

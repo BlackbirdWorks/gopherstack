@@ -69,6 +69,41 @@ func TestQuickSight_OAuthClientAppCRUD(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, deleteMissingRec.Code)
 }
 
+// ---- CreateOAuthClientApplication.Tags: applied to tag state, not echoed ----
+
+func TestQuickSight_OAuthClientApp_CreateTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, http.MethodPost, accountPath("/oauth-client-applications"), map[string]any{
+		"OAuthClientApplicationId": "app1",
+		"Name":                     "App One",
+		"Tags": []any{
+			map[string]any{"Key": "env", "Value": "prod"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	arn, ok := parseBody(t, createRec)["Arn"].(string)
+	require.True(t, ok)
+
+	describeRec := doRequest(t, h, http.MethodGet, accountPath("/oauth-client-applications/app1"), nil)
+	require.Equal(t, http.StatusOK, describeRec.Code)
+	app := parseBody(t, describeRec)["OAuthClientApplication"].(map[string]any)
+	// OAuthClientApplication (the Describe response type) has no Tags member;
+	// tags travel only via ListTagsForResource.
+	assert.NotContains(t, app, "Tags")
+
+	tagsRec := doRequest(t, h, http.MethodGet, fmt.Sprintf("/resources/%s/tags", arn), nil)
+	require.Equal(t, http.StatusOK, tagsRec.Code)
+	tagList, ok := parseBody(t, tagsRec)["Tags"].([]any)
+	require.True(t, ok)
+	require.Len(t, tagList, 1)
+	tag := tagList[0].(map[string]any)
+	assert.Equal(t, "env", tag["Key"])
+	assert.Equal(t, "prod", tag["Value"])
+}
+
 // ---- ListOAuthClientApplications pagination ----
 
 func TestQuickSight_ListOAuthClientApps_Pagination(t *testing.T) {

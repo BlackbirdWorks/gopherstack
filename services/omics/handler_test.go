@@ -20,6 +20,27 @@ func newTestHandler(t *testing.T) *omics.Handler {
 	return omics.NewHandler(backend)
 }
 
+// testRunBatchRoleArn is the fixed role ARN used by every startRunBatchBody call in
+// this package's tests.
+const testRunBatchRoleArn = "arn:aws:iam::000000000000:role/role"
+
+// startRunBatchBody builds a real-shaped StartRunBatch request body (batchRunSettings/
+// defaultRunSetting/requestId, not the flat workflowId/roleArn/name shape a real client
+// never sends) with a single inline run setting.
+func startRunBatchBody(batchName, workflowID string) map[string]any {
+	return map[string]any{
+		"requestId": "req-" + batchName,
+		"batchName": batchName,
+		"defaultRunSetting": map[string]any{
+			"roleArn":    testRunBatchRoleArn,
+			"workflowId": workflowID,
+		},
+		"batchRunSettings": map[string]any{
+			"inlineSettings": []map[string]any{{"runSettingId": "s1"}},
+		},
+	}
+}
+
 func doRequest(t *testing.T, h *omics.Handler, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 

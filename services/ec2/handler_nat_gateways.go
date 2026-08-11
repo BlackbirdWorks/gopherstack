@@ -204,7 +204,7 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 		VpcID:               ngw.VPCID,
 		State:               ngw.State,
 		ConnectivityType:    ngw.ConnectivityType,
-		CreateTime:          ngw.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime:          ngw.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		NatGatewayAddresses: natGatewayAddressSet{Items: items},
 		TagSet:              tagItemsFromMap(tags),
 	}

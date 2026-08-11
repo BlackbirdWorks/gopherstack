@@ -87,6 +87,7 @@ type createCustomDBEngineVersionResponse struct {
 	Xmlns                      string   `xml:"xmlns,attr"`
 	Engine                     string   `xml:"CreateCustomDBEngineVersionResult>Engine"`
 	EngineVersion              string   `xml:"CreateCustomDBEngineVersionResult>EngineVersion"`
+	DBEngineVersionArn         string   `xml:"CreateCustomDBEngineVersionResult>DBEngineVersionArn,omitempty"`
 	Status                     string   `xml:"CreateCustomDBEngineVersionResult>Status,omitempty"`
 	DBEngineVersionDescription string   `xml:"CreateCustomDBEngineVersionResult>DBEngineVersionDescription,omitempty"`
 }
@@ -118,10 +119,13 @@ func (h *Handler) handleCreateCustomDBEngineVersion(vals url.Values) (any, error
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, cev.DBEngineVersionArn)
+
 	return &createCustomDBEngineVersionResponse{
 		Xmlns:                      rdsXMLNS,
 		Engine:                     cev.Engine,
 		EngineVersion:              cev.EngineVersion,
+		DBEngineVersionArn:         cev.DBEngineVersionArn,
 		Status:                     cev.Status,
 		DBEngineVersionDescription: cev.Description,
 	}, nil

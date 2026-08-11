@@ -498,12 +498,12 @@ func fromProductREPageSnapshot(v *productREPageSnapshot) *ProductRestEndpointPag
 }
 
 type routingRuleSnapshot struct {
-	DomainName     string           `json:"domainName"`
-	RoutingRuleID  string           `json:"routingRuleId"`
-	RoutingRuleARN string           `json:"routingRuleArn,omitempty"`
-	Actions        []map[string]any `json:"actions,omitempty"`
-	Conditions     []map[string]any `json:"conditions,omitempty"`
-	Priority       int32            `json:"priority"`
+	DomainName     string                 `json:"domainName"`
+	RoutingRuleID  string                 `json:"routingRuleId"`
+	RoutingRuleARN string                 `json:"routingRuleArn,omitempty"`
+	Actions        []RoutingRuleAction    `json:"actions,omitempty"`
+	Conditions     []RoutingRuleCondition `json:"conditions,omitempty"`
+	Priority       int32                  `json:"priority"`
 }
 
 func routingRuleSnapshotKey(v *routingRuleSnapshot) string {

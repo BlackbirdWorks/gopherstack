@@ -12,10 +12,10 @@ import (
 
 func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                    map[string]string `json:"Tags"`
-		ModelPackageName        string            `json:"ModelPackageName"`
-		ModelPackageGroupName   string            `json:"ModelPackageGroupName"`
-		ModelPackageDescription string            `json:"ModelPackageDescription"`
+		ModelPackageName        string      `json:"ModelPackageName"`
+		ModelPackageGroupName   string      `json:"ModelPackageGroupName"`
+		ModelPackageDescription string      `json:"ModelPackageDescription"`
+		Tags                    []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -27,7 +27,7 @@ func (h *Handler) handleCreateModelPackage(ctx context.Context, body []byte) ([]
 	}
 
 	result, err := h.Backend.CreateModelPackage(ctx,
-		req.ModelPackageName, req.ModelPackageGroupName, req.ModelPackageDescription, req.Tags,
+		req.ModelPackageName, req.ModelPackageGroupName, req.ModelPackageDescription, fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err
@@ -107,9 +107,9 @@ func (h *Handler) handleListModelPackages(ctx context.Context, body []byte) ([]b
 
 func (h *Handler) handleCreateModelPackageGroup(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                         map[string]string `json:"Tags"`
-		ModelPackageGroupName        string            `json:"ModelPackageGroupName"`
-		ModelPackageGroupDescription string            `json:"ModelPackageGroupDescription"`
+		ModelPackageGroupName        string      `json:"ModelPackageGroupName"`
+		ModelPackageGroupDescription string      `json:"ModelPackageGroupDescription"`
+		Tags                         []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -121,7 +121,7 @@ func (h *Handler) handleCreateModelPackageGroup(ctx context.Context, body []byte
 	}
 
 	result, err := h.Backend.CreateModelPackageGroup(ctx,
-		req.ModelPackageGroupName, req.ModelPackageGroupDescription, req.Tags,
+		req.ModelPackageGroupName, req.ModelPackageGroupDescription, fromTagObjects(req.Tags),
 	)
 	if err != nil {
 		return nil, err

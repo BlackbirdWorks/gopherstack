@@ -170,8 +170,8 @@ func TestInMemoryBackend_PutAndDescribeLifecycleHooks(t *testing.T) {
 	tests := []struct {
 		setup     func(b *autoscaling.InMemoryBackend)
 		name      string
-		hook      autoscaling.LifecycleHook
 		hookNames []string
+		hook      autoscaling.LifecycleHook
 		wantCount int
 		wantErr   bool
 	}{

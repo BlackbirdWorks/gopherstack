@@ -22,7 +22,7 @@ func TestAWSConfigBackend_DeleteAggregationAuthorization(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1"))
+				require.NoError(t, b.PutAggregationAuthorization("123456789012", "us-east-1", nil))
 			},
 			accountID: "123456789012",
 			region:    "us-east-1",
@@ -64,7 +64,7 @@ func TestAWSConfigBackend_DeleteConfigurationAggregator(t *testing.T) {
 			name: "success",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil))
+				require.NoError(t, b.PutConfigurationAggregator("agg1", nil, nil, nil))
 			},
 			delName: "agg1",
 		},
@@ -111,9 +111,9 @@ func TestAWSConfigBackend_DescribeAggregationAuthorizations(t *testing.T) {
 			name: "multiple_sorted",
 			setup: func(t *testing.T, b *awsconfig.InMemoryBackend) {
 				t.Helper()
-				require.NoError(t, b.PutAggregationAuthorization("222222222222", "us-west-2"))
-				require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
-				require.NoError(t, b.PutAggregationAuthorization("111111111111", "eu-west-1"))
+				require.NoError(t, b.PutAggregationAuthorization("222222222222", "us-west-2", nil))
+				require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1", nil))
+				require.NoError(t, b.PutAggregationAuthorization("111111111111", "eu-west-1", nil))
 			},
 			wantCount: 3,
 		},
@@ -158,7 +158,7 @@ func TestAWSConfigBackend_DescribeConfigurationAggregatorSourcesStatus(t *testin
 		b := awsconfig.NewInMemoryBackend()
 		require.NoError(t, b.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
 			{AccountIDs: []string{"111111111111", "222222222222"}, AwsRegions: []string{"us-east-1"}},
-		}, nil))
+		}, nil, nil))
 
 		statuses, err := b.DescribeConfigurationAggregatorSourcesStatus("agg1")
 		require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestAWSConfigBackend_DescribeConfigurationAggregatorSourcesStatus(t *testin
 
 		b := awsconfig.NewInMemoryBackend()
 		require.NoError(t, b.PutConfigurationAggregator(
-			"agg1", nil, &awsconfig.OrganizationAggregationSource{RoleArn: "arn:aws:iam::123:role/org"},
+			"agg1", nil, &awsconfig.OrganizationAggregationSource{RoleArn: "arn:aws:iam::123:role/org"}, nil,
 		))
 
 		statuses, err := b.DescribeConfigurationAggregatorSourcesStatus("agg1")
@@ -193,7 +193,7 @@ func TestAWSConfigBackend_PendingAggregationRequests(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1", nil))
 
 		pending := b.DescribePendingAggregationRequests()
 		require.Len(t, pending, 1)
@@ -205,10 +205,10 @@ func TestAWSConfigBackend_PendingAggregationRequests(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1", nil))
 		require.NoError(t, b.PutConfigurationAggregator("agg1", []awsconfig.AccountAggregationSource{
 			{AccountIDs: []string{"111111111111"}, AwsRegions: []string{"us-east-1"}},
-		}, nil))
+		}, nil, nil))
 
 		assert.Empty(t, b.DescribePendingAggregationRequests())
 	})
@@ -217,7 +217,7 @@ func TestAWSConfigBackend_PendingAggregationRequests(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1"))
+		require.NoError(t, b.PutAggregationAuthorization("111111111111", "us-east-1", nil))
 		require.NoError(t, b.DeletePendingAggregationRequest("111111111111", "us-east-1"))
 		assert.Empty(t, b.DescribePendingAggregationRequests())
 	})

@@ -157,7 +157,8 @@ func buildDomainValidationOptions(
 		seen[d] = true
 
 		status := validationStatusSuccess
-		if validationMethod == validationMethodDNS || validationMethod == validationMethodEMAIL {
+		if validationMethod == validationMethodDNS || validationMethod == validationMethodEMAIL ||
+			validationMethod == validationMethodHTTP {
 			status = statusPendingValidation
 		}
 
@@ -204,12 +205,99 @@ func buildDomainValidationOptions(
 				"postmaster@" + rootDomain,
 				"webmaster@" + rootDomain,
 			}
+
+		case validationMethodHTTP:
+			token, err := randHex()
+			if err != nil {
+				return nil, err
+			}
+
+			opt.HTTPRedirect = &HTTPRedirect{
+				RedirectFrom: "http://" + d + "/.well-known/pki-validation/" + token + ".txt",
+				RedirectTo:   "https://acm-validations.aws/" + token,
+			}
 		}
 
 		opts = append(opts, opt)
 	}
 
 	return opts, nil
+}
+
+// validCertificateStatuses, validListCertKeyAlgorithms, validKeyUsageNames,
+// and validExtendedKeyUsageNames are ListCertificates' CertificateStatuses/
+// Includes filter enums (aws-sdk-go-v2/service/acm/types: CertificateStatus
+// enums.go:199-224, KeyAlgorithm enums.go:416-442, KeyUsageName
+// enums.go:445-476, ExtendedKeyUsageName enums.go:328-363, v1.43.4).
+//
+//nolint:gochecknoglobals // read-only enum value sets initialized once at startup
+var (
+	validCertificateStatuses = map[string]struct{}{
+		statusPendingValidation:  {},
+		statusIssued:             {},
+		statusInactive:           {},
+		statusExpired:            {},
+		statusValidationTimedOut: {},
+		statusRevoked:            {},
+		statusFailed:             {},
+	}
+	validListCertKeyAlgorithms = map[string]struct{}{
+		keyAlgorithmRSA1024: {}, keyAlgorithmRSA2048: {}, keyAlgorithmRSA3072: {}, keyAlgorithmRSA4096: {},
+		keyAlgorithmEC: {}, keyAlgorithmECSecp384r1: {}, keyAlgorithmECSecp521r1: {},
+	}
+	validKeyUsageNames = map[string]struct{}{
+		"DIGITAL_SIGNATURE": {}, "NON_REPUDIATION": {}, "KEY_ENCIPHERMENT": {},
+		"DATA_ENCIPHERMENT": {}, "KEY_AGREEMENT": {}, "CERTIFICATE_SIGNING": {},
+		"CRL_SIGNING": {}, "ENCIPHER_ONLY": {}, "DECIPHER_ONLY": {}, "ANY": {}, "CUSTOM": {},
+	}
+	validExtendedKeyUsageNames = map[string]struct{}{
+		"TLS_WEB_SERVER_AUTHENTICATION": {}, "TLS_WEB_CLIENT_AUTHENTICATION": {},
+		"CODE_SIGNING": {}, "EMAIL_PROTECTION": {}, "TIME_STAMPING": {}, "OCSP_SIGNING": {},
+		"IPSEC_END_SYSTEM": {}, "IPSEC_TUNNEL": {}, "IPSEC_USER": {}, "ANY": {},
+		"NONE": {}, "CUSTOM": {},
+	}
+)
+
+// validateListCertificatesParams rejects CertificateStatuses/Includes/SortBy/
+// SortOrder values outside their real enums with ErrInvalidArgs
+// (InvalidArgsException) -- the only invalid-input error ListCertificates'
+// deserializer recognizes (see ErrInvalidArgs). Real ListCertificates'
+// SortBy enum (types.SortBy, enums.go:692-697) has exactly one value,
+// CREATED_AT.
+func validateListCertificatesParams(p ListCertificatesParams) error {
+	for _, s := range p.StatusFilter {
+		if _, ok := validCertificateStatuses[s]; !ok {
+			return fmt.Errorf("%w: invalid CertificateStatuses value %q", ErrInvalidArgs, s)
+		}
+	}
+
+	for _, k := range p.KeyTypes {
+		if _, ok := validListCertKeyAlgorithms[k]; !ok {
+			return fmt.Errorf("%w: invalid Includes.KeyTypes value %q", ErrInvalidArgs, k)
+		}
+	}
+
+	for _, ku := range p.KeyUsage {
+		if _, ok := validKeyUsageNames[ku]; !ok {
+			return fmt.Errorf("%w: invalid Includes.KeyUsage value %q", ErrInvalidArgs, ku)
+		}
+	}
+
+	for _, eku := range p.ExtendedKeyUsage {
+		if _, ok := validExtendedKeyUsageNames[eku]; !ok {
+			return fmt.Errorf("%w: invalid Includes.ExtendedKeyUsage value %q", ErrInvalidArgs, eku)
+		}
+	}
+
+	if p.SortBy != "" && p.SortBy != listCertSortByCreatedAt {
+		return fmt.Errorf("%w: invalid SortBy value %q", ErrInvalidArgs, p.SortBy)
+	}
+
+	if p.SortOrder != "" && p.SortOrder != "ASCENDING" && p.SortOrder != "DESCENDING" {
+		return fmt.Errorf("%w: invalid SortOrder value %q", ErrInvalidArgs, p.SortOrder)
+	}
+
+	return nil
 }
 
 // randHex returns a random lowercase hex string of length validationTokenLen

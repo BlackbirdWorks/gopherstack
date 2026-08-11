@@ -308,11 +308,12 @@ func TestTerraform_DirectoryService(t *testing.T) {
 				t.Helper()
 				id := uuid.NewString()[:8]
 
-				return map[string]any{
-					"DomainName": "tf-" + id + ".example.com",
-					"Password":   "P@ssw0rd123!",
-					"VPCName":    "tf-ds-vpc-" + id,
-				}
+				vars := vpcCIDRVars(t)
+				vars["DomainName"] = "tf-" + id + ".example.com"
+				vars["Password"] = "P@ssw0rd123!"
+				vars["VPCName"] = "tf-ds-vpc-" + id
+
+				return vars
 			},
 			verify: func(t *testing.T, ctx context.Context, vars map[string]any) {
 				t.Helper()

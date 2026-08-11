@@ -75,10 +75,12 @@ func TestQuickSight_TopicCRUD(t *testing.T) {
 	)
 	assert.Equal(t, http.StatusNotFound, updateMissingRec.Code)
 
-	// Delete.
+	// Delete. Real DeleteTopicOutput carries Arn (api_op_DeleteTopic.go).
 	deleteRec := doRequest(t, h, http.MethodDelete, accountPath("/topics/tp1"), nil)
 	require.Equal(t, http.StatusOK, deleteRec.Code)
-	assert.Equal(t, "tp1", parseBody(t, deleteRec)["TopicId"])
+	deleteBody := parseBody(t, deleteRec)
+	assert.Equal(t, "tp1", deleteBody["TopicId"])
+	assert.Contains(t, deleteBody["Arn"], "arn:aws:quicksight:us-east-1:000000000000:topic/tp1")
 
 	// Delete missing -> 404.
 	deleteMissingRec := doRequest(t, h, http.MethodDelete, accountPath("/topics/tp1"), nil)
@@ -643,6 +645,62 @@ func TestQuickSight_SearchTopics(t *testing.T) {
 	summary, ok = list[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "Sales", summary["Name"])
+}
+
+// TestQuickSight_SearchTopics_Pagination guards against a wire-shape
+// regression: SearchTopicsInput carries MaxResults/NextToken in the JSON
+// body (per awsRestjson1_serializeOpDocumentSearchTopicsInput), not as
+// query parameters — same as SearchTopicsV2.
+func TestQuickSight_SearchTopics_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	for _, id := range []string{"t1", "t2", "t3"} {
+		rec := doRequest(t, h, http.MethodPost, accountPath("/topics"), map[string]any{
+			"TopicId": id,
+			"Name":    id,
+		})
+		require.Equal(t, http.StatusOK, rec.Code)
+	}
+
+	rec := doRequest(t, h, http.MethodPost, accountPath("/search/topics"), map[string]any{
+		"Filters":    []any{},
+		"MaxResults": 1,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := parseBody(t, rec)
+	list, ok := body["TopicSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1, "MaxResults in the JSON body should limit the page size")
+	nextToken, ok := body["NextToken"].(string)
+	require.True(t, ok, "a NextToken should be returned when more results remain")
+	require.NotEmpty(t, nextToken)
+
+	rec = doRequest(t, h, http.MethodPost, accountPath("/search/topics"), map[string]any{
+		"Filters":    []any{},
+		"MaxResults": 1,
+		"NextToken":  nextToken,
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = parseBody(t, rec)
+	list, ok = body["TopicSummaryList"].([]any)
+	require.True(t, ok)
+	require.Len(t, list, 1, "NextToken in the JSON body should resume from the prior page")
+	summary, ok := list[0].(map[string]any)
+	require.True(t, ok)
+	assert.NotEqual(t, "t1", summary["TopicId"], "the second page must not repeat the first page's entry")
+
+	// A query-string MaxResults is not part of the real wire shape and must
+	// be ignored: with no MaxResults in the body, all three topics come back.
+	rec = doRequest(
+		t, h, http.MethodPost, accountPath("/search/topics?MaxResults=1"), map[string]any{"Filters": []any{}},
+	)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body = parseBody(t, rec)
+	list, ok = body["TopicSummaryList"].([]any)
+	require.True(t, ok)
+	assert.Len(t, list, 3, "a query-string MaxResults must be ignored; SearchTopicsInput carries it in the JSON body")
 }
 
 // ---- PredictQAResults ----

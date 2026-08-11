@@ -5,14 +5,22 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: mediatailor
-sdk_module: aws-sdk-go-v2/service/mediatailor@v1.59.2   # version audited against
+sdk_module: aws-sdk-go-v2/service/mediatailor@v1.63.4   # version audited against
 last_audit_commit: a874b0df                              # HEAD when this manifest was written
 last_audit_date: 2026-07-23
 overall: A            # all 4 prior gaps + 3 prior deferred items closed for real this pass; 3 new completeness bugs found+fixed
+# gopherstack-vdrs (2026-08-10, targeted follow-up, not a full re-audit): closed all 3 filed
+# items -- SourceLocation's 3 unmodeled fields now hand-modeled (Notes #10), the
+# PrefetchSchedule/Program/LiveSource/Function tags split reproduced+fixed (Notes #11),
+# ScheduleAdBreaks reconfirmed structural. Also fixed 3 bugs found sweeping for the same
+# classes today's other passes kept finding: CreateProgram accepted a nonexistent
+# SourceLocation/VodSource/LiveSource and reported success; PutFunction accepted any
+# FunctionType string; every mediatailor error response was undecodable by a real SDK
+# client (see families.errors).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  PutPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration"}
+  PutPlaybackConfiguration: {wire: partial, errors: ok, state: ok, persist: ok, note: "fixed prior pass - only Name required; this pass adds pass-through storage for AdConditioningConfiguration/AdDecisionServerConfiguration/AvailSuppression/Bumper/CdnConfiguration/ConfigurationAliases/DashConfiguration/FunctionMapping/InsertionMode/LivePreRollConfiguration/ManifestProcessingRules/PersonalizationThresholdSeconds/SlateAdUrl/TranscodeProfileName (decoded-JSON round-trip, not hand-modeled Go structs - see Notes #6) and a real LogConfiguration reflecting ConfigureLogsForPlaybackConfiguration. gopherstack-u8my: extractExtraConfig's key list is a fixed enumeration, not a generic pass-through of unrecognized keys -- the SDK gained two new PlaybackConfiguration sub-configs (AdsPersonalizationConcurrency, AdsPersonalizationTimeouts) since this note's v1.59.2 pin, both silently dropped by a real PutPlaybackConfiguration call today. See gaps."}
   GetPlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePlaybackConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent per real API; now cascades to delete every attached prefetch schedule (fixed ghost-row leak, see Notes #7)"}
   ListPlaybackConfigurations: {wire: ok, errors: ok, state: ok, persist: ok, note: "query params PascalCase MaxResults/NextToken - correct"}
@@ -23,9 +31,9 @@ ops:
   ListChannels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
   StartChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "real state transition to RUNNING, idempotent"}
   StopChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "real state transition to STOPPED, idempotent"}
-  CreateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime were dead fields (declared, never populated/serialized); fixed - tags silently dropped, see Notes #7"}
+  CreateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime were dead fields (declared, never populated/serialized); fixed - tags silently dropped, see Notes #7; gopherstack-vdrs: AccessConfiguration/DefaultSegmentDeliveryConfiguration/SegmentDeliveryConfigurations now hand-modeled (see Notes #10), was entirely unmodeled"}
   DescribeSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModifiedTime now advances on update"}
+  UpdateSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "LastModifiedTime now advances on update; gopherstack-vdrs: now accepts/persists AccessConfiguration/DefaultSegmentDeliveryConfiguration/SegmentDeliveryConfigurations same as Create"}
   DeleteSourceLocation: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly rejects delete with attached vod/live sources"}
   ListSourceLocations: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - lowercase maxResults/nextToken"}
   CreateVodSource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - CreationTime/LastModifiedTime dead fields populated; fixed - tags silently dropped, see Notes #7"}
@@ -42,7 +50,7 @@ ops:
   GetPrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePrefetchSchedule: {wire: ok, errors: ok, state: ok, persist: ok}
   ListPrefetchSchedules: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - POST+body routing; this pass implements the ScheduleType/StreamId request filters (were routed/parsed but silently ignored)"}
-  CreateProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - ScheduleConfiguration.Transition now required and drives real ScheduledStartTime/DurationMillis computation (ABSOLUTE wall-clock or RELATIVE-to-sibling-program positioning, mirroring real channel scheduling); AdBreaks/AudienceMedia/ClipRange/CreationTime now modeled and returned"}
+  CreateProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - ScheduleConfiguration.Transition now required and drives real ScheduledStartTime/DurationMillis computation (ABSOLUTE wall-clock or RELATIVE-to-sibling-program positioning, mirroring real channel scheduling); AdBreaks/AudienceMedia/ClipRange/CreationTime now modeled and returned; gopherstack-vdrs: now validates SourceLocationName is required and exists, and VodSourceName/LiveSourceName (if given) exist under it -- previously accepted any name and reported success, see Notes #11"}
   DescribeProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - same previously-missing optional fields as CreateProgram, now present"}
   UpdateProgram: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed - was a no-op read (took no body); now requires ScheduleConfiguration (its Transition/ClipRange sub-fields are individually optional per the real model) and applies AdBreaks/AudienceMedia/schedule updates for real"}
   DeleteProgram: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -50,7 +58,7 @@ ops:
   PutChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   GetChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannelPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutFunction: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutFunction: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-vdrs: FunctionType now validated against the real HTTP_REQUEST/CUSTOM_OUTPUT/SEQUENTIAL_EXECUTOR enum -- previously any non-empty string was accepted; also now writes b.tags on create, see Notes #11"}
   GetFunction: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteFunction: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFunctions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass - real pagination"}
@@ -62,12 +70,13 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "idempotent, tagKeys query param confirmed correct"}
 families:
   routing: {status: ok, note: "all 47 routed ops' HTTP method+path unchanged this pass and still verified against aws-sdk-go-v2 serializers.go/botocore service-2.json from the prior audit"}
-gaps: []          # every gap from the prior manifest is now fixed for real (field-diffed against the SDK, not reclassified on say-so) - see ops[*].note above for what changed
+  errors: {status: ok, note: "gopherstack-vdrs: FIXED a service-wide wire bug -- respondErr never set the X-Amzn-Errortype header or any body code/__type field, so aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go, checked at v1.43.4, the pinned aws-sdk-go-v2 core) had no code to read and every mediatailor error deserialized client-side as smithy.GenericAPIError{Code:\"UnknownError\"} regardless of the real failure (404/409/400 all included). Fixed by setting X-Amzn-Errortype from the sentinel error's mapped exception name, matching the sibling convention already used by services/account and services/apigatewayv2. See Notes #11."}
+gaps:
+  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration gained AdsPersonalizationConcurrency (EnableVodVastParallelization/MaxConcurrentAdsRequests) and AdsPersonalizationTimeouts (AdsRequestTimeoutMilliseconds and 4 sibling fields) input sub-configs. extractExtraConfig's pass-through key list (handler_helpers.go) is a fixed 14-key enumeration predating these fields, so PutPlaybackConfiguration silently drops both -- breaks the round-trip-fidelity claim Notes #6 makes for 'every optional sub-config'. Same treatment as the other 14 (decoded-JSON pass-through) would close it; just needs the two keys added to extractExtraConfig's list. (needs bd issue)"
+  - "NEW since v1.59.2 (found by gopherstack-u8my's pin-correction pass, not fixed): PlaybackConfiguration/HlsConfiguration/SessionInitializationEndpoint responses gained dual-stack (IPv4+IPv6) URL fields -- DualStackManifestEndpointPrefix, DualStackSessionInitializationEndpointPrefix, DualStackPlaybackEndpointPrefix, and GetHlsManifestConfiguration's DualStackPlaybackUrl -- alongside the existing single-stack Prefix/Url fields. These are server-generated response fields (like their single-stack counterparts) that gopherstack's Get/Describe/List handlers do not populate. (needs bd issue)"
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
-  - "SourceLocation AccessConfiguration, DefaultSegmentDeliveryConfiguration, and SegmentDeliveryConfigurations (real DescribeSourceLocation/CreateSourceLocation fields) are not modeled at all - newly found by field-diffing this pass, not in the prior manifest's gaps/deferred. Not fixed this pass due to time budget; same pass-through-JSON treatment as PutPlaybackConfiguration's extras (see Notes #6) would close it. (needs bd issue)"
-  - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. (needs bd issue if manifest-avail-detection is ever prioritized)"
-  - "PrefetchSchedule/Program/LiveSource/Function tags are stored on the resource's own struct at creation time and returned directly, NOT synced with the ARN-keyed b.tags map that the generic TagResource/UntagResource/ListTagsForResource ops read and write. A TagResource call against one of these ARNs after creation will not be reflected by a subsequent Describe/Get of that resource. This is a pre-existing architectural split in this backend (Channel/SourceLocation/VodSource/PlaybackConfiguration use the b.tags-map-is-authoritative pattern; PrefetchSchedule/Program/LiveSource/Function use the struct-field-is-authoritative pattern) that predates this pass - flagging it here since PrefetchSchedule's Tags field is new this pass and inherited the latter pattern for consistency with its siblings (Program/LiveSource/Function), not because it was independently verified correct. Unifying the two patterns fleet-service-wide is a larger refactor than this pass's budget covers. (needs bd issue)"
+  - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. Reconfirmed this pass (gopherstack-vdrs item 2): genuinely structural, not attempted. (needs bd issue if manifest-avail-detection is ever prioritized)"
 leaks: {status: clean, note: "no goroutines, timers, or janitors in this service; all state lives in store.Table/Index + plain maps guarded by one lockmetrics.RWMutex. This pass additionally fixed two ghost-row leaks: DeleteChannel now cascade-deletes every program scheduled on it (via programsByChannel index) and its channel policy; DeletePlaybackConfiguration now cascade-deletes every attached prefetch schedule (via prefetchSchedulesByConfig index). Neither cascade existed before this pass - a channel/playback-config could be deleted and recreated with the same name while its old programs/prefetch-schedules silently lingered in their tables, invisible via any real op path but still occupying memory and corrupting Snapshot/Restore fidelity."}
 ---
 
@@ -159,3 +168,84 @@ None of this pass's fixes required touching `handler.go`'s routing tables —
 every operation's HTTP method/path was already correct from the prior pass;
 this pass is entirely about request/response body shape completeness and
 the two cascade-delete leak fixes noted above.
+
+10. **`SourceLocation.AccessConfiguration`/`DefaultSegmentDeliveryConfiguration`/
+    `SegmentDeliveryConfigurations` are shallow and now hand-modeled, not
+    pass-through.** Sized before typing (mediatailor@v1.63.4 `types/types.go`):
+    `AccessConfiguration` has 2 members — `AccessType` (a 3-value enum:
+    `S3_SIGV4`/`SECRETS_MANAGER_ACCESS_TOKEN`/`AUTODETECT_SIGV4`, `types/enums.go:9-11`)
+    and `SecretsManagerAccessTokenConfiguration` (level 2, 3 flat string
+    members, no further nesting). `DefaultSegmentDeliveryConfiguration` is 1
+    flat string member; `SegmentDeliveryConfiguration` is 2. Total depth 3
+    levels, max union count 3 — well under the deep/pass-through bar Notes #6
+    sets. All three appear on both the `Create`/`UpdateSourceLocationInput`
+    and the `SourceLocation` response type reused by `Describe`/`List`
+    (confirmed via `api_op_CreateSourceLocation.go`/`api_op_UpdateSourceLocation.go`),
+    so both directions needed wiring, not just echo. None of the three
+    members are required in botocore's `service-2.json` (2018-04-23), so
+    typing exposed one real gap worth validating: `AccessType` had no enum
+    check at all before this pass — a client sending a made-up value got
+    a 200. Added a validation switch in `validateAccessConfiguration`
+    (`source_locations.go`) with a round-trip test through the real SDK
+    client (`handler_source_location_configs_test.go`).
+
+11. **The Prefetch/Program/LiveSource/Function tags split was a real,
+    provable divergence, not just an architectural note — now closed.**
+    Traced each resource type's actual Create/Get/Describe/List/Delete code
+    path instead of restating the note: `CreatePrefetchSchedule`,
+    `CreateProgram`, and `CreateLiveSource` all wrote the caller's tags to
+    *both* the resource's own struct field *and* `b.tags[arn]` at creation
+    (so the two started in sync), but `GetPrefetchSchedule`,
+    `DescribeProgram`, and `DescribeLiveSource` returned the struct's own
+    `Tags` field directly, never reading `b.tags`. Since `TagResource`/
+    `UntagResource` only ever write `b.tags`, any tag change made *after*
+    creation via those generic ops was invisible to the resource's own
+    Describe/Get — while `ListTagsForResource` (which reads `b.tags`) saw it
+    immediately. Reproduced with a real-SDK-client test
+    (`TestTagResource_VisibleOnDescribe`, `handler_tags_divergence_test.go`):
+    create untagged, `TagResource` a tag onto the ARN, assert
+    `ListTagsForResource` sees it (passed) and `Get`/`DescribeXxx` sees it
+    (failed pre-fix — asserted empty vs `"video"`). `PutFunction` diverged
+    the *other* direction and more severely: it never wrote `b.tags` at
+    creation at all (unlike the other three), so `ListTagsForResource`
+    against a function tagged at creation returned empty immediately, no
+    `TagResource` call needed (`TestPutFunction_TagsVisibleOnListTagsForResource`,
+    same file). `b.tags` is the pattern Channel/SourceLocation/VodSource/
+    PlaybackConfiguration already use correctly (see Notes #7), so it's the
+    real source of truth: fixed by making `Get`/`Describe`/`List` for all
+    four types return a copy with `Tags` overlaid from `b.tags[arn]` (never
+    mutating the table's own pointer, since `store.Table.Get` returns the
+    live pointer, not a copy — confirmed in `pkgs/store/table.go`), making
+    `PutFunction` write `b.tags` like its siblings, and cascading
+    `delete(b.tags, arn)` on all four `Delete*` paths (matching
+    `DeleteSourceLocation`'s existing pattern) so a deleted-and-recreated
+    resource can't inherit a stale tag set.
+
+12. **Two more bugs matched the highest-yield classes from today's other
+    service passes.** `CreateProgram`'s required `SourceLocationName` (and
+    the `VodSourceName`/`LiveSourceName` it names) was never checked against
+    `b.sourceLocations`/`b.vodSources`/`b.liveSources` — every sibling
+    `Create*` op in this service (`CreateVodSource`, `CreateLiveSource`)
+    already validates its `SourceLocationName` FK, so this was an
+    inconsistency with the codebase's own established pattern, not a new
+    design decision. A `CreateProgram` naming a nonexistent source location
+    or VOD/live source reported success instead of `NotFoundException`;
+    fixed with existence checks placed in the same position (after the
+    required-field check, before the table write) as the other `Create*`
+    ops, reproduced/verified via `TestCreateProgram_RejectsUnknownReferences`.
+    Separately, `PutFunction` checked `FunctionType` for non-empty but never
+    against the real 3-value enum (`HTTP_REQUEST`/`CUSTOM_OUTPUT`/
+    `SEQUENTIAL_EXECUTOR`, `types/enums.go`) — several existing tests
+    happened to pass fabricated values (`"AWS_LAMBDA"`, `"CHANNEL_ASSEMBLY"`,
+    `"AD_DECISION_SERVER_URL"`) that a real client could never send
+    successfully; fixed the validation and corrected those fixtures to real
+    enum values rather than trust the tests as documentation of intended
+    behavior. Verifying the `CreateProgram` fix through the real SDK client
+    surfaced a third, larger bug: `respondErr` never set an error code
+    anywhere in the response (no `X-Amzn-Errortype` header, no body
+    `code`/`__type` field), so aws-sdk-go-v2's `restjson.GetErrorInfo` had
+    nothing to read and *every* error from *every* mediatailor operation
+    deserialized client-side as a generic `UnknownError`, not just the ones
+    touched this pass — fixed service-wide in `handler.go`'s `respondErr`
+    by setting `X-Amzn-Errortype`, matching the convention already
+    established in `services/account` and `services/apigatewayv2`.

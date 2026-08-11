@@ -14,6 +14,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn := createTestAgent(t, h)
 
 	// Create with SIMPLE auth
 	rec := doRequest(t, h, "CreateLocationHdfs", map[string]any{
@@ -25,9 +26,7 @@ func TestDataSync_Hdfs(t *testing.T) {
 		"Subdirectory":       "/user/data",
 		"BlockSize":          int64(134217728),
 		"ReplicationFactor":  int32(3),
-		"AgentArns": []string{
-			"arn:aws:datasync:us-east-1:000000000000:agent/agent1",
-		},
+		"AgentArns":          []string{agentArn},
 		"QopConfiguration": map[string]any{
 			"DataTransferProtection": "PRIVACY",
 			"RpcProtection":          "PRIVACY",

@@ -305,9 +305,16 @@ func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err 
 	var syntaxErr *json.SyntaxError
 	var typeErr *json.UnmarshalTypeError
 
+	// configservice@v1.68.4 has no single code that fits every operation here:
+	// ValidationException is modeled on only 38 of its ~102 operations, the rest
+	// use InvalidParameterValueException or model no bad-request-class error at
+	// all (e.g. DeleteConfigurationAggregator declares only
+	// NoSuchConfigurationAggregatorException). Left untyped rather than guessing.
 	if errors.Is(err, errUnknownAction) || errors.As(err, &syntaxErr) || errors.As(err, &typeErr) {
 		return c.JSON(http.StatusBadRequest, map[string]string{"message": err.Error()})
 	}
 
+	// configservice@v1.68.4's types/errors.go declares no internal-server/
+	// generic-server exception at all -- left untyped rather than inventing one.
 	return c.JSON(http.StatusInternalServerError, map[string]string{"message": err.Error()})
 }

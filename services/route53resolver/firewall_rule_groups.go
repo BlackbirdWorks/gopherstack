@@ -307,6 +307,14 @@ func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
 	if !ok {
 		return nil, fmt.Errorf("%w: firewall rule group association %s not found", ErrNotFound, id)
 	}
+	if mutationProtection != "" &&
+		mutationProtection != mutationProtectionEnabled &&
+		mutationProtection != mutationProtectionDisabled {
+		return nil, fmt.Errorf(
+			"%w: MutationProtection must be ENABLED or DISABLED",
+			ErrValidation,
+		)
+	}
 	if name != "" {
 		assoc.Name = name
 	}
@@ -314,13 +322,6 @@ func (b *InMemoryBackend) UpdateFirewallRuleGroupAssociation(
 		assoc.Priority = priority
 	}
 	if mutationProtection != "" {
-		if mutationProtection != mutationProtectionEnabled &&
-			mutationProtection != mutationProtectionDisabled {
-			return nil, fmt.Errorf(
-				"%w: MutationProtection must be ENABLED or DISABLED",
-				ErrValidation,
-			)
-		}
 		assoc.MutationProtection = mutationProtection
 	}
 	assoc.ModificationTime = currentTime()

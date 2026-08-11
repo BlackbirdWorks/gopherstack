@@ -118,6 +118,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	glueIntegration := b.glueIntegration
 	ebIntegration := b.ebIntegration
 	s3Reader := b.s3Reader
+	s3ResultWriter := b.s3ResultWriter
 	b.mu.RUnlock()
 
 	parsedSM, parseErr := asl.Parse(definition)
@@ -153,6 +154,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	executor.SetGlueIntegration(glueIntegration)
 	executor.SetEventBridgeIntegration(ebIntegration)
 	executor.SetS3Reader(s3Reader)
+	executor.SetS3ResultWriter(s3ResultWriter)
 	executor.SetActivityInvoker(b)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(
@@ -266,6 +268,7 @@ type startedExecution struct {
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
 	s3Reader        asl.S3Reader
+	s3ResultWriter  asl.S3Writer
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	exec            *Execution
@@ -349,6 +352,7 @@ func (b *InMemoryBackend) startExecutionLocked(
 		glueIntegration: b.glueIntegration,
 		ebIntegration:   b.ebIntegration,
 		s3Reader:        b.s3Reader,
+		s3ResultWriter:  b.s3ResultWriter,
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -389,6 +393,7 @@ func (b *InMemoryBackend) StartExecution(stateMachineArn, name, input string) (*
 		started.glueIntegration,
 		started.ebIntegration,
 		started.s3Reader,
+		started.s3ResultWriter,
 		started.activityInvoker,
 	)
 
@@ -444,6 +449,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	glueIntegration asl.GlueIntegration,
 	ebIntegration asl.EventBridgeIntegration,
 	s3Reader asl.S3Reader,
+	s3ResultWriter asl.S3Writer,
 	activityInvoker asl.ActivityInvoker,
 ) {
 	rec := &historyRecorder{backend: b}
@@ -455,6 +461,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetGlueIntegration(glueIntegration)
 	executor.SetEventBridgeIntegration(ebIntegration)
 	executor.SetS3Reader(s3Reader)
+	executor.SetS3ResultWriter(s3ResultWriter)
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
@@ -654,6 +661,7 @@ type redrivenExecution struct {
 	glueIntegration asl.GlueIntegration
 	ebIntegration   asl.EventBridgeIntegration
 	s3Reader        asl.S3Reader
+	s3ResultWriter  asl.S3Writer
 	ctx             context.Context
 	activityInvoker asl.ActivityInvoker
 	parsedSM        *asl.StateMachine
@@ -729,6 +737,7 @@ func (b *InMemoryBackend) redriveExecutionLocked(executionARN string) (*redriven
 		glueIntegration: b.glueIntegration,
 		ebIntegration:   b.ebIntegration,
 		s3Reader:        b.s3Reader,
+		s3ResultWriter:  b.s3ResultWriter,
 		ctx:             ctx,
 		activityInvoker: b,
 	}, nil
@@ -774,6 +783,7 @@ func (b *InMemoryBackend) RedriveExecution(executionARN string) (*Execution, err
 		redrive.glueIntegration,
 		redrive.ebIntegration,
 		redrive.s3Reader,
+		redrive.s3ResultWriter,
 		redrive.activityInvoker,
 	)
 

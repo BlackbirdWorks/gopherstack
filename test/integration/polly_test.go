@@ -107,7 +107,10 @@ func TestIntegration_Polly_LexiconLifecycle(t *testing.T) {
 			require.NoError(t, err, "PutLexicon should succeed")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteLexicon(ctx, &pollysdk.DeleteLexiconInput{Name: aws.String(tt.lexiconName)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteLexicon(cleanupCtx, &pollysdk.DeleteLexiconInput{Name: aws.String(tt.lexiconName)})
 			})
 
 			getOut, err := client.GetLexicon(ctx, &pollysdk.GetLexiconInput{Name: aws.String(tt.lexiconName)})

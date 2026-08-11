@@ -105,6 +105,68 @@ func TestHandler_DeviceProfile_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestHandler_ServiceProfile_LoRaWANGetShape verifies GetServiceProfile
+// returns the wire-correct LoRaWANGetServiceProfileInfo shape
+// (types.go:933) built from the narrower LoRaWANServiceProfile create
+// request (types.go:1161) -- same field name, echoed value, but AWS-computed
+// get-only fields (e.g. ChannelMask) this backend never fabricates must not
+// appear in the response at all.
+func TestHandler_ServiceProfile_LoRaWANGetShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/service-profiles",
+		`{"Name":"sp-shape","LoRaWAN":{"DrMax":15,"AddGwMetadata":true}}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	id, _ := createResp["Id"].(string)
+	require.NotEmpty(t, id)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/service-profiles/"+id, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	loRaWAN, ok := getResp["LoRaWAN"].(map[string]any)
+	require.True(t, ok, "LoRaWAN must be present on Get")
+	assert.InDelta(t, float64(15), loRaWAN["DrMax"], 0.001)
+	assert.Equal(t, true, loRaWAN["AddGwMetadata"])
+	_, hasChannelMask := loRaWAN["ChannelMask"]
+	assert.False(t, hasChannelMask, "get-only fields this backend never computes must not be fabricated")
+}
+
+// TestHandler_DeviceProfile_SidewalkCreateShape verifies CreateDeviceProfile
+// accepts an empty Sidewalk object (real AWS's SidewalkCreateDeviceProfile
+// has no fields of its own, types.go:1715) and that its mere presence marks
+// the profile as Sidewalk on Get, without fabricating the AWS-assigned
+// SidewalkGetDeviceProfile fields (types.go:1796).
+func TestHandler_DeviceProfile_SidewalkCreateShape(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandlerHTTP()
+
+	rec := doIoTWRequest(t, h, http.MethodPost, "/device-profiles",
+		`{"Name":"dp-sidewalk","Sidewalk":{}}`)
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+	id, _ := createResp["Id"].(string)
+	require.NotEmpty(t, id)
+
+	rec = doIoTWRequest(t, h, http.MethodGet, "/device-profiles/"+id, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
+	sidewalk, ok := getResp["Sidewalk"].(map[string]any)
+	require.True(t, ok, "an empty Sidewalk request object must still mark the profile as Sidewalk on Get")
+	assert.Empty(t, sidewalk, "AWS-assigned Sidewalk fields must not be fabricated")
+}
+
 // TestHandler_DeleteDeviceProfile_NotFound verifies 404 is returned for non-existent device profiles.
 func TestHandler_DeleteDeviceProfile_NotFound(t *testing.T) {
 	t.Parallel()

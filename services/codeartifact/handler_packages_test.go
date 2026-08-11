@@ -160,7 +160,7 @@ func TestHandler_MultiFormatPackages(t *testing.T) {
 	} {
 		doRawRequest(
 			t, h,
-			"/v1/package/versions/publish?domain=fmt-multi-domain&repository=fmt-multi-repo&format="+
+			"/v1/package/version/publish?domain=fmt-multi-domain&repository=fmt-multi-repo&format="+
 				tc.format+"&package="+tc.pkg+"&version="+tc.version+"&asset="+tc.pkg+"-"+tc.version,
 			[]byte("content"),
 		)
@@ -221,14 +221,14 @@ func TestHandler_ListPackages(t *testing.T) {
 				doRawRequest(
 					t,
 					h,
-					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=react"+
+					"/v1/package/version/publish?domain=lp-domain&repository=lp-repo&format=npm&package=react"+
 						"&version=18.0.0&asset=react.tgz",
 					[]byte("content"),
 				)
 				doRawRequest(
 					t,
 					h,
-					"/v1/package/versions/publish?domain=lp-domain&repository=lp-repo&format=npm&package=lodash"+
+					"/v1/package/version/publish?domain=lp-domain&repository=lp-repo&format=npm&package=lodash"+
 						"&version=4.0.0&asset=lodash.tgz",
 					[]byte("content"),
 				)
@@ -255,14 +255,14 @@ func TestHandler_ListPackages(t *testing.T) {
 				doRawRequest(
 					t,
 					h,
-					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=npm&package=react"+
+					"/v1/package/version/publish?domain=lp3-domain&repository=lp3-repo&format=npm&package=react"+
 						"&version=18.0.0&asset=react.tgz",
 					[]byte("content"),
 				)
 				doRawRequest(
 					t,
 					h,
-					"/v1/package/versions/publish?domain=lp3-domain&repository=lp3-repo&format=pypi&package=boto3"+
+					"/v1/package/version/publish?domain=lp3-domain&repository=lp3-repo&format=pypi&package=boto3"+
 						"&version=1.0.0&asset=boto3.tar.gz",
 					[]byte("content"),
 				)

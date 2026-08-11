@@ -22,7 +22,7 @@ func TestTimestreamQueryDashboard(t *testing.T) {
 		"SELECT 1 FROM test_db.test_table",
 		"rate(1 hour)",
 		"arn:aws:iam::000000000000:role/e2e-role",
-		"", "", "", "", "",
+		"", "", "", "", "", "",
 		map[string]string{"Environment": "test"},
 	)
 	require.NoError(t, err)
@@ -128,7 +128,7 @@ func TestTimestreamQueryDashboard_Create(t *testing.T) {
 		"SELECT 1",
 		"rate(1 hour)",
 		"arn:aws:iam::000000000000:role/e2e-role",
-		"", "", "", "", "",
+		"", "", "", "", "", "",
 		nil,
 	)
 	require.NoError(t, err)

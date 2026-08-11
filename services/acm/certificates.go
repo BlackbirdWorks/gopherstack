@@ -322,7 +322,7 @@ func buildInitialDVOList(
 	)
 
 	switch validationMethod {
-	case validationMethodDNS, validationMethodEMAIL:
+	case validationMethodDNS, validationMethodEMAIL, validationMethodHTTP:
 		status = statusPendingValidation
 		dvoList, err = buildDomainValidationOptions(allDomains, validationMethod, overrides)
 	default:
@@ -742,6 +742,10 @@ func (b *InMemoryBackend) ListCertificates(
 ) (page.Page[Certificate], error) {
 	if err := page.ValidateToken(p.NextToken); err != nil {
 		return page.Page[Certificate]{}, fmt.Errorf("%w: invalid NextToken", ErrInvalidParameter)
+	}
+
+	if err := validateListCertificatesParams(p); err != nil {
+		return page.Page[Certificate]{}, err
 	}
 
 	region := getRegion(ctx, b.region)

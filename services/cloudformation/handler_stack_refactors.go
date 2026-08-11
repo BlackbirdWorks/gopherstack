@@ -2,6 +2,8 @@ package cloudformation
 
 import (
 	"encoding/xml"
+	"errors"
+	"fmt"
 	"net/url"
 
 	"github.com/google/uuid"
@@ -30,8 +32,32 @@ func (h *Handler) dispatchStackRefactorOps(
 	return false, nil
 }
 
+// parseResourceMappings parses the nested ResourceMappings list (verified
+// against serializers.go:awsAwsquery_serializeDocumentResourceMapping —
+// each member has Source.{StackName,LogicalResourceId} and a matching
+// Destination).
+func parseResourceMappings(form url.Values, prefix string) []ResourceMapping {
+	var result []ResourceMapping
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("%s%d.", prefix, i)
+		srcStack := form.Get(p + "Source.StackName")
+		srcLogical := form.Get(p + "Source.LogicalResourceId")
+		dstStack := form.Get(p + "Destination.StackName")
+		dstLogical := form.Get(p + "Destination.LogicalResourceId")
+		if srcStack == "" && dstStack == "" {
+			return result
+		}
+		result = append(result, ResourceMapping{
+			Source:      ResourceLocation{StackName: srcStack, LogicalResourceID: srcLogical},
+			Destination: ResourceLocation{StackName: dstStack, LogicalResourceID: dstLogical},
+		})
+	}
+}
+
 func (h *Handler) handleCreateStackRefactor(form url.Values, c *echo.Context) error {
-	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), nil)
+	mappings := parseResourceMappings(form, "ResourceMappings.member.")
+	enableStackCreation := form.Get("EnableStackCreation") == "true"
+	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), mappings, enableStackCreation)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -73,7 +99,14 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) error {
-	_ = h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId"))
+	if err := h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId")); err != nil {
+		code := "ValidationError"
+		if errors.Is(err, ErrStackRefactorNotFound) {
+			code = "StackRefactorNotFoundException"
+		}
+
+		return h.xmlError(c, code, err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"ExecuteStackRefactorResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

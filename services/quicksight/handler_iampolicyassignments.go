@@ -16,6 +16,7 @@ const (
 	keyIdentities           = "Identities"
 	keyIAMPolicyAssignment  = "IAMPolicyAssignment"
 	keyIAMPolicyAssignments = "IAMPolicyAssignments"
+	keyActiveAssignments    = "ActiveAssignments"
 
 	queryParamAssignmentStatus = "assignment-status"
 )
@@ -123,8 +124,11 @@ func (h *Handler) handleDescribeIAMPolicyAssignment(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
+	m := iamPolicyAssignmentToMap(a)
+	m[keyAwsAccountID] = a.AwsAccountID
+
 	return writeJSON(c, http.StatusOK, map[string]any{
-		keyIAMPolicyAssignment: iamPolicyAssignmentToMap(a),
+		keyIAMPolicyAssignment: m,
 		keyRequestID:           reqIDPlaceholder,
 		keyStatus:              http.StatusOK,
 	})
@@ -217,7 +221,30 @@ func (h *Handler) handleListIAMPolicyAssignmentsForUser(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, iamPolicyAssignmentListResponse(assignments, next))
+	// ListIAMPolicyAssignmentsForUserOutput carries ActiveAssignments
+	// ([]types.ActiveIAMPolicyAssignment: AssignmentName/PolicyArn only), not
+	// IAMPolicyAssignments -- confirmed against
+	// aws-sdk-go-v2/service/quicksight@v1.123.1/deserializers.go:33917
+	// ("ActiveAssignments" case) vs. ListIAMPolicyAssignmentsOutput's
+	// "IAMPolicyAssignments" case at deserializers.go:33716.
+	items := make([]map[string]any, 0, len(assignments))
+	for _, a := range assignments {
+		items = append(items, map[string]any{
+			keyAssignmentName: a.AssignmentName,
+			keyPolicyArn:      a.PolicyArn,
+		})
+	}
+
+	resp := map[string]any{
+		keyActiveAssignments: items,
+		keyRequestID:         reqIDPlaceholder,
+		keyStatus:            http.StatusOK,
+	}
+	if next != "" {
+		resp[keyNextToken] = next
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 // ---- shared helpers ----
@@ -261,8 +288,7 @@ func classifyNamespaceSingularPaths(method string, segs []string, n int) (string
 	subID := seg(segs, segSubResID)
 
 	if sub == pathSegIAMPolicyAssignments {
-		switch method { //nolint:gocritic // existing issue.
-		case http.MethodDelete:
+		if method == http.MethodDelete {
 			return opDeleteIAMPolicyAssignment, subID
 		}
 	}

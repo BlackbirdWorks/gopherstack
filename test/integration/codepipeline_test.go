@@ -56,7 +56,10 @@ func TestIntegration_CodePipeline_PipelineLifecycle(t *testing.T) {
 	assert.Equal(t, pipelineName, aws.ToString(createOut.Pipeline.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeletePipeline(ctx, &codepipeline.DeletePipelineInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeletePipeline(cleanupCtx, &codepipeline.DeletePipelineInput{
 			Name: aws.String(pipelineName),
 		})
 	})

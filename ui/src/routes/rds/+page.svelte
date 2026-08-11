@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { confirmDestructive } from '$lib/confirm-dialog';
 import { untrack } from 'svelte';
-import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { onRegionChange } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getRDSClient } from '$lib/aws-client';
 import {
 	DescribeDBInstancesCommand,
@@ -54,11 +57,15 @@ import {
 	Network
 } from 'lucide-svelte';
 
-const rds = regionalClient(getRDSClient);
+// Every row carries the region its Describe*Command call was made against.
+// Row actions (delete/restore/edit) must use THIS region, not the page's
+// shared `rds()` client -- in All mode the same identifier can legitimately
+// exist in two different regions.
+type Regioned<T> = T & { region: string };
 
-let instances = $state<DBInstance[]>([]);
-let snapshots = $state<DBSnapshot[]>([]);
-let clusters = $state<DBCluster[]>([]);
+let instances = $state<Regioned<DBInstance>[]>([]);
+let snapshots = $state<Regioned<DBSnapshot>[]>([]);
+let clusters = $state<Regioned<DBCluster>[]>([]);
 let loading = $state(true);
 let search = $state('');
 let snapshotSearch = $state('');
@@ -66,13 +73,13 @@ let engineFilter = $state('all');
 let showCreateModal = $state(false);
 let expandedInstance = $state<string | null>(null);
 let activeTab = $state<'instances' | 'snapshots' | 'clusters' | 'paramgroups' | 'subnetgroups' | 'pi' | 'bluegreen' | 'shardgroups' | 'integrations' | 'tenantdbs'>('instances');
-let blueGreenDeployments = $state<BlueGreenDeployment[]>([]);
-let shardGroups = $state<DBShardGroup[]>([]);
-let integrations = $state<Integration[]>([]);
-let tenantDatabases = $state<TenantDatabase[]>([]);
+let blueGreenDeployments = $state<Regioned<BlueGreenDeployment>[]>([]);
+let shardGroups = $state<Regioned<DBShardGroup>[]>([]);
+let integrations = $state<Regioned<Integration>[]>([]);
+let tenantDatabases = $state<Regioned<TenantDatabase>[]>([]);
 let piInstances = $derived(instances.filter(i => i.PerformanceInsightsEnabled));
-let paramGroups = $state<DBParameterGroup[]>([]);
-let subnetGroups = $state<DBSubnetGroup[]>([]);
+let paramGroups = $state<Regioned<DBParameterGroup>[]>([]);
+let subnetGroups = $state<Regioned<DBSubnetGroup>[]>([]);
 // Parameter-group editor state
 let expandedParamGroup = $state<string | null>(null);
 let pgParameters = $state<Parameter[]>([]);
@@ -82,6 +89,7 @@ let pgEdits = $state<Record<string, string>>({});
 let savingPgParams = $state(false);
 // Snapshot restore state
 let restoreSnapshotId = $state<string | null>(null);
+let restoreSnapshotRegion = $state<string>('');
 let restoreInstanceId = $state('');
 let restoring = $state(false);
 
@@ -114,18 +122,21 @@ onRegionChange(() => {
 	else void loadInstances();
 });
 
-async function toggleParamGroup(name: string) {
-	if (expandedParamGroup === name) {
+// expandedParamGroup is keyed by "region::name" -- a bare name would collide
+// across regions under All mode.
+async function toggleParamGroup(name: string, region: string) {
+	const key = `${region}::${name}`;
+	if (expandedParamGroup === key) {
 		expandedParamGroup = null;
 		return;
 	}
-	expandedParamGroup = name;
+	expandedParamGroup = key;
 	pgParameters = [];
 	pgEdits = {};
 	pgParamSearch = '';
 	pgParamsLoading = true;
 	try {
-		const data = await rds().send(new DescribeDBParametersCommand({ DBParameterGroupName: name, MaxRecords: 100 }));
+		const data = await getRDSClient(region).send(new DescribeDBParametersCommand({ DBParameterGroupName: name, MaxRecords: 100 }));
 		pgParameters = data.Parameters || [];
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to load parameters');
@@ -134,7 +145,7 @@ async function toggleParamGroup(name: string) {
 	}
 }
 
-async function savePgParams(name: string) {
+async function savePgParams(name: string, region: string) {
 	const changed = Object.entries(pgEdits).filter(([k, v]) => {
 		const orig = pgParameters.find((p) => p.ParameterName === k);
 		return orig && v !== (orig.ParameterValue ?? '');
@@ -145,7 +156,7 @@ async function savePgParams(name: string) {
 	}
 	savingPgParams = true;
 	try {
-		await rds().send(new ModifyDBParameterGroupCommand({
+		await getRDSClient(region).send(new ModifyDBParameterGroupCommand({
 			DBParameterGroupName: name,
 			Parameters: changed.map(([k, v]) => {
 				const orig = pgParameters.find((p) => p.ParameterName === k);
@@ -153,8 +164,8 @@ async function savePgParams(name: string) {
 			})
 		}));
 		toast.success(`Updated ${changed.length} parameter(s)`);
-		await toggleParamGroup(name);
-		expandedParamGroup = name;
+		await toggleParamGroup(name, region);
+		expandedParamGroup = `${region}::${name}`;
 	} catch (e) {
 		toast.error(e instanceof Error ? e.message : 'Failed to update parameters');
 	} finally {
@@ -169,7 +180,7 @@ async function restoreSnapshot() {
 	}
 	restoring = true;
 	try {
-		await rds().send(new RestoreDBInstanceFromDBSnapshotCommand({
+		await getRDSClient(restoreSnapshotRegion).send(new RestoreDBInstanceFromDBSnapshotCommand({
 			DBSnapshotIdentifier: restoreSnapshotId,
 			DBInstanceIdentifier: restoreInstanceId.trim()
 		}));
@@ -184,112 +195,88 @@ async function restoreSnapshot() {
 }
 
 
-async function loadBlueGreenDeployments() {
+// Every load* function goes through multiRegionList: in single-region mode
+// that's exactly one Describe*Command call (unchanged behavior), and in All
+// mode it fans out across every region with data, tagging each row.
+async function loadRegioned<TResponse, TItem>(
+	label: string,
+	regionCall: (region: string) => Promise<TResponse>,
+	extractItems: (r: TResponse) => TItem[],
+	assign: (items: Regioned<TItem>[]) => void
+) {
 	try {
 		loading = true;
-		const data = await rds().send(new DescribeBlueGreenDeploymentsCommand({}));
-		blueGreenDeployments = data.BlueGreenDeployments || [];
+		const result = await multiRegionList(regionCall, extractItems);
+		assign(result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>));
+		if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
 	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load blue/green deployments');
+		toast.error(e instanceof Error ? e.message : `Failed to load ${label}`);
 	} finally {
 		loading = false;
 	}
+}
+
+async function loadBlueGreenDeployments() {
+	await loadRegioned('blue/green deployments',
+		(region) => getRDSClient(region).send(new DescribeBlueGreenDeploymentsCommand({})),
+		(r) => r.BlueGreenDeployments ?? [],
+		(items) => blueGreenDeployments = items);
 }
 
 async function loadShardGroups() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBShardGroupsCommand({}));
-		shardGroups = data.DBShardGroups || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load DB shard groups');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('DB shard groups',
+		(region) => getRDSClient(region).send(new DescribeDBShardGroupsCommand({})),
+		(r) => r.DBShardGroups ?? [],
+		(items) => shardGroups = items);
 }
 
 async function loadIntegrations() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeIntegrationsCommand({}));
-		integrations = data.Integrations || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load integrations');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('integrations',
+		(region) => getRDSClient(region).send(new DescribeIntegrationsCommand({})),
+		(r) => r.Integrations ?? [],
+		(items) => integrations = items);
 }
 
 async function loadTenantDatabases() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeTenantDatabasesCommand({}));
-		tenantDatabases = data.TenantDatabases || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load tenant databases');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('tenant databases',
+		(region) => getRDSClient(region).send(new DescribeTenantDatabasesCommand({})),
+		(r) => r.TenantDatabases ?? [],
+		(items) => tenantDatabases = items);
 }
 
 async function loadInstances() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBInstancesCommand({}));
-		instances = data.DBInstances || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load RDS instances');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('RDS instances',
+		(region) => getRDSClient(region).send(new DescribeDBInstancesCommand({})),
+		(r) => r.DBInstances ?? [],
+		(items) => instances = items);
 }
 
 async function loadSnapshots() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBSnapshotsCommand({ MaxRecords: 100 }));
-		snapshots = data.DBSnapshots || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load snapshots');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('snapshots',
+		(region) => getRDSClient(region).send(new DescribeDBSnapshotsCommand({ MaxRecords: 100 })),
+		(r) => r.DBSnapshots ?? [],
+		(items) => snapshots = items);
 }
 
 async function loadClusters() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBClustersCommand({}));
-		clusters = data.DBClusters || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load clusters');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('clusters',
+		(region) => getRDSClient(region).send(new DescribeDBClustersCommand({})),
+		(r) => r.DBClusters ?? [],
+		(items) => clusters = items);
 }
 
 async function loadParamGroups() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBParameterGroupsCommand({}));
-		paramGroups = data.DBParameterGroups || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load parameter groups');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('parameter groups',
+		(region) => getRDSClient(region).send(new DescribeDBParameterGroupsCommand({})),
+		(r) => r.DBParameterGroups ?? [],
+		(items) => paramGroups = items);
 }
 
 async function loadSubnetGroups() {
-	try {
-		loading = true;
-		const data = await rds().send(new DescribeDBSubnetGroupsCommand({}));
-		subnetGroups = data.DBSubnetGroups || [];
-	} catch (e) {
-		toast.error(e instanceof Error ? e.message : 'Failed to load subnet groups');
-	} finally {
-		loading = false;
-	}
+	await loadRegioned('subnet groups',
+		(region) => getRDSClient(region).send(new DescribeDBSubnetGroupsCommand({})),
+		(r) => r.DBSubnetGroups ?? [],
+		(items) => subnetGroups = items);
 }
 
 async function selectTab(t: typeof activeTab) {
@@ -309,10 +296,10 @@ async function refresh() {
 	else { subnetGroups = []; await loadSubnetGroups(); }
 }
 
-async function deleteInstance(id: string) {
+async function deleteInstance(id: string, region: string) {
 	if (!await confirmDestructive({ title: 'Delete RDS Instance', message: `Delete instance ${id}? All data will be permanently lost unless a final snapshot was taken.` })) return;
 	try {
-		await rds().send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
+		await getRDSClient(region).send(new DeleteDBInstanceCommand({ DBInstanceIdentifier: id, SkipFinalSnapshot: true }));
 		toast.success(`Instance ${id} deleted`);
 		await loadInstances();
 	} catch (e) {
@@ -332,8 +319,9 @@ function formatDate(d: string | Date | undefined): string {
 	return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-function toggleExpand(id: string) {
-	expandedInstance = expandedInstance === id ? null : id;
+function toggleExpand(id: string, region: string) {
+	const key = `${region}::${id}`;
+	expandedInstance = expandedInstance === key ? null : key;
 }
 
 let engines = $derived([...new Set(instances.map(i => i.Engine).filter((e): e is string => e !== null))]);
@@ -376,6 +364,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 			>
 				<RefreshCw class="w-4 h-4" />
 			</button>
+			<WriteRegionHint />
 			<button
 				onclick={() => showCreateModal = true}
 				class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2"
@@ -503,13 +492,16 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 	{:else}
 		<div class="grid gap-4">
 			{#each filtered as instance}
-				{@const expanded = expandedInstance === instance.DBInstanceIdentifier}
+				{@const expanded = expandedInstance === `${instance.region}::${instance.DBInstanceIdentifier}`}
 				<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
 					<!-- Main row -->
 					<div class="p-5">
 						<div class="flex items-start justify-between mb-4">
 							<div class="flex-1 min-w-0">
-								<h3 class="font-semibold text-slate-900 dark:text-white text-lg">{instance.DBInstanceIdentifier}</h3>
+								<div class="flex items-center gap-2">
+									<h3 class="font-semibold text-slate-900 dark:text-white text-lg">{instance.DBInstanceIdentifier}</h3>
+									<RegionChip region={instance.region} />
+								</div>
 								<p class="text-sm text-slate-500 dark:text-slate-400">{instance.Engine}{instance.EngineVersion ? ` ${instance.EngineVersion}` : ''}</p>
 							</div>
 							<span class={`ml-3 shrink-0 px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(instance.DBInstanceStatus ?? '')}`}>
@@ -567,14 +559,14 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						<div class="flex items-center justify-between">
 							<div class="flex gap-2">
 								<button
-									onclick={() => deleteInstance(instance.DBInstanceIdentifier ?? '')}
+									onclick={() => deleteInstance(instance.DBInstanceIdentifier ?? '', instance.region)}
 									class="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700 flex items-center gap-1"
 								>
 									<Trash2 class="w-3 h-3" /> Delete
 								</button>
 							</div>
 							<button
-							onclick={() => toggleExpand(instance.DBInstanceIdentifier ?? '')}
+							onclick={() => toggleExpand(instance.DBInstanceIdentifier ?? '', instance.region)}
 								class="text-sm text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1"
 							>
 								{expanded ? 'Hide details' : 'Show details'}
@@ -654,6 +646,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						<thead class="bg-slate-50 dark:bg-slate-700">
 							<tr>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Snapshot ID</th>
+								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
 								<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
@@ -667,6 +660,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 							{#each filteredSnapshots as snap}
 								<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 									<td class="px-4 py-3 font-mono text-xs text-slate-900 dark:text-white">{snap.DBSnapshotIdentifier}</td>
+									<td class="px-4 py-3"><RegionChip region={snap.region} /></td>
 									<td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{snap.DBInstanceIdentifier || '—'}</td>
 									<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">{snap.Engine || '—'}</td>
 									<td class="px-4 py-3">
@@ -676,14 +670,14 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 									<td class="px-4 py-3 text-xs text-slate-500">{snap.AllocatedStorage ? snap.AllocatedStorage + ' GiB' : '—'}</td>
 									<td class="px-4 py-3 text-xs text-slate-500">{formatDate(snap.SnapshotCreateTime)}</td>
 									<td class="px-4 py-3">
-										{#if restoreSnapshotId === snap.DBSnapshotIdentifier}
+										{#if restoreSnapshotId === snap.DBSnapshotIdentifier && restoreSnapshotRegion === snap.region}
 											<div class="flex items-center gap-1">
 												<input type="text" bind:value={restoreInstanceId} placeholder="new-instance-id" class="w-32 px-2 py-1 text-xs border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
 												<button disabled={restoring} onclick={restoreSnapshot} class="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:opacity-50">{restoring ? '...' : 'Go'}</button>
 												<button onclick={() => { restoreSnapshotId = null; restoreInstanceId = ''; }} class="px-2 py-1 text-xs text-slate-500">Cancel</button>
 											</div>
 										{:else}
-											<button onclick={() => { restoreSnapshotId = snap.DBSnapshotIdentifier ?? null; restoreInstanceId = `${snap.DBInstanceIdentifier ?? 'restored'}-restore`; }} class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Restore</button>
+											<button onclick={() => { restoreSnapshotId = snap.DBSnapshotIdentifier ?? null; restoreSnapshotRegion = snap.region; restoreInstanceId = `${snap.DBInstanceIdentifier ?? 'restored'}-restore`; }} class="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Restore</button>
 										{/if}
 									</td>
 								</tr>
@@ -710,6 +704,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Cluster ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Members</th>
@@ -720,6 +715,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each clusters as cluster}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{cluster.DBClusterIdentifier}</td>
+								<td class="px-4 py-3"><RegionChip region={cluster.region} /></td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{cluster.Engine} {cluster.EngineVersion || ''}</td>
 								<td class="px-4 py-3">
 									<span class="px-2 py-0.5 rounded-full text-xs {cluster.Status === 'available' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-700'}">{cluster.Status || '—'}</span>
@@ -749,6 +745,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Family</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Description</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Parameters</th>
@@ -756,21 +753,22 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					</thead>
 					<tbody class="divide-y divide-slate-100 dark:divide-slate-700">
 						{#each paramGroups as pg}
-							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick={() => toggleParamGroup(pg.DBParameterGroupName ?? '')}>
+							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer" onclick={() => toggleParamGroup(pg.DBParameterGroupName ?? '', pg.region)}>
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{pg.DBParameterGroupName || '—'}</td>
+								<td class="px-4 py-3"><RegionChip region={pg.region} /></td>
 								<td class="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{pg.DBParameterGroupFamily || '—'}</td>
 								<td class="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 max-w-xs truncate">{pg.Description || '—'}</td>
-								<td class="px-4 py-3 text-xs text-blue-500">{expandedParamGroup === pg.DBParameterGroupName ? 'Hide ▲' : 'Edit ▼'}</td>
+								<td class="px-4 py-3 text-xs text-blue-500">{expandedParamGroup === `${pg.region}::${pg.DBParameterGroupName}` ? 'Hide ▲' : 'Edit ▼'}</td>
 							</tr>
-							{#if expandedParamGroup === pg.DBParameterGroupName}
+							{#if expandedParamGroup === `${pg.region}::${pg.DBParameterGroupName}`}
 								<tr class="bg-slate-50 dark:bg-slate-900/40">
-									<td colspan="4" class="px-4 py-4">
+									<td colspan="5" class="px-4 py-4">
 										{#if pgParamsLoading}
 											<p class="text-sm text-slate-500">Loading parameters...</p>
 										{:else}
 											<div class="flex items-center justify-between mb-2 gap-2">
 												<input type="text" bind:value={pgParamSearch} placeholder="Filter parameters..." class="flex-1 px-3 py-1.5 text-sm border border-slate-200 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
-												<button disabled={savingPgParams} onclick={() => savePgParams(pg.DBParameterGroupName ?? '')} class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">{savingPgParams ? 'Saving...' : 'Save Changes'}</button>
+												<button disabled={savingPgParams} onclick={() => savePgParams(pg.DBParameterGroupName ?? '', pg.region)} class="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap">{savingPgParams ? 'Saving...' : 'Save Changes'}</button>
 											</div>
 											<div class="max-h-72 overflow-y-auto">
 												<table class="w-full text-xs">
@@ -820,6 +818,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">VPC</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Subnets</th>
@@ -830,6 +829,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each subnetGroups as sg}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{sg.DBSubnetGroupName || '—'}</td>
+								<td class="px-4 py-3"><RegionChip region={sg.region} /></td>
 								<td class="px-4 py-3 font-mono text-xs text-slate-500">{sg.VpcId || '—'}</td>
 								<td class="px-4 py-3">
 									<span class="px-2 py-0.5 rounded-full text-xs {sg.SubnetGroupStatus === 'Complete' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'}">{sg.SubnetGroupStatus || '—'}</span>
@@ -880,6 +880,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Engine</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Retention Period</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">KMS Key</th>
@@ -889,6 +890,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each piInstances as instance}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{instance.DBInstanceIdentifier}</td>
+								<td class="px-4 py-3"><RegionChip region={instance.region} /></td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{instance.Engine}</td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400">{instance.PerformanceInsightsRetentionPeriod ?? 7} days</td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-xs max-w-xs truncate">{instance.PerformanceInsightsKMSKeyId || 'default'}</td>
@@ -915,6 +917,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Deployment Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Source</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target</th>
@@ -924,6 +927,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each blueGreenDeployments as bgd}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{bgd.BlueGreenDeploymentName}</td>
+								<td class="px-4 py-3"><RegionChip region={bgd.region} /></td>
 								<td class="px-4 py-3">
 									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-500/10 dark:text-blue-400">
 										{bgd.Status}
@@ -954,6 +958,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Shard Group ID</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Max ACU</th>
 						</tr>
@@ -962,6 +967,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each shardGroups as sg}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{sg.DBShardGroupIdentifier}</td>
+								<td class="px-4 py-3"><RegionChip region={sg.region} /></td>
 								<td class="px-4 py-3">
 									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
 										{sg.Status || '—'}
@@ -991,6 +997,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Integration Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Source</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Target</th>
@@ -1000,6 +1007,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each integrations as intg}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{intg.IntegrationName}</td>
+								<td class="px-4 py-3"><RegionChip region={intg.region} /></td>
 								<td class="px-4 py-3">
 									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
 										{intg.Status}
@@ -1030,6 +1038,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 					<thead class="bg-slate-50 dark:bg-slate-700">
 						<tr>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Tenant DB Name</th>
+							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Region</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Instance</th>
 							<th class="text-left px-4 py-3 font-medium text-slate-600 dark:text-slate-300">Status</th>
 						</tr>
@@ -1038,6 +1047,7 @@ let manualSnapshotCount = $derived(snapshots.filter(s => s.SnapshotType === 'man
 						{#each tenantDatabases as tdb}
 							<tr class="hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors">
 								<td class="px-4 py-3 font-medium text-slate-900 dark:text-white">{tdb.TenantDBName}</td>
+								<td class="px-4 py-3"><RegionChip region={tdb.region} /></td>
 								<td class="px-4 py-3 text-slate-500 dark:text-slate-400 font-mono text-xs">{tdb.DBInstanceIdentifier || '—'}</td>
 								<td class="px-4 py-3">
 									<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">

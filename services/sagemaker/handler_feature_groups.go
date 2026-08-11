@@ -17,6 +17,11 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 		FeatureGroupName            string              `json:"FeatureGroupName"`
 		RecordIdentifierFeatureName string              `json:"RecordIdentifierFeatureName"`
 		EventTimeFeatureName        string              `json:"EventTimeFeatureName"`
+		Description                 string              `json:"Description,omitempty"`
+		RoleArn                     string              `json:"RoleArn,omitempty"`
+		OnlineStoreConfig           *OnlineStoreConfig  `json:"OnlineStoreConfig,omitempty"`
+		OfflineStoreConfig          *OfflineStoreConfig `json:"OfflineStoreConfig,omitempty"`
+		ThroughputConfig            *ThroughputConfig   `json:"ThroughputConfig,omitempty"`
 		FeatureDefinitions          []FeatureDefinition `json:"FeatureDefinitions"`
 		Tags                        []tagObject         `json:"Tags"`
 	}
@@ -29,14 +34,18 @@ func (h *Handler) handleCreateFeatureGroup(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: FeatureGroupName is required", errInvalidRequest)
 	}
 
-	fg, err := h.Backend.CreateFeatureGroup(
-		ctx,
-		req.FeatureGroupName,
-		req.RecordIdentifierFeatureName,
-		req.EventTimeFeatureName,
-		req.FeatureDefinitions,
-		fromTagObjects(req.Tags),
-	)
+	fg, err := h.Backend.CreateFeatureGroup(ctx, CreateFeatureGroupOptions{
+		FeatureGroupName:            req.FeatureGroupName,
+		RecordIdentifierFeatureName: req.RecordIdentifierFeatureName,
+		EventTimeFeatureName:        req.EventTimeFeatureName,
+		Description:                 req.Description,
+		RoleArn:                     req.RoleArn,
+		FeatureDefinitions:          req.FeatureDefinitions,
+		Tags:                        fromTagObjects(req.Tags),
+		OnlineStoreConfig:           req.OnlineStoreConfig,
+		OfflineStoreConfig:          req.OfflineStoreConfig,
+		ThroughputConfig:            req.ThroughputConfig,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +74,7 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 		return nil, err
 	}
 
-	return json.Marshal(map[string]any{
+	resp := map[string]any{
 		keyFeatureGroupName:            fg.FeatureGroupName,
 		keyFeatureGroupArn:             fg.FeatureGroupArn,
 		keyFeatureGroupStatus:          fg.FeatureGroupStatus,
@@ -73,7 +82,27 @@ func (h *Handler) handleDescribeFeatureGroup(ctx context.Context, body []byte) (
 		keyEventTimeFeatureName:        fg.EventTimeFeatureName,
 		keyFeatureDefinitions:          fg.FeatureDefinitions,
 		keyCreationTime:                epochSeconds(fg.CreationTime),
-	})
+	}
+	if fg.Description != "" {
+		resp["Description"] = fg.Description
+	}
+	if fg.RoleArn != "" {
+		resp[keyRoleArn] = fg.RoleArn
+	}
+
+	if fg.OnlineStoreConfig != nil {
+		resp["OnlineStoreConfig"] = fg.OnlineStoreConfig
+	}
+
+	if fg.OfflineStoreConfig != nil {
+		resp["OfflineStoreConfig"] = fg.OfflineStoreConfig
+	}
+
+	if fg.ThroughputConfig != nil {
+		resp["ThroughputConfig"] = fg.ThroughputConfig
+	}
+
+	return json.Marshal(resp)
 }
 
 type featureGroupSummary struct {

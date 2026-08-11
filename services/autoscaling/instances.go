@@ -76,7 +76,7 @@ func (b *InMemoryBackend) TerminateInstanceInAutoScalingGroup(
 	// HeartbeatTimeout elapses; the actual removal/replacement is deferred to
 	// finishTermination. This mirrors real AWS behavior instead of terminating
 	// instantly regardless of configured hooks.
-	if hook := findHookForTransition(b.lifecycleHooksByGroup.Get(groupName), transitionTerminating); hook != nil {
+	if hook := firstHookInChain(b.lifecycleHooksByGroup.Get(groupName), transitionTerminating); hook != nil {
 		disposition := terminationReplace
 		if shouldDecrement {
 			disposition = terminationDecrement
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) DescribeAutoScalingInstances(instanceIDs []string) ([]
 // callers can invoke it unconditionally after adding instances. Must be called with
 // b.mu held (write lock).
 func (b *InMemoryBackend) gateNewLaunchInstances(g *AutoScalingGroup, startIdx int) {
-	hook := findHookForTransition(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transitionLaunching)
+	hook := firstHookInChain(b.lifecycleHooksByGroup.Get(g.AutoScalingGroupName), transitionLaunching)
 	if hook == nil {
 		return
 	}

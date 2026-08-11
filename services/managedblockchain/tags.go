@@ -2,6 +2,54 @@ package managedblockchain
 
 import "maps"
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// resourceTags returns res's Tags field for the resource kinds TagResource
+// supports (Network, Member, Node, Accessor, Proposal -- CreateProposal
+// accepts Tags in the real CreateProposalInput, aws-sdk-go-v2
+// managedblockchain@v1.34.4 api_op_CreateProposal.go), or nil for anything
+// else (e.g. Invitation, which carries no tags).
+func resourceTags(res any) map[string]string {
+	switch r := res.(type) {
+	case *Network:
+		return r.Tags
+	case *Member:
+		return r.Tags
+	case *Node:
+		return r.Tags
+	case *Accessor:
+		return r.Tags
+	case *Proposal:
+		return r.Tags
+	default:
+		return nil
+	}
+}
+
+// TaggedResources returns every Managed Blockchain resource ARN that
+// currently has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.arnToResource))
+
+	for resourceARN, res := range b.arnToResource {
+		tags := resourceTags(res)
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceARN, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 // ListTagsForResource returns tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")
@@ -29,6 +77,11 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 
 		return result, nil
 	case *Accessor:
+		result := make(map[string]string, len(r.Tags))
+		maps.Copy(result, r.Tags)
+
+		return result, nil
+	case *Proposal:
 		result := make(map[string]string, len(r.Tags))
 		maps.Copy(result, r.Tags)
 
@@ -81,6 +134,14 @@ func (b *InMemoryBackend) TagResource(resourceARN string, tags map[string]string
 		maps.Copy(r.Tags, tags)
 
 		return nil
+	case *Proposal:
+		if r.Tags == nil {
+			r.Tags = make(map[string]string)
+		}
+
+		maps.Copy(r.Tags, tags)
+
+		return nil
 	}
 
 	return ErrResourceNotFound
@@ -116,6 +177,12 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 
 		return nil
 	case *Accessor:
+		for _, k := range tagKeys {
+			delete(r.Tags, k)
+		}
+
+		return nil
+	case *Proposal:
 		for _, k := range tagKeys {
 			delete(r.Tags, k)
 		}

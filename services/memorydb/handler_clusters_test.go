@@ -283,7 +283,7 @@ func TestHandler_BatchUpdateCluster(t *testing.T) {
 			body: map[string]any{
 				"ClusterNames": []string{"cluster-a", "cluster-b"},
 				"ServiceUpdate": map[string]any{
-					"ServiceUpdateNameToApply": "memorydb-redis6.2-0001",
+					"ServiceUpdateNameToApply": "memorydb-20240601-redis-security",
 				},
 			},
 			wantStatus:      http.StatusOK,
@@ -302,6 +302,27 @@ func TestHandler_BatchUpdateCluster(t *testing.T) {
 		{
 			name:       "empty cluster names returns bad request",
 			body:       map[string]any{"ClusterNames": []string{}},
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			// Proves the fix: BatchUpdateCluster must reject a
+			// ServiceUpdateNameToApply that names no known service update
+			// (real AWS fault: ServiceUpdateNotFoundFault) instead of silently
+			// succeeding for every found cluster.
+			name: "unknown service update name is rejected",
+			setup: func(h *memorydb.Handler) {
+				doRequest(t, h, "CreateCluster", map[string]any{
+					"ClusterName": "cluster-c",
+					"NodeType":    "db.r6g.large",
+					"ACLName":     "open-access",
+				})
+			},
+			body: map[string]any{
+				"ClusterNames": []string{"cluster-c"},
+				"ServiceUpdate": map[string]any{
+					"ServiceUpdateNameToApply": "no-such-service-update",
+				},
+			},
 			wantStatus: http.StatusBadRequest,
 		},
 	}

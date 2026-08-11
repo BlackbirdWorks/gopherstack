@@ -14,6 +14,8 @@ func (h *Handler) handleCreateBlueGreenDeployment(vals url.Values) (any, error) 
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, deployment.BlueGreenDeploymentIdentifier)
+
 	return &createBlueGreenDeploymentResponse{
 		Xmlns:               rdsXMLNS,
 		BlueGreenDeployment: toXMLBlueGreenDeployment(deployment),
@@ -88,7 +90,7 @@ func (h *Handler) handleSwitchoverBlueGreenDeployment(vals url.Values) (any, err
 }
 
 type xmlBlueGreenDeploymentList struct {
-	Members []xmlBlueGreenDeployment `xml:"BlueGreenDeployment"`
+	Members []xmlBlueGreenDeployment `xml:"member"`
 }
 
 type describeBlueGreenDeploymentsResponse struct {

@@ -85,7 +85,7 @@ func toSpotRequestItem(req *SpotInstanceRequest) spotInstanceRequestItem {
 		State:                 req.State,
 		SpotPrice:             req.SpotPrice,
 		Type:                  req.Type,
-		CreateTime:            req.CreateTime.Format("2006-01-02T15:04:05.000Z"),
+		CreateTime:            req.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		LaunchSpecification: spotLaunchSpecItem{
 			ImageID:      req.LaunchSpec.ImageID,
 			InstanceType: req.LaunchSpec.InstanceType,
@@ -189,7 +189,7 @@ func (h *Handler) handleDescribeSpotPriceHistory(vals url.Values, reqID string) 
 			AvailabilityZone:   r.AvailabilityZone,
 			ProductDescription: r.ProductDescription,
 			SpotPrice:          r.SpotPrice,
-			Timestamp:          r.Timestamp.Format("2006-01-02T15:04:05.000Z"),
+			Timestamp:          r.Timestamp.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}
 

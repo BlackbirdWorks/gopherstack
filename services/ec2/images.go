@@ -395,14 +395,9 @@ func (b *InMemoryBackend) ListImagesInRecycleBin(imageIDs []string) []*RecycleBi
 // RestoreImageFromRecycleBin restores a soft-deleted AMI, moving it back out of
 // the recycle bin and into the available image set.
 //
-// Note on when the bin is populated at all: an AMI only enters the recycle bin
-// when a Recycle Bin retention rule covers it, and gopherstack models no
-// Recycle Bin (rbin) service, so DeregisterImage always deletes permanently --
-// which is also what real AWS does with no retention rule in force. The bin is
-// therefore normally empty, and this operation normally reports not-found.
-// Previously it deleted from the (empty) bin and returned success regardless,
-// so a caller restoring a nonexistent image got a success response and no
-// image.
+// gopherstack models no Recycle Bin service, so DeregisterImage always deletes
+// permanently and the bin is normally empty; this must report not-found rather
+// than a false success for a nonexistent image.
 func (b *InMemoryBackend) RestoreImageFromRecycleBin(imageID string) error {
 	if imageID == "" {
 		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)

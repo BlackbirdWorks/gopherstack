@@ -110,6 +110,11 @@ type S3Reader interface {
 	GetObjectBytes(ctx context.Context, bucket, key string) ([]byte, error)
 }
 
+// S3Writer writes objects to S3 for a Distributed Map state's ResultWriter.
+type S3Writer interface {
+	PutObjectBytes(ctx context.Context, bucket, key string, data []byte) error
+}
+
 // SQSIntegration handles Step Functions SQS service integration.
 type SQSIntegration interface {
 	SFNSendMessage(
@@ -177,7 +182,10 @@ type HistoryRecorder interface {
 // Implement this to track Map state execution in a backend.
 type MapRunNotifier interface {
 	OnMapRunStart(executionARN, stateName string, maxConcurrency, itemCount int) string
-	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total int)
+	// resultsWritten is the count of items whose result was actually written
+	// by a ResultWriter (0 when ResultWriter isn't configured), matching
+	// DescribeMapRun's ItemCounts.ResultsWritten semantics.
+	OnMapRunEnd(mapRunARN, status string, succeeded, failed, total, resultsWritten int)
 }
 
 // ExecutionResult holds the final output and status of a state machine execution.
@@ -268,6 +276,7 @@ func (c *jsonPathCache) store(path string, parts []string) {
 // Executor runs an ASL state machine.
 type Executor struct {
 	s3             S3Reader
+	s3w            S3Writer
 	callback       TaskTokenCallbackInvoker
 	sqs            SQSIntegration
 	sns            SNSIntegration
@@ -342,6 +351,7 @@ func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 		activity:       e.activity,
 		callback:       e.callback,
 		s3:             e.s3,
+		s3w:            e.s3w,
 		execSem:        e.execSem,
 		jsonPathCache:  e.jsonPathCache,
 		execMeta:       e.execMeta,
@@ -435,6 +445,9 @@ func (e *Executor) SetDynamoDBIntegration(ddb DynamoDBIntegration) { e.dynamodb 
 // SetS3Reader configures the S3 reader for Map state ItemReader.
 func (e *Executor) SetS3Reader(s3 S3Reader) { e.s3 = s3 }
 
+// SetS3ResultWriter configures the S3 writer for Distributed Map ResultWriter.
+func (e *Executor) SetS3ResultWriter(w S3Writer) { e.s3w = w }
+
 // SetActivityInvoker configures the activity invoker for activity Task states.
 func (e *Executor) SetActivityInvoker(ai ActivityInvoker) { e.activity = ai }
 
@@ -524,7 +537,7 @@ func (e *Executor) runStates(
 		var result any
 		var nextState string
 
-		nextState, result, err = e.executeState(ctx, executionARN, current, state, taskInput)
+		nextState, result, err = e.executeState(ctx, executionARN, current, state, effectiveInput, taskInput)
 		if err != nil {
 			return nil, err
 		}
@@ -583,11 +596,16 @@ func (e *Executor) applyStateOutputTransforms(
 }
 
 // executeState executes a single state and returns (nextStateName, output, error).
+// pathInput is the state's input after InputPath but before Parameters; Task
+// and Map thread it separately from input (the post-Parameters payload) so
+// their *Path fields (TimeoutSecondsPath, ItemsPath, MaxConcurrencyPath, ...)
+// resolve against the pre-Parameters value, per the ASL spec (see
+// resolveTaskTimeoutSeconds and resolveMapItems).
 func (e *Executor) executeState(
 	ctx context.Context,
 	executionARN, stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
 	switch state.Type {
 	case "Pass":
@@ -601,11 +619,11 @@ func (e *Executor) executeState(
 	case "Choice":
 		return e.executeChoice(state, input)
 	case "Task":
-		return e.executeTask(ctx, executionARN, stateName, state, input)
+		return e.executeTask(ctx, executionARN, stateName, state, pathInput, input)
 	case "Parallel":
 		return e.executeParallel(ctx, executionARN, stateName, state, input)
 	case "Map":
-		return e.executeMap(ctx, executionARN, stateName, state, input)
+		return e.executeMap(ctx, executionARN, stateName, state, pathInput, input)
 	default:
 		return "", nil, fmt.Errorf(
 			"%w: %q in state %q",
@@ -772,13 +790,16 @@ func (e *Executor) executeTask(
 	ctx context.Context,
 	executionARN, stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
-	// Enforce TimeoutSeconds by wrapping the context.
-	if state.TimeoutSeconds > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(state.TimeoutSeconds)*time.Second)
-		defer cancel()
+	timeoutSeconds, err := e.resolveTaskTimeoutSeconds(state, pathInput)
+	if err != nil {
+		return "", nil, err
+	}
+
+	heartbeatSeconds, err := e.resolveTaskHeartbeatSeconds(state, pathInput)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if e.history != nil {
@@ -790,7 +811,7 @@ func (e *Executor) executeTask(
 	waitForTaskToken := isWaitForTaskTokenResource(state.Resource)
 
 	for {
-		result, taskErr := e.invokeTaskAttempt(ctx, state, input, waitForTaskToken)
+		result, taskErr := e.runTaskAttempt(ctx, state, input, waitForTaskToken, timeoutSeconds, heartbeatSeconds)
 		if taskErr == nil {
 			e.recordTaskSucceeded(executionARN, stateName, result)
 
@@ -825,14 +846,42 @@ func (e *Executor) executeTask(
 	}
 }
 
+// runTaskAttempt invokes a single Task attempt under its own TimeoutSeconds
+// deadline, freshly derived from ctx. AWS docs (amazon-states-language-task-state.html)
+// on TimeoutSeconds: "the timeout count begins when the start event is
+// executed, such as when TaskStarted ... events are logged" -- a new start
+// event is logged per retry attempt, so the deadline resets on every
+// attempt rather than being shared across the whole state including
+// retries. tryRetry (called by executeTask with the un-wrapped ctx) is
+// therefore not starved by a prior attempt's expired deadline.
+func (e *Executor) runTaskAttempt(
+	ctx context.Context,
+	state *State,
+	input any,
+	waitForTaskToken bool,
+	timeoutSeconds, heartbeatSeconds int,
+) (any, error) {
+	attemptCtx := ctx
+
+	if timeoutSeconds > 0 {
+		var cancel context.CancelFunc
+
+		attemptCtx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+		defer cancel()
+	}
+
+	return e.invokeTaskAttempt(attemptCtx, state, input, waitForTaskToken, heartbeatSeconds)
+}
+
 func (e *Executor) invokeTaskAttempt(
 	ctx context.Context,
 	state *State,
 	input any,
 	waitForTaskToken bool,
+	heartbeatSeconds int,
 ) (any, error) {
 	if !waitForTaskToken {
-		return e.invokeTask(ctx, state, input)
+		return e.invokeTask(ctx, state, input, heartbeatSeconds)
 	}
 
 	if e.callback == nil {
@@ -845,12 +894,12 @@ func (e *Executor) invokeTaskAttempt(
 	}
 
 	taskInput := injectTaskToken(input, taskToken)
-	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput)
+	invokeResult, invokeErr := e.invokeTask(ctx, state, taskInput, heartbeatSeconds)
 	if invokeErr != nil {
 		return nil, invokeErr
 	}
 
-	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, state.HeartbeatSeconds)
+	callbackOutput, err := e.callback.WaitForTaskToken(ctx, taskToken, heartbeatSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -1071,9 +1120,9 @@ func (e *Executor) recordTaskFailed(executionARN, stateName, errCode, cause stri
 }
 
 // invokeTask performs the actual task invocation.
-func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any, error) {
+func (e *Executor) invokeTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
 	if isActivityResource(state.Resource) {
-		return e.invokeActivityTask(ctx, state, input)
+		return e.invokeActivityTask(ctx, state, input, heartbeatSeconds)
 	}
 	if isLambdaResource(state.Resource) {
 		return e.invokeLambdaTask(ctx, state, input)
@@ -1110,7 +1159,7 @@ func (e *Executor) invokeTask(ctx context.Context, state *State, input any) (any
 }
 
 // invokeActivityTask enqueues a task for an activity worker and waits for the result.
-func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input any) (any, error) {
+func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input any, heartbeatSeconds int) (any, error) {
 	if e.activity == nil {
 		return nil, ErrActivityNotConfigured
 	}
@@ -1119,7 +1168,7 @@ func (e *Executor) invokeActivityTask(ctx context.Context, state *State, input a
 		ctx,
 		state.Resource,
 		marshalInput(input),
-		state.HeartbeatSeconds,
+		heartbeatSeconds,
 	)
 	if err != nil {
 		return nil, err
@@ -1572,12 +1621,19 @@ const jitterStrategyFull = "FULL"
 // Parallel, Map supports Retry/Catch on the Map state itself (in addition to
 // per-iteration failures counted against ToleratedFailure*); a retry re-runs
 // every item from scratch, matching AWS Map/Distributed-Map semantics.
+// pathInput is the pre-Parameters input (see executeState); every *Path
+// field (ItemsPath, ItemBatcher's and ReaderConfig's *Path siblings,
+// MaxConcurrencyPath, ToleratedFailure*Path) resolves against it, matching
+// the ASL Map State spec section, which resolves ItemsPath/ItemReader
+// against "the effective input" (post-InputPath, pre-Parameters) -- the
+// state's own Parameters field is the deprecated ItemSelector alias applied
+// per item, not to this scope.
 func (e *Executor) executeMap(
 	ctx context.Context,
 	executionARN string,
 	stateName string,
 	state *State,
-	input any,
+	pathInput, input any,
 ) (string, any, error) {
 	iterator, iterErr := e.getMapIterator(state)
 	if iterErr != nil {
@@ -1586,7 +1642,7 @@ func (e *Executor) executeMap(
 
 	return e.executeWithStateRetryAndCatch(ctx, executionARN, stateName, state, input,
 		func(ctx context.Context) (any, error) {
-			items, err := e.resolveMapItems(ctx, state, input)
+			items, err := e.resolveMapItems(ctx, state, pathInput)
 			if err != nil {
 				return nil, err
 			}
@@ -1600,12 +1656,24 @@ func (e *Executor) executeMap(
 
 			// Apply ItemBatcher: wrap items into batches; each batch is one Map iteration.
 			if state.ItemBatcher != nil {
-				batched := batchItems(items, state.ItemBatcher)
+				maxItemsPerBatch, maxInputBytesPerBatch, batcherErr := e.resolveItemBatcherLimits(
+					state.ItemBatcher, pathInput,
+				)
+				if batcherErr != nil {
+					return nil, batcherErr
+				}
 
-				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, batched)
+				rawBatches := batchItems(items, maxItemsPerBatch, maxInputBytesPerBatch)
+
+				batched, wrapErr := wrapItemBatcherBatches(rawBatches, state.ItemBatcher.BatchInput)
+				if wrapErr != nil {
+					return nil, wrapErr
+				}
+
+				return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, batched)
 			}
 
-			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, input, items)
+			return e.runMapItemsAndFinalize(ctx, executionARN, stateName, iterator, state, pathInput, items)
 		},
 	)
 }
@@ -1623,16 +1691,27 @@ func (e *Executor) runMapItemsAndFinalize(
 ) (any, error) {
 	results := make([]any, len(items))
 	errs := make([]error, len(items))
-	concurrency := resolveMapConcurrency(state.MaxConcurrency, len(items))
+
+	maxConcurrency, err := e.resolveMaxConcurrency(state, mapInput)
+	if err != nil {
+		return nil, err
+	}
+
+	concurrency := resolveMapConcurrency(maxConcurrency, len(items))
 
 	var mapRunARN string
 	if e.mapRunNotifier != nil {
-		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, state.MaxConcurrency, len(items))
+		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, maxConcurrency, len(items))
 	}
 
 	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
 
 	out, finalErr := e.finalizeMap(ctx, state, mapInput, results, errs)
+
+	resultsWritten := 0
+	if finalErr == nil && state.ResultWriter != nil {
+		out, resultsWritten, finalErr = e.exportMapResults(ctx, state, stateName, mapRunARN, items, results, errs)
+	}
 
 	if e.mapRunNotifier != nil && mapRunARN != "" {
 		succeeded, failed := countMapResults(errs)
@@ -1642,17 +1721,66 @@ func (e *Executor) runMapItemsAndFinalize(
 			status = "FAILED"
 		}
 
-		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items))
+		e.mapRunNotifier.OnMapRunEnd(mapRunARN, status, succeeded, failed, len(items), resultsWritten)
 	}
 
 	return out, finalErr
 }
 
-// batchItems groups items into batches according to ItemBatcher configuration.
-// Each batch is returned as []any and becomes one iteration input.
-func batchItems(items []any, batcher *ItemBatcher) []any {
-	if batcher == nil ||
-		(batcher.MaxItemsPerBatch <= 0 && batcher.MaxInputBytesPerBatch <= 0) {
+// ErrMaxItemsPerBatchPathNotNumber is returned when ItemBatcher.MaxItemsPerBatchPath
+// does not resolve to a number.
+var ErrMaxItemsPerBatchPathNotNumber = errors.New("MaxItemsPerBatchPath: value is not a number")
+
+// ErrMaxInputBytesPerBatchPathNotNumber is returned when
+// ItemBatcher.MaxInputBytesPerBatchPath does not resolve to a number.
+var ErrMaxInputBytesPerBatchPathNotNumber = errors.New(
+	"MaxInputBytesPerBatchPath: value is not a number",
+)
+
+// resolveItemBatcherLimits resolves ItemBatcher's MaxItemsPerBatch(Path) and
+// MaxInputBytesPerBatch(Path) against the Map state's pre-Parameters input,
+// the same way resolveToleratedFailureCount resolves ToleratedFailureCountPath.
+func (e *Executor) resolveItemBatcherLimits(batcher *ItemBatcher, mapInput any) (int, int, error) {
+	maxItems := batcher.MaxItemsPerBatch
+
+	if batcher.MaxItemsPerBatchPath != "" {
+		val, err := applyPath(batcher.MaxItemsPerBatchPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, 0, fmt.Errorf("MaxItemsPerBatchPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, 0, ErrMaxItemsPerBatchPathNotNumber
+		}
+
+		maxItems = int(f)
+	}
+
+	maxBytes := batcher.MaxInputBytesPerBatch
+
+	if batcher.MaxInputBytesPerBatchPath != "" {
+		val, err := applyPath(batcher.MaxInputBytesPerBatchPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return 0, 0, fmt.Errorf("MaxInputBytesPerBatchPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return 0, 0, ErrMaxInputBytesPerBatchPathNotNumber
+		}
+
+		maxBytes = int(f)
+	}
+
+	return maxItems, maxBytes, nil
+}
+
+// batchItems groups items into batches of at most maxItemsPerBatch items and
+// maxInputBytesPerBatch bytes (either limit <= 0 means unlimited). Each batch
+// is returned as []any and becomes one iteration input.
+func batchItems(items []any, maxItemsPerBatch, maxInputBytesPerBatch int) []any {
+	if maxItemsPerBatch <= 0 && maxInputBytesPerBatch <= 0 {
 		result := make([]any, len(items))
 		for i, it := range items {
 			result[i] = []any{it}
@@ -1670,10 +1798,10 @@ func batchItems(items []any, batcher *ItemBatcher) []any {
 	for _, item := range items {
 		itemBytes := len(marshalInput(item))
 
-		itemsFull := batcher.MaxItemsPerBatch > 0 && len(current) >= batcher.MaxItemsPerBatch
-		bytesFull := batcher.MaxInputBytesPerBatch > 0 &&
+		itemsFull := maxItemsPerBatch > 0 && len(current) >= maxItemsPerBatch
+		bytesFull := maxInputBytesPerBatch > 0 &&
 			len(current) > 0 &&
-			currentBytes+itemBytes > batcher.MaxInputBytesPerBatch
+			currentBytes+itemBytes > maxInputBytesPerBatch
 
 		if itemsFull || bytesFull {
 			batches = append(batches, current)
@@ -1690,6 +1818,34 @@ func batchItems(items []any, batcher *ItemBatcher) []any {
 	}
 
 	return batches
+}
+
+// wrapItemBatcherBatches converts raw item batches into the AWS Map
+// iteration-input shape for ItemBatcher: {"Items": [...]}, plus a
+// "BatchInput" field merged in when ItemBatcher.BatchInput is set (AWS docs:
+// input-output-itembatcher.html, "Batch input"). Previously each batch was
+// passed through as a bare array, which is not the shape AWS sends to child
+// executions.
+func wrapItemBatcherBatches(rawBatches []any, batchInput json.RawMessage) ([]any, error) {
+	var decodedBatchInput any
+	if len(batchInput) > 0 {
+		if err := json.Unmarshal(batchInput, &decodedBatchInput); err != nil {
+			return nil, fmt.Errorf("ItemBatcher.BatchInput error: %w", err)
+		}
+	}
+
+	wrapped := make([]any, len(rawBatches))
+
+	for i, batch := range rawBatches {
+		entry := map[string]any{"Items": batch}
+		if len(batchInput) > 0 {
+			entry["BatchInput"] = decodedBatchInput
+		}
+
+		wrapped[i] = entry
+	}
+
+	return wrapped, nil
 }
 
 func applyMapItemSelector(itemSelector json.RawMessage, items []any) ([]any, error) {
@@ -1775,12 +1931,52 @@ var ErrItemReaderInvalidData = errors.New(
 
 func (e *Executor) resolveMapItems(ctx context.Context, state *State, input any) ([]any, error) {
 	if state.ItemReader != nil {
-		return e.resolveItemsFromReader(ctx, state.ItemReader)
+		items, err := e.resolveItemsFromReader(ctx, state.ItemReader)
+		if err != nil {
+			return nil, err
+		}
+
+		return e.truncateReaderItems(items, state.ItemReader.ReaderConfig, input)
 	}
 
 	items, err := resolveItems(state.ItemsPath, input)
 	if err != nil {
 		return nil, fmt.Errorf("map ItemsPath error: %w", err)
+	}
+
+	return items, nil
+}
+
+// ErrMaxItemsPathNotNumber is returned when ReaderConfig.MaxItemsPath does
+// not resolve to a number.
+var ErrMaxItemsPathNotNumber = errors.New("MaxItemsPath: value is not a number")
+
+// truncateReaderItems applies ReaderConfig's MaxItems(Path) cap, resolving
+// MaxItemsPath against the Map state's pre-Parameters input the same way
+// resolveToleratedFailureCount resolves ToleratedFailureCountPath.
+func (e *Executor) truncateReaderItems(items []any, cfg *ReaderConfig, mapInput any) ([]any, error) {
+	if cfg == nil {
+		return items, nil
+	}
+
+	maxItems := cfg.MaxItems
+
+	if cfg.MaxItemsPath != "" {
+		val, err := applyPath(cfg.MaxItemsPath, mapInput, e.jsonPathCache)
+		if err != nil {
+			return nil, fmt.Errorf("MaxItemsPath error: %w", err)
+		}
+
+		f, ok := toFloat(val)
+		if !ok {
+			return nil, ErrMaxItemsPathNotNumber
+		}
+
+		maxItems = int(f)
+	}
+
+	if maxItems > 0 && len(items) > maxItems {
+		items = items[:maxItems]
 	}
 
 	return items, nil
@@ -1801,17 +1997,7 @@ func (e *Executor) resolveItemsFromReader(ctx context.Context, reader *ItemReade
 		return nil, fmt.Errorf("ItemReader S3 get error: %w", err)
 	}
 
-	items, err := decodeReaderItems(data, reader.ReaderConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	if reader.ReaderConfig != nil && reader.ReaderConfig.MaxItems > 0 &&
-		len(items) > reader.ReaderConfig.MaxItems {
-		items = items[:reader.ReaderConfig.MaxItems]
-	}
-
-	return items, nil
+	return decodeReaderItems(data, reader.ReaderConfig)
 }
 
 // decodeReaderItems parses S3 object bytes into Map items based on the
@@ -2121,6 +2307,85 @@ func (e *Executor) resolveToleratedFailurePercentageThreshold(
 	}
 
 	return int(math.Floor(float64(totalCount) * pct / percentToFractionDivisor)), true, nil
+}
+
+// ErrMaxConcurrencyPathNotNumber is returned when State.MaxConcurrencyPath
+// does not resolve to a number.
+var ErrMaxConcurrencyPathNotNumber = errors.New("MaxConcurrencyPath: value is not a number")
+
+// resolveMaxConcurrency resolves MaxConcurrency(Path) against the Map
+// state's pre-Parameters input, the same way resolveToleratedFailureCount
+// resolves ToleratedFailureCountPath.
+func (e *Executor) resolveMaxConcurrency(state *State, mapInput any) (int, error) {
+	if state.MaxConcurrencyPath == "" {
+		return state.MaxConcurrency, nil
+	}
+
+	val, err := applyPath(state.MaxConcurrencyPath, mapInput, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("MaxConcurrencyPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrMaxConcurrencyPathNotNumber
+	}
+
+	return int(f), nil
+}
+
+// ErrTimeoutSecondsPathNotNumber is returned when State.TimeoutSecondsPath
+// does not resolve to a number.
+var ErrTimeoutSecondsPathNotNumber = errors.New("TimeoutSecondsPath: value is not a number")
+
+// ErrHeartbeatSecondsPathNotNumber is returned when State.HeartbeatSecondsPath
+// does not resolve to a number.
+var ErrHeartbeatSecondsPathNotNumber = errors.New("HeartbeatSecondsPath: value is not a number")
+
+// resolveTaskTimeoutSeconds resolves TimeoutSeconds(Path) against the Task
+// state's pre-Parameters input (input after InputPath, before Parameters is
+// applied) -- AWS docs amazon-states-language-task-state.html's GlueJobTask
+// example pairs a Parameters block that replaces the whole payload with a
+// TimeoutSecondsPath that still reads the pre-Parameters field. Retries
+// reuse this same input (ASL never re-evaluates a Task's input between
+// retry attempts), so resolving once before the retry loop gives the same
+// value every attempt.
+func (e *Executor) resolveTaskTimeoutSeconds(state *State, input any) (int, error) {
+	if state.TimeoutSecondsPath == "" {
+		return state.TimeoutSeconds, nil
+	}
+
+	val, err := applyPath(state.TimeoutSecondsPath, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("TimeoutSecondsPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrTimeoutSecondsPathNotNumber
+	}
+
+	return int(f), nil
+}
+
+// resolveTaskHeartbeatSeconds resolves HeartbeatSeconds(Path) against the
+// Task state's own input; see resolveTaskTimeoutSeconds.
+func (e *Executor) resolveTaskHeartbeatSeconds(state *State, input any) (int, error) {
+	if state.HeartbeatSecondsPath == "" {
+		return state.HeartbeatSeconds, nil
+	}
+
+	val, err := applyPath(state.HeartbeatSecondsPath, input, e.jsonPathCache)
+	if err != nil {
+		return 0, fmt.Errorf("HeartbeatSecondsPath error: %w", err)
+	}
+
+	f, ok := toFloat(val)
+	if !ok {
+		return 0, ErrHeartbeatSecondsPathNotNumber
+	}
+
+	return int(f), nil
 }
 
 // resolveMapConcurrency determines the effective concurrency for a Map state.

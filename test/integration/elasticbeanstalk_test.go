@@ -36,7 +36,10 @@ func TestIntegration_ElasticBeanstalk_ApplicationAndVersionLifecycle(t *testing.
 	assert.Equal(t, appName, aws.ToString(createOut.Application.ApplicationName))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApplication(ctx, &elasticbeanstalksdk.DeleteApplicationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApplication(cleanupCtx, &elasticbeanstalksdk.DeleteApplicationInput{
 			ApplicationName:     aws.String(appName),
 			TerminateEnvByForce: aws.Bool(true),
 		})
@@ -64,7 +67,10 @@ func TestIntegration_ElasticBeanstalk_ApplicationAndVersionLifecycle(t *testing.
 	assert.Equal(t, versionName, aws.ToString(createVerOut.ApplicationVersion.VersionLabel))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApplicationVersion(ctx, &elasticbeanstalksdk.DeleteApplicationVersionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApplicationVersion(cleanupCtx, &elasticbeanstalksdk.DeleteApplicationVersionInput{
 			ApplicationName: aws.String(appName),
 			VersionLabel:    aws.String(versionName),
 		})

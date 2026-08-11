@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"testing"
 	"time"
 
@@ -486,60 +485,10 @@ func TestSupport_ResolveCase_AlreadyResolved(t *testing.T) {
 // TestSupport_CreateCase_CaseCreationLimitExceeded verifies CaseCreationLimitExceeded
 // is real (not a stub): once the account is at the open-case cap, CreateCase is
 // rejected with the correct wire type, and resolving a case frees a slot again.
-func TestSupport_CreateCase_CaseCreationLimitExceeded(t *testing.T) {
-	t.Parallel()
-
-	b := support.NewInMemoryBackend()
-
-	for i := range support.MaxOpenCases {
-		b.AddCaseInternal(&support.Case{
-			CaseID:      "case-seed-" + strconv.Itoa(i),
-			Status:      "opened",
-			CreatedTime: time.Now(),
-		})
-	}
-
-	_, err := b.CreateCaseWithOptions(support.CreateCaseOptions{
-		Subject: "one too many", CommunicationBody: "body",
-	})
-	require.ErrorIs(t, err, support.ErrCaseCreationLimitExceeded)
-
-	// Resolving one open case must free a slot.
-	cases := b.DescribeCases(nil, false)
-	require.NotEmpty(t, cases)
-	_, resolveErr := b.ResolveCase(cases[0].CaseID)
-	require.NoError(t, resolveErr)
-
-	c, err := b.CreateCaseWithOptions(support.CreateCaseOptions{
-		Subject: "fits now", CommunicationBody: "body",
-	})
-	require.NoError(t, err)
-	assert.NotEmpty(t, c.CaseID)
-}
-
-// TestSupport_CreateCase_CaseCreationLimitExceeded_WireType verifies the HTTP
-// handler surfaces the real "CaseCreationLimitExceeded" __type, not a generic
-// validation error.
-func TestSupport_CreateCase_CaseCreationLimitExceeded_WireType(t *testing.T) {
-	t.Parallel()
-
-	b := support.NewInMemoryBackend()
-	h := support.NewHandler(b)
-
-	for i := range support.MaxOpenCases {
-		b.AddCaseInternal(&support.Case{
-			CaseID:      "case-seed-" + strconv.Itoa(i),
-			Status:      "opened",
-			CreatedTime: time.Now(),
-		})
-	}
-
-	rec := doSupportRequest(t, h, "CreateCase", map[string]any{
-		"subject": "over the limit", "communicationBody": "body",
-	})
-	require.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Equal(t, "CaseCreationLimitExceeded", decodeSupportResponse(t, rec)["__type"])
-}
+// TestSupport_CreateCase_CaseCreationLimitExceeded and
+// TestSupport_CreateCase_CaseCreationLimitExceeded_WireType live in
+// whitebox_test.go: they need direct access to the unexported maxOpenCases
+// constant.
 
 // TestSupport_DescribeCases_Pagination verifies nextToken/maxResults fields accepted.
 func TestSupport_DescribeCases_Pagination(t *testing.T) {

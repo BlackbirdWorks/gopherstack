@@ -13,13 +13,17 @@ import (
 // the identical ApplicationRestoreConfiguration/FlinkRunConfiguration field
 // shapes in the real SDK (see models.go's ApplicationRestoreConfig/
 // FlinkRunConfig doc comments), so gopherstack reuses one wire type for both
-// call sites. SqlRunConfigurations is accepted-but-ignored: no state
-// anywhere in this backend models per-input starting position for real
-// stream consumption (same root cause as DiscoverInputSchema's documented
-// synthetic-schema limitation -- see PARITY.md).
+// call sites. SqlRunConfigurations only exists on RunConfiguration (real
+// AWS's RunConfigurationUpdate has no such field -- botocore
+// kinesisanalyticsv2/2018-05-23/service-2.json.gz shape
+// "RunConfigurationUpdate"); toRunConfigInput ignores it, so a client that
+// mistakenly sent it on an Update body would still have it silently dropped,
+// matching real AWS not accepting it there at all. See handleStartApplication
+// for where it's actually applied (per-input, via InputDescription).
 type runConfigurationInput struct {
 	ApplicationRestoreConfiguration *ApplicationRestoreConfig `json:"ApplicationRestoreConfiguration,omitempty"` //nolint:lll // AWS API name
 	FlinkRunConfiguration           *FlinkRunConfig           `json:"FlinkRunConfiguration,omitempty"`
+	SQLRunConfigurations            []SQLRunConfigInput       `json:"SqlRunConfigurations,omitempty"` //nolint:lll,tagliatelle // AWS API name
 }
 
 // toRunConfigInput converts a runConfigurationInput to the backend-facing RunConfigInput.
@@ -134,13 +138,52 @@ type vpcConfigUpdateInput struct {
 	SecurityGroupIDUpdates []string `json:"SecurityGroupIdUpdates,omitempty"`
 }
 
+// zeppelinMonitoringConfigUpdateInput mirrors real AWS's
+// ZeppelinMonitoringConfigurationUpdate.
+type zeppelinMonitoringConfigUpdateInput struct {
+	LogLevelUpdate string `json:"LogLevelUpdate"`
+}
+
+// glueDataCatalogConfigUpdateInput mirrors real AWS's
+// GlueDataCatalogConfigurationUpdate.
+type glueDataCatalogConfigUpdateInput struct {
+	DatabaseARNUpdate string `json:"DatabaseARNUpdate"`
+}
+
+// catalogConfigUpdateInput mirrors real AWS's CatalogConfigurationUpdate.
+type catalogConfigUpdateInput struct {
+	GlueDataCatalogConfigurationUpdate *glueDataCatalogConfigUpdateInput `json:"GlueDataCatalogConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+}
+
+// s3ContentBaseLocationUpdateInput mirrors real AWS's S3ContentBaseLocationUpdate.
+type s3ContentBaseLocationUpdateInput struct {
+	BucketARNUpdate string `json:"BucketARNUpdate,omitempty"`
+	BasePathUpdate  string `json:"BasePathUpdate,omitempty"`
+}
+
+// deployAsApplicationConfigUpdateInput mirrors real AWS's
+// DeployAsApplicationConfigurationUpdate.
+type deployAsApplicationConfigUpdateInput struct {
+	S3ContentLocationUpdate *s3ContentBaseLocationUpdateInput `json:"S3ContentLocationUpdate,omitempty"` //nolint:lll // AWS API name
+}
+
+// zeppelinConfigUpdateInput mirrors real AWS's ZeppelinApplicationConfigurationUpdate.
+// CustomArtifactsConfigurationUpdate reuses the create-time item shape --
+// real AWS has no separate per-item update shape (see
+// CustomArtifactConfigDescription's doc comment in models.go).
+type zeppelinConfigUpdateInput struct {
+	MonitoringConfigurationUpdate          *zeppelinMonitoringConfigUpdateInput  `json:"MonitoringConfigurationUpdate,omitempty"`          //nolint:lll // AWS API name
+	CatalogConfigurationUpdate             *catalogConfigUpdateInput             `json:"CatalogConfigurationUpdate,omitempty"`             //nolint:lll // AWS API name
+	DeployAsApplicationConfigurationUpdate *deployAsApplicationConfigUpdateInput `json:"DeployAsApplicationConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
+	CustomArtifactsConfigurationUpdate     []customArtifactConfigInput           `json:"CustomArtifactsConfigurationUpdate,omitempty"`     //nolint:lll // AWS API name
+}
+
 // applicationConfigurationUpdateInput mirrors real AWS's
-// ApplicationConfigurationUpdate request shape. ZeppelinApplicationConfigurationUpdate
-// is accepted-but-ignored for the same reason ZeppelinApplicationConfiguration is
-// at Create time -- see appConfigDesc's doc comment.
+// ApplicationConfigurationUpdate request shape.
 type applicationConfigurationUpdateInput struct {
 	ApplicationCodeConfigurationUpdate           *applicationCodeConfigUpdateInput  `json:"ApplicationCodeConfigurationUpdate,omitempty"`           //nolint:lll // AWS API name
 	FlinkApplicationConfigurationUpdate          *flinkApplicationConfigUpdateInput `json:"FlinkApplicationConfigurationUpdate,omitempty"`          //nolint:lll // AWS API name
+	ZeppelinApplicationConfigurationUpdate       *zeppelinConfigUpdateInput         `json:"ZeppelinApplicationConfigurationUpdate,omitempty"`       //nolint:lll // AWS API name
 	EnvironmentPropertyUpdates                   *environmentPropertyUpdatesInput   `json:"EnvironmentPropertyUpdates,omitempty"`                   //nolint:lll // AWS API name
 	ApplicationSnapshotConfigurationUpdate       *snapshotConfigUpdateInput         `json:"ApplicationSnapshotConfigurationUpdate,omitempty"`       //nolint:lll // AWS API name
 	ApplicationSystemRollbackConfigurationUpdate *systemRollbackConfigUpdateInput   `json:"ApplicationSystemRollbackConfigurationUpdate,omitempty"` //nolint:lll // AWS API name
@@ -222,6 +265,12 @@ func buildApplicationConfigurationUpdate(in *applicationConfigurationUpdateInput
 
 	if in.FlinkApplicationConfigurationUpdate != nil {
 		out.FlinkApplicationConfigurationUpdate = buildFlinkConfigUpdate(in.FlinkApplicationConfigurationUpdate)
+	}
+
+	if in.ZeppelinApplicationConfigurationUpdate != nil {
+		out.ZeppelinApplicationConfigurationUpdate = buildZeppelinConfigUpdate(
+			in.ZeppelinApplicationConfigurationUpdate,
+		)
 	}
 
 	if in.EnvironmentPropertyUpdates != nil {
@@ -310,6 +359,44 @@ func buildFlinkConfigUpdate(in *flinkApplicationConfigUpdateInput) *FlinkApplica
 			ParallelismUpdate:        p.ParallelismUpdate,
 			ParallelismPerKPUUpdate:  p.ParallelismPerKPUUpdate,
 		}
+	}
+
+	return out
+}
+
+func buildZeppelinConfigUpdate(in *zeppelinConfigUpdateInput) *ZeppelinApplicationConfigUpdate {
+	out := &ZeppelinApplicationConfigUpdate{}
+
+	if m := in.MonitoringConfigurationUpdate; m != nil {
+		out.MonitoringConfigurationUpdate = &ZeppelinMonitoringConfigUpdate{LogLevelUpdate: m.LogLevelUpdate}
+	}
+
+	if c := in.CatalogConfigurationUpdate; c != nil && c.GlueDataCatalogConfigurationUpdate != nil {
+		out.CatalogConfigurationUpdate = &CatalogConfigUpdate{
+			DatabaseARNUpdate: c.GlueDataCatalogConfigurationUpdate.DatabaseARNUpdate,
+		}
+	}
+
+	if d := in.DeployAsApplicationConfigurationUpdate; d != nil && d.S3ContentLocationUpdate != nil {
+		out.DeployAsApplicationConfigurationUpdate = &DeployAsApplicationConfigUpdate{
+			BucketARNUpdate: d.S3ContentLocationUpdate.BucketARNUpdate,
+			BasePathUpdate:  d.S3ContentLocationUpdate.BasePathUpdate,
+		}
+	}
+
+	if in.CustomArtifactsConfigurationUpdate != nil {
+		out.HasCustomArtifactsConfigurationUpdate = true
+		artifacts := make([]CustomArtifactConfigDescription, 0, len(in.CustomArtifactsConfigurationUpdate))
+
+		for _, a := range in.CustomArtifactsConfigurationUpdate {
+			artifacts = append(artifacts, CustomArtifactConfigDescription{
+				ArtifactType:                 a.ArtifactType,
+				S3ContentLocationDescription: a.S3ContentLocation,
+				MavenReferenceDescription:    a.MavenReference,
+			})
+		}
+
+		out.CustomArtifactsConfigurationUpdate = artifacts
 	}
 
 	return out

@@ -238,6 +238,9 @@ type InMemoryBackend struct {
 	pipelines       *store.Table[Pipeline]
 	registry        *store.Registry
 	svcCtx          context.Context
+	lambda          LambdaInvoker
+	thingRegistry   ThingRegistry
+	thingShadows    ThingShadowStore
 	mu              *lockmetrics.RWMutex
 }
 
@@ -265,6 +268,32 @@ func NewInMemoryBackendWithContext(svcCtx context.Context) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// SetLambdaBackend wires the Lambda invoker for RunPipelineActivity's "lambda" activity.
+func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
+	b.mu.Lock("SetLambdaBackend")
+	defer b.mu.Unlock()
+
+	b.lambda = lambda
+}
+
+// SetThingRegistry wires the IoT device registry lookup for RunPipelineActivity's
+// "deviceRegistryEnrich" activity.
+func (b *InMemoryBackend) SetThingRegistry(registry ThingRegistry) {
+	b.mu.Lock("SetThingRegistry")
+	defer b.mu.Unlock()
+
+	b.thingRegistry = registry
+}
+
+// SetThingShadowStore wires the IoT device shadow lookup for RunPipelineActivity's
+// "deviceShadowEnrich" activity.
+func (b *InMemoryBackend) SetThingShadowStore(shadows ThingShadowStore) {
+	b.mu.Lock("SetThingShadowStore")
+	defer b.mu.Unlock()
+
+	b.thingShadows = shadows
 }
 
 // Reset clears all backend state.

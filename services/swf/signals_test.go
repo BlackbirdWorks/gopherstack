@@ -22,7 +22,7 @@ func TestSignalWorkflowExecution_AttributesInHistory(t *testing.T) {
 
 	require.NoError(t, b.SignalWorkflowExecution("dom", "wf-1", "", "my-signal", `{"key":"val"}`))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	var signalEvent *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "WorkflowExecutionSignaled" {

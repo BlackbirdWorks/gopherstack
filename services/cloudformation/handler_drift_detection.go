@@ -121,7 +121,7 @@ func (h *Handler) handleDescribeStackDriftDetectionStatus(form url.Values, c *ec
 			DetectionStatus:           status.DetectionStatus,
 			DetectionStatusReason:     status.DetectionStatusReason,
 			DriftedStackResourceCount: status.DriftedStackResourceCount,
-			Timestamp:                 status.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Timestamp:                 status.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 		},
 		RequestID: uuid.New().String(),
 	})
@@ -171,7 +171,7 @@ func (h *Handler) handleDescribeStackResourceDrifts(form url.Values, c *echo.Con
 			ExpectedProperties:       d.ExpectedProperties,
 			ActualProperties:         d.ActualProperties,
 			PropertyDifferences:      propDiffs,
-			Timestamp:                d.Timestamp.Format("2006-01-02T15:04:05Z"),
+			Timestamp:                d.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 		})
 	}
 

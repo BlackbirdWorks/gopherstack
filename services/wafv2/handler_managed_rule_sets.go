@@ -8,6 +8,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
+// requireManagedRuleSetScope validates the required Scope field shared by every op in the
+// ManagedRuleSet family (api_op_Get/List/Put/UpdateManagedRuleSet*.go: "This member is
+// required", type Scope).
+func requireManagedRuleSetScope(scope string) error {
+	if scope == "" {
+		return fmt.Errorf("%w: Scope is required", errInvalidRequest)
+	}
+
+	if !validScope(scope) {
+		return fmt.Errorf("%w: Scope must be %s or %s", errInvalidRequest, ScopeRegional, ScopeCloudFront)
+	}
+
+	return nil
+}
+
 // getManagedRuleSetRequest is the request body for GetManagedRuleSet.
 type getManagedRuleSetRequest struct {
 	ID    string `json:"Id"`
@@ -24,6 +39,14 @@ func (h *Handler) handleGetManagedRuleSet(ctx context.Context, body []byte) ([]b
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
 	}
 
 	ms, err := h.Backend.GetManagedRuleSet(ctx, req.ID)
@@ -56,6 +79,10 @@ func (h *Handler) handleListManagedRuleSets(ctx context.Context, body []byte) ([
 	var req listManagedRuleSetsRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
 	}
 
 	sets := h.Backend.ListManagedRuleSets(ctx, req.Scope)
@@ -106,6 +133,17 @@ func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []by
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
 	}
 
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
+	}
+
+	// LockToken is "required" on the real PutManagedRuleSetVersionsInput, but there is no
+	// CreateManagedRuleSet op (see PARITY.md gaps) -- this emulator's only bootstrap path is
+	// an empty-LockToken first call, mirrored by the optimistic-lock check below.
 	ms, err := h.Backend.PutManagedRuleSetVersions(
 		ctx,
 		req.ID,
@@ -143,6 +181,26 @@ func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Contex
 
 	if req.ID == "" {
 		return nil, fmt.Errorf("%w: Id is required", errInvalidRequest)
+	}
+
+	if req.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
+	}
+
+	if err := requireManagedRuleSetScope(req.Scope); err != nil {
+		return nil, err
+	}
+
+	if req.LockToken == "" {
+		return nil, fmt.Errorf("%w: LockToken is required", errInvalidRequest)
+	}
+
+	if req.VersionToExpire == "" {
+		return nil, fmt.Errorf("%w: VersionToExpire is required", errInvalidRequest)
+	}
+
+	if req.ExpiryTimestamp == nil {
+		return nil, fmt.Errorf("%w: ExpiryTimestamp is required", errInvalidRequest)
 	}
 
 	ms, err := h.Backend.UpdateManagedRuleSetVersionExpiryDate(

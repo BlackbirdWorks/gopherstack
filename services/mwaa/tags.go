@@ -57,6 +57,33 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, resourceARN string,
 	return nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every MWAA environment ARN that currently has at least one
+// tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	var out []TaggedEntry
+
+	b.environments.Range(func(env *Environment) bool {
+		if len(env.Tags) > 0 {
+			result := make(map[string]string, len(env.Tags))
+			maps.Copy(result, env.Tags)
+			out = append(out, TaggedEntry{ARN: env.ARN, Tags: result})
+		}
+
+		return true
+	})
+
+	return out
+}
+
 // ListTagsForResource returns all tags for a resource identified by its ARN.
 func (b *InMemoryBackend) ListTagsForResource(ctx context.Context, resourceARN string) (map[string]string, error) {
 	region := getRegion(ctx, b.region)

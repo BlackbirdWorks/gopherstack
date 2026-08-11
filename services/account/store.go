@@ -24,7 +24,9 @@ type StorageBackend interface {
 	GetPrimaryEmail() string
 	StartPrimaryEmailUpdate(email string) (string, error)
 	AcceptPrimaryEmailUpdate(otp, email string) error
+	GetPrimaryEmailUpdateStatus() (PrimaryEmailUpdateStatus, time.Time, error)
 	PutAccountName(name string) error
+	GetGovCloudAccountInformation() (string, State, error)
 
 	// Snapshot and Restore implement persistence.Persistable. Handler
 	// delegates to them (see persistence.go) so a persistence manager that
@@ -35,18 +37,20 @@ type StorageBackend interface {
 
 // InMemoryBackend is an in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	accountCreatedDate time.Time
-	registry           *store.Registry
-	alternateContacts  *store.Table[AlternateContact]
-	contactInfo        *ContactInformation
-	accountID          string
-	region             string
-	accountName        string
-	primaryEmail       string
-	pendingEmail       string
-	pendingOTP         string
-	regions            []*Region
-	mu                 sync.RWMutex
+	accountCreatedDate       time.Time
+	registry                 *store.Registry
+	alternateContacts        *store.Table[AlternateContact]
+	contactInfo              *ContactInformation
+	accountID                string
+	region                   string
+	accountName              string
+	primaryEmail             string
+	pendingEmail             string
+	pendingOTP               string
+	primaryEmailUpdateStatus PrimaryEmailUpdateStatus
+	primaryEmailUpdateAt     time.Time
+	regions                  []*Region
+	mu                       sync.RWMutex
 }
 
 // simOTP is a fixed OTP used for simulation — callers pass it back to AcceptPrimaryEmailUpdate.
@@ -100,5 +104,7 @@ func (b *InMemoryBackend) Reset() {
 	b.primaryEmail = defaultPrimaryEmail
 	b.pendingEmail = ""
 	b.pendingOTP = ""
+	b.primaryEmailUpdateStatus = ""
+	b.primaryEmailUpdateAt = time.Time{}
 	b.initDefaultRegions()
 }

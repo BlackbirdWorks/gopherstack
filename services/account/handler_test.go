@@ -66,6 +66,7 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 		"ListRegions", "GetRegionOptStatus", "EnableRegion", "DisableRegion",
 		"GetPrimaryEmail", "StartPrimaryEmailUpdate", "AcceptPrimaryEmailUpdate",
 		"GetAccountInformation", "PutAccountName",
+		"GetPrimaryEmailUpdateStatus", "GetGovCloudAccountInformation",
 	} {
 		assert.Contains(t, ops, op)
 	}
@@ -177,6 +178,14 @@ func TestHandler_ExtractOperation(t *testing.T) {
 		{name: "AcceptPrimaryEmailUpdate", path: "/acceptPrimaryEmailUpdate", wantOp: "AcceptPrimaryEmailUpdate"},
 		{name: "GetAccountInformation", path: "/getAccountInformation", wantOp: "GetAccountInformation"},
 		{name: "PutAccountName", path: "/putAccountName", wantOp: "PutAccountName"},
+		{
+			name: "GetPrimaryEmailUpdateStatus", path: "/getPrimaryEmailUpdateStatus",
+			wantOp: "GetPrimaryEmailUpdateStatus",
+		},
+		{
+			name: "GetGovCloudAccountInformation", path: "/getGovCloudAccountInformation",
+			wantOp: "GetGovCloudAccountInformation",
+		},
 		{name: "Unknown", path: "/unknown-path", wantOp: "Unknown"},
 	}
 

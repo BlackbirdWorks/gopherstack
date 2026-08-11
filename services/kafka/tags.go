@@ -5,7 +5,8 @@ import (
 	"maps"
 )
 
-// TagResource adds tags to a cluster, configuration, replicator, or VPC connection by ARN.
+// TagResource adds tags to a cluster, configuration, replicator, VPC
+// connection, or channel by ARN.
 func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tags map[string]string) error {
 	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
@@ -34,10 +35,17 @@ func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tag
 		return nil
 	}
 
+	if ch, ok := b.channels.Get(resourceArn); ok {
+		maps.Copy(ch.Tags, tags)
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
-// UntagResource removes tags from a cluster, configuration, replicator, or VPC connection by ARN.
+// UntagResource removes tags from a cluster, configuration, replicator, VPC
+// connection, or channel by ARN.
 func (b *InMemoryBackend) UntagResource(_ context.Context, resourceArn string, tagKeys []string) error {
 	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
@@ -74,10 +82,19 @@ func (b *InMemoryBackend) UntagResource(_ context.Context, resourceArn string, t
 		return nil
 	}
 
+	if ch, ok := b.channels.Get(resourceArn); ok {
+		for _, k := range tagKeys {
+			delete(ch.Tags, k)
+		}
+
+		return nil
+	}
+
 	return ErrNotFound
 }
 
-// GetTags retrieves tags for a cluster, configuration, replicator, or VPC connection by ARN.
+// GetTags retrieves tags for a cluster, configuration, replicator, VPC
+// connection, or channel by ARN.
 func (b *InMemoryBackend) GetTags(_ context.Context, resourceArn string) (map[string]string, error) {
 	b.mu.RLock("GetTags")
 	defer b.mu.RUnlock()
@@ -96,6 +113,10 @@ func (b *InMemoryBackend) GetTags(_ context.Context, resourceArn string) (map[st
 
 	if v, ok := b.vpcConnections.Get(resourceArn); ok {
 		return maps.Clone(v.Tags), nil
+	}
+
+	if ch, ok := b.channels.Get(resourceArn); ok {
+		return maps.Clone(ch.Tags), nil
 	}
 
 	return nil, ErrNotFound

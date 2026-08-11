@@ -12,11 +12,12 @@ import (
 
 func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string       `json:"Tags"`
+		Tags               []tagObject             `json:"Tags"`
 		OutputDataConfig   *AutoMLOutputDataConfig `json:"OutputDataConfig"`
 		AutoMLJobObjective *AutoMLJobObjective     `json:"AutoMLJobObjective"`
 		AutoMLJobName      string                  `json:"AutoMLJobName"`
 		RoleArn            string                  `json:"RoleArn"`
+		InputDataConfig    []AutoMLChannel         `json:"InputDataConfig"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -27,20 +28,20 @@ func (h *Handler) handleCreateAutoMLJob(ctx context.Context, body []byte) ([]byt
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, req.Tags)
+	result, err := h.Backend.CreateAutoMLJob(ctx, req.AutoMLJobName, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err
 	}
 
-	if req.OutputDataConfig != nil || req.AutoMLJobObjective != nil {
+	if req.OutputDataConfig != nil || req.AutoMLJobObjective != nil || req.InputDataConfig != nil {
 		if extErr := h.Backend.SetAutoMLJobExtras(
-			ctx, req.AutoMLJobName, req.OutputDataConfig, req.AutoMLJobObjective,
+			ctx, req.AutoMLJobName, req.OutputDataConfig, req.AutoMLJobObjective, req.InputDataConfig,
 		); extErr != nil {
 			return nil, extErr
 		}
 	}
 
-	return json.Marshal(map[string]any{"AutoMLJobArn": result.AutoMLJobArn})
+	return json.Marshal(map[string]any{keyAutoMLJobArn: result.AutoMLJobArn})
 }
 
 func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -56,12 +57,36 @@ func (h *Handler) handleDescribeAutoMLJob(ctx context.Context, body []byte) ([]b
 		return nil, fmt.Errorf("%w: AutoMLJobName is required", errInvalidRequest)
 	}
 
-	result, err := h.Backend.DescribeAutoMLJob(ctx, req.AutoMLJobName)
+	j, err := h.Backend.DescribeAutoMLJob(ctx, req.AutoMLJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(result)
+	inputDataConfig := j.InputDataConfig
+	if inputDataConfig == nil {
+		inputDataConfig = []AutoMLChannel{}
+	}
+
+	resp := map[string]any{
+		keyAutoMLJobArn:             j.AutoMLJobArn,
+		keyAutoMLJobName:            j.AutoMLJobName,
+		keyAutoMLJobStatus:          j.AutoMLJobStatus,
+		keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
+		keyRoleArn:                  j.RoleArn,
+		keyCreationTime:             epochSeconds(j.CreationTime),
+		keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
+		"InputDataConfig":           inputDataConfig,
+	}
+
+	if j.OutputDataConfig != nil {
+		resp["OutputDataConfig"] = j.OutputDataConfig
+	}
+
+	if j.AutoMLJobObjective != nil {
+		resp["AutoMLJobObjective"] = j.AutoMLJobObjective
+	}
+
+	return json.Marshal(resp)
 }
 
 func (h *Handler) handleStopAutoMLJob(ctx context.Context, body []byte) error {
@@ -94,12 +119,12 @@ func (h *Handler) handleListAutoMLJobs(ctx context.Context, body []byte) ([]byte
 	summaries := make([]map[string]any, 0, len(items))
 	for _, j := range items {
 		summaries = append(summaries, map[string]any{
-			"AutoMLJobName":            j.AutoMLJobName,
-			"AutoMLJobArn":             j.AutoMLJobArn,
-			"AutoMLJobStatus":          j.AutoMLJobStatus,
-			"AutoMLJobSecondaryStatus": j.AutoMLJobSecondaryStatus,
-			keyCreationTime:            epochSeconds(j.CreationTime),
-			keyLastModifiedTime:        epochSeconds(j.LastModifiedTime),
+			keyAutoMLJobName:            j.AutoMLJobName,
+			keyAutoMLJobArn:             j.AutoMLJobArn,
+			keyAutoMLJobStatus:          j.AutoMLJobStatus,
+			keyAutoMLJobSecondaryStatus: j.AutoMLJobSecondaryStatus,
+			keyCreationTime:             epochSeconds(j.CreationTime),
+			keyLastModifiedTime:         epochSeconds(j.LastModifiedTime),
 		})
 	}
 

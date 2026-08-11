@@ -78,9 +78,19 @@ func (b *InMemoryBackend) GetAgentKnowledgeBase(
 }
 
 // UpdateAgentKnowledgeBase updates an agent–KB association.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Associate.
 func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 	_ context.Context, agentID, agentVersion, kbID, description, kbState string,
 ) (*AgentKnowledgeBase, error) {
+	if agentVersion != defaultAgentVersion {
+		return nil, fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -105,9 +115,19 @@ func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 }
 
 // DisassociateAgentKnowledgeBase removes an agent–KB association.
+//
+// Real AWS constrains {agentVersion} to the literal "DRAFT" here too (API
+// reference: Pattern `DRAFT`, fixed length 5) -- numbered versions are
+// immutable snapshots, so this must reject them same as Associate.
 func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 	_ context.Context, agentID, agentVersion, kbID string,
 ) error {
+	if agentVersion != defaultAgentVersion {
+		return fmt.Errorf(
+			"%w: agentVersion must be %q, got %q", ErrValidation, defaultAgentVersion, agentVersion,
+		)
+	}
+
 	b.mu.Lock()
 	defer b.mu.Unlock()
 

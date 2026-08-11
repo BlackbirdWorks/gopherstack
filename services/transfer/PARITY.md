@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
-sdk_module: aws-sdk-go-v2/service/transfer@v1.69.4   # version audited against (go.mod)
+sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
 last_audit_commit: b79595a99                         # HEAD when this manifest was written
 last_audit_date: 2026-07-24
 overall: A                # WebApp create/wire rewrite to real shape, SecurityPolicy catalog rewrite to real names/algos, Start* op wire fixes, epoch-timestamp bug class fixed across Certificate/HostKey/SSHPublicKey
@@ -29,7 +29,8 @@ families:
   Start*Ops: {status: ok, note: "FULLY WIRE-DIFFED this pass (previously deferred, un-diffed) against api_op_Start{FileTransfer,DirectoryListing,RemoteDelete,RemoteMove}.go. FOUND AND FIXED real wire-shape bugs, not just stub-vs-real: StartDirectoryListingInput.RemoteDirectoryPath is singular+required (gopherstack had an invented plural 'RemoteDirectoryPaths' array, unvalidated); output key is 'ListingId' (gopherstack returned 'DirectoryListingId', which does not exist in real AWS) and was missing the required 'OutputFileName' field entirely (now synthesized as '<connectorId>-<listingId>.json' per AWS docs). StartRemoteDeleteInput.DeletePath is singular+required (gopherstack had an invented plural 'DeletePaths' array); output key is 'DeleteId' (gopherstack returned 'TransferId', which does not exist on StartRemoteDeleteOutput). StartRemoteMoveInput.SourcePath/TargetPath are singular+required (gopherstack had an invented plural 'SourcePaths' array); output key is 'MoveId' (gopherstack returned 'TransferId', which does not exist on StartRemoteMoveOutput). All four ops now validate their real required fields and return InvalidRequestException when missing. StartFileTransfer was already correct (TransferId matches real StartFileTransferOutput)."}
   Execution/SendWorkflowStepState: {status: ok, note: "unchanged since 2026-07-12 audit."}
   Persistence: {status: ok, note: "unchanged since 2026-07-12 audit; new WebApp/Certificate fields ride the existing store.Table[T] generic Snapshot/Restore, no manual persistence.go wiring needed (confirmed via TestPersistence_FullStateRoundTrip)."}
-gaps: []
+gaps:
+  - "NEW since v1.69.4 (found by gopherstack-u8my's pin-correction pass, not fixed): Connector gained an IpAddressType field (types.ConnectorsIpAddressType: IPV4/DUALSTACK) and WebAppVpcConfig/UpdateWebAppVpcConfig (Create/UpdateWebApp's VPC config) gained IpAddressType (types.WebAppVpcEndpointIpAddressType: IPV4/DUALSTACK; note DescribedWebAppVpcConfig, the Describe-side response shape, does NOT get this field, same asymmetry already documented above for SecurityGroupIds). Neither is read/stored/echoed anywhere in handler_connectors.go or the WebApp family. (needs bd issue)"
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---

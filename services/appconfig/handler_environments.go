@@ -29,18 +29,15 @@ func (h *Handler) handleCreateEnvironment(c *echo.Context, applicationID string)
 			return notFoundResponse(c, err)
 		}
 
-		if errors.Is(err, awserr.ErrAlreadyExists) {
-			return conflictResponse(c, err)
-		}
-
-		if errors.Is(err, awserr.ErrInvalidParameter) {
+		// CreateEnvironment models only BadRequestException, InternalServerException,
+		// ResourceNotFoundException and ServiceQuotaExceededException
+		// (appconfig@v1.48.4 deserializers.go:767) -- no ConflictException, so a name
+		// collision maps to BadRequestException here.
+		if errors.Is(err, awserr.ErrAlreadyExists) || errors.Is(err, awserr.ErrInvalidParameter) {
 			return badRequestResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusCreated, env)
@@ -53,10 +50,7 @@ func (h *Handler) handleGetEnvironment(c *echo.Context, applicationID, environme
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, env)
@@ -70,10 +64,7 @@ func (h *Handler) handleListEnvironments(c *echo.Context, applicationID string) 
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	resp := map[string]any{keyItems: envs}
@@ -108,10 +99,7 @@ func (h *Handler) handleUpdateEnvironment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.JSON(http.StatusOK, env)
@@ -126,10 +114,7 @@ func (h *Handler) handleDeleteEnvironment(
 			return notFoundResponse(c, err)
 		}
 
-		return c.JSON(
-			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
-		)
+		return internalServerErrorResponse(c, err)
 	}
 
 	return c.NoContent(http.StatusNoContent)

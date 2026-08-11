@@ -45,12 +45,18 @@ func TestIntegration_Shield_SubscriptionAndProtectionLifecycle(t *testing.T) {
 	require.NotEmpty(t, protectionID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteProtection(ctx, &shieldsdk.DeleteProtectionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteProtection(cleanupCtx, &shieldsdk.DeleteProtectionInput{
 			ProtectionId: aws.String(protectionID),
 		})
 		// DeleteSubscription is deprecated in the AWS SDK but is the only way to reset
 		// the global subscription state for this account in our in-memory backend.
-		_, _ = client.DeleteSubscription(ctx, &shieldsdk.DeleteSubscriptionInput{}) //nolint:staticcheck // SA1019
+		_, _ = client.DeleteSubscription( //nolint:staticcheck // SA1019
+			cleanupCtx,
+			&shieldsdk.DeleteSubscriptionInput{},
+		)
 	})
 
 	// DescribeProtection by ID.

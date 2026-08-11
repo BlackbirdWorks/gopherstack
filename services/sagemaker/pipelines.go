@@ -16,7 +16,11 @@ var (
 	// ErrPipelineNotFound is returned when a pipeline does not exist.
 	ErrPipelineNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 	// ErrPipelineAlreadyExists is returned when a pipeline already exists.
-	ErrPipelineAlreadyExists = awserr.New("ResourceInUse", awserr.ErrConflict)
+	// CreatePipeline's error list is ConflictException, not ResourceInUse
+	// (botocore sagemaker/2017-07-24@1.43.56 service-2.json's
+	// CreatePipeline.errors) — wrap ErrConflictException so handleError's
+	// special case (see errors.go) picks the accurate wire type.
+	ErrPipelineAlreadyExists = awserr.New("ConflictException", ErrConflictException)
 	// ErrPipelineExecutionNotFound is returned when a pipeline execution does not exist.
 	ErrPipelineExecutionNotFound = awserr.New("ResourceNotFound", awserr.ErrNotFound)
 )
@@ -54,10 +58,22 @@ func clonePipeline(p *Pipeline) *Pipeline {
 	return &cp
 }
 
+// SelectedStep names one step to run in a SelectiveExecutionConfig.
+type SelectedStep struct {
+	StepName string `json:"StepName"`
+}
+
+// SelectiveExecutionConfig restricts a pipeline execution to a subset of steps.
+type SelectiveExecutionConfig struct {
+	SourcePipelineExecutionArn string         `json:"SourcePipelineExecutionArn,omitempty"`
+	SelectedSteps              []SelectedStep `json:"SelectedSteps"`
+}
+
 // PipelineExecution represents a single execution of a SageMaker Pipeline.
 type PipelineExecution struct {
 	StartTime                    time.Time                 `json:"StartTime"`
 	ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+	SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
 	PipelineArn                  string                    `json:"PipelineArn"`
 	PipelineExecutionArn         string                    `json:"PipelineExecutionArn"`
 	PipelineExecutionStatus      string                    `json:"PipelineExecutionStatus"`
@@ -69,6 +85,7 @@ type PipelineExecution struct {
 	// DescribePipelineDefinitionForExecution.
 	PipelineDefinition string              `json:"PipelineDefinition,omitempty"`
 	PipelineParameters []PipelineParameter `json:"PipelineParameters,omitempty"`
+	PipelineVersionID  int64               `json:"PipelineVersionId,omitempty"`
 }
 
 func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
@@ -79,6 +96,12 @@ func clonePipelineExecution(pe *PipelineExecution) *PipelineExecution {
 	if pe.ParallelismConfiguration != nil {
 		pc := *pe.ParallelismConfiguration
 		cp.ParallelismConfiguration = &pc
+	}
+
+	if pe.SelectiveExecutionConfig != nil {
+		sec := *pe.SelectiveExecutionConfig
+		sec.SelectedSteps = append([]SelectedStep(nil), pe.SelectiveExecutionConfig.SelectedSteps...)
+		cp.SelectiveExecutionConfig = &sec
 	}
 
 	return &cp
@@ -117,8 +140,15 @@ func (b *InMemoryBackend) CreatePipeline(
 	return clonePipeline(p), nil
 }
 
-// DescribePipeline returns a pipeline by name.
-func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*Pipeline, error) {
+// DescribePipeline returns a pipeline by name. If versionID is non-zero, the
+// returned Pipeline's PipelineDefinition reflects that specific historical
+// version instead of the current one (DescribePipelineInput.PipelineVersionId,
+// api_op_DescribePipeline.go). lastRunTime is the StartTime of the most
+// recent PipelineExecution for this pipeline (DescribePipelineOutput.LastRunTime),
+// or the zero time if the pipeline has never been run.
+func (b *InMemoryBackend) DescribePipeline(
+	ctx context.Context, name string, versionID int64,
+) (*Pipeline, time.Time, error) {
 	b.mu.RLock("DescribePipeline")
 	defer b.mu.RUnlock()
 
@@ -126,10 +156,31 @@ func (b *InMemoryBackend) DescribePipeline(ctx context.Context, name string) (*P
 
 	p, ok := b.pipelinesStoreRO(region).Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+		return nil, time.Time{}, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
 
-	return clonePipeline(p), nil
+	result := clonePipeline(p)
+
+	if versionID != 0 {
+		v, found := findPipelineVersion(b.pipelineVersionsStoreRO(region)[name], versionID)
+		if !found {
+			return nil, time.Time{}, fmt.Errorf(
+				"%w: pipeline %q version %d not found", ErrPipelineNotFound, name, versionID,
+			)
+		}
+
+		result.PipelineDefinition = v.PipelineDefinition
+	}
+
+	var lastRunTime time.Time
+
+	for _, pe := range b.pipelineExecutionsStoreRO(region).All() {
+		if pe.PipelineArn == p.PipelineArn && pe.StartTime.After(lastRunTime) {
+			lastRunTime = pe.StartTime
+		}
+	}
+
+	return result, lastRunTime, nil
 }
 
 // ListPipelines returns all pipelines.
@@ -360,10 +411,12 @@ func (b *InMemoryBackend) UpdatePipelineFull(
 // StartPipelineExecutionOptions holds full input for StartPipelineExecution.
 type StartPipelineExecutionOptions struct {
 	ParallelismConfiguration     *ParallelismConfiguration
+	SelectiveExecutionConfig     *SelectiveExecutionConfig
 	PipelineName                 string
 	PipelineExecutionDisplayName string
 	PipelineExecutionDescription string
 	PipelineParameters           []PipelineParameter
+	PipelineVersionID            int64
 }
 
 // StartPipelineExecutionFull creates an execution with full AWS input fields.
@@ -396,6 +449,8 @@ func (b *InMemoryBackend) StartPipelineExecutionFull(
 		PipelineParameters:           params,
 		PipelineDefinition:           p.PipelineDefinition,
 		ParallelismConfiguration:     opts.ParallelismConfiguration,
+		SelectiveExecutionConfig:     opts.SelectiveExecutionConfig,
+		PipelineVersionID:            opts.PipelineVersionID,
 		StartTime:                    time.Now(),
 	}
 	b.pipelineExecutionsStore(region).Put(pe)

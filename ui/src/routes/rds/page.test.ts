@@ -1,10 +1,27 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import RDSPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 vi.mock("$lib/aws-client", () => ({ getRDSClient: () => ({ send: mockSend }) }));
 vi.mock("svelte-sonner", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
+
+const confirmDestructive = vi.fn().mockResolvedValue(true);
+vi.mock("$lib/confirm-dialog", () => ({
+  confirmDestructive: (...args: unknown[]) => confirmDestructive(...args),
+}));
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const mockDB = {
   DBInstanceIdentifier: "my-postgres",
@@ -20,6 +37,13 @@ describe("RDS Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    confirmDestructive.mockReset();
+    confirmDestructive.mockResolvedValue(true);
+    // Every test below predates "All" mode and assumes exactly one
+    // Describe*Command call per action against a single region, so pin
+    // single-region mode here; the "All regions mode" describe block below
+    // opts back in.
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -114,6 +138,98 @@ describe("RDS Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans DescribeDBInstances out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+      mockSend.mockResolvedValueOnce({
+        DBInstances: [{ ...mockDB, DBInstanceIdentifier: "eu-postgres" }],
+      });
+
+      render(RDSPage);
+
+      await waitFor(() => expect(screen.getByText("my-postgres")).toBeInTheDocument());
+      expect(screen.getByText("eu-postgres")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("falls back to just the default region when no region has data", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData([]);
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+
+      render(RDSPage);
+
+      await waitFor(() => expect(screen.getByText("my-postgres")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one DescribeDBInstances call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+      render(RDSPage);
+      await waitFor(() => expect(screen.getByText("my-postgres")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same instance id from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+
+      render(RDSPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("my-postgres");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest(".rounded-lg") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("deletes the row's own region, not the picker's, when two regions share an instance id", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+
+      render(RDSPage);
+      await waitFor(() => expect(screen.getAllByText("my-postgres")).toHaveLength(2));
+
+      mockSend.mockResolvedValueOnce({});
+      mockSend.mockResolvedValueOnce({ DBInstances: [mockDB] });
+      mockSend.mockResolvedValueOnce({ DBInstances: [] });
+
+      const rows = screen.getAllByText("my-postgres");
+      const euRow = rows
+        .map((r) => r.closest(".rounded-lg") as HTMLElement)
+        .find((r) => within(r).getByTestId("region-chip").textContent === "eu-west-1")!;
+      await fireEvent.click(within(euRow).getByRole("button", { name: /delete/i }));
+
+      await waitFor(() => {
+        const remaining = screen.getAllByText("my-postgres");
+        expect(remaining).toHaveLength(1);
+        expect(
+          within(remaining[0].closest(".rounded-lg") as HTMLElement).getByTestId("region-chip")
+            .textContent,
+        ).toBe("us-east-1");
+      });
+
+      vi.unstubAllGlobals();
+    });
   });
 });
 

@@ -170,15 +170,12 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 		}, nil
 
 	case challengePasswordVerifier:
-		// USER_SRP_AUTH second step: credentials were verified in InitiateAuth; just issue tokens.
-		tokens, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session)
+		result, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session, in.ChallengeResponses)
 		if err != nil {
 			return nil, err
 		}
 
-		return &respondToAuthChallengeAccurateOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
+		return respondToAuthChallengeOutputFromResult(result), nil
 
 	case challengeCustomChallenge:
 		answer := in.ChallengeResponses["ANSWER"]
@@ -259,14 +256,12 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 		}, nil
 
 	case challengePasswordVerifier:
-		tokens, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session)
+		result, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session, in.ChallengeResponses)
 		if err != nil {
 			return nil, err
 		}
 
-		return &adminRespondToAuthChallengeOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
+		return adminChallengeOutputFromResult(result), nil
 
 	case challengeCustomChallenge:
 		answer := in.ChallengeResponses["ANSWER"]
@@ -276,25 +271,32 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 			return nil, err
 		}
 
-		if result.MFASession != "" {
-			params := result.ChallengeParameters
-			if params == nil {
-				params = map[string]string{}
-			}
-
-			return &adminRespondToAuthChallengeOutput{
-				ChallengeName:       result.ChallengeName,
-				Session:             result.MFASession,
-				ChallengeParameters: params,
-			}, nil
-		}
-
-		return &adminRespondToAuthChallengeOutput{
-			AuthenticationResult: authResultFromTokenResult(result.Tokens),
-		}, nil
+		return adminChallengeOutputFromResult(result), nil
 
 	default:
 		return &adminRespondToAuthChallengeOutput{}, nil
+	}
+}
+
+// adminChallengeOutputFromResult converts an AuthResult into an
+// adminRespondToAuthChallengeOutput: either completed tokens, or another pending
+// challenge. Mirrors respondToAuthChallengeOutputFromResult for the admin output type.
+func adminChallengeOutputFromResult(result *AuthResult) *adminRespondToAuthChallengeOutput {
+	if result.MFASession != "" {
+		params := result.ChallengeParameters
+		if params == nil {
+			params = map[string]string{}
+		}
+
+		return &adminRespondToAuthChallengeOutput{
+			ChallengeName:       result.ChallengeName,
+			Session:             result.MFASession,
+			ChallengeParameters: params,
+		}
+	}
+
+	return &adminRespondToAuthChallengeOutput{
+		AuthenticationResult: authResultFromTokenResult(result.Tokens),
 	}
 }
 
@@ -370,6 +372,15 @@ func (h *Handler) handleInitiateAuthAccurate(
 		}, nil
 	}
 
+	if in.AuthFlow == authFlowUserSRP {
+		result, err := h.Backend.InitiateAuthSRP(in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"])
+		if err != nil {
+			return nil, err
+		}
+
+		return authOutputFromResult(result), nil
+	}
+
 	password := in.AuthParameters["PASSWORD"]
 
 	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
@@ -403,6 +414,17 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 		return &authOutput{
 			AuthenticationResult: authResultFromTokenResult(tokens),
 		}, nil
+	}
+
+	if in.AuthFlow == authFlowAdminUserSRP {
+		result, err := h.Backend.AdminInitiateAuthSRP(
+			in.UserPoolID, in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return authOutputFromResult(result), nil
 	}
 
 	password := in.AuthParameters["PASSWORD"]

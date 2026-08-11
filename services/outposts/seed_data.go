@@ -10,10 +10,13 @@ package outposts
 // read-only reference data, not customer-owned state. See PARITY.md's
 // "Static reference-data operations" note.
 //
+// Every ID below matches CatalogItem.CatalogItemId's confirmed real pattern
+// "OR-[A-Z0-9]{7}" (docs.aws.amazon.com/outposts/latest/APIReference/API_CatalogItem.html).
+//
 //nolint:gochecknoglobals,mnd // static seed data; every number below is a seeded hardware spec
 var catalogItemSeed = []CatalogItem{
 	{
-		ID:                  "cat-rack-m5",
+		ID:                  "OR-RACKM05",
 		ItemClass:           HardwareTypeRack,
 		ItemStatus:          catalogItemStatusAvailable,
 		PowerKva:            15,
@@ -25,7 +28,7 @@ var catalogItemSeed = []CatalogItem{
 		},
 	},
 	{
-		ID:                  "cat-rack-c5",
+		ID:                  "OR-RACKC05",
 		ItemClass:           HardwareTypeRack,
 		ItemStatus:          catalogItemStatusAvailable,
 		PowerKva:            12,
@@ -37,7 +40,7 @@ var catalogItemSeed = []CatalogItem{
 		},
 	},
 	{
-		ID:                  "cat-server-c6id",
+		ID:                  "OR-SRVC6ID",
 		ItemClass:           HardwareTypeServer,
 		ItemStatus:          catalogItemStatusAvailable,
 		PowerKva:            2,

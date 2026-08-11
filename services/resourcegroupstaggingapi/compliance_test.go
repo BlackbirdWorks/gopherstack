@@ -203,6 +203,106 @@ func TestListRequiredTags_EmptyList(t *testing.T) {
 	assert.Nil(t, out.NextToken)
 }
 
+// TestListRequiredTags_FromTagPolicy exercises the real report_required_tag_for
+// engine: a registered TagPolicyProvider returning a real-shaped effective TAG_POLICY
+// document must produce grouped-by-resource-type RequiredTag rows, not an empty list.
+func TestListRequiredTags_FromTagPolicy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		wantKeysOf map[string][]string
+		name       string
+		policy     string
+		wantTypes  []string
+	}{
+		{
+			name: "single_tag_single_resource_type",
+			policy: `{"tags":{"CostCenter":{"tag_key":{"@@assign":"CostCenter"},
+				"report_required_tag_for":{"@@assign":["ec2:ALL_SUPPORTED"]}}}}`,
+			wantTypes:  []string{"ec2:ALL_SUPPORTED"},
+			wantKeysOf: map[string][]string{"ec2:ALL_SUPPORTED": {"CostCenter"}},
+		},
+		{
+			name: "two_tags_share_a_resource_type",
+			policy: `{"tags":{
+				"CostCenter":{"report_required_tag_for":{"@@assign":["s3:bucket"]}},
+				"Owner":{"report_required_tag_for":{"@@assign":["s3:bucket","ec2:instance"]}}
+			}}`,
+			wantTypes: []string{"ec2:instance", "s3:bucket"},
+			wantKeysOf: map[string][]string{
+				"s3:bucket":    {"CostCenter", "Owner"},
+				"ec2:instance": {"Owner"},
+			},
+		},
+		{
+			name:       "tag_with_no_reporting_block_is_excluded",
+			policy:     `{"tags":{"Environment":{"tag_key":{"@@assign":"Environment"}}}}`,
+			wantTypes:  []string{},
+			wantKeysOf: map[string][]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			b.RegisterTagPolicyProvider(func() (string, bool) { return tt.policy, true })
+
+			out := b.ListRequiredTags(context.Background(), &resourcegroupstaggingapi.ListRequiredTagsInput{})
+			require.NotNil(t, out)
+
+			gotTypes := make([]string, 0, len(out.RequiredTags))
+			for _, rt := range out.RequiredTags {
+				require.NotNil(t, rt.ResourceType)
+				gotTypes = append(gotTypes, *rt.ResourceType)
+				assert.Equal(t, []string{*rt.ResourceType}, rt.CloudFormationResourceTypes)
+				assert.Equal(t, tt.wantKeysOf[*rt.ResourceType], rt.ReportingTagKeys)
+			}
+
+			assert.Equal(t, tt.wantTypes, gotTypes)
+		})
+	}
+}
+
+// TestListRequiredTags_NoProviderRegistered_StaysEmpty proves that with no tag policy
+// provider wired up (the state before any central wiring), the operation still behaves
+// exactly like a real account with no tag policy attached: an empty list, not an error.
+func TestListRequiredTags_NoProviderRegistered_StaysEmpty(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+
+	out := b.ListRequiredTags(context.Background(), &resourcegroupstaggingapi.ListRequiredTagsInput{})
+	require.NotNil(t, out)
+	assert.Empty(t, out.RequiredTags)
+}
+
+// TestListRequiredTags_Pagination proves MaxResults/NextToken are real cursor-based
+// pagination over the derived RequiredTag rows, not accepted-and-ignored parameters.
+func TestListRequiredTags_Pagination(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend(t)
+	b.RegisterTagPolicyProvider(func() (string, bool) {
+		return `{"tags":{"A":{"report_required_tag_for":{"@@assign":["svc:one","svc:two","svc:three"]}}}}`, true
+	})
+
+	limit := int32(2)
+	page1 := b.ListRequiredTags(
+		context.Background(),
+		&resourcegroupstaggingapi.ListRequiredTagsInput{MaxResults: &limit},
+	)
+	require.Len(t, page1.RequiredTags, 2)
+	require.NotNil(t, page1.NextToken)
+
+	page2 := b.ListRequiredTags(context.Background(), &resourcegroupstaggingapi.ListRequiredTagsInput{
+		MaxResults: &limit, NextToken: page1.NextToken,
+	})
+	require.Len(t, page2.RequiredTags, 1)
+	assert.Nil(t, page2.NextToken)
+}
+
 func TestListRequiredTagsJSONShape(t *testing.T) {
 	t.Parallel()
 

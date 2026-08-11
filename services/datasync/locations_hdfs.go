@@ -18,9 +18,14 @@ func (b *InMemoryBackend) CreateLocationHdfs(
 	qopConfig *QopConfiguration,
 	agentArns []string,
 	tags map[string]string,
+	secretConfig SecretConfig,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationHdfs")
 	defer b.mu.Unlock()
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
 
 	id := newID()
 	locationArn := b.locationARN(id)
@@ -53,6 +58,8 @@ func (b *InMemoryBackend) CreateLocationHdfs(
 		BlockSize:          blockSize,
 		ReplicationFactor:  replicationFactor,
 		AgentArns:          agentArns,
+		CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
+		CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 	}
 
 	if qopConfig != nil {
@@ -121,6 +128,9 @@ func (b *InMemoryBackend) DescribeLocationHdfs(locationArn string) (*LocationHdf
 				RPCProtection:          l.Hdfs.QopConfiguration.RPCProtection,
 			}
 		}
+
+		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.Hdfs.CmkSecretConfig)
+		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.Hdfs.CustomSecretConfig)
 	}
 
 	return out, nil
@@ -134,6 +144,7 @@ func (b *InMemoryBackend) UpdateLocationHdfs(
 	replicationFactor int32,
 	qopConfig *QopConfiguration,
 	agentArns []string,
+	secretConfig SecretConfig,
 ) error {
 	b.mu.Lock("UpdateLocationHdfs")
 	defer b.mu.Unlock()
@@ -141,6 +152,10 @@ func (b *InMemoryBackend) UpdateLocationHdfs(
 	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeHDFS {
 		return ErrNotFound
+	}
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return err
 	}
 
 	if l.Hdfs == nil {
@@ -165,6 +180,14 @@ func (b *InMemoryBackend) UpdateLocationHdfs(
 			DataTransferProtection: qopConfig.DataTransferProtection,
 			RPCProtection:          qopConfig.RPCProtection,
 		}
+	}
+
+	if secretConfig.Cmk != nil {
+		l.Hdfs.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+	}
+
+	if secretConfig.Custom != nil {
+		l.Hdfs.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
 	}
 
 	return nil

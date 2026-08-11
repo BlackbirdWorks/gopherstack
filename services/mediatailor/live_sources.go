@@ -51,6 +51,7 @@ func (b *InMemoryBackend) CreateLiveSource(
 		HTTPPackageConfigurations: cfgs,
 	}
 	b.liveSources.Put(ls)
+	b.tags[lsARN] = copyTags(tags)
 
 	return ls, nil
 }
@@ -67,7 +68,10 @@ func (b *InMemoryBackend) DescribeLiveSource(sourceLocationName, liveSourceName 
 		return nil, fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
 
-	return ls, nil
+	out := *ls
+	out.Tags = copyTags(b.tags[ls.ARN])
+
+	return &out, nil
 }
 
 // UpdateLiveSource updates a live source.
@@ -90,7 +94,10 @@ func (b *InMemoryBackend) UpdateLiveSource(
 	ls.HTTPPackageConfigurations = cfgs
 	ls.LastModified = time.Now().UTC()
 
-	return ls, nil
+	out := *ls
+	out.Tags = copyTags(b.tags[ls.ARN])
+
+	return &out, nil
 }
 
 // DeleteLiveSource deletes a live source.
@@ -99,10 +106,13 @@ func (b *InMemoryBackend) DeleteLiveSource(sourceLocationName, liveSourceName st
 	defer b.mu.Unlock()
 
 	key := liveSourceKey(sourceLocationName, liveSourceName)
-	if !b.liveSources.Has(key) {
+
+	ls, ok := b.liveSources.Get(key)
+	if !ok {
 		return fmt.Errorf("%w: live source %s not found", ErrNotFound, liveSourceName)
 	}
 
+	delete(b.tags, ls.ARN)
 	b.liveSources.Delete(key)
 
 	return nil
@@ -124,7 +134,7 @@ func (b *InMemoryBackend) ListLiveSources(
 	out := make([]*LiveSourceSummary, 0, len(pg.Data))
 	for _, ls := range pg.Data {
 		out = append(out, &LiveSourceSummary{
-			Tags:               copyTags(ls.Tags),
+			Tags:               copyTags(b.tags[ls.ARN]),
 			SourceLocationName: ls.SourceLocationName,
 			LiveSourceName:     ls.LiveSourceName,
 			ARN:                ls.ARN,

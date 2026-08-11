@@ -25,10 +25,13 @@ import (
 // whose match-space is the smallest (a proper subset of every less-specific
 // candidate's match-space) -- see isProperSubsetPattern.
 //
-// Scope note: this implements the "strong match" (exact) half of AWS's
-// matching algorithm only. The "weak match" half (case-folding,
-// dash/dot/underscore-equivalence, confusable-character normalization used
-// for dependency-confusion protection) is NOT implemented -- see
+// Scope note: this implements AWS's "strong match" (exact) half of the
+// algorithm plus the casefold and dash/dot/underscore-run normalization
+// piece of "weak match" (see matchesWeak/normalizeWeak below). The
+// remaining weak-match piece -- confusable-character normalization (e.g.
+// visually similar characters from other alphabets) -- is NOT implemented:
+// it requires the full Unicode confusables table, which is real, sizeable
+// external data this pass did not have room to vendor faithfully. See
 // PARITY.md's gaps list.
 
 // groupPatternTarget identifies which package-path component (format,
@@ -156,6 +159,74 @@ func (p *groupPattern) matches(format, namespace, name string) bool {
 		return got == p.value
 	case groupMatchPrefix:
 		return hasPrefixWordBoundary(got, p.value)
+	default:
+		return false
+	}
+}
+
+// normalizeWeak applies the two documented weak-match normalization steps
+// (per "Package group definition syntax and matching behavior" ->
+// "Additional variations"): casefolding, and collapsing any run of dash
+// ('-'), dot ('.'), or underscore ('_') characters into a single dot. This
+// makes "foo-bar", "foo.bar", "foo..bar", and "foo_bar" all normalize
+// identically, while "foobar" (no separator at all) remains distinct.
+//
+// strings.ToLower is used as the casefold step -- AWS documents its own
+// casefolding as "similar to converting to lowercase"; ToLower is not a
+// full Unicode case-fold (e.g. German sharp s) but matches AWS's own
+// approximate framing and every documented example.
+func normalizeWeak(s string) string {
+	s = strings.ToLower(s)
+
+	var b strings.Builder
+
+	b.Grow(len(s))
+
+	sep := false
+
+	for _, r := range s {
+		if r == '-' || r == '.' || r == '_' {
+			if !sep {
+				b.WriteByte('.')
+
+				sep = true
+			}
+
+			continue
+		}
+
+		sep = false
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+// matchesWeak reports whether the given package coordinate falls within p's
+// weak-match space: the same structural comparison as matches, but with
+// every literal segment and the target-position value normalized via
+// normalizeWeak first. Weak match is always a superset of strong match (see
+// matches) -- every strong match is trivially also a weak match, since
+// normalizeWeak(x) == normalizeWeak(x).
+func (p *groupPattern) matchesWeak(format, namespace, name string) bool {
+	comps := packageComponents(format, namespace, name)
+
+	for i, want := range p.segments {
+		if normalizeWeak(comps[i]) != normalizeWeak(want) {
+			return false
+		}
+	}
+
+	got := normalizeWeak(comps[p.target])
+
+	switch p.matchType {
+	case groupMatchWildcard:
+		return true
+	case groupMatchExact:
+		return got == normalizeWeak(p.value)
+	case groupMatchPrefix:
+		return hasPrefixWordBoundary(got, normalizeWeak(p.value))
 	default:
 		return false
 	}

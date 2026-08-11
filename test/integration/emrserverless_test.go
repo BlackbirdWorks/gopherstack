@@ -38,7 +38,10 @@ func TestIntegration_EMRServerless_ApplicationLifecycle(t *testing.T) {
 	assert.Equal(t, appName, aws.ToString(createOut.Name))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteApplication(ctx, &emrserverlesssdk.DeleteApplicationInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteApplication(cleanupCtx, &emrserverlesssdk.DeleteApplicationInput{
 			ApplicationId: aws.String(appID),
 		})
 	})

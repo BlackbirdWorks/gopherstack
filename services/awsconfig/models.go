@@ -135,8 +135,11 @@ type OrganizationConformancePack struct {
 
 // StoredQuery represents an AWS Config stored query.
 type StoredQuery struct {
-	QueryName string `json:"QueryName"`
-	QueryID   string `json:"QueryId,omitempty"`
+	QueryName   string `json:"QueryName"`
+	QueryID     string `json:"QueryId,omitempty"`
+	QueryArn    string `json:"QueryArn,omitempty"`
+	Description string `json:"Description,omitempty"`
+	Expression  string `json:"Expression,omitempty"`
 }
 
 // Tag represents an AWS resource tag.
@@ -164,9 +167,10 @@ type ConfigurationRecorderSummary struct {
 
 // StoredQueryMetadata is summary metadata returned by ListStoredQueries.
 type StoredQueryMetadata struct {
-	QueryArn  string `json:"QueryArn"`
-	QueryID   string `json:"QueryId"`
-	QueryName string `json:"QueryName"`
+	QueryArn    string `json:"QueryArn"`
+	QueryID     string `json:"QueryId"`
+	QueryName   string `json:"QueryName"`
+	Description string `json:"Description,omitempty"`
 }
 
 // BaseConfigurationItem is a lightweight configuration snapshot for a single resource.

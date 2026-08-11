@@ -19,7 +19,7 @@ import (
 func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	orig := newTestBackend()
+	orig := newTestBackend(t)
 
 	// distributions + the distSearchInverted token index (verified via
 	// ListDistributionsByCachePolicyID below).
@@ -38,7 +38,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// anycastIPLists
-	anycast, err := orig.CreateAnycastIPList("my-anycast-list", 3)
+	anycast, err := orig.CreateAnycastIPList("my-anycast-list", 3, nil)
 	require.NoError(t, err)
 
 	// cachePolicies
@@ -66,7 +66,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// functions (keyed by Name)
-	fn, err := orig.CreateFunction("my-function", "c", "cloudfront-js-2.0", "function handler(e){}")
+	fn, err := orig.CreateFunction("my-function", "c", "cloudfront-js-2.0", "function handler(e){}", nil)
 	require.NoError(t, err)
 
 	// originRequestPolicies
@@ -99,16 +99,16 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// keyValueStores
-	kvs, err := orig.CreateKeyValueStore("my-kvs", "c")
+	kvs, err := orig.CreateKeyValueStore("my-kvs", "c", nil)
 	require.NoError(t, err)
 
 	// vpcOrigins
-	vpcOrigin, err := orig.CreateVpcOrigin("my-vpc-origin")
+	vpcOrigin, err := orig.CreateVpcOrigin("my-vpc-origin", nil)
 	require.NoError(t, err)
 
 	// trustStores
 	ts, err := orig.CreateTrustStore(
-		"my-trust-store", "c", cloudfront.TrustStoreCertificateBundle{S3Bucket: "b", S3Key: "k"},
+		"my-trust-store", "c", cloudfront.TrustStoreCertificateBundle{S3Bucket: "b", S3Key: "k"}, nil,
 	)
 	require.NoError(t, err)
 
@@ -128,7 +128,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	snap := orig.Snapshot(t.Context())
 	require.NotEmpty(t, snap)
 
-	fresh := newTestBackend()
+	fresh := newTestBackend(t)
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	gotDist, err := fresh.GetDistribution(dist.ID)
@@ -240,11 +240,11 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 func TestStoreSetup_RestoreDiscardsIncompatibleVersion(t *testing.T) {
 	t.Parallel()
 
-	orig := newTestBackend()
+	orig := newTestBackend(t)
 	_, err := orig.CreateDistribution("caller-ref-old", "old", true, nil)
 	require.NoError(t, err)
 
-	fresh := newTestBackend()
+	fresh := newTestBackend(t)
 	// A malformed/incompatible version (0, i.e. absent) must be discarded rather
 	// than partially decoded.
 	require.NoError(t, fresh.Restore(t.Context(), []byte(`{"version":0,"tables":{}}`)))

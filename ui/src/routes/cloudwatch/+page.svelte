@@ -2,6 +2,10 @@
 	import { confirmDestructive } from '$lib/confirm-dialog';
 	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { currentRegion, isAllRegions } from '$lib/region.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getCloudWatchClient, getCloudWatchLogsClient } from '$lib/aws-client';
 	import {
 		DescribeAlarmsCommand,
@@ -44,12 +48,31 @@
 	type PutMetricAlarmInput = ConstructorParameters<typeof PutMetricAlarmCommand>[0];
 	type TabId = 'alarms' | 'metrics' | 'dashboards' | 'streams' | 'anomaly' | 'filters';
 
+	// Every row carries the region its List/Describe call was made against.
+	// Row actions (delete/edit) must use THIS region, not the page's shared
+	// `cw()`/`cwLogs()` clients -- in All mode the same resource name can
+	// legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
+	// Every load* function below goes through this: in single-region mode
+	// that's exactly one call (unchanged behavior), and in All mode it fans
+	// out across every region with data, tagging each row.
+	async function loadRegioned<TResponse, TItem>(
+		label: string,
+		regionCall: (region: string) => Promise<TResponse>,
+		extractItems: (r: TResponse) => TItem[]
+	): Promise<Regioned<TItem>[]> {
+		const result = await multiRegionList(regionCall, extractItems);
+		if (result.errors.length > 0) toast.error(`Failed to load ${label} from ${result.errors.length} region(s)`);
+		return result.items.map(({ region, item }) => ({ ...item, region }) as Regioned<TItem>);
+	}
+
 	let loading = $state(false);
 	let activeTab = $state<TabId>('alarms');
 	let searchQuery = $state('');
 
 	// Alarms
-	let alarms = $state<MetricAlarm[]>([]);
+	let alarms = $state<Regioned<MetricAlarm>[]>([]);
 	let showCreateAlarm = $state(false);
 	let creatingAlarm = $state(false);
 	let newAlarmName = $state('');
@@ -65,8 +88,10 @@
 	let newAlarmDescription = $state('');
 	let newAlarmActions = $state('');
 
-	// Alarm history
-	let historyAlarmName = $state('');
+	// Alarm history. Keyed by "region::name" -- expandedAlarms/historyAlarmKey
+	// use the composite key so the same alarm name in two regions doesn't
+	// collide.
+	let historyAlarmKey = $state('');
 	let alarmHistory = $state<AlarmHistoryItem[]>([]);
 	let showHistory = $state(false);
 	let loadingHistory = $state(false);
@@ -75,17 +100,18 @@
 	// Edit State modal
 	let showEditState = $state(false);
 	let editStateAlarmName = $state('');
+	let editStateRegion = $state('');
 	let editStateValue = $state<'ALARM' | 'OK' | 'INSUFFICIENT_DATA'>('OK');
 	let editStateReason = $state('');
 	let editingState = $state(false);
 
 	// Metrics
-	let metrics = $state<Metric[]>([]);
+	let metrics = $state<Regioned<Metric>[]>([]);
 	let metricsSearch = $state('');
 
 	// Metric chart (time-series)
 	let showMetricChart = $state(false);
-	let chartMetric = $state<Metric | null>(null);
+	let chartMetric = $state<Regioned<Metric> | null>(null);
 	let chartStatistic = $state<'Average' | 'Sum' | 'Minimum' | 'Maximum' | 'SampleCount'>('Average');
 	let chartRangeHours = $state(3);
 	let chartPeriod = $state(300);
@@ -108,7 +134,7 @@
 		}
 	}
 
-	async function openMetricChart(m: Metric) {
+	async function openMetricChart(m: Regioned<Metric>) {
 		chartMetric = m;
 		showMetricChart = true;
 		chartDatapoints = [];
@@ -123,7 +149,7 @@
 		try {
 			const end = new Date();
 			const start = new Date(end.getTime() - chartRangeHours * 3600 * 1000);
-			const res = await cw().send(
+			const res = await getCloudWatchClient(chartMetric.region).send(
 				new GetMetricStatisticsCommand({
 					Namespace: chartMetric.Namespace,
 					MetricName: chartMetric.MetricName,
@@ -172,13 +198,13 @@
 	});
 
 	// Dashboards
-	let dashboards = $state<DashboardEntry[]>([]);
+	let dashboards = $state<Regioned<DashboardEntry>[]>([]);
 	let showCreateDashboard = $state(false);
 	let creatingDashboard = $state(false);
 	let newDashboardName = $state('');
 
 	// Metric Streams
-	let streams = $state<MetricStreamEntry[]>([]);
+	let streams = $state<Regioned<MetricStreamEntry>[]>([]);
 	let showCreateStream = $state(false);
 	let creatingStream = $state(false);
 	let newStreamName = $state('');
@@ -186,7 +212,7 @@
 	let newStreamOutputFormat = $state('json');
 
 	// Anomaly Detectors
-	let anomalyDetectors = $state<AnomalyDetector[]>([]);
+	let anomalyDetectors = $state<Regioned<AnomalyDetector>[]>([]);
 	let showCreateAnomaly = $state(false);
 	let creatingAnomaly = $state(false);
 	let newAnomalyNamespace = $state('AWS/EC2');
@@ -194,7 +220,7 @@
 	let newAnomalyStat = $state('Average');
 
 	// Metric Filters
-	let metricFilters = $state<MetricFilter[]>([]);
+	let metricFilters = $state<Regioned<MetricFilter>[]>([]);
 
 	const filteredAlarms = $derived(
 		alarms.filter(
@@ -204,17 +230,22 @@
 		)
 	);
 
+	// Grouped by "namespace::region" (not namespace alone) -- under All mode
+	// the same namespace legitimately appears in multiple regions, and a
+	// namespace-only key would merge their metrics into one indistinguishable
+	// group.
 	const groupedMetrics = $derived(() => {
-		const groups: Record<string, Metric[]> = {};
+		const groups: Record<string, Regioned<Metric>[]> = {};
 		for (const m of metrics) {
 			if (!m.Namespace) continue;
-			if (!groups[m.Namespace]) groups[m.Namespace] = [];
+			const key = `${m.Namespace}::${m.region}`;
+			if (!groups[key]) groups[key] = [];
 			if (
 				!metricsSearch ||
 				m.MetricName?.toLowerCase().includes(metricsSearch.toLowerCase()) ||
 				m.Namespace?.toLowerCase().includes(metricsSearch.toLowerCase())
 			) {
-				groups[m.Namespace].push(m);
+				groups[key].push(m);
 			}
 		}
 		return groups;
@@ -232,9 +263,14 @@
 		return 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400';
 	}
 
+	// Demo-data fallback only applies in single-region mode: it seeds fake
+	// local records tagged with the current region when the backend has
+	// nothing yet, which doesn't make sense to inject into an aggregated
+	// All-mode view.
 	async function loadDemoData() {
+		const region = currentRegion();
 		// Demo alarms
-		const demoAlarms: MetricAlarm[] = [
+		const demoAlarms: Regioned<MetricAlarm>[] = [
 			{
 				AlarmName: 'demo-high-cpu',
 				StateValue: 'ALARM',
@@ -247,7 +283,8 @@
 				Statistic: 'Average',
 				DatapointsToAlarm: 2,
 				TreatMissingData: 'missing',
-				ActionsEnabled: true
+				ActionsEnabled: true,
+				region
 			},
 			{
 				AlarmName: 'demo-low-disk',
@@ -260,7 +297,8 @@
 				Period: 60,
 				Statistic: 'Sum',
 				TreatMissingData: 'notBreaching',
-				ActionsEnabled: false
+				ActionsEnabled: false,
+				region
 			},
 			{
 				AlarmName: 'demo-network-in',
@@ -274,26 +312,27 @@
 				Statistic: 'Average',
 				DatapointsToAlarm: 2,
 				TreatMissingData: 'breaching',
-				ActionsEnabled: true
+				ActionsEnabled: true,
+				region
 			}
 		];
 
 		// Demo metric streams
-		const demoStreams: MetricStreamEntry[] = [
-			{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15') },
-			{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20') }
+		const demoStreams: Regioned<MetricStreamEntry>[] = [
+			{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15'), region },
+			{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20'), region }
 		];
 
 		// Demo anomaly detectors
-		const demoAnomalies: AnomalyDetector[] = [
-			{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED' },
-			{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING' }
+		const demoAnomalies: Regioned<AnomalyDetector>[] = [
+			{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED', region },
+			{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING', region }
 		];
 
 		// Demo metric filters
-		const demoFilters: MetricFilter[] = [
-			{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }] },
-			{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }] }
+		const demoFilters: Regioned<MetricFilter>[] = [
+			{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }], region },
+			{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }], region }
 		];
 
 		alarms = demoAlarms;
@@ -329,50 +368,59 @@
 	}
 
 	async function loadAlarmsForTab() {
-		const res = await cw().send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
-		alarms = res.MetricAlarms ?? [];
-		if (alarms.length === 0) await loadDemoData();
+		alarms = await loadRegioned('alarms',
+			(region) => getCloudWatchClient(region).send(new DescribeAlarmsCommand({ MaxRecords: 100 })),
+			(r) => r.MetricAlarms ?? []);
+		if (alarms.length === 0 && !isAllRegions()) await loadDemoData();
 	}
 
 	async function loadMetricsForTab() {
-		const res = await cw().send(new ListMetricsCommand({}));
-		metrics = res.Metrics ?? [];
+		metrics = await loadRegioned('metrics',
+			(region) => getCloudWatchClient(region).send(new ListMetricsCommand({})),
+			(r) => r.Metrics ?? []);
 	}
 
 	async function loadDashboardsForTab() {
-		const res = await cw().send(new ListDashboardsCommand({}));
-		dashboards = res.DashboardEntries ?? [];
+		dashboards = await loadRegioned('dashboards',
+			(region) => getCloudWatchClient(region).send(new ListDashboardsCommand({})),
+			(r) => r.DashboardEntries ?? []);
 	}
 
 	async function loadStreamsForTab() {
-		const res = await cw().send(new ListMetricStreamsCommand({}));
-		streams = res.Entries ?? [];
-		if (streams.length === 0) {
+		streams = await loadRegioned('metric streams',
+			(region) => getCloudWatchClient(region).send(new ListMetricStreamsCommand({})),
+			(r) => r.Entries ?? []);
+		if (streams.length === 0 && !isAllRegions()) {
+			const region = currentRegion();
 			streams = [
-				{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15') },
-				{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20') }
+				{ Name: 'demo-stream-firehose', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/demo-stream', State: 'running', OutputFormat: 'json', CreationDate: new Date('2024-01-15'), region },
+				{ Name: 'demo-stream-ops', FirehoseArn: 'arn:aws:firehose:us-east-1:123456789012:deliverystream/ops-stream', State: 'stopped', OutputFormat: 'opentelemetry1.0', CreationDate: new Date('2024-03-20'), region }
 			];
 		}
 	}
 
 	async function loadAnomalyForTab() {
-		const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
-		anomalyDetectors = res.AnomalyDetectors ?? [];
-		if (anomalyDetectors.length === 0) {
+		anomalyDetectors = await loadRegioned('anomaly detectors',
+			(region) => getCloudWatchClient(region).send(new DescribeAnomalyDetectorsCommand({})),
+			(r) => r.AnomalyDetectors ?? []);
+		if (anomalyDetectors.length === 0 && !isAllRegions()) {
+			const region = currentRegion();
 			anomalyDetectors = [
-				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED' },
-				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING' }
+				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/EC2', MetricName: 'CPUUtilization', Stat: 'Average' }, StateValue: 'TRAINED', region },
+				{ SingleMetricAnomalyDetector: { Namespace: 'AWS/RDS', MetricName: 'DatabaseConnections', Stat: 'Average' }, StateValue: 'PENDING_TRAINING', region }
 			];
 		}
 	}
 
 	async function loadFiltersForTab() {
-		const res = await cwLogs().send(new DescribeMetricFiltersCommand({}));
-		metricFilters = res.metricFilters ?? [];
-		if (metricFilters.length === 0) {
+		metricFilters = await loadRegioned('metric filters',
+			(region) => getCloudWatchLogsClient(region).send(new DescribeMetricFiltersCommand({})),
+			(r) => r.metricFilters ?? []);
+		if (metricFilters.length === 0 && !isAllRegions()) {
+			const region = currentRegion();
 			metricFilters = [
-				{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }] },
-				{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }] }
+				{ filterName: 'demo-error-filter', logGroupName: '/aws/lambda/my-function', filterPattern: '[ERROR]', metricTransformations: [{ metricName: 'ErrorCount', metricNamespace: 'CustomApp', metricValue: '1' }], region },
+				{ filterName: 'demo-latency-filter', logGroupName: '/aws/apigateway/my-api', filterPattern: '[duration > 1000]', metricTransformations: [{ metricName: 'HighLatency', metricNamespace: 'CustomApp', metricValue: '1' }], region }
 			];
 		}
 	}
@@ -397,12 +445,12 @@
 		}
 	}
 
+	// loadAlarms is loadAlarmsForTab's loading-flag-wrapped twin, used after
+	// alarm mutations (create/delete/state-change) rather than a tab switch.
 	async function loadAlarms() {
 		loading = true;
 		try {
-			const res = await cw().send(new DescribeAlarmsCommand({ MaxRecords: 100 }));
-			alarms = res.MetricAlarms ?? [];
-			if (alarms.length === 0) await loadDemoData();
+			await loadAlarmsForTab();
 		} catch (err: unknown) {
 			toast.error(`Failed to load alarms: ${(err as Error).message}`);
 		} finally {
@@ -410,19 +458,20 @@
 		}
 	}
 
-	async function toggleAlarmHistory(alarmName: string) {
+	async function toggleAlarmHistory(alarmName: string, region: string) {
+		const key = `${region}::${alarmName}`;
 		const next = new Set(expandedAlarms);
-		if (next.has(alarmName)) {
-			next.delete(alarmName);
+		if (next.has(key)) {
+			next.delete(key);
 			expandedAlarms = next;
 			return;
 		}
-		next.add(alarmName);
+		next.add(key);
 		expandedAlarms = next;
-		historyAlarmName = alarmName;
+		historyAlarmKey = key;
 		loadingHistory = true;
 		try {
-			const res = await cw().send(new DescribeAlarmHistoryCommand({ AlarmName: alarmName, MaxRecords: 20 }));
+			const res = await getCloudWatchClient(region).send(new DescribeAlarmHistoryCommand({ AlarmName: alarmName, MaxRecords: 20 }));
 			alarmHistory = res.AlarmHistoryItems ?? [];
 		} catch (err: unknown) {
 			toast.error(`Failed to load history: ${(err as Error).message}`);
@@ -467,10 +516,10 @@
 		}
 	}
 
-	async function deleteAlarm(name: string) {
+	async function deleteAlarm(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Alarm', message: `Delete alarm "${name}"? No further alerts will be triggered.` })) return;
 		try {
-			await cw().send(new DeleteAlarmsCommand({ AlarmNames: [name] }));
+			await getCloudWatchClient(region).send(new DeleteAlarmsCommand({ AlarmNames: [name] }));
 			toast.success(`Alarm "${name}" deleted`);
 			await loadAlarms();
 		} catch (err: unknown) {
@@ -478,8 +527,9 @@
 		}
 	}
 
-	function openEditState(alarmName: string) {
+	function openEditState(alarmName: string, region: string) {
 		editStateAlarmName = alarmName;
+		editStateRegion = region;
 		editStateValue = 'OK';
 		editStateReason = '';
 		showEditState = true;
@@ -489,7 +539,7 @@
 		if (!editStateAlarmName || !editStateReason.trim()) return;
 		editingState = true;
 		try {
-			await cw().send(new SetAlarmStateCommand({
+			await getCloudWatchClient(editStateRegion).send(new SetAlarmStateCommand({
 				AlarmName: editStateAlarmName,
 				StateValue: editStateValue,
 				StateReason: editStateReason.trim()
@@ -504,14 +554,14 @@
 		}
 	}
 
-	async function toggleAlarmActions(alarm: MetricAlarm) {
+	async function toggleAlarmActions(alarm: Regioned<MetricAlarm>) {
 		const name = alarm.AlarmName ?? '';
 		try {
 			if (alarm.ActionsEnabled) {
-				await cw().send(new DisableAlarmActionsCommand({ AlarmNames: [name] }));
+				await getCloudWatchClient(alarm.region).send(new DisableAlarmActionsCommand({ AlarmNames: [name] }));
 				toast.success(`Actions disabled for "${name}"`);
 			} else {
-				await cw().send(new EnableAlarmActionsCommand({ AlarmNames: [name] }));
+				await getCloudWatchClient(alarm.region).send(new EnableAlarmActionsCommand({ AlarmNames: [name] }));
 				toast.success(`Actions enabled for "${name}"`);
 			}
 			await loadAlarms();
@@ -520,13 +570,12 @@
 		}
 	}
 
-	async function deleteStream(name: string) {
+	async function deleteStream(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Metric Stream', message: `Delete metric stream "${name}"?` })) return;
 		try {
-			await cw().send(new DeleteMetricStreamCommand({ Name: name }));
+			await getCloudWatchClient(region).send(new DeleteMetricStreamCommand({ Name: name }));
 			toast.success(`Metric stream "${name}" deleted`);
-			const res = await cw().send(new ListMetricStreamsCommand({}));
-			streams = res.Entries ?? [];
+			await loadStreamsForTab();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -547,8 +596,7 @@
 			newStreamName = '';
 			newStreamFirehoseArn = '';
 			newStreamOutputFormat = 'json';
-			const res = await cw().send(new ListMetricStreamsCommand({}));
-			streams = res.Entries ?? [];
+			await loadStreamsForTab();
 		} catch (err: unknown) {
 			toast.error(`Create stream failed: ${(err as Error).message}`);
 		} finally {
@@ -556,16 +604,15 @@
 		}
 	}
 
-	async function deleteAnomalyDetector(detector: AnomalyDetector) {
+	async function deleteAnomalyDetector(detector: Regioned<AnomalyDetector>) {
 		const label = detector.SingleMetricAnomalyDetector?.MetricName ?? 'detector';
 		if (!await confirmDestructive({ title: 'Delete Anomaly Detector', message: `Delete anomaly detector for "${label}"?` })) return;
 		try {
-			await cw().send(new DeleteAnomalyDetectorCommand({
+			await getCloudWatchClient(detector.region).send(new DeleteAnomalyDetectorCommand({
 				SingleMetricAnomalyDetector: detector.SingleMetricAnomalyDetector
 			}));
 			toast.success(`Anomaly detector for "${label}" deleted`);
-			const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
-			anomalyDetectors = res.AnomalyDetectors ?? [];
+			await loadAnomalyForTab();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -587,8 +634,7 @@
 			newAnomalyNamespace = 'AWS/EC2';
 			newAnomalyMetric = 'CPUUtilization';
 			newAnomalyStat = 'Average';
-			const res = await cw().send(new DescribeAnomalyDetectorsCommand({}));
-			anomalyDetectors = res.AnomalyDetectors ?? [];
+			await loadAnomalyForTab();
 		} catch (err: unknown) {
 			toast.error(`Create anomaly detector failed: ${(err as Error).message}`);
 		} finally {
@@ -596,15 +642,14 @@
 		}
 	}
 
-	async function deleteMetricFilter(filter: MetricFilter) {
+	async function deleteMetricFilter(filter: Regioned<MetricFilter>) {
 		const name = filter.filterName ?? '';
 		const logGroup = filter.logGroupName ?? '';
 		if (!await confirmDestructive({ title: 'Delete Metric Filter', message: `Delete metric filter "${name}"?` })) return;
 		try {
-			await cwLogs().send(new DeleteMetricFilterCommand({ filterName: name, logGroupName: logGroup }));
+			await getCloudWatchLogsClient(filter.region).send(new DeleteMetricFilterCommand({ filterName: name, logGroupName: logGroup }));
 			toast.success(`Metric filter "${name}" deleted`);
-			const res = await cwLogs().send(new DescribeMetricFiltersCommand({}));
-			metricFilters = res.metricFilters ?? [];
+			await loadFiltersForTab();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -621,8 +666,7 @@
 			toast.success(`Dashboard "${newDashboardName}" created`);
 			showCreateDashboard = false;
 			newDashboardName = '';
-			const res = await cw().send(new ListDashboardsCommand({}));
-			dashboards = res.DashboardEntries ?? [];
+			await loadDashboardsForTab();
 		} catch (err: unknown) {
 			toast.error(`Create dashboard failed: ${(err as Error).message}`);
 		} finally {
@@ -630,13 +674,12 @@
 		}
 	}
 
-	async function deleteDashboard(name: string) {
+	async function deleteDashboard(name: string, region: string) {
 		if (!await confirmDestructive({ title: 'Delete Dashboard', message: `Delete dashboard "${name}"? All widgets and layout settings will be lost.` })) return;
 		try {
-			await cw().send(new DeleteDashboardsCommand({ DashboardNames: [name] }));
+			await getCloudWatchClient(region).send(new DeleteDashboardsCommand({ DashboardNames: [name] }));
 			toast.success(`Dashboard "${name}" deleted`);
-			const res = await cw().send(new ListDashboardsCommand({}));
-			dashboards = res.DashboardEntries ?? [];
+			await loadDashboardsForTab();
 		} catch (err: unknown) {
 			toast.error(`Delete failed: ${(err as Error).message}`);
 		}
@@ -659,7 +702,8 @@
 		anomalyDetectors = [];
 		metricFilters = [];
 		alarmHistory = [];
-		historyAlarmName = '';
+		historyAlarmKey = '';
+		expandedAlarms = new Set();
 		showHistory = false;
 		chartMetric = null;
 		chartDatapoints = [];
@@ -686,10 +730,12 @@
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
 			{#if activeTab === 'alarms'}
+				<WriteRegionHint />
 				<button onclick={() => { showCreateAlarm = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />Create Alarm
 				</button>
 			{:else if activeTab === 'dashboards'}
+				<WriteRegionHint />
 				<button onclick={() => { showCreateDashboard = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 					<Plus class="w-4 h-4" />Create Dashboard
 				</button>
@@ -747,7 +793,10 @@
 						<div class="p-4 flex items-start gap-4">
 							<Bell class="w-5 h-5 text-orange-500 flex-shrink-0 mt-0.5" />
 							<div class="flex-1 min-w-0">
-								<p class="font-medium text-slate-900 dark:text-white">{alarm.AlarmName}</p>
+								<div class="flex items-center gap-2">
+									<p class="font-medium text-slate-900 dark:text-white">{alarm.AlarmName}</p>
+									<RegionChip region={alarm.region} />
+								</div>
 								<p class="text-xs text-slate-500 dark:text-slate-400">
 									{alarm.Namespace} / {alarm.MetricName} · {alarm.ComparisonOperator?.replace(/([A-Z])/g, ' $1').trim()} {alarm.Threshold}
 								</p>
@@ -778,7 +827,7 @@
 								{/if}
 							</button>
 							<button
-								onclick={() => openEditState(alarm.AlarmName ?? '')}
+								onclick={() => openEditState(alarm.AlarmName ?? '', alarm.region)}
 								class="p-1 text-slate-400 hover:text-indigo-500"
 								title="Edit state"
 								data-testid="edit-state-btn"
@@ -786,27 +835,27 @@
 								<Edit2 class="w-4 h-4" />
 							</button>
 							<button
-								onclick={() => toggleAlarmHistory(alarm.AlarmName ?? '')}
+								onclick={() => toggleAlarmHistory(alarm.AlarmName ?? '', alarm.region)}
 								class="p-1 text-slate-400 hover:text-indigo-500"
 								title="View history"
 							>
-								{#if expandedAlarms.has(alarm.AlarmName ?? '')}
+								{#if expandedAlarms.has(`${alarm.region}::${alarm.AlarmName ?? ''}`)}
 									<ChevronUp class="w-4 h-4" />
 								{:else}
 									<ChevronDown class="w-4 h-4" />
 								{/if}
 							</button>
-							<button onclick={() => deleteAlarm(alarm.AlarmName ?? '')} class="p-1 text-slate-400 hover:text-red-500">
+							<button onclick={() => deleteAlarm(alarm.AlarmName ?? '', alarm.region)} class="p-1 text-slate-400 hover:text-red-500">
 								<Trash2 class="w-4 h-4" />
 							</button>
 						</div>
-						{#if expandedAlarms.has(alarm.AlarmName ?? '')}
+						{#if expandedAlarms.has(`${alarm.region}::${alarm.AlarmName ?? ''}`)}
 							<div class="border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-4 py-3">
 								<div class="flex items-center gap-2 mb-2">
 									<Clock class="w-4 h-4 text-slate-400" />
 									<span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Alarm History</span>
 								</div>
-								{#if loadingHistory && historyAlarmName === alarm.AlarmName}
+								{#if loadingHistory && historyAlarmKey === `${alarm.region}::${alarm.AlarmName ?? ''}`}
 									<p class="text-xs text-slate-400">Loading history...</p>
 								{:else if alarmHistory.length === 0}
 									<p class="text-xs text-slate-400">No history entries</p>
@@ -839,11 +888,11 @@
 			</div>
 		{:else}
 			<div class="space-y-3">
-				{#each Object.entries(groupedMetrics()) as [ns, nsMetrics]}
+				{#each Object.entries(groupedMetrics()) as [key, nsMetrics]}
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4">
 						<h3 class="font-semibold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
 							<BarChart2 class="w-4 h-4 text-indigo-500" />
-							{ns} <span class="text-sm font-normal text-slate-500 dark:text-slate-400">({nsMetrics.length} metrics)</span>
+							{nsMetrics[0]?.Namespace ?? key} <RegionChip region={nsMetrics[0]?.region} /> <span class="text-sm font-normal text-slate-500 dark:text-slate-400">({nsMetrics.length} metrics)</span>
 						</h3>
 						<div class="flex flex-wrap gap-1">
 							{#each nsMetrics.slice(0, 20) as m}
@@ -873,7 +922,10 @@
 				{#each dashboards as dash}
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center justify-between">
 						<div>
-							<p class="font-medium text-slate-900 dark:text-white">{dash.DashboardName}</p>
+							<div class="flex items-center gap-2">
+								<p class="font-medium text-slate-900 dark:text-white">{dash.DashboardName}</p>
+								<RegionChip region={dash.region} />
+							</div>
 							<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
 								Modified: {dash.LastModified ? new Date(dash.LastModified).toLocaleDateString() : 'N/A'}
 							</p>
@@ -881,7 +933,7 @@
 								<p class="text-xs text-slate-400 dark:text-slate-500">{dash.Size} bytes</p>
 							{/if}
 						</div>
-						<button onclick={() => deleteDashboard(dash.DashboardName ?? '')} class="p-1.5 text-slate-400 hover:text-red-500">
+						<button onclick={() => deleteDashboard(dash.DashboardName ?? '', dash.region)} class="p-1.5 text-slate-400 hover:text-red-500">
 							<Trash2 class="w-4 h-4" />
 						</button>
 					</div>
@@ -889,7 +941,8 @@
 			</div>
 		{/if}
 	{:else if activeTab === 'streams'}
-		<div class="flex justify-end mb-3">
+		<div class="flex justify-end mb-3 items-center gap-3">
+			<WriteRegionHint />
 			<button onclick={() => { showCreateStream = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
 				<Plus class="w-4 h-4" />Create Stream
 			</button>
@@ -905,7 +958,10 @@
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-4">
 						<Radio class="w-5 h-5 text-indigo-500 flex-shrink-0" />
 						<div class="flex-1 min-w-0">
-							<p class="font-medium text-slate-900 dark:text-white">{stream.Name}</p>
+							<div class="flex items-center gap-2">
+								<p class="font-medium text-slate-900 dark:text-white">{stream.Name}</p>
+								<RegionChip region={stream.region} />
+							</div>
 							<p class="text-xs text-slate-500 dark:text-slate-400">{stream.FirehoseArn ?? ''}</p>
 							{#if stream.CreationDate}
 								<p class="text-xs text-slate-400">Created {new Date(stream.CreationDate).toLocaleDateString()}</p>
@@ -913,7 +969,7 @@
 						</div>
 						<span class="px-2 py-0.5 text-xs rounded-full {stream.State === 'running' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-400'}">{stream.State}</span>
 						<span class="px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded">{stream.OutputFormat}</span>
-						<button onclick={() => deleteStream(stream.Name ?? '')} class="p-1 text-slate-400 hover:text-red-500">
+						<button onclick={() => deleteStream(stream.Name ?? '', stream.region)} class="p-1 text-slate-400 hover:text-red-500">
 							<Trash2 class="w-4 h-4" />
 						</button>
 					</div>
@@ -921,7 +977,8 @@
 			</div>
 		{/if}
 	{:else if activeTab === 'anomaly'}
-		<div class="flex justify-end mb-3">
+		<div class="flex justify-end mb-3 items-center gap-3">
+			<WriteRegionHint />
 			<button onclick={() => { showCreateAnomaly = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm">
 				<Plus class="w-4 h-4" />Create Detector
 			</button>
@@ -937,9 +994,12 @@
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-4">
 						<ScanLine class="w-5 h-5 text-purple-500 flex-shrink-0" />
 						<div class="flex-1 min-w-0">
-							<p class="font-medium text-slate-900 dark:text-white">
-								{detector.SingleMetricAnomalyDetector?.MetricName ?? 'Unknown'}
-							</p>
+							<div class="flex items-center gap-2">
+								<p class="font-medium text-slate-900 dark:text-white">
+									{detector.SingleMetricAnomalyDetector?.MetricName ?? 'Unknown'}
+								</p>
+								<RegionChip region={detector.region} />
+							</div>
 							<p class="text-xs text-slate-500 dark:text-slate-400">
 								{detector.SingleMetricAnomalyDetector?.Namespace ?? ''} · {detector.SingleMetricAnomalyDetector?.Stat ?? ''}
 							</p>
@@ -964,7 +1024,10 @@
 					<div class="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 flex items-center gap-4">
 						<Filter class="w-5 h-5 text-teal-500 flex-shrink-0" />
 						<div class="flex-1 min-w-0">
-							<p class="font-medium text-slate-900 dark:text-white">{filter.filterName}</p>
+							<div class="flex items-center gap-2">
+								<p class="font-medium text-slate-900 dark:text-white">{filter.filterName}</p>
+								<RegionChip region={filter.region} />
+							</div>
 							<p class="text-xs text-slate-500 dark:text-slate-400">
 								{filter.logGroupName} · <span class="font-mono">{filter.filterPattern}</span>
 							</p>

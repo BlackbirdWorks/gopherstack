@@ -404,7 +404,7 @@ func TestCodeSecurityScanLifecycle(t *testing.T) {
 }
 
 // TestConnectorLifecycle covers the Create/Update/Delete/ListConnectors
-// family added for the inspector2@v1.53.0 SDK bump (Azure cloud-provider
+// family added for the inspector2@v1.54.1 SDK bump (Azure cloud-provider
 // connectors; see connectors.go/handler_connectors.go). It lands in this
 // file, rather than a new test file, per this package's testing convention
 // of adding new coverage as a new table test in an existing test file.
@@ -624,7 +624,7 @@ func TestConnectorLifecycle(t *testing.T) {
 
 // TestConnectorScanConfigurationLifecycle covers
 // ListConnectorScanConfigurations/UpdateConnectorScanConfiguration, added
-// alongside the connector family for the inspector2@v1.53.0 SDK bump. There
+// alongside the connector family for the inspector2@v1.54.1 SDK bump. There
 // is no CreateConnectorScanConfiguration operation in the real API (Update
 // is the only write path), and UpdateConnectorScanConfiguration must reject
 // an awsConfigConnectorArn with no associated connector rather than

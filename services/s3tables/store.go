@@ -197,6 +197,31 @@ func (b *InMemoryBackend) ListTagsForResource(resourceArn string) (map[string]st
 	return result, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every S3 Tables bucket or table ARN that currently
+// has at least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.muState.RLock("TaggedResources")
+	defer b.muState.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for resourceArn, tags := range b.tags {
+		if len(tags) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: resourceArn, Tags: maps.Clone(tags)})
+	}
+
+	return out
+}
+
 // tableByComposite looks up a table by its bucket/namespace/name composite
 // key via the byComposite secondary index. The index enforces at most one
 // match per composite key (CreateTable/RenameTable reject collisions), so

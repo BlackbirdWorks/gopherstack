@@ -11,8 +11,13 @@ import (
 
 func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"GetAccountAuthorizationDetails": func(_ url.Values, reqID string) (any, error) {
-			details := h.Backend.GetAccountAuthorizationDetails()
+		"GetAccountAuthorizationDetails": func(vals url.Values, reqID string) (any, error) {
+			maxItems, _ := strconv.Atoi(vals.Get("MaxItems"))
+			filter := parseIndexedValues(vals, "Filter.member.")
+
+			details, nextMarker := h.Backend.GetAccountAuthorizationDetails(
+				vals.Get("Marker"), maxItems, filter,
+			)
 
 			users := make([]UserDetailXML, 0, len(details.Users))
 			for _, u := range details.Users {
@@ -56,6 +61,8 @@ func (h *Handler) iamReportingDispatchTable() map[string]iamActionFn {
 					GroupDetailList: groups,
 					RoleDetailList:  roles,
 					Policies:        policies,
+					Marker:          nextMarker,
+					IsTruncated:     nextMarker != "",
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -183,7 +190,7 @@ func (h *Handler) iamNewOpsAccountActions() map[string]iamActionFn {
 func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			req, err := h.Backend.CreateDelegationRequest(vals.Get("TargetAccountId"))
+			req, err := h.Backend.CreateDelegationRequest(vals.Get("OwnerAccountId"))
 			if err != nil {
 				return nil, err
 			}
@@ -203,7 +210,7 @@ func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 		},
 
 		"AcceptDelegationRequest": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.AcceptDelegationRequest(vals.Get("DelegationId")); err != nil {
+			if err := h.Backend.AcceptDelegationRequest(vals.Get("DelegationRequestId")); err != nil {
 				return nil, err
 			}
 
@@ -215,7 +222,7 @@ func (h *Handler) iamNewOpsDelegationAndOIDCActions() map[string]iamActionFn {
 
 		"AssociateDelegationRequest": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.AssociateDelegationRequest(
-				vals.Get("DelegationId"),
+				vals.Get("DelegationRequestId"),
 				vals.Get("PolicyArn"),
 			); err != nil {
 				return nil, err

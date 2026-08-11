@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CodeBuildPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -15,10 +16,22 @@ vi.mock("svelte-sonner", () => ({
   },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("CodeBuild Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title and create button", () => {
@@ -193,5 +206,73 @@ describe("CodeBuild Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  // Both regions' ListProjects calls fire before either's BatchGetProjects
+  // (Promise.all starts every region's async function synchronously up to
+  // its first await), so an ordered mockResolvedValueOnce queue would be
+  // racy here. Key ListProjects off call count and BatchGetProjects off the
+  // requested names instead, which is order-independent.
+  function mockProjectsPerRegion(namesByCallOrder: string[][]): void {
+    let listCalls = 0;
+    mockSend.mockImplementation(
+      (cmd: { constructor: { name: string }; input?: { names?: string[] } }) => {
+        if (cmd.constructor.name === "ListProjectsCommand") {
+          const names = namesByCallOrder[listCalls] ?? [];
+          listCalls++;
+          return Promise.resolve({ projects: names });
+        }
+        if (cmd.constructor.name === "BatchGetProjectsCommand") {
+          const names = cmd.input?.names ?? [];
+          return Promise.resolve({ projects: names.map((name) => ({ name })) });
+        }
+        return Promise.resolve({});
+      },
+    );
+  }
+
+  describe("All regions mode", () => {
+    it("fans ListProjects out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockProjectsPerRegion([["my-service-build"], ["eu-build"]]);
+
+      render(CodeBuildPage);
+
+      await waitFor(() => expect(screen.getByText("my-service-build")).toBeInTheDocument());
+      expect(screen.getByText("eu-build")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(4);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListProjects call in single-region mode", async () => {
+      mockProjectsPerRegion([["my-service-build"]]);
+      render(CodeBuildPage);
+      await waitFor(() => expect(screen.getByText("my-service-build")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(2);
+    });
+
+    it("renders the same project name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockProjectsPerRegion([["shared-build"], ["shared-build"]]);
+
+      render(CodeBuildPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-build");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest('[role="button"]') as HTMLElement).getByTestId("region-chip")
+            .textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

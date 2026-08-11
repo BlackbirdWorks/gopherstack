@@ -16,14 +16,18 @@ const (
 // storedAssetBundleExportJob is the persisted representation of one asset-bundle
 // export job, keyed by JobId.
 type storedAssetBundleExportJob struct {
-	CreatedTime            time.Time `json:"createdTime"`
-	JobID                  string    `json:"jobId"`
-	Arn                    string    `json:"arn"`
-	Status                 string    `json:"status"`
-	ExportFormat           string    `json:"exportFormat"`
-	DownloadURL            string    `json:"downloadUrl,omitempty"`
-	ResourceArns           []string  `json:"resourceArns"`
-	IncludeAllDependencies bool      `json:"includeAllDependencies"`
+	CreatedTime              time.Time `json:"createdTime"`
+	JobID                    string    `json:"jobId"`
+	Arn                      string    `json:"arn"`
+	Status                   string    `json:"status"`
+	ExportFormat             string    `json:"exportFormat"`
+	DownloadURL              string    `json:"downloadUrl,omitempty"`
+	IncludeFolderMembers     string    `json:"includeFolderMembers,omitempty"`
+	ResourceArns             []string  `json:"resourceArns"`
+	IncludeAllDependencies   bool      `json:"includeAllDependencies"`
+	IncludeFolderMemberships bool      `json:"includeFolderMemberships"`
+	IncludePermissions       bool      `json:"includePermissions"`
+	IncludeTags              bool      `json:"includeTags"`
 }
 
 func (j *storedAssetBundleExportJob) toAssetBundleExportJob() *AssetBundleExportJob {
@@ -31,14 +35,18 @@ func (j *storedAssetBundleExportJob) toAssetBundleExportJob() *AssetBundleExport
 	copy(arns, j.ResourceArns)
 
 	return &AssetBundleExportJob{
-		CreatedTime:            j.CreatedTime,
-		ResourceArns:           arns,
-		JobID:                  j.JobID,
-		Arn:                    j.Arn,
-		Status:                 j.Status,
-		ExportFormat:           j.ExportFormat,
-		DownloadURL:            j.DownloadURL,
-		IncludeAllDependencies: j.IncludeAllDependencies,
+		CreatedTime:              j.CreatedTime,
+		ResourceArns:             arns,
+		JobID:                    j.JobID,
+		Arn:                      j.Arn,
+		Status:                   j.Status,
+		ExportFormat:             j.ExportFormat,
+		DownloadURL:              j.DownloadURL,
+		IncludeFolderMembers:     j.IncludeFolderMembers,
+		IncludeAllDependencies:   j.IncludeAllDependencies,
+		IncludeFolderMemberships: j.IncludeFolderMemberships,
+		IncludePermissions:       j.IncludePermissions,
+		IncludeTags:              j.IncludeTags,
 	}
 }
 
@@ -65,9 +73,9 @@ func (j *storedAssetBundleImportJob) toAssetBundleImportJob() *AssetBundleImport
 // ---- Asset bundle export jobs ----
 
 func (b *InMemoryBackend) StartAssetBundleExportJob(
-	_, jobID, exportFormat string,
+	_, jobID, exportFormat, includeFolderMembers string,
 	resourceArns []string,
-	includeAllDependencies bool,
+	includeAllDependencies, includeFolderMemberships, includePermissions, includeTags bool,
 ) (*AssetBundleExportJob, error) {
 	if jobID == "" || len(resourceArns) == 0 {
 		return nil, ErrValidation
@@ -84,13 +92,17 @@ func (b *InMemoryBackend) StartAssetBundleExportJob(
 	copy(arns, resourceArns)
 
 	job := &storedAssetBundleExportJob{
-		CreatedTime:            time.Now().UTC(),
-		ResourceArns:           arns,
-		JobID:                  jobID,
-		Arn:                    b.buildARN("asset-bundle-export-job", jobID),
-		Status:                 assetBundleJobStatusQueued,
-		ExportFormat:           exportFormat,
-		IncludeAllDependencies: includeAllDependencies,
+		CreatedTime:              time.Now().UTC(),
+		ResourceArns:             arns,
+		JobID:                    jobID,
+		Arn:                      b.buildARN("asset-bundle-export-job", jobID),
+		Status:                   assetBundleJobStatusQueued,
+		ExportFormat:             exportFormat,
+		IncludeFolderMembers:     includeFolderMembers,
+		IncludeAllDependencies:   includeAllDependencies,
+		IncludeFolderMemberships: includeFolderMemberships,
+		IncludePermissions:       includePermissions,
+		IncludeTags:              includeTags,
 	}
 	b.assetBundleExportJobs.Put(job)
 

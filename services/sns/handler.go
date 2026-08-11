@@ -21,6 +21,7 @@ const (
 	snsContentType   = "application/x-www-form-urlencoded"
 	snsMatchPriority = 80
 	unknownOperation = "Unknown"
+	opSubscribe      = "Subscribe"
 )
 
 type Handler struct {
@@ -102,7 +103,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		"SetSMSAttributes",
 		"SetSubscriptionAttributes",
 		"SetTopicAttributes",
-		"Subscribe",
+		opSubscribe,
 		"TagResource",
 		"Unsubscribe",
 		"UntagResource",
@@ -302,7 +303,7 @@ func (h *Handler) buildActions() map[string]snsActionFn {
 		"SetSMSAttributes":                   h.handleSetSMSAttributes,
 		"SetSubscriptionAttributes":          h.handleSetSubscriptionAttributes,
 		"SetTopicAttributes":                 h.handleSetTopicAttributes,
-		"Subscribe":                          h.handleSubscribe,
+		opSubscribe:                          h.handleSubscribe,
 		"TagResource":                        h.handleTagResource,
 		"Unsubscribe":                        h.handleUnsubscribe,
 		"UntagResource":                      h.handleUntagResource,

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
@@ -57,8 +56,6 @@ func TestSNSDashboard(t *testing.T) {
 	err = page.Click("button[type='submit']:has-text('Create Topic')")
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
 	// Verify the new topic appears in the list.
 	topicCard := page.Locator("div[role='button']:has-text('test-notifications')").First()
 	err = topicCard.WaitFor(playwright.LocatorWaitForOptions{
@@ -102,8 +99,6 @@ func TestSNSDashboard(t *testing.T) {
 	require.NoError(t, err)
 	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
-
-	time.Sleep(500 * time.Millisecond)
 
 	err = page.Locator("text=No topics found").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,

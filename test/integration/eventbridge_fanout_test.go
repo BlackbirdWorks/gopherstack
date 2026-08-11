@@ -32,7 +32,10 @@ func TestIntegration_EventBridge_FanoutToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
 	})
 
 	// Get queue ARN.
@@ -49,7 +52,10 @@ func TestIntegration_EventBridge_FanoutToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteEventBus(cleanupCtx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
 	})
 
 	// Create rule with event pattern.
@@ -61,7 +67,10 @@ func TestIntegration_EventBridge_FanoutToSQS(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 		})
@@ -128,7 +137,10 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
 	})
 
 	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
@@ -141,7 +153,10 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	_, err = ebClient.CreateEventBus(ctx, &eventbridgesdk.CreateEventBusInput{Name: aws.String(busName)})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteEventBus(cleanupCtx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
 	})
 
 	// Rule only matches "other.source", not "integration.test".
@@ -153,7 +168,10 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 		})
@@ -179,9 +197,7 @@ func TestIntegration_EventBridge_FanoutNoMatch(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Wait briefly and verify no messages arrived.
-	time.Sleep(500 * time.Millisecond)
-
+	// ReceiveMessage's own long poll (WaitTimeSeconds) is the wait; verify no messages arrived.
 	msgs, err := sqsClient.ReceiveMessage(ctx, &sqssdk.ReceiveMessageInput{
 		QueueUrl:            queueOut.QueueUrl,
 		MaxNumberOfMessages: 1,
@@ -209,7 +225,10 @@ func TestIntegration_EventBridge_InputTransformer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
 	})
 
 	// Get queue ARN.
@@ -226,7 +245,10 @@ func TestIntegration_EventBridge_InputTransformer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteEventBus(cleanupCtx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
 	})
 
 	// Create rule.
@@ -238,7 +260,10 @@ func TestIntegration_EventBridge_InputTransformer(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 		})
@@ -315,7 +340,10 @@ func TestIntegration_EventBridge_InputPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = sqsClient.DeleteQueue(ctx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = sqsClient.DeleteQueue(cleanupCtx, &sqssdk.DeleteQueueInput{QueueUrl: queueOut.QueueUrl})
 	})
 
 	attrOut, err := sqsClient.GetQueueAttributes(ctx, &sqssdk.GetQueueAttributesInput{
@@ -330,7 +358,10 @@ func TestIntegration_EventBridge_InputPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteEventBus(ctx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteEventBus(cleanupCtx, &eventbridgesdk.DeleteEventBusInput{Name: aws.String(busName)})
 	})
 
 	_, err = ebClient.PutRule(ctx, &eventbridgesdk.PutRuleInput{
@@ -341,7 +372,10 @@ func TestIntegration_EventBridge_InputPath(t *testing.T) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		_, _ = ebClient.DeleteRule(ctx, &eventbridgesdk.DeleteRuleInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ebClient.DeleteRule(cleanupCtx, &eventbridgesdk.DeleteRuleInput{
 			Name:         aws.String(ruleName),
 			EventBusName: aws.String(busName),
 		})

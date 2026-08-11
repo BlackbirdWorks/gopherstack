@@ -53,6 +53,11 @@ const cfnNS = "http://cloudformation.amazonaws.com/doc/2010-05-15/"
 // errCodeValidation is the AWS CloudFormation generic validation error code.
 const errCodeValidation = "ValidationError"
 
+// valueNone is AWS's "NONE" sentinel, reused across several resource
+// properties' empty-string defaults (AppSync DataSource Type, API Gateway
+// Method AuthorizationType, StackSet DeploymentTargets.AccountFilterType).
+const valueNone = "NONE"
+
 // Handler is the Echo HTTP service handler for CloudFormation operations.
 type Handler struct {
 	Backend StorageBackend

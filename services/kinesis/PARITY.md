@@ -1,6 +1,6 @@
 ---
 service: kinesis
-sdk_module: aws-sdk-go-v2/service/kinesis@v1.43.2
+sdk_module: aws-sdk-go-v2/service/kinesis@v1.46.4
 last_audit_commit: 2b2086c9
 last_audit_date: 2026-07-23
 overall: A            # this pass: closed 4 of the 5 open gaps for real (KMS KeyId validation, UpdateStreamMode auto-reshard, AT_TIMESTAMP required-Timestamp, ListShards true timestamp/AT_TRIM_HORIZON/AFTER_SHARD_ID filtering); deleted an invented "AT_SHARD_ID" ShardFilterType that doesn't exist in the real SDK; corrected a stale "Lambda ESM deferred" note (it's already wired in cli.go). Only remaining gap is KMSAccessDeniedException, honestly undeliverable without an IAM policy engine.

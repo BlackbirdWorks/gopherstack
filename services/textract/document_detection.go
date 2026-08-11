@@ -31,7 +31,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 
 	var result *DocumentJob
 	var done bool
-	var key string
+	var key, jobID string
 
 	func() {
 		b.mu.Lock("StartDocumentTextDetection")
@@ -49,7 +49,7 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 			}
 		}
 
-		jobID := uuid.NewString()
+		jobID = uuid.NewString()
 		job := &DocumentJob{
 			Region:              region,
 			JobID:               jobID,
@@ -97,9 +97,14 @@ func (b *InMemoryBackend) StartDocumentTextDetectionWithOptions(
 		b.mu.RLock("StartDocumentTextDetection-read")
 		defer b.mu.RUnlock()
 
-		stored, _ := b.jobs.Get(key)
-		result = cloneJob(stored)
+		if stored, ok := b.jobs.Get(key); ok {
+			result = cloneJob(stored)
+		}
 	}()
+
+	if result == nil {
+		return nil, fmt.Errorf("%w: job %s not found", ErrJobNotFound, jobID)
+	}
 
 	return result, nil
 }

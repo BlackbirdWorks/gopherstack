@@ -5,10 +5,16 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: forecast
-sdk_module: aws-sdk-go-v2/service/forecast@v1.42.0
+sdk_module: aws-sdk-go-v2/service/forecast@v1.44.4
 last_audit_commit: 80757023
-last_audit_date: 2026-07-31
-overall: A            # 2026-07-31: pkgs/sdkcheck reverse check found a fabricated "UpdateDataset" operation --
+last_audit_date: 2026-08-10
+overall: A            # 2026-08-10: closed gopherstack-4vpt (nested FK existence validation):
+                       # CreatePredictor's InputDataConfig.DatasetGroupArn, CreateAutoPredictor's
+                       # DataConfig.DatasetGroupArn, and CreateDatasetGroup/UpdateDatasetGroup's
+                       # DatasetArns list now resolve against the backend before mutating state.
+                       # See "Nested/list FK existence validation" note below; the two gaps this
+                       # closes are removed from the gaps list.
+                       # 2026-07-31: pkgs/sdkcheck reverse check found a fabricated "UpdateDataset" operation --
                        # real Forecast has no such op (only UpdateDatasetGroup exists in the dataset family);
                        # a prior pass's addCRUD("Dataset", ..., update=true) call both advertised AND dispatched
                        # it, so this was reachable, not just a documentation typo. Fixed by flipping the flag to
@@ -31,7 +37,8 @@ ops:
   StopResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListMonitorEvaluations: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- Domain now required + enum-validated (InvalidInputException)"}
+  CreateDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "Domain required + enum-validated (InvalidInputException); DatasetArns (optional list, fixed 2026-08-10) must all resolve to existing Datasets"}
+  UpdateDatasetGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-10 -- DatasetArns (required field, per validators.go) must all resolve to existing Datasets; empty list legal (ArnList shape has no min), missing field is InvalidInputException"}
   CreateDataset: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- Domain/DatasetType required + enum-validated, Schema required, DataFrequency format-validated"}
   CreateDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- DatasetArn must resolve to an existing Dataset (ResourceNotFoundException otherwise); ImportMode enum-validated when present"}
   CreatePredictorBacktestExportJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- PredictorArn must resolve to an existing Predictor"}
@@ -47,10 +54,10 @@ ops:
     {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass -- now reject a resource still CREATE_PENDING with ResourceInUseException, matching each op's documented \"you can delete only X that have a status of ACTIVE or CREATE_FAILED\" precondition. DeletePredictorBacktestExportJob/DeleteExplainabilityExport deliberately excluded: their SDK doc comments carry no status precondition at all, so they remain deletable in any status."}
 # Families audited as a group (when per-op is impractical):
 families:
-  DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged); Domain required+enum-validated this pass"}
+  DatasetGroup: {status: ok, note: "Create/Describe/Update/Delete/List verified; CREATE_PENDING->ACTIVE on first Describe; Update replaces DatasetArns wholesale (correct, not merged); Domain required+enum-validated. 2026-08-10: DatasetArns is FK-validated on both Create (optional field, per-entry existence check when present) and Update (required field per validators.go's validateOpUpdateDatasetGroupInput, but the underlying ArnList shape sets no minimum length so an empty list is legal and clears the group)."}
   Dataset: {status: ok, note: "Create/Describe/Delete/List verified; Schema/DataFrequency/Domain/DatasetType field retention correct; Domain/DatasetType required+enum-validated and DataFrequency format-validated this pass. 2026-07-31: a fabricated \"UpdateDataset\" route (addCRUD update=true) was found wired and advertised even though this family note never claimed Update -- real Forecast has no such op; deleted, see header note."}
   DatasetImportJob: {status: ok, note: "S3Config.Path required -> CREATE_FAILED on missing path, matches known emulator convention (documented in TestDatasetImportJobs_S3Validation); DatasetArn FK-validated this pass"}
-  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. NOT covered this pass: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are nested FK references and are not existence-validated -- see gaps below"}
+  Predictor: {status: ok, note: "Create/Describe/Delete/List + CreateAutoPredictor/DescribeAutoPredictor verified; PerformAutoML/PerformHPO/HyperParameterTuningJobConfig retained. 2026-08-10: InputDataConfig.DatasetGroupArn (CreatePredictor) / DataConfig.DatasetGroupArn (CreateAutoPredictor) are now FK-validated when that nested config block is present in the request (validatePredictorFieldsLocked in validation.go) -- both operations route to kindPredictor, so presence of the parent field name distinguishes which shape is in play."}
   Forecast: {status: ok, note: "Create/Describe/Delete/List verified; epoch-seconds CreationTime/LastModificationTime via awstime.Epoch; PredictorArn FK-validated this pass"}
   "ForecastExportJob/PredictorBacktestExportJob/ExplainabilityExport/WhatIfAnalysis/WhatIfForecast/WhatIfForecastExport/Monitor/Explainability":
     status: ok
@@ -58,24 +65,6 @@ families:
   ListOperations_Pagination: {status: ok, note: "malformed NextToken returns InvalidNextTokenException (page.ValidateToken wired into listOutput); not touched this pass"}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state; not touched this pass"}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - >-
-    CreatePredictor's InputDataConfig.DatasetGroupArn and CreateAutoPredictor's
-    DataConfig.DatasetGroupArn are nested FK references (not top-level fields)
-    and are not existence-validated -- a Predictor can be created against a
-    DatasetGroupArn that was never created. Every *other* required ARN
-    reference in the API (DatasetImportJob.DatasetArn, Forecast.PredictorArn,
-    ForecastExportJob.ForecastArn, PredictorBacktestExportJob.PredictorArn,
-    Explainability.ResourceArn, ExplainabilityExport.ExplainabilityArn,
-    Monitor.ResourceArn, WhatIfAnalysis.ForecastArn,
-    WhatIfForecast.WhatIfAnalysisArn, WhatIfForecastExport.WhatIfForecastArns)
-    is now FK-validated (see ops table) -- this is the one deliberately
-    out-of-scope exception, called out explicitly rather than silently
-    skipped (see validation.go's package doc comment).
-  - >-
-    CreateDatasetGroup's (and UpdateDatasetGroup's) DatasetArns list is not
-    existence-validated -- a DatasetGroup can reference DatasetArns that were
-    never created. Out of scope this pass (not one of the three named
-    gap/deferred items from the prior audit).
   - >-
     Delete* never returns ResourceInUseException for a resource that still
     has *dependents* (e.g. deleting a Predictor that still has Forecasts).
@@ -95,9 +84,9 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
 deferred: []            # all three deferred items from the prior audit (Domain/DatasetType/
                          # DataFrequency/ImportMode enum validation; cross-resource FK
                          # existence validation on Create*; Delete* status/ResourceInUse
-                         # modeling) were implemented this pass -- see gaps above for the two
-                         # narrower residual items (nested Predictor FK, DatasetGroup.DatasetArns)
-                         # and the corrected understanding of the third.
+                         # modeling) were implemented in the 2026-07-23/31 passes; the two
+                         # residual FK gaps they left open (nested Predictor FK,
+                         # DatasetGroup.DatasetArns) were closed 2026-08-10 (gopherstack-4vpt).
 leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Snapshot()/Restore() all take b.mu correctly; the new validateCreateFieldsLocked/validateDeletableLocked helpers are called from within create()/delete() while b.mu is already held (no additional locking, no lock-order risk); no lock held across a call that could deadlock"}
 ---
 
@@ -149,10 +138,33 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset()/Sn
   `ResourceNotFoundException` into every Create\* op's error switch).
   `CreateExplainability`'s `ResourceArn` is validated against *either* a
   Predictor or a Forecast ARN, matching real AWS (Explainability can be
-  computed for either resource type). Scope: only the top-level fields named
-  directly in the SDK's required-field validators are covered — see gaps
-  above for the one deliberately-excluded nested-FK case
-  (Predictor's InputDataConfig/DataConfig.DatasetGroupArn).
+  computed for either resource type).
+
+- **Nested/list FK existence validation (real bug fixed 2026-08-10,
+  gopherstack-4vpt).** The prior pass above covered every *top-level* required
+  ARN-reference field; two references were left open because they don't fit
+  that shape:
+  - `CreatePredictor`'s `InputDataConfig.DatasetGroupArn` and
+    `CreateAutoPredictor`'s `DataConfig.DatasetGroupArn` are one level nested.
+    Both operations route to the same `kindPredictor` create path, so
+    `validatePredictorFieldsLocked` (validation.go) distinguishes them by
+    which parent field name (`InputDataConfig` vs `DataConfig`) is present in
+    the request, not by operation identity, and only validates when that
+    parent block is present in the payload.
+  - `CreateDatasetGroup`/`UpdateDatasetGroup`'s `DatasetArns` list. Per
+    botocore's `forecast/2018-06-26/service-2.json.gz` model:
+    `CreateDatasetGroupRequest` does not list `DatasetArns` as required (an
+    absent or empty list is legal), while `UpdateDatasetGroupRequest` does
+    (the field key itself must be present) — but the underlying `ArnList`
+    shape declares no `min` length, so a present-but-empty list is legal on
+    Update too (it clears the group's datasets, matching the op's "Replaces
+    the datasets in a dataset group" doc comment). Each list entry, when
+    present, must resolve to an existing Dataset; the first dangling entry
+    fails fast with `ResourceNotFoundException` (no documented AWS behavior
+    suggests batching all missing entries into one response).
+  All four are validated before any mutation (`InMemoryBackend.create`/
+  `update` call the validators while holding `b.mu`, before touching the
+  resource table).
 
 - **Enum/format validation on Create\* (real bug fixed this pass, was the
   second-listed gap in the prior audit).** `CreateDatasetGroup`/`CreateDataset`

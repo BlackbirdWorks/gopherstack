@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // CreateApplication creates an OpenSearch UI application.
@@ -12,6 +13,7 @@ func (b *InMemoryBackend) CreateApplication(
 	name string,
 	appConfigs []AppConfig,
 	dataSources []AppDataSource,
+	tagMap map[string]string,
 ) (*Application, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
@@ -50,7 +52,12 @@ func (b *InMemoryBackend) CreateApplication(
 		DataSources:   dataSources,
 		CreatedAt:     now,
 		LastUpdatedAt: now,
+		Tags:          tags.New("opensearch." + id + ".tags"),
 	}
+	if len(tagMap) > 0 {
+		app.Tags.Merge(tagMap)
+	}
+
 	b.applications.Put(app)
 
 	cp := *app

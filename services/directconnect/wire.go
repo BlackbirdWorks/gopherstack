@@ -28,6 +28,34 @@ type routeFilterPrefixWire struct {
 	Cidr string `json:"cidr,omitempty"`
 }
 
+// asPathSegmentWire mirrors types.AsPathSegment.
+type asPathSegmentWire struct {
+	PathType string  `json:"pathType,omitempty"`
+	Path     []int64 `json:"path,omitempty"`
+}
+
+// routeWire mirrors types.Route (see routes.go's ListVirtualInterfaceRoutes
+// honest-gap doc comment on why this backend never populates one).
+type routeWire struct {
+	AddressFamily      string              `json:"addressFamily,omitempty"`
+	AwsLogicalDeviceID string              `json:"awsLogicalDeviceId,omitempty"`
+	Cidr               string              `json:"cidr,omitempty"`
+	RouteDirection     string              `json:"routeDirection,omitempty"`
+	RouteInstalledAt   *float64            `json:"routeInstalledAt,omitempty"`
+	AsPath             []asPathSegmentWire `json:"asPath,omitempty"`
+	Communities        []string            `json:"communities,omitempty"`
+}
+
+// routeFiltersWire mirrors types.RouteFilters, the ListVirtualInterfaceRoutes
+// input filter.
+type routeFiltersWire struct {
+	AddressFamily  string   `json:"addressFamily,omitempty"`
+	RouteDirection string   `json:"routeDirection,omitempty"`
+	AsPath         []int64  `json:"asPath,omitempty"`
+	Cidrs          []string `json:"cidrs,omitempty"`
+	Communities    []string `json:"communities,omitempty"`
+}
+
 // macSecKeyWire mirrors types.MacSecKey.
 type macSecKeyWire struct {
 	Ckn       string `json:"ckn,omitempty"`

@@ -17,7 +17,7 @@ import (
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
-	backend := cloudfront.NewInMemoryBackend("000000000000", "us-east-1")
+	backend := cloudfront.NewInMemoryBackend(t.Context(), "000000000000", "us-east-1")
 	h := cloudfront.NewHandler(backend)
 
 	// keyValueStoreDataPlaneOps are the CloudFront KeyValueStore *data-plane*

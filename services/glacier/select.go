@@ -3,27 +3,37 @@ package glacier
 // This file implements Amazon S3 Glacier Select ("select" jobs).
 //
 // Real AWS Select jobs run an SQL query over a CSV-encoded archive and write the
-// result to the S3 location named by OutputLocation -- results are never retrievable
-// via GetJobOutput on real AWS. gopherstack has no cross-service S3 write-back (each
-// service backend is independent, and this task is scoped to services/glacier/ only),
-// so to give a REAL, non-stub Select implementation rather than an accept-and-discard
-// stub, gopherstack executes the query for real against the stored archive bytes and
-// serves the actual result via GetJobOutput (see handleSelectJobOutput in
-// handler_jobs.go). This is a deliberate, documented emulator behavior, not a wire bug:
-// InitiateJob/DescribeJob still report the (synthetic) S3 JobOutputPath/OutputLocation
-// exactly as AWS's wire shape requires (see computeJobOutputPath below).
+// result to the S3 location named by OutputLocation, under a job-ID-scoped key
+// layout (job.txt/results/*/result_manifest.txt -- see select_output.go); results
+// are never retrievable via GetJobOutput on real AWS (its documented response
+// shapes cover only archive content and vault inventory). gopherstack executes the
+// query for real against the stored archive bytes and, when an S3 backend is wired
+// (cli.go's wireGlacierS3), writes the real S3 output-location objects
+// (materializeSelectOutput in select_output.go) -- this is the faithful delivery
+// path. GetJobOutput additionally continues to serve the same real (not stubbed)
+// computed bytes directly, a documented gopherstack convenience with no basis to
+// remove: AWS's GetJobOutput docs never mention Select jobs at all, so no error
+// behavior can be cited for rejecting them there instead.
 //
 // The SQL subset supported mirrors the common form used throughout AWS's own Glacier
 // Select examples (originally modeled on S3 Select's SQL subset):
 //
 //	SELECT (* | ref [AS alias] (',' ref [AS alias])*) FROM <table> [alias]
 //	  [WHERE predicate ('AND'|'OR' predicate)*]
-//	  [LIMIT n]
 //
 // where ref is a positional column ("_1", "_2", ...), an optionally alias-qualified
 // header-name column ("s._1" / "name"), predicate is "ref op literal" with
 // op in {= != <> < <= > >=}, and literal is a quoted string or a bare number.
-// Parenthesized/nested boolean expressions are not supported -- see PARITY.md.
+// LIMIT is deliberately rejected, not merely unimplemented: real S3 Glacier
+// Select's SELECT command explicitly documents LIMIT as "(Amazon S3 Select
+// only)" -- unsupported by Glacier Select
+// (doc_source/s3-glacier-select-sql-reference-select.md in
+// awsdocs/amazon-glacier-developer-guide, "S3 Glacier Select does not support the
+// LIMIT clause"). CAST, BETWEEN, IN, LIKE, NOT, and arithmetic operators are real
+// Glacier Select features this subset does not implement -- see PARITY.md's
+// select_sql_subset gap entry for the full accounting. Parenthesized/nested
+// boolean grouping has no citable evidence of Glacier Select support either way
+// (absent from the documented scalar-expression grammar) -- see PARITY.md.
 
 import (
 	"bytes"
@@ -83,20 +93,16 @@ func validateOutputLocation(ol *outputLocationDTO) error {
 	return nil
 }
 
-// computeJobOutputPath derives the (synthetic -- see package doc) s3:// URI a select
-// job's results would have been written to, echoed via InitiateJob's
-// x-amz-job-output-path header and DescribeJob/ListJobs' JobOutputPath field.
+// computeJobOutputPath derives the s3:// URI a select job's results are written
+// to, echoed via InitiateJob's x-amz-job-output-path header and
+// DescribeJob/ListJobs' JobOutputPath field. See select_output.go's
+// selectOutputBaseKey for the actual object key layout under this path.
 func computeJobOutputPath(ol *outputLocationDTO, jobID string) string {
 	if ol == nil || ol.S3 == nil || ol.S3.BucketName == "" {
 		return ""
 	}
 
-	prefix := ol.S3.Prefix
-	if prefix != "" && !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
-
-	return "s3://" + ol.S3.BucketName + "/" + prefix + jobID
+	return "s3://" + ol.S3.BucketName + "/" + selectOutputBaseKey(ol, jobID)
 }
 
 // executeSelect runs a select job's SQL expression against archiveData (the raw bytes
@@ -121,10 +127,6 @@ func executeSelect(archiveData []byte, sp *selectParametersDTO) ([]byte, error) 
 		}
 
 		out = append(out, projectSelectRow(q, row, header))
-
-		if q.hasLimit && len(out) >= q.limit {
-			break
-		}
 	}
 
 	return formatSelectCSVOutput(out, sp.OutputSerialization.Csv), nil

@@ -320,6 +320,8 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 			continue
 		}
 
+		obj.mu.RLock("snapshotVersions-obj")
+
 		for _, v := range obj.Versions {
 			sc := v.StorageClass
 			if sc == "" {
@@ -337,6 +339,8 @@ func (b *InMemoryBackend) snapshotVersions(bucket *StoredBucket, prefix string) 
 				storageClass: sc,
 			})
 		}
+
+		obj.mu.RUnlock()
 	}
 
 	return snapshots

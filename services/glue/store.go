@@ -47,6 +47,20 @@ var ErrConcurrentRunsExceeded = awserr.New("ConcurrentRunsExceededException", aw
 // accurate default.
 var ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParameter)
 
+// ErrResourceNumberLimitExceeded is returned when a create call would push a
+// resource kind past its documented account quota, mirroring AWS's
+// ResourceNumberLimitExceededException (confirmed in
+// aws-sdk-go-v2/service/glue/deserializers.go's
+// awsAwsjson11_deserializeOpErrorCreateDevEndpoint error switch; the quota
+// value itself is AWS's published default, docs.aws.amazon.com/general/latest/gr/glue.html
+// "Max development endpoint per account: 25").
+var ErrResourceNumberLimitExceeded = awserr.New("ResourceNumberLimitExceededException", awserr.ErrInvalidParameter)
+
+// maxDevEndpointsPerAccount is AWS's documented default quota (adjustable in
+// real AWS via Service Quotas, fixed here since this backend has no per-account
+// quota-adjustment concept).
+const maxDevEndpointsPerAccount = 25
+
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
 // Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
 
@@ -66,6 +80,16 @@ const stateStopped = "STOPPED"
 
 const stateSucceeded = "SUCCEEDED"
 
+const stateFailed = "FAILED"
+
+const stateTimeout = "TIMEOUT"
+
+const stateError = "ERROR"
+
+const stateWaiting = "WAITING"
+
+const stateCompleted = "COMPLETED"
+
 const reconcilerTickDivisor = 5
 
 const stateAvailable = "AVAILABLE"
@@ -77,6 +101,13 @@ const stateActive = "ACTIVE"
 const stateScheduled = "SCHEDULED"
 
 const stateNotScheduled = "NOT_SCHEDULED"
+
+// ExportSetting values for {Get,Put}DataCatalogExportConfiguration. Status
+// reuses these two values rather than the SDK's richer ExportStatus enum,
+// since this backend has no async export pipeline to simulate -- see catalogs.go.
+const exportSettingEnabled = "ENABLED"
+
+const exportSettingDisabled = "DISABLED"
 
 // maxNameLen is the maximum length (in characters) for Glue resource names.
 // AWS enforces a 255-character limit for database, table, crawler, and job names.
@@ -166,6 +197,7 @@ type InMemoryBackend struct {
 	crawlHistory              map[string][]*CrawlHistoryEntry // key: crawlerName
 	dqStatisticAnnotations    *store.Table[StatisticAnnotation]
 	glueIdentityCenterConfig  *IdentityCenterConfig
+	dataCatalogExportConfig   *DataCatalogExportConfiguration
 	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
 
@@ -281,6 +313,7 @@ func (b *InMemoryBackend) resetStubFixState() {
 // resources. Must be called with b.mu held.
 func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.glueIdentityCenterConfig = nil
+	b.dataCatalogExportConfig = nil
 	b.jobRunReadyAt = make(map[string]map[string]time.Time)
 	b.jobRunDoneAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)

@@ -12,14 +12,14 @@ import (
 )
 
 type createWirelessDeviceRequest struct {
-	LoRaWAN         map[string]any `json:"LoRaWAN,omitempty"`
-	Sidewalk        map[string]any `json:"Sidewalk,omitempty"`
-	Name            string         `json:"Name"`
-	Type            string         `json:"Type"`
-	DestinationName string         `json:"DestinationName"`
-	Description     string         `json:"Description"`
-	Positioning     string         `json:"Positioning,omitempty"`
-	Tags            []tags.KV      `json:"Tags"`
+	LoRaWAN         *LoRaWANDevice                `json:"LoRaWAN,omitempty"`
+	Sidewalk        *SidewalkCreateWirelessDevice `json:"Sidewalk,omitempty"`
+	Name            string                        `json:"Name"`
+	Type            string                        `json:"Type"`
+	DestinationName string                        `json:"DestinationName"`
+	Description     string                        `json:"Description"`
+	Positioning     string                        `json:"Positioning,omitempty"`
+	Tags            []tags.KV                     `json:"Tags"`
 }
 
 type createWirelessDeviceResponse struct {
@@ -27,18 +27,38 @@ type createWirelessDeviceResponse struct {
 	ID  string `json:"Id"`
 }
 
+// getWirelessDeviceResponse mirrors GetWirelessDeviceOutput
+// (api_op_GetWirelessDevice.go:43): LoRaWAN/Sidewalk carry the full
+// LoRaWANDevice/SidewalkDevice shape, unlike the narrower list entry below.
+type getWirelessDeviceResponse struct {
+	LoRaWAN         *LoRaWANDevice  `json:"LoRaWAN,omitempty"`
+	Sidewalk        *SidewalkDevice `json:"Sidewalk,omitempty"`
+	Arn             string          `json:"Arn"`
+	ID              string          `json:"Id"`
+	Name            string          `json:"Name"`
+	Type            string          `json:"Type"`
+	DestinationName string          `json:"DestinationName"`
+	Description     string          `json:"Description"`
+	Positioning     string          `json:"Positioning,omitempty"`
+	ThingArn        string          `json:"ThingArn,omitempty"`
+	ThingName       string          `json:"ThingName,omitempty"`
+}
+
+// wirelessDeviceEntry is the ListWirelessDevices entry shape. LoRaWAN/
+// Sidewalk use the narrower LoRaWANListDevice/SidewalkListDevice, matching
+// types.WirelessDeviceStatistics (types.go:2412).
 type wirelessDeviceEntry struct {
-	LoRaWAN         map[string]any `json:"LoRaWAN,omitempty"`
-	Sidewalk        map[string]any `json:"Sidewalk,omitempty"`
-	Arn             string         `json:"Arn"`
-	ID              string         `json:"Id"`
-	Name            string         `json:"Name"`
-	Type            string         `json:"Type"`
-	DestinationName string         `json:"DestinationName"`
-	Description     string         `json:"Description"`
-	Positioning     string         `json:"Positioning,omitempty"`
-	ThingArn        string         `json:"ThingArn,omitempty"`
-	ThingName       string         `json:"ThingName,omitempty"`
+	LoRaWAN         *LoRaWANListDevice  `json:"LoRaWAN,omitempty"`
+	Sidewalk        *SidewalkListDevice `json:"Sidewalk,omitempty"`
+	Arn             string              `json:"Arn"`
+	ID              string              `json:"Id"`
+	Name            string              `json:"Name"`
+	Type            string              `json:"Type"`
+	DestinationName string              `json:"DestinationName"`
+	Description     string              `json:"Description"`
+	Positioning     string              `json:"Positioning,omitempty"`
+	ThingArn        string              `json:"ThingArn,omitempty"`
+	ThingName       string              `json:"ThingName,omitempty"`
 }
 
 type listWirelessDevicesResponse struct {
@@ -103,15 +123,32 @@ func (h *Handler) getWirelessDevice(c *echo.Context, id string) error {
 
 	thingArn := h.Backend.GetWirelessDeviceThingArn(id)
 
-	entry := wirelessDeviceEntryFrom(d)
-	entry.ThingArn = thingArn
-	entry.ThingName = thingNameFromArn(thingArn)
-
-	return writeJSON(c, http.StatusOK, entry)
+	return writeJSON(c, http.StatusOK, getWirelessDeviceResponse{
+		Arn:             d.ARN,
+		ID:              d.ID,
+		Name:            d.Name,
+		Type:            d.Type,
+		DestinationName: d.DestinationName,
+		Description:     d.Description,
+		Positioning:     d.Positioning,
+		LoRaWAN:         d.LoRaWAN,
+		Sidewalk:        d.Sidewalk,
+		ThingArn:        thingArn,
+		ThingName:       thingNameFromArn(thingArn),
+	})
 }
 
 func (h *Handler) listWirelessDevices(c *echo.Context) error {
-	devices := h.Backend.ListWirelessDevices(h.AccountID, h.DefaultRegion)
+	filter := ListWirelessDevicesFilter{
+		DestinationName:    c.QueryParam("destinationName"),
+		DeviceProfileID:    c.QueryParam("deviceProfileId"),
+		ServiceProfileID:   c.QueryParam("serviceProfileId"),
+		FuotaTaskID:        c.QueryParam("fuotaTaskId"),
+		MulticastGroupID:   c.QueryParam("multicastGroupId"),
+		WirelessDeviceType: c.QueryParam("wirelessDeviceType"),
+	}
+
+	devices := h.Backend.ListWirelessDevices(h.AccountID, h.DefaultRegion, filter)
 	pg, next := paginateQuery(c, devices)
 
 	entries := make([]wirelessDeviceEntry, 0, len(pg))
@@ -137,8 +174,8 @@ func wirelessDeviceEntryFrom(d *WirelessDevice) wirelessDeviceEntry {
 		Type:            d.Type,
 		DestinationName: d.DestinationName,
 		Description:     d.Description,
-		LoRaWAN:         d.LoRaWAN,
-		Sidewalk:        d.Sidewalk,
+		LoRaWAN:         loRaWANListDeviceFrom(d.LoRaWAN),
+		Sidewalk:        sidewalkListDeviceFrom(d.Sidewalk),
 		Positioning:     d.Positioning,
 	}
 }
@@ -172,12 +209,12 @@ func (h *Handler) associateWirelessDeviceWithThing(c *echo.Context, wirelessDevi
 
 func (h *Handler) updateWirelessDevice(c *echo.Context, id string) error {
 	var req struct {
-		LoRaWAN         map[string]any `json:"LoRaWAN"`
-		Sidewalk        map[string]any `json:"Sidewalk"`
-		Name            string         `json:"Name"`
-		Description     string         `json:"Description"`
-		DestinationName string         `json:"DestinationName"`
-		Positioning     string         `json:"Positioning"`
+		LoRaWAN         *LoRaWANUpdateDevice          `json:"LoRaWAN"`
+		Sidewalk        *SidewalkUpdateWirelessDevice `json:"Sidewalk"`
+		Name            string                        `json:"Name"`
+		Description     string                        `json:"Description"`
+		DestinationName string                        `json:"DestinationName"`
+		Positioning     string                        `json:"Positioning"`
 	}
 
 	body := readStubBody(c)

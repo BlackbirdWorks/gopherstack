@@ -1,8 +1,10 @@
 package quicksight
 
+import "time"
+
 type StorageBackend interface {
 	// Namespaces
-	CreateNamespace(accountID, namespace, capacityRegion string) (*Namespace, error)
+	CreateNamespace(accountID, namespace, capacityRegion string, tags map[string]string) (*Namespace, error)
 	DescribeNamespace(accountID, namespace string) (*Namespace, error)
 	DeleteNamespace(accountID, namespace string) error
 	ListNamespaces(accountID string, maxResults int32, nextToken string) ([]*Namespace, string, error)
@@ -26,7 +28,10 @@ type StorageBackend interface {
 	) ([]*GroupMember, string, error)
 
 	// Users
-	RegisterUser(accountID, namespace, userName, email, role, identityType, sessionName string) (*User, error)
+	RegisterUser(
+		accountID, namespace, userName, email, role, identityType, sessionName string,
+		tags map[string]string,
+	) (*User, error)
 	DescribeUser(accountID, namespace, userName string) (*User, error)
 	UpdateUser(accountID, namespace, userName, email, role string) (*User, error)
 	DeleteUser(accountID, namespace, userName string) error
@@ -192,14 +197,14 @@ type StorageBackend interface {
 
 	// Templates
 	CreateTemplate(
-		accountID, templateID, name, sourceEntityArn string,
+		accountID, templateID, name, sourceEntityArn, versionDescription string,
 		definition map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Template, error)
 	DescribeTemplate(accountID, templateID string, versionNumber int64) (*Template, error)
 	UpdateTemplate(
-		accountID, templateID, name, sourceEntityArn string,
+		accountID, templateID, name, sourceEntityArn, versionDescription string,
 		definition map[string]any,
 	) (*Template, error)
 	DeleteTemplate(accountID, templateID string, versionNumber int64) error
@@ -228,14 +233,14 @@ type StorageBackend interface {
 
 	// Themes
 	CreateTheme(
-		accountID, themeID, name, baseThemeID string,
+		accountID, themeID, name, baseThemeID, versionDescription string,
 		configuration map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Theme, error)
 	DescribeTheme(accountID, themeID string, versionNumber int64) (*Theme, error)
 	UpdateTheme(
-		accountID, themeID, name, baseThemeID string,
+		accountID, themeID, name, baseThemeID, versionDescription string,
 		configuration map[string]any,
 	) (*Theme, error)
 	DeleteTheme(accountID, themeID string, versionNumber int64) error
@@ -318,6 +323,20 @@ type StorageBackend interface {
 		answerIDs []string,
 	) ([]string, []TopicAnswerError, error)
 	ListTopicReviewedAnswers(accountID, topicID string) ([]*TopicReviewedAnswer, error)
+
+	// Topics V2 (Q topics); Describe/Delete/List/Search/permissions reuse the
+	// V1 methods above directly (handler_topics_v2.go) -- see topics_v2.go.
+	CreateTopicV2(
+		accountID, topicID, name, description, customInstructions string,
+		dataSets []map[string]any,
+		dataSetRelations []map[string]any,
+		tags map[string]string,
+	) (*Topic, error)
+	UpdateTopicV2(
+		accountID, topicID, name, description, customInstructions, publishOption string,
+		dataSets []map[string]any,
+		dataSetRelations []map[string]any,
+	) (*Topic, error)
 
 	// VPC connections
 	CreateVPCConnection(
@@ -424,7 +443,7 @@ type StorageBackend interface {
 	UpdateDashboardsQAConfiguration(accountID, status string) (string, error)
 
 	// Brands
-	CreateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
+	CreateBrand(accountID, brandID string, definition map[string]any, tags map[string]string) (*Brand, error)
 	DescribeBrand(accountID, brandID, versionID string) (*Brand, error)
 	UpdateBrand(accountID, brandID string, definition map[string]any) (*Brand, error)
 	DeleteBrand(accountID, brandID string) error
@@ -468,6 +487,7 @@ type StorageBackend interface {
 	CreateOAuthClientApplication(
 		accountID, clientID, name string,
 		fields map[string]any,
+		tags map[string]string,
 	) (*OAuthClientApplication, error)
 	DescribeOAuthClientApplication(accountID, clientID string) (*OAuthClientApplication, error)
 	UpdateOAuthClientApplication(
@@ -488,9 +508,9 @@ type StorageBackend interface {
 
 	// Asset bundle export jobs
 	StartAssetBundleExportJob(
-		accountID, jobID, exportFormat string,
+		accountID, jobID, exportFormat, includeFolderMembers string,
 		resourceArns []string,
-		includeAllDependencies bool,
+		includeAllDependencies, includeFolderMemberships, includePermissions, includeTags bool,
 	) (*AssetBundleExportJob, error)
 	DescribeAssetBundleExportJob(accountID, jobID string) (*AssetBundleExportJob, error)
 	ListAssetBundleExportJobs(
@@ -522,12 +542,14 @@ type StorageBackend interface {
 
 	// DataSet refresh schedules
 	CreateRefreshSchedule(
-		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		accountID, datasetID, scheduleID, refreshType string,
+		startAfterDateTime time.Time,
 		scheduleFrequency map[string]any,
 	) (*RefreshSchedule, error)
 	DescribeRefreshSchedule(accountID, datasetID, scheduleID string) (*RefreshSchedule, error)
 	UpdateRefreshSchedule(
-		accountID, datasetID, scheduleID, refreshType, startAfterDateTime string,
+		accountID, datasetID, scheduleID, refreshType string,
+		startAfterDateTime time.Time,
 		scheduleFrequency map[string]any,
 	) (*RefreshSchedule, error)
 	DeleteRefreshSchedule(accountID, datasetID, scheduleID string) error

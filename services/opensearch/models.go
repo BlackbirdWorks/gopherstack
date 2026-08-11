@@ -228,6 +228,7 @@ type ServiceSoftwareOptions struct {
 
 // Application represents an OpenSearch UI application.
 type Application struct {
+	Tags          *tags.Tags      `json:"tags,omitempty"`
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
 	ARN           string          `json:"arn"`
@@ -657,7 +658,7 @@ type Migration struct {
 // and StartMigration's required MigrationOptions.Workspace
 // (types.MigrationWorkspace). AWS defines no independent workspace resource
 // API anywhere in this SDK: grepping every api_op_*.go in
-// aws-sdk-go-v2/service/opensearch@v1.75.0 for "Workspace" turns up only
+// aws-sdk-go-v2/service/opensearch@v1.75.4 for "Workspace" turns up only
 // these two request-side fields, there is no CreateWorkspace/GetWorkspace/
 // ListWorkspaces/DeleteWorkspace operation, and no output struct in the
 // entire service (not AttachDataSourceOutput, not

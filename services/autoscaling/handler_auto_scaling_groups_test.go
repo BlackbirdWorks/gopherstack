@@ -283,6 +283,67 @@ func TestAutoscalingHandler_MixedInstancesPolicyRoundTrip(t *testing.T) {
 	assert.Equal(t, "capacity-optimized", mip.InstancesDistribution.SpotAllocationStrategy)
 }
 
+// TestAutoscalingHandler_MixedInstancesPolicyInstanceRequirementsRoundTrip verifies
+// that an override using InstanceRequirements (attribute-based instance type
+// selection, previously an entirely unmodelled 25-field struct) round-trips through
+// CreateAutoScalingGroup/DescribeAutoScalingGroups, and that an InstanceRequirements-
+// only override (no InstanceType) no longer truncates the Overrides list: the
+// loop-continuation check in parseLaunchTemplateOverrides previously only looked at
+// InstanceType/WeightedCapacity/LaunchTemplateSpecification, so an override carrying
+// only InstanceRequirements was indistinguishable from "no more members" and every
+// override after it in the list was silently dropped too.
+func TestAutoscalingHandler_MixedInstancesPolicyInstanceRequirementsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	h := newAutoscalingHandler()
+	asgName := "mip-ir-asg"
+
+	const irPrefix = "MixedInstancesPolicy.LaunchTemplate.Overrides.member.1.InstanceRequirements."
+
+	code, body := doAS(t, h, "CreateAutoScalingGroup", url.Values{
+		"AutoScalingGroupName":       {asgName},
+		"MinSize":                    {"0"},
+		"MaxSize":                    {"5"},
+		"AvailabilityZones.member.1": {"us-east-1a"},
+		"MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification.LaunchTemplateId": {"lt-0123456789"},
+		irPrefix + "VCpuCount.Min":                                  {"2"},
+		irPrefix + "VCpuCount.Max":                                  {"4"},
+		irPrefix + "MemoryMiB.Min":                                  {"2048"},
+		irPrefix + "BurstablePerformance":                           {"excluded"},
+		irPrefix + "RequireHibernateSupport":                        {"true"},
+		irPrefix + "MaxSpotPriceAsPercentageOfOptimalOnDemandPrice": {"75"},
+		irPrefix + "AllowedInstanceTypes.member.1":                  {"m5.*"},
+		irPrefix + "CpuManufacturers.member.1":                      {"intel"},
+		// A second override with a plain InstanceType, to prove the first
+		// (InstanceRequirements-only) member didn't truncate the list.
+		"MixedInstancesPolicy.LaunchTemplate.Overrides.member.2.InstanceType": {"t3.large"},
+	})
+	require.Equal(t, 200, code, body)
+
+	code, body = doAS(t, h, "DescribeAutoScalingGroups", url.Values{
+		"AutoScalingGroupNames.member.1": {asgName},
+	})
+	require.Equal(t, 200, code, body)
+
+	assert.Contains(t, body, "<InstanceType>t3.large</InstanceType>",
+		"second override must survive; got: %s", body)
+	assert.Contains(t, body, "<VCpuCount><Min>2</Min><Max>4</Max></VCpuCount>",
+		"VCpuCount range must round-trip; got: %s", body)
+	assert.Contains(t, body, "<MemoryMiB><Min>2048</Min></MemoryMiB>",
+		"MemoryMiB range must round-trip; got: %s", body)
+	assert.Contains(t, body, "<BurstablePerformance>excluded</BurstablePerformance>",
+		"BurstablePerformance must round-trip; got: %s", body)
+	assert.Contains(t, body, "<RequireHibernateSupport>true</RequireHibernateSupport>",
+		"RequireHibernateSupport must round-trip; got: %s", body)
+	assert.Contains(t, body,
+		"<MaxSpotPriceAsPercentageOfOptimalOnDemandPrice>75</MaxSpotPriceAsPercentageOfOptimalOnDemandPrice>",
+		"MaxSpotPriceAsPercentageOfOptimalOnDemandPrice must round-trip; got: %s", body)
+	assert.Contains(t, body, "<AllowedInstanceTypes><member>m5.*</member></AllowedInstanceTypes>",
+		"AllowedInstanceTypes must round-trip; got: %s", body)
+	assert.Contains(t, body, "<CpuManufacturers><member>intel</member></CpuManufacturers>",
+		"CpuManufacturers must round-trip; got: %s", body)
+}
+
 func TestAutoscalingHandler_CreateAutoScalingGroup(t *testing.T) {
 	t.Parallel()
 

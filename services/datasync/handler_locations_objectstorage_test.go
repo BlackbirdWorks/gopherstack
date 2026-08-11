@@ -14,6 +14,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn := createTestAgent(t, h)
 
 	// Create
 	rec := doRequest(t, h, "CreateLocationObjectStorage", map[string]any{
@@ -24,9 +25,7 @@ func TestDataSync_ObjectStorage(t *testing.T) {
 		"Subdirectory":   "/data",
 		"AccessKey":      "AKIAIOSFODNN7EXAMPLE",
 		"SecretKey":      "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-		"AgentArns": []string{
-			"arn:aws:datasync:us-east-1:000000000000:agent/agent1",
-		},
+		"AgentArns":      []string{agentArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

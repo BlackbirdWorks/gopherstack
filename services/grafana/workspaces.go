@@ -87,6 +87,11 @@ func newWorkspaceAuthState(providers []string) (string, string) {
 	return ssoClientID, samlStatus
 }
 
+// maxWorkspacesPerAccount is Amazon Managed Grafana's published default
+// service quota for "Number of workspaces" per account per Region (a
+// real, adjustable AWS quota -- this emulator does not model increases).
+const maxWorkspacesPerAccount = 5
+
 // CreateWorkspace creates a new workspace in the CREATING state, scheduling
 // its async transition to ACTIVE (see scheduleWorkspaceTransition).
 func (b *InMemoryBackend) CreateWorkspace(req *createWorkspaceRequest) (*Workspace, error) {
@@ -94,8 +99,26 @@ func (b *InMemoryBackend) CreateWorkspace(req *createWorkspaceRequest) (*Workspa
 		return nil, err
 	}
 
+	if err := b.validateWorkspaceRoleArn(req.WorkspaceRoleArn); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateVpcConfiguration(req.VpcConfiguration); err != nil {
+		return nil, err
+	}
+
+	if err := b.validateOrganizationalUnits(req.WorkspaceOrganizationalUnits); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateWorkspace")
 	defer b.mu.Unlock()
+
+	if b.workspaces.Len() >= maxWorkspacesPerAccount {
+		return nil, quotaError(fmt.Sprintf(
+			"account has reached the maximum number of workspaces (%d)", maxWorkspacesPerAccount,
+		))
+	}
 
 	id := newWorkspaceID()
 	now := time.Now().UTC()
@@ -160,14 +183,29 @@ func (b *InMemoryBackend) CreateWorkspace(req *createWorkspaceRequest) (*Workspa
 // workspace still has fromStatus when the timer fires (a subsequent
 // operation may have already moved it on).
 func (b *InMemoryBackend) scheduleWorkspaceTransition(id, fromStatus string) {
-	b.work.After("WorkspaceTransition", workspaceTransitionDelay, func() {
+	b.work.After(chaosTransitionOp, workspaceTransitionDelay, func() {
 		b.mu.Lock("WorkspaceTransition-async")
 		defer b.mu.Unlock()
 
-		if w, ok := b.workspaces.Get(id); ok && w.Status == fromStatus {
-			w.Status = StatusActive
-			w.Modified = time.Now().UTC()
+		w, ok := b.workspaces.Get(id)
+		if !ok || w.Status != fromStatus {
+			return
 		}
+
+		reason, degraded := b.injectedTransitionOutcome()
+
+		switch {
+		case degraded:
+			w.Status = StatusDegraded
+			w.DegradedWorkspaceReason = reason
+		case reason != "":
+			w.Status = workspaceFailureStatus[fromStatus]
+			w.DegradedWorkspaceReason = reason
+		default:
+			w.Status = StatusActive
+		}
+
+		w.Modified = time.Now().UTC()
 	})
 }
 

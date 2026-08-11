@@ -32,11 +32,8 @@ func Test_ListRunsInBatch_ReachableOnlyViaGET(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf123",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf123"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
@@ -66,11 +63,8 @@ func Test_DeleteBatch_DeletesBatchResourceViaURIID(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf123",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf123"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any
@@ -93,11 +87,8 @@ func Test_DeleteRunBatch_DeletesOnlyRunsLeavesBatchIntact(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	batchRec := doRequest(t, h, http.MethodPost, "/runBatch", map[string]any{
-		"workflowId": "wf123",
-		"roleArn":    "arn:aws:iam::000000000000:role/role",
-		"name":       "my-batch",
-	})
+	batchRec := doRequest(t, h, http.MethodPost, "/runBatch",
+		startRunBatchBody("my-batch", "wf123"))
 	require.Equal(t, http.StatusCreated, batchRec.Code)
 
 	var batch map[string]any

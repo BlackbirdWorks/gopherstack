@@ -143,6 +143,17 @@ const (
 	opBatchDeleteTopicAnswers      = "BatchDeleteTopicReviewedAnswer"
 	opListTopicReviewedAnswers     = "ListTopicReviewedAnswers"
 
+	// topic V2 ops (Q topics -- see topics_v2.go's doc comment for how these
+	// relate to the topic ops above).
+	opCreateTopicV2        = "CreateTopicV2"
+	opDescribeTopicV2      = "DescribeTopicV2"
+	opUpdateTopicV2        = "UpdateTopicV2"
+	opDeleteTopicV2        = "DeleteTopicV2"
+	opListTopicsV2         = "ListTopicsV2"
+	opSearchTopicsV2       = "SearchTopicsV2"
+	opDescribeTopicPermsV2 = "DescribeTopicPermissionsV2"
+	opUpdateTopicPermsV2   = "UpdateTopicPermissionsV2"
+
 	// VPC connection ops.
 	opCreateVPCConnection   = "CreateVPCConnection"
 	opDescribeVPCConnection = "DescribeVPCConnection"
@@ -434,6 +445,7 @@ const (
 	pathSegTemplates            = "templates"
 	pathSegThemes               = "themes"
 	pathSegTopics               = "topics"
+	pathSegTopicsV2             = "topicsV2"
 	pathSegVPCConnections       = "vpc-connections"
 	pathSegActionConnectors     = "action-connectors"
 	pathSegBrands               = "brands"
@@ -589,6 +601,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		templateOps(),
 		themeOps(),
 		topicOps(),
+		topicV2Ops(),
 		vpcConnectionOps(),
 		iamPolicyAssignmentOps(),
 		customPermissionsOps(),
@@ -787,6 +800,19 @@ func topicOps() []string {
 		opBatchCreateTopicAnswers,
 		opBatchDeleteTopicAnswers,
 		opListTopicReviewedAnswers,
+	}
+}
+
+func topicV2Ops() []string {
+	return []string{
+		opCreateTopicV2,
+		opDescribeTopicV2,
+		opUpdateTopicV2,
+		opDeleteTopicV2,
+		opListTopicsV2,
+		opSearchTopicsV2,
+		opDescribeTopicPermsV2,
+		opUpdateTopicPermsV2,
 	}
 }
 

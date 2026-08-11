@@ -8,8 +8,9 @@ import (
 )
 
 type createContactListInput struct {
-	ContactListName string `json:"ContactListName"`
-	Description     string `json:"Description"`
+	ContactListName string     `json:"ContactListName"`
+	Description     string     `json:"Description"`
+	Tags            []tagEntry `json:"Tags"`
 }
 
 func (h *Handler) handleCreateContactList(c *echo.Context) (any, error) {
@@ -19,7 +20,7 @@ func (h *Handler) handleCreateContactList(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if _, err := h.Backend.CreateContactList(in.ContactListName, in.Description); err != nil {
+	if _, err := h.Backend.CreateContactList(in.ContactListName, in.Description, tagsFromEntries(in.Tags)); err != nil {
 		return nil, err
 	}
 

@@ -104,6 +104,7 @@ func (b *InMemoryBackend) CreateRule(input CreateRuleInput) (*Rule, error) {
 		IsDefault:   false,
 		Actions:     input.Actions,
 		Conditions:  input.Conditions,
+		Transforms:  input.Transforms,
 		Tags:        t,
 	}
 
@@ -214,11 +215,15 @@ func (b *InMemoryBackend) DeleteRule(ruleArn string) error {
 	return nil
 }
 
-// ModifyRule updates the actions and/or conditions of an existing rule.
+// ModifyRule updates the actions, conditions, and/or transforms of an existing rule.
+// resetTransforms clears Transforms entirely; it is mutually exclusive with a non-empty
+// transforms (enforced by the handler, per ModifyRuleInput's doc comment).
 func (b *InMemoryBackend) ModifyRule(
 	ruleArn string,
 	actions []Action,
 	conditions []Condition,
+	transforms []RuleTransform,
+	resetTransforms bool,
 ) (*Rule, error) {
 	b.mu.Lock("ModifyRule")
 	defer b.mu.Unlock()
@@ -234,6 +239,13 @@ func (b *InMemoryBackend) ModifyRule(
 
 	if len(conditions) > 0 {
 		rule.Conditions = conditions
+	}
+
+	switch {
+	case resetTransforms:
+		rule.Transforms = nil
+	case len(transforms) > 0:
+		rule.Transforms = transforms
 	}
 
 	cp := *rule

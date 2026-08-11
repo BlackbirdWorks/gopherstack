@@ -56,7 +56,9 @@ type StorageBackend interface {
 	FailoverShard(ctx context.Context, clusterName, shardConfiguration string) (*Cluster, error)
 	ListAllowedNodeTypeUpdates(ctx context.Context, clusterName string) ([]string, error)
 	ListAllowedMultiRegionClusterUpdates(ctx context.Context, clusterName string) ([]string, error)
-	BatchUpdateCluster(ctx context.Context, clusterNames []string) map[string]*Cluster
+	BatchUpdateCluster(
+		ctx context.Context, clusterNames []string, serviceUpdateName string,
+	) (map[string]*Cluster, error)
 	DescribeReservedNodes(ctx context.Context, req *describeReservedNodesRequest) ([]*ReservedNode, error)
 	DescribeReservedNodesOfferings(
 		ctx context.Context,

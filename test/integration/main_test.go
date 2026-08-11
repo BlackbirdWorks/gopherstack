@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"debug/elf"
 	"errors"
 	"flag"
 	"fmt"
@@ -89,6 +90,7 @@ import (
 	timestreamquerysdk "github.com/aws/aws-sdk-go-v2/service/timestreamquery"
 	timestreamwritesdk "github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
 	transfersdk "github.com/aws/aws-sdk-go-v2/service/transfer"
+	wafsdk "github.com/aws/aws-sdk-go-v2/service/waf"
 	wafv2sdk "github.com/aws/aws-sdk-go-v2/service/wafv2"
 	xraysdk "github.com/aws/aws-sdk-go-v2/service/xray"
 	"github.com/google/go-cmp/cmp"
@@ -123,6 +125,49 @@ var ErrDockerPanic = errors.New("docker check panicked")
 
 // ErrResetFailed is returned when the reset endpoint returns an unexpected status.
 var ErrResetFailed = errors.New("reset endpoint returned unexpected status")
+
+// ErrBinaryNotStatic is returned when preBuiltLinuxBinary exists but is not a
+// statically-linked linux binary, so Dockerfile.test's `FROM scratch` image
+// cannot run it. Turns the "No such container" mystery from gopherstack-gooq
+// into a clear error at build time instead.
+var ErrBinaryNotStatic = errors.New("not a statically-linked linux binary; run `make build-linux`")
+
+// preBuiltLinuxBinary is where `make build-linux` writes its static binary,
+// deliberately distinct from `make build`'s bin/gopherstack (gopherstack-gooq).
+const preBuiltLinuxBinary = "../../bin/gopherstack-linux"
+
+// dockerfileFor picks Dockerfile.test when a pre-built binary exists at
+// preBuiltLinuxBinary, verifying it is actually static first.
+func dockerfileFor() (string, error) {
+	if _, statErr := os.Stat(preBuiltLinuxBinary); statErr == nil {
+		if err := requireStaticELF(preBuiltLinuxBinary); err != nil {
+			return "", fmt.Errorf("%s: %w", preBuiltLinuxBinary, err)
+		}
+
+		return "Dockerfile.test", nil
+	}
+
+	return "Dockerfile", nil
+}
+
+// requireStaticELF rejects a binary that isn't ELF at all (e.g. a macOS
+// `make build` artifact) or that carries a PT_INTERP segment, meaning it's
+// dynamically linked against libc and won't run in a `FROM scratch` image.
+func requireStaticELF(path string) error {
+	f, err := elf.Open(path)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBinaryNotStatic, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	for _, prog := range f.Progs {
+		if prog.Type == elf.PT_INTERP {
+			return ErrBinaryNotStatic
+		}
+	}
+
+	return nil
+}
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -166,9 +211,13 @@ func TestMain(m *testing.M) {
 
 	ctx := context.Background()
 
-	dockerfile := "Dockerfile"
-	if _, err := os.Stat("../../bin/gopherstack"); err == nil {
-		dockerfile = "Dockerfile.test"
+	dockerfile, err := dockerfileFor()
+	if err != nil {
+		logger.Error("pre-built binary unusable for Dockerfile.test", "error", err)
+		os.Exit(1)
+	}
+
+	if dockerfile == "Dockerfile.test" {
 		logger.Info("using pre-built binary via Dockerfile.test")
 	} else {
 		logger.Info("no pre-built binary found, building from source via Dockerfile")
@@ -184,7 +233,6 @@ func TestMain(m *testing.M) {
 				options.PullParent = false
 			},
 		},
-		AutoRemove:   true,
 		ExposedPorts: []string{"8000/tcp", "1883/tcp"},
 		WaitingFor: wait.ForAll(
 			wait.ForHTTP("/").
@@ -259,6 +307,15 @@ func checkDocker() (err error) {
 	return err
 }
 
+// cleanupContext returns a fresh, live context for use inside t.Cleanup.
+// t.Context() is cancelled just before cleanup functions run, so AWS calls
+// made with it fail instantly with "context canceled".
+func cleanupContext(t *testing.T) (context.Context, context.CancelFunc) {
+	t.Helper()
+
+	return context.WithTimeout(context.Background(), 30*time.Second)
+}
+
 // createDynamoDBClient returns a DynamoDB client pointed at the shared test container.
 
 func createDynamoDBClient(t *testing.T) *dynamodb.Client {
@@ -278,6 +335,19 @@ func createDynamoDBClient(t *testing.T) *dynamodb.Client {
 	return dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String(endpoint)
 	})
+}
+
+// waitForDDBTableActive polls DescribeTable until the table reaches ACTIVE.
+func waitForDDBTableActive(t *testing.T, client *dynamodb.Client, tableName string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		out, err := client.DescribeTable(t.Context(), &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+
+		return err == nil && out.Table != nil && out.Table.TableStatus == types.TableStatusActive
+	}, 10*time.Second, 20*time.Millisecond)
 }
 
 // createDynamoDBStreamsClient returns a DynamoDB Streams client pointed at the shared test container.
@@ -1360,6 +1430,24 @@ func createWafv2Client(t *testing.T) *wafv2sdk.Client {
 	})
 }
 
+// createWAFClient returns an AWS WAF (Classic) client.
+func createWAFClient(t *testing.T) *wafsdk.Client {
+	t.Helper()
+
+	cfg, err := config.LoadDefaultConfig(
+		t.Context(),
+		config.WithRegion("us-east-1"),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider("test", "test", ""),
+		),
+	)
+	require.NoError(t, err, "unable to load SDK config")
+
+	return wafsdk.NewFromConfig(cfg, func(o *wafsdk.Options) {
+		o.BaseEndpoint = aws.String(endpoint)
+	})
+}
+
 func createS3TablesClient(t *testing.T) *s3tablesclientsdk.Client {
 	t.Helper()
 
@@ -1383,6 +1471,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 	t.Helper()
 
 	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
 		if !t.Failed() {
 			return
 		}
@@ -1393,10 +1484,9 @@ func dumpContainerLogsOnFailure(t *testing.T) {
 			return
 		}
 
-		ctx := t.Context()
 		t.Logf("\n========== CONTAINER LOGS FOR FAILED TEST: %s ==========\n", t.Name())
 
-		logs, err := sharedContainer.Logs(ctx)
+		logs, err := sharedContainer.Logs(cleanupCtx)
 		if err != nil {
 			t.Logf("Failed to retrieve container logs: %v", err)
 

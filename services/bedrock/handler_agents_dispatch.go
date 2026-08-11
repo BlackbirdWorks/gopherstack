@@ -569,28 +569,45 @@ const (
 	flowsPath   = "/flows"
 	promptsPath = "/prompts"
 
-	respFlow          = "flow"
-	respFlowAlias     = "flowAlias"
-	respFlowVersion   = "flowVersion"
-	respPrompt        = "prompt"
 	respPromptVersion = "promptVersion"
 	respAgentVersion  = "agentVersion"
 	respCollaborator  = "agentCollaborator"
 
+	// keyFlowID names the parent flow reference ("flowId") on FlowAlias
+	// responses; a resource's own id is always the flat "id" key (keyID).
 	keyFlowID         = "flowId"
-	keyFlowAliasID    = "flowAliasId"
+	keyID             = "id"
 	keyPromptID       = "promptId"
 	keyCollaboratorID = "collaboratorId"
 	keyVersion        = "version"
 
 	suffixAliases  = "/aliases"
 	suffixVersions = "/versions"
+
+	// arnFieldCount is the number of colon-separated fields in a well-formed
+	// AWS ARN: "arn:partition:service:region:account:resource".
+	arnFieldCount = 6
 )
+
+// isAgentResourceKind reports whether kind is an ARN resource-type prefix
+// AgentsHandler owns, taken from every arn.Build call reachable through this
+// handler's dispatch tree (agents.go, agent_aliases.go, knowledge_bases.go,
+// flows.go, flow_aliases.go, prompts.go). Real bedrock-agent resource ARNs
+// all use the "bedrock" service segment, which core Bedrock's own Handler
+// also uses for guardrails/custom models/etc, so claiming by resource kind
+// (not service token) is required to avoid swallowing /tags/ routes that
+// belong to that other handler.
+func isAgentResourceKind(kind string) bool {
+	switch kind {
+	case "agent", "agent-alias", "knowledge-base", "flow", "prompt":
+		return true
+	default:
+		return false
+	}
+}
 
 // routeMatcherBatch3 returns true if the path matches any batch-3 routes.
 // Called from the updated RouteMatcher.
-// Note: /tags/ paths are only claimed when the ARN belongs to a bedrock-agent resource
-// (arn:aws:bedrock-agent:…). Other services (FIS, etc.) own their own /tags/ routes.
 func routeMatcherBatch3(path string) bool {
 	if strings.HasPrefix(path, "/flows") || path == flowsPath {
 		return true
@@ -605,7 +622,17 @@ func routeMatcherBatch3(path string) bool {
 	return false
 }
 
-// isBedrockAgentArn reports whether arn is a bedrock-agent-owned ARN.
+// isBedrockAgentArn reports whether arn names a resource kind AgentsHandler
+// owns. FlowAlias ARNs (flow/{id}/alias/{aliasId}) are covered by the "flow"
+// kind since they nest under the flow resource rather than using their own
+// top-level prefix.
 func isBedrockAgentArn(arn string) bool {
-	return strings.Contains(arn, ":bedrock-agent:")
+	parts := strings.SplitN(arn, ":", arnFieldCount)
+	if len(parts) != arnFieldCount || parts[0] != "arn" || parts[2] != "bedrock" {
+		return false
+	}
+
+	kind, _, _ := strings.Cut(parts[arnFieldCount-1], "/")
+
+	return isAgentResourceKind(kind)
 }

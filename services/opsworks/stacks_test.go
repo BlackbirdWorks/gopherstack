@@ -222,6 +222,38 @@ func TestCreateStackValidation(t *testing.T) {
 	}
 }
 
+// TestCreateStackOptionalParams verifies CreateStack accepts and echoes
+// back VpcId, Attributes, ConfigurationManager, and ChefConfiguration --
+// all real optional CreateStackInput members (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateStack.go /
+// types.go) that a previous pass's Handler never decoded at all.
+func TestCreateStackOptionalParams(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	rec := doTarget(t, h, "CreateStack", map[string]any{
+		"Name":                      "opt-stack",
+		"Region":                    "us-east-1",
+		"DefaultInstanceProfileArn": "arn:aws:iam::000000000000:instance-profile/test",
+		"ServiceRoleArn":            "arn:aws:iam::000000000000:role/test",
+		"VpcId":                     "vpc-abc123",
+		"Attributes":                map[string]any{"Color": "blue"},
+		"ConfigurationManager":      map[string]any{"Name": "Chef", "Version": "12"},
+		"ChefConfiguration":         map[string]any{"ManageBerkshelf": true, "BerkshelfVersion": "5.1"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+	stackID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)
+
+	rec = doTarget(t, h, "DescribeStacks", map[string]any{"StackIds": []string{stackID}})
+	require.Equal(t, http.StatusOK, rec.Code)
+	stack := parseJSON(t, rec.Body.Bytes())["Stacks"].([]any)[0].(map[string]any)
+
+	assert.Equal(t, "vpc-abc123", stack["VpcId"])
+	assert.Equal(t, map[string]any{"Color": "blue"}, stack["Attributes"])
+	assert.Equal(t, map[string]any{"Name": "Chef", "Version": "12"}, stack["ConfigurationManager"])
+	assert.Equal(t, map[string]any{"ManageBerkshelf": true, "BerkshelfVersion": "5.1"}, stack["ChefConfiguration"])
+}
+
 // TestCloneStack verifies CloneStack creates an independent copy.
 func TestCloneStack(t *testing.T) {
 	t.Parallel()
@@ -390,24 +422,28 @@ func TestGetHostnameSuggestion(t *testing.T) {
 		name  string
 	}{
 		{
-			name: "returns non-empty hostname",
+			// Real GetHostnameSuggestionInput has only a LayerId member --
+			// no StackId -- so a real SDK client never sends StackId.
+			name: "returns non-empty hostname keyed by layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				stackID := createTestStack(t, h)
+				layerID := createTestLayer(t, h, stackID)
 				rec := doTarget(t, h, "GetHostnameSuggestion", map[string]any{
-					"StackId": stackID,
+					"LayerId": layerID,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
 				assert.NotEmpty(t, resp["Hostname"])
+				assert.Equal(t, layerID, resp["LayerId"])
 			},
 		},
 		{
-			name: "returns 404 for nonexistent stack",
+			name: "returns 404 for nonexistent layer",
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "GetHostnameSuggestion", map[string]any{
-					"StackId": "nonexistent",
+					"LayerId": "nonexistent",
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
 			},

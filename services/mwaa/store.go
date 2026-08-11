@@ -26,10 +26,12 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 const (
 	defaultAirflowVersion      = "2.10.3"
 	defaultEnvironmentClass    = "mw1.small"
+	environmentClassMicro      = "mw1.micro"
 	defaultMaxWorkers          = int32(10)
 	defaultMinWorkers          = int32(1)
 	defaultMaxWebservers       = int32(2)
 	defaultMinWebservers       = int32(2)
+	microWebservers            = int32(1)
 	minWebserversAllowed       = int32(1)
 	maxWebserversAllowed       = int32(5)
 	defaultSchedulersV2        = int32(2)

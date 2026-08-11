@@ -44,9 +44,18 @@ func (h *Handler) handleGetVariantStore(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleListVariantStores(c *echo.Context) error {
+	var req struct {
+		Filter *StoreStatusFilter `json:"filter"`
+		IDs    []string           `json:"ids"`
+	}
+
+	if err := readJSON(c, &req); err != nil {
+		return err
+	}
+
 	maxResults, nextToken := listQueryParams(c)
 
-	stores, next, err := h.Backend.ListVariantStores(maxResults, nextToken)
+	stores, next, err := h.Backend.ListVariantStores(req.Filter, req.IDs, maxResults, nextToken)
 	if err != nil {
 		return h.mapError(c, err)
 	}

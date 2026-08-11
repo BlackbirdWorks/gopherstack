@@ -87,16 +87,10 @@ func validateCreateTableKeySchema(schema []models.KeySchemaElement) error {
 	return nil
 }
 
-// validateProvisionedThroughput returns a ValidationException when a PROVISIONED
-// table is created or updated with ReadCapacityUnits or WriteCapacityUnits explicitly
-// set to 0 or negative. Nil values are allowed (they receive server-side defaults).
-// PAY_PER_REQUEST tables skip this check.
 // validateGSIThroughput enforces AWS's rules on per-GSI ProvisionedThroughput:
-//   - When the table BillingMode is PROVISIONED, every GSI must declare positive
-//     RCU and WCU (a missing ProvisionedThroughput is rejected — real AWS would
-//     surface "ValidationException: Either ReadCapacityUnits or WriteCapacityUnits is missing").
-//   - When the table BillingMode is PAY_PER_REQUEST, any GSI ProvisionedThroughput
-//     setting is rejected because GSIs inherit on-demand billing.
+// when the table BillingMode is PROVISIONED, every GSI must declare positive
+// RCU and WCU; when PAY_PER_REQUEST, any GSI ProvisionedThroughput setting is
+// rejected because GSIs inherit on-demand billing.
 func validateGSIThroughput(
 	gsis []types.GlobalSecondaryIndex, billingMode types.BillingMode,
 ) error {
@@ -146,6 +140,10 @@ func validateGSIThroughputEntry(pt *types.ProvisionedThroughput, isPPR bool) err
 	return nil
 }
 
+// validateProvisionedThroughput returns a ValidationException when a
+// PROVISIONED table is created or updated with ReadCapacityUnits or
+// WriteCapacityUnits explicitly set to 0 or negative. Nil values are allowed
+// (server-side defaults). PAY_PER_REQUEST tables skip this check.
 func validateProvisionedThroughput(
 	pt *types.ProvisionedThroughput,
 	billingMode types.BillingMode,

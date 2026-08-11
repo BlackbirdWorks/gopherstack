@@ -35,7 +35,10 @@ func TestIntegration_EC2_CreateVolume_GP3Coupling(t *testing.T) {
 	require.NotEmpty(t, volumeID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteVolume(ctx, &ec2sdk.DeleteVolumeInput{VolumeId: aws.String(volumeID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteVolume(cleanupCtx, &ec2sdk.DeleteVolumeInput{VolumeId: aws.String(volumeID)})
 	})
 
 	assert.Equal(t, int32(6000), aws.ToInt32(volOut.Iops))

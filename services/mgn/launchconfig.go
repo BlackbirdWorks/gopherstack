@@ -5,23 +5,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family C (6 ops): GetLaunchConfiguration,
-// UpdateLaunchConfiguration (per-SourceServer, flattened -- PARITY.md
-// wire-trap #2, no types.LaunchConfiguration struct exists) plus
-// CreateLaunchConfigurationTemplate, DeleteLaunchConfigurationTemplate,
-// DescribeLaunchConfigurationTemplates, UpdateLaunchConfigurationTemplate
-// (the separate, account-level, reusable Template family).
+// GetLaunchConfiguration/UpdateLaunchConfiguration are per-SourceServer and
+// flattened (PARITY.md wire-trap #2, no types.LaunchConfiguration struct exists),
+// separate from the account-level, reusable Template family.
 //
-// # How template -> per-server configuration application happens
-//
-// Not exposed by any op in this SDK (PARITY.md's "genuine, unresolved gap").
-// This backend's documented convention: a per-server LaunchConfiguration is
-// auto-created with fixed defaults alongside its SourceServer
-// (createSourceServerLocked, in sourceservers.go) and never automatically inherits
-// settings from any LaunchConfigurationTemplate -- an implementer/caller
-// must explicitly UpdateLaunchConfiguration to copy template values across
-// if desired. This is a documented, invented convention, not derived from
-// AWS behavior.
+// Template -> per-server application is not exposed by any op in this SDK
+// (genuine, unresolved gap). This backend's invented convention: a per-server
+// LaunchConfiguration is auto-created with fixed defaults alongside its
+// SourceServer (createSourceServerLocked) and never inherits from any Template --
+// a caller must explicitly UpdateLaunchConfiguration to copy values across.
 
 // GetLaunchConfiguration returns sourceServerID's per-server
 // LaunchConfiguration.

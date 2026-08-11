@@ -154,6 +154,19 @@ export const implementedDashboardRouteIds = new Set<string>([
   "workmail",
   "mgn",
   "lightsail",
+  "apigatewaymanagementapi",
+  "codeconnections",
+  "elasticsearch",
+  "elb",
+  "identitystore",
+  "kinesisanalyticsv2",
+  "managedblockchain",
+  "mediastore",
+  "mediastoredata",
+  "pipes",
+  "resourcegroups",
+  "resourcegroupstaggingapi",
+  "swf",
 ]);
 
 // The 31 most commonly used AWS services shown in the sidebar (routes flagged `common: true`).
@@ -551,15 +564,15 @@ export const sidebarCategories: DashboardCategory[] = [
         id: "mediaconvert",
         href: "/dashboard/mediaconvert",
         label: "MediaConvert",
-        icon: "media",
+        icon: "mediaconvert",
         common: true,
       },
-      { id: "mediastore", href: "/dashboard/mediastore", label: "MediaStore", icon: "media" },
+      { id: "mediastore", href: "/dashboard/mediastore", label: "MediaStore", icon: "mediastore" },
       {
         id: "mediastoredata",
         href: "/dashboard/mediastoredata",
         label: "MediaStore Data",
-        icon: "media",
+        icon: "mediastoredata",
       },
       { id: "medialive", href: "/dashboard/medialive", label: "MediaLive", icon: "medialive" },
       {
@@ -594,7 +607,7 @@ export const sidebarCategories: DashboardCategory[] = [
     label: "Business & Communication",
     routes: [
       { id: "ses", href: "/dashboard/ses", label: "SES", icon: "ses", common: true },
-      { id: "sesv2", href: "/dashboard/sesv2", label: "SES v2", icon: "sesv2", common: true },
+      { id: "sesv2", href: "/dashboard/sesv2", label: "SES v2", icon: "ses", common: true },
       { id: "workmail", href: "/dashboard/workmail", label: "WorkMail", icon: "workmail" },
     ],
   },

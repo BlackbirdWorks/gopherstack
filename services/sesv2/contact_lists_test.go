@@ -28,7 +28,7 @@ func TestCreateContactList(t *testing.T) {
 		{
 			name: "duplicate",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateContactList("my-list", "")
+				_, _ = b.CreateContactList("my-list", "", nil)
 			},
 			list:    "my-list",
 			wantErr: true,
@@ -48,7 +48,7 @@ func TestCreateContactList(t *testing.T) {
 			backend := sesv2.NewInMemoryBackend()
 			tt.setup(backend)
 
-			_, err := backend.CreateContactList(tt.list, "desc")
+			_, err := backend.CreateContactList(tt.list, "desc", nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

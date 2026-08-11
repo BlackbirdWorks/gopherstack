@@ -31,7 +31,10 @@ type StorageBackend interface {
 	CreateRule(input CreateRuleInput) (*Rule, error)
 	DescribeRules(listenerArn string, ruleArns []string) ([]Rule, error)
 	DeleteRule(ruleArn string) error
-	ModifyRule(ruleArn string, actions []Action, conditions []Condition) (*Rule, error)
+	ModifyRule(
+		ruleArn string, actions []Action, conditions []Condition,
+		transforms []RuleTransform, resetTransforms bool,
+	) (*Rule, error)
 	AddTags(resourceArns []string, kvs []tags.KV) error
 	RemoveTags(resourceArns []string, keys []string) error
 	DescribeTags(resourceArns []string) (map[string][]tags.KV, error)

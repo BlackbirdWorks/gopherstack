@@ -28,7 +28,10 @@ func TestIntegration_EC2_CreateDeleteTags(t *testing.T) {
 	require.NotEmpty(t, vpcID)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteVpc(ctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteVpc(cleanupCtx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
 	})
 
 	// CreateTags: add two tags.
@@ -115,8 +118,11 @@ func TestIntegration_EC2_CreateTags_MultipleResources(t *testing.T) {
 	vpc2ID := aws.ToString(vpc2Out.Vpc.VpcId)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteVpc(ctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpc1ID)})
-		_, _ = client.DeleteVpc(ctx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpc2ID)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteVpc(cleanupCtx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpc1ID)})
+		_, _ = client.DeleteVpc(cleanupCtx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpc2ID)})
 	})
 
 	// Tag both VPCs at once.

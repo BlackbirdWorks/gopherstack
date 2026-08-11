@@ -84,10 +84,10 @@ func resolveProvisioningTemplateVersionOps(path, method string) string {
 func resolveProvisioningTemplateCrudOps(path, method string) string {
 	switch {
 	// POST /provisioning-templates → CreateProvisioningTemplate
-	case path == "/provisioning-templates" && method == http.MethodPost:
+	case path == pathProvisioningTemplates && method == http.MethodPost:
 		return opCreateProvisioningTemplate
 	// GET /provisioning-templates → ListProvisioningTemplates
-	case path == "/provisioning-templates" && method == http.MethodGet:
+	case path == pathProvisioningTemplates && method == http.MethodGet:
 		return opListProvisioningTemplates
 	// GET /provisioning-templates/{templateName} → DescribeProvisioningTemplate
 	case strings.HasPrefix(path, "/provisioning-templates/") && method == http.MethodGet:

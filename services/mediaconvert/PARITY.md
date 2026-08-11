@@ -1,6 +1,6 @@
 ---
 service: mediaconvert
-sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.87.3
+sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
 last_audit_commit: 911ff167
 last_audit_date: 2026-07-31
 overall: A            # 2026-07-24: genuine wire-breaking bugs found and fixed this pass
@@ -49,7 +49,8 @@ families:
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
   endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
 gaps:
-  - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.87.3: still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
+  - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.97.1 (pin corrected from the stale v1.87.3 recorded here by gopherstack-u8my): still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
+  - NEW since v1.87.3: CreateQueueInput/UpdateQueueInput gained a MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency); gopherstack's CreateQueue/UpdateQueue do not read, store, or echo it (silently dropped). Found by the gopherstack-u8my pin-correction pass's SDK diff, not yet fixed -- CreateQueue/UpdateQueue ops rows above stay wire:ok pending a real fix, matching this file's existing convention of tracking known field-level gaps here rather than downgrading the op status.
 deferred:
   - JobSettings/JobTemplateSettings/PresetSettings deep-structure field-level validation (gopherstack stores these as opaque map[string]any and round-trips them verbatim, which is the established pattern for this service; no validation of e.g. OutputGroups internals was audited)
 leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to ctx cancellation; no goroutine/map leaks found. lockmetrics.RWMutex used as the single coarse backend lock; safemap not used (not applicable, all backend collections are cross-map transactional and correctly share the coarse lock). Re-verified this pass: no new goroutines/tickers/maps introduced by the CreateJob/CreateJobTemplate/UpdateJobTemplate/DescribeEndpoints fixes; all new code paths run synchronously under the existing b.mu lock or (DescribeEndpoints) hold no lock at all since it reads no mutable backend state."}
@@ -135,7 +136,7 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
 - **`JobTemplate` gained `AccelerationSettings`/`HopDestinations`/`StatusUpdateInterval`**
   (`models.go`). The real `CreateJobTemplateInput`/`UpdateJobTemplateInput` wire
   shapes both accept these three fields (confirmed against
-  `aws-sdk-go-v2/service/mediaconvert@v1.87.3`'s `api_op_CreateJobTemplate.go` /
+  `aws-sdk-go-v2/service/mediaconvert@v1.97.1`'s `api_op_CreateJobTemplate.go` /
   `api_op_UpdateJobTemplate.go`), but `JobTemplate` previously had no fields to
   hold them, so a real SDK client setting e.g. `AccelerationSettings` on
   `CreateJobTemplateInput` had it silently dropped -- the response would never
@@ -176,7 +177,10 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
   (dormant -- no real input member exists to ever populate it) and
   `CreateResourceShare`'s missing `supportCaseId` validation (output is void, so
   this is unobservable to a real client either way). Both re-checked against the
-  v1.87.3 SDK this pass and confirmed still accurate; see `gaps` above.
+  v1.87.3 SDK at that time; re-confirmed still accurate against the now-current
+  v1.97.1 pin by the gopherstack-u8my pass (`Queue.ServiceOverrides` -- see `gaps`
+  above, which also now notes a new, separate `MaximumConcurrentFeeds` gap found
+  by that same pass).
 - No leaks introduced: all new code (`buildNewJobLocked`, `CreateJobTemplateFull`,
   `UpdateJobTemplateFull`, `handleDescribeEndpoints`'s body parsing) runs
   synchronously with no new goroutines, tickers, or maps -- `CreateJobTemplateFull`/

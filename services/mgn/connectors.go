@@ -5,16 +5,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family G (4 ops): CreateConnector, UpdateConnector,
-// DeleteConnector, ListConnectors. A Connector represents an SSM Managed
-// Instance running the MGN connector software bridging an on-prem vCenter
-// environment to the AWS control plane -- this repo has no SSM Managed
-// Instance concept to validate SsmInstanceID against (not independently
-// confirmed either way, PARITY.md), so this backend accepts any
-// SsmInstanceID unvalidated, same treatment services/directconnect gives an
-// unwired EC2GatewayResolver. No AccountID field exists on any Connector op
-// (confirmed by direct SDK read) -- Connectors are not delegated-account-
-// scoped, unlike SourceServers/Applications/Waves.
+// A Connector represents an SSM Managed Instance bridging an on-prem vCenter to
+// the AWS control plane. This repo has no SSM Managed Instance concept to
+// validate SsmInstanceID against, so it's accepted unvalidated (PARITY.md). No
+// AccountID field exists on any Connector op (confirmed by direct SDK read) --
+// Connectors are not delegated-account-scoped, unlike SourceServers/Applications/Waves.
 
 // CreateConnectorInput mirrors CreateConnectorInput.
 type CreateConnectorInput struct {

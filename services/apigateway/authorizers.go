@@ -129,7 +129,9 @@ func (b *InMemoryBackend) UpdateAuthorizer(
 		}
 		auth.AuthorizerResultTTLInSeconds = input.AuthorizerResultTTLInSeconds
 	}
-	if len(input.ProviderARNs) > 0 {
+	// nil-checked rather than len-checked so patching the last ARN away via
+	// "/providerARNs" remove actually clears it (see applyAuthorizerPatchOp).
+	if input.ProviderARNs != nil {
 		auth.ProviderARNs = input.ProviderARNs
 	}
 

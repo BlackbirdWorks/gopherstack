@@ -175,15 +175,19 @@ func (b *InMemoryBackend) SetAlarmState(
 			actions = update.insuffActions
 		}
 
-		payload := b.buildAlarmActionPayload(
-			alarmName,
-			update.alarmDesc,
-			update.alarmArn,
-			update.oldState,
-			stateValue,
-			stateReason,
-		)
-		b.executeActions(ctx, actions, alarmName, update.histAlarmType, payload, update.deps)
+		if muteRule, muted := b.activeMuteRule(alarmName, time.Now().UTC()); muted {
+			b.appendMutedActionHistory(alarmName, update.histAlarmType, muteRule)
+		} else {
+			payload := b.buildAlarmActionPayload(
+				alarmName,
+				update.alarmDesc,
+				update.alarmArn,
+				update.oldState,
+				stateValue,
+				stateReason,
+			)
+			b.executeActions(ctx, actions, alarmName, update.histAlarmType, payload, update.deps)
+		}
 	}
 
 	b.fireCompositeTransitions(ctx, update.compositeTransitions, update.deps)

@@ -50,7 +50,7 @@ func (h *Handler) handleCreateNamespace(c *echo.Context) error {
 	namespace := strField(body, "Namespace")
 	capacityRegion := strField(body, "CapacityRegion")
 
-	ns, err := h.Backend.CreateNamespace(accountID, namespace, capacityRegion)
+	ns, err := h.Backend.CreateNamespace(accountID, namespace, capacityRegion, tagsFromBody(body))
 	if err != nil {
 		return httpErr(c, err)
 	}

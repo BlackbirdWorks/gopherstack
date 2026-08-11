@@ -18,7 +18,18 @@ func TestCreateProfile_Success(t *testing.T) {
 	b := newBackend(t)
 	roleArns := []string{"arn:aws:iam::123456789012:role/MyRole"}
 
-	p, err := b.CreateProfile(context.Background(), "my-profile", roleArns, nil, nil, nil, "", false, nil, nil)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"my-profile",
+		roleArns,
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	assert.NotEmpty(t, p.ProfileID)
@@ -39,10 +50,32 @@ func TestCreateProfile_DuplicateNameAllowed(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	first, err := b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false, nil, nil)
+	first, err := b.CreateProfile(
+		context.Background(),
+		"dup-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	second, err := b.CreateProfile(context.Background(), "dup-profile", nil, nil, nil, nil, "", false, nil, nil)
+	second, err := b.CreateProfile(
+		context.Background(),
+		"dup-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	assert.NotEqual(t, first.ProfileID, second.ProfileID)
@@ -65,11 +98,73 @@ func TestCreateProfile_EmptyName(t *testing.T) {
 			t.Parallel()
 
 			b := newBackend(t)
-			_, err := b.CreateProfile(context.Background(), tt.profileName, nil, nil, nil, nil, "", false, nil, nil)
+			_, err := b.CreateProfile(
+				context.Background(),
+				tt.profileName,
+				[]string{},
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestCreateProfile_RoleArnsRequired proves that CreateProfile rejects a nil
+// roleArns list with ValidationException, matching real AWS:
+// CreateProfileInput.RoleArns is "This member is required" (aws-sdk-go-v2's
+// validateOpCreateProfileInput checks v.RoleArns == nil) and botocore's
+// CreateProfileRequest declares "roleArns" in its top-level "required" list.
+// An explicitly empty (non-nil) list is still accepted: the RoleArnList shape
+// itself declares min:0, so the requirement is presence, not non-emptiness.
+func TestCreateProfile_RoleArnsRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		roleArns []string
+		wantErr  bool
+	}{
+		{name: "nil role arns rejected", roleArns: nil, wantErr: true},
+		{name: "empty role arns accepted", roleArns: []string{}, wantErr: false},
+		{
+			name:     "populated role arns accepted",
+			roleArns: []string{"arn:aws:iam::123456789012:role/MyRole"},
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			_, err := b.CreateProfile(
+				context.Background(),
+				t.Name(),
+				tt.roleArns,
+				nil,
+				nil,
+				nil,
+				"",
+				false,
+				nil,
+				nil,
+			)
+
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -81,7 +176,18 @@ func TestCreateProfile_DurationSeconds(t *testing.T) {
 	b := newBackend(t)
 	dur := int32(3600)
 
-	p, err := b.CreateProfile(context.Background(), "dur-profile", nil, nil, &dur, nil, "", false, nil, nil)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"dur-profile",
+		[]string{},
+		nil,
+		&dur,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, p.DurationSeconds)
 	assert.Equal(t, int32(3600), *p.DurationSeconds)
@@ -99,8 +205,30 @@ func TestListProfiles_ReturnsAll(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	_, _ = b.CreateProfile(context.Background(), "profile-1", nil, nil, nil, nil, "", false, nil, nil)
-	_, _ = b.CreateProfile(context.Background(), "profile-2", nil, nil, nil, nil, "", false, nil, nil)
+	_, _ = b.CreateProfile(
+		context.Background(),
+		"profile-1",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
+	_, _ = b.CreateProfile(
+		context.Background(),
+		"profile-2",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 
 	all, next, err := b.ListProfiles(context.Background(), "", 0)
 	require.NoError(t, err)
@@ -112,7 +240,18 @@ func TestDeleteProfile_RemovesEntry(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, err := b.CreateProfile(context.Background(), "del-profile", nil, nil, nil, nil, "", false, nil, nil)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"del-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	deleted, err := b.DeleteProfile(context.Background(), p.ProfileID)
@@ -132,10 +271,26 @@ func TestDeleteProfile_CascadesAttributeMappingsAndTags(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, err := b.CreateProfile(context.Background(), "cascade-profile", nil, nil, nil, nil, "", false, nil, nil)
+	p, err := b.CreateProfile(
+		context.Background(),
+		"cascade-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
-	_, err = b.PutAttributeMapping(context.Background(), p.ProfileID, "x509Subject", nil)
+	_, err = b.PutAttributeMapping(
+		context.Background(),
+		p.ProfileID,
+		"x509Subject",
+		[]rolesanywhere.MappingRule{{Specifier: "CN"}},
+	)
 	require.NoError(t, err)
 	require.NoError(t, b.TagResource(context.Background(), p.ProfileArn,
 		[]rolesanywhere.TagEntry{{Key: "env", Value: "prod"}}))
@@ -147,7 +302,11 @@ func TestDeleteProfile_CascadesAttributeMappingsAndTags(t *testing.T) {
 	assert.Empty(t, mappings, "attribute mappings must not survive profile deletion")
 
 	tags, err := b.ListTagsForResource(context.Background(), p.ProfileArn)
-	require.Error(t, err, "ListTagsForResource must report ResourceNotFoundException for the deleted profile's ARN")
+	require.Error(
+		t,
+		err,
+		"ListTagsForResource must report ResourceNotFoundException for the deleted profile's ARN",
+	)
 	assert.Empty(t, tags)
 }
 
@@ -169,7 +328,17 @@ func TestUpdateProfile_ChangesRoleArns(t *testing.T) {
 	)
 
 	newRoles := []string{"arn:aws:iam::123:role/NewRole"}
-	updated, err := b.UpdateProfile(context.Background(), p.ProfileID, "", newRoles, nil, nil, "", nil, nil)
+	updated, err := b.UpdateProfile(
+		context.Background(),
+		p.ProfileID,
+		"",
+		newRoles,
+		nil,
+		nil,
+		"",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, newRoles, updated.RoleArns)
 }
@@ -240,7 +409,18 @@ func TestEnableDisableProfile(t *testing.T) {
 	t.Parallel()
 
 	b := newBackend(t)
-	p, _ := b.CreateProfile(context.Background(), "toggle-profile", nil, nil, nil, nil, "", false, nil, nil)
+	p, _ := b.CreateProfile(
+		context.Background(),
+		"toggle-profile",
+		[]string{},
+		nil,
+		nil,
+		nil,
+		"",
+		false,
+		nil,
+		nil,
+	)
 	assert.True(t, p.Enabled)
 
 	disabled, err := b.DisableProfile(context.Background(), p.ProfileID)

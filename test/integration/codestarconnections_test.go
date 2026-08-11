@@ -33,7 +33,10 @@ func TestIntegration_CodeStarConnections_ConnectionLifecycle(t *testing.T) {
 	require.NotEmpty(t, arn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteConnection(ctx, &codestarconnectionssdk.DeleteConnectionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteConnection(cleanupCtx, &codestarconnectionssdk.DeleteConnectionInput{
 			ConnectionArn: aws.String(arn),
 		})
 	})

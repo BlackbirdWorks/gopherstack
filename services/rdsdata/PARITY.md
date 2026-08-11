@@ -5,7 +5,7 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rdsdata
-sdk_module: aws-sdk-go-v2/service/rdsdata@v1.32.19   # version audited against
+sdk_module: aws-sdk-go-v2/service/rdsdata@v1.35.4   # version audited against
 last_audit_commit: 9419636f                          # HEAD when this pass started (working tree, uncommitted)
 last_audit_date: 2026-07-23
 overall: A            # every op/family field-diffed against the real SDK source this pass
@@ -31,7 +31,12 @@ ops:
   RollbackTransaction: {wire: ok, errors: ok, state: ok, persist: ok}
   ExecuteSql: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Deprecated op; executes for real against the same per-resource engine DB
-    and records to the statement log like the other ops.}
+    and records to the statement log like the other ops. resultFrame is now
+    populated for query statements (records + resultSetMetadata), converted
+    from the same engine row extraction ExecuteStatement uses, at the wire
+    boundary into the older Value union (bigIntValue/bitValue, not
+    longValue/booleanValue) -- gopherstack-7ows. Left nil for DML, which
+    still only reports numberOfRecordsUpdated.}
 # Families audited as a group (when per-op is impractical):
 families:
   routing: {status: ok, note: >

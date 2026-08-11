@@ -1,6 +1,7 @@
 package iotdataplane_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -82,9 +83,24 @@ func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
 		path      string
 		wantMatch bool
 	}{
-		{name: "delete_matches", method: http.MethodDelete, path: "/connections/client-001", wantMatch: true},
-		{name: "get_matches_get_connection", method: http.MethodGet, path: "/connections/client-001", wantMatch: true},
-		{name: "post_does_not_match", method: http.MethodPost, path: "/connections/client-001", wantMatch: false},
+		{
+			name:      "delete_matches",
+			method:    http.MethodDelete,
+			path:      "/connections/client-001",
+			wantMatch: true,
+		},
+		{
+			name:      "get_matches_get_connection",
+			method:    http.MethodGet,
+			path:      "/connections/client-001",
+			wantMatch: true,
+		},
+		{
+			name:      "post_does_not_match",
+			method:    http.MethodPost,
+			path:      "/connections/client-001",
+			wantMatch: false,
+		},
 		{
 			name: "get_subscriptions_matches_list_subscriptions", method: http.MethodGet,
 			path: "/connections/client-001/subscriptions", wantMatch: true,
@@ -106,6 +122,44 @@ func TestHandler_RouteMatcher_DeleteConnectionRealPath(t *testing.T) {
 			h := newTestHandler(t)
 			e := echo.New()
 			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			matcher := h.RouteMatcher()
+			assert.Equal(t, tt.wantMatch, matcher(c))
+		})
+	}
+}
+
+// TestHandler_RouteMatcher_ConnectionsSigV4Scope verifies the real AWS
+// "/connections/{id}" wire path (which collides with Outposts' own
+// GetConnection) matches when unsigned or signed for iotdata, but not when
+// signed for a different service -- see gopherstack-vpoh.
+func TestHandler_RouteMatcher_ConnectionsSigV4Scope(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		authScope string
+		wantMatch bool
+	}{
+		{name: "unsigned", authScope: "", wantMatch: true},
+		{name: "signed_iotdata", authScope: "iotdata", wantMatch: true},
+		{name: "signed_outposts", authScope: "outposts", wantMatch: false},
+		{name: "signed_ram", authScope: "ram", wantMatch: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodGet, "/connections/client-001", nil)
+			if tt.authScope != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=test/20230101/us-east-1/"+tt.authScope+"/aws4_request",
+				)
+			}
 			c := e.NewContext(req, httptest.NewRecorder())
 			matcher := h.RouteMatcher()
 			assert.Equal(t, tt.wantMatch, matcher(c))
@@ -299,8 +353,12 @@ func Test_ConnectionsPath_NonAWSOpsReturn404(t *testing.T) {
 			t.Parallel()
 
 			rec := doRequest(t, h, tt.method, tt.path, nil)
-			assert.Equal(t, http.StatusNotFound, rec.Code,
-				"RegisterConnection/ListConnections have no real AWS path and stay 404 outside /_admin")
+			assert.Equal(
+				t,
+				http.StatusNotFound,
+				rec.Code,
+				"RegisterConnection/ListConnections have no real AWS path and stay 404 outside /_admin",
+			)
 		})
 	}
 }
@@ -421,8 +479,16 @@ func TestBackend_GetConnection(t *testing.T) {
 		seed     bool
 	}{
 		{name: "tracked_client_returns_connection_info", clientID: "dev-1", seed: true},
-		{name: "unknown_client_not_found", clientID: "never-connected", wantErr: iotdataplane.ErrConnectionNotFound},
-		{name: "dollar_prefix_rejected", clientID: "$reserved", wantErr: iotdataplane.ErrValidation},
+		{
+			name:     "unknown_client_not_found",
+			clientID: "never-connected",
+			wantErr:  iotdataplane.ErrConnectionNotFound,
+		},
+		{
+			name:     "dollar_prefix_rejected",
+			clientID: "$reserved",
+			wantErr:  iotdataplane.ErrValidation,
+		},
 	}
 
 	for _, tt := range tests {
@@ -475,7 +541,11 @@ func TestHandler_GetConnection_WireShape(t *testing.T) {
 			query: "?includeSocketInformation=true", preRegister: true,
 			wantCode: http.StatusOK, wantSourceIP: true,
 		},
-		{name: "unknown_client_not_found", clientID: "never-connected", wantCode: http.StatusNotFound},
+		{
+			name:     "unknown_client_not_found",
+			clientID: "never-connected",
+			wantCode: http.StatusNotFound,
+		},
 		{name: "dollar_prefix_rejected", clientID: "$reserved", wantCode: http.StatusBadRequest},
 	}
 
@@ -548,7 +618,11 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 			brokerSubs: map[string]byte{"sensor/temp": 1, "sensor/humidity": 0},
 			wantCode:   http.StatusOK,
 		},
-		{name: "unknown_client_not_found", clientID: "never-connected", wantCode: http.StatusNotFound},
+		{
+			name:     "unknown_client_not_found",
+			clientID: "never-connected",
+			wantCode: http.StatusNotFound,
+		},
 		{name: "dollar_prefix_rejected", clientID: "$reserved", wantCode: http.StatusBadRequest},
 	}
 
@@ -572,7 +646,13 @@ func TestHandler_ListSubscriptions_WireShape(t *testing.T) {
 			}
 
 			h := iotdataplane.NewHandler(b)
-			rec := doRequest(t, h, http.MethodGet, "/connections/"+tt.clientID+"/subscriptions", nil)
+			rec := doRequest(
+				t,
+				h,
+				http.MethodGet,
+				"/connections/"+tt.clientID+"/subscriptions",
+				nil,
+			)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
 			if tt.wantCode != http.StatusOK {
@@ -639,7 +719,12 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 			name: "unknown_client_not_found", clientID: "never-connected", topic: "t/1",
 			wantErr: iotdataplane.ErrConnectionNotFound,
 		},
-		{name: "dollar_prefix_rejected", clientID: "$reserved", topic: "t/1", wantErr: iotdataplane.ErrValidation},
+		{
+			name:     "dollar_prefix_rejected",
+			clientID: "$reserved",
+			topic:    "t/1",
+			wantErr:  iotdataplane.ErrValidation,
+		},
 		{
 			name: "no_broker_configured_returns_ErrNoBroker", clientID: "dev-2", topic: "t/1",
 			seed: true, wantErr: iotdataplane.ErrNoBroker,
@@ -665,7 +750,13 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 				b.SetBroker(mock)
 			}
 
-			err := b.SendDirectMessage(tt.clientID, tt.topic, []byte("hi"), 0)
+			err := b.SendDirectMessage(
+				tt.clientID,
+				tt.topic,
+				[]byte("hi"),
+				0,
+				iotdataplane.MQTT5Properties{},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -679,14 +770,22 @@ func TestBackend_SendDirectMessage(t *testing.T) {
 				assert.Equal(t, tt.clientID, mock.sendToClientClient)
 				assert.Equal(t, tt.topic, mock.sendToClientTopic)
 				assert.Equal(t, []byte("hi"), mock.sendToClientPayload)
-				assert.Empty(t, mock.topic, "Publish (broadcast) must not be used when SendToClient delivers")
+				assert.Empty(
+					t,
+					mock.topic,
+					"Publish (broadcast) must not be used when SendToClient delivers",
+				)
 
 				return
 			}
 
 			assert.Equal(t, tt.topic, mock.topic)
 			assert.Equal(t, []byte("hi"), mock.payload)
-			assert.Empty(t, mock.sendToClientTopic, "SendToClient must not be used on the broadcast fallback path")
+			assert.Empty(
+				t,
+				mock.sendToClientTopic,
+				"SendToClient must not be used on the broadcast fallback path",
+			)
 		})
 	}
 }
@@ -737,7 +836,12 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 			body: []byte("hi"), preRegister: true, withBroker: true, brokerKnows: true,
 			wantCode: http.StatusOK, wantDirectSend: true,
 		},
-		{name: "missing_topic_bad_request", clientID: "dev-1", preRegister: true, wantCode: http.StatusBadRequest},
+		{
+			name:        "missing_topic_bad_request",
+			clientID:    "dev-1",
+			preRegister: true,
+			wantCode:    http.StatusBadRequest,
+		},
 		{
 			name: "invalid_topic_wildcard_bad_request", clientID: "dev-1", query: "?topic=a/%2B/b",
 			preRegister: true, wantCode: http.StatusBadRequest,
@@ -781,7 +885,7 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 			}
 
 			h := iotdataplane.NewHandler(b)
-			rec := doRequestHeaders(t, h, http.MethodPost,
+			rec := doRequestHeaders(t, h,
 				"/connections/"+tt.clientID+"/messages"+tt.query, tt.body, tt.headers)
 			assert.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
 
@@ -804,8 +908,67 @@ func TestHandler_SendDirectMessage_WireShape(t *testing.T) {
 				assert.Equal(t, tt.clientID, mock.sendToClientClient)
 				assert.Equal(t, "t/1", mock.sendToClientTopic)
 				assert.Equal(t, tt.body, mock.sendToClientPayload)
-				assert.Empty(t, mock.topic, "Publish (broadcast) must not be used when SendToClient delivers")
+				assert.Empty(
+					t,
+					mock.topic,
+					"Publish (broadcast) must not be used when SendToClient delivers",
+				)
 			}
+		})
+	}
+}
+
+// Test_SendDirectMessage_MQTT5Fields_ForwardedToBroker verifies
+// SendDirectMessage's optional MQTT5 fields (contentType/correlationData/
+// payloadFormatIndicator/responseTopic/userProperties -- SendDirectMessageInput
+// has no messageExpiry) reach the broker as a real MQTT5Properties value, on
+// both the direct-send path (SendToClientWithProperties) and the
+// topic-broadcast fallback (PublishWithProperties). Before this,
+// contentType/correlationData weren't even parsed from the request for this
+// op, and no field reached the broker either way.
+func Test_SendDirectMessage_MQTT5Fields_ForwardedToBroker(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		brokerKnows bool
+	}{
+		{name: "direct_send_path"},
+		{name: "broadcast_fallback_path", brokerKnows: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clientID := "dev-props"
+			b := iotdataplane.NewInMemoryBackend()
+			b.AddConnectionInternal(clientID)
+
+			mock := &mockMQTTPublisher{knownClients: map[string]bool{clientID: tt.brokerKnows}}
+			b.SetBroker(mock)
+			h := iotdataplane.NewHandler(b)
+
+			headers := map[string]string{
+				"X-Amz-Mqtt5-Correlation-Data": base64.StdEncoding.EncodeToString(
+					[]byte("corr-2"),
+				),
+				"X-Amz-Mqtt5-Payload-Format-Indicator": "UTF8_DATA",
+			}
+			path := "/connections/" + clientID + "/messages?topic=t/1&contentType=text%2Fplain&responseTopic=r/t"
+
+			rec := doRequestHeaders(t, h, path, []byte("hi"), headers)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			props := mock.props
+			if tt.brokerKnows {
+				props = mock.sendToClientProps
+			}
+
+			assert.Equal(t, "text/plain", props.ContentType)
+			assert.Equal(t, "r/t", props.ResponseTopic)
+			assert.Equal(t, "UTF8_DATA", props.PayloadFormatIndicator)
+			assert.Equal(t, []byte("corr-2"), props.CorrelationData)
 		})
 	}
 }

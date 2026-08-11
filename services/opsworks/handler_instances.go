@@ -221,7 +221,7 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 			"Hostname":     i.Hostname,
 			"InstanceType": i.InstanceType,
 			keyStatus:      i.Status,
-			keyCreatedAt:   i.CreatedAt.Format("2006-01-02T15:04:05+00:00"),
+			keyCreatedAt:   formatOpsWorksTime(i.CreatedAt),
 		})
 	}
 

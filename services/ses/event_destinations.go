@@ -5,6 +5,33 @@ import (
 	"strings"
 )
 
+// isValidEventType reports whether eventType is one of the AWS SES EventType
+// enum values (aws-sdk-go-v2/service/ses/types/enums.go).
+func isValidEventType(eventType string) bool {
+	switch eventType {
+	case "send", "reject", "bounce", "complaint", "delivery", "open", "click", "renderingFailure":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateMatchingEventTypes checks that eventTypes is non-empty (a required
+// EventDestination member) and every entry is a known EventType enum value.
+func validateMatchingEventTypes(eventTypes []string) error {
+	if len(eventTypes) == 0 {
+		return fmt.Errorf("%w: EventDestination.MatchingEventTypes is required", ErrInvalidParameter)
+	}
+
+	for _, et := range eventTypes {
+		if !isValidEventType(et) {
+			return fmt.Errorf("%w: invalid MatchingEventTypes value %q", ErrInvalidParameter, et)
+		}
+	}
+
+	return nil
+}
+
 // CreateConfigurationSetEventDestination adds an event destination to a configuration set.
 func (b *InMemoryBackend) CreateConfigurationSetEventDestination(configSetName string, dest EventDestination) error {
 	if strings.TrimSpace(configSetName) == "" {
@@ -13,6 +40,10 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(configSetName s
 
 	if strings.TrimSpace(dest.Name) == "" {
 		return fmt.Errorf("%w: EventDestination.Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateMatchingEventTypes(dest.MatchingEventTypes); err != nil {
+		return err
 	}
 
 	b.mu.Lock("CreateConfigurationSetEventDestination")
@@ -70,6 +101,10 @@ func (b *InMemoryBackend) UpdateConfigurationSetEventDestination(configSetName s
 
 	if strings.TrimSpace(dest.Name) == "" {
 		return fmt.Errorf("%w: EventDestination.Name is required", ErrInvalidParameter)
+	}
+
+	if err := validateMatchingEventTypes(dest.MatchingEventTypes); err != nil {
+		return err
 	}
 
 	b.mu.Lock("UpdateConfigurationSetEventDestination")

@@ -9,8 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/blackbirdworks/gopherstack/services/detective"
 )
 
 func TestDetective_Members(t *testing.T) { //nolint:paralleltest // existing issue.
@@ -683,47 +681,9 @@ func TestDetective_Invitations(t *testing.T) { //nolint:paralleltest // existing
 	}
 }
 
-// TestListInvitationsOpaqueToken verifies ListInvitations' NextToken is an
-// opaque base64 offset, not the raw next GraphArn. A single backend instance
-// can never be a member of more than one graph through the normal
-// CreateMembers/AcceptInvitation flow (an account cannot invite itself), so
-// this seeds member records directly to exercise multi-page pagination.
-func TestListInvitationsOpaqueToken(t *testing.T) {
-	t.Parallel()
-	b := detective.NewInMemoryBackend("000000000000", "us-east-1")
-	h := detective.NewHandler(b)
-
-	detective.SeedGraph(b, "arn:aws:detective:us-east-1:111111111111:graph:aaaabbbbcccc00001111222233334444")
-	detective.SeedGraph(b, "arn:aws:detective:us-east-1:222222222222:graph:bbbbccccdddd00001111222233335555")
-	detective.SeedMember(b, "arn:aws:detective:us-east-1:111111111111:graph:aaaabbbbcccc00001111222233334444",
-		b.AccountID(), "INVITED")
-	detective.SeedMember(b, "arn:aws:detective:us-east-1:222222222222:graph:bbbbccccdddd00001111222233335555",
-		b.AccountID(), "ENABLED")
-
-	rec := doRequest(t, h, http.MethodPost, "/invitations/list", map[string]any{"MaxResults": 1})
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-
-	tok, hasTok := resp["NextToken"].(string)
-	require.True(t, hasTok, "NextToken must be present when more results exist")
-
-	_, err := base64.StdEncoding.DecodeString(tok)
-	require.NoError(t, err, "NextToken must be opaque base64, not a raw GraphArn")
-
-	rec2 := doRequest(t, h, http.MethodPost, "/invitations/list", map[string]any{"MaxResults": 1, "NextToken": tok})
-	require.Equal(t, http.StatusOK, rec2.Code)
-
-	var resp2 map[string]any
-	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
-	invitations, ok := resp2["Invitations"].([]any)
-	require.True(t, ok)
-	assert.Len(t, invitations, 1, "second page must return the remaining invitation")
-
-	_, hasTok2 := resp2["NextToken"]
-	assert.False(t, hasTok2, "NextToken must be absent on the last page")
-}
+// TestListInvitationsOpaqueToken lives in whitebox_test.go: it needs direct
+// access to the unexported members map to seed a multi-graph membership no
+// normal CreateMembers/AcceptInvitation flow can produce.
 
 func TestDetective_InvitationLifecycle(t *testing.T) { //nolint:paralleltest // existing issue.
 	// Admin handler creates graph and invites member.

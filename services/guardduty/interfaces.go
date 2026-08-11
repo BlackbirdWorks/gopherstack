@@ -55,15 +55,15 @@ type StorageBackend interface {
 
 	// Member management
 	CreateMembers(detectorID string, accountDetails []map[string]any) ([]*Member, []map[string]any)
-	DeleteMembers(detectorID string, accountIDs []string) []map[string]any
-	GetMembers(detectorID string, accountIDs []string) ([]*Member, []map[string]any)
-	InviteMembers(detectorID string, accountIDs []string) []map[string]any
+	DeleteMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
+	GetMembers(detectorID string, accountIDs []string) ([]*Member, []map[string]any, error)
+	InviteMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
 	ListMembers(detectorID string, onlyAssociated bool) ([]*Member, error)
-	StartMonitoringMembers(detectorID string, accountIDs []string) []map[string]any
-	StopMonitoringMembers(detectorID string, accountIDs []string) []map[string]any
-	DisassociateMembers(detectorID string, accountIDs []string) []map[string]any
-	GetMemberDetectors(detectorID string, accountIDs []string) ([]map[string]any, []map[string]any)
-	UpdateMemberDetectors(detectorID string, accountIDs []string) []map[string]any
+	StartMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
+	StopMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
+	DisassociateMembers(detectorID string, accountIDs []string) ([]map[string]any, error)
+	GetMemberDetectors(detectorID string, accountIDs []string) ([]map[string]any, []map[string]any, error)
+	UpdateMemberDetectors(detectorID string, accountIDs []string) ([]map[string]any, error)
 
 	// Invitation management
 	AcceptAdministratorInvitation(detectorID, administratorID, invitationID string) error
@@ -97,14 +97,14 @@ type StorageBackend interface {
 	UpdatePublishingDestination(detectorID, destID string, props DestinationProperties) error
 
 	// Malware scanning
-	DescribeMalwareScans(detectorID string) ([]*MalwareScan, error)
-	ListMalwareScans() []*MalwareScan
+	DescribeMalwareScans(detectorID string, q MalwareScanQuery) ([]*MalwareScan, string, error)
+	ListMalwareScans(q MalwareScanQuery) ([]*MalwareScan, string, error)
 	StartMalwareScan(resourceARN string) (string, error)
 	GetMalwareScan(scanID string) (*MalwareScan, error)
 	GetMalwareScanSettings(detectorID string) (*MalwareScanSettings, error)
 	UpdateMalwareScanSettings(detectorID string, settings *MalwareScanSettings) error
 	GetUsageStatistics(detectorID string, query UsageQuery) (map[string]any, error)
-	GetRemainingFreeTrialDays(detectorID string) (map[string]any, error)
+	GetRemainingFreeTrialDays(detectorID string, accountIDs []string) (map[string]any, error)
 	GetCoverageStatistics(detectorID string) (map[string]any, error)
 	ListCoverage(detectorID string) ([]map[string]any, error)
 

@@ -78,15 +78,17 @@ type GlobalClusterMember struct {
 
 // CustomDBEngineVersion represents a custom engine version for RDS.
 type CustomDBEngineVersion struct {
-	Engine        string `json:"engine"`
-	EngineVersion string `json:"engineVersion"`
-	Status        string `json:"status"`
-	Description   string `json:"description"`
+	Engine             string `json:"engine"`
+	EngineVersion      string `json:"engineVersion"`
+	DBEngineVersionArn string `json:"dbEngineVersionArn,omitempty"`
+	Status             string `json:"status"`
+	Description        string `json:"description"`
 }
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
+	DBInstanceArn                     string                       `json:"dbInstanceArn,omitempty"`
 	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
 	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
 	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
@@ -147,6 +149,7 @@ type PendingModifiedValues struct {
 type DBSnapshot struct {
 	SnapshotCreateTime   time.Time `json:"snapshotCreateTime"`
 	DBSnapshotIdentifier string    `json:"dbSnapshotIdentifier"`
+	DBSnapshotArn        string    `json:"dbSnapshotArn,omitempty"`
 	DBInstanceIdentifier string    `json:"dbInstanceIdentifier"`
 	DbiResourceID        string    `json:"dbiResourceId,omitempty"`
 	Engine               string    `json:"engine"`
@@ -168,6 +171,7 @@ type DBSnapshot struct {
 type DBSubnetGroup struct {
 	DBSubnetGroupName        string   `json:"dbSubnetGroupName"`
 	DBSubnetGroupDescription string   `json:"dbSubnetGroupDescription"`
+	DBSubnetGroupArn         string   `json:"dbSubnetGroupArn,omitempty"`
 	VpcID                    string   `json:"vpcID"`
 	Status                   string   `json:"status"`
 	SubnetIDs                []string `json:"subnetIDs"`
@@ -195,6 +199,7 @@ type DBParameter struct {
 type DBParameterGroup struct {
 	Parameters             map[string]DBParameter `json:"parameters"`
 	DBParameterGroupName   string                 `json:"dbParameterGroupName"`
+	DBParameterGroupArn    string                 `json:"dbParameterGroupArn,omitempty"`
 	DBParameterGroupFamily string                 `json:"dbParameterGroupFamily"`
 	Description            string                 `json:"description"`
 }
@@ -209,6 +214,7 @@ type OptionGroupOption struct {
 type OptionGroup struct {
 	OptionGroupName        string              `json:"optionGroupName"`
 	OptionGroupDescription string              `json:"optionGroupDescription"`
+	OptionGroupArn         string              `json:"optionGroupArn,omitempty"`
 	EngineName             string              `json:"engineName"`
 	MajorEngineVersion     string              `json:"majorEngineVersion"`
 	Options                []OptionGroupOption `json:"options"`
@@ -230,6 +236,7 @@ type DBCluster struct {
 	MasterUsername                  string                            `json:"masterUsername"`
 	DatabaseName                    string                            `json:"databaseName"`
 	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
+	DBClusterArn                    string                            `json:"dbClusterArn,omitempty"`
 	DBClusterResourceID             string                            `json:"dbClusterResourceId,omitempty"`
 	Engine                          string                            `json:"engine"`
 	EngineVersion                   string                            `json:"engineVersion,omitempty"`
@@ -267,6 +274,7 @@ type DBCluster struct {
 type DBClusterSnapshot struct {
 	SnapshotCreateTime          time.Time `json:"snapshotCreateTime"`
 	DBClusterSnapshotIdentifier string    `json:"dbClusterSnapshotIdentifier"`
+	DBClusterSnapshotArn        string    `json:"dbClusterSnapshotArn,omitempty"`
 	DBClusterIdentifier         string    `json:"dbClusterIdentifier"`
 	DBClusterResourceID         string    `json:"dbClusterResourceId,omitempty"`
 	Engine                      string    `json:"engine"`
@@ -281,6 +289,7 @@ type DBClusterSnapshot struct {
 type DBClusterEndpoint struct {
 	DBClusterEndpointIdentifier string `json:"dbClusterEndpointIdentifier"`
 	DBClusterIdentifier         string `json:"dbClusterIdentifier"`
+	DBClusterEndpointArn        string `json:"dbClusterEndpointArn,omitempty"`
 	EndpointType                string `json:"endpointType"`
 	Status                      string `json:"status"`
 	Endpoint                    string `json:"endpoint"`
@@ -297,6 +306,7 @@ type ExportTask struct {
 // GlobalCluster represents an RDS global cluster.
 type GlobalCluster struct {
 	GlobalClusterIdentifier string                `json:"globalClusterIdentifier"`
+	GlobalClusterArn        string                `json:"globalClusterArn,omitempty"`
 	Engine                  string                `json:"engine"`
 	EngineVersion           string                `json:"engineVersion"`
 	Status                  string                `json:"status"`
@@ -455,13 +465,14 @@ type DBLogFile struct {
 
 // EventSubscription represents an RDS event notification subscription.
 type EventSubscription struct {
-	SubscriptionName string   `json:"subscriptionName"`
-	SnsTopicArn      string   `json:"snsTopicArn"`
-	Status           string   `json:"status"`
-	SourceType       string   `json:"sourceType"`
-	SourceIDs        []string `json:"sourceIds"`
-	EventCategories  []string `json:"eventCategories,omitempty"`
-	Enabled          bool     `json:"enabled"`
+	SubscriptionName     string   `json:"subscriptionName"`
+	SnsTopicArn          string   `json:"snsTopicArn"`
+	EventSubscriptionArn string   `json:"eventSubscriptionArn,omitempty"`
+	Status               string   `json:"status"`
+	SourceType           string   `json:"sourceType"`
+	SourceIDs            []string `json:"sourceIds"`
+	EventCategories      []string `json:"eventCategories,omitempty"`
+	Enabled              bool     `json:"enabled"`
 }
 
 // Event represents a published RDS lifecycle event.
@@ -482,6 +493,7 @@ type IPRange struct {
 type DBSecurityGroup struct {
 	DBSecurityGroupName        string    `json:"dbSecurityGroupName"`
 	DBSecurityGroupDescription string    `json:"dbSecurityGroupDescription"`
+	DBSecurityGroupArn         string    `json:"dbSecurityGroupArn,omitempty"`
 	IPRanges                   []IPRange `json:"ipRanges"`
 }
 

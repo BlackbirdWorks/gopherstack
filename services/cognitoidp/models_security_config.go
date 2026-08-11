@@ -176,7 +176,8 @@ type getLogDeliveryConfigurationOutput struct {
 }
 
 type setLogDeliveryConfigurationInput struct {
-	UserPoolID string `json:"UserPoolId,omitempty"`
+	UserPoolID        string           `json:"UserPoolId,omitempty"`
+	LogConfigurations []map[string]any `json:"LogConfigurations,omitempty"`
 }
 
 type setLogDeliveryConfigurationOutput struct {

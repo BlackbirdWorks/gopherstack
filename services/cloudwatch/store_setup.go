@@ -41,7 +41,7 @@ func anomalyDetectorsKeyFn(v *AnomalyDetector) string {
 
 func insightRulesKeyFn(v *InsightRule) string     { return v.Name }
 func metricStreamsKeyFn(v *MetricStream) string   { return v.Name }
-func alarmMuteRulesKeyFn(v *AlarmMuteRule) string { return v.MuteName }
+func alarmMuteRulesKeyFn(v *AlarmMuteRule) string { return v.Name }
 
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately after

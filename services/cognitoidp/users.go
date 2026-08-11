@@ -33,7 +33,7 @@ func (b *InMemoryBackend) AdminCreateUser(
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
-	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes), nil
+	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes)
 }
 
 // AdminSetUserPassword sets the password for a user in a pool.
@@ -58,12 +58,14 @@ func (b *InMemoryBackend) AdminSetUserPassword(userPoolID, username, password st
 		return err
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	hash, saltHex, verifierHex, err := hashAndSRP(userPoolID, username, password)
 	if err != nil {
-		return fmt.Errorf("hashing password: %w", err)
+		return err
 	}
 
-	user.PasswordHash = string(hash)
+	user.PasswordHash = hash
+	user.SRPSalt = saltHex
+	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
 
 	if permanent {
@@ -386,13 +388,13 @@ func (b *InMemoryBackend) AdminCreateUserWithPolicy(
 		return nil, fmt.Errorf("hashing password: %w", err)
 	}
 
-	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes), nil
+	return b.buildAndStoreUserLocked(userPoolID, username, tempPassword, string(hash), userAttributes)
 }
 
 func (b *InMemoryBackend) buildAndStoreUserLocked(
 	userPoolID, username, tempPassword, hash string,
 	userAttributes map[string]string,
-) *User {
+) (*User, error) {
 	attrs := make(map[string]string, len(userAttributes))
 	maps.Copy(attrs, userAttributes)
 
@@ -400,11 +402,18 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 		attrs["custom:temporaryPassword"] = tempPassword
 	}
 
+	saltHex, verifierHex, err := computeSRPVerifier(userPoolID, username, tempPassword)
+	if err != nil {
+		return nil, err
+	}
+
 	user := &User{
 		Sub:          uuid.New().String(),
 		Username:     username,
 		UserPoolID:   userPoolID,
 		PasswordHash: hash,
+		SRPSalt:      saltHex,
+		SRPVerifier:  verifierHex,
 		Status:       UserStatusForceChangePassword,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
@@ -415,7 +424,7 @@ func (b *InMemoryBackend) buildAndStoreUserLocked(
 	b.users.Put(user)
 	cp := *user
 
-	return &cp
+	return &cp, nil
 }
 
 // defaultTempPasswordSuffix is appended to ensure temp password meets basic complexity.
@@ -468,7 +477,7 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		tempPassword = randomAlphanumeric(defaultTempPasswordPrefixLen) + defaultTempPasswordSuffix
 	}
 
-	importHash, err := bcryptHashPassword(tempPassword)
+	importHash, srpSaltHex, srpVerifierHex, err := hashAndSRP(userPoolID, username, tempPassword)
 	if err != nil {
 		return nil, err
 	}
@@ -480,37 +489,8 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		attrs["custom:temporaryPassword"] = tempPassword
 	}
 
-	// Auto-verify attributes configured on the pool.
-	for _, attr := range pool.AutoVerifiedAttributes {
-		if _, hasAttr := attrs[attr]; hasAttr {
-			attrs[attr+"_verified"] = attrVerifiedTrue
-		}
-	}
-
-	// PreSignUp also fires for AdminCreateUser. Unlike the self-service SignUp flow,
-	// autoConfirmUser has no meaningful target state here (admin-created users start
-	// in FORCE_CHANGE_PASSWORD, not UNCONFIRMED, and are never in the SignUp
-	// confirmation flow), so only autoVerifyEmail/autoVerifyPhone are applied.
-	preSignUpResp, err := b.invokeLambdaTrigger(
-		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
-		map[string]any{
-			eventKeyUserAttributes: stringMapToAny(attrs),
-			eventKeyValidationData: map[string]any{},
-			eventKeyClientMetadata: map[string]any{},
-		},
-		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	_, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
-	if lambdaAutoVerifyEmail {
-		attrs[attrEmail+"_verified"] = attrVerifiedTrue
-	}
-
-	if lambdaAutoVerifyPhone {
-		attrs["phone_number_verified"] = attrVerifiedTrue
+	if verifyErr := b.applyAdminCreateUserAutoVerifyLocked(pool, username, attrs); verifyErr != nil {
+		return nil, verifyErr
 	}
 
 	_ = desiredDeliveryMediums
@@ -521,6 +501,8 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 		Username:     username,
 		UserPoolID:   userPoolID,
 		PasswordHash: importHash,
+		SRPSalt:      srpSaltHex,
+		SRPVerifier:  srpVerifierHex,
 		Status:       UserStatusForceChangePassword,
 		Attributes:   attrs,
 		CreatedAt:    time.Now(),
@@ -533,6 +515,47 @@ func (b *InMemoryBackend) AdminCreateUserFull(
 	cp := *user
 
 	return &cp, nil
+}
+
+// applyAdminCreateUserAutoVerifyLocked auto-verifies attributes configured on the pool,
+// then invokes PreSignUp (whose autoVerifyEmail/autoVerifyPhone response can also
+// request verification) and applies its answer, mutating attrs in place. PreSignUp also
+// fires for AdminCreateUser: unlike the self-service SignUp flow, autoConfirmUser has no
+// meaningful target state here (admin-created users start in FORCE_CHANGE_PASSWORD, not
+// UNCONFIRMED, and are never in the SignUp confirmation flow), so only
+// autoVerifyEmail/autoVerifyPhone are applied. Caller must hold b.mu.
+func (b *InMemoryBackend) applyAdminCreateUserAutoVerifyLocked(
+	pool *UserPool, username string, attrs map[string]string,
+) error {
+	for _, attr := range pool.AutoVerifiedAttributes {
+		if _, hasAttr := attrs[attr]; hasAttr {
+			attrs[attr+"_verified"] = attrVerifiedTrue
+		}
+	}
+
+	preSignUpResp, err := b.invokeLambdaTrigger(
+		pool, triggerKeyPreSignUp, triggerSourcePreSignUpAdminCreateUser, "", username,
+		map[string]any{
+			eventKeyUserAttributes: stringMapToAny(attrs),
+			eventKeyValidationData: map[string]any{},
+			eventKeyClientMetadata: map[string]any{},
+		},
+		map[string]any{"autoConfirmUser": false, "autoVerifyEmail": false, "autoVerifyPhone": false},
+	)
+	if err != nil {
+		return err
+	}
+
+	_, lambdaAutoVerifyEmail, lambdaAutoVerifyPhone := parsePreSignUpResponse(preSignUpResp)
+	if lambdaAutoVerifyEmail {
+		attrs[attrEmail+"_verified"] = attrVerifiedTrue
+	}
+
+	if lambdaAutoVerifyPhone {
+		attrs["phone_number_verified"] = attrVerifiedTrue
+	}
+
+	return nil
 }
 
 // AdminSetUserPasswordFull sets password with proper status handling.
@@ -555,12 +578,14 @@ func (b *InMemoryBackend) AdminSetUserPasswordFull(userPoolID, username, passwor
 		return fmt.Errorf("%w: user %q not found", ErrUserNotFound, username)
 	}
 
-	hash, err := bcryptHashPassword(password)
+	hash, saltHex, verifierHex, err := hashAndSRP(userPoolID, username, password)
 	if err != nil {
 		return err
 	}
 
 	user.PasswordHash = hash
+	user.SRPSalt = saltHex
+	user.SRPVerifier = verifierHex
 	user.UpdatedAt = time.Now()
 
 	if permanent {

@@ -24,10 +24,28 @@ func kvsResponseXML(kvs *KeyValueStore) string {
 		kvs.Status, kvs.LastModifiedTime)
 }
 
-type keyValueStoreRequestXML struct {
-	XMLName xml.Name `xml:"KeyValueStoreRequest"`
-	Name    string   `xml:"Name"`
-	Comment string   `xml:"Comment"`
+// keyValueStoreRequestFields is shared by Create and Update, whose real
+// request shapes carry identical fields but different root element names
+// (CreateKeyValueStoreRequest vs UpdateKeyValueStoreRequest; cloudfront@v1.67.4
+// serializers.go). A prior single struct fixed the root to
+// "KeyValueStoreRequest", which matched neither real root name, so
+// xml.Unmarshal silently failed on every field (Name, Comment, Tags all
+// dropped) for any real client -- masked because the existing tests
+// hand-crafted request bodies using that same wrong name.
+type keyValueStoreRequestFields struct {
+	Name    string  `xml:"Name"`
+	Comment string  `xml:"Comment"`
+	Tags    tagsXML `xml:"Tags"`
+}
+
+type createKeyValueStoreRequestXML struct {
+	XMLName xml.Name `xml:"CreateKeyValueStoreRequest"`
+	keyValueStoreRequestFields
+}
+
+type updateKeyValueStoreRequestXML struct {
+	XMLName xml.Name `xml:"UpdateKeyValueStoreRequest"`
+	keyValueStoreRequestFields
 }
 
 func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
@@ -40,7 +58,7 @@ func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
 		return h.handleError(c, qErr)
 	}
 
-	var req keyValueStoreRequestXML
+	var req createKeyValueStoreRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}
@@ -49,7 +67,7 @@ func (h *Handler) handleCreateKeyValueStore(c *echo.Context) error {
 		req.Name = generateID()
 	}
 
-	kvs, createErr := h.Backend.CreateKeyValueStore(req.Name, req.Comment)
+	kvs, createErr := h.Backend.CreateKeyValueStore(req.Name, req.Comment, tagsXMLToMap(req.Tags))
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -146,7 +164,7 @@ func (h *Handler) handleUpdateKeyValueStore(c *echo.Context, id string) error {
 		return h.handleError(c, qErr)
 	}
 
-	var req keyValueStoreRequestXML
+	var req updateKeyValueStoreRequestXML
 	if len(body) > 0 {
 		_ = xml.Unmarshal(body, &req)
 	}

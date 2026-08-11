@@ -3,6 +3,7 @@ package organizations_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/organizations"
@@ -427,6 +428,85 @@ func TestTagResource_DuplicateKeyRejected(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DUPLICATE_TAG_KEY")
+}
+
+// TestTagResource_KeyLengthLimit verifies AWS's TagKey shape bounds (min 1,
+// max 128 characters) are enforced, and leave the resource untagged on reject.
+func TestTagResource_KeyLengthLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "empty_key_rejected", key: "", wantErr: true},
+		{name: "129_chars_rejected", key: strings.Repeat("k", 129), wantErr: true},
+		{name: "128_chars_accepted", key: strings.Repeat("k", 128)},
+		{name: "1_char_accepted", key: "k"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, rootID := newOrgBackend(t)
+
+			err := b.TagResource(rootID, []organizations.Tag{{Key: tt.key, Value: "v"}})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "InvalidInputException")
+
+				listed, listErr := b.ListTagsForResource(rootID)
+				require.NoError(t, listErr)
+				assert.Empty(t, listed, "rejected tag must not be applied")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestTagResource_ValueLengthLimit verifies AWS's TagValue shape bound (max
+// 256 characters; min 0, so empty values are valid) is enforced.
+func TestTagResource_ValueLengthLimit(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "257_chars_rejected", value: strings.Repeat("v", 257), wantErr: true},
+		{name: "256_chars_accepted", value: strings.Repeat("v", 256)},
+		{name: "empty_value_accepted", value: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b, rootID := newOrgBackend(t)
+
+			err := b.TagResource(rootID, []organizations.Tag{{Key: "k", Value: tt.value}})
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "InvalidInputException")
+
+				listed, listErr := b.ListTagsForResource(rootID)
+				require.NoError(t, listErr)
+				assert.Empty(t, listed, "rejected tag must not be applied")
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
 }
 
 // TestTagResource_MaxTagLimitExceeded verifies the 50-tags-per-resource cap.

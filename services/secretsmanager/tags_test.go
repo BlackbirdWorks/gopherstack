@@ -15,6 +15,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/secretsmanager"
 )
 
+// tagMapFrom collapses the wire []Tag slice DescribeSecret returns into a
+// map for assertion convenience.
+func tagMapFrom(ts []secretsmanager.Tag) map[string]string {
+	m := make(map[string]string, len(ts))
+	for _, t := range ts {
+		m[t.Key] = t.Value
+	}
+
+	return m
+}
+
 // ---------------------------------------------------------------------------
 // TagResource / UntagResource comprehensive
 // ---------------------------------------------------------------------------
@@ -38,7 +49,7 @@ func TestTagResource_AddTags(t *testing.T) {
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "tag-add"})
 	require.NoError(t, err)
 	require.NotNil(t, desc.Tags)
-	tagMap := desc.Tags.Clone()
+	tagMap := tagMapFrom(desc.Tags)
 	assert.Equal(t, "platform", tagMap["team"])
 	assert.Equal(t, "prod", tagMap["env"])
 }
@@ -62,7 +73,7 @@ func TestTagResource_UpdateExistingTag(t *testing.T) {
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "tag-upd"})
 	require.NoError(t, err)
-	tagMap := desc.Tags.Clone()
+	tagMap := tagMapFrom(desc.Tags)
 	assert.Equal(t, "prod", tagMap["env"])
 }
 
@@ -107,7 +118,7 @@ func TestUntagResource_RemoveTag(t *testing.T) {
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "tag-rm"})
 	require.NoError(t, err)
-	tagMap := desc.Tags.Clone()
+	tagMap := tagMapFrom(desc.Tags)
 	_, hasEnv := tagMap["env"]
 	assert.False(t, hasEnv, "env tag must be removed")
 	_, hasTeam := tagMap["team"]
@@ -277,9 +288,10 @@ func TestTagResource_Backend(t *testing.T) {
 		&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"},
 	)
 	require.NoError(t, err)
-	envVal, _ := desc.Tags.Get("env")
+	descTags := tagMapFrom(desc.Tags)
+	envVal := descTags["env"]
 	assert.Equal(t, "test", envVal)
-	teamVal, _ := desc.Tags.Get("team")
+	teamVal := descTags["team"]
 	assert.Equal(t, "platform", teamVal)
 
 	// UntagResource via HTTP
@@ -295,8 +307,10 @@ func TestTagResource_Backend(t *testing.T) {
 		&secretsmanager.DescribeSecretInput{SecretID: "tag-secret"},
 	)
 	require.NoError(t, err)
-	assert.False(t, desc2.Tags.HasTag("env"))
-	team2Val, _ := desc2.Tags.Get("team")
+	desc2Tags := tagMapFrom(desc2.Tags)
+	_, hasEnv2 := desc2Tags["env"]
+	assert.False(t, hasEnv2)
+	team2Val := desc2Tags["team"]
 	assert.Equal(t, "platform", team2Val)
 }
 

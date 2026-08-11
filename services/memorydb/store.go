@@ -60,6 +60,9 @@ const (
 	snapshotStatusAvailable = "available"
 	// multiRegionClusterStatusAvailable is the status for a running multi-region cluster.
 	multiRegionClusterStatusAvailable = "available"
+	// serviceUpdateStatusComplete is the per-cluster status once BatchUpdateCluster
+	// has applied a service update (real enum value, ServiceUpdateStatus's "complete").
+	serviceUpdateStatusComplete = "complete"
 	// snsTopicStatusActive is the active value for SnsTopicStatus on a cluster.
 	snsTopicStatusActive = "active"
 	// snsTopicStatusInactive is the inactive value for SnsTopicStatus on a cluster.

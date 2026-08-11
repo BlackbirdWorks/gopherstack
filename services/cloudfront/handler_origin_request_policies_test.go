@@ -62,7 +62,7 @@ func TestOriginRequestPolicyConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			h := cloudfront.NewHandler(b)
 			rec := doReq(t, h, http.MethodPost, "/2020-05-31/origin-request-policy", tt.body)
 			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
@@ -240,7 +240,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			path := tt.path
 
 			if tt.setup != nil {
@@ -273,7 +273,7 @@ func TestOriginRequestPolicyCRUD(t *testing.T) {
 func TestOriginRequestPolicyWhitelistItems_WireRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	h := newTestHandler()
+	h := newTestHandler(t)
 
 	body := []byte(`<OriginRequestPolicyConfig><Name>wire-orp</Name>` +
 		`<HeadersConfig><HeaderBehavior>whitelist</HeaderBehavior>` +

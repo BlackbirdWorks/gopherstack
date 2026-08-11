@@ -326,6 +326,7 @@ var acmErrorCodeTable = []struct {
 	{ErrTooManyTags, "TooManyTagsException"},
 	{ErrInvalidTag, "InvalidTagException"},
 	{ErrInvalidDomainValidationOptions, "InvalidDomainValidationOptionsException"},
+	{ErrInvalidArgs, "InvalidArgsException"},
 }
 
 func (h *Handler) handleOpError(c *echo.Context, action string, opErr error) error {

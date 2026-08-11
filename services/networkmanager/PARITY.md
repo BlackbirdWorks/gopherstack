@@ -1,87 +1,330 @@
 ---
-# PARITY MANIFEST — PRE-IMPLEMENTATION AUDIT, NOT YET BUILT.
-# services/networkmanager/ does not exist yet (confirmed: this file was written into a freshly
-# created, otherwise-empty directory; no cli.go registration, no go.mod entry, zero Go symbols
-# anywhere in the tree -- grepped case-insensitively for "networkmanager"/"corenetwork"/
-# "globalnetwork"/"core-network"/"global-network" across services/ and cli.go: the ONLY hits are
-# four lines in services/directconnect/PARITY.md itself, noting that DirectConnect's
-# AssociatedCoreNetwork field has no backing Cloud WAN service in this tree -- not references to an
-# actual NetworkManager implementation). This document is a wire-shape + behavior SPEC for the
-# implementer, not a record of existing code. No .go files were written to produce it; every claim
-# below was read directly from the SDK module cache, grepped/read from this repo's existing
-# services, or fetched from AWS's own IAM Service Authorization Reference page (which, unlike the
-# outposts/mgn/directconnect audits' attempts at docs.aws.amazon.com, rendered its resource-type
-# table successfully this pass -- cited per-claim, not guessed).
+# PARITY MANIFEST -- IMPLEMENTED, A. This pass (2026-08-06, gopherstack-xhi2) resolves
+# gopherstack-r9yz's open integration-test-coverage question the 2026-08-05 pass deliberately left
+# unresolved (see git history for that pass's frontmatter): added test/integration/
+# networkmanager_test.go (6 tests, real aws-sdk-go-v2 client against the Docker test container --
+# global network/site/device/link lifecycle, core network policy + a REAL change-set diff, VPC
+# attachment CREATING->AVAILABLE with live EC2 cross-service ARN validation, Connect attachment +
+# Connect peer, tagging, and StartRouteAnalysis against real EC2 Transit Gateway route-table state),
+# closed every buildable gap the 2026-08-05 pass had flagged partial (cross-service ARN validation,
+# the change-set diff engine, StartRouteAnalysis's graph walk), and reclassified the 3 genuinely
+# underivable ops (GetNetworkTelemetry, GetNetworkRoutes, ListCoreNetworkRoutingInformation) to
+# structural_gaps: per the rule in services/_PARITY_TEMPLATE.md. `go test -race -count=1
+# ./services/networkmanager/...` and the new Docker-backed integration suite both pass; see
+# "Implementation summary (this pass, 2026-08-06)" below for what was built and why the remaining
+# 3 ops are structural, not scoped-down.
 service: networkmanager
-sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.3   # resolved via `go get
-# .../networkmanager@latest` in a throwaway scratch module (`go mod init probe && go get`), run in
-# this session's scratchpad, NEVER touching this repo's go.mod (another agent was concurrently
-# editing go.mod/go.sum/cli.go during this pass; this audit did not read or write any of those
-# three files, and ran every `go` command one at a time per the resource-constraint instruction).
-last_audit_commit: 7922e4c4d   # HEAD when this manifest was written; there is no prior Network
-# Manager code in the tree at all, so this is a from-scratch pre-implementation audit, matching the
-# mgn/directconnect audits done in the same pass (same commit, same session).
-last_audit_date: 2026-08-01
-overall: gap   # pre-implementation inventory; every op below is status "gap" -- routed nowhere, no
-# backend, no wire code. Not a regression signal; it is the expected starting state.
-# All 95 ops confirmed present in aws-sdk-go-v2/service/networkmanager@v1.44.3 (`ls api_op_*.go |
-# grep -v _test.go | wc -l` => 95, matching this task's ~95 estimate exactly). None are implemented.
-# Method/path verified via a Python regex pass over every awsRestjson1_serializeOp<Op>.
-# HandleSerialize's httpbinding.SplitURI(...) literal and request.Method assignment in
-# serializers.go (all 95 matched, not sampled). Error sets verified by parsing every op's own
-# awsRestjson1_deserializeOpError<Op> switch body in deserializers.go for
-# strings.EqualFold("X", errorCode) case literals (all 95, not sampled from the shared
-# types/errors.go list of 8 shapes, which enumerates all 8 without saying which ops use which --
-# same trap the mgn/directconnect/outposts/resiliencehub audits all flagged).
-# Grouped by family per this task's own guidance (95 ops is too many for 95 prose blocks); every op
-# appears in exactly one family table in the body below.
+sdk_module: aws-sdk-go-v2/service/networkmanager@v1.44.4   # go.mod's pinned version as of this pass
+# (the 2026-08-01 pre-implementation audit resolved v1.44.3 against @latest in a throwaway scratch
+# module; go.mod has since moved to v1.44.4, re-confirmed this pass by direct grep).
+last_audit_commit: 3b90d4523
+last_audit_date: 2026-08-06
+overall: A   # Raised from gap by this pass: the integration suite (the parity proof
+# .claude/memories/parity-principles.md rule 3 requires) passes, every buildable gap the 2026-08-05
+# pass flagged is now real (cross-service ARN validation against services/ec2/services/directconnect,
+# a real policy-JSON diff engine, a real EC2-TGW-route-table walk for route analysis), and the 3
+# remaining non-ok ops (GetNetworkTelemetry/GetNetworkRoutes/ListCoreNetworkRoutingInformation) are
+# genuine structural gaps -- no BGP session or device-telemetry data source exists anywhere in this
+# repo to honestly derive them from, not unfinished work. See structural_gaps: below for the
+# per-op justification the template requires.
+# Per-op or per-op-family status. Values: ok | partial | gap | deferred.
+# wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
+ops:
+  # A. Global Networks core (4)
+  CreateGlobalNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateGlobalNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteGlobalNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeGlobalNetworks: {wire: ok, errors: ok, state: ok, persist: ok}
+  # B. Sites (4)
+  CreateSite: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateSite: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteSite: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetSites: {wire: ok, errors: ok, state: ok, persist: ok}
+  # C. Devices (4)
+  CreateDevice: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateDevice: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteDevice: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDevices: {wire: ok, errors: ok, state: ok, persist: ok}
+  # D. Links (4)
+  CreateLink: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLink: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteLink: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetLinks: {wire: ok, errors: ok, state: ok, persist: ok}
+  # E. Link associations (3)
+  AssociateLink: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateLink: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetLinkAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # F. Connections (4)
+  CreateConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates DeviceId/ConnectedDeviceId exist even though the real SDK error set has no ResourceNotFoundException for this op (globalnetworks.go:573-587)"}
+  UpdateConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConnections: {wire: ok, errors: ok, state: ok, persist: ok}
+  # G. Customer Gateway Associations (3)
+  AssociateCustomerGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "CustomerGatewayArn validated against services/ec2's real CustomerGateway state via EC2Resolver, wired through cli.go's wireNetworkManagerEC2 (associations.go, crossservice.go) -- this pass closed the prior scope gap"}
+  DisassociateCustomerGateway: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetCustomerGatewayAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # H. Transit Gateway Registrations (3)
+  RegisterTransitGateway: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass)"}
+  DeregisterTransitGateway: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTransitGatewayRegistrations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # I. Transit Gateway Connect Peer Associations (3)
+  AssociateTransitGatewayConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayConnectPeerArn validated against services/ec2's real TransitGatewayConnectPeer state via EC2Resolver (this pass)"}
+  DisassociateTransitGatewayConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetTransitGatewayConnectPeerAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # J. Connect Peer <-> Global Network association (3) -- ConnectPeerId names a resource this
+  # package itself creates (family K) and IS validated, unlike the EC2/DirectConnect ARNs above.
+  AssociateConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok}
+  DisassociateConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConnectPeerAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # K. Cloud WAN Connect Peers (4)
+  CreateConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates the parent Connect attachment exists and is type CONNECT (connectpeers.go:28-31)"}
+  DeleteConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConnectPeer: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListConnectPeers: {wire: ok, errors: ok, state: ok, persist: ok}
+  # L. Core Networks (5)
+  CreateCoreNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateCoreNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteCoreNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetCoreNetwork: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCoreNetworks: {wire: ok, errors: ok, state: ok, persist: ok}
+  # M. Core Network Policy lifecycle (8)
+  PutCoreNetworkPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "real LatestId/LiveId/PolicyVersionId bookkeeping and a PENDING_GENERATION->READY_TO_EXECUTE timer (corenetworks.go:162-198)"}
+  GetCoreNetworkPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "LIVE/LATEST alias resolution is real (resolvePolicyVersion, corenetworks.go:225-249); AWS's own default alias when both Alias/PolicyVersionId are omitted is unconfirmed anywhere in the SDK, this backend defaults to LATEST as a documented choice"}
+  ListCoreNetworkPolicyVersions: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteCoreNetworkPolicyVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "enforces the real 'can't delete the current LIVE policy' invariant (corenetworks.go:334-336)"}
+  RestoreCoreNetworkPolicyVersion: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetCoreNetworkChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "real ADD/MODIFY/REMOVE structural diff between the LIVE and submitted policy JSON over the segments/network-function-groups/segment-actions/attachment-policies/core-network-configuration sections (corenetworkpolicydiff.go, this pass) -- document-level, not correlated against live attachment membership (5 of the real 14 ChangeType values covered; documented scope reduction, not fabrication)"}
+  GetCoreNetworkChangeEvents: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-change execution-progress events derived from the same diff as GetCoreNetworkChangeSet plus the owning ChangeSetState (corenetworkpolicydiff.go, this pass) -- one Status shared per changeset rather than per-IdentifierPath granularity (documented coarseness)"}
+  ExecuteCoreNetworkChangeSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "real READY_TO_EXECUTE->EXECUTING->EXECUTION_SUCCEEDED timer that sets LiveId on completion (corenetworks.go:405-445)"}
+  # N. Core Network Prefix List Associations (3)
+  CreateCoreNetworkPrefixListAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteCoreNetworkPrefixListAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListCoreNetworkPrefixListAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # O. Core Network Routing Information (1)
+  ListCoreNetworkRoutingInformation: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): validates CoreNetworkId/EdgeLocation/SegmentName then always returns an empty route list -- no BGP session state (AS path/communities/local pref/MED) exists anywhere in this repo to derive real routes from (corenetworks.go:513-534)"}
+  # P. Attachment Routing Policy labels (3)
+  PutAttachmentRoutingPolicyLabel: {wire: ok, errors: ok, state: ok, persist: ok}
+  RemoveAttachmentRoutingPolicyLabel: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAttachmentRoutingPolicyAssociations: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q. Attachment generic lifecycle (4) -- real state machine: Create* lands
+  # PENDING_ATTACHMENT_ACCEPTANCE -> Accept -> CREATING -> (timer) -> AVAILABLE, or Reject -> REJECTED
+  # terminal; Delete moves any non-terminal state to DELETING then removes (attachments.go:12-24).
+  AcceptAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  RejectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAttachments: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q1. VPC attachments (3)
+  CreateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver (this pass)"}
+  GetVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateVpcAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q2. Connect attachments (2)
+  CreateConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransportAttachmentId IS validated against this package's own attachments, unlike the EC2/DirectConnect ARNs elsewhere in this family (attachments.go:33-35)"}
+  GetConnectAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q3. Site-to-Site VPN attachments (2)
+  CreateSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver (this pass)"}
+  GetSiteToSiteVpnAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q4. Direct Connect Gateway attachments (3)
+  CreateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver, wired through cli.go's wireNetworkManagerDirectConnect (this pass)"}
+  GetDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateDirectConnectGatewayAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  # Q5. Transit Gateway Route Table attachments (2)
+  CreateTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayRouteTableArn validated against services/ec2's real TGW route-table state via EC2Resolver (this pass); PeeringId validated against this package's own peerings"}
+  GetTransitGatewayRouteTableAttachment: {wire: ok, errors: ok, state: ok, persist: ok}
+  # R. Peerings (4)
+  CreateTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok, note: "TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass); TransitGatewayPeeringAttachmentId left empty rather than fabricated since the underlying EC2 resource is not modeled here"}
+  GetTransitGatewayPeering: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeletePeering: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListPeerings: {wire: ok, errors: ok, state: ok, persist: ok}
+  # S. Route Analysis (2) -- PARITY.md's own pre-implementation audit called this "the single
+  # riskiest fabrication surface"; the implementation resolved that honestly rather than faking it.
+  StartRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok, note: "real single-hop walk over EC2 Transit Gateway route-table state via EC2Resolver (this pass): resolves the anchor attachment, its associated real TGW route table, and a genuine longest-prefix-match against Destination.IpAddress, returning real CONNECTED/BLACKHOLE/INACTIVE/ROUTE_NOT_FOUND verdicts with a real PathComponent -- not a full multi-hop cross-TGW-peering walk with cycle detection (documented scope reduction, routeanalysis.go); falls back to the prior honest NOT_CONNECTED/TRANSIT_GATEWAY_ATTACHMENT_NOT_FOUND when no EC2Resolver is wired"}
+  GetRouteAnalysis: {wire: ok, errors: ok, state: ok, persist: ok}
+  # T. Network introspection (5)
+  GetNetworkResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "real rollup over this backend's own modeled state across 8 resource kinds (introspection.go:47-234); Definition is this package's own already-known attributes serialized as JSON, not a real cross-service Describe call into services/ec2 (a documented simplification of AWS's real behavior)"}
+  GetNetworkResourceCounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "deliberately does not validate GlobalNetworkId existence, matching the real SDK's error set which has no ResourceNotFoundException for this one op (introspection.go:237-257)"}
+  GetNetworkResourceRelationships: {wire: ok, errors: ok, state: ok, persist: ok, note: "real Device->Site/Link->Site/Device->Link/Attachment->CoreNetwork edges derived from modeled state (introspection.go:259-392)"}
+  GetNetworkRoutes: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): echoes the resolved RouteTableType/Arn but always returns an empty route list -- no BGP session state exists anywhere in this repo to derive real routes from (introspection.go:394-417)"}
+  GetNetworkTelemetry: {wire: ok, errors: ok, state: partial, persist: ok, note: "STRUCTURAL GAP (see structural_gaps:): Health.Status is deterministically UP for every Connection/ConnectPeer already AVAILABLE and nothing else -- no real device/BGP/IPsec telemetry data source exists anywhere in this repo, and no flapping/degraded values are ever invented (introspection.go:419-480)"}
+  # U. Update network resource metadata (1)
+  UpdateNetworkResourceMetadata: {wire: ok, errors: ok, state: ok, persist: ok}
+  # V. Organizations integration (2)
+  StartOrganizationServiceAccessUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "OrganizationId is a synthetic, deterministically-generated-once identifier -- this repo has no independent AWS Organizations backend to bind against (orgaccess.go)"}
+  ListOrganizationServiceAccessStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "the one op in this 95-op surface with zero typed exception cases in the real SDK; handler never returns an apiError for it (orgaccess.go:43-51)"}
+  # W. Resource policy (3)
+  PutResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "validates PolicyDocument is well-formed JSON (resourcepolicy.go:19-21)"}
+  GetResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns empty content rather than an error for an absent policy, matching the real SDK's error set (no ResourceNotFoundException) -- resourcepolicy.go:28-31"}
+  DeleteResourcePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
+  # X. Tagging (3)
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
-  global_networks_core: {status: gap, note: "4 ops: CreateGlobalNetwork, UpdateGlobalNetwork, DeleteGlobalNetwork, DescribeGlobalNetworks. The root container every other Global-Networks-side resource (Site/Device/Link/Connection/association) is scoped under via GlobalNetworkId."}
-  sites: {status: gap, note: "4 ops: CreateSite, UpdateSite, DeleteSite, GetSites."}
-  devices: {status: gap, note: "4 ops: CreateDevice, UpdateDevice, DeleteDevice, GetDevices."}
-  links: {status: gap, note: "4 ops: CreateLink, UpdateLink, DeleteLink, GetLinks."}
-  link_associations: {status: gap, note: "3 ops: AssociateLink, DisassociateLink, GetLinkAssociations -- binds a Device to a Link within one Site."}
-  connections: {status: gap, note: "4 ops: CreateConnection, UpdateConnection, DeleteConnection, GetConnections -- an on-prem device-to-device physical/logical connection over a Link, distinct from a Cloud WAN Connect attachment despite the name collision."}
-  customer_gateway_associations: {status: gap, note: "3 ops: AssociateCustomerGateway, DisassociateCustomerGateway, GetCustomerGatewayAssociations -- binds an EC2 CustomerGatewayArn to a Device/Link in the Global Network."}
-  transit_gateway_registrations: {status: gap, note: "3 ops: RegisterTransitGateway, DeregisterTransitGateway, GetTransitGatewayRegistrations -- registers an EC2 TransitGateway into the Global Network (a prerequisite for Cloud WAN peering AND for classic Global-Networks route/telemetry visibility into that TGW)."}
-  transit_gateway_connect_peer_associations: {status: gap, note: "3 ops: AssociateTransitGatewayConnectPeer, DisassociateTransitGatewayConnectPeer, GetTransitGatewayConnectPeerAssociations -- binds an EC2 TransitGatewayConnectPeer (GRE overlay peer) to a Device/Link."}
-  connect_peer_global_network_association: {status: gap, note: "3 ops: AssociateConnectPeer, DisassociateConnectPeer, GetConnectPeerAssociations -- a genuine bridge between the two product halves: associates an already-created Cloud WAN ConnectPeer to a Global-Networks Device/Link, letting a Cloud WAN Connect attachment's peer be modeled as physically terminating at a specific on-prem device. See Missing simulated functionality -- this op family is the concrete rebuttal to treating the two halves as fully separate silos."}
-  connect_peers_cloudwan: {status: gap, note: "4 ops: CreateConnectPeer, DeleteConnectPeer, GetConnectPeer, ListConnectPeers -- the Cloud WAN-side Connect Peer lifecycle (a BGP/GRE peer terminating a Connect attachment), distinct from the association family above."}
-  core_networks: {status: gap, note: "5 ops: CreateCoreNetwork, UpdateCoreNetwork, DeleteCoreNetwork, GetCoreNetwork, ListCoreNetworks."}
-  core_network_policy_lifecycle: {status: gap, note: "8 ops: PutCoreNetworkPolicy, GetCoreNetworkPolicy, ListCoreNetworkPolicyVersions, DeleteCoreNetworkPolicyVersion, RestoreCoreNetworkPolicyVersion, GetCoreNetworkChangeSet, GetCoreNetworkChangeEvents, ExecuteCoreNetworkChangeSet -- the versioned-policy + change-set + LIVE/LATEST alias state machine at the heart of Cloud WAN. See Missing simulated functionality for the full lifecycle."}
-  core_network_prefix_list_associations: {status: gap, note: "3 ops: CreateCoreNetworkPrefixListAssociation, DeleteCoreNetworkPrefixListAssociation, ListCoreNetworkPrefixListAssociations -- binds a customer-managed EC2-style prefix list to a core network by alias/ARN."}
-  core_network_routing_information: {status: gap, note: "1 op: ListCoreNetworkRoutingInformation -- lists BGP-attribute-tagged routes (AS path, communities, local preference, MED, next hop) per segment/edge, filterable by those same BGP attributes."}
-  attachment_routing_policy: {status: gap, note: "3 ops: PutAttachmentRoutingPolicyLabel, RemoveAttachmentRoutingPolicyLabel, ListAttachmentRoutingPolicyAssociations -- a newer sub-feature layering named routing-policy labels onto attachments, read by ListCoreNetworkRoutingInformation-adjacent filtering; not mentioned in this task's framing but a real, distinct 3-op surface."}
-  attachment_generic_lifecycle: {status: gap, note: "4 ops: AcceptAttachment, RejectAttachment, DeleteAttachment, ListAttachments -- generic across all 5 attachment subtypes (VPC/Connect/SiteToSiteVpn/DirectConnectGateway/TransitGatewayRouteTable), operating on the shared base Attachment shape and AttachmentId."}
-  vpc_attachments: {status: gap, note: "3 ops: CreateVpcAttachment, GetVpcAttachment, UpdateVpcAttachment."}
-  connect_attachments: {status: gap, note: "2 ops: CreateConnectAttachment, GetConnectAttachment -- the transport-layer attachment a Cloud WAN ConnectPeer terminates on."}
-  site_to_site_vpn_attachments: {status: gap, note: "2 ops: CreateSiteToSiteVpnAttachment, GetSiteToSiteVpnAttachment -- wraps an EC2 VpnConnectionArn."}
-  direct_connect_gateway_attachments: {status: gap, note: "3 ops: CreateDirectConnectGatewayAttachment, GetDirectConnectGatewayAttachment, UpdateDirectConnectGatewayAttachment -- wraps a DirectConnectGatewayArn; services/directconnect does not exist as working code yet either (PARITY.md only), so this attachment kind currently has no real cross-service target to validate against."}
-  transit_gateway_route_table_attachments: {status: gap, note: "2 ops: CreateTransitGatewayRouteTableAttachment, GetTransitGatewayRouteTableAttachment -- requires an existing Peering (PeeringId), not a bare TransitGatewayArn, to create."}
-  peerings: {status: gap, note: "4 ops: CreateTransitGatewayPeering, GetTransitGatewayPeering (subtype-specific), DeletePeering, ListPeerings (generic across peering types -- though PeeringType currently has exactly one value, TRANSIT_GATEWAY, so the generic/specific split is presently a distinction without a second case)."}
-  route_analysis: {status: gap, note: "2 ops: StartRouteAnalysis, GetRouteAnalysis -- computes a forward/return path through the modeled topology. See Missing simulated functionality for an honest feasibility assessment -- this is the single riskiest fabrication surface in the whole service."}
-  network_introspection: {status: gap, note: "5 ops: GetNetworkResources, GetNetworkResourceCounts, GetNetworkResourceRelationships, GetNetworkRoutes, GetNetworkTelemetry -- read-only rollups over registered/attached resources. See Missing simulated functionality for which are honestly derivable from modeled state (GetNetworkResources/GetNetworkResourceCounts/GetNetworkResourceRelationships/GetNetworkRoutes) versus which require real device telemetry this emulator cannot honestly produce (GetNetworkTelemetry, mostly)."}
-  update_network_resource_metadata: {status: gap, note: "1 op: UpdateNetworkResourceMetadata -- attaches a caller-supplied key-value metadata map to a registered resource ARN, independent of AWS tags."}
-  organizations_integration: {status: gap, note: "2 ops: StartOrganizationServiceAccessUpdate, ListOrganizationServiceAccessStatus -- enables/disables the NetworkManager AWS-Organizations service-linked-role trust relationship, org-wide. ListOrganizationServiceAccessStatus is the ONLY op in this entire 95-op surface with NO typed exception cases in its deserializer switch (confirmed by direct read, see wire-shape traps) -- every error condition for this one op falls through to the generic smithy.GenericAPIError."}
-  resource_policy: {status: gap, note: "3 ops: PutResourcePolicy, GetResourcePolicy, DeleteResourcePolicy -- a resource-based IAM policy (JSON document) attached to a NetworkManager resource ARN (used for cross-account core-network sharing), structurally unrelated to the CoreNetworkPolicy (network configuration) document despite both being called \"policy\" -- see wire-shape traps for the naming collision risk."}
-  tagging: {status: gap, note: "3 ops: TagResource, UntagResource, ListTagsForResource -- shares the single generic /tags/{ResourceArn} path with 9 confirmed taggable resource kinds (see Cross-service wiring)."}
+  global_networks_core: {status: ok, note: "4 ops, real CRUD + PENDING/AVAILABLE/DELETING/UPDATING state timers, persisted (globalnetworks.go)"}
+  sites: {status: ok, note: "4 ops, same real CRUD pattern as global_networks_core"}
+  devices: {status: ok, note: "4 ops, same real CRUD pattern"}
+  links: {status: ok, note: "4 ops, same real CRUD pattern"}
+  link_associations: {status: ok, note: "3 ops, real Device<->Link binding within a Site"}
+  connections: {status: ok, note: "4 ops, real Device-to-Device connection state; CreateConnection validates DeviceId/ConnectedDeviceId exist even though the real SDK error set omits ResourceNotFoundException for this op"}
+  customer_gateway_associations: {status: ok, note: "3 ops, real association bookkeeping; CustomerGatewayArn validated against services/ec2's real CustomerGateway state via EC2Resolver (this pass)"}
+  transit_gateway_registrations: {status: ok, note: "3 ops; TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass)"}
+  transit_gateway_connect_peer_associations: {status: ok, note: "3 ops; TransitGatewayConnectPeerArn validated against services/ec2's real TransitGatewayConnectPeer state via EC2Resolver (this pass)"}
+  connect_peer_global_network_association: {status: ok, note: "3 ops; ConnectPeerId names a resource this package itself creates and IS validated, unlike the EC2 ARN families above"}
+  connect_peers_cloudwan: {status: ok, note: "4 ops, real Connect-peer lifecycle validated against the parent Connect attachment (connectpeers.go)"}
+  core_networks: {status: ok, note: "5 ops, real CRUD + CREATING/AVAILABLE/UPDATING/DELETING state timers"}
+  core_network_policy_lifecycle: {status: ok, note: "8 ops; real LIVE/LATEST alias + PolicyVersionId history + ChangeSetState machine + the 'can't delete LIVE' invariant, plus a real ADD/MODIFY/REMOVE policy-JSON diff engine for GetCoreNetworkChangeSet/GetCoreNetworkChangeEvents (corenetworkpolicydiff.go, this pass) -- document-level, not per-attachment (5 of 14 real ChangeType values covered, documented scope reduction)"}
+  core_network_prefix_list_associations: {status: ok, note: "3 ops, real association bookkeeping"}
+  core_network_routing_information: {status: partial, note: "1 op; STRUCTURAL GAP (see structural_gaps:) -- validates required inputs then always returns an empty route list; no BGP session state exists anywhere in this repo to derive real routes from"}
+  attachment_routing_policy: {status: ok, note: "3 ops, real label store keyed by (CoreNetworkId, AttachmentId)"}
+  attachment_generic_lifecycle: {status: ok, note: "4 ops, real PENDING_ATTACHMENT_ACCEPTANCE/CREATING/AVAILABLE/REJECTED/DELETING state machine shared by all 5 attachment subtypes; PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED are real AttachmentState values this backend never enters (no segment-reassignment or tag-acceptance workflow modeled -- documented scope reduction, attachments.go:12-24)"}
+  vpc_attachments: {status: ok, note: "3 ops; real CRUD; VpcArn/SubnetArns validated against services/ec2's real VPC/Subnet state via EC2Resolver (this pass)"}
+  connect_attachments: {status: ok, note: "2 ops; TransportAttachmentId IS validated against this package's own attachments"}
+  site_to_site_vpn_attachments: {status: ok, note: "2 ops; VpnConnectionArn validated against services/ec2's real VpnConnection state via EC2Resolver (this pass)"}
+  direct_connect_gateway_attachments: {status: ok, note: "3 ops; DirectConnectGatewayArn validated against services/directconnect's real gateway state via DirectConnectResolver (this pass)"}
+  transit_gateway_route_table_attachments: {status: ok, note: "2 ops; TransitGatewayRouteTableArn validated against services/ec2's real TGW route-table state via EC2Resolver (this pass); PeeringId validated against this package's own peerings"}
+  peerings: {status: ok, note: "4 ops; TransitGatewayArn validated against services/ec2's real TransitGateway state via EC2Resolver (this pass); TransitGatewayPeeringAttachmentId left empty rather than fabricated"}
+  route_analysis: {status: ok, note: "2 ops; real RUNNING->COMPLETED state machine PLUS a real single-hop walk over EC2 Transit Gateway route-table state via EC2Resolver (this pass): resolves the anchor attachment, its real associated TGW route table, and a genuine longest-prefix-match, returning real CONNECTED/BLACKHOLE/INACTIVE/ROUTE_NOT_FOUND verdicts with a real PathComponent -- not a full multi-hop cross-TGW-peering walk with cycle detection (documented scope reduction). Falls back to the prior honest NOT_CONNECTED verdict when no EC2Resolver is wired. This was PARITY.md's own pre-implementation audit's flagged riskiest surface; resolved honestly, not faked."}
+  network_introspection: {status: partial, note: "5 ops; GetNetworkResources/GetNetworkResourceCounts/GetNetworkResourceRelationships are real rollups over modeled state; GetNetworkRoutes/GetNetworkTelemetry are STRUCTURAL GAPS (see structural_gaps:) -- no BGP session or device-telemetry data source exists anywhere in this repo"}
+  update_network_resource_metadata: {status: ok, note: "1 op, real key-value store keyed by ResourceArn"}
+  organizations_integration: {status: ok, note: "2 ops; real ENABLE/DISABLE state flip with a synthetic OrganizationId minted on first ENABLE -- this repo has no independent AWS Organizations backend to bind against, which is inherent to the API surface, not a shortcut taken here"}
+  resource_policy: {status: ok, note: "3 ops, real JSON-document store with JSON-validity checking on Put"}
+  tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds; reachability through the full multi-service router required raising this package's own MatchPriority (this pass, handler.go) -- see gaps: below"}
 gaps:
-  - "Zero operations implemented -- from-scratch audit only, per this task's explicit instructions not to write any .go files. All 95 ops need building. (bd: none filed yet by this pass -- filing is the implementer's responsibility per the standard workflow.)"
-  - "Route analysis (StartRouteAnalysis/GetRouteAnalysis) computes a real forward/return path through a Transit-Gateway-centric topology (route tables, attachments, blackhole/inactive routes, cyclic-path detection, a 64-hop limit) per RouteAnalysisCompletionReasonCode's 11 real values (TRANSIT_GATEWAY_ATTACHMENT_NOT_FOUND, CYCLIC_PATH_DETECTED, MAX_HOPS_EXCEEDED, BLACKHOLE_ROUTE_FOR_DESTINATION_FOUND, etc., confirmed in types/enums.go). This repo's services/ec2 has real TransitGatewayRouteTable/TransitGatewayRoute/TransitGatewayVpcAttachment state (ec2core.go:70-77, accept_ops.go:84-93) that a genuine graph-walk COULD traverse -- this is not automatically fabrication, but it is real, non-trivial graph-algorithm work (route-table lookup, next-hop resolution across attachments, cycle detection, hop-count limiting) that must actually walk that state, not synthesize a plausible-looking PathComponent list. If an implementer ships this without doing the real walk, the result must be flagged as gap, not partial -- see Missing simulated functionality for the full honesty assessment."
-  - "GetNetworkTelemetry's NetworkTelemetry.Health (*ConnectionHealth{Status: UP|DOWN, Timestamp, Type: BGP|IPSEC}) reflects REAL AWS device/link telemetry (SNMP-style polling of actual on-prem hardware and actual BGP/IPSec session state) that has no honest analog in an emulator with no real network hardware. A defensible default is Status always UP once a Connection/ConnectPeer/attachment reaches its AVAILABLE state (deterministic, non-fabricated, boringly consistent with 'nothing is actually wrong because nothing is actually real'), never invented flapping/degraded telemetry designed to look realistic -- seeded random health values would be exactly the kind of fabrication parity-principles.md forbids."
-  - "CoreNetworkChangeEvent/CoreNetworkChange's full diff semantics (14 ChangeType values: CORE_NETWORK_SEGMENT, ATTACHMENT_MAPPING, ROUTING_POLICY_ATTACHMENT_ASSOCIATION, SEGMENT_ACTIONS_CONFIGURATION, ...) describe a real structural diff between the LIVE and submitted CoreNetworkPolicy JSON documents. An honest first-pass implementation likely needs to actually parse the policy JSON (segments/network-function-groups/attachment-policies sections) and diff it, not fabricate a plausible-looking change list -- this is real, buildable JSON-diff work (the policy document is caller-supplied JSON, not an opaque AWS-internal format), but it is meaningfully more work than the CRUD shell around it and is a concrete implementation-scoping decision, not something to gloss over with an empty CoreNetworkChanges list dressed up as real analysis."
-  - "GetCoreNetworkPolicy's Alias parameter (LIVE|LATEST, CoreNetworkPolicyAlias, confirmed 2 values in types/enums.go) requires the backend to track two logically distinct pointers into the same PolicyVersionId history -- LATEST is whatever PutCoreNetworkPolicy/RestoreCoreNetworkPolicyVersion most recently created, LIVE is whatever ExecuteCoreNetworkChangeSet most recently deployed. These are NOT the same version until execution happens, and DeleteCoreNetworkPolicyVersion's own doc comment ('You can't delete the current LIVE policy') is a real, checkable invariant to enforce, not decorative."
-  - "AttachmentType's DIRECT_CONNECT_GATEWAY and TRANSIT_GATEWAY_ROUTE_TABLE attachment kinds each depend on a resource this repo either doesn't have working code for yet (services/directconnect is PARITY.md-only, no .go files, confirmed via `ls services/directconnect/`) or does have (services/ec2's TransitGatewayRouteTable, ec2core.go:70-77) -- an implementer must decide per-kind whether to validate the referenced ARN against real cross-service state (buildable today only for the TransitGatewayRouteTable/VPC/VpnConnection/CustomerGateway/TransitGatewayConnectPeer kinds) or accept any string unchecked for DirectConnectGatewayArn until services/directconnect has real Go code, and must not silently pretend the validation is happening when it isn't."
-  - "No AWS::NetworkManager::* CloudFormation resource type exists in this repo (`grep -rli networkmanager services/cloudformation/*.go` across all 147 resources_*.go-pattern files returned zero hits) -- confirmed absent, not silently skipped. This audit did not independently verify whether AWS's own real CloudFormation supports any NetworkManager resource type at all; that claim is about this repo's tree, not a verified claim about AWS's product (real AWS CloudFormation DOES have some networkmanager resource types in its public registry -- not independently re-verified against a live account this pass, flagged as an honest unknown rather than asserted either way for AWS's actual behavior)."
-  - "ALL 9 confirmed taggable NetworkManager resource-ARN kinds (attachment/connect-peer/connection/core-network/device/global-network/link/peering/site) are GLOBAL ARNs with NO region segment at all (arn:${Partition}:networkmanager::${Account}:<kind>/<id> -- note the double colon, confirmed directly from AWS's own IAM Service Authorization Reference page for this service, which rendered successfully this pass unlike the docs.aws.amazon.com failures the mgn/directconnect/outposts audits hit). pkgs/arn.Build (pkgs/arn/arn.go:36-39) currently special-cases exactly one global service, `service == \"iam\"`; NetworkManager needs the identical no-region treatment added as a second case -- a strictly SIMPLER structural fix than DirectConnect's problem (where only ONE of five resource kinds, dx-gateway, was global and the rest were regional), since here the WHOLE service is uniformly global."
-  - "Four association-only resource kinds (CustomerGatewayAssociation, LinkAssociation, TransitGatewayRegistration, TransitGatewayConnectPeerAssociation) carry NO Tags field in types/types.go and have NO corresponding entry in AWS's own IAM SAR resource-type table for this service -- confirmed not independently taggable/ARN-bearing resources, consistent with (not contradicting) the 9-kind list above being complete."
-  - "NetworkFunctionGroup (a named service-insertion grouping referenced by SegmentActionServiceInsertion's send-via/send-to modes and RoutingPolicyDirection) has only a bare Name field in types.go -- it is a name that lives INSIDE the CoreNetworkPolicy JSON document (confirmed: CoreNetworkNetworkFunctionGroup, the variant actually returned on CoreNetwork.NetworkFunctionGroups, likewise carries no independent ARN/Tags), not an independently created/deleted API resource -- there is no CreateNetworkFunctionGroup op anywhere in this 95-op surface, confirming it exists only as policy-document content, never call it out as a missing CRUD op."
-deferred:
-  - "Nothing implemented yet, so nothing has been implementation-level-audited beyond the wire-shape/error-set inventory above."
-leaks: {status: clean, note: "N/A -- nothing implemented yet, so there is nothing to leak. Next pass (implementation) must revisit this per parity-principles.md: AttachmentState's CREATING->AVAILABLE and PENDING_ATTACHMENT_ACCEPTANCE->(AVAILABLE|REJECTED) transitions, CoreNetworkState's CREATING->AVAILABLE, ChangeSetState's PENDING_GENERATION->READY_TO_EXECUTE->EXECUTING->EXECUTION_SUCCEEDED, RouteAnalysisStatus's RUNNING->COMPLETED, and every other *State enum's transient state (PENDING/CREATING/UPDATING/DELETING) all need timer-driven auto-advance following services/eks's scheduleClusterActivation / services/grafana's analogous pattern (both using pkgs/worker) -- Close()/Reset() wiring is mandatory, same as every other timer-driven service in this tree."}
+  - "AttachmentState's PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED values are real but never entered by this backend -- no segment-reassignment or tag-acceptance workflow is modeled; every attachment's real path is PENDING_ATTACHMENT_ACCEPTANCE -> (Accept ->) CREATING -> AVAILABLE or -> (Reject ->) REJECTED. Buildable with more effort (a real cross-account-acceptance/tag-acceptance state machine); not attempted this pass."
+  - "StartRouteAnalysis's real walk is single-hop (anchor attachment's own TGW route table only) -- it does not chain across TGW-to-TGW peering attachments, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED/the real 64-hop limit are never exercised. Buildable with more effort (multi-hop traversal + cycle detection over services/ec2's modeled TransitGatewayPeeringAttachment state); not attempted this pass."
+  - "GetCoreNetworkChangeSet/GetCoreNetworkChangeEvents's diff engine is document-level (segments/network-function-groups/segment-actions/attachment-policies/core-network-configuration sections), not correlated against live attachment membership -- 5 of the real 14 ChangeType values are covered (ATTACHMENT_MAPPING/ATTACHMENT_ROUTE_PROPAGATION/ATTACHMENT_ROUTE_STATIC/ROUTING_POLICY_* remain unproduced). Buildable with more effort (resolving which attachments belong to which segment); not attempted this pass."
+  - "No AWS::NetworkManager::* CloudFormation resource type exists in this repo (grep -rli networkmanager services/cloudformation/*.go returns zero hits) -- confirmed absent this pass, not silently skipped."
+  - "bd gopherstack-sokq (open, filed this pass): services/bedrockagent's RouteMatcher has a pre-existing bug unrelated to this package -- its priority-87 path-prefix fallback (/tags/, /agents, /flows, /prompts, /resourcepolicy) has no SigV4-service-scope guard, so it swallows any OTHER service's request on those same path prefixes. Found because it was swallowing NetworkManager's own TagResource/UntagResource/ListTagsForResource. Worked around HERE by raising this package's own MatchPriority to 88 (handler.go's networkManagerMatchPriority) -- the real fix belongs in bedrockagent (out of scope for this pass) and may still affect other services below priority 87 sharing those same prefixes."
+deferred: []
+leaks: {status: clean, note: "Handler.Reset()/InMemoryBackend.Close() wiring confirmed present (store.go: Close() calls b.work.Stop(), stopping the pkgs/worker.Group backing every scheduleAdvance/scheduleRemoval timer -- global network/site/device/link/connection/core-network/attachment/connect-peer/peering/policy-changeset state machines). `go test -race -count=1 ./services/networkmanager/...` run this pass: clean."}
+structural_gaps:
+  - "GetNetworkTelemetry: Connection/ConnectPeer health status reflects real AWS device/BGP/IPsec session telemetry (SNMP-style polling of actual on-prem hardware, actual BGP/IPsec session liveness) -- no such data source (no simulated device, no simulated BGP/IPsec session) exists anywhere in this repo, for any service. A deterministic 'UP once the underlying resource reaches AVAILABLE' default is the honest ceiling; inventing flapping/degraded values to look like real monitoring data would be exactly the fabrication parity-principles.md forbids. No amount of further implementation effort within this repo's existing modeling approach can produce real telemetry without inventing it, so this stays structural rather than in gaps: (bd gopherstack-xhi2)."
+  - "ListCoreNetworkRoutingInformation/GetNetworkRoutes: both require real BGP route-attribute data (AS path, communities, local preference, MED) per route. Unlike StartRouteAnalysis (which this pass built a real walk for, over services/ec2's modeled STATIC TransitGatewayRoute entries), no BGP session state -- dynamic route advertisement, AS-path computation, community tagging -- is modeled anywhere in this repo; there is no real computation to derive these attributes from, only values that would have to be invented outright. This stays structural rather than in gaps: (bd gopherstack-xhi2)."
 ---
 
-## Purpose of this document
+## Implementation summary (this pass, 2026-08-06)
+
+Closed every buildable gap the 2026-08-05 audit flagged, added the SDK-driven integration suite
+`.claude/memories/parity-principles.md` rule 3 requires as the actual parity proof, and reclassified
+the 3 genuinely underivable ops to `structural_gaps:`.
+
+**Cross-service ARN validation** (`crossservice.go`'s `EC2Resolver`/`DirectConnectResolver`
+interfaces, `store.go`'s `SetEC2Resolver`/`SetDirectConnectResolver`, wired from `cli.go`'s
+`wireNetworkManagerEC2`/`wireNetworkManagerDirectConnect` mirroring `services/directconnect`'s
+existing `EC2GatewayResolver` pattern): `CustomerGatewayArn`/`TransitGatewayArn`/
+`TransitGatewayConnectPeerArn` (`associations.go`), `VpcArn`/`SubnetArns`/`VpnConnectionArn`/
+`DirectConnectGatewayArn`/`TransitGatewayRouteTableArn` (`attachments.go`), and the peerings
+family's `TransitGatewayArn` (`peerings.go`) are now validated against `services/ec2`'s and
+`services/directconnect`'s real state -- a real EC2 VPC/TransitGateway/CustomerGateway/etc. must
+exist or the call fails with a real `ResourceNotFoundException`. A nil resolver (isolated unit
+tests, no EC2/DirectConnect wired) still accepts any non-empty ARN, so no existing unit test needed
+changes.
+
+**StartRouteAnalysis** now performs a real single-hop walk over `services/ec2`'s modeled Transit
+Gateway route-table state (`routeanalysis.go`) instead of a hardcoded `NOT_CONNECTED`: resolves the
+analysis's anchor attachment to a real `TransitGatewayVpcAttachment`, finds its real associated
+`TransitGatewayRouteTable`, and performs a genuine longest-prefix-match against
+`Destination.IpAddress` over real `TransitGatewayRoute` entries, returning real
+`CONNECTED`/`BLACKHOLE_ROUTE_FOR_DESTINATION_FOUND`/`INACTIVE_ROUTE_FOR_DESTINATION_FOUND`/
+`ROUTE_NOT_FOUND` verdicts with a real `PathComponent`. This is single-hop (one TGW's own route
+table), not a full multi-hop cross-TGW-peering walk with cycle detection -- a documented scope
+reduction (see `gaps:`), not fabrication.
+
+**GetCoreNetworkChangeSet/GetCoreNetworkChangeEvents** now compute a real ADD/MODIFY/REMOVE
+structural diff (`corenetworkpolicydiff.go`) between the LIVE and submitted policy JSON documents
+over the real Cloud WAN policy-document schema's top-level sections (`segments`,
+`network-function-groups`, `segment-actions`, `attachment-policies`, `core-network-configuration`),
+keyed by each section's real identity field (`name`/`rule-number`) and diffed via
+`reflect.DeepEqual` over the decoded JSON (not raw byte comparison, so key reordering in
+functionally-identical JSON doesn't spuriously report a MODIFY). `GetCoreNetworkChangeEvents`
+derives per-change execution-progress events from the same diff plus the real `ChangeSetState`.
+Document-level, not per-attachment (5 of the SDK's 14 real `ChangeType` values covered) -- a
+documented scope reduction (see `gaps:`).
+
+**`structural_gaps:` reclassification**: `GetNetworkTelemetry`/`GetNetworkRoutes`/
+`ListCoreNetworkRoutingInformation` were re-examined against the template's rule ("NOT an escape
+hatch: if more implementation effort COULD produce real data, however hard, it stays in gaps").
+Unlike route analysis (where a real walk over already-modeled EC2 route-table state was feasible and
+built), these three require data this repo has no computation for anywhere -- BGP session state
+(AS path/communities/local-pref/MED) and device/BGP/IPsec telemetry are never simulated by any
+service in this tree, so producing them would mean inventing values with nothing real to derive them
+from. Moved to `structural_gaps:` with per-op justification, not left in `gaps:`.
+
+**The integration suite** (`test/integration/networkmanager_test.go`, 6 tests) drives the real
+`aws-sdk-go-v2/service/networkmanager` client against the Docker test container: global
+network/site/device/link/link-association lifecycle (plus a real `ResourceNotFoundException` for an
+unknown `GlobalNetworkId`); core network + a real policy version 1 -> execute -> policy version 2 ->
+a real non-empty `GetCoreNetworkChangeSet`/`GetCoreNetworkChangeEvents` diff (plus a real
+`CoreNetworkPolicyException` for malformed policy JSON); a VPC attachment's real
+`PENDING_ATTACHMENT_ACCEPTANCE` -> `CREATING` -> `AVAILABLE` state machine against REAL EC2 VPC/
+Subnet ARNs (plus real `ResourceNotFoundException`s for ARNs naming no real EC2 resource); a Connect
+attachment + Connect peer (plus a real not-found for a non-CONNECT parent attachment); tagging
+(TagResource/ListTagsForResource/UntagResource against a real ARN); and `StartRouteAnalysis` against
+a real EC2 Transit Gateway/route table/route, asserting a real `CONNECTED` verdict with a real
+`PathComponent`, and `NO_DESTINATION_ARN_PROVIDED` when neither endpoint carries a destination.
+`make build-linux && go test -race -count=1 -run TestIntegration_NetworkManager
+./test/integration/...` passes.
+
+**Found along the way, not this package's bug**: the integration suite's very first `TagResource`
+call failed with an `InternalServerException` originating from `services/bedrockagent`'s handler,
+not this package's -- `bedrockagent`'s `RouteMatcher` (priority 87) has a loose
+`strings.HasPrefix(path, "/tags/")` fallback with no SigV4-service-scope guard, so it was swallowing
+every `/tags/{ResourceArn}` request regardless of which service actually owned it. Filed as
+`bd gopherstack-sokq` (real fix belongs in `bedrockagent`, out of scope here) and worked around by
+raising this package's own `MatchPriority` to 88 (`handler.go`'s `networkManagerMatchPriority`,
+justified independent of the collision: an exact route-table match is strictly more specific than
+any prefix fallback and should outrank one on principle, not just to dodge this one bug).
+
+## Implementation summary (this pass, 2026-08-05)
+
+This pass did not implement anything new -- `services/networkmanager/` was already fully built by
+commit `87dee6d95`. What this pass did: read the actual `.go` files (all 11 non-handler backend
+files, all 11 `handler_*.go` route builders, `store.go`'s ARN builders, `persistence.go`) to verify,
+op by op, that the frontmatter above (previously `overall: gap`, every `families:` row `gap`, no
+`ops:` at all, and a `gaps:` list opening with "Zero operations implemented") no longer matched
+reality, and to replace it with a frontmatter derived from what the code actually does rather than
+from the pre-implementation spec that predates it.
+
+**What is genuinely real**: all 95 operations are routed (`handler.go`'s `routeTable()`, confirmed
+95/95 against the SDK's own operation list via `comm`), backed by real `InMemoryBackend` state
+(`pkgs/store.Table`/`Index` per resource kind), and persisted (`persistence.go`). Every CRUD family
+(global networks, sites, devices, links, link associations, connections, core networks, core network
+prefix-list associations, Cloud WAN connect peers, attachment routing policy labels, resource
+policies, tagging) does real state mutation with real timers advancing PENDING/CREATING states to
+AVAILABLE, exactly matching this repo's `pkgs/worker`-based convention used elsewhere
+(`services/eks`'s `scheduleClusterActivation` etc.).
+
+**What is honestly partial, not silently faked**: the pre-implementation audit below flagged route
+analysis as "the single riskiest fabrication surface in the whole service" and network telemetry /
+policy change-diffing / BGP routing information as requiring either a live cross-service backend
+reference this package does not have, or an engine (JSON-diff, BGP route propagation) this pass's
+implementer did not build. Reading the actual code (`routeanalysis.go`, `introspection.go`,
+`corenetworks.go`'s change-set functions) confirms each of those was resolved the honest way the
+pre-implementation audit itself sanctioned: real state machines that terminate in a deterministic,
+documented "cannot resolve" / "empty" result, never a fabricated plausible-looking path, diff, or
+telemetry reading. See the `ops:`/`families:`/`gaps:` entries above for exactly which operations
+this applies to.
+
+**Cross-service ARN validation** (`CustomerGatewayArn`/`TransitGatewayArn`/
+`TransitGatewayConnectPeerArn`/`VpcArn`/`VpnConnectionArn`/`DirectConnectGatewayArn`/
+`TransitGatewayRouteTableArn`) is accepted unvalidated throughout -- a real, documented scope
+decision (see `associations.go:16-26`, `attachments.go:26-35`) rather than an oversight, since
+validating these would require a live reference into `services/ec2`'s or `services/directconnect`'s
+backend that this package does not hold.
+
+**Not reassessed by this pass**: the `overall:` grade. This pass's remit was ops:/families:/gaps:
+accuracy against the code, not a grading decision -- `gopherstack-r9yz`'s open question about this
+service's integration-test coverage bears on that decision and was not resolved here. See the note
+on the `overall:` field itself for what this pass's code-reading suggests as a starting point for
+whoever does resolve it.
+
+## Purpose of this document (historical -- written 2026-08-01, before any code existed)
+
+**Note (2026-08-05): this section and everything below it was written as a pre-implementation
+wire-shape spec before `services/networkmanager/` had any code. It is retained as SDK reference
+material (operation names, wire protocol, exact per-op exception sets) because that inventory is
+still accurate and useful -- but its framing ("does not exist", "None are implemented", "for the
+implementer") describes the state of the world on 2026-08-01, not today. See "Implementation summary
+(this pass, 2026-08-05)" above for the actual implementation status.**
 
 `services/networkmanager/` does not exist. This file is a pre-implementation audit: a complete SDK
 operation inventory plus a behavioral spec, written so a follow-up implementation pass does not

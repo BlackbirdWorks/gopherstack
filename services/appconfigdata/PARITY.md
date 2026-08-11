@@ -1,6 +1,6 @@
 ---
 service: appconfigdata
-sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.23.20   # version audited against
+sdk_module: aws-sdk-go-v2/service/appconfigdata@v1.26.4   # version audited against
 last_audit_commit: 128350087c039303f08b6d8113ec9f9ac4cbc4b9
 last_audit_date: 2026-07-24
 overall: A            # both ops field-diffed clean against the real SDK + botocore service-2.json; only remaining item is a documented cross-service wiring gap
@@ -8,25 +8,26 @@ ops:
   StartConfigurationSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "identifier max-length was 2048, real Identifier shape max is 128 -- fixed in a prior pass"}
   GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo and empty-blob-on-unchanged semantics already correct; this pass fixed the 204-vs-200 responseCode deviation (see below)"}
 gaps:
-  - appconfigdata's config content store (SetConfiguration) is entirely self-contained and
-    is never populated by services/appconfig (the control-plane service that owns
-    applications/environments/configuration-profiles/hosted-config-versions/deployments).
-    SetConfiguration is reachable only via the internal dashboard admin endpoints
-    (cli.go:6091, dashboard/ui.go:1345/2020), not from any real AppConfig deployment flow.
-    Real AWS semantics: GetLatestConfiguration serves whatever the *active deployment* for
-    the app/env/profile currently is; StartConfigurationSession 404s
-    (ErrNoActiveDeployment) until one exists. gopherstack instead requires a manual/dashboard
-    SetConfiguration call to seed content per app/env/profile key -- functionally similar
-    per-session but with no link to services/appconfig's deployment lifecycle (no
-    deployment-state transitions, no rollback-on-deploy, no version pinning to a specific
-    DeploymentId even though ConfigVersion.DeploymentId exists as a field and is never
-    populated). This is a cross-service wiring gap in services/appconfig + cli.go/dashboard,
-    out of scope for an appconfigdata-only edit -- fixing it means wiring a
-    Set<Config>-style accessor into cli.go's provider-init sequence (the same pattern used
-    by wireIoTRules/wireAppSyncLambda for other control-plane/data-plane service pairs), and
-    this pass's mandate explicitly forbids editing cli.go. Re-confirmed still open and
-    already tracked: bd issue gopherstack-uiyi ("appconfigdata disconnected from appconfig
-    control-plane"), open, priority 2.
+  - services/appconfig is now bridged to appconfigdata (bd gopherstack-uiyi, closed;
+    commit 41f3817bd): appconfig's InMemoryBackend.finalizeDeploymentLocked (every
+    completion path -- synchronous zero-duration, the async reconciler, and restore-time
+    finalization funnel through it) and revertDeployedConfigLocked (an AllowRevert
+    StopDeployment) call publishDeployedConfigurationLocked, which pushes the deployed
+    content into appconfigdata via PublishConfiguration, stamping ConfigVersion.DeploymentId
+    with the real deployment number. cli.go's wireAppConfigDeployments wires
+    appconfigdata's *InMemoryBackend straight in as appconfig's
+    DeployedConfigurationPublisher, no adapter. A real StartDeployment now surfaces through
+    StartConfigurationSession + GetLatestConfiguration polling, and
+    StartConfigurationSession correctly 404s with ErrNoActiveDeployment until a deployment
+    has completed, matching real AWS.
+  - The bridge only covers AppConfig-hosted configuration profiles: publishDeployedConfigurationLocked
+    skips any profile whose LocationURI isn't the "hosted" sentinel
+    (services/appconfig/configuration.go:86, contentTypeHostedLocation at
+    services/appconfig/store.go:26) -- the same restriction CurrentDeployedConfiguration
+    already had. Profiles backed by SSM Parameter Store, SSM documents, S3, or Secrets
+    Manager still never populate appconfigdata; SetConfiguration remains reachable only via
+    the dashboard admin endpoints (cli.go:8293, dashboard/ui.go:1462/2195) with no
+    deployment attribution for those location types.
 deferred: []
 leaks: {status: clean, note: "janitor.go SessionSweeper ticker is ctx-parented via worker.NewGroup and exits cleanly on ctx.Done() (g.Stop() joins on return); SweepExpiredSessions purges both idle/absolute-expired sessions and expired grace-token cache entries in the same pass, so neither table grows unbounded. Verified this pass with new janitor_test.go: TestJanitor_RunExitsOnContextCancel (goroutine actually exits within 500ms of cancel, not just 'looks ctx-parented by inspection') and TestJanitor_SweepsExpiredSessionsOnTick (the ticker actually invokes the sweep and evicts a live session, not just a direct SweepExpiredSessions() unit test)."}
 ---

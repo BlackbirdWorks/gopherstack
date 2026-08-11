@@ -212,7 +212,7 @@ func TestGetFindingsStatistics_SeverityKeys(t *testing.T) {
 	t.Parallel()
 
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
-	det, err := b.CreateDetector(true, "ALL", nil, nil)
+	det, err := b.CreateDetector(true, "", nil, nil)
 	require.NoError(t, err)
 	detID := det.DetectorID
 
@@ -242,7 +242,7 @@ func TestGetFindingsStatistics_Empty(t *testing.T) {
 	t.Parallel()
 
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
-	det, err := b.CreateDetector(true, "ALL", nil, nil)
+	det, err := b.CreateDetector(true, "", nil, nil)
 	require.NoError(t, err)
 
 	stats, err := b.GetFindingsStatistics(det.DetectorID, guardduty.FindingStatisticsQuery{})
@@ -271,7 +271,7 @@ func TestUpdateFindingsFeedback(t *testing.T) {
 			t.Parallel()
 
 			b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
-			det, err := b.CreateDetector(true, "ALL", nil, nil)
+			det, err := b.CreateDetector(true, "", nil, nil)
 			require.NoError(t, err)
 			detID := det.DetectorID
 
@@ -307,7 +307,7 @@ func TestArchiveFindings_UpdatesTimestamp(t *testing.T) {
 	t.Parallel()
 
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
-	det, err := b.CreateDetector(true, "ALL", nil, nil)
+	det, err := b.CreateDetector(true, "", nil, nil)
 	require.NoError(t, err)
 	detID := det.DetectorID
 
@@ -340,7 +340,7 @@ func TestUnarchiveFindings_UpdatesTimestamp(t *testing.T) {
 	t.Parallel()
 
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
-	det, err := b.CreateDetector(true, "ALL", nil, nil)
+	det, err := b.CreateDetector(true, "", nil, nil)
 	require.NoError(t, err)
 	detID := det.DetectorID
 

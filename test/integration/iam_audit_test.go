@@ -45,7 +45,10 @@ func TestIntegration_IAMAudit_GetMFADevice_Found(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteUser(ctx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteUser(cleanupCtx, &iamsdk.DeleteUserInput{UserName: aws.String(userName)})
 	})
 
 	createOut, err := client.CreateVirtualMFADevice(ctx, &iamsdk.CreateVirtualMFADeviceInput{

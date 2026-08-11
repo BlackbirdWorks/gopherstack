@@ -111,6 +111,7 @@ type CreateDocumentInput struct {
 	PlatformTypes  []string            `json:"PlatformTypes,omitempty"`
 	Attachments    []AttachmentsSource `json:"Attachments,omitempty"`
 	Requires       []DocumentRequires  `json:"Requires,omitempty"`
+	Tags           []Tag               `json:"Tags,omitempty"`
 }
 
 // CreateDocumentOutput is the response payload for CreateDocument.

@@ -7,8 +7,9 @@ import (
 )
 
 // taggableTags returns a pointer to the Tags map for the resource identified by resourceARN,
-// searching every taggable resource kind (distributions, streaming distributions, trust stores).
-// Must be called with the lock held.
+// searching every taggable resource kind (distributions, streaming distributions, trust stores,
+// distribution tenants, connection groups, connection functions, anycast IP lists, functions,
+// key value stores, VPC origins). Must be called with the lock held.
 func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, bool) {
 	if id, ok := b.distributionARNs[resourceARN]; ok {
 		d, _ := b.distributions.Get(id)
@@ -50,6 +51,24 @@ func (b *InMemoryBackend) taggableTags(resourceARN string) (*map[string]string, 
 		list, _ := b.anycastIPLists.Get(id)
 
 		return &list.Tags, true
+	}
+
+	for _, fn := range b.functions.All() {
+		if fn.ARN == resourceARN {
+			return &fn.Tags, true
+		}
+	}
+
+	for _, kvs := range b.keyValueStores.All() {
+		if kvs.ARN == resourceARN {
+			return &kvs.Tags, true
+		}
+	}
+
+	for _, vo := range b.vpcOrigins.All() {
+		if vo.ARN == resourceARN {
+			return &vo.Tags, true
+		}
 	}
 
 	return nil, false
@@ -155,6 +174,18 @@ func (b *InMemoryBackend) taggableARNs() []string {
 		for arn := range m {
 			arns = append(arns, arn)
 		}
+	}
+
+	for _, fn := range b.functions.All() {
+		arns = append(arns, fn.ARN)
+	}
+
+	for _, kvs := range b.keyValueStores.All() {
+		arns = append(arns, kvs.ARN)
+	}
+
+	for _, vo := range b.vpcOrigins.All() {
+		arns = append(arns, vo.ARN)
 	}
 
 	return arns

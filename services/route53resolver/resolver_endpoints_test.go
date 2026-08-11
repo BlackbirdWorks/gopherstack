@@ -351,6 +351,40 @@ func TestUpdateResolverEndpoint_Extended(t *testing.T) {
 	}
 }
 
+// TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged asserts that
+// when ResolverEndpointType fails validation, a Name change bundled into
+// the same request is not partially applied. UpdateResolverEndpoint
+// (resolver_endpoints.go) mutates ep.Name on the live stored pointer
+// before it validates ResolverEndpointType, so a request that fails
+// validation was still leaving the name change committed.
+func TestUpdateResolverEndpoint_RejectedTypeLeavesNameUnchanged(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "orig-ep-partial",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	var createResp map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createResp))
+	epID := createResp["ResolverEndpoint"].(map[string]any)["Id"].(string)
+
+	updateRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":   epID,
+		"Name":                 "changed-ep-name",
+		"ResolverEndpointType": "BOGUS",
+	})
+	require.Equal(t, http.StatusBadRequest, updateRec.Code)
+
+	getRec := doRequest(t, h, "GetResolverEndpoint", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getResp map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getResp))
+	ep := getResp["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, "orig-ep-partial", ep["Name"])
+}
+
 // TestResolverEndpoint_MetricsFlags verifies RniEnhancedMetricsEnabled and
 // TargetNameServerMetricsEnabled -- settable on both CreateResolverEndpoint
 // and UpdateResolverEndpoint per the real SDK's CreateResolverEndpointInput /
@@ -409,6 +443,108 @@ func TestResolverEndpoint_MetricsFlags(t *testing.T) {
 	updEP2 := updResp2["ResolverEndpoint"].(map[string]any)
 	assert.Equal(t, true, updEP2["RniEnhancedMetricsEnabled"], "prior update must not be clobbered")
 	assert.Equal(t, true, updEP2["TargetNameServerMetricsEnabled"])
+}
+
+// TestResolverEndpoint_Dns64AndIpv6InternetAccess verifies Dns64Enabled and
+// Ipv6InternetAccessEnabled -- settable on both CreateResolverEndpoint and
+// UpdateResolverEndpoint (verified against api_op_CreateResolverEndpoint.go
+// / api_op_UpdateResolverEndpoint.go) -- round-trip through Create, default
+// to false when omitted, and partial-update correctly on
+// UpdateResolverEndpoint, mirroring TestResolverEndpoint_MetricsFlags.
+func TestResolverEndpoint_Dns64AndIpv6InternetAccess(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "dns64-ep",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	ep := decodeJSON(t, createRec)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, false, ep["Dns64Enabled"])
+	assert.Equal(t, false, ep["Ipv6InternetAccessEnabled"])
+	epID := ep["Id"].(string)
+
+	createRec2 := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":                      "dns64-ep-2",
+		"Direction":                 "INBOUND",
+		"Dns64Enabled":              true,
+		"Ipv6InternetAccessEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, createRec2.Code)
+	ep2 := decodeJSON(t, createRec2)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, ep2["Dns64Enabled"])
+	assert.Equal(t, true, ep2["Ipv6InternetAccessEnabled"])
+
+	updRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId": epID,
+		"Dns64Enabled":       true,
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+	updEP := decodeJSON(t, updRec)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP["Dns64Enabled"])
+	assert.Equal(t, false, updEP["Ipv6InternetAccessEnabled"])
+
+	updRec2 := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":        epID,
+		"Ipv6InternetAccessEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, updRec2.Code)
+	updEP2 := decodeJSON(t, updRec2)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP2["Dns64Enabled"], "prior update must not be clobbered")
+	assert.Equal(t, true, updEP2["Ipv6InternetAccessEnabled"])
+}
+
+// TestUpdateResolverEndpoint_UpdateIpAddresses verifies UpdateIpAddresses
+// (verified against api_op_UpdateResolverEndpoint.go: "Specifies the IPv6
+// address when you update the Resolver endpoint from IPv4 to dual-stack")
+// assigns an Ipv6 address to an existing IP identified by IpId, visible via
+// a follow-up ListResolverEndpointIpAddresses, and that an unknown IpId is
+// rejected rather than silently ignored.
+func TestUpdateResolverEndpoint_UpdateIpAddresses(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "dualstack-ep",
+		"Direction": "INBOUND",
+		"IpAddresses": []map[string]any{
+			{"SubnetId": "subnet-1", "Ip": "10.0.0.1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	epID := decodeJSON(t, createRec)["ResolverEndpoint"].(map[string]any)["Id"].(string)
+
+	ipsRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, ipsRec.Code)
+	ips, _ := decodeJSON(t, ipsRec)["IpAddresses"].([]any)
+	require.Len(t, ips, 1)
+	ipID := ips[0].(map[string]any)["IpId"].(string)
+
+	updRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":   epID,
+		"ResolverEndpointType": "DUALSTACK",
+		"UpdateIpAddresses": []map[string]any{
+			{"IpId": ipID, "Ipv6": "2001:db8::1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	ipsRec2 := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, ipsRec2.Code)
+	ips2, _ := decodeJSON(t, ipsRec2)["IpAddresses"].([]any)
+	require.Len(t, ips2, 1)
+	assert.Equal(t, "2001:db8::1", ips2[0].(map[string]any)["Ipv6"])
+
+	badRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId": epID,
+		"UpdateIpAddresses": []map[string]any{
+			{"IpId": "rni-does-not-exist", "Ipv6": "2001:db8::2"},
+		},
+	})
+	assert.Equal(t, http.StatusNotFound, badRec.Code)
 }
 
 // --- Issue 7: AssociateResolverEndpointIpAddress with IPv6 ---
@@ -544,6 +680,8 @@ func TestBackend_CreateEndpointTypeEnum(t *testing.T) {
 				"",
 				false,
 				false,
+				false,
+				false,
 			)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -572,6 +710,8 @@ func TestBackend_EndpointTimestampsRoundTrip(t *testing.T) {
 		"",
 		"",
 		"req-ts-1",
+		false,
+		false,
 		false,
 		false,
 	)
@@ -1319,6 +1459,132 @@ func TestListResolverEndpoints(t *testing.T) {
 	endpoints, ok := resp["ResolverEndpoints"].([]any)
 	require.True(t, ok)
 	assert.Len(t, endpoints, 2)
+}
+
+func TestListResolverEndpoints_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+			"Name": "in-ep", "Direction": "INBOUND", "VpcId": "vpc-1",
+			"CreatorRequestId": "req-in", "SecurityGroupIds": []string{"sg-1", "sg-2"},
+		})
+		doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+			"Name": "out-ep", "Direction": "OUTBOUND", "VpcId": "vpc-2",
+			"CreatorRequestId": "req-out", "SecurityGroupIds": []string{"sg-3"},
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "direction canonical name",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{"INBOUND"}},
+			wantNames: []string{"in-ep"},
+		},
+		{
+			name:      "direction legacy uppercase name",
+			filter:    map[string]any{"Name": "DIRECTION", "Values": []string{"OUTBOUND"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "host vpc id",
+			filter:    map[string]any{"Name": "HostVPCId", "Values": []string{"vpc-2"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "creator request id",
+			filter:    map[string]any{"Name": "CreatorRequestId", "Values": []string{"req-in"}},
+			wantNames: []string{"in-ep"},
+		},
+		{
+			name:      "security group ids matches any member",
+			filter:    map[string]any{"Name": "SecurityGroupIds", "Values": []string{"sg-3"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "values are OR-combined",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{"INBOUND", "OUTBOUND"}},
+			wantNames: []string{"in-ep", "out-ep"},
+		},
+		{
+			name:      "empty values matches nothing",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{}},
+			wantNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+				"Filters": []map[string]any{tt.filter},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			eps, _ := resp["ResolverEndpoints"].([]any)
+			gotNames := make([]string, len(eps))
+			for i, e := range eps {
+				gotNames[i] = e.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverEndpoints_FiltersANDedTogether(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name": "in-vpc1", "Direction": "INBOUND", "VpcId": "vpc-1",
+	})
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name": "in-vpc2", "Direction": "INBOUND", "VpcId": "vpc-2",
+	})
+
+	rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "Direction", "Values": []string{"INBOUND"}},
+			{"Name": "HostVPCId", "Values": []string{"vpc-2"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	eps, _ := resp["ResolverEndpoints"].([]any)
+	require.Len(t, eps, 1)
+	assert.Equal(t, "in-vpc2", eps[0].(map[string]any)["Name"])
+}
+
+func TestListResolverEndpoints_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": "ep1", "Direction": "INBOUND"})
+
+	rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
 }
 
 func TestDeleteResolverEndpoint(t *testing.T) {

@@ -222,9 +222,15 @@ func (h *Handler) handleDescribeCapacityProviders(
 	views := make([]capacityProviderView, 0, len(providers))
 	for _, cp := range providers {
 		v := toCapacityProviderView(cp)
+		v.Tags = nil
 
-		if !wantTags {
-			v.Tags = nil
+		if wantTags {
+			tags, tagErr := h.Backend.ListTagsForResource(cp.CapacityProviderArn)
+			if tagErr != nil {
+				return nil, tagErr
+			}
+
+			v.Tags = tags
 		}
 
 		views = append(views, v)
@@ -249,14 +255,11 @@ func (h *Handler) handleDescribeCapacityProviders(
 // ----- UpdateCapacityProvider -----
 //
 // The real UpdateCapacityProviderRequest has only name, cluster,
-// autoScalingGroupProvider, and managedInstancesProvider -- no status or
-// tags (status only ever transitions via CreateCapacityProvider/
-// DeleteCapacityProvider; tags go through TagResource/UntagResource like
-// every other taggable ECS resource). autoScalingGroupProvider is also
-// narrower than the create-time shape: it has no autoScalingGroupArn,
-// because the ASG a capacity provider wraps cannot be swapped after
-// creation. managedInstancesProvider is not modeled by this backend (no
-// Managed Instances feature).
+// autoScalingGroupProvider, and managedInstancesProvider -- no status (only
+// transitions via Create/DeleteCapacityProvider) or tags (via
+// TagResource/UntagResource). autoScalingGroupProvider omits autoScalingGroupArn
+// too, since the ASG can't be swapped after creation. managedInstancesProvider
+// is not modeled by this backend.
 
 type autoScalingGroupProviderUpdateInput struct {
 	ManagedScaling               *managedScalingInput `json:"managedScaling,omitempty"`

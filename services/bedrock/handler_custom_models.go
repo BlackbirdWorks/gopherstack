@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func (h *Handler) routeCustomModel(
 
 type createCustomModelInput struct {
 	ModelName string `json:"modelName"`
-	Tags      []Tag  `json:"tags,omitempty"`
+	Tags      []Tag  `json:"modelTags,omitempty"`
 }
 
 type createCustomModelOutput struct {
@@ -110,19 +111,33 @@ func (h *Handler) routeCustomModelList(c *echo.Context, path, method string) (bo
 	}
 }
 
+// customModelOutput is GetCustomModel's response shape (bedrock@v1.66.4
+// GetCustomModelResponse via botocore service-2.json): jobArn/jobName,
+// baseModelArn, no baseModelName -- see customModelSummaryOutput for the
+// distinct ListCustomModels shape.
 type customModelOutput struct {
-	CreationTime string `json:"creationTime"`
-	ModelArn     string `json:"modelArn"`
-	ModelName    string `json:"modelName"`
-	Tags         []Tag  `json:"tags,omitempty"`
+	CreationTime      string `json:"creationTime"`
+	ModelArn          string `json:"modelArn"`
+	ModelName         string `json:"modelName"`
+	ModelStatus       string `json:"modelStatus,omitempty"`
+	BaseModelArn      string `json:"baseModelArn,omitempty"`
+	CustomizationType string `json:"customizationType,omitempty"`
+	JobArn            string `json:"jobArn,omitempty"`
+	JobName           string `json:"jobName,omitempty"`
+	Tags              []Tag  `json:"tags,omitempty"`
 }
 
 func customModelToOutput(m *CustomModel) customModelOutput {
 	return customModelOutput{
-		ModelArn:     m.ModelArn,
-		ModelName:    m.ModelName,
-		CreationTime: m.CreationTime.Format(time.RFC3339),
-		Tags:         m.Tags,
+		ModelArn:          m.ModelArn,
+		ModelName:         m.ModelName,
+		ModelStatus:       m.ModelStatus,
+		BaseModelArn:      m.BaseModelArn,
+		CustomizationType: m.CustomizationType,
+		JobArn:            m.JobArn,
+		JobName:           m.JobName,
+		CreationTime:      m.CreationTime.Format(time.RFC3339),
+		Tags:              m.Tags,
 	}
 }
 
@@ -135,18 +150,83 @@ func (h *Handler) handleGetCustomModel(c *echo.Context, id string) error {
 	return c.JSON(http.StatusOK, customModelToOutput(m))
 }
 
+// customModelSummaryOutput is ListCustomModels' per-item shape (bedrock@v1.66.4
+// CustomModelSummary via botocore service-2.json): baseModelArn/baseModelName,
+// no jobArn/jobName, distinct from Get's shape.
+type customModelSummaryOutput struct {
+	CreationTime      string `json:"creationTime"`
+	ModelArn          string `json:"modelArn"`
+	ModelName         string `json:"modelName"`
+	ModelStatus       string `json:"modelStatus,omitempty"`
+	BaseModelArn      string `json:"baseModelArn,omitempty"`
+	BaseModelName     string `json:"baseModelName,omitempty"`
+	CustomizationType string `json:"customizationType,omitempty"`
+	Tags              []Tag  `json:"tags,omitempty"`
+}
+
+func customModelToSummaryOutput(m *CustomModel) customModelSummaryOutput {
+	return customModelSummaryOutput{
+		ModelArn:          m.ModelArn,
+		ModelName:         m.ModelName,
+		ModelStatus:       m.ModelStatus,
+		BaseModelArn:      m.BaseModelArn,
+		BaseModelName:     m.BaseModelName,
+		CustomizationType: m.CustomizationType,
+		CreationTime:      m.CreationTime.Format(time.RFC3339),
+		Tags:              m.Tags,
+	}
+}
+
 type listCustomModelsOutput struct {
-	NextToken      string              `json:"nextToken,omitempty"`
-	ModelSummaries []customModelOutput `json:"modelSummaries"`
+	NextToken      string                     `json:"nextToken,omitempty"`
+	ModelSummaries []customModelSummaryOutput `json:"modelSummaries"`
+}
+
+// parseListCustomModelsQuery builds the backend filter/sort/pagination input from
+// the real ListCustomModels query-string bindings (aws-sdk-go-v2
+// serializers.go:6152-6202): modelStatus, nameContains, isOwned,
+// creationTimeAfter/Before, baseModelArnEquals, foundationModelArnEquals,
+// sortBy, sortOrder, nextToken.
+func parseListCustomModelsQuery(c *echo.Context) *ListCustomModelsInput {
+	q := c.Request().URL.Query()
+
+	in := &ListCustomModelsInput{
+		ModelStatus:              q.Get("modelStatus"),
+		NameContains:             q.Get("nameContains"),
+		BaseModelArnEquals:       q.Get("baseModelArnEquals"),
+		FoundationModelArnEquals: q.Get("foundationModelArnEquals"),
+		SortBy:                   q.Get("sortBy"),
+		SortOrder:                q.Get("sortOrder"),
+		NextToken:                q.Get("nextToken"),
+	}
+
+	if v := q.Get("isOwned"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			in.IsOwned = &b
+		}
+	}
+
+	if v := q.Get("creationTimeAfter"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeAfter = &t
+		}
+	}
+
+	if v := q.Get("creationTimeBefore"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			in.CreationTimeBefore = &t
+		}
+	}
+
+	return in
 }
 
 func (h *Handler) handleListCustomModels(c *echo.Context) error {
-	nextToken := c.Request().URL.Query().Get("nextToken")
-	models, outToken := h.Backend.ListCustomModels(nextToken)
-	summaries := make([]customModelOutput, 0, len(models))
+	models, outToken := h.Backend.ListCustomModels(parseListCustomModelsQuery(c))
+	summaries := make([]customModelSummaryOutput, 0, len(models))
 
 	for _, m := range models {
-		summaries = append(summaries, customModelToOutput(m))
+		summaries = append(summaries, customModelToSummaryOutput(m))
 	}
 
 	return c.JSON(

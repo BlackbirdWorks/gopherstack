@@ -32,7 +32,10 @@ func TestIntegration_RDS_DBInstanceAvailableWaiter(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteDBInstance(ctx, &rdssdk.DeleteDBInstanceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteDBInstance(cleanupCtx, &rdssdk.DeleteDBInstanceInput{
 			DBInstanceIdentifier: aws.String(id),
 			SkipFinalSnapshot:    aws.Bool(true),
 		})

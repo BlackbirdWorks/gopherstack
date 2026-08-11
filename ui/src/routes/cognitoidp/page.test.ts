@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CognitoIdpPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -16,6 +17,17 @@ vi.mock("$lib/confirm-dialog", () => ({
 vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
 
 const examplePool = {
   Id: "us-east-1_ABC123",
@@ -38,6 +50,7 @@ describe("Cognito User Pools Page", () => {
     mockSend.mockReset();
     confirmDestructive.mockReset();
     confirmDestructive.mockResolvedValue(true);
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -217,5 +230,78 @@ describe("Cognito User Pools Page", () => {
         input: expect.objectContaining({ UserPoolId: examplePool.Id, Username: "jdoe" }),
       }),
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans ListUserPools out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ UserPools: [{ Id: "us-east-1_AAA", Name: "us-pool" }] })
+        .mockResolvedValueOnce({ UserPools: [{ Id: "eu-west-1_BBB", Name: "eu-pool" }] });
+
+      render(CognitoIdpPage);
+
+      await waitFor(() =>
+        expect(screen.getByRole("cell", { name: "us-pool" })).toBeInTheDocument(),
+      );
+      expect(screen.getByRole("cell", { name: "eu-pool" })).toBeInTheDocument();
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListUserPools call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ UserPools: [examplePool] });
+      render(CognitoIdpPage);
+      await waitFor(() => screen.getByRole("cell", { name: "my-pool" }));
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same pool name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ UserPools: [{ Id: "us-east-1_AAA", Name: "shared-pool" }] })
+        .mockResolvedValueOnce({ UserPools: [{ Id: "eu-west-1_BBB", Name: "shared-pool" }] });
+
+      render(CognitoIdpPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByRole("cell", { name: "shared-pool" });
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) => within(r.closest("tr") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("scopes child-tab calls to the selected pool's own region, not the picker's region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend
+        .mockResolvedValueOnce({ UserPools: [] })
+        .mockResolvedValueOnce({ UserPools: [{ Id: "eu-west-1_BBB", Name: "eu-pool" }] });
+
+      render(CognitoIdpPage);
+      await waitFor(() =>
+        expect(screen.getByRole("cell", { name: "eu-pool" })).toBeInTheDocument(),
+      );
+
+      mockSend.mockResolvedValueOnce({ Users: [exampleUser] });
+      await fireEvent.click(screen.getByText("Users"));
+
+      await waitFor(() => expect(screen.getByRole("cell", { name: "jdoe" })).toBeInTheDocument());
+      expect(mockSend).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ UserPoolId: "eu-west-1_BBB" }),
+        }),
+      );
+
+      vi.unstubAllGlobals();
+    });
   });
 });

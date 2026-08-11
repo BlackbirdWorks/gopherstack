@@ -492,7 +492,9 @@ func (h *Handler) handleDisassociateDistributionWebACL(c *echo.Context, distID s
 type distributionConfigWithTagsXML struct {
 	XMLName            xml.Name                  `xml:"DistributionConfigWithTags"`
 	DistributionConfig distributionConfigMinimal `xml:"DistributionConfig"`
-	Tags               []tagXML                  `xml:"Tags>Tag"`
+	// Tags is *types.Tags on the wire: Items wraps the Tag list (cloudfront@v1.67.4
+	// serializers.go awsRestxml_serializeDocumentTags), not a bare Tags>Tag path.
+	Tags []tagXML `xml:"Tags>Items>Tag"`
 }
 
 func (h *Handler) handleCreateDistributionWithTags(c *echo.Context) error {

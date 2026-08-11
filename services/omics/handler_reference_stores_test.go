@@ -262,3 +262,48 @@ func TestListReferenceImportJobs_FiltersByStatus(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, jobs2, 1)
 }
+
+// TestGetReferenceMetadata_FilesField verifies GetReferenceMetadata populates
+// the optional Files sub-object (real AWS GetReferenceMetadataOutput.Files)
+// instead of leaving it entirely unmodeled.
+func TestGetReferenceMetadata_FilesField(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	storeRec := doRequest(t, h, http.MethodPost, "/referencestore", map[string]any{"name": "store-1"})
+	require.Equal(t, http.StatusCreated, storeRec.Code)
+
+	var store map[string]any
+	require.NoError(t, json.Unmarshal(storeRec.Body.Bytes(), &store))
+	storeID := store["id"].(string)
+
+	jobRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/importjob", map[string]any{
+		"roleArn": "arn:aws:iam::000000000000:role/role",
+		"sources": []map[string]any{{"sourceFile": "s3://bucket/ref.fa", "name": "ref-1"}},
+	})
+	require.Equal(t, http.StatusCreated, jobRec.Code)
+
+	listRec := doRequest(t, h, http.MethodPost, "/referencestore/"+storeID+"/references", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp map[string]any
+	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &listResp))
+	refs, ok := listResp["references"].([]any)
+	require.True(t, ok)
+	require.Len(t, refs, 1)
+	refID := refs[0].(map[string]any)["id"].(string)
+
+	metaRec := doRequestRaw(t, h, http.MethodGet,
+		fmt.Sprintf("/referencestore/%s/reference/%s/metadata", storeID, refID),
+		"", nil,
+	)
+	require.Equal(t, http.StatusOK, metaRec.Code)
+
+	var meta map[string]any
+	require.NoError(t, json.Unmarshal(metaRec.Body.Bytes(), &meta))
+	files, ok := meta["files"].(map[string]any)
+	require.True(t, ok, "files sub-object must be present")
+	source, ok := files["source"].(map[string]any)
+	require.True(t, ok, "files.source must be present")
+	assert.InDelta(t, float64(0), source["contentLength"], 0)
+}

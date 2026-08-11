@@ -1,36 +1,28 @@
 package s3control
 
-// Code in this file supports Phase 3.3 of the datalayer refactor: every
-// map[string]*T resource field on InMemoryBackend is registered exactly once,
-// here, as a *store.Table[T] on b.registry -- following the pattern
-// established by services/ec2 (commit 12e611a4, data-driven registration
-// slice), services/sqs (commit 0f09d77c, DTO-registry), and services/ses
-// (commit e9af4cc7, json:"-" identity field + DTO for identity-less types).
-// See pkgs/store's package doc for the underlying primitive.
-//
-// Tables split into two groups:
+// Every map[string]*T resource field on InMemoryBackend is registered
+// exactly once, here, as a *store.Table[T] on b.registry (see pkgs/store's
+// package doc for the underlying primitive). Tables split into two groups:
 //
 //   - "Clean" tables key off fields the value type already carries (usually
 //     AccountID plus a resource ID/name), so they are registered on
 //     b.registry here and persistence.go drives them through
 //     b.registry.SnapshotAll() / RestoreAll() directly.
 //   - "Dirty" tables key off a field with no natural home on the value
-//     type: MultiRegionAccessPointRequest carried its bare async-request
-//     token only embedded inside a full ARN (RequestTokenARN), and
-//     PublicAccessBlock -- shared by the account-level "configs" table and
-//     the per-access-point "accessPointPABs" table -- carried no access
-//     point name at all. Both gained an identity-only field tagged
-//     json:"-" purely so store.Table's keyFn can derive a key from the
-//     value -- see the doc comments on those fields in store.go. They are
-//     NOT registered on b.registry: persistence.go instead builds a
-//     throwaway DTO store.Registry (mirroring the services/sqs pilot) whose
-//     DTO types carry the identity as a real JSON field, so Snapshot/Restore
-//     never depends on a json:"-" field to round-trip correctly.
+//     type: MultiRegionAccessPointRequest's async-request token is only
+//     embedded inside a full ARN (RequestTokenARN), and PublicAccessBlock —
+//     shared by the account-level "configs" table and the per-access-point
+//     "accessPointPABs" table — carries no access point name at all. Both
+//     gained an identity-only field tagged json:"-" purely so store.Table's
+//     keyFn can derive a key (see those fields' doc comments in store.go).
+//     They are NOT registered on b.registry: persistence.go instead builds
+//     a throwaway DTO store.Registry whose DTO types carry the identity as
+//     a real JSON field, so Snapshot/Restore never depends on a json:"-"
+//     field to round-trip correctly.
 //
-// Every map[string]*T resource field this backend had is a flat map keyed by
-// a composite string ("accountID:resourceID" or bare accountID); none were
-// nested (map[string]map[string]*T), so no store.Index is needed here --
-// unlike services/ses's eventDestinations.
+// Every map[string]*T resource field this backend had is a flat map keyed
+// by a composite string ("accountID:resourceID" or bare accountID); none
+// were nested, so no store.Index is needed here.
 import "github.com/blackbirdworks/gopherstack/pkgs/store"
 
 func publicAccessBlockKeyFn(v *PublicAccessBlock) string { return v.AccountID }

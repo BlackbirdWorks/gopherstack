@@ -272,7 +272,7 @@ func TestIntegration_Lambda_SQS_ESM(t *testing.T) {
 
 	// --- Cleanup ---
 	t.Cleanup(func() {
-		cleanupCtx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		_, _ = lambdaClient.DeleteEventSourceMapping(cleanupCtx, &lambdasdk.DeleteEventSourceMappingInput{

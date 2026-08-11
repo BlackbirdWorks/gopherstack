@@ -17,6 +17,7 @@ func (b *InMemoryBackend) CreateDBClusterParameterGroup(name, family, descriptio
 	}
 	pg := &DBParameterGroup{
 		DBParameterGroupName:   name,
+		DBParameterGroupArn:    b.rdsARN("cluster-pg", name),
 		DBParameterGroupFamily: family,
 		Description:            description,
 		Parameters:             make(map[string]DBParameter),
@@ -96,6 +97,7 @@ func (b *InMemoryBackend) CopyDBClusterParameterGroup(
 	}
 
 	pg := copyParameterGroupTo(src, targetGroupName, targetDescription)
+	pg.DBParameterGroupArn = b.rdsARN("cluster-pg", targetGroupName)
 	b.clusterParameterGroups.Put(pg)
 
 	cp := copyDBParameterGroup(pg)

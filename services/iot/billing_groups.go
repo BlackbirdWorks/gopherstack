@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 	"github.com/google/uuid"
 )
 
@@ -76,9 +77,10 @@ func (b *InMemoryBackend) billingGroupARN(name string) string {
 
 // CreateBillingGroupInput holds input for CreateBillingGroup.
 type CreateBillingGroupInput struct {
-	Tags                   map[string]string      `json:"tags,omitempty"`
 	BillingGroupName       string                 `json:"billingGroupName"`
 	BillingGroupProperties BillingGroupProperties `json:"billingGroupProperties,omitzero"`
+	// []types.Tag on the wire, not a map (serializers.go:1779, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags []tags.KV `json:"tags,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateBillingGroup(
@@ -102,10 +104,11 @@ func (b *InMemoryBackend) CreateBillingGroup(
 		BillingGroupMetadata: BillingGroupMetadata{
 			CreationDate: float64(time.Now().Unix()),
 		},
-		Tags:    input.Tags,
+		Tags:    tags.MapFromKV(input.Tags),
 		Version: 1,
 	}
 	b.billingGroups.Put(bg)
+	b.putResourceTagsLocked(bg.BillingGroupARN, bg.Tags)
 
 	return cloneBillingGroup(bg), nil
 }

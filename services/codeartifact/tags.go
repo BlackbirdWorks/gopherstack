@@ -5,6 +5,49 @@ import (
 	"fmt"
 )
 
+// TaggedEntry pairs a resource ARN with its tags.
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every CodeArtifact domain, repository, and
+// package-group ARN that currently has at least one tag, across every
+// region (unlike TagResource/UntagResource/ListTagsForResource, which are
+// scoped to the caller's own region via getRegion).
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, b.domains.Len()+b.repositories.Len()+b.packageGroups.Len())
+
+	for _, d := range b.domains.All() {
+		if d.Tags == nil || d.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: d.ARN, Tags: d.Tags.Clone()})
+	}
+
+	for _, r := range b.repositories.All() {
+		if r.Tags == nil || r.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: r.ARN, Tags: r.Tags.Clone()})
+	}
+
+	for _, pg := range b.packageGroups.All() {
+		if pg.Tags == nil || pg.Tags.Len() == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: pg.ARN, Tags: pg.Tags.Clone()})
+	}
+
+	return out
+}
+
 // TagResource adds or replaces tags on a resource by ARN.
 func (b *InMemoryBackend) TagResource(ctx context.Context, resourceARN string, kv map[string]string) error {
 	region := getRegion(ctx, b.region)

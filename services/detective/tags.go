@@ -71,6 +71,32 @@ func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]st
 	return result, nil
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingDetective).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every Detective graph ARN that currently has at
+// least one tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arn, t := range b.tags {
+		if len(t) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	return out
+}
+
 // isKnownResource returns true if the ARN corresponds to a known graph.
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) isKnownResource(arn string) bool {

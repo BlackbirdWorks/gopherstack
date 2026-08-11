@@ -55,6 +55,7 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		sessionDuration = defaultSessionDuration
 	}
 
+	now := time.Now().UTC()
 	ps := &PermissionSet{
 		PermissionSetArn: psArn,
 		InstanceArn:      instanceArn,
@@ -62,7 +63,8 @@ func (b *InMemoryBackend) CreatePermissionSet(
 		Description:      description,
 		SessionDuration:  sessionDuration,
 		RelayState:       relayState,
-		CreatedDate:      time.Now().UTC(),
+		CreatedDate:      now,
+		ModifiedDate:     now,
 		Tags:             make(map[string]string),
 	}
 	maps.Copy(ps.Tags, tags)
@@ -74,7 +76,9 @@ func (b *InMemoryBackend) CreatePermissionSet(
 }
 
 // DescribePermissionSet returns a specific permission set.
-func (b *InMemoryBackend) DescribePermissionSet(instanceArn, permissionSetArn string) (*PermissionSet, error) {
+func (b *InMemoryBackend) DescribePermissionSet(
+	instanceArn, permissionSetArn string,
+) (*PermissionSet, error) {
 	b.mu.RLock("DescribePermissionSet")
 	defer b.mu.RUnlock()
 
@@ -142,14 +146,24 @@ func (b *InMemoryBackend) UpdatePermissionSet(
 			return err
 		}
 	}
+
+	var changed bool
+
 	if description != "" {
 		ps.Description = description
+		changed = true
 	}
 	if sessionDuration != "" {
 		ps.SessionDuration = sessionDuration
+		changed = true
 	}
 	if relayState != "" {
 		ps.RelayState = relayState
+		changed = true
+	}
+
+	if changed {
+		bumpModified(ps)
 	}
 
 	return nil
@@ -191,17 +205,60 @@ func (b *InMemoryBackend) ProvisionPermissionSet(
 	}
 
 	requestID := uuid.NewString()
+	now := time.Now().UTC()
 	pruneOldestStatus(b.provisioningStatuses)
 	b.provisioningStatuses.Put(&ProvisioningStatus{
 		RequestID:        requestID,
 		Status:           statusInProgress,
-		CreatedDate:      time.Now().UTC(),
+		CreatedDate:      now,
 		PermissionSetArn: permissionSetArn,
 		TargetType:       targetType,
 		AccountID:        targetID,
 	})
 
+	b.recordProvisionedLocked(instanceArn, permissionSetArn, targetType, targetID, now)
+
 	return requestID, nil
+}
+
+// bumpModified stamps ps.ModifiedDate to now -- called by every op that
+// changes a permission set's effective content (managed/customer-managed
+// policy attach-detach, inline policy, permissions boundary, UpdatePermissionSet),
+// since that content is what ListPermissionSetsProvisionedToAccount/
+// ListAccountsForProvisionedPermissionSet's ProvisioningStatus filter compares
+// against each account's last-provisioned timestamp.
+func bumpModified(ps *PermissionSet) {
+	ps.ModifiedDate = time.Now().UTC()
+}
+
+// provisionedAtKey builds the composite key provisionedAt is keyed by.
+func provisionedAtKey(instanceArn, permissionSetArn, accountID string) string {
+	return instanceArn + "|" + permissionSetArn + "|" + accountID
+}
+
+// recordProvisionedLocked marks permissionSetArn as (re-)provisioned to the
+// account(s) targetType/targetID identify, at time t. AWS_ACCOUNT marks a
+// single account; ALL_PROVISIONED_ACCOUNTS marks every account the
+// permission set currently has an assignment in (this backend has no
+// broader "all accounts in the org" concept, so ALL_PROVISIONED_ACCOUNTS is
+// scoped to accounts already provisioned, matching its name). Caller must
+// hold the write lock.
+func (b *InMemoryBackend) recordProvisionedLocked(
+	instanceArn, permissionSetArn, targetType, targetID string,
+	t time.Time,
+) {
+	if targetType == targetTypeAllProvisionedAccounts {
+		key := assignmentKey(instanceArn, permissionSetArn)
+		for _, a := range b.assignments[key] {
+			b.provisionedAt[provisionedAtKey(instanceArn, permissionSetArn, a.AccountID)] = t
+		}
+
+		return
+	}
+
+	if targetID != "" {
+		b.provisionedAt[provisionedAtKey(instanceArn, permissionSetArn, targetID)] = t
+	}
 }
 
 // DescribePermissionSetProvisioningStatus returns the status of a provisioning request.
@@ -228,7 +285,9 @@ func (b *InMemoryBackend) DescribePermissionSetProvisioningStatus(
 
 // ListPermissionSetProvisioningStatus returns permission-set provisioning statuses sorted by date descending.
 // filterStatus filters by status when non-empty.
-func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(_, filterStatus string) []*ProvisioningStatus {
+func (b *InMemoryBackend) ListPermissionSetProvisioningStatus(
+	_, filterStatus string,
+) []*ProvisioningStatus {
 	b.mu.RLock("ListPermissionSetProvisioningStatus")
 	defer b.mu.RUnlock()
 
@@ -254,8 +313,10 @@ func validatePermissionSetName(name string) error {
 			awserr.ErrInvalidParameter, maxPermissionSetNameLen)
 	}
 	if name != "" && !permissionSetNameRe.MatchString(name) {
-		return fmt.Errorf("%w: permission set name contains invalid characters (allowed: [\\w+=,.@-])",
-			awserr.ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: permission set name contains invalid characters (allowed: [\\w+=,.@-])",
+			awserr.ErrInvalidParameter,
+		)
 	}
 
 	return nil
@@ -268,30 +329,44 @@ func validateSessionDuration(dur string) error {
 		return nil
 	}
 	if !strings.HasPrefix(dur, "PT") {
-		return fmt.Errorf("%w: SessionDuration must be an ISO8601 duration starting with PT (e.g. PT1H)",
-			awserr.ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: SessionDuration must be an ISO8601 duration starting with PT (e.g. PT1H)",
+			awserr.ErrInvalidParameter,
+		)
 	}
 	// Parse hours and minutes from PTxHyM / PTxH / PTyM
 	rest := dur[2:]
 	var hours, minutes int
 	if h := strings.Index(rest, "H"); h >= 0 {
 		if _, err := fmt.Sscanf(rest[:h], "%d", &hours); err != nil || hours < 0 {
-			return fmt.Errorf("%w: SessionDuration has invalid hours component", awserr.ErrInvalidParameter)
+			return fmt.Errorf(
+				"%w: SessionDuration has invalid hours component",
+				awserr.ErrInvalidParameter,
+			)
 		}
 		rest = rest[h+1:]
 	}
 	if m := strings.Index(rest, "M"); m >= 0 {
 		if _, err := fmt.Sscanf(rest[:m], "%d", &minutes); err != nil || minutes < 0 {
-			return fmt.Errorf("%w: SessionDuration has invalid minutes component", awserr.ErrInvalidParameter)
+			return fmt.Errorf(
+				"%w: SessionDuration has invalid minutes component",
+				awserr.ErrInvalidParameter,
+			)
 		}
 		rest = rest[m+1:]
 	}
 	if rest != "" {
-		return fmt.Errorf("%w: SessionDuration has unsupported components", awserr.ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: SessionDuration has unsupported components",
+			awserr.ErrInvalidParameter,
+		)
 	}
 	totalMinutes := hours*minutesPerHour + minutes
 	if totalMinutes < minSessionMinutes || totalMinutes > maxSessionMinutes {
-		return fmt.Errorf("%w: SessionDuration must be between PT1H and PT12H", awserr.ErrInvalidParameter)
+		return fmt.Errorf(
+			"%w: SessionDuration must be between PT1H and PT12H",
+			awserr.ErrInvalidParameter,
+		)
 	}
 
 	return nil
@@ -324,13 +399,62 @@ func (b *InMemoryBackend) AddPermissionSetInternal(instanceArn, name string) *Pe
 		CreatedDate:      time.Now().UTC(),
 		Tags:             make(map[string]string),
 	}
+	ps.ModifiedDate = ps.CreatedDate
 	b.permissionSets.Put(ps)
 
 	return b.copyPermissionSet(ps)
 }
 
-// ListPermissionSetsProvisionedToAccount returns the permission set ARNs provisioned to a specific account.
-func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, accountID string) []string {
+// isProvisionedLocked reports whether permissionSetArn is currently
+// LATEST_PERMISSION_SET_PROVISIONED (true) or LATEST_PERMISSION_SET_NOT_PROVISIONED
+// (false) for accountID: provisioned iff it has a recorded provisioning
+// timestamp (see recordProvisionedLocked) at or after the permission set's
+// ModifiedDate. An account with no recorded provisioning timestamp at all is
+// treated as NOT_PROVISIONED (conservative default -- this backend cannot
+// claim an account is up to date with no evidence it was ever provisioned).
+// Caller must hold at least the read lock.
+func (b *InMemoryBackend) isProvisionedLocked(
+	ps *PermissionSet,
+	instanceArn, accountID string,
+) bool {
+	provisionedAt, ok := b.provisionedAt[provisionedAtKey(instanceArn, ps.PermissionSetArn, accountID)]
+	if !ok {
+		return false
+	}
+
+	return !ps.ModifiedDate.After(provisionedAt)
+}
+
+// matchesProvisioningStatusLocked reports whether accountID's provisioning
+// state for permissionSetArn matches filterStatus. An empty filterStatus
+// always matches (no filter requested). Caller must hold at least the read lock.
+func (b *InMemoryBackend) matchesProvisioningStatusLocked(
+	instanceArn, permissionSetArn, accountID, filterStatus string,
+) bool {
+	if filterStatus == "" {
+		return true
+	}
+
+	ps, ok := b.permissionSets.Get(permissionSetArn)
+	if !ok {
+		return false
+	}
+
+	provisioned := b.isProvisionedLocked(ps, instanceArn, accountID)
+	if filterStatus == provisioningStatusLatestProvisioned {
+		return provisioned
+	}
+
+	return !provisioned
+}
+
+// ListPermissionSetsProvisionedToAccount returns the permission set ARNs
+// provisioned to a specific account, optionally filtered by
+// ProvisioningStatus (LATEST_PERMISSION_SET_PROVISIONED /
+// LATEST_PERMISSION_SET_NOT_PROVISIONED; empty means no filter).
+func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(
+	instanceArn, accountID, filterStatus string,
+) []string {
 	b.mu.RLock("ListPermissionSetsProvisionedToAccount")
 	defer b.mu.RUnlock()
 
@@ -341,8 +465,11 @@ func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, ac
 			continue
 		}
 		for _, a := range assignments {
-			if a.AccountID == accountID {
-				psArn := strings.TrimPrefix(key, instanceArn+"|")
+			if a.AccountID != accountID {
+				continue
+			}
+			psArn := strings.TrimPrefix(key, instanceArn+"|")
+			if b.matchesProvisioningStatusLocked(instanceArn, psArn, accountID, filterStatus) {
 				seen[psArn] = struct{}{}
 			}
 		}
@@ -352,9 +479,11 @@ func (b *InMemoryBackend) ListPermissionSetsProvisionedToAccount(instanceArn, ac
 	return result
 }
 
-// ListAccountsForProvisionedPermissionSet returns account IDs where a permission set has assignments.
+// ListAccountsForProvisionedPermissionSet returns account IDs where a
+// permission set has assignments, optionally filtered by ProvisioningStatus
+// (see ListPermissionSetsProvisionedToAccount).
 func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
-	instanceArn, permissionSetArn string,
+	instanceArn, permissionSetArn, filterStatus string,
 ) ([]string, error) {
 	b.mu.RLock("ListAccountsForProvisionedPermissionSet")
 	defer b.mu.RUnlock()
@@ -369,7 +498,14 @@ func (b *InMemoryBackend) ListAccountsForProvisionedPermissionSet(
 	key := assignmentKey(instanceArn, permissionSetArn)
 	seen := map[string]struct{}{}
 	for _, a := range b.assignments[key] {
-		seen[a.AccountID] = struct{}{}
+		if b.matchesProvisioningStatusLocked(
+			instanceArn,
+			permissionSetArn,
+			a.AccountID,
+			filterStatus,
+		) {
+			seen[a.AccountID] = struct{}{}
+		}
 	}
 
 	result := collections.SortedKeys(seen)

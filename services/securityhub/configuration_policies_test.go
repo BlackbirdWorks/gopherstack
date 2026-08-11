@@ -433,3 +433,34 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 		})
 	}
 }
+
+// TestCreateConfigurationPolicy_TagsReachTagStore verifies that Tags supplied
+// on CreateConfigurationPolicy (confirmed accepted by the real
+// CreateConfigurationPolicyRequest, botocore securityhub/2018-10-26) reach
+// the same store ListTagsForResource reads, rather than staying only on the
+// policy's own record (gopherstack-2mwl).
+func TestCreateConfigurationPolicy_TagsReachTagStore(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/configurationPolicy/create", map[string]any{
+		"Name":                "tagged-policy",
+		"ConfigurationPolicy": map[string]any{},
+		"Tags":                map[string]any{"team": "sec"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	policyArn, _ := resp["Arn"].(string)
+	require.NotEmpty(t, policyArn)
+
+	tagRec := doRequest(t, h, http.MethodGet, "/tags/"+policyArn, nil)
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	var tagResp map[string]any
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	tags, _ := tagResp["Tags"].(map[string]any)
+	assert.Equal(t, "sec", tags["team"])
+}

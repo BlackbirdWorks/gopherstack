@@ -3,7 +3,6 @@ package integration_test
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
@@ -143,7 +142,7 @@ func TestIntegration_DDB_UpdateItem(t *testing.T) {
 				assert.NoError(t, dErr)
 			})
 
-			time.Sleep(50 * time.Millisecond)
+			waitForDDBTableActive(t, client, tableName)
 
 			if tt.setup != nil {
 				tt.setup(t, ctx, tableName)

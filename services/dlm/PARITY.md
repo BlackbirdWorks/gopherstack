@@ -1,24 +1,21 @@
 ---
 service: dlm
-sdk_module: aws-sdk-go-v2/service/dlm@v1.37.2   # version audited against
-last_audit_commit: pending (agent instructed not to run git; set at commit time)
-last_audit_date: 2026-07-24
-overall: A            # full re-sweep; 3 genuine bugs found and fixed (see ops/notes below)
+sdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # version audited against (go.mod pin)
+last_audit_commit: 9b57a61dd
+last_audit_date: 2026-08-10
+overall: A            # gopherstack-x009: DefaultPolicy echo + LimitExceededException quota added; StatusMessage confirmed honest
 ops:
-  CreateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects missing Description/ExecutionRoleArn with InvalidRequestException (both are required members of the real CreateLifecyclePolicyInput). PolicyDetails is stored as an opaque map[string]any and round-tripped verbatim, so every nested member documented in the real types.PolicyDetails (Actions, CopyTags, CreateInterval, CrossRegionCopyTargets, EventSource, Exclusions, ExtendDeletion, Parameters, PolicyLanguage, PolicyType, ResourceLocations, ResourceType, ResourceTypes, RetainInterval, Schedules[].{CreateRule,RetainRule,FastRestoreRule,ArchiveRule,CrossRegionCopyRules,DeprecateRule,ShareRules,TagsToAdd,VariableTags}, TargetTags) survives Create->Get unmodified; ResourceTypes/TargetTags/Schedules[].TagsToAdd are additionally decoded for GetLifecyclePolicies filtering (see models.go)"}
-  GetLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "full LifecyclePolicy shape; DateCreated/DateModified are ISO8601 strings on the wire (smithytime.ParseDateTime), not epoch-seconds -- Go's default time.Time JSON marshaling already matches, do not re-flag"}
-  GetLifecyclePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "policyIds/resourceTypes/targetTags/tagsToAdd all correctly read as repeated query keys via q[key]; PolicyType present on every summary"}
-  UpdateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: Description/ExecutionRoleArn are now *string end-to-end (StorageBackend interface, handler request struct, backend), so an explicit empty string (\"Description\":\"\") clears the field while an omitted key leaves it unchanged -- matches the real UpdateLifecyclePolicyInput, whose serializer (awsRestjson1_serializeOpDocumentUpdateLifecyclePolicyInput) only omits a wire key when the *string pointer itself is nil. State intentionally stays a plain string: SettablePolicyStateValues is a non-pointer value type on the wire and the real serializer only emits it `if len(State) > 0`, so an explicit empty State is not constructible even by the real SDK -- no gap there."}
+  CreateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects missing Description/ExecutionRoleArn with InvalidRequestException (both are required members of the real CreateLifecyclePolicyInput). PolicyDetails is stored as an opaque map[string]any and round-tripped verbatim, so every nested member documented in the real types.PolicyDetails (Actions, CopyTags, CreateInterval, CrossRegionCopyTargets, EventSource, Exclusions, ExtendDeletion, Parameters, PolicyLanguage, PolicyType, ResourceLocations, ResourceType, ResourceTypes, RetainInterval, Schedules[].{CreateRule,RetainRule,FastRestoreRule,ArchiveRule,CrossRegionCopyRules,DeprecateRule,ShareRules,TagsToAdd,VariableTags}, TargetTags) survives Create->Get unmodified; ResourceTypes/TargetTags/Schedules[].TagsToAdd are additionally decoded for GetLifecyclePolicies filtering (see models.go). FIXED 2026-08-08 (gopherstack-ks2s.12): the top-level [Default policies only] request members (CopyTags, CreateInterval, CrossRegionCopyTargets, DefaultPolicy, Exclusions, ExtendDeletion, RetainInterval -- aws-sdk-go-v2/service/dlm@v1.39.4/api_op_CreateLifecyclePolicy.go:65-138) were entirely absent from the handler's request struct and silently dropped. Now accepted and folded into the stored PolicyDetails document under the identical member names types.PolicyDetails documents for them (types/types.go:512-648), with DefaultPolicy (VOLUME/INSTANCE) mapped to PolicyDetails.ResourceType (types/types.go:614-622, same enum) plus PolicyLanguage=SIMPLIFIED -- see defaultPolicyFields in models.go. FIXED 2026-08-10 (gopherstack-x009): now enforces LimitExceededException once the backend already holds maxPoliciesPerRegion (100) policies -- AWS's documented default \"Policies per Region\" quota (adjustable; quota code L-5407D8DA, docs.aws.amazon.com/general/latest/gr/dlm.html), matching the modeled error catalog (types/errors.go:70, LimitExceededException.ErrorFault==FaultClient)."}
+  GetLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "full LifecyclePolicy shape; DateCreated/DateModified are ISO8601 strings on the wire (smithytime.ParseDateTime), not epoch-seconds -- Go's default time.Time JSON marshaling already matches, do not re-flag. StatusMessage field added 2026-08-07 (gopherstack-x009): threaded through storedPolicy/Policy/wire response; always empty since this backend's state machine never produces GettablePolicyStateValuesError, but now present on the wire rather than entirely absent, matching the real LifecyclePolicy shape -- verified as an honest gap, not a stub: StatusMessage is real AWS's free-text description of why a policy landed in ERROR (types/types.go:432-433), a state this backend's create/update/delete state machine (ENABLED/DISABLED only) never produces. FIXED 2026-08-10 (gopherstack-x009): the response now also carries the top-level DefaultPolicy bool (types/types.go:405-411), derived (not separately stored) from whether the stored PolicyDetails.PolicyLanguage equals SIMPLIFIED -- the same signal defaultPolicyFields.applyTo sets on every default-policy Create, so there is no separate piece of state that could drift out of sync with it."}
+  GetLifecyclePolicies: {wire: ok, errors: ok, state: ok, persist: ok, note: "policyIds/resourceTypes/targetTags/tagsToAdd all correctly read as repeated query keys via q[key]; PolicyType present on every summary. FIXED 2026-08-10 (gopherstack-x009): LifecyclePolicySummary also carries a top-level DefaultPolicy bool (types/types.go:449), same derivation as GetLifecyclePolicy."}
+  UpdateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: Description/ExecutionRoleArn are now *string end-to-end (StorageBackend interface, handler request struct, backend), so an explicit empty string (\"Description\":\"\") clears the field while an omitted key leaves it unchanged -- matches the real UpdateLifecyclePolicyInput, whose serializer (awsRestjson1_serializeOpDocumentUpdateLifecyclePolicyInput) only omits a wire key when the *string pointer itself is nil. State intentionally stays a plain string: SettablePolicyStateValues is a non-pointer value type on the wire and the real serializer only emits it `if len(State) > 0`, so an explicit empty State is not constructible even by the real SDK -- no gap there. FIXED 2026-08-08 (gopherstack-ks2s.12): the same top-level [Default policies only] members as Create (minus DefaultPolicy, which UpdateLifecyclePolicyInput has no member for -- api_op_UpdateLifecyclePolicy.go:39-97, policy type can't change post-creation) are now accepted and merged into the existing stored PolicyDetails under lock (StorageBackend.UpdateLifecyclePolicy's new defaultPolicyOverrides param), so a PATCH that omits PolicyDetails entirely can still patch e.g. RetainInterval without clobbering Schedules/other nested fields."}
   DeleteLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: tagKeys query values were read via a manual strings.SplitSeq(rawQuery, \"&\") + CutPrefix loop that never percent-decoded the value, unlike the real SDK wire format (encoder.AddQuery(\"tagKeys\") -> url.Values.Encode(), standard percent/plus escaping per encode.go's Encoder.Encode). A tag key containing a space, '=', '&', or '%' would silently fail to match the stored (decoded) key and UntagResource would no-op. Switched to c.Request().URL.Query()[\"tagKeys\"], which decodes correctly."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   routing: {status: ok, note: "FIXED this sweep: RouteMatcher's /tags/{arn} branch hardcoded an \"arn:aws:dlm:\" prefix check, but pkgs/arn.Build (used by this same backend's CreateLifecyclePolicy to mint PolicyArn) derives the ARN partition from the region (aws-us-gov, aws-cn, aws-iso, aws-iso-b via arn.PartitionForRegion) -- a backend constructed with a GovCloud/China/ISO region produced PolicyArn values the router would then refuse to accept on TagResource/UntagResource/ListTagsForResource, a self-inconsistency within the service (Create/Get worked, Tag* silently 404/unrouted). Replaced with isDLMResourceARN, a partition-agnostic arn:<partition>:dlm:... check. classifyPath/RouteMatcher otherwise correctly disambiguate GET /policies (list) vs GET /policies/{id} (get), and PATCH for UpdateLifecyclePolicy, per generated serializers.go opPath templates."}
-gaps:
-  - StatusMessage field (present on the real LifecyclePolicy shape) is not modeled -- always absent, since this backend never simulates a policy entering an error/degraded state. Adding an always-empty field would be a no-op with no observable behavior difference, so it was left out rather than added for its own sake.
-  - DefaultPolicy / SIMPLIFIED-policy-language top-level Create/Update fields (CopyTags, CreateInterval, CrossRegionCopyTargets, Exclusions, ExtendDeletion, RetainInterval, DefaultPolicy, DefaultPolicyType) are not implemented; only the PolicyDetails-based STANDARD policy path is supported. GetLifecyclePolicy falls back to a minimal synthesized `{"PolicyType": "EBS_SNAPSHOT_MANAGEMENT"}` PolicyDetails when none was stored, which is a reasonable approximation for this out-of-scope area, not a data-corrupting stub.
-  - LimitExceededException (the ~100-policies-per-account default AWS quota) is not enforced -- consistent with this codebase's general choice not to simulate account-level service quotas elsewhere.
+gaps: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
 ---
@@ -113,3 +110,40 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
   type in the same struct, and its serializer only emits it `if len(v.State)
   > 0` -- the real SDK itself cannot construct a request with an explicit
   empty `State`, so there is no wire state to distinguish.
+
+- **`StatusMessage` is a genuine, correctly-empty field, not a stub**:
+  `types.LifecyclePolicy.StatusMessage` (types/types.go:432-433) is "the
+  description of the status" -- populated by the real service when a policy
+  transitions to `GettablePolicyStateValues.Error` (types/enums.go:103), a
+  state that only occurs when the DLM control plane itself fails to run a
+  scheduled action (e.g. the customer's `ExecutionRoleArn` loses
+  `dlm.amazonaws.com` trust, or hits an EC2-side failure applying the
+  policy). This backend's state machine only ever assigns `ENABLED`/
+  `DISABLED` (`stateEnabled`/`stateDisabled` in models.go) -- there is no
+  code path that could produce `ERROR`, so `StatusMessage` staying always
+  empty here matches what real AWS would also return for every policy this
+  emulator can construct, not an unmodeled feature.
+
+- **`DefaultPolicy` top-level bool is derived, not separately stored**: real
+  AWS's `LifecyclePolicy`/`LifecyclePolicySummary` both carry a top-level
+  `DefaultPolicy *bool` (types/types.go:411,449), wire key `"DefaultPolicy"`
+  (`deserializers.go:2473-2479,2577-2583`). Rather than adding a second,
+  independently-settable field that could drift from the nested
+  `PolicyDetails.PolicyLanguage` value, `policyDetailsIsDefaultPolicy`
+  (models.go) computes it at read time from whether
+  `PolicyDetails["PolicyLanguage"] == "SIMPLIFIED"` -- the exact signal
+  `defaultPolicyFields.applyTo` sets on every default-policy Create. One
+  source of truth, no persisted duplicate, no snapshot version bump needed.
+
+- **`LimitExceededException` quota has a real, deterministic trigger**:
+  unlike account-level infrastructure limits with no reproducible trigger in
+  an emulator, DLM publishes a stable, documented default quota -- "Policies
+  per Region": 100, adjustable, quota code `L-5407D8DA`
+  (docs.aws.amazon.com/general/latest/gr/dlm.html) -- and
+  `LimitExceededException` is in the real `CreateLifecyclePolicy` error
+  catalog (`types/errors.go:70`, `ErrorFault() == FaultClient`).
+  `CreateLifecyclePolicy` now rejects the 101st policy in a single backend
+  with `LimitExceededException`, matching this codebase's existing
+  convention for documented default quotas (e.g. `services/glue`'s
+  `maxDevEndpointsPerAccount`, `services/applicationautoscaling`'s
+  `ErrLimitExceeded`).

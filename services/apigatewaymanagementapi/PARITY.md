@@ -1,6 +1,6 @@
 ---
 service: apigatewaymanagementapi
-sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.29.13
+sdk_module: aws-sdk-go-v2/service/apigatewaymanagementapi@v1.32.4
 last_audit_commit: 2d47b51d4
 last_audit_date: 2026-07-29
 overall: A            # re-verified field-diff against downloaded SDK source this pass; 1 additional bug fixed (admin Broadcast non-delivery)

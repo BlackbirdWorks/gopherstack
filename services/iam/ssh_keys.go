@@ -37,20 +37,18 @@ func (b *InMemoryBackend) UploadSSHPublicKey(userName, body string) (*SSHPublicK
 		UploadDate:       time.Now().UTC(),
 	}
 
-	c := b.comp()
-	c.mu.Lock()
-	c.sshPublicKeys[keyID] = key
-	c.mu.Unlock()
+	b.mu.Lock("UploadSSHPublicKey")
+	b.comp().sshPublicKeys[keyID] = key
+	b.mu.Unlock()
 
 	return &key, nil
 }
 
 // GetSSHPublicKey retrieves an SSH public key by user name and key ID.
 func (b *InMemoryBackend) GetSSHPublicKey(userName, keyID string) (*SSHPublicKey, error) {
-	c := b.comp()
-	c.mu.Lock()
-	key, exists := c.sshPublicKeys[keyID]
-	c.mu.Unlock()
+	b.mu.RLock("GetSSHPublicKey")
+	key, exists := b.comp().sshPublicKeys[keyID]
+	b.mu.RUnlock()
 
 	if !exists || key.UserName != userName {
 		return nil, fmt.Errorf("%w: SSH public key %q not found for user %q", ErrAccessKeyNotFound, keyID, userName)
@@ -71,18 +69,17 @@ func (b *InMemoryBackend) ListSSHPublicKeys(
 		return page.Page[SSHPublicKey]{}, fmt.Errorf("%w: user %q not found", ErrUserNotFound, userName)
 	}
 
-	c := b.comp()
-	c.mu.Lock()
+	b.mu.RLock("ListSSHPublicKeys")
 
 	var keys []SSHPublicKey
 
-	for _, k := range c.sshPublicKeys {
+	for _, k := range b.comp().sshPublicKeys {
 		if k.UserName == userName {
 			keys = append(keys, k)
 		}
 	}
 
-	c.mu.Unlock()
+	b.mu.RUnlock()
 
 	sort.Slice(keys, func(i, j int) bool { return keys[i].SSHPublicKeyID < keys[j].SSHPublicKeyID })
 
@@ -91,9 +88,10 @@ func (b *InMemoryBackend) ListSSHPublicKeys(
 
 // UpdateSSHPublicKey updates the status of an SSH public key.
 func (b *InMemoryBackend) UpdateSSHPublicKey(userName, keyID, status string) error {
+	b.mu.Lock("UpdateSSHPublicKey")
+	defer b.mu.Unlock()
+
 	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	key, exists := c.sshPublicKeys[keyID]
 	if !exists || key.UserName != userName {
@@ -108,9 +106,10 @@ func (b *InMemoryBackend) UpdateSSHPublicKey(userName, keyID, status string) err
 
 // DeleteSSHPublicKey removes an SSH public key.
 func (b *InMemoryBackend) DeleteSSHPublicKey(userName, keyID string) error {
+	b.mu.Lock("DeleteSSHPublicKey")
+	defer b.mu.Unlock()
+
 	c := b.comp()
-	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	key, exists := c.sshPublicKeys[keyID]
 	if !exists || key.UserName != userName {

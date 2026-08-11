@@ -93,18 +93,27 @@ func (b *InMemoryBackend) GetVariantStore(name string) (*VariantStore, error) {
 	return &result, nil
 }
 
-// ListVariantStores lists variant stores.
+// ListVariantStores lists variant stores, optionally filtered by status
+// and/or a specific set of store ids (real AWS ListVariantStoresInput body
+// "filter"/"ids", omics@v1.49.5 serializers.go:7543).
 func (b *InMemoryBackend) ListVariantStores(
+	filter *StoreStatusFilter,
+	ids0 []string,
 	maxResults int,
 	nextToken string,
 ) ([]*VariantStore, string, error) {
 	b.mu.RLock("ListVariantStores")
 	defer b.mu.RUnlock()
 
+	idSet := stringSet(ids0)
 	all := b.variantStores.All()
 	names := make([]string, 0, len(all))
 
 	for _, vs := range all {
+		if !storeMatchesFilter(vs.Status, vs.ID, filter, idSet) {
+			continue
+		}
+
 		names = append(names, vs.Name)
 	}
 

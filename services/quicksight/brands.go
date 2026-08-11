@@ -1,6 +1,7 @@
 package quicksight
 
 import (
+	"maps"
 	"sort"
 	"strconv"
 	"time"
@@ -70,7 +71,11 @@ func (b *storedBrand) toBrandVersion(versionID string) (*Brand, error) {
 
 // ---- Brands ----
 
-func (b *InMemoryBackend) CreateBrand(accountID, brandID string, definition map[string]any) (*Brand, error) {
+func (b *InMemoryBackend) CreateBrand(
+	accountID, brandID string,
+	definition map[string]any,
+	tags map[string]string,
+) (*Brand, error) {
 	if brandID == "" {
 		return nil, ErrValidation
 	}
@@ -101,6 +106,10 @@ func (b *InMemoryBackend) CreateBrand(accountID, brandID string, definition map[
 		},
 	}
 	b.brands.Put(brand)
+
+	if len(tags) > 0 {
+		b.tags[brand.Arn] = maps.Clone(tags)
+	}
 
 	return brand.toBrand(), nil
 }

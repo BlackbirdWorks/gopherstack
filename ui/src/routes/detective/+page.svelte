@@ -1,6 +1,8 @@
 <script lang="ts">
-	import { onRegionChange } from '$lib/region-effect.svelte';
+	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getDetectiveClient } from '$lib/aws-client';
+	import { currentRegion } from '$lib/region.svelte';
+	import RegionChip from '$lib/components/RegionChip.svelte';
 	import {
 		ListGraphsCommand,
 		CreateGraphCommand,
@@ -16,10 +18,29 @@
 		StartInvestigationCommand,
 		GetInvestigationCommand,
 		ListIndicatorsCommand,
+		TagResourceCommand,
+		UntagResourceCommand,
+		ListTagsForResourceCommand,
+		StartMonitoringMemberCommand,
+		DisassociateMembershipCommand,
+		ListDatasourcePackagesCommand,
+		UpdateDatasourcePackagesCommand,
+		BatchGetGraphMemberDatasourcesCommand,
+		BatchGetMembershipDatasourcesCommand,
+		UpdateInvestigationStateCommand,
+		DescribeOrganizationConfigurationCommand,
+		UpdateOrganizationConfigurationCommand,
+		EnableOrganizationAdminAccountCommand,
+		DisableOrganizationAdminAccountCommand,
+		ListOrganizationAdminAccountsCommand,
+		DatasourcePackage,
 		type Graph,
 		type MemberDetail,
 		type InvestigationDetail,
-		type Indicator
+		type Indicator,
+		type DatasourcePackageIngestDetail,
+		type Administrator,
+		type State as InvestigationState
 	} from '@aws-sdk/client-detective';
 	import { toast } from 'svelte-sonner';
 	import { confirmDestructive } from '$lib/confirm-dialog';
@@ -33,17 +54,18 @@
 	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
-	import { Search, Plus, Trash2, Eye, Check, X } from 'lucide-svelte';
+	import { Search, Plus, Trash2, Eye, Check, X, Play, LogOut } from 'lucide-svelte';
 
-	const client = getDetectiveClient();
+	const client = regionalClient(getDetectiveClient);
 
-	type TabId = 'graphs' | 'members' | 'invitations' | 'investigations';
+	type TabId = 'graphs' | 'members' | 'invitations' | 'investigations' | 'organization';
 
 	const tabs: TabDef[] = [
 		{ id: 'graphs', label: 'Behavior Graphs' },
 		{ id: 'members', label: 'Members' },
 		{ id: 'invitations', label: 'Invitations' },
-		{ id: 'investigations', label: 'Investigations' }
+		{ id: 'investigations', label: 'Investigations' },
+		{ id: 'organization', label: 'Organization' }
 	];
 
 	// The SDK puts the AWS error code on err.name and status on
@@ -82,8 +104,12 @@
 	let investigationsNextToken = $state<string | undefined>();
 	let loadingMoreInvestigations = $state(false);
 
+	let admins = $state<Administrator[]>([]);
+	let adminsNextToken = $state<string | undefined>();
+	let loadingMoreAdmins = $state(false);
+
 	async function fetchGraphs(reset: boolean): Promise<void> {
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListGraphsCommand({ NextToken: reset ? undefined : graphsNextToken })
 		);
 		graphs = reset ? (resp.GraphList ?? []) : [...graphs, ...(resp.GraphList ?? [])];
@@ -99,7 +125,7 @@
 			membersNextToken = undefined;
 			return;
 		}
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListMembersCommand({
 				GraphArn: selectedGraphArn,
 				NextToken: reset ? undefined : membersNextToken
@@ -110,7 +136,7 @@
 	}
 
 	async function fetchInvitations(reset: boolean): Promise<void> {
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListInvitationsCommand({ NextToken: reset ? undefined : invitationsNextToken })
 		);
 		invitations = reset ? (resp.Invitations ?? []) : [...invitations, ...(resp.Invitations ?? [])];
@@ -123,7 +149,7 @@
 			investigationsNextToken = undefined;
 			return;
 		}
-		const resp = await client.send(
+		const resp = await client().send(
 			new ListInvestigationsCommand({
 				GraphArn: selectedGraphArn,
 				NextToken: reset ? undefined : investigationsNextToken
@@ -133,6 +159,14 @@
 			? (resp.InvestigationDetails ?? [])
 			: [...investigations, ...(resp.InvestigationDetails ?? [])];
 		investigationsNextToken = resp.NextToken;
+	}
+
+	async function fetchAdmins(reset: boolean): Promise<void> {
+		const resp = await client().send(
+			new ListOrganizationAdminAccountsCommand({ NextToken: reset ? undefined : adminsNextToken })
+		);
+		admins = reset ? (resp.Administrators ?? []) : [...admins, ...(resp.Administrators ?? [])];
+		adminsNextToken = resp.NextToken;
 	}
 
 	// Wrap so a failure's message (captured by tab-loader as err.message)
@@ -145,7 +179,8 @@
 		graphs: () => fetchGraphs(true).catch(rethrowDescribed),
 		members: () => fetchMembers(true).catch(rethrowDescribed),
 		invitations: () => fetchInvitations(true).catch(rethrowDescribed),
-		investigations: () => fetchInvestigations(true).catch(rethrowDescribed)
+		investigations: () => fetchInvestigations(true).catch(rethrowDescribed),
+		organization: () => fetchAdmins(true).catch(rethrowDescribed)
 	});
 
 	function switchTab(id: string): void {
@@ -216,6 +251,9 @@
 			);
 		})
 	);
+	const filteredAdmins = $derived(
+		admins.filter((a) => (a.AccountId ?? '').toLowerCase().includes(searchQuery.toLowerCase()))
+	);
 	const activeTabError = $derived(tabLoader.getError(activeTab));
 
 	async function loadMoreGraphs(): Promise<void> {
@@ -262,6 +300,17 @@
 		}
 	}
 
+	async function loadMoreAdmins(): Promise<void> {
+		loadingMoreAdmins = true;
+		try {
+			await fetchAdmins(false);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			loadingMoreAdmins = false;
+		}
+	}
+
 	// --- Behavior graphs: create / delete / detail ---
 
 	let createGraphModal = $state<Modal | null>(null);
@@ -277,7 +326,7 @@
 		creatingGraph = true;
 		createGraphError = null;
 		try {
-			await client.send(new CreateGraphCommand({}));
+			await client().send(new CreateGraphCommand({}));
 			toast.success('Behavior graph created');
 			createGraphModal?.close();
 			await tabLoader.refresh('graphs');
@@ -298,7 +347,7 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new DeleteGraphCommand({ GraphArn: g.Arn }));
+			await client().send(new DeleteGraphCommand({ GraphArn: g.Arn }));
 			toast.success('Behavior graph deleted');
 			if (selectedGraphArn === g.Arn) {
 				selectedGraphArn = '';
@@ -311,10 +360,143 @@
 
 	let graphDetailModal = $state<Modal | null>(null);
 	let viewedGraph = $state<Graph | null>(null);
+	let graphDetailLoading = $state(false);
+	let graphTags = $state<Record<string, string>>({});
+	let graphTagsError = $state<string | null>(null);
+	let newGraphTagKey = $state('');
+	let newGraphTagValue = $state('');
+	let graphPackages = $state<Record<string, DatasourcePackageIngestDetail>>({});
+	let graphPackagesError = $state<string | null>(null);
+	let newGraphPackage = $state<DatasourcePackage>(DatasourcePackage.DETECTIVE_CORE);
+	let graphAutoEnable = $state(false);
+	let graphOrgConfigError = $state<string | null>(null);
+	let updatingAutoEnable = $state(false);
 
-	function openGraphDetail(g: Graph): void {
+	async function openGraphDetail(g: Graph): Promise<void> {
 		viewedGraph = g;
+		graphTags = {};
+		graphTagsError = null;
+		newGraphTagKey = '';
+		newGraphTagValue = '';
+		graphPackages = {};
+		graphPackagesError = null;
+		graphAutoEnable = false;
+		graphOrgConfigError = null;
 		graphDetailModal?.open();
+		if (!g.Arn) return;
+		graphDetailLoading = true;
+		try {
+			await Promise.all([loadGraphTags(g.Arn), loadGraphPackages(g.Arn), loadGraphOrgConfig(g.Arn)]);
+		} finally {
+			graphDetailLoading = false;
+		}
+	}
+
+	async function loadGraphTags(graphArn: string): Promise<void> {
+		try {
+			const resp = await client().send(new ListTagsForResourceCommand({ ResourceArn: graphArn }));
+			graphTags = resp.Tags ?? {};
+		} catch (e) {
+			graphTagsError = describeError(e);
+		}
+	}
+
+	async function addGraphTag(): Promise<void> {
+		if (!viewedGraph?.Arn || !newGraphTagKey) return;
+		graphTagsError = null;
+		try {
+			await client().send(
+				new TagResourceCommand({
+					ResourceArn: viewedGraph.Arn,
+					Tags: { [newGraphTagKey]: newGraphTagValue }
+				})
+			);
+			newGraphTagKey = '';
+			newGraphTagValue = '';
+			toast.success('Tag added');
+			await loadGraphTags(viewedGraph.Arn);
+		} catch (e) {
+			const msg = describeError(e);
+			graphTagsError = msg;
+			toast.error(msg);
+		}
+	}
+
+	async function removeGraphTag(key: string): Promise<void> {
+		if (!viewedGraph?.Arn) return;
+		graphTagsError = null;
+		try {
+			await client().send(
+				new UntagResourceCommand({ ResourceArn: viewedGraph.Arn, TagKeys: [key] })
+			);
+			toast.success('Tag removed');
+			await loadGraphTags(viewedGraph.Arn);
+		} catch (e) {
+			const msg = describeError(e);
+			graphTagsError = msg;
+			toast.error(msg);
+		}
+	}
+
+	async function loadGraphPackages(graphArn: string): Promise<void> {
+		try {
+			const resp = await client().send(new ListDatasourcePackagesCommand({ GraphArn: graphArn }));
+			graphPackages = resp.DatasourcePackages ?? {};
+		} catch (e) {
+			graphPackagesError = describeError(e);
+		}
+	}
+
+	async function addGraphPackage(): Promise<void> {
+		if (!viewedGraph?.Arn) return;
+		graphPackagesError = null;
+		try {
+			await client().send(
+				new UpdateDatasourcePackagesCommand({
+					GraphArn: viewedGraph.Arn,
+					DatasourcePackages: [newGraphPackage]
+				})
+			);
+			toast.success('Datasource package started');
+			await loadGraphPackages(viewedGraph.Arn);
+		} catch (e) {
+			const msg = describeError(e);
+			graphPackagesError = msg;
+			toast.error(msg);
+		}
+	}
+
+	async function loadGraphOrgConfig(graphArn: string): Promise<void> {
+		try {
+			const resp = await client().send(
+				new DescribeOrganizationConfigurationCommand({ GraphArn: graphArn })
+			);
+			graphAutoEnable = resp.AutoEnable ?? false;
+		} catch (e) {
+			graphOrgConfigError = describeError(e);
+		}
+	}
+
+	async function toggleGraphAutoEnable(autoEnable: boolean): Promise<void> {
+		if (!viewedGraph?.Arn) return;
+		graphOrgConfigError = null;
+		updatingAutoEnable = true;
+		try {
+			await client().send(
+				new UpdateOrganizationConfigurationCommand({
+					GraphArn: viewedGraph.Arn,
+					AutoEnable: autoEnable
+				})
+			);
+			graphAutoEnable = autoEnable;
+			toast.success('Organization configuration updated');
+		} catch (e) {
+			const msg = describeError(e);
+			graphOrgConfigError = msg;
+			toast.error(msg);
+		} finally {
+			updatingAutoEnable = false;
+		}
 	}
 
 	// --- Members: create (invite) / delete (remove) / detail ---
@@ -348,7 +530,7 @@
 		creatingMember = true;
 		createMemberError = null;
 		try {
-			const resp = await client.send(
+			const resp = await client().send(
 				new CreateMembersCommand({
 					GraphArn: selectedGraphArn,
 					Accounts: [{ AccountId: newMemberAccountId, EmailAddress: newMemberEmail }],
@@ -383,10 +565,23 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(
+			await client().send(
 				new DeleteMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
 			);
 			toast.success('Member removed');
+			await tabLoader.refresh('members');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function handleStartMonitoring(m: MemberDetail): Promise<void> {
+		if (!m.AccountId || !selectedGraphArn) return;
+		try {
+			await client().send(
+				new StartMonitoringMemberCommand({ GraphArn: selectedGraphArn, AccountId: m.AccountId })
+			);
+			toast.success('Monitoring started');
 			await tabLoader.refresh('members');
 		} catch (e) {
 			toast.error(describeError(e));
@@ -397,22 +592,34 @@
 	let viewedMember = $state<MemberDetail | null>(null);
 	let memberDetailLoading = $state(false);
 	let memberDetailError = $state<string | null>(null);
+	let memberDatasourceHistory = $state<Record<string, unknown>>({});
 
 	async function openMemberDetail(m: MemberDetail): Promise<void> {
 		viewedMember = m;
 		memberDetailError = null;
+		memberDatasourceHistory = {};
 		memberDetailModal?.open();
 		if (!m.AccountId || !selectedGraphArn) return;
 		memberDetailLoading = true;
 		try {
-			const resp = await client.send(
-				new GetMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
-			);
-			const unprocessed = resp.UnprocessedAccounts ?? [];
+			const [membersResp, datasourcesResp] = await Promise.all([
+				client().send(
+					new GetMembersCommand({ GraphArn: selectedGraphArn, AccountIds: [m.AccountId] })
+				),
+				client().send(
+					new BatchGetGraphMemberDatasourcesCommand({
+						GraphArn: selectedGraphArn,
+						AccountIds: [m.AccountId]
+					})
+				)
+			]);
+			const unprocessed = membersResp.UnprocessedAccounts ?? [];
 			if (unprocessed.length > 0) {
 				memberDetailError = unprocessed[0].Reason ?? 'Unable to load full member detail.';
 			}
-			viewedMember = resp.MemberDetails?.[0] ?? m;
+			viewedMember = membersResp.MemberDetails?.[0] ?? m;
+			memberDatasourceHistory =
+				datasourcesResp.MemberDatasources?.[0]?.DatasourcePackageIngestHistory ?? {};
 		} catch (e) {
 			memberDetailError = describeError(e);
 		} finally {
@@ -424,16 +631,29 @@
 
 	let invitationDetailModal = $state<Modal | null>(null);
 	let viewedInvitation = $state<MemberDetail | null>(null);
+	let invitationDatasourceHistory = $state<Record<string, unknown>>({});
+	let invitationDatasourceError = $state<string | null>(null);
 
-	function openInvitationDetail(i: MemberDetail): void {
+	async function openInvitationDetail(i: MemberDetail): Promise<void> {
 		viewedInvitation = i;
+		invitationDatasourceHistory = {};
+		invitationDatasourceError = null;
 		invitationDetailModal?.open();
+		if (!i.GraphArn) return;
+		try {
+			const resp = await client().send(
+				new BatchGetMembershipDatasourcesCommand({ GraphArns: [i.GraphArn] })
+			);
+			invitationDatasourceHistory = resp.MembershipDatasources?.[0]?.DatasourcePackageIngestHistory ?? {};
+		} catch (e) {
+			invitationDatasourceError = describeError(e);
+		}
 	}
 
 	async function handleAcceptInvitation(i: MemberDetail): Promise<void> {
 		if (!i.GraphArn) return;
 		try {
-			await client.send(new AcceptInvitationCommand({ GraphArn: i.GraphArn }));
+			await client().send(new AcceptInvitationCommand({ GraphArn: i.GraphArn }));
 			toast.success('Invitation accepted');
 			await tabLoader.refresh('invitations');
 		} catch (e) {
@@ -449,8 +669,24 @@
 		});
 		if (!confirmed) return;
 		try {
-			await client.send(new RejectInvitationCommand({ GraphArn: i.GraphArn }));
+			await client().send(new RejectInvitationCommand({ GraphArn: i.GraphArn }));
 			toast.success('Invitation rejected');
+			await tabLoader.refresh('invitations');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function handleDisassociateMembership(i: MemberDetail): Promise<void> {
+		if (!i.GraphArn) return;
+		const confirmed = await confirmDestructive({
+			title: 'Leave behavior graph',
+			message: `Leave behavior graph ${i.GraphArn}? You will need a new invitation to rejoin.`
+		});
+		if (!confirmed) return;
+		try {
+			await client().send(new DisassociateMembershipCommand({ GraphArn: i.GraphArn }));
+			toast.success('Left behavior graph');
 			await tabLoader.refresh('invitations');
 		} catch (e) {
 			toast.error(describeError(e));
@@ -488,7 +724,7 @@
 		startingInvestigation = true;
 		startInvestigationError = null;
 		try {
-			await client.send(
+			await client().send(
 				new StartInvestigationCommand({
 					GraphArn: selectedGraphArn,
 					EntityArn: newEntityArn,
@@ -523,13 +759,13 @@
 		investigationDetailLoading = true;
 		try {
 			const [detailResp, indicatorsResp] = await Promise.all([
-				client.send(
+				client().send(
 					new GetInvestigationCommand({
 						GraphArn: selectedGraphArn,
 						InvestigationId: inv.InvestigationId
 					})
 				),
-				client.send(
+				client().send(
 					new ListIndicatorsCommand({
 						GraphArn: selectedGraphArn,
 						InvestigationId: inv.InvestigationId
@@ -542,6 +778,29 @@
 			investigationDetailError = describeError(e);
 		} finally {
 			investigationDetailLoading = false;
+		}
+	}
+
+	let updatingInvestigationState = $state(false);
+
+	async function updateInvestigationState(state: InvestigationState): Promise<void> {
+		if (!viewedInvestigation?.InvestigationId || !selectedGraphArn) return;
+		updatingInvestigationState = true;
+		try {
+			await client().send(
+				new UpdateInvestigationStateCommand({
+					GraphArn: selectedGraphArn,
+					InvestigationId: viewedInvestigation.InvestigationId,
+					State: state
+				})
+			);
+			viewedInvestigation = { ...viewedInvestigation, State: state };
+			toast.success(`Investigation ${state === 'ARCHIVED' ? 'archived' : 'reactivated'}`);
+			await tabLoader.refresh('investigations');
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			updatingInvestigationState = false;
 		}
 	}
 
@@ -602,6 +861,55 @@
 			'—'
 		);
 	}
+
+	// --- Organization: enable/disable delegated admin / list ---
+
+	let enableAdminModal = $state<Modal | null>(null);
+	let enablingAdmin = $state(false);
+	let enableAdminError = $state<string | null>(null);
+	let newAdminAccountId = $state('');
+
+	function openEnableAdminModal(): void {
+		enableAdminError = null;
+		newAdminAccountId = '';
+		enableAdminModal?.open();
+	}
+
+	async function submitEnableAdmin(): Promise<void> {
+		if (!newAdminAccountId) {
+			enableAdminError = 'Account ID is required.';
+			return;
+		}
+		enablingAdmin = true;
+		enableAdminError = null;
+		try {
+			await client().send(new EnableOrganizationAdminAccountCommand({ AccountId: newAdminAccountId }));
+			toast.success('Organization admin account enabled');
+			enableAdminModal?.close();
+			await tabLoader.refresh('organization');
+		} catch (e) {
+			const msg = describeError(e);
+			enableAdminError = msg;
+			toast.error(msg);
+		} finally {
+			enablingAdmin = false;
+		}
+	}
+
+	async function handleDisableAdmin(a: Administrator): Promise<void> {
+		const confirmed = await confirmDestructive({
+			title: 'Disable organization admin account',
+			message: `Disable the Detective delegated administrator account ${a.AccountId ?? ''}? This deletes its organization behavior graph.`
+		});
+		if (!confirmed) return;
+		try {
+			await client().send(new DisableOrganizationAdminAccountCommand({}));
+			toast.success('Organization admin account disabled');
+			await tabLoader.refresh('organization');
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
 </script>
 
 <div class="p-6 space-y-6">
@@ -633,6 +941,13 @@
 					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm"
 				>
 					<Plus class="w-4 h-4" /> Start investigation
+				</button>
+			{:else if activeTab === 'organization'}
+				<button
+					onclick={openEnableAdminModal}
+					class="flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 text-sm"
+				>
+					<Plus class="w-4 h-4" /> Enable admin account
 				</button>
 			{/if}
 		{/snippet}
@@ -679,6 +994,9 @@
 			{/if}
 
 			{#if activeTab === 'graphs'}
+				{#snippet graphRegionCell(_g: Graph)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet graphCreatedCell(g: Graph)}
 					{formatDate(g.CreatedTime)}
 				{/snippet}
@@ -700,6 +1018,7 @@
 				{/snippet}
 				{@const graphColumns = defineColumns<Graph>([
 					{ key: 'Arn', label: 'ARN' },
+					{ key: 'region', label: 'Region', render: graphRegionCell },
 					{ key: 'CreatedTime', label: 'Created', render: graphCreatedCell },
 					{ key: 'actions', label: '', render: graphActionsCell }
 				])}
@@ -716,13 +1035,18 @@
 					onLoadMore={loadMoreGraphs}
 				/>
 			{:else if activeTab === 'members'}
+				{#snippet memberRegionCell(_m: MemberDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet memberStatusCell(m: MemberDetail)}
 					<span
 						class="text-xs px-2 py-1 rounded-full {m.Status === 'ENABLED'
 							? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
 							: m.Status === 'VERIFICATION_FAILED'
 								? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-								: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
+								: m.Status === 'ACCEPTED_BUT_DISABLED'
+									? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+									: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'}"
 						>{m.Status ?? '—'}</span
 					>
 				{/snippet}
@@ -737,6 +1061,14 @@
 							aria-label="View member {m.AccountId}"
 							class="text-gray-400 hover:text-rose-500"><Eye class="w-4 h-4" /></button
 						>
+						{#if m.Status === 'ACCEPTED_BUT_DISABLED'}
+							<button
+								onclick={() => handleStartMonitoring(m)}
+								title="Start monitoring"
+								aria-label="Start monitoring member {m.AccountId}"
+								class="text-gray-400 hover:text-green-500"><Play class="w-4 h-4" /></button
+							>
+						{/if}
 						<button
 							onclick={() => handleDeleteMember(m)}
 							title="Remove"
@@ -748,6 +1080,7 @@
 				{@const memberColumns = defineColumns<MemberDetail>([
 					{ key: 'AccountId', label: 'Account ID' },
 					{ key: 'EmailAddress', label: 'Email' },
+					{ key: 'region', label: 'Region', render: memberRegionCell },
 					{ key: 'Status', label: 'Status', render: memberStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: memberInvitedCell },
 					{ key: 'actions', label: '', render: memberActionsCell }
@@ -765,6 +1098,9 @@
 					onLoadMore={loadMoreMembers}
 				/>
 			{:else if activeTab === 'invitations'}
+				{#snippet invitationRegionCell(_i: MemberDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet invitationStatusCell(i: MemberDetail)}
 					<span
 						class="text-xs px-2 py-1 rounded-full {i.Status === 'ENABLED'
@@ -797,12 +1133,20 @@
 								aria-label="Reject invitation to {i.GraphArn}"
 								class="text-gray-400 hover:text-red-500"><X class="w-4 h-4" /></button
 							>
+						{:else if i.Status === 'ENABLED'}
+							<button
+								onclick={() => handleDisassociateMembership(i)}
+								title="Leave"
+								aria-label="Leave behavior graph {i.GraphArn}"
+								class="text-gray-400 hover:text-red-500"><LogOut class="w-4 h-4" /></button
+							>
 						{/if}
 					</div>
 				{/snippet}
 				{@const invitationColumns = defineColumns<MemberDetail>([
 					{ key: 'GraphArn', label: 'Behavior Graph' },
 					{ key: 'AdministratorId', label: 'Administrator' },
+					{ key: 'region', label: 'Region', render: invitationRegionCell },
 					{ key: 'Status', label: 'Status', render: invitationStatusCell },
 					{ key: 'InvitedTime', label: 'Invited', render: invitationInvitedCell },
 					{ key: 'actions', label: '', render: invitationActionsCell }
@@ -820,6 +1164,9 @@
 					onLoadMore={loadMoreInvitations}
 				/>
 			{:else if activeTab === 'investigations'}
+				{#snippet investigationRegionCell(_inv: InvestigationDetail)}
+					<RegionChip region={currentRegion()} />
+				{/snippet}
 				{#snippet investigationCreatedCell(inv: InvestigationDetail)}
 					{formatDate(inv.CreatedTime)}
 				{/snippet}
@@ -847,6 +1194,7 @@
 				{@const investigationColumns = defineColumns<InvestigationDetail>([
 					{ key: 'InvestigationId', label: 'Investigation ID' },
 					{ key: 'EntityArn', label: 'Entity' },
+					{ key: 'region', label: 'Region', render: investigationRegionCell },
 					{ key: 'Severity', label: 'Severity', render: investigationSeverityCell },
 					{ key: 'Status', label: 'Status' },
 					{ key: 'State', label: 'State' },
@@ -864,6 +1212,38 @@
 					hasMore={!!investigationsNextToken}
 					loading={loadingMoreInvestigations}
 					onLoadMore={loadMoreInvestigations}
+				/>
+			{:else if activeTab === 'organization'}
+				{#snippet adminDelegatedCell(a: Administrator)}
+					{formatDate(a.DelegationTime)}
+				{/snippet}
+				{#snippet adminActionsCell(a: Administrator)}
+					<div class="flex items-center gap-2 justify-end">
+						<button
+							onclick={() => handleDisableAdmin(a)}
+							title="Disable"
+							aria-label="Disable admin account {a.AccountId}"
+							class="text-gray-400 hover:text-red-500"><Trash2 class="w-4 h-4" /></button
+						>
+					</div>
+				{/snippet}
+				{@const adminColumns = defineColumns<Administrator>([
+					{ key: 'AccountId', label: 'Account ID' },
+					{ key: 'GraphArn', label: 'Organization Behavior Graph' },
+					{ key: 'DelegationTime', label: 'Delegated', render: adminDelegatedCell },
+					{ key: 'actions', label: '', render: adminActionsCell }
+				])}
+				<DataTable
+					rows={filteredAdmins}
+					rowKey={(a) => a.AccountId ?? ''}
+					columns={adminColumns}
+					loading={tabLoader.isLoading('organization')}
+					emptyMessage="No organization admin account is delegated"
+				/>
+				<LoadMore
+					hasMore={!!adminsNextToken}
+					loading={loadingMoreAdmins}
+					onLoadMore={loadMoreAdmins}
 				/>
 			{/if}
 		</div>
@@ -909,6 +1289,112 @@
 					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
 					<dd class="text-slate-900 dark:text-white">{formatDate(viewedGraph.CreatedTime)}</dd>
 				</div>
+				{#if graphDetailLoading}
+					<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+				{:else}
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Tags</dt>
+						<dd class="text-slate-900 dark:text-white">
+							{#if Object.keys(graphTags).length === 0}
+								<span class="text-slate-500 dark:text-slate-400">No tags</span>
+							{:else}
+								<ul class="space-y-1">
+									{#each Object.entries(graphTags) as [key, value] (key)}
+										<li class="flex items-center gap-2">
+											<span
+												class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs"
+												>{key} = {value}</span
+											>
+											<button
+												onclick={() => removeGraphTag(key)}
+												aria-label="Remove tag {key}"
+												class="text-gray-400 hover:text-red-500"><X class="w-3 h-3" /></button
+											>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							<div class="mt-2 flex items-center gap-2">
+								<input
+									bind:value={newGraphTagKey}
+									placeholder="Key"
+									aria-label="New tag key"
+									class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+								/>
+								<input
+									bind:value={newGraphTagValue}
+									placeholder="Value"
+									aria-label="New tag value"
+									class="w-1/3 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+								/>
+								<button
+									type="button"
+									onclick={addGraphTag}
+									class="px-2 py-1 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700"
+									>Add</button
+								>
+							</div>
+							{#if graphTagsError}
+								<p class="mt-1 text-sm text-red-600 dark:text-red-400">{graphTagsError}</p>
+							{/if}
+						</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Datasource packages</dt>
+						<dd class="text-slate-900 dark:text-white">
+							{#if Object.keys(graphPackages).length === 0}
+								<span class="text-slate-500 dark:text-slate-400">No datasource packages started</span>
+							{:else}
+								<ul class="space-y-1">
+									{#each Object.entries(graphPackages) as [pkg, detail] (pkg)}
+										<li>
+											<span class="px-2 py-0.5 rounded-full bg-gray-100 dark:bg-slate-700 text-xs"
+												>{pkg}: {detail.DatasourcePackageIngestState ?? '—'}</span
+											>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							<div class="mt-2 flex items-center gap-2">
+								<select
+									bind:value={newGraphPackage}
+									aria-label="Datasource package to start"
+									class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+								>
+									{#each Object.values(DatasourcePackage) as pkg (pkg)}
+										<option value={pkg}>{pkg}</option>
+									{/each}
+								</select>
+								<button
+									type="button"
+									onclick={addGraphPackage}
+									class="px-2 py-1 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700"
+									>Start</button
+								>
+							</div>
+							{#if graphPackagesError}
+								<p class="mt-1 text-sm text-red-600 dark:text-red-400">{graphPackagesError}</p>
+							{/if}
+						</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Organization configuration</dt>
+						<dd class="text-slate-900 dark:text-white">
+							<label class="flex items-center gap-2">
+								<input
+									type="checkbox"
+									checked={graphAutoEnable}
+									disabled={updatingAutoEnable}
+									onchange={(e) => toggleGraphAutoEnable((e.target as HTMLInputElement).checked)}
+								/>
+								Auto-enable new organization accounts
+							</label>
+							{#if graphOrgConfigError}
+								<p class="mt-1 text-sm text-red-600 dark:text-red-400">{graphOrgConfigError}</p>
+							{/if}
+						</dd>
+					</div>
+				{/if}
 			</dl>
 		{/if}
 	{/snippet}
@@ -1023,6 +1509,21 @@
 			{#if memberDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{memberDetailError}</p>
 			{/if}
+			<div class="mt-4">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white">
+					Datasource ingest history
+				</h3>
+				{#if Object.keys(memberDatasourceHistory).length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400">No datasource history found.</p>
+				{:else}
+					<pre
+						class="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-50 dark:bg-slate-900 p-2 text-xs">{JSON.stringify(
+							memberDatasourceHistory,
+							null,
+							2
+						)}</pre>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -1060,6 +1561,23 @@
 					</dd>
 				</div>
 			</dl>
+			<div class="mt-4">
+				<h3 class="text-sm font-semibold text-slate-900 dark:text-white">
+					Datasource ingest history
+				</h3>
+				{#if invitationDatasourceError}
+					<p class="text-sm text-red-600 dark:text-red-400">{invitationDatasourceError}</p>
+				{:else if Object.keys(invitationDatasourceHistory).length === 0}
+					<p class="text-sm text-slate-500 dark:text-slate-400">No datasource history found.</p>
+				{:else}
+					<pre
+						class="mt-1 max-h-48 overflow-auto rounded-lg bg-gray-50 dark:bg-slate-900 p-2 text-xs">{JSON.stringify(
+							invitationDatasourceHistory,
+							null,
+							2
+						)}</pre>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -1160,7 +1678,26 @@
 				</div>
 				<div>
 					<dt class="text-slate-500 dark:text-slate-400">State</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedInvestigation.State ?? '—'}</dd>
+					<dd class="text-slate-900 dark:text-white flex items-center gap-2">
+						{viewedInvestigation.State ?? '—'}
+						{#if viewedInvestigation.State === 'ACTIVE'}
+							<button
+								type="button"
+								onclick={() => updateInvestigationState('ARCHIVED')}
+								disabled={updatingInvestigationState}
+								class="px-2 py-0.5 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+								>Archive</button
+							>
+						{:else if viewedInvestigation.State === 'ARCHIVED'}
+							<button
+								type="button"
+								onclick={() => updateInvestigationState('ACTIVE')}
+								disabled={updatingInvestigationState}
+								class="px-2 py-0.5 text-xs rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+								>Reactivate</button
+							>
+						{/if}
+					</dd>
 				</div>
 				<div>
 					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
@@ -1195,6 +1732,46 @@
 			onclick={() => investigationDetailModal?.close()}
 			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
 			>Close</button
+		>
+	{/snippet}
+</Modal>
+
+<Modal bind:this={enableAdminModal} title="Enable Organization Admin Account">
+	{#snippet children()}
+		<div class="space-y-3">
+			<p class="text-sm text-slate-600 dark:text-slate-300">
+				Delegate a Detective administrator account for the organization in this Region. If the
+				account is not yet enabled for Detective, this also creates its behavior graph.
+			</p>
+			<div>
+				<label for="admin-account-id" class="text-sm text-slate-600 dark:text-slate-300"
+					>Account ID</label
+				>
+				<input
+					id="admin-account-id"
+					bind:value={newAdminAccountId}
+					placeholder="123456789012"
+					class="mt-1 w-full px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+				/>
+			</div>
+			{#if enableAdminError}
+				<p class="text-sm text-red-600 dark:text-red-400">{enableAdminError}</p>
+			{/if}
+		</div>
+	{/snippet}
+	{#snippet footer()}
+		<button
+			type="button"
+			onclick={() => enableAdminModal?.close()}
+			class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
+			>Cancel</button
+		>
+		<button
+			type="button"
+			onclick={submitEnableAdmin}
+			disabled={enablingAdmin}
+			class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+			>{enablingAdmin ? 'Enabling…' : 'Enable'}</button
 		>
 	{/snippet}
 </Modal>

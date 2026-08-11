@@ -24,6 +24,17 @@ const (
 // listGroupResourcesFilterResourceType is the filter name for filtering ListGroupResources by resource type.
 const listGroupResourcesFilterResourceType = "resource-type"
 
+// errQueryGroupNotGroupable: GroupResources/UngroupResources only work on
+// static-membership groups. Real AWS membership for a ResourceQuery-based
+// group is computed dynamically from the query, not by explicit add/remove
+// (API docs: GroupResources "You can only use this operation with"
+// AWS::EC2::HostManagement/CapacityReservationPool/ApplicationGroup groups;
+// UngroupResources "doesn't work with any resource groups that are
+// automatically populated by tag-based or CloudFormation stack-based
+// queries").
+const errQueryGroupNotGroupable = "cannot group/ungroup resources on a group with a ResourceQuery; " +
+	"membership for query-based groups is computed dynamically from the query"
+
 // GroupResources associates a list of resource ARNs with a group.
 // Duplicate ARNs are silently ignored; each ARN is only added once.
 func (b *InMemoryBackend) GroupResources(
@@ -37,8 +48,13 @@ func (b *InMemoryBackend) GroupResources(
 	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	if !b.groups.Has(regionKey(region, name)) {
+	g, ok := b.groups.Get(regionKey(region, name))
+	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	if g.ResourceQuery != nil {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, errQueryGroupNotGroupable)
 	}
 
 	resStore := b.groupResourcesStore(region)
@@ -88,8 +104,13 @@ func (b *InMemoryBackend) UngroupResources(
 	region := getRegion(ctx, b.region)
 	name := resolveGroupName(nameOrARN)
 
-	if !b.groups.Has(regionKey(region, name)) {
+	g, ok := b.groups.Get(regionKey(region, name))
+	if !ok {
 		return nil, fmt.Errorf("%w: group %s not found", ErrNotFound, name)
+	}
+
+	if g.ResourceQuery != nil {
+		return nil, fmt.Errorf("%w: %s", ErrValidation, errQueryGroupNotGroupable)
 	}
 
 	resStore := b.groupResourcesStore(region)
@@ -106,7 +127,7 @@ func (b *InMemoryBackend) UngroupResources(
 
 	kept := resStore[name][:0:0]
 	for _, a := range resStore[name] {
-		if _, ok := remove[a]; !ok {
+		if _, removed := remove[a]; !removed {
 			kept = append(kept, a)
 		}
 	}

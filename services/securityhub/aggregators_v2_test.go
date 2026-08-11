@@ -33,7 +33,7 @@ func TestAggregatorV2(t *testing.T) {
 					path:   "/aggregatorv2/create",
 					body: map[string]any{
 						"RegionLinkingMode": "ALL_REGIONS",
-						"Regions":           []any{},
+						"LinkedRegions":     []any{},
 					},
 					check: func(t *testing.T, code int, resp map[string]any) string {
 						t.Helper()
@@ -106,7 +106,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 
 		rec := doRequest(t, h, http.MethodPost, "/aggregatorv2/create", map[string]any{
 			"RegionLinkingMode": "ALL_REGIONS",
-			"Regions":           []any{},
+			"LinkedRegions":     []any{},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -116,7 +116,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 
 		rec2 := doRequest(t, h, http.MethodPatch, "/aggregatorv2/update/"+arn, map[string]any{
 			"RegionLinkingMode": "SPECIFIED_REGIONS",
-			"Regions":           []any{"us-west-2"},
+			"LinkedRegions":     []any{"us-west-2"},
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var resp2 map[string]any
@@ -130,7 +130,7 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 
 		rec := doRequest(t, h, http.MethodPost, "/aggregatorv2/create", map[string]any{
 			"RegionLinkingMode": "ALL_REGIONS",
-			"Regions":           []any{},
+			"LinkedRegions":     []any{},
 		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
@@ -144,4 +144,38 @@ func TestHandler_UpdateAggregatorV2(t *testing.T) {
 		rec3 := doRequest(t, h, http.MethodGet, "/aggregatorv2/get/"+arn, nil)
 		require.Equal(t, http.StatusNotFound, rec3.Code)
 	})
+}
+
+// TestCreateAggregatorV2_LinkedRegionsAndTags verifies that CreateAggregatorV2
+// echoes LinkedRegions back on the resource (real wire field, confirmed
+// against aws-sdk-go-v2 securityhub@v1.75.4 api_op_CreateAggregatorV2.go:39)
+// and that creation-time Tags reach the shared store ListTagsForResource
+// reads (gopherstack-2mwl).
+func TestCreateAggregatorV2_LinkedRegionsAndTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/aggregatorv2/create", map[string]any{
+		"RegionLinkingMode": "SPECIFIED_REGIONS",
+		"LinkedRegions":     []any{"us-west-2", "eu-west-1"},
+		"Tags":              map[string]any{"env": "prod"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	arn, _ := resp["AggregatorV2Arn"].(string)
+	require.NotEmpty(t, arn)
+
+	linked, _ := resp["LinkedRegions"].([]any)
+	assert.ElementsMatch(t, []any{"us-west-2", "eu-west-1"}, linked)
+
+	tagRec := doRequest(t, h, http.MethodGet, "/tags/"+arn, nil)
+	require.Equal(t, http.StatusOK, tagRec.Code)
+
+	var tagResp map[string]any
+	require.NoError(t, json.Unmarshal(tagRec.Body.Bytes(), &tagResp))
+	tags, _ := tagResp["Tags"].(map[string]any)
+	assert.Equal(t, "prod", tags["env"])
 }

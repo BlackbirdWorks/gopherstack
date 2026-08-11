@@ -1,11 +1,28 @@
 package datasync
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// validateAgentArns rejects a CreateLocation*/UpdateLocation* request that
+// references an agent ARN this backend has never heard of. Real DataSync
+// requires every agent behind AgentArns to already exist (and be reachable,
+// which gopherstack can't simulate); CreateTask already enforces this same
+// existing-resource discipline for source/destination locations. Must be
+// called with b.mu already held.
+func (b *InMemoryBackend) validateAgentArns(agentArns []string) error {
+	for _, arn := range agentArns {
+		if !b.agents.Has(arn) {
+			return fmt.Errorf("agent %s not found: %w", arn, ErrInvalidParameter)
+		}
+	}
+
+	return nil
+}
 
 // CreateAgent creates a new DataSync agent.
 func (b *InMemoryBackend) CreateAgent(name, _ string, tags map[string]string) (*Agent, error) {

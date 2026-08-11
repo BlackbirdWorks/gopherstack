@@ -788,13 +788,9 @@ type listConfigEntry struct {
 
 // decodeTopLevelConfigIDs walks the top-level children of a
 // ListBucket*Configurations response root and, for each direct child element
-// named elementTag, decodes it as one listConfigEntry and collects its Id.
-// This mirrors exactly how the real SDK's
-// awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped (et al)
-// treats the list: elementTag itself is one list entry, so if
-// writeConfigListXML regressed to double-wrapping (elementTag containing
-// another elementTag as its only child, with no direct <Id>), decoder.
-// DecodeElement here would see an empty Id and this helper would return "".
+// named elementTag, decodes it as one listConfigEntry and collects its Id. If
+// writeConfigListXML regressed to double-wrapping, DecodeElement here would see
+// an empty Id and this helper would return "".
 func decodeTopLevelConfigIDs(t *testing.T, body, elementTag string) []string {
 	t.Helper()
 
@@ -818,18 +814,11 @@ func decodeTopLevelConfigIDs(t *testing.T, body, elementTag string) []string {
 	return ids
 }
 
-// TestS3_ListBucketConfigurations_NoDoubleNesting is a regression test for a
-// real wire-shape bug: writeConfigListXML (shared by ListBucketAnalytics-,
-// ListBucketIntelligentTiering-, ListBucketInventory-, and
-// ListBucketMetricsConfigurations) used to wrap each already-rooted stored
-// config XML (e.g. a full "<AnalyticsConfiguration>...</AnalyticsConfiguration>"
-// document — that's what PutBucketAnalyticsConfiguration's request body IS,
-// per the real SDK's serializer) in ANOTHER copy of the same element,
-// producing doubly-nested XML no real SDK client could parse Id/Filter/etc
-// back out of. Confirmed against aws-sdk-go-v2/service/s3's
-// awsRestxml_deserializeDocumentAnalyticsConfigurationListUnwrapped (and its
-// Inventory/Metrics/IntelligentTiering siblings), which decode each top-level
-// child element of the list root directly as one list entry.
+// TestS3_ListBucketConfigurations_NoDoubleNesting is a regression test for
+// writeConfigListXML double-wrapping an already-rooted stored config XML in
+// another copy of the same element, producing doubly-nested XML no real SDK
+// client could parse Id/Filter/etc back out of. See writeConfigListXML's doc
+// comment in bucket_ops_analytics.go.
 func TestS3_ListBucketConfigurations_NoDoubleNesting(t *testing.T) {
 	t.Parallel()
 

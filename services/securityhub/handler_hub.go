@@ -45,19 +45,31 @@ func (h *Handler) handleEnableHub(c *echo.Context, body map[string]any) error {
 		}
 	}
 
+	// EnableSecurityHub models ResourceConflictException for "already enabled"
+	// (securityhub@v1.75.4 deserializers.go, op EnableSecurityHub) -- the only
+	// conflict-shaped code in its error list, so no ambiguity.
 	if err := h.Backend.EnableHub(enableDefault, tags); err != nil {
 		if errors.Is(err, ErrHubAlreadyExists) {
-			return c.JSON(http.StatusConflict, map[string]any{
-				keyMessage: "SecurityHub is already enabled",
-			})
+			return typedErrorResponse(
+				c,
+				http.StatusConflict,
+				"ResourceConflictException",
+				"SecurityHub is already enabled",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// handleDisableHub's ErrHubNotEnabled case is intentionally left without a
+// X-Amzn-Errortype header: DisableSecurityHub models both InvalidAccessException
+// ("the account doesn't have permission") and ResourceNotFoundException ("can't
+// find the specified resource") (securityhub@v1.75.4 deserializers.go), and
+// nothing in the pinned SDK disambiguates which one real AWS returns for an
+// unsubscribed account -- emitting either would be a guess, not a verified type.
 func (h *Handler) handleDisableHub(c *echo.Context) error {
 	if err := h.Backend.DisableHub(); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
@@ -66,12 +78,15 @@ func (h *Handler) handleDisableHub(c *echo.Context) error {
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// handleDescribeHub's ErrHubNotEnabled case is left unheadered for the same
+// reason as handleDisableHub above (DescribeHub's error list has the same
+// InvalidAccessException/ResourceNotFoundException ambiguity).
 func (h *Handler) handleDescribeHub(c *echo.Context) error {
 	hub, err := h.Backend.DescribeHub()
 	if err != nil {
@@ -81,7 +96,7 @@ func (h *Handler) handleDescribeHub(c *echo.Context) error {
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
@@ -112,6 +127,9 @@ func (h *Handler) handleUpdateHubConfig(c *echo.Context, body map[string]any) er
 		controlFindingGenerator = &v
 	}
 
+	// ErrHubNotEnabled is left unheadered here too -- same
+	// InvalidAccessException/ResourceNotFoundException ambiguity as
+	// handleDisableHub/handleDescribeHub.
 	err := h.Backend.UpdateHubConfiguration(autoEnableControls, autoEnableStandards, controlFindingGenerator)
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
@@ -120,7 +138,7 @@ func (h *Handler) handleUpdateHubConfig(c *echo.Context, body map[string]any) er
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -161,6 +179,11 @@ func (h *Handler) handleEnableSecurityHubV2(c *echo.Context, body map[string]any
 		}
 	}
 
+	// EnableSecurityHubV2 models neither ConflictException nor
+	// ResourceNotFoundException (securityhub@v1.75.4 deserializers.go, op
+	// EnableSecurityHubV2: AccessDeniedException, InternalServerException,
+	// ThrottlingException, ValidationException only) -- no suitable code for
+	// "already enabled", so this path is left unheadered.
 	if err := h.Backend.EnableSecurityHubV2(tags); err != nil {
 		if errors.Is(err, ErrHubAlreadyExists) {
 			return c.JSON(http.StatusConflict, map[string]any{
@@ -168,19 +191,21 @@ func (h *Handler) handleEnableSecurityHubV2(c *echo.Context, body map[string]any
 			})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// DisableSecurityHubV2 models the same code set as EnableSecurityHubV2 (no
+// ResourceNotFoundException), so "not enabled" is left unheadered here too.
 func (h *Handler) handleDisableSecurityHubV2(c *echo.Context) error {
 	if err := h.Backend.DisableSecurityHubV2(); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
 			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubNotEnabled})
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -191,14 +216,19 @@ func (h *Handler) handleDisableSecurityHubV2(c *echo.Context) error {
 // state as DescribeSecurityHubV2 itself.
 const msgHubV2NotEnabled = "SecurityHub V2 is not enabled"
 
+// DescribeSecurityHubV2 models ResourceNotFoundException (InternalServerException,
+// ResourceNotFoundException, ThrottlingException, ValidationException --
+// securityhub@v1.75.4 deserializers.go) with no InvalidAccessException/
+// AccessDeniedException-flavored alternative for "not enabled", so unlike
+// the V1 Hub handlers above, ResourceNotFoundException is unambiguous here.
 func (h *Handler) handleDescribeSecurityHubV2(c *echo.Context) error {
 	hub, err := h.Backend.DescribeSecurityHubV2()
 	if err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgHubV2NotEnabled)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	features := make(map[string]any, len(hub.Features))
@@ -222,13 +252,16 @@ func (h *Handler) handleDescribeSecurityHubV2(c *echo.Context) error {
 	})
 }
 
+// EnableSecurityHubFeatureV2/DisableSecurityHubFeatureV2 both model
+// ResourceNotFoundException with the same unambiguous shape as
+// DescribeSecurityHubV2 above.
 func (h *Handler) handleEnableSecurityHubFeatureV2(c *echo.Context, featureName string) error {
 	if err := h.Backend.EnableSecurityHubFeatureV2(featureName); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgHubV2NotEnabled)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -237,10 +270,10 @@ func (h *Handler) handleEnableSecurityHubFeatureV2(c *echo.Context, featureName 
 func (h *Handler) handleDisableSecurityHubFeatureV2(c *echo.Context, featureName string) error {
 	if err := h.Backend.DisableSecurityHubFeatureV2(featureName); err != nil {
 		if errors.Is(err, ErrHubNotEnabled) {
-			return c.JSON(http.StatusBadRequest, map[string]any{keyMessage: msgHubV2NotEnabled})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", msgHubV2NotEnabled)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalServerException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

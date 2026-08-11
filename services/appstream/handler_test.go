@@ -16,7 +16,7 @@ import (
 )
 
 // cborTestServicePath mirrors the rpc-v2-cbor path prefix real
-// aws-sdk-go-v2/service/appstream@v1.64.0+ clients send requests to (see
+// aws-sdk-go-v2/service/appstream@v1.64.5+ clients send requests to (see
 // cborServicePath in rpcv2cbor.go).
 const cborTestServicePath = "/service/PhotonAdminProxyService/operation/"
 
@@ -296,7 +296,7 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 }
 
 // TestAppStream_RPCv2CBOR covers the rpc-v2-cbor protocol added in
-// aws-sdk-go-v2/service/appstream@v1.64.0 (see rpcv2cbor.go), which
+// aws-sdk-go-v2/service/appstream@v1.64.5 (see rpcv2cbor.go), which
 // replaced the awsjson1.1/X-Amz-Target wire format the rest of this file's
 // helpers (doRequest et al.) still exercise. Both protocols must keep
 // working: real SDK clients now speak CBOR, but older pinned SDKs, the

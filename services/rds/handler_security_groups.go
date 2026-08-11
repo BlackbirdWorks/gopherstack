@@ -29,6 +29,7 @@ func toXMLDBSecurityGroup(sg *DBSecurityGroup) xmlDBSecurityGroup {
 	return xmlDBSecurityGroup{
 		DBSecurityGroupName:        sg.DBSecurityGroupName,
 		DBSecurityGroupDescription: sg.DBSecurityGroupDescription,
+		DBSecurityGroupArn:         sg.DBSecurityGroupArn,
 		IPRanges:                   xmlIPRangeList{Members: ipRanges},
 	}
 }
@@ -45,6 +46,7 @@ type xmlIPRangeList struct {
 type xmlDBSecurityGroup struct {
 	DBSecurityGroupName        string         `xml:"DBSecurityGroupName"`
 	DBSecurityGroupDescription string         `xml:"DBSecurityGroupDescription,omitempty"`
+	DBSecurityGroupArn         string         `xml:"DBSecurityGroupArn,omitempty"`
 	IPRanges                   xmlIPRangeList `xml:"IPRanges"`
 }
 
@@ -128,6 +130,8 @@ func (h *Handler) handleCreateDBSecurityGroup(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	h.applyCreateTags(vals, sg.DBSecurityGroupArn)
 
 	return &createDBSecurityGroupR2Response{
 		Xmlns:           rdsXMLNS,

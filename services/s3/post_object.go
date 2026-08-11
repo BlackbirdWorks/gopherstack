@@ -19,28 +19,18 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
-// handlePostObject implements browser-style POST form-data uploads to S3.
+// handlePostObject implements browser-style POST form-data uploads to S3: the
+// "presigned POST" flow (POST /bucket, Content-Type: multipart/form-data) used
+// by uppy, aws-amplify Storage.put, etc.
 //
-// AWS S3 supports POST /bucket with Content-Type: multipart/form-data so that
-// browsers (or any HTML form) can upload directly to S3 using a presigned
-// policy without ever sending the file through the application server. This
-// is the mechanism behind the canonical "presigned POST" flow used by uppy,
-// aws-amplify Storage.put, etc.
+// Wire format: any number of field-name/value pairs followed by a 'file' part
+// (must be last). 'key' supports the literal '${filename}' placeholder.
+// 'Content-Type'/'Cache-Control'/'Content-Disposition' flow into stored object
+// metadata; 'x-amz-meta-*' becomes user-metadata; 'success_action_status'
+// overrides the default 204; 'success_action_redirect' returns 303 with Location.
 //
-// Wire format:
-//   - The form may include any number of field-name/value pairs followed by
-//     a 'file' part containing the body. AWS requires 'file' to be last.
-//   - 'key' picks the destination key. AWS supports the literal '${filename}'
-//     placeholder which expands to the uploaded filename.
-//   - 'Content-Type', 'Cache-Control', 'Content-Disposition' etc. flow into
-//     the stored object metadata.
-//   - 'x-amz-meta-*' fields become user-metadata.
-//   - 'success_action_status' overrides the default 204 response code.
-//   - 'success_action_redirect' returns 303 with Location when set.
-//
-// We do NOT verify the signature/policy fields — same posture as the rest of
-// the mock — matching LocalStack's behaviour so presigned-POST tests pass
-// end-to-end without real AWS credentials.
+// We do NOT verify the signature/policy fields, matching LocalStack's posture so
+// presigned-POST tests pass without real AWS credentials.
 func (h *S3Handler) handlePostObject(
 	ctx context.Context,
 	w http.ResponseWriter,

@@ -454,6 +454,49 @@ func TestTagResourceOnPodIdentity(t *testing.T) {
 	assert.Equal(t, "b", t2["a"])
 }
 
+// TestTagResourceOnIdentityProviderConfig verifies the generic ARN-based
+// TagResource/ListTagsForResource/TaggedResources chain covers identity
+// provider configs. Real EKS supports tags on OIDC IDP configs
+// (botocore eks/2017-11-01: AssociateIdentityProviderConfigRequest.tags,
+// OidcIdentityProviderConfig.tags), and gopherstack decodes/renders them on
+// create/describe, but the ARN-keyed lookup used by TagResource et al only
+// searched clusters, nodegroups, access entries, addons, fargate profiles,
+// pod identity associations, capabilities, and subscriptions.
+func TestTagResourceOnIdentityProviderConfig(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+
+	_, err := b.CreateCluster("c1", "1.32", "", nil, nil, nil)
+	require.NoError(t, err)
+
+	cfg, err := b.AssociateIdentityProviderConfig(
+		"c1", "oidc", "idp1",
+		map[string]string{"issuerUrl": "https://issuer.example.com", "clientId": "client1"},
+		nil, nil,
+	)
+	require.NoError(t, err)
+
+	err = b.TagResource(cfg.ARN, map[string]string{"env": "prod"})
+	require.NoError(t, err, "TagResource must find identity provider config by ARN")
+
+	got, err := b.ListTagsForResource(cfg.ARN)
+	require.NoError(t, err)
+	assert.Equal(t, "prod", got["env"])
+
+	found := false
+
+	for _, e := range b.TaggedResources() {
+		if e.ARN == cfg.ARN {
+			found = true
+
+			assert.Equal(t, "prod", e.Tags["env"])
+		}
+	}
+
+	assert.True(t, found, "TaggedResources must include the tagged identity provider config")
+}
+
 func TestTagResource_KeyTooLong_Rejected(t *testing.T) {
 	t.Parallel()
 

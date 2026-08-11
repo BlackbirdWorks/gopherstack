@@ -50,7 +50,7 @@ func TestCreateDedicatedIPPool(t *testing.T) {
 		{
 			name: "duplicate",
 			setup: func(b *sesv2.InMemoryBackend) {
-				_, _ = b.CreateDedicatedIPPool("my-pool", "STANDARD")
+				_, _ = b.CreateDedicatedIPPool("my-pool", "STANDARD", nil)
 			},
 			poolName:    "my-pool",
 			scalingMode: "STANDARD",
@@ -65,7 +65,7 @@ func TestCreateDedicatedIPPool(t *testing.T) {
 			backend := sesv2.NewInMemoryBackend()
 			tt.setup(backend)
 
-			_, err := backend.CreateDedicatedIPPool(tt.poolName, tt.scalingMode)
+			_, err := backend.CreateDedicatedIPPool(tt.poolName, tt.scalingMode, nil)
 
 			if tt.wantErr {
 				require.Error(t, err)

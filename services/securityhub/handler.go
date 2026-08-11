@@ -386,7 +386,7 @@ func (h *Handler) ChaosRegions() []string { return []string{h.Backend.Region()} 
 // securityHubOnlyPathPrefixes are path prefixes that unambiguously belong to
 // SecurityHub (no other service registers them), so RouteMatcher can claim
 // them without further disambiguation. pathAccounts is checked separately
-// since it is an exact-or-prefix match rather than a plain prefix.
+// since it is an exact match, not a prefix.
 var securityHubOnlyPathPrefixes = []string{ //nolint:gochecknoglobals // read-only lookup data
 	"/actionTargets",
 	"/insights",
@@ -437,13 +437,13 @@ func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
 
-		// Unambiguous SecurityHub-only paths
+		// Unambiguous SecurityHub-only paths. /accounts is exact-match only:
+		// the real API (EnableSecurityHub, DisableSecurityHub, DescribeHub,
+		// UpdateSecurityHubConfiguration) never binds anything under
+		// /accounts/... -- that shape belongs to QuickSight
+		// (aws-sdk-go-v2/service/quicksight@v1.123.1, e.g. serializers.go:1023
+		// "/accounts/{AwsAccountId}/analyses/{AnalysisId}").
 		if path == pathAccounts || hasAnyPrefix(path, securityHubOnlyPathPrefixes) {
-			return true
-		}
-
-		// /accounts with any method
-		if strings.HasPrefix(path, pathAccounts) {
 			return true
 		}
 
@@ -496,6 +496,32 @@ func (h *Handler) Handler() echo.HandlerFunc {
 // empty (non-nil) map for requests with no body. On malformed JSON it writes
 // the 400 response itself and returns that write's error (nil on success),
 // matching handleREST's historical inline behavior.
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError, since this package had no
+// central error handler and every call site wrote only a "Message" field.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// typedErrorResponse writes a wire-accurate error response, setting
+// X-Amzn-Errortype so a real SDK client can distinguish error kinds. errType
+// must be verified against the specific operation's own deserializer error
+// list (securityhub@v1.75.4 deserializers.go) before use at a given call
+// site -- the exception vocabulary differs between the classic REST API
+// (InvalidInputException/InternalException/ResourceConflictException) and
+// the newer V2-style operations, including some non-"V2"-suffixed ones like
+// Connectors (ValidationException/InternalServerException/ConflictException).
+func typedErrorResponse(c *echo.Context, status int, errType, message string) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errType)
+
+	return c.JSON(status, map[string]any{keyMessage: message})
+}
+
+// decodeJSONBody runs before the request is classified to an operation, so
+// it can't know whether that operation uses the classic InvalidInputException
+// vocabulary or the newer ValidationException one -- left unheadered rather
+// than guessing (same reasoning as the ErrHubNotEnabled cases in
+// handler_hub.go).
 func decodeJSONBody(c *echo.Context) (map[string]any, error) {
 	var body map[string]any
 

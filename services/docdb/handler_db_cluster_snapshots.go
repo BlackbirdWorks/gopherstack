@@ -142,6 +142,7 @@ func toXMLClusterSnapshot(snap *DBClusterSnapshot) xmlDBClusterSnapshot {
 		DBClusterSnapshotIdentifier: snap.DBClusterSnapshotIdentifier,
 		DBClusterIdentifier:         snap.DBClusterIdentifier,
 		DBClusterArn:                snap.DBClusterArn,
+		DBClusterSnapshotArn:        snap.DBClusterSnapshotArn,
 		Engine:                      snap.Engine,
 		Status:                      snap.Status,
 		SnapshotType:                snap.SnapshotType,
@@ -156,6 +157,7 @@ type xmlDBClusterSnapshot struct {
 	DBClusterSnapshotIdentifier string `xml:"DBClusterSnapshotIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	DBClusterArn                string `xml:"DBClusterArn,omitempty"`
+	DBClusterSnapshotArn        string `xml:"DBClusterSnapshotArn,omitempty"`
 	Engine                      string `xml:"Engine"`
 	Status                      string `xml:"Status"`
 	SnapshotType                string `xml:"SnapshotType,omitempty"`

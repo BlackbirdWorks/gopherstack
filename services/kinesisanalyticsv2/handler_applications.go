@@ -93,20 +93,51 @@ type encryptionConfigInput struct {
 	KeyID   string `json:"KeyId,omitempty"`
 }
 
-// applicationConfigurationInput mirrors real AWS's ApplicationConfiguration
-// request shape. ZeppelinApplicationConfiguration (Studio-notebook-only:
-// Glue Data Catalog + Maven/S3 custom artifacts + deploy-as-application) is
-// accepted (to avoid rejecting well-formed requests) but not modeled -- see
-// PARITY.md.
+// zeppelinMonitoringConfigInput mirrors real AWS's ZeppelinMonitoringConfiguration.
+type zeppelinMonitoringConfigInput struct {
+	LogLevel string `json:"LogLevel"`
+}
+
+// catalogConfigInput mirrors real AWS's CatalogConfiguration request shape.
+type catalogConfigInput struct {
+	GlueDataCatalogConfiguration *GlueDataCatalogConfigDesc `json:"GlueDataCatalogConfiguration,omitempty"` //nolint:lll // AWS API name
+}
+
+// deployAsApplicationConfigInput mirrors real AWS's
+// DeployAsApplicationConfiguration request shape.
+type deployAsApplicationConfigInput struct {
+	S3ContentLocation *S3ContentBaseLocationDesc `json:"S3ContentLocation,omitempty"`
+}
+
+// customArtifactConfigInput mirrors real AWS's CustomArtifactConfiguration
+// request shape (one entry of CustomArtifactsConfiguration).
+type customArtifactConfigInput struct {
+	S3ContentLocation *S3CodeLocationDesc `json:"S3ContentLocation,omitempty"`
+	MavenReference    *MavenReferenceDesc `json:"MavenReference,omitempty"`
+	ArtifactType      string              `json:"ArtifactType"`
+}
+
+// zeppelinApplicationConfigInput mirrors real AWS's ZeppelinApplicationConfiguration
+// request shape (Studio-notebook-only: Glue Data Catalog + Maven/S3 custom
+// artifacts + deploy-as-application).
+type zeppelinApplicationConfigInput struct {
+	MonitoringConfiguration          *zeppelinMonitoringConfigInput  `json:"MonitoringConfiguration,omitempty"`          //nolint:lll // AWS API name
+	CatalogConfiguration             *catalogConfigInput             `json:"CatalogConfiguration,omitempty"`             //nolint:lll // AWS API name
+	DeployAsApplicationConfiguration *deployAsApplicationConfigInput `json:"DeployAsApplicationConfiguration,omitempty"` //nolint:lll // AWS API name
+	CustomArtifactsConfiguration     []customArtifactConfigInput     `json:"CustomArtifactsConfiguration,omitempty"`     //nolint:lll // AWS API name
+}
+
+// applicationConfigurationInput mirrors real AWS's ApplicationConfiguration request shape.
 type applicationConfigurationInput struct {
-	SQLApplicationConfiguration            *sqlApplicationConfigInput   `json:"SqlApplicationConfiguration,omitempty"`            //nolint:lll,tagliatelle // AWS API name
-	ApplicationCodeConfiguration           *applicationCodeConfigInput  `json:"ApplicationCodeConfiguration,omitempty"`           //nolint:lll // AWS API name
-	FlinkApplicationConfiguration          *flinkApplicationConfigInput `json:"FlinkApplicationConfiguration,omitempty"`          //nolint:lll // AWS API name
-	EnvironmentProperties                  *environmentPropertiesInput  `json:"EnvironmentProperties,omitempty"`                  //nolint:lll // AWS API name
-	ApplicationSnapshotConfiguration       *snapshotConfigInput         `json:"ApplicationSnapshotConfiguration,omitempty"`       //nolint:lll // AWS API name
-	ApplicationSystemRollbackConfiguration *systemRollbackConfigInput   `json:"ApplicationSystemRollbackConfiguration,omitempty"` //nolint:lll // AWS API name
-	ApplicationEncryptionConfiguration     *encryptionConfigInput       `json:"ApplicationEncryptionConfiguration,omitempty"`     //nolint:lll // AWS API name
-	VpcConfigurations                      []*vpcConfigInput            `json:"VpcConfigurations,omitempty"`
+	SQLApplicationConfiguration            *sqlApplicationConfigInput      `json:"SqlApplicationConfiguration,omitempty"`            //nolint:lll,tagliatelle // AWS API name
+	ApplicationCodeConfiguration           *applicationCodeConfigInput     `json:"ApplicationCodeConfiguration,omitempty"`           //nolint:lll // AWS API name
+	FlinkApplicationConfiguration          *flinkApplicationConfigInput    `json:"FlinkApplicationConfiguration,omitempty"`          //nolint:lll // AWS API name
+	ZeppelinApplicationConfiguration       *zeppelinApplicationConfigInput `json:"ZeppelinApplicationConfiguration,omitempty"`       //nolint:lll // AWS API name
+	EnvironmentProperties                  *environmentPropertiesInput     `json:"EnvironmentProperties,omitempty"`                  //nolint:lll // AWS API name
+	ApplicationSnapshotConfiguration       *snapshotConfigInput            `json:"ApplicationSnapshotConfiguration,omitempty"`       //nolint:lll // AWS API name
+	ApplicationSystemRollbackConfiguration *systemRollbackConfigInput      `json:"ApplicationSystemRollbackConfiguration,omitempty"` //nolint:lll // AWS API name
+	ApplicationEncryptionConfiguration     *encryptionConfigInput          `json:"ApplicationEncryptionConfiguration,omitempty"`     //nolint:lll // AWS API name
+	VpcConfigurations                      []*vpcConfigInput               `json:"VpcConfigurations,omitempty"`
 }
 
 type createApplicationInput struct {
@@ -142,20 +173,18 @@ type applicationDetailOutput struct {
 	CreateTimestamp                                float64                       `json:"CreateTimestamp"`
 }
 
-// appConfigDesc mirrors real AWS's ApplicationConfigurationDescription. Only
-// ZeppelinApplicationConfigurationDescription (Studio-notebook-only: Glue
-// Data Catalog + Maven/S3 custom artifacts + deploy-as-application) is
-// omitted -- see PARITY.md.
+// appConfigDesc mirrors real AWS's ApplicationConfigurationDescription.
 type appConfigDesc struct {
-	SQLApplicationConfigurationDescription            *sqlAppConfigDesc                    `json:"SqlApplicationConfigurationDescription,omitempty"`            //nolint:lll,tagliatelle // AWS API name
-	ApplicationCodeConfigurationDescription           *ApplicationCodeConfigDesc           `json:"ApplicationCodeConfigurationDescription,omitempty"`           //nolint:lll // AWS API name
-	FlinkApplicationConfigurationDescription          *FlinkApplicationConfigDesc          `json:"FlinkApplicationConfigurationDescription,omitempty"`          //nolint:lll // AWS API name
-	EnvironmentPropertyDescriptions                   *environmentPropertyDescOutput       `json:"EnvironmentPropertyDescriptions,omitempty"`                   //nolint:lll // AWS API name
-	ApplicationSnapshotConfigurationDescription       *ApplicationSnapshotConfigDesc       `json:"ApplicationSnapshotConfigurationDescription,omitempty"`       //nolint:lll // AWS API name
-	ApplicationSystemRollbackConfigurationDescription *ApplicationSystemRollbackConfigDesc `json:"ApplicationSystemRollbackConfigurationDescription,omitempty"` //nolint:lll // AWS API name
-	ApplicationEncryptionConfigurationDescription     *ApplicationEncryptionConfigDesc     `json:"ApplicationEncryptionConfigurationDescription,omitempty"`     //nolint:lll // AWS API name
-	RunConfigurationDescription                       *RunConfigDesc                       `json:"RunConfigurationDescription,omitempty"`                       //nolint:lll // AWS API name
-	VpcConfigurationDescriptions                      []VpcConfigurationDescription        `json:"VpcConfigurationDescriptions,omitempty"`                      //nolint:lll // AWS API name
+	SQLApplicationConfigurationDescription            *sqlAppConfigDesc                     `json:"SqlApplicationConfigurationDescription,omitempty"`            //nolint:lll,tagliatelle // AWS API name
+	ApplicationCodeConfigurationDescription           *ApplicationCodeConfigDesc            `json:"ApplicationCodeConfigurationDescription,omitempty"`           //nolint:lll // AWS API name
+	FlinkApplicationConfigurationDescription          *FlinkApplicationConfigDesc           `json:"FlinkApplicationConfigurationDescription,omitempty"`          //nolint:lll // AWS API name
+	ZeppelinApplicationConfigurationDescription       *ZeppelinApplicationConfigDescription `json:"ZeppelinApplicationConfigurationDescription,omitempty"`       //nolint:lll // AWS API name
+	EnvironmentPropertyDescriptions                   *environmentPropertyDescOutput        `json:"EnvironmentPropertyDescriptions,omitempty"`                   //nolint:lll // AWS API name
+	ApplicationSnapshotConfigurationDescription       *ApplicationSnapshotConfigDesc        `json:"ApplicationSnapshotConfigurationDescription,omitempty"`       //nolint:lll // AWS API name
+	ApplicationSystemRollbackConfigurationDescription *ApplicationSystemRollbackConfigDesc  `json:"ApplicationSystemRollbackConfigurationDescription,omitempty"` //nolint:lll // AWS API name
+	ApplicationEncryptionConfigurationDescription     *ApplicationEncryptionConfigDesc      `json:"ApplicationEncryptionConfigurationDescription,omitempty"`     //nolint:lll // AWS API name
+	RunConfigurationDescription                       *RunConfigDesc                        `json:"RunConfigurationDescription,omitempty"`                       //nolint:lll // AWS API name
+	VpcConfigurationDescriptions                      []VpcConfigurationDescription         `json:"VpcConfigurationDescriptions,omitempty"`                      //nolint:lll // AWS API name
 }
 
 // environmentPropertyDescOutput mirrors real AWS's EnvironmentPropertyDescriptions.
@@ -201,7 +230,12 @@ type startApplicationInput struct {
 	ApplicationName  string                 `json:"ApplicationName"`
 }
 
+// startStopApplicationInput is StopApplication's request shape (the shared
+// name is misleading: real AWS's StartApplicationInput has no Force field,
+// only StopApplicationInput does -- botocore kinesisanalyticsv2/2018-05-23/
+// service-2.json.gz shapes "StartApplicationRequest"/"StopApplicationRequest").
 type startStopApplicationInput struct {
+	Force           *bool  `json:"Force,omitempty"`
 	ApplicationName string `json:"ApplicationName"`
 }
 
@@ -230,19 +264,34 @@ type updateMaintenanceConfigOutput struct {
 	ApplicationMaintenanceConfigurationDescription maintenanceConfigDescription `json:"ApplicationMaintenanceConfigurationDescription"` //nolint:lll // AWS API name
 }
 
+// discoverInputSchemaInput mirrors real AWS's DiscoverInputSchemaRequest.
+// The wire key is ServiceExecutionRole, not RoleARN ("RoleARN" is only the
+// shape name of ServiceExecutionRole's string value) -- verified against
+// botocore kinesisanalyticsv2/2018-05-23/service-2.json.gz shape
+// "DiscoverInputSchemaRequest"; the previous "RoleARN" wire key never
+// matched any real client's request body, so the field was always empty
+// here. InputStartingPositionConfiguration is a nested object, not a
+// top-level string (same shape "InputStartingPositionConfiguration" used by
+// StartApplication's SqlRunConfigurations).
 type discoverInputSchemaInput struct {
-	ResourceARN           string `json:"ResourceARN"`
-	RoleARN               string `json:"RoleARN,omitempty"`
-	InputStartingPosition string `json:"InputStartingPosition,omitempty"`
+	InputStartingPositionConfiguration *InputStartingPositionConfig `json:"InputStartingPositionConfiguration,omitempty"` //nolint:lll // AWS API name
+	ResourceARN                        string                       `json:"ResourceARN"`
+	ServiceExecutionRole               string                       `json:"ServiceExecutionRole,omitempty"` //nolint:lll // AWS API name
 }
 
 type discoverInputSchemaRecordFormat struct {
 	RecordFormatType string `json:"RecordFormatType"`
 }
 
+// discoverInputSchemaInner mirrors real AWS's SourceSchema. RecordColumns is
+// a required member (botocore shape "SourceSchema") -- previously omitted
+// entirely, so a real client using this response to configure its
+// application's input schema (the operation's whole purpose) received no
+// columns at all.
 type discoverInputSchemaInner struct {
 	RecordEncoding string                          `json:"RecordEncoding,omitempty"`
 	RecordFormat   discoverInputSchemaRecordFormat `json:"RecordFormat"`
+	RecordColumns  []RecordColumnDesc              `json:"RecordColumns"`
 }
 
 type discoverInputSchemaOutput struct {
@@ -320,6 +369,7 @@ func buildInitialConfig(in *createApplicationInput) SeedConfig {
 
 		cfg.CodeConfig = buildCodeConfigDesc(ac.ApplicationCodeConfiguration)
 		cfg.FlinkConfig = buildFlinkConfigDesc(ac.FlinkApplicationConfiguration)
+		cfg.ZeppelinConfig = buildZeppelinConfigDesc(ac.ZeppelinApplicationConfiguration)
 		cfg.EnvironmentPropertyGroups = buildEnvironmentPropertyGroups(ac.EnvironmentProperties)
 		cfg.SnapshotsEnabled = buildSnapshotsEnabled(ac.ApplicationSnapshotConfiguration)
 		cfg.RollbackEnabled = buildRollbackEnabled(ac.ApplicationSystemRollbackConfiguration)
@@ -462,6 +512,55 @@ func buildEncryptionConfigDesc(in *encryptionConfigInput) *ApplicationEncryption
 	return &ApplicationEncryptionConfigDesc{KeyType: in.KeyType, KeyID: in.KeyID}
 }
 
+// buildZeppelinConfigDesc converts the inline ZeppelinApplicationConfiguration
+// request into its stored/echoed description form. MonitoringConfigurationDescription
+// is a required member of the real response shape, but real AWS's public
+// documentation does not specify a default LogLevel when the request omits
+// MonitoringConfiguration -- so, matching the existing DEFAULT-value
+// convention for Flink's MonitoringConfiguration/ParallelismConfiguration
+// (see applyCheckpointDefaults' doc comment), gopherstack leaves it unset
+// rather than fabricating an undocumented default.
+func buildZeppelinConfigDesc(in *zeppelinApplicationConfigInput) *ZeppelinApplicationConfigDescription {
+	if in == nil {
+		return nil
+	}
+
+	desc := &ZeppelinApplicationConfigDescription{}
+
+	if in.MonitoringConfiguration != nil {
+		desc.MonitoringConfigurationDescription = &ZeppelinMonitoringConfigDesc{
+			LogLevel: in.MonitoringConfiguration.LogLevel,
+		}
+	}
+
+	if cc := in.CatalogConfiguration; cc != nil && cc.GlueDataCatalogConfiguration != nil {
+		desc.CatalogConfigurationDescription = &CatalogConfigDescription{
+			GlueDataCatalogConfigurationDescription: cc.GlueDataCatalogConfiguration,
+		}
+	}
+
+	if dc := in.DeployAsApplicationConfiguration; dc != nil && dc.S3ContentLocation != nil {
+		desc.DeployAsApplicationConfigurationDescription = &DeployAsApplicationConfigDescription{
+			S3ContentLocationDescription: dc.S3ContentLocation,
+		}
+	}
+
+	if len(in.CustomArtifactsConfiguration) > 0 {
+		artifacts := make([]CustomArtifactConfigDescription, 0, len(in.CustomArtifactsConfiguration))
+		for _, a := range in.CustomArtifactsConfiguration {
+			artifacts = append(artifacts, CustomArtifactConfigDescription{
+				ArtifactType:                 a.ArtifactType,
+				S3ContentLocationDescription: a.S3ContentLocation,
+				MavenReferenceDescription:    a.MavenReference,
+			})
+		}
+
+		desc.CustomArtifactsConfigurationDescription = artifacts
+	}
+
+	return desc
+}
+
 func (h *Handler) handleDescribeApplication(ctx context.Context, c *echo.Context, body []byte) error {
 	var in describeApplicationInput
 	if err := json.Unmarshal(body, &in); err != nil {
@@ -534,7 +633,14 @@ func (h *Handler) handleStartApplication(ctx context.Context, c *echo.Context, b
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	opID, err := h.Backend.StartApplication(ctx, in.ApplicationName, toRunConfigInput(in.RunConfiguration))
+	var sqlRunConfigs []SQLRunConfigInput
+	if in.RunConfiguration != nil {
+		sqlRunConfigs = in.RunConfiguration.SQLRunConfigurations
+	}
+
+	opID, err := h.Backend.StartApplication(
+		ctx, in.ApplicationName, toRunConfigInput(in.RunConfiguration), sqlRunConfigs,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -548,7 +654,9 @@ func (h *Handler) handleStopApplication(ctx context.Context, c *echo.Context, bo
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	opID, err := h.Backend.StopApplication(ctx, in.ApplicationName)
+	force := in.Force != nil && *in.Force
+
+	opID, err := h.Backend.StopApplication(ctx, in.ApplicationName, force)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -584,7 +692,12 @@ func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context
 		return h.writeError(c, http.StatusBadRequest, "InvalidRequestException", "invalid request body: "+err.Error())
 	}
 
-	schema, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.RoleARN, in.InputStartingPosition)
+	var startingPosition string
+	if in.InputStartingPositionConfiguration != nil {
+		startingPosition = in.InputStartingPositionConfiguration.InputStartingPosition
+	}
+
+	schema, err := h.Backend.DiscoverInputSchema(ctx, in.ResourceARN, in.ServiceExecutionRole, startingPosition)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -592,6 +705,7 @@ func (h *Handler) handleDiscoverInputSchema(ctx context.Context, c *echo.Context
 	var out discoverInputSchemaOutput
 	out.InputSchema.RecordFormat.RecordFormatType = schema.RecordFormat
 	out.InputSchema.RecordEncoding = schema.RecordEncoding
+	out.InputSchema.RecordColumns = schema.RecordColumns
 	out.ParsedInputRecords = schema.ParsedInputRecords
 
 	return c.JSON(http.StatusOK, out)
@@ -637,20 +751,15 @@ func toDetailOutput(app *Application) applicationDetailOutput {
 // matches the pre-existing convention of omitting the whole envelope for a
 // bare application with no configuration at all.
 func buildAppConfigDescOutput(app *Application) *appConfigDesc {
-	hasSQL := len(app.InputDescriptions) > 0 || len(app.OutputDescriptions) > 0 ||
-		len(app.ReferenceDataSourceDescriptions) > 0
-	hasAny := hasSQL || len(app.VpcConfigurationDescriptions) > 0 || app.CodeConfig != nil ||
-		app.FlinkConfig != nil || len(app.EnvironmentPropertyGroups) > 0 ||
-		app.SnapshotsEnabled != nil || app.RollbackEnabled != nil || app.EncryptionConfig != nil ||
-		app.RunConfig != nil
-
-	if !hasAny {
+	hasSQL := appHasSQLConfig(app)
+	if !hasSQL && !appHasNonSQLConfig(app) {
 		return nil
 	}
 
 	desc := &appConfigDesc{
 		ApplicationCodeConfigurationDescription:           app.CodeConfig,
 		FlinkApplicationConfigurationDescription:          app.FlinkConfig,
+		ZeppelinApplicationConfigurationDescription:       app.ZeppelinConfig,
 		ApplicationSnapshotConfigurationDescription:       buildSnapshotConfigDescOutput(app.SnapshotsEnabled),
 		ApplicationSystemRollbackConfigurationDescription: buildRollbackConfigDescOutput(app.RollbackEnabled),
 		ApplicationEncryptionConfigurationDescription:     app.EncryptionConfig,
@@ -676,6 +785,18 @@ func buildAppConfigDescOutput(app *Application) *appConfigDesc {
 	}
 
 	return desc
+}
+
+func appHasSQLConfig(app *Application) bool {
+	return len(app.InputDescriptions) > 0 || len(app.OutputDescriptions) > 0 ||
+		len(app.ReferenceDataSourceDescriptions) > 0
+}
+
+func appHasNonSQLConfig(app *Application) bool {
+	return len(app.VpcConfigurationDescriptions) > 0 || app.CodeConfig != nil ||
+		app.FlinkConfig != nil || len(app.EnvironmentPropertyGroups) > 0 ||
+		app.SnapshotsEnabled != nil || app.RollbackEnabled != nil || app.EncryptionConfig != nil ||
+		app.RunConfig != nil || app.ZeppelinConfig != nil
 }
 
 func buildSnapshotConfigDescOutput(v *bool) *ApplicationSnapshotConfigDesc {

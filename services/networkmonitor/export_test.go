@@ -5,26 +5,6 @@ import "context"
 // ProbeInputForTest is a test alias for probeInput so external test packages can create probes.
 type ProbeInputForTest = probeInput
 
-// CreateMonitorWithProbesForTest creates a monitor with nested probes,
-// converting a []ProbeInputForTest into the internal createMonitorProbeInput
-// shape CreateMonitor's probes parameter expects, so external test packages
-// can exercise CreateMonitor's nested-probe path (e.g. quota enforcement)
-// without reaching into the unexported createMonitorProbeInput type.
-func CreateMonitorWithProbesForTest(
-	ctx context.Context,
-	b *InMemoryBackend,
-	name string,
-	probes []ProbeInputForTest,
-) (*Monitor, error) {
-	converted := make([]createMonitorProbeInput, len(probes))
-
-	for i, p := range probes {
-		converted[i] = createMonitorProbeInput(p)
-	}
-
-	return b.CreateMonitor(ctx, name, nil, converted, nil)
-}
-
 // UpdateProbeRequestForTest is a test-visible mirror of updateProbeRequest so
 // external test packages can exercise UpdateProbe without reaching into
 // unexported wire types. It has no Tags field, matching updateProbeRequest

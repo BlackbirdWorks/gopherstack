@@ -22,10 +22,10 @@ var errExpectedCBORMap = errors.New("expected CBOR map")
 
 // cborServicePath is the URL path prefix used by the Smithy RPCv2 CBOR
 // protocol for AppStream, confirmed against the installed SDK at
-// aws-sdk-go-v2/service/appstream@v1.64.0/serializers.go: every operation
+// aws-sdk-go-v2/service/appstream@v1.64.5/serializers.go: every operation
 // serializer sets req.URL.Path to this prefix plus the operation name and
 // req.Header["smithy-protocol"] = "rpc-v2-cbor", with a CBOR-encoded body
-// (as opposed to the pre-v1.64.0 awsjson1.1 protocol, which dispatched via
+// (as opposed to the pre-v1.64.5 awsjson1.1 protocol, which dispatched via
 // an "X-Amz-Target: PhotonAdminProxyService.<Operation>" header and a JSON
 // body -- see appstreamTargetPrefix in handler.go, which is still served
 // for backward compatibility).
@@ -38,7 +38,7 @@ const maxCBORBodyBytes = 1 << 20
 
 // timestampKeys is the set of AppStream response field names the real SDK
 // models as Timestamp shapes (Go *time.Time in
-// aws-sdk-go-v2/service/appstream/types@v1.64.0/types.go, verified by
+// aws-sdk-go-v2/service/appstream/types@v1.64.5/types.go, verified by
 // grepping that file for "*time.Time" and cross-checking which of those
 // fields gopherstack's handlers actually populate). The rpc-v2-cbor
 // protocol requires these to be encoded as a CBOR Tag(1, epoch-seconds);

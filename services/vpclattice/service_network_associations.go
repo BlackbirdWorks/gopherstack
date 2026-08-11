@@ -133,6 +133,8 @@ func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) 
 }
 
 // ListServiceNetworkServiceAssociations lists SNSAs with optional filters.
+//
+//nolint:dupl // structurally mirrors ListServiceNetworkResourceAssociations but filters a distinct table/type
 func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 	ctx context.Context,
 	serviceNetworkID, serviceID string,
@@ -177,6 +179,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 	serviceNetworkID, vpcID string,
 	securityGroupIDs []string,
 	privateDNSEnabled bool,
+	dnsOptions *DNSOptions,
 	tags map[string]string,
 ) (*ServiceNetworkVpcAssociation, error) {
 	if vpcID == "" {
@@ -218,6 +221,7 @@ func (b *InMemoryBackend) CreateServiceNetworkVpcAssociation(
 		Status:             statusActive,
 		CreatedBy:          b.accountID,
 		PrivateDNSEnabled:  privateDNSEnabled,
+		DNSOptions:         dnsOptions,
 		Tags:               copyTags(tags),
 		CreatedAt:          now,
 		LastUpdatedAt:      now,

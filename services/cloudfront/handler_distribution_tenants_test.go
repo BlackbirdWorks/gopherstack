@@ -1,11 +1,14 @@
 package cloudfront_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/cloudfront"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const tenantDomainPrefix = "/2020-05-31/"
@@ -96,20 +99,29 @@ func TestListDomainConflicts_RealConflicts(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	resp := rr.Body.String()
-	if !strings.Contains(resp, "<Quantity>1</Quantity>") {
-		t.Errorf("expected 1 conflict, got: %s", resp)
+	// Decode with the real deserializer's element names
+	// (awsRestxml_deserializeDocumentDomainConflictsList,
+	// cloudfront@v1.67.4): the list wrapper AND each entry are both named
+	// <DomainConflicts>, not <Items>/<DomainConflict>.
+	type domainConflictsList struct {
+		DomainConflicts struct {
+			Entries []struct {
+				ResourceID string `xml:"ResourceId"`
+			} `xml:"DomainConflicts"`
+		} `xml:"DomainConflicts"`
 	}
 
-	if !strings.Contains(resp, tenantID) {
-		t.Errorf("expected conflicting tenant ID in response, got: %s", resp)
-	}
+	var parsed domainConflictsList
+	require.NoError(t, xml.Unmarshal(rr.Body.Bytes(), &parsed))
+	require.Len(t, parsed.DomainConflicts.Entries, 1)
+	assert.Equal(t, tenantID, parsed.DomainConflicts.Entries[0].ResourceID)
 
 	rr2 := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"domain-conflict",
 		`<ListDomainConflictsRequest><Domain>unclaimed.example.com</Domain></ListDomainConflictsRequest>`)
-	if !strings.Contains(rr2.Body.String(), "<Quantity>0</Quantity>") {
-		t.Errorf("expected 0 conflicts for unclaimed domain, got: %s", rr2.Body.String())
-	}
+
+	var parsed2 domainConflictsList
+	require.NoError(t, xml.Unmarshal(rr2.Body.Bytes(), &parsed2))
+	assert.Empty(t, parsed2.DomainConflicts.Entries)
 }
 
 // TestListDistributionTenantsByCustomization_FiltersByWebACL verifies that the customization
@@ -290,7 +302,7 @@ func TestDistributionTenant_TagsRoundTrip(t *testing.T) {
 	createBody := `<CreateDistributionTenantRequest>` +
 		`<DistributionId>dist-tags</DistributionId>` +
 		`<Domain>tags.example.com</Domain>` +
-		`<Tags><Tag><Key>team</Key><Value>edge</Value></Tag></Tags>` +
+		`<Tags><Items><Tag><Key>team</Key><Value>edge</Value></Tag></Items></Tags>` +
 		`</CreateDistributionTenantRequest>`
 	createRR := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"distribution-tenant", createBody)
 	if createRR.Code != http.StatusCreated {
@@ -335,7 +347,7 @@ func TestDistributionTenant_PersistenceRoundTrip(t *testing.T) {
 	createBody := `<CreateDistributionTenantRequest>` +
 		`<DistributionId>dist-persist</DistributionId>` +
 		`<Domain>persist.example.com</Domain>` +
-		`<Tags><Tag><Key>owner</Key><Value>team-a</Value></Tag></Tags>` +
+		`<Tags><Items><Tag><Key>owner</Key><Value>team-a</Value></Tag></Items></Tags>` +
 		`</CreateDistributionTenantRequest>`
 	createRR := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"distribution-tenant", createBody)
 	if createRR.Code != http.StatusCreated {

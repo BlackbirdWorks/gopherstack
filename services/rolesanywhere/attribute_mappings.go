@@ -2,12 +2,32 @@ package rolesanywhere
 
 import "context"
 
-// PutAttributeMapping adds or replaces a certificate field mapping on a profile.
+// validCertificateField reports whether f is one of the values the real
+// CertificateField enum shape allows (botocore's
+// rolesanywhere/2018-05-10/service-2.json "CertificateField" shape).
+func validCertificateField(f string) bool {
+	return f == "x509Subject" || f == "x509Issuer" || f == "x509SAN"
+}
+
+// PutAttributeMapping adds or replaces a certificate field mapping on a
+// profile. certificateField must be one of the CertificateField enum values
+// and rules must be non-nil with every entry carrying a non-empty specifier,
+// matching validateOpPutAttributeMappingInput/validateMappingRule.
 func (b *InMemoryBackend) PutAttributeMapping(
 	ctx context.Context,
 	profileID, certificateField string,
 	rules []MappingRule,
 ) (*Profile, error) {
+	if !validCertificateField(certificateField) || rules == nil {
+		return nil, ErrValidation
+	}
+
+	for _, r := range rules {
+		if r.Specifier == "" {
+			return nil, ErrValidation
+		}
+	}
+
 	b.mu.Lock("PutAttributeMapping")
 	defer b.mu.Unlock()
 
@@ -43,12 +63,19 @@ func (b *InMemoryBackend) PutAttributeMapping(
 	return copyProfile(p), nil
 }
 
-// DeleteAttributeMapping removes a certificate field mapping (and optional specifiers) from a profile.
+// DeleteAttributeMapping removes a certificate field mapping (and optional
+// specifiers) from a profile. certificateField must be one of the
+// CertificateField enum values (same shape PutAttributeMapping validates),
+// per validateOpDeleteAttributeMappingInput.
 func (b *InMemoryBackend) DeleteAttributeMapping(
 	ctx context.Context,
 	profileID, certificateField string,
 	specifiers []string,
 ) (*Profile, error) {
+	if !validCertificateField(certificateField) {
+		return nil, ErrValidation
+	}
+
 	b.mu.Lock("DeleteAttributeMapping")
 	defer b.mu.Unlock()
 

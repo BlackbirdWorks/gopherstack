@@ -17,7 +17,7 @@ import (
 // deserializer expects for __timestampIso8601 shapes (SignalMap/
 // CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)
 // createdAt/modifiedAt) -- confirmed against
-// aws-sdk-go-v2/service/medialive@v1.97.2's deserializers.go, which parses
+// aws-sdk-go-v2/service/medialive@v1.101.4's deserializers.go, which parses
 // these fields with smithytime.ParseDateTime (an ISO8601/RFC3339 string),
 // NOT smithytime.ParseEpochSeconds. A zero time.Time renders as "" so a
 // resource that hasn't recorded a timestamp yet doesn't emit a bogus
@@ -637,7 +637,35 @@ func errStatus(err error) int {
 	}
 }
 
+// amznErrorTypeHeader carries the modeled exception type for the restjson1
+// protocol. aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go)
+// reads this header before falling back to a body "code"/"__type" field; without it every
+// error here deserialized client-side as a generic UnknownError -- the exact bug fixed for
+// the sibling mediatailor service in f41d5b42f.
+const amznErrorTypeHeader = "X-Amzn-Errortype"
+
+// errType maps err to the wire exception type name, verified against this
+// service's own deserializer error lists (medialive@v1.101.4 deserializers.go:
+// CreateChannel/DescribeChannel/DeleteChannel/UpdateChannel/DeleteInput model
+// exactly NotFoundException, ConflictException, BadRequestException,
+// InternalServerErrorException, ForbiddenException, TooManyRequestsException,
+// BadGatewayException, GatewayTimeoutException, UnprocessableEntityException).
+func errType(err error) string {
+	switch {
+	case errors.Is(err, awserr.ErrNotFound):
+		return "NotFoundException"
+	case errors.Is(err, awserr.ErrAlreadyExists):
+		return "ConflictException"
+	case errors.Is(err, awserr.ErrInvalidParameter):
+		return "BadRequestException"
+	default:
+		return "InternalServerErrorException"
+	}
+}
+
 func respondErr(c *echo.Context, err error) error {
+	c.Response().Header().Set(amznErrorTypeHeader, errType(err))
+
 	return c.JSON(errStatus(err), map[string]any{keyMessage: err.Error()})
 }
 
@@ -663,6 +691,12 @@ func intFromAny(v any) int {
 //nolint:gosec // G115: bounded millisecond/frame-count fields, see comment above
 func int32FromAny(v any) int32 {
 	return int32(intFromAny(v))
+}
+
+func float64FromAny(v any) float64 {
+	f, _ := v.(float64)
+
+	return f
 }
 
 func extractTags(body map[string]any) map[string]string {

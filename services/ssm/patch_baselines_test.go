@@ -343,7 +343,7 @@ func TestCreatePatchBaseline_Success(t *testing.T) {
 // ApprovalRules/GlobalFilters/Sources/RejectedPatchesAction/
 // AvailableSecurityUpdatesComplianceStatus/ApprovedPatchesEnableNonSecurity
 // fields on CreatePatchBaselineInput/PatchBaseline, confirmed against
-// aws-sdk-go-v2/service/ssm@v1.71.0's api_op_CreatePatchBaseline.go.
+// aws-sdk-go-v2/service/ssm@v1.73.4's api_op_CreatePatchBaseline.go.
 func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -395,7 +395,7 @@ func TestPatchBaseline_ApprovalRulesGlobalFiltersSourcesRoundTrip(t *testing.T) 
 
 // TestUpdatePatchBaseline_ApprovedPatchesEnableNonSecurityPointerSemantics locks
 // in that ApprovedPatchesEnableNonSecurity is a *bool (matching
-// aws-sdk-go-v2/service/ssm@v1.71.0's CreatePatchBaselineInput/
+// aws-sdk-go-v2/service/ssm@v1.73.4's CreatePatchBaselineInput/
 // UpdatePatchBaselineInput/PatchBaseline, confirmed via `go doc`), not a plain
 // bool -- a plain bool can't distinguish an explicit `false` from "field
 // omitted" on UpdatePatchBaselineInput, so Update could previously only ever

@@ -5,13 +5,19 @@
 # AND check the SDK module for ops added since sdk_version. Only audit changed/new surface;
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeartifact
-sdk_module: aws-sdk-go-v2/service/codeartifact@v1.38.19   # version audited against
-last_audit_commit: TBD-fill-in-after-commit                # this agent doesn't run git; main thread should set this on commit
-last_audit_date: 2026-07-23
-overall: A            # this pass: real package-group pattern-matching algorithm implemented,
-                      # readme/dependency extraction implemented (npm package.json scope),
-                      # UpdatePackageGroupOriginConfiguration/ListAllowedRepositoriesForGroup made real,
-                      # a domain-delete package-group leak fixed. See ops table + gaps below.
+sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
+last_audit_commit: 1d7169f66
+last_audit_date: 2026-08-07
+overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run
+                      # normalization, per AWS's documented dependency-confusion-protection
+                      # algorithm) implemented and wired into GetAssociatedPackageGroup/
+                      # ListAssociatedPackages' associationType (previously hardcoded "STRONG").
+                      # Confusable-character normalization remains unimplemented (needs the full
+                      # Unicode confusables table). Prior pass: real package-group pattern-matching
+                      # algorithm implemented, readme/dependency extraction implemented (npm
+                      # package.json scope), UpdatePackageGroupOriginConfiguration/
+                      # ListAllowedRepositoriesForGroup made real, a domain-delete package-group
+                      # leak fixed. See ops table + gaps below.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -38,14 +44,14 @@ ops:
   DeleteRepositoryPermissionsPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED route-matcher bug — real path is plural /v1/repository/permissions/policies, DELETE-only; was sharing the singular /v1/repository/permissions/policy path with Get/Put, which real AWS does NOT serve DELETE on"}
   AssociateExternalConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — query param externalConnection -> external-connection (kebab)"}
   DisassociateExternalConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same externalConnection -> external-connection"}
-  CreatePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePackageGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FOUND AND FIXED THIS PASS (gopherstack-u9e5, via the new SDK-driven integration test) — SEVERE: the request-body JSON key was 'pattern'; the real wire key (verified against serializers.go's awsRestjson1_serializeOpDocumentCreatePackageGroupInput) is 'packageGroup'. Every unit test constructed its request body by hand using 'pattern' (matching this bug, not the real wire — the same trap parity-principles.md rule 3 warns about), so a real aws-sdk-go-v2 client's CreatePackageGroup call ALWAYS failed with a spurious 'pattern is required' ValidationException against every prior build of this emulator, even though this op was graded ok by two prior audits. 16 unit-test call sites across 3 test files updated to the real key alongside the fix."}
   DescribePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — query param packageGroup -> package-group (kebab); was always empty for real clients -> spurious ValidationException"}
   DeletePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — same packageGroup -> package-group"}
   UpdatePackageGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "unaffected: packageGroup is a JSON body field here (matches real wire), the (wrong) query fallback was dead code for real traffic but harmless"}
   ListPackageGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED pagination casing; createdTime was missing from response (real field, was tracked but never serialized) — now added"}
   ListSubPackageGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — real parent/child hierarchy: a group's children are every OTHER domain group whose immediate (most-specific) proper-superset pattern is exactly this one, computed via package_group_pattern.go's isProperSubsetPattern; replaced the old string-prefix heuristic. Verified direct-children-only against the ListSubPackageGroups API reference (not the full descendant subtree)."}
-  GetAssociatedPackageGroup: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — real most-specific-pattern matching (package_group_pattern.go) replaces the always-nil stub; response now includes associationType. state: only AWS's 'strong match' (exact) half of the algorithm is implemented, not the case-fold/separator-equivalence 'weak match' half, and this backend does not auto-create the implicit root '/*' group every real domain has — see gaps."}
-  ListAssociatedPackages: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — real domain-wide matching: for each package (deduped by format/namespace/name across repos), computes its most-specific matching group and includes it only if that group is the requested pattern. Added pagination (max-results/next-token, kebab) and the associationType field ('STRONG', see GetAssociatedPackageGroup's note on scope). state gap: Preview flag (compute association without creating the group) not read/supported."}
+  GetAssociatedPackageGroup: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Real most-specific-pattern matching (package_group_pattern.go) replaces the always-nil stub (prior pass); response includes associationType. FIXED this pass: associationType now genuinely computed as STRONG or WEAK (was hardcoded 'STRONG' — see package_group_pattern_matching family note) via casefold + dash/dot/underscore-run normalization, matching AWS's documented dependency-confusion-protection algorithm. state gap: confusable-character normalization (the third weak-match rule) is not implemented (needs the full Unicode confusables table), and this backend does not auto-create the implicit root '/*' group every real domain has — see gaps."}
+  ListAssociatedPackages: {wire: ok, errors: ok, state: partial, persist: n/a, note: "Real domain-wide matching (prior pass): for each package (deduped by format/namespace/name across repos), computes its most-specific matching group and includes it only if that group is the requested pattern. Pagination (max-results/next-token, kebab) added prior pass. FIXED this pass: associationType per package is now genuinely STRONG or WEAK (was hardcoded 'STRONG'), same algorithm as GetAssociatedPackageGroup — a package that only weak-matches the requested group's pattern is still included (weak match doesn't roll up to a broader group, per AWS's documented behavior) but reported WEAK. state gap: Preview flag (compute association without creating the group) not read/supported."}
   ListAllowedRepositoriesForGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — the previously-unread required originRestrictionType query param (camelCase, NOT kebab — verified against serializers.go, an exception to this service's usual kebab-case query convention) is now read/validated and used to look up the real per-restriction-type AllowedRepositories list set via UpdatePackageGroupOriginConfiguration; added pagination. FIXED missing 404: real AWS 404s when the package group doesn't exist, this op never checked."}
   UpdatePackageGroupOriginConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass) — request body now real (restrictions map[type]mode, addAllowedRepositories/removeAllowedRepositories []{originRestrictionType,repositoryName}), validated against the real 4-value mode / 3-value type enums; response now returns the real allowedRepositoryUpdates map[type]map[ADDED|REMOVED][]repoName shape (verified against the API reference's response syntax) plus the updated packageGroup with a real originConfiguration.restrictions block (mode/effectiveMode/repositoriesCount/inheritedFrom, resolved by walking the pattern-hierarchy's INHERIT chain up to the nearest explicit ancestor, defaulting to ALLOW at the top like real AWS's root group). FIXED missing repository-existence check on add/remove entries."}
   DescribePackage: {wire: ok, errors: ok, state: partial, persist: ok, note: "auto-creates a stub package on first Describe if absent (pre-existing behavior, not touched this pass — see gaps); now surfaces originConfiguration when set"}
@@ -54,7 +60,7 @@ ops:
   PutPackageOriginConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED disguised no-op — backend built a Package literal but never called packages.Put (state was discarded); FIXED route-matcher bug — real op has no path of its own, it is POST on the shared /v1/package path (was GET/DELETE only, PUT on a nonexistent /v1/package/origin-configuration path); FIXED response shape — real output is flat {originConfiguration:{restrictions:{publish,upstream}}}, was wrapping in {package:...} and not reading the request body's restrictions at all"}
   DescribePackageVersion: {wire: ok, errors: ok, state: partial, persist: ok, note: "FIXED wire bug — publish-time field key is publishedTime, was publishedAt (real SDK deserializer never populated PublishedTime). auto-creates a stub version on first Describe if absent (pre-existing, not touched — see gaps)"}
   ListPackageVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED pagination casing"}
-  PublishPackageVersion: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED wire bug — real response is FLAT {format,namespace,package,status,version,versionRevision,asset}, was nesting under packageVersionToMap with wrong field names (packageName not package, revision not versionRevision) and no asset field; FIXED disguised no-op — the uploaded asset's raw octet-stream body was discarded (Handler() only ever attempted a JSON decode, which fails silently on binary content) and the asset query param was never read; now stores the asset (name/size/sha256/content) on the PackageVersion and GetPackageVersionAsset/ListPackageVersionAssets serve it back; FIXED missing repository-existence check (real API 404s if the repo doesn't exist, this op never checked)"}
+  PublishPackageVersion: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED wire bug (prior pass) — real response is FLAT {format,namespace,package,status,version,versionRevision,asset}, was nesting under packageVersionToMap with wrong field names (packageName not package, revision not versionRevision) and no asset field; FIXED disguised no-op (prior pass) — the uploaded asset's raw octet-stream body was discarded (Handler() only ever attempted a JSON decode, which fails silently on binary content) and the asset query param was never read; now stores the asset (name/size/sha256/content) on the PackageVersion and GetPackageVersionAsset/ListPackageVersionAssets serve it back; FIXED missing repository-existence check (prior pass, real API 404s if the repo doesn't exist, this op never checked). FOUND AND FIXED THIS PASS (gopherstack-u9e5, via the new SDK-driven integration test) — SEVERE route-matcher bug: the registered path was /v1/package/versions/publish (plural 'versions'); the real path (verified against serializers.go's SplitURI) is /v1/package/version/publish (singular, matching this service's own convention that single-version ops use singular 'version' and only the batch ops use plural 'versions'). A real aws-sdk-go-v2 client's PublishPackageVersion call 404'd (UnknownOperationException) against every prior build of this emulator — every one of the extensive fixes/features listed above for this op (asset storage, wire shape, npm-package.json readme/dependency extraction) was unreachable by any real SDK client the entire time, despite this op having been through 3+ prior audit passes and a dedicated route_matcher family audit that claimed 'all other op paths/methods verified correct'. 25+ unit-test call sites across 4 test files updated to the real path alongside the fix."}
   DeletePackageVersions: {wire: ok, errors: ok, state: ok, persist: ok}
   CopyPackageVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — query params sourceRepository/destinationRepository -> source-repository/destination-repository (kebab)"}
   DisposePackageVersions: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -64,24 +70,100 @@ ops:
   ListPackageVersionAssets: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED disguised no-op — always returned [] regardless of what was published; now lists real stored AssetSummary entries (name/size/hashes)"}
   ListPackageVersionDependencies: {wire: ok, errors: ok, state: partial, persist: n/a, note: "FIXED (this pass) — response is now the real shape (dependencies[]/format/namespace/package/version, verified against deserializers.go), and dependencies are populated for real from a published package.json's dependencies/devDependencies/peerDependencies/optionalDependencies maps (dependencyType regular/dev/peer/optional per types.PackageDependency's doc comment). state gap: same package.json-only scope as GetPackageVersionReadme — see gaps."}
 families:
-  route_matcher: {status: ok, note: "Audited every op's path+method against aws-sdk-go-v2 serializers.go SplitURI/request.Method. Found and fixed 5 path/method bugs: DeleteRepositoryPermissionsPolicy (wrong shared path), GetAssociatedPackageGroup (wrong path), ListAssociatedPackages (wrong path), ListSubPackageGroups (wrong path), PutPackageOriginConfiguration (wrong path — real op has none, shares POST /v1/package). All other op paths/methods verified correct."}
+  route_matcher: {status: ok, note: "Audited every op's path+method against aws-sdk-go-v2 serializers.go SplitURI/request.Method. Found and fixed 5 path/method bugs in a prior pass: DeleteRepositoryPermissionsPolicy (wrong shared path), GetAssociatedPackageGroup (wrong path), ListAssociatedPackages (wrong path), ListSubPackageGroups (wrong path), PutPackageOriginConfiguration (wrong path — real op has none, shares POST /v1/package). FOUND AND FIXED THIS PASS (gopherstack-u9e5, via the new SDK-driven integration test, NOT the original manual serializers.go audit that claimed 'all other op paths/methods verified correct'): PublishPackageVersion's path was /v1/package/versions/publish (plural 'versions') — real path (verified against serializers.go's SplitURI) is /v1/package/version/publish (singular, like the other single-package-version ops asset/readme/assets/dependencies; only the batch ops copy/delete/dispose/update_status use plural). A real aws-sdk-go-v2 client's PublishPackageVersion call 404'd against every prior build of this emulator. Every unit test built its own request path by hand matching the (wrong) constant, so this was invisible without a real SDK client — exactly the trap this manual path audit was supposed to catch and didn't."}
   query_param_casing: {status: ok, note: "Audited every op's query-string parameter names against aws-sdk-go-v2 serializers.go SetQuery(...) calls. Found and fixed a service-wide pattern: List-op pagination (maxResults/nextToken) and several other params (packageGroup, externalConnection, sourceRepository/destinationRepository) use kebab-case on the wire (max-results, next-token, package-group, external-connection, source-repository, destination-repository) but the handler read camelCase query keys — meaning pagination and several ops were silently broken for any real AWS SDK client (worked only in unit tests that construct query strings by hand). ListDomains is the sole exception: its pagination is JSON-body, not query, distinguishing it from every other List op. This pass found one more exception: ListAllowedRepositoriesForGroup's originRestrictionType is genuinely camelCase on the wire (verified against serializers.go), unlike every other param in this family."}
-  package_group_pattern_matching: {status: ok, note: "NEW (this pass) — implemented AWS's package-group pattern-matching algorithm (package_group_pattern.go): pattern parsing (format[/namespace[/name]] + $/~/ * suffix), matching, word-boundary prefix matching, and the specificity/subset ordering that defines the group hierarchy (parent/child, most-specific-match). Wired into GetAssociatedPackageGroup, ListAssociatedPackages, ListSubPackageGroups, and UpdatePackageGroupOriginConfiguration's INHERIT-chain resolution. Scope: implements AWS's 'strong match' (exact) half only, not the case-fold/dash-dot-underscore-equivalence 'weak match' half used for dependency-confusion protection, and does not auto-create the implicit root '/*' group — see gaps."}
+  package_group_pattern_matching: {status: ok, note: "Implemented (prior pass) AWS's package-group pattern-matching algorithm (package_group_pattern.go): pattern parsing (format[/namespace[/name]] + $/~/ * suffix), matching, word-boundary prefix matching, and the specificity/subset ordering that defines the group hierarchy (parent/child, most-specific-match). Wired into GetAssociatedPackageGroup, ListAssociatedPackages, ListSubPackageGroups, and UpdatePackageGroupOriginConfiguration's INHERIT-chain resolution. NEW this pass: matchesWeak/normalizeWeak implement the casefold + dash/dot/underscore-run-collapse half of 'weak match' (dependency-confusion protection); bestMatchingGroup now selects the most-specific group via the weak-match (superset) space and classifies STRONG vs WEAK by re-checking the strong (exact) match, matching AWS's documented 'weak match doesn't roll up to a broader group' behavior. Still NOT implemented: confusable-character normalization (needs the full Unicode confusables table — real, external data this pass didn't have room to vendor) and the implicit root '/*' group auto-creation — see gaps."}
 gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "Package-group 'weak match' (case-folding, dash/dot/underscore-equivalence, confusable-character normalization used for dependency-confusion protection) is not implemented — only the 'strong' (exact) half of AWS's matching algorithm is (see package_group_pattern_matching family note). Every match this backend reports is therefore always associationType STRONG; real AWS's WEAK association type (and its 'block the package even though a broader group would allow it' side effect) never occurs here."
-  - "This backend does not auto-create the implicit root package group ('/*') that real AWS attaches to every domain and forbids deleting. Adding it would change GetAssociatedPackageGroup/ListPackageGroups behavior on a domain with zero explicitly-created groups (several existing tests assert 'no groups yet' -> empty list / no match), so it was deliberately left out this pass rather than rewriting that test surface; flagged for a future pass."
-  - "DescribePackage / DescribePackageVersion auto-create a stub record when the resource doesn't exist, instead of returning ResourceNotFoundException like real AWS. This is pre-existing, intentionally-documented behavior, reconfirmed this pass to be extremely load-bearing test-seeding infrastructure (60+ call sites across handler_package_versions_test.go, handler_package_versions_assets_test.go, persistence_test.go, handler_packages_test.go use GET as a seed operation), so ripping it out remains a large, independently-scoped migration — not touched this pass either. Real behavioral divergence from AWS."
+  - "Package-group 'weak match' confusable-character normalization (the third rule of AWS's dependency-confusion-protection algorithm, alongside casefolding and dash/dot/underscore-run collapsing — both of which ARE implemented this pass, see package_group_pattern_matching family note) is not implemented. It requires the full Unicode confusables table (real, external data — genuinely buildable, not structural, but this pass didn't have room to vendor and verify it faithfully). A package that differs from a group's exact pattern only by a confusable-character substitution (e.g. a Cyrillic look-alike) will not be detected as either a strong or weak match by this backend. (bd: gopherstack-u9e5 follow-up)"
+  - "Origin-restriction configuration (PackageGroupOriginRestriction mode/ALLOW-BLOCK, weak-match blocking) is fully modeled and returned by the API (CreatePackageGroup/DescribePackageGroup/UpdatePackageGroupOriginConfiguration/GetAssociatedPackageGroup's associationType) but is NOT enforced anywhere: PublishPackageVersion and package-version ingestion never consult a package's associated group's origin restrictions, for either STRONG or WEAK-matched packages. Real AWS's core dependency-confusion protection is precisely this enforcement (\"the package is blocked instead of applying the group's origin control configuration\" for a WEAK match) — this backend computes the classification but does not act on it. Found this pass while implementing weak-match classification; pre-existing (not introduced this pass), and a materially larger feature (wiring restriction checks into the publish/ingestion path) than the classification logic itself. (bd: gopherstack-u9e5 follow-up)"
+  - "This backend does not auto-create the implicit root package group ('/*') that real AWS attaches to every domain and forbids deleting. Adding it would change GetAssociatedPackageGroup/ListPackageGroups behavior on a domain with zero explicitly-created groups (several existing tests assert 'no groups yet' -> empty list / no match), so it was deliberately left out this pass rather than rewriting that test surface; flagged for a future pass. (bd: gopherstack-u9e5 follow-up)"
+  - "DescribePackage / DescribePackageVersion auto-create a stub record when the resource doesn't exist, instead of returning ResourceNotFoundException like real AWS. This is pre-existing, intentionally-documented behavior, reconfirmed this pass to be extremely load-bearing test-seeding infrastructure (60+ call sites across handler_package_versions_test.go, handler_package_versions_assets_test.go, persistence_test.go, handler_packages_test.go use GET as a seed operation), so ripping it out remains a large, independently-scoped migration — not touched this pass either. Real behavioral divergence from AWS. (bd: gopherstack-u9e5 follow-up)"
   - "GetPackageVersionReadme / ListPackageVersionDependencies now parse real content from a published package.json asset (npm convention — see the ops table), but still return empty for any format/publish that doesn't include a standalone package.json asset (e.g. a real npm tarball, a Maven POM, or any non-npm format) — this backend's single-asset-per-call publish model doesn't unpack archives."
   - "GetAuthorizationToken returns a fabricated token string rather than any real credential material; acceptable since nothing validates it downstream, but flagged in case a future op starts checking it."
   - "domain-owner / cross-account query param is accepted by real AWS on nearly every op (for cross-account domain access) but is not read anywhere in this backend; single-account-only is assumed throughout."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - "Package-group 'weak match' dependency-confusion-protection semantics (see gaps above)"
+  - "Package-group weak-match confusable-character normalization and origin-restriction enforcement against publish/ingestion (see gaps above)"
   - "Root package-group auto-creation (see gaps above)"
   - "store_setup.go was read but not modified — no bugs found, not exhaustively re-audited"
 leaks: {status: clean, note: "FIXED (this pass) — DeleteDomain never cascade-deleted the domain's package groups (ghost store rows) or closed their Tags (a pkgs/tags leak), despite deleting everything else the domain owned; every other resource path (repositories/packages/versions/policies/external-connections) was already covered by pre-existing cascade logic. Re-verified: no goroutines/janitors in this service; store.Table-backed state is snapshot/restored via existing Handler.Snapshot/Restore delegation to InMemoryBackend; new Restrictions/Assets/OriginConfig fields are plain JSON-tagged struct fields and round-trip automatically."}
 ---
 
 ## Notes
+
+### 2026-08-07 pass, addendum: two severe bugs found only by adding SDK-driven integration tests
+
+While implementing the weak-match feature (below), `test/integration/codeartifact_test.go` gained
+a new `TestIntegration_CodeArtifact_PackageGroupWeakMatch` test that drives `CreatePackageGroup`
+and `PublishPackageVersion` through the real `aws-sdk-go-v2` client rather than this package's
+own hand-built-request unit tests. It immediately failed twice, in sequence, surfacing two
+client-breaking bugs that **three prior audit passes** (including a dedicated line-by-line
+route-matcher audit that explicitly claimed "all other op paths/methods verified correct") had
+missed entirely:
+
+1. **`CreatePackageGroup`'s request body read the wrong JSON key.** The handler expected
+   `{"pattern": "..."}`; the real wire key (confirmed in `serializers.go`) is
+   `{"packageGroup": "..."}`. A real client's `CreatePackageGroup` call always failed with
+   `pattern is required`, for every domain, unconditionally — since the very first byte of the
+   request body onward, this op could never have been called successfully by anything but this
+   package's own unit tests (which built requests using the same wrong key).
+2. **`PublishPackageVersion`'s registered path was pluralized wrong**:
+   `/v1/package/versions/publish` instead of the real `/v1/package/version/publish`. A real
+   client's call 404'd outright (`UnknownOperationException`) before ever reaching the handler —
+   meaning every one of this op's many previously-audited "fixes" (flat response shape, real
+   asset storage, npm `package.json` readme/dependency extraction) were sitting behind a route
+   that no real SDK client could ever reach.
+
+Both are now exactly the class of bug `parity-principles.md` rule 3 warns about: invisible to
+`go test` because every unit test in this package builds its own request body/path by hand and
+happened to match the bug, not the real wire. Fixed both (see `CreatePackageGroup`/
+`PublishPackageVersion` ops rows) and updated ~40 unit-test call sites across
+`handler_package_groups_test.go`, `handler_package_groups_list_test.go`,
+`handler_packages_test.go`, `handler_package_versions_test.go`,
+`handler_package_versions_assets_test.go`, and `persistence_test.go` to the real wire shapes.
+This is the strongest argument yet in this file for keeping (and growing) the SDK-driven
+integration suite rather than trusting a manual line-by-line audit alone — the manual audit
+that specifically covered this exact path/method surface still missed both.
+
+### 2026-08-07 pass: package-group weak match (gopherstack-u9e5)
+
+Implemented the "weak match" half of AWS's package-group matching algorithm that the
+2026-07-23 pass explicitly deferred (see [Strong and weak
+match](https://docs.aws.amazon.com/codeartifact/latest/ug/package-group-definition-syntax-matching-behavior.html#package-group-strong-and-weak-match)
+and "Additional variations" on the same page, fetched this pass for the exact documented
+rules and worked examples). Two of the three documented weak-match rules are implemented:
+
+1. **Casefolding** (`normalizeWeak` in `package_group_pattern.go`, via `strings.ToLower` —
+   AWS's own docs frame its casefolding as "similar to converting to lowercase", not full
+   Unicode case-fold, so this matches the documented behavior for every worked example).
+2. **Dash/dot/underscore-run collapsing**: any run of `-`, `.`, `_` normalizes to a single
+   `.`, so `foo-bar`/`foo.bar`/`foo..bar`/`foo_bar` all normalize identically while `foobar`
+   (no separator) stays distinct — matches the doc's own worked example set exactly.
+
+`bestMatchingGroup` (`package_groups.go`) now selects the most-specific matching group using
+the *weak*-match space (a strict superset of the strong-match space, since
+`normalizeWeak(x) == normalizeWeak(x)` trivially), then classifies the result as `STRONG`
+(the package's literal coordinate strong-matches the winning pattern) or `WEAK` (it only
+matches after normalization). This mirrors AWS's documented behavior that a weak-matching
+package variant stays attached to the *same* most-specific group rather than rolling up to
+a broader, less specific one. `GetAssociatedPackageGroup` and `ListAssociatedPackages` both
+now report the real classification (previously hardcoded `"STRONG"` unconditionally, a
+disguised-stub field found while scoping this work — see the `gaps` entry it corresponds to
+being closed on the ops table).
+
+**Not implemented**: the third weak-match rule, confusable-character normalization (e.g. a
+Cyrillic character that renders identically to a Latin one). This needs the real Unicode
+confusables table (`confusables.txt`), sizeable external data this pass did not have room to
+vendor and verify correctly — genuinely buildable (not structural), left in `gaps` rather
+than promoted to `structural_gaps`, per this repo's classification rule that "large" and
+"structural" are not the same thing.
+
+**Found while scoping (bug, not this pass's assigned feature)**: origin-restriction
+enforcement — the actual point of computing STRONG/WEAK in the first place, per AWS's docs
+("the package is blocked instead of applying the group's origin control configuration" for
+a WEAK match) — does not exist anywhere in this backend. `PublishPackageVersion` and package
+ingestion never look up a package's associated group or consult its restrictions at all, for
+either association type. The classification is now real; the enforcement it exists to drive
+is a separate, materially larger gap (see `gaps`).
 
 ### 2026-07-23 pass: package-group pattern matching + readme/dependency extraction + a leak fix
 

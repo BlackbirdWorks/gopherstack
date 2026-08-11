@@ -30,7 +30,7 @@ func TestCreateInvalidationRequiresCallerReference(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-inv", "test", true, nil)
 			require.NoError(t, err)
 
@@ -61,7 +61,7 @@ func TestCountInProgressInvalidations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newTestBackend()
+			b := newTestBackend(t)
 			d, err := b.CreateDistribution("ref-cnt", "test", true, nil)
 			require.NoError(t, err)
 
@@ -88,7 +88,7 @@ func TestCreateInvalidationHandlerReturnsInvalidationBatch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			distRec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
 				minimalDistConfig("ref-cr", "test", true))
 			require.Equal(t, http.StatusCreated, distRec.Code)
@@ -153,7 +153,7 @@ func TestInvalidationPathValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := newAuditBackend()
+			b := newAuditBackend(t)
 			d, err := b.CreateDistribution("test-dist", "example.com", true, nil)
 			require.NoError(t, err)
 
@@ -201,7 +201,7 @@ func TestInvalidationEndpointResponses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			d, err := h.Backend.CreateDistribution("ref-inv", "inv-dist", true,
 				minimalDistConfig("ref-inv", "inv-dist", true))
 			require.NoError(t, err)
@@ -256,7 +256,7 @@ func TestHandler_CreateInvalidation_ListInvalidations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 
 			// Create a distribution first using the minimal helper.
 			createRec := doXML(t, h, http.MethodPost, "/2020-05-31/distribution",
@@ -386,7 +386,7 @@ func TestGetInvalidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newTestHandler()
+			h := newTestHandler(t)
 			distID, invID := tt.setup(t, h)
 
 			var path string
@@ -408,7 +408,7 @@ func TestGetInvalidation(t *testing.T) {
 func TestSortedInvalidations(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 
 	d, err := b.CreateDistribution("ref-sorted-inv", "sorted-inv-dist", true, nil)
 	require.NoError(t, err)
@@ -432,7 +432,7 @@ func TestSortedInvalidations(t *testing.T) {
 func TestHandleGetInvalidationPathFallback(t *testing.T) {
 	t.Parallel()
 
-	b := cloudfront.NewInMemoryBackend("123456789012", config.DefaultRegion)
+	b := cloudfront.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
 	h := cloudfront.NewHandler(b)
 
 	d, err := b.CreateDistribution("ref-path-fb", "path-fb-dist", true, nil)

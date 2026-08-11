@@ -23,29 +23,43 @@ const (
 
 // storedStack holds a stack with all fields.
 type storedStack struct {
-	CreatedAt                 time.Time         `json:"createdAt"`
-	Tags                      map[string]string `json:"tags"`
-	StackID                   string            `json:"stackId"`
-	Arn                       string            `json:"arn"`
-	Name                      string            `json:"name"`
-	Region                    string            `json:"region"`
-	DefaultInstanceProfileArn string            `json:"defaultInstanceProfileArn"`
-	ServiceRoleArn            string            `json:"serviceRoleArn"`
+	CreatedAt                 time.Time                  `json:"createdAt"`
+	ConfigurationManager      *StackConfigurationManager `json:"configurationManager,omitempty"`
+	ChefConfiguration         *ChefConfiguration         `json:"chefConfiguration,omitempty"`
+	Tags                      map[string]string          `json:"tags"`
+	Attributes                map[string]string          `json:"attributes,omitempty"`
+	StackID                   string                     `json:"stackId"`
+	Arn                       string                     `json:"arn"`
+	Name                      string                     `json:"name"`
+	Region                    string                     `json:"region"`
+	DefaultInstanceProfileArn string                     `json:"defaultInstanceProfileArn"`
+	ServiceRoleArn            string                     `json:"serviceRoleArn"`
+	VpcID                     string                     `json:"vpcId,omitempty"`
 }
 
 func (s *storedStack) toStack() *Stack {
 	tags := make(map[string]string, len(s.Tags))
 	maps.Copy(tags, s.Tags)
 
+	var attrs map[string]string
+	if s.Attributes != nil {
+		attrs = make(map[string]string, len(s.Attributes))
+		maps.Copy(attrs, s.Attributes)
+	}
+
 	return &Stack{
 		CreatedAt:                 s.CreatedAt,
+		ConfigurationManager:      s.ConfigurationManager,
+		ChefConfiguration:         s.ChefConfiguration,
 		Tags:                      tags,
+		Attributes:                attrs,
 		StackID:                   s.StackID,
 		Arn:                       s.Arn,
 		Name:                      s.Name,
 		Region:                    s.Region,
 		DefaultInstanceProfileArn: s.DefaultInstanceProfileArn,
 		ServiceRoleArn:            s.ServiceRoleArn,
+		VpcID:                     s.VpcID,
 	}
 }
 
@@ -260,7 +274,11 @@ func (v *storedVolume) toVolume() *Volume {
 	}
 }
 
-// storedRdsDBInstance represents a registered RDS DB instance.
+// storedRdsDBInstance represents a registered RDS DB instance. No DbPassword
+// field: the real DescribeRdsDbInstances response always returns the literal
+// "*****FILTERED*****" in place of the actual password (confirmed against
+// aws-sdk-go-v2/service/opsworks@v1.31.0's types.go RdsDbInstance.DbPassword
+// doc comment), so there is no real value to persist.
 type storedRdsDBInstance struct {
 	RdsDBInstanceArn     string `json:"rdsDbInstanceArn"`
 	DBInstanceIdentifier string `json:"dbInstanceIdentifier"`

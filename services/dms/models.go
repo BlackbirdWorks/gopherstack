@@ -116,7 +116,8 @@ type ReplicationInstance struct {
 // never put on the wire by any Describe/Create/Modify response -- see
 // endpointJSON in handler_endpoints.go. Engine-specific nested settings
 // (MySQLSettings, PostgreSQLSettings, S3Settings, ...) are deliberately not
-// modeled; see PARITY.md.
+// modeled and are rejected with ValidationException if sent -- see
+// engineSettingsFields in handler_endpoints.go and PARITY.md.
 type Endpoint struct {
 	CreationTime       time.Time  `json:"creationTime"`
 	Tags               *tags.Tags `json:"-"`

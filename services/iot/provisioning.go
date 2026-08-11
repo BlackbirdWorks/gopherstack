@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // RoleAlias represents an IoT role alias.
@@ -31,10 +32,11 @@ func (b *InMemoryBackend) roleAliasARN(alias string) string {
 
 // CreateRoleAliasInput holds input for CreateRoleAlias.
 type CreateRoleAliasInput struct {
-	Tags                      map[string]string `json:"tags,omitempty"`
-	RoleAlias                 string            `json:"roleAlias"`
-	RoleARN                   string            `json:"roleArn"`
-	CredentialDurationSeconds int               `json:"credentialDurationSeconds,omitempty"`
+	RoleAlias string `json:"roleAlias"`
+	RoleARN   string `json:"roleArn"`
+	// []types.Tag on the wire, not a map (serializers.go:4283, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags                      []tags.KV `json:"tags,omitempty"`
+	CredentialDurationSeconds int       `json:"credentialDurationSeconds,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAlias, error) {
@@ -54,7 +56,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 		RoleAliasARN:              b.roleAliasARN(input.RoleAlias),
 		RoleARN:                   input.RoleARN,
 		CredentialDurationSeconds: input.CredentialDurationSeconds,
-		Tags:                      input.Tags,
+		Tags:                      tags.MapFromKV(input.Tags),
 		CreationDate:              now,
 		LastModifiedDate:          now,
 	}
@@ -62,6 +64,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 		ra.CredentialDurationSeconds = 3600
 	}
 	b.roleAliases.Put(ra)
+	b.putResourceTagsLocked(ra.RoleAliasARN, ra.Tags)
 
 	return cloneRoleAlias(ra), nil
 }
@@ -149,10 +152,11 @@ func (b *InMemoryBackend) domainConfigARN(name string) string {
 
 // CreateDomainConfigurationInput holds input for CreateDomainConfiguration.
 type CreateDomainConfigurationInput struct {
-	Tags                    map[string]string `json:"tags,omitempty"`
-	DomainConfigurationName string            `json:"domainConfigurationName"`
-	DomainName              string            `json:"domainName,omitempty"`
-	ServiceType             string            `json:"serviceType,omitempty"`
+	DomainConfigurationName string `json:"domainConfigurationName"`
+	DomainName              string `json:"domainName,omitempty"`
+	ServiceType             string `json:"serviceType,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:2450, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags []tags.KV `json:"tags,omitempty"`
 }
 
 func (b *InMemoryBackend) CreateDomainConfiguration(
@@ -175,7 +179,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		DomainName:                input.DomainName,
 		ServiceType:               input.ServiceType,
 		DomainConfigurationStatus: "ENABLED",
-		Tags:                      input.Tags,
+		Tags:                      tags.MapFromKV(input.Tags),
 		CreationDate:              now,
 		LastModifiedDate:          now,
 	}
@@ -183,6 +187,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		dc.ServiceType = "DATA"
 	}
 	b.domainConfigs.Put(dc)
+	b.putResourceTagsLocked(dc.DomainConfigurationARN, dc.Tags)
 
 	return cloneDomainConfig(dc), nil
 }
@@ -276,13 +281,14 @@ func (b *InMemoryBackend) provTemplateARN(name string) string {
 
 // CreateProvisioningTemplateInput holds input for CreateProvisioningTemplate.
 type CreateProvisioningTemplateInput struct {
-	Tags                map[string]string `json:"tags,omitempty"`
-	TemplateName        string            `json:"templateName"`
-	Description         string            `json:"description,omitempty"`
-	TemplateBody        string            `json:"templateBody,omitempty"`
-	ProvisioningRoleARN string            `json:"provisioningRoleArn,omitempty"`
-	Type                string            `json:"type,omitempty"`
-	Enabled             bool              `json:"enabled"`
+	TemplateName        string `json:"templateName"`
+	Description         string `json:"description,omitempty"`
+	TemplateBody        string `json:"templateBody,omitempty"`
+	ProvisioningRoleARN string `json:"provisioningRoleArn,omitempty"`
+	Type                string `json:"type,omitempty"`
+	// []types.Tag on the wire, not a map (serializers.go:4052, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags    []tags.KV `json:"tags,omitempty"`
+	Enabled bool      `json:"enabled"`
 }
 
 func (b *InMemoryBackend) CreateProvisioningTemplate(
@@ -308,11 +314,12 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 		TemplateType:        input.Type,
 		Enabled:             input.Enabled,
 		DefaultVersionID:    1,
-		Tags:                input.Tags,
+		Tags:                tags.MapFromKV(input.Tags),
 		CreationDate:        now,
 		LastModifiedDate:    now,
 	}
 	b.provTemplates.Put(pt)
+	b.putResourceTagsLocked(pt.TemplateARN, pt.Tags)
 	// Create initial version.
 	b.provTemplateVersions[input.TemplateName] = []*ProvisioningTemplateVersion{
 		{VersionID: 1, TemplateBody: input.TemplateBody, CreationDate: now, IsDefaultVersion: true},

@@ -114,9 +114,9 @@ func (b *InMemoryBackend) StartCopyJob(
 	destVault, _ := b.vaults.Get(destVaultName)
 
 	// Best-effort: copy resource metadata from the source recovery point
-	// when this backend actually tracks it (recoveryPoints is VOLATILE, so
-	// a test/client may reasonably StartCopyJob against an ARN it never
-	// registered through this emulator's own Backup APIs).
+	// when this backend tracks it -- a test/client may reasonably
+	// StartCopyJob against an ARN it never registered through this
+	// emulator's own Backup APIs.
 	var resourceArn, resourceType string
 	if srcRP, found := b.recoveryPoints.Get(recoveryPointKey(sourceVaultName, recoveryPointArn)); found {
 		resourceArn = srcRP.ResourceArn

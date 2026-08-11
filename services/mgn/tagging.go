@@ -6,16 +6,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
-// This file backs family L (3 ops): TagResource, UntagResource,
-// ListTagsForResource -- the only 3 ops sharing the /tags/{resourceArn}
-// path, and a distinct, newer-generation error set (AccessDenied/
-// InternalServer/ResourceNotFound/Throttling/Validation, never
-// UninitializedAccount) from every other legacy op (PARITY.md).
-//
-// 12 taggable resource kinds share the "mgn" ARN namespace -- richer than
-// outposts' 2 or directconnect's 5 -- so resolveTaggableLocked needs
-// resourceTypeFromARN-style multi-kind dispatch, matching
-// wireTaggingDirectConnect's pattern in cli.go.
+// TagResource/UntagResource/ListTagsForResource use a distinct, newer-generation
+// error set (AccessDenied/InternalServer/ResourceNotFound/Throttling/Validation,
+// never UninitializedAccount) from every other legacy op (PARITY.md). 12 taggable
+// resource kinds share the "mgn" ARN namespace, so resolveTaggableLocked needs
+// resourceTypeFromARN-style multi-kind dispatch.
 
 // TaggedEntry is one tagged resource, used by TaggedResources for the
 // resourcegroupstaggingapi integration (cli.go's wireTaggingMGN).

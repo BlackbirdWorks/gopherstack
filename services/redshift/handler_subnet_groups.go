@@ -51,13 +51,20 @@ type createClusterSubnetGroupResponse struct {
 	SubnetGroup xmlClusterSubnetGroup `xml:"CreateClusterSubnetGroupResult>ClusterSubnetGroup"`
 }
 
+// handleCreateClusterSubnetGroup implements CreateClusterSubnetGroup. Real
+// CreateClusterSubnetGroupInput has no VpcId field (confirmed against
+// awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in
+// aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go) -- AWS derives the
+// response's VpcId from the subnets' own VPC. This backend does not track
+// subnet-to-VPC linkage (no EC2 cross-reference), so VpcId is left honestly
+// empty here rather than accepting it as a fabricated request param; see
+// PARITY.md for the same reasoning applied to EndpointAccess.
 func (h *Handler) handleCreateClusterSubnetGroup(vals url.Values) (any, error) {
 	name := vals.Get("ClusterSubnetGroupName")
 	description := vals.Get("Description")
-	vpcID := vals.Get("VpcId")
 	subnetIDs := parseStringList(vals, "SubnetIds.SubnetIdentifier.")
 
-	sg, err := h.Backend.CreateClusterSubnetGroup(name, description, vpcID, subnetIDs)
+	sg, err := h.Backend.CreateClusterSubnetGroup(name, description, "", subnetIDs)
 	if err != nil {
 		return nil, err
 	}

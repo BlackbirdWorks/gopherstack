@@ -136,16 +136,19 @@ func TestIntegration_ErrorCodes_IAM(t *testing.T) {
 				require.NoError(t, err)
 
 				t.Cleanup(func() {
-					_, _ = client.DetachUserPolicy(ctx, &iamsdk.DetachUserPolicyInput{
+					cleanupCtx, cancel := cleanupContext(t)
+					defer cancel()
+
+					_, _ = client.DetachUserPolicy(cleanupCtx, &iamsdk.DetachUserPolicyInput{
 						UserName:  aws.String(userName),
 						PolicyArn: polOut.Policy.Arn,
 					})
 					_, _ = client.DeleteUser(
-						ctx,
+						cleanupCtx,
 						&iamsdk.DeleteUserInput{UserName: aws.String(userName)},
 					)
 					_, _ = client.DeletePolicy(
-						ctx,
+						cleanupCtx,
 						&iamsdk.DeletePolicyInput{PolicyArn: polOut.Policy.Arn},
 					)
 				})

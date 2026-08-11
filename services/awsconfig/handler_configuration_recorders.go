@@ -241,6 +241,7 @@ func (h *Handler) handleDeleteServiceLinkedConfigurationRecorder(
 // PutServiceLinkedConfigurationRecorder request/response types and handler.
 type putServiceLinkedConfigurationRecorderInput struct {
 	ServicePrincipal string `json:"ServicePrincipal"`
+	Tags             []Tag  `json:"Tags,omitempty"`
 }
 
 type putServiceLinkedConfigurationRecorderOutput struct {
@@ -251,7 +252,7 @@ type putServiceLinkedConfigurationRecorderOutput struct {
 func (h *Handler) handlePutServiceLinkedConfigurationRecorder(
 	_ context.Context, in *putServiceLinkedConfigurationRecorderInput,
 ) (*putServiceLinkedConfigurationRecorderOutput, error) {
-	name, arn, err := h.Backend.PutServiceLinkedConfigurationRecorder(in.ServicePrincipal)
+	name, arn, err := h.Backend.PutServiceLinkedConfigurationRecorder(in.ServicePrincipal, in.Tags)
 	if err != nil {
 		return nil, err
 	}

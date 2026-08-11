@@ -295,6 +295,10 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 		listeners = []Listener{}
 	}
 
+	if certErr := b.validateListenerCertificates(ctx, listeners); certErr != nil {
+		return nil, certErr
+	}
+
 	vpcID := b.deriveVPCID(subnets)
 
 	lb := &LoadBalancer{

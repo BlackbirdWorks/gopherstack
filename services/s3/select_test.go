@@ -496,20 +496,11 @@ func TestHandler_SelectObjectContent_MissingObject(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
-// TestHandler_SelectObjectContent_SSEC is a table test verifying that
-// SelectObjectContent against an SSE-C encrypted object requires the caller
-// to supply the same X-Amz-Server-Side-Encryption-Customer-* headers
-// GetObject requires (SelectObjectContentInput.SSECustomerAlgorithm/-Key/
-// -KeyMD5 are HTTP-header bound per the real SDK's serializer, not part of
-// the request XML body): missing headers must fail with 400, and the correct
-// key must let the query run against the decrypted plaintext. The two cases
-// share one SSE-C source object (read-only across both, safe under
-// t.Parallel) and differ only in request headers in / status+body out —
-// this doesn't fit the existing CSV/JSON tables (TestHandler_SelectObjectContent_CSV/
-// _JSON), whose rows vary the SQL query and input data against a
-// non-encrypted fixture, not the request's SSE-C headers or object
-// encryption state, so it's kept as its own small table rather than forced
-// into an unrelated one.
+// TestHandler_SelectObjectContent_SSEC verifies SelectObjectContent against an
+// SSE-C encrypted object requires the same X-Amz-Server-Side-Encryption-Customer-*
+// headers GetObject requires (HTTP-header bound per the real SDK's serializer,
+// not part of the request XML body): missing headers fail with 400, and the
+// correct key lets the query run against the decrypted plaintext.
 func TestHandler_SelectObjectContent_SSEC(t *testing.T) {
 	t.Parallel()
 

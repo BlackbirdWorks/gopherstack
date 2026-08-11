@@ -187,21 +187,20 @@ func TestTerraform_S3_Logging(t *testing.T) {
 
 			// Dispatch is asynchronous; poll the target bucket up to ~10s
 			// (CI can be slow; we just need any single record to land).
-			deadline := time.Now().Add(10 * time.Second)
 			var found []s3types.Object
-			for time.Now().Before(deadline) {
+			require.Eventually(t, func() bool {
 				lo, listErr := s3c.ListObjectsV2(ctx, &s3svc.ListObjectsV2Input{
 					Bucket: aws.String(target),
 					Prefix: aws.String("access-logs/"),
 				})
-				if listErr == nil && len(lo.Contents) > 0 {
-					found = lo.Contents
-
-					break
+				if listErr != nil || len(lo.Contents) == 0 {
+					return false
 				}
-				time.Sleep(50 * time.Millisecond)
-			}
-			require.NotEmpty(t, found, "expected at least one access-log object in the target bucket")
+
+				found = lo.Contents
+
+				return true
+			}, 10*time.Second, 50*time.Millisecond, "expected at least one access-log object in the target bucket")
 
 			// Inspect the first log record and confirm it contains the
 			// operation name and source-bucket fields.

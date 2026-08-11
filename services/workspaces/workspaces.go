@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/workspaces/types"
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
@@ -27,12 +28,41 @@ const (
 	maxWorkspacesPerCreate = 25
 )
 
-func isValidComputeTypeName(name string) bool {
-	switch name {
-	case "VALUE", "STANDARD", "PERFORMANCE", "POWER",
-		"GRAPHICS", "GRAPHICSPRO", "POWERPRO",
-		"GRAPHICS_G4DN", "GRAPHICSPRO_G4DN":
+// isRebootableWorkspaceState matches RebootWorkspaces's real precondition:
+// "You cannot reboot a WorkSpace unless its state is AVAILABLE, UNHEALTHY, or
+// REBOOTING" (api_op_RebootWorkspaces.go doc comment). This backend never
+// produces UNHEALTHY/REBOOTING, so only AVAILABLE is reachable here, but the
+// full real allow-list is checked for correctness.
+func isRebootableWorkspaceState(state string) bool {
+	switch state {
+	case stateAvailable, "UNHEALTHY", "REBOOTING":
 		return true
+	}
+
+	return false
+}
+
+// isRebuildableWorkspaceState matches RebuildWorkspaces's real precondition:
+// "You cannot rebuild a WorkSpace unless its state is AVAILABLE, ERROR,
+// UNHEALTHY, STOPPED, or REBOOTING" (api_op_RebuildWorkspaces.go doc
+// comment).
+func isRebuildableWorkspaceState(state string) bool {
+	switch state {
+	case stateAvailable, "ERROR", "UNHEALTHY", stateStopped, "REBOOTING":
+		return true
+	}
+
+	return false
+}
+
+// isValidComputeTypeName derives its answer from types.Compute.Values() so it
+// cannot fall behind AWS adding new bundle families (e.g. the G6/GR6 GPU
+// tiers) the way a hand-copied literal list did.
+func isValidComputeTypeName(name string) bool {
+	for _, v := range sdktypes.Compute("").Values() {
+		if string(v) == name {
+			return true
+		}
 	}
 
 	return false
@@ -332,20 +362,22 @@ func (b *InMemoryBackend) ModifyWorkspaceState(workspaceID, state string) error 
 	return nil
 }
 
-// RebootWorkspaces reboots the given workspaces, returning failures for unknown IDs.
+// RebootWorkspaces reboots the given workspaces, returning failures for
+// unknown IDs or a workspace whose state doesn't support rebooting.
 func (b *InMemoryBackend) RebootWorkspaces(workspaceIDs []string) ([]FailedRequest, error) {
 	b.mu.Lock("RebootWorkspaces")
 	defer b.mu.Unlock()
 
-	return b.collectFailures(workspaceIDs, errResourceNotFound, errMsgNotFound), nil
+	return b.collectStateFailures(workspaceIDs, isRebootableWorkspaceState), nil
 }
 
-// RebuildWorkspaces rebuilds the given workspaces, returning failures for unknown IDs.
+// RebuildWorkspaces rebuilds the given workspaces, returning failures for
+// unknown IDs or a workspace whose state doesn't support rebuilding.
 func (b *InMemoryBackend) RebuildWorkspaces(workspaceIDs []string) ([]FailedRequest, error) {
 	b.mu.Lock("RebuildWorkspaces")
 	defer b.mu.Unlock()
 
-	return b.collectFailures(workspaceIDs, errResourceNotFound, errMsgNotFound), nil
+	return b.collectStateFailures(workspaceIDs, isRebuildableWorkspaceState), nil
 }
 
 // StartWorkspaces starts the given workspaces, transitioning STOPPED workspaces to AVAILABLE.
@@ -427,20 +459,37 @@ func (b *InMemoryBackend) TerminateWorkspaces(workspaceIDs []string) ([]FailedRe
 	return failures, nil
 }
 
-// collectFailures returns FailedRequests for any workspace IDs not found.
-// Must be called with a lock held.
-func (b *InMemoryBackend) collectFailures(
-	workspaceIDs []string,
-	errCode, errMsg string,
+// collectStateFailures reports a per-item failure for an unknown workspace
+// ID or one whose current state isAllowed rejects, matching the batch
+// FailedWorkspaceChangeRequest shape RebootWorkspaces/RebuildWorkspaces use
+// for both cases (there is no separate operation-level exception for a bad
+// state -- deserializers.go's error switch for both ops only lists
+// OperationNotSupportedException, used here as the per-item ErrorCode).
+func (b *InMemoryBackend) collectStateFailures(
+	workspaceIDs []string, isAllowed func(state string) bool,
 ) []FailedRequest {
 	var failures []FailedRequest
 
 	for _, id := range workspaceIDs {
-		if !b.workspaces.Has(id) {
+		w, ok := b.workspaces.Get(id)
+		if !ok {
 			failures = append(failures, FailedRequest{
 				WorkspaceID:  id,
-				ErrorCode:    errCode,
-				ErrorMessage: errMsg,
+				ErrorCode:    errResourceNotFound,
+				ErrorMessage: errMsgNotFound,
+			})
+
+			continue
+		}
+
+		if !isAllowed(w.State) {
+			failures = append(failures, FailedRequest{
+				WorkspaceID: id,
+				ErrorCode:   errOperationNotSupported,
+				ErrorMessage: fmt.Sprintf(
+					"WorkSpace %s is not in a state that supports this operation (current state: %s)",
+					id, w.State,
+				),
 			})
 		}
 	}

@@ -18,6 +18,10 @@ func (b *InMemoryBackend) CreateLocationNfs(
 	b.mu.Lock("CreateLocationNfs")
 	defer b.mu.Unlock()
 
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
+
 	id := newID()
 	locationArn := b.locationARN(id)
 	now := time.Now().UTC()
@@ -97,6 +101,10 @@ func (b *InMemoryBackend) UpdateLocationNfs(
 	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeNFS {
 		return ErrNotFound
+	}
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return err
 	}
 
 	if l.Nfs == nil {

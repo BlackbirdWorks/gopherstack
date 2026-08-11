@@ -7,21 +7,17 @@ import (
 	"strings"
 )
 
-// Data-plane access control. Bucket policies and ACLs are stored by the
-// Put*Policy / Put*Acl handlers, but historically nothing consulted them on the
-// object data plane, so a Deny policy or a private ACL had no effect on real GET
-// / PUT / DELETE / List requests. This file evaluates the stored policy + ACL
+// Data-plane access control. This file evaluates the stored bucket policy + ACL
 // (subject to the bucket's Public Access Block) and returns AccessDenied when a
-// request is not permitted.
+// GET/PUT/DELETE/List request is not permitted.
 //
 // Identity model: this emulator is single-account, so a request is either the
-// bucket *owner* (any SigV4/SigV2-signed or presigned request) or *anonymous*
-// (no Authorization header and not presigned). An explicit Deny in the bucket
-// policy applies to everyone including the owner (matching real S3, where an
-// explicit bucket-policy Deny overrides even the account root), so Deny is
-// always enforced. Anonymous / public-ACL gating is only enforced when the
-// handler runs in authorization-enforcement mode (a PresignSecret is set), so
-// the default, credential-agnostic behaviour of existing callers is preserved.
+// bucket *owner* (any SigV4/SigV2-signed or presigned request) or *anonymous* (no
+// Authorization header and not presigned). An explicit Deny in the bucket policy
+// applies to everyone including the owner (matching real S3), so Deny is always
+// enforced. Anonymous/public-ACL gating is only enforced when the handler runs in
+// authorization-enforcement mode (a PresignSecret is set), preserving the
+// default, credential-agnostic behaviour of existing callers.
 
 // s3Action is the canonical IAM action name for an S3 operation.
 type s3Action string

@@ -573,6 +573,78 @@ func TestWireShape_RunJobFlow_KerberosAttributesAndPlacementGroups(t *testing.T)
 	assert.Equal(t, "SPREAD", out.Cluster.PlacementGroups[0].PlacementStrategy)
 }
 
+// TestWireShape_RunJobFlow_OptionalClusterFields verifies MonitoringConfiguration,
+// LogEncryptionKmsKeyId, RepoUpgradeOnBoot, and the AmiVersion-derived
+// RequestedAmiVersion/RunningAmiVersion round-trip from RunJobFlow input to
+// the DescribeCluster response -- previously RunJobFlowInput silently
+// dropped all of them (unknown-JSON-field-ignored), and Cluster had no place
+// to put them even if it hadn't.
+func TestWireShape_RunJobFlow_OptionalClusterFields(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doEMRRequest(t, h, "RunJobFlow", map[string]any{
+		"Name":                  "optional-fields-cluster",
+		"LogEncryptionKmsKeyId": "arn:aws:kms:us-east-1:123456789012:key/abc",
+		"RepoUpgradeOnBoot":     "NONE",
+		"AmiVersion":            "3.11.0",
+		"MonitoringConfiguration": map[string]any{
+			"CloudWatchLogConfiguration": map[string]any{
+				"Enabled":      true,
+				"LogGroupName": "/emr/optional-fields-cluster",
+			},
+			"S3LoggingConfiguration": map[string]any{
+				"LogTypeUploadPolicy": map[string]any{"system-logs": "emr-managed"},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var create struct {
+		JobFlowID string `json:"JobFlowId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &create))
+
+	descRec := doEMRRequest(t, h, "DescribeCluster", map[string]any{"ClusterId": create.JobFlowID})
+	require.Equal(t, http.StatusOK, descRec.Code)
+
+	var out struct {
+		Cluster struct {
+			LogEncryptionKmsKeyID string `json:"LogEncryptionKmsKeyId"`
+			RepoUpgradeOnBoot     string `json:"RepoUpgradeOnBoot"`
+			RequestedAmiVersion   string `json:"RequestedAmiVersion"`
+			RunningAmiVersion     string `json:"RunningAmiVersion"`
+			MonitoringConfig      struct {
+				S3LoggingConfiguration struct {
+					LogTypeUploadPolicy map[string]string `json:"LogTypeUploadPolicy"`
+				} `json:"S3LoggingConfiguration"`
+				CloudWatchLogConfiguration struct {
+					LogGroupName string `json:"LogGroupName"`
+					Enabled      bool   `json:"Enabled"`
+				} `json:"CloudWatchLogConfiguration"`
+			} `json:"MonitoringConfiguration"`
+		} `json:"Cluster"`
+	}
+	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
+
+	assert.Equal(t, "arn:aws:kms:us-east-1:123456789012:key/abc", out.Cluster.LogEncryptionKmsKeyID)
+	assert.Equal(t, "NONE", out.Cluster.RepoUpgradeOnBoot)
+	assert.Equal(t, "3.11.0", out.Cluster.RequestedAmiVersion)
+	assert.Equal(t, "3.11.0", out.Cluster.RunningAmiVersion)
+	assert.True(t, out.Cluster.MonitoringConfig.CloudWatchLogConfiguration.Enabled)
+	assert.Equal(
+		t,
+		"/emr/optional-fields-cluster",
+		out.Cluster.MonitoringConfig.CloudWatchLogConfiguration.LogGroupName,
+	)
+	assert.Equal(
+		t,
+		"emr-managed",
+		out.Cluster.MonitoringConfig.S3LoggingConfiguration.LogTypeUploadPolicy["system-logs"],
+	)
+}
+
 // TestWireShape_RunJobFlow_AutoTerminate verifies Cluster.AutoTerminate is
 // the real API's inverse of Instances.KeepJobFlowAliveWhenNoSteps.
 func TestWireShape_RunJobFlow_AutoTerminate(t *testing.T) {

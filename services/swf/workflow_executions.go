@@ -123,8 +123,10 @@ func (f ExecutionFilter) matchCloseRange(e *WorkflowExecution) bool {
 
 // CountOpenWorkflowExecutions counts RUNNING workflow executions in a domain, applying filters.
 func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter ExecutionFilter) int {
-	b.mu.RLock("CountOpenWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CountOpenWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	count := 0
 	for _, e := range b.executionsByDomain.Get(domain) {
@@ -138,8 +140,10 @@ func (b *InMemoryBackend) CountOpenWorkflowExecutions(domain string, filter Exec
 
 // CountClosedWorkflowExecutions counts non-RUNNING workflow executions in a domain, applying filters.
 func (b *InMemoryBackend) CountClosedWorkflowExecutions(domain string, filter ExecutionFilter) int {
-	b.mu.RLock("CountClosedWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("CountClosedWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	count := 0
 	for _, e := range b.executionsByDomain.Get(domain) {
@@ -255,19 +259,59 @@ func (d startExecutionDefaults) withWorkflowTypeDefaults(wtd WorkflowTypeDefault
 	return d
 }
 
-// registerExecutionOrderLocked records key in the LRU execution order (for
-// new keys only) and evicts the oldest execution once the cache reaches
-// maxWorkflowExecutions. Caller must hold the write lock.
+// registerExecutionOrderLocked records key (one run's full
+// domain+workflowID+runID key) in the LRU execution order and evicts the
+// oldest run once the cache reaches maxWorkflowExecutions. Caller must hold
+// the write lock.
 func (b *InMemoryBackend) registerExecutionOrderLocked(key string) {
-	if b.executions.Has(key) {
-		return
-	}
 	b.executionOrder = append(b.executionOrder, key)
 	if len(b.executionOrder) >= maxWorkflowExecutions {
 		oldest := b.executionOrder[0]
 		b.executionOrder = b.executionOrder[1:]
-		b.executions.Delete(oldest)
-		delete(b.history, oldest)
+		b.evictExecutionLocked(oldest)
+	}
+}
+
+// evictExecutionLocked removes an LRU-evicted run's execution row and
+// history, plus any pending/active task rows still referencing it
+// (gopherstack-jsi8: previously these were left behind as "ghost" rows -- a
+// pending decisionQueues/activityQueues entry, or an active task token in
+// activeDecisionTasks/activeActivityTasks, could still reference a run whose
+// execution/history had already been evicted, so a later poll or respond
+// call would silently operate against data that no longer existed). Caller
+// must hold the write lock.
+func (b *InMemoryBackend) evictExecutionLocked(key string) {
+	exec, ok := b.executions.Get(key)
+	b.executions.Delete(key)
+	delete(b.history, key)
+
+	if !ok {
+		return
+	}
+
+	belongsToEvicted := func(workflowID, runID string) bool {
+		return workflowID == exec.WorkflowID && runID == exec.RunID
+	}
+
+	for qkey, q := range b.decisionQueues {
+		b.decisionQueues[qkey] = slices.DeleteFunc(q, func(t *DecisionTask) bool {
+			return belongsToEvicted(t.WorkflowID, t.RunID)
+		})
+	}
+	for qkey, q := range b.activityQueues {
+		b.activityQueues[qkey] = slices.DeleteFunc(q, func(t *ActivityTask) bool {
+			return belongsToEvicted(t.WorkflowID, t.RunID)
+		})
+	}
+	for _, rec := range b.activeDecisionTasks.All() {
+		if rec.Domain == exec.Domain && belongsToEvicted(rec.WorkflowID, rec.RunID) {
+			b.activeDecisionTasks.Delete(rec.TaskToken)
+		}
+	}
+	for _, rec := range b.activeActivityTasks.All() {
+		if rec.Domain == exec.Domain && belongsToEvicted(rec.WorkflowID, rec.RunID) {
+			b.activeActivityTasks.Delete(rec.TaskToken)
+		}
 	}
 }
 
@@ -294,18 +338,16 @@ func (b *InMemoryBackend) createExecutionLocked(
 	continuedFromRunID string,
 	parent *childLink,
 ) (*WorkflowExecution, error) {
-	key := input.Domain + ":" + input.WorkflowID
-
-	if existing, exists := b.executions.Get(key); exists && existing.Status == statusRunning {
+	if _, open := b.openExecutionLocked(input.Domain, input.WorkflowID); open {
 		return nil, fmt.Errorf("%w: %s", ErrWorkflowAlreadyStarted, input.WorkflowID)
 	}
-
-	b.registerExecutionOrderLocked(key)
 
 	runID := input.RunID
 	if runID == "" {
 		runID = uuid.New().String()
 	}
+
+	b.registerExecutionOrderLocked(executionKey(input.Domain, input.WorkflowID, runID))
 
 	now := float64(time.Now().UnixMilli()) / milliDivisor
 	exec := &WorkflowExecution{
@@ -355,7 +397,7 @@ func (b *InMemoryBackend) createExecutionLocked(
 			attrRunID:      parent.parentRunID,
 		}
 	}
-	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, "WorkflowExecutionStarted", map[string]any{
+	b.appendHistoryEventLocked(input.Domain, input.WorkflowID, runID, "WorkflowExecutionStarted", map[string]any{
 		eventAttrKey("WorkflowExecutionStarted"): startedAttrs,
 	})
 
@@ -365,7 +407,7 @@ func (b *InMemoryBackend) createExecutionLocked(
 	// request, activity completion) first triggering one. Without this, a
 	// freshly started workflow with no other stimulus never gets its first
 	// decision task and stays OPEN forever.
-	b.enqueueDecisionTaskLocked(input.Domain, input.WorkflowID)
+	b.enqueueDecisionTaskLocked(input.Domain, input.WorkflowID, runID)
 
 	cp := *exec
 
@@ -384,6 +426,11 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 	b.mu.Lock("StartWorkflowExecution")
 	defer b.mu.Unlock()
 
+	// A prior run under this workflowId may have timed out but not yet been
+	// swept; without this, its stale RUNNING status would falsely trip
+	// createExecutionLocked's already-open guard below.
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	if !b.domains.Has(input.Domain) {
 		return nil, fmt.Errorf("%w: domain %s not found", ErrNotFound, input.Domain)
 	}
@@ -397,7 +444,8 @@ func (b *InMemoryBackend) StartWorkflowExecution(
 }
 
 // TerminateWorkflowExecution terminates a running workflow execution.
-// runID is optional; if provided, it must match. reason and details are
+// runID is optional; if empty, targets the currently open run (real AWS's
+// convention for this op's optional RunId). reason and details are
 // stored in history. childPolicyOverride, if non-empty, is real SWF's
 // per-call override of the child policy applied to this execution's open
 // child executions -- it takes precedence over the policy stored on exec
@@ -414,21 +462,14 @@ func (b *InMemoryBackend) TerminateWorkflowExecution(
 		return err
 	}
 
-	key := domain + ":" + workflowID
-	exec, ok := b.executions.Get(key)
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
+	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
 	if exec.Status != statusRunning {
 		return fmt.Errorf("%w: execution %s/%s is not open", ErrNotFound, domain, workflowID)
-	}
-	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf(
-			"%w: runId %s does not match current run %s",
-			ErrNotFound,
-			runID,
-			exec.RunID,
-		)
 	}
 
 	effectivePolicy := exec.ChildPolicy
@@ -466,7 +507,7 @@ func (b *InMemoryBackend) terminateExecutionLocked(
 			attrChildPolicy: policy,
 		},
 	}
-	b.appendHistoryEventLocked(domain, exec.WorkflowID, "WorkflowExecutionTerminated", attrs)
+	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionTerminated", attrs)
 	b.propagateChildClosureLocked(domain, exec, "ChildWorkflowExecutionTerminated", nil)
 	b.applyChildPolicyLocked(domain, exec, policy)
 }
@@ -530,7 +571,7 @@ func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *Workfl
 			attrCause: causeChildPolicyApplied,
 		},
 	}
-	b.appendHistoryEventLocked(domain, exec.WorkflowID, "WorkflowExecutionCancelRequested", attrs)
+	b.appendHistoryEventLocked(domain, exec.WorkflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
 	if exec.TaskList != "" {
 		qkey := domain + ":" + exec.TaskList
@@ -541,15 +582,20 @@ func (b *InMemoryBackend) cascadeCancelRequestLocked(domain string, exec *Workfl
 	}
 }
 
-// DescribeWorkflowExecution returns a workflow execution.
+// DescribeWorkflowExecution returns a specific run of a workflow execution.
+// runID is optional; if empty, targets the currently open run. Real AWS
+// marks the wire equivalent (Execution.RunId) as required, but this backend
+// stays lenient for callers (including its own internal callers, and
+// existing tests) that omit it -- see resolveExecutionLocked.
 func (b *InMemoryBackend) DescribeWorkflowExecution(
-	domain, workflowID string,
+	domain, workflowID, runID string,
 ) (*WorkflowExecution, error) {
-	b.mu.RLock("DescribeWorkflowExecution")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeWorkflowExecution")
+	defer b.mu.Unlock()
 
-	key := domain + ":" + workflowID
-	exec, ok := b.executions.Get(key)
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
+	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
 		return nil, fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
@@ -559,30 +605,27 @@ func (b *InMemoryBackend) DescribeWorkflowExecution(
 }
 
 // openCountsLocked returns open activity/decision/timer/child-workflow counts
-// for an execution. Caller must hold at least RLock.
-func (b *InMemoryBackend) openCountsLocked(domain, workflowID string) map[string]int {
+// for one specific run. Caller must hold at least RLock.
+func (b *InMemoryBackend) openCountsLocked(domain, workflowID, runID string) map[string]int {
 	activityCount := 0
 	for _, rec := range b.activeActivityTasks.All() {
-		if rec.Domain == domain && rec.WorkflowID == workflowID {
+		if rec.Domain == domain && rec.WorkflowID == workflowID && rec.RunID == runID {
 			activityCount++
 		}
 	}
 	decisionCount := 0
 	for _, q := range b.decisionQueues {
 		for _, t := range q {
-			if t.WorkflowID == workflowID {
+			if t.WorkflowID == workflowID && t.RunID == runID {
 				decisionCount++
 			}
 		}
 	}
 
 	timerCount := 0
-	if exec, ok := b.executions.Get(domain + ":" + workflowID); ok {
-		timerCount = len(exec.OpenTimerIDs)
-	}
-
 	childCount := 0
-	if exec, ok := b.executions.Get(domain + ":" + workflowID); ok {
+	if exec, ok := b.executions.Get(executionKey(domain, workflowID, runID)); ok {
+		timerCount = len(exec.OpenTimerIDs)
 		for _, e := range b.executionsByDomain.Get(domain) {
 			if e.Status == statusRunning && e.ParentWorkflowID == workflowID && e.ParentRunID == exec.RunID {
 				childCount++
@@ -603,8 +646,10 @@ func (b *InMemoryBackend) ListOpenWorkflowExecutions(
 	domain string,
 	filter ExecutionFilter,
 ) []WorkflowExecution {
-	b.mu.RLock("ListOpenWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListOpenWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	byDomain := b.executionsByDomain.Get(domain)
 	out := make([]WorkflowExecution, 0, len(byDomain))
@@ -623,8 +668,10 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 	domain string,
 	filter ExecutionFilter,
 ) []WorkflowExecution {
-	b.mu.RLock("ListClosedWorkflowExecutions")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ListClosedWorkflowExecutions")
+	defer b.mu.Unlock()
+
+	b.sweepTimedOutExecutionsLocked(time.Now())
 
 	byDomain := b.executionsByDomain.Get(domain)
 	out := make([]WorkflowExecution, 0, len(byDomain))
@@ -639,13 +686,14 @@ func (b *InMemoryBackend) ListClosedWorkflowExecutions(
 }
 
 // RequestCancelWorkflowExecution requests cancellation of a running execution.
-// runID is optional; if provided, it must match.
+// runID is optional; if empty, targets the currently open run.
 func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, runID string) error {
 	b.mu.Lock("RequestCancelWorkflowExecution")
 	defer b.mu.Unlock()
 
-	key := domain + ":" + workflowID
-	exec, ok := b.executions.Get(key)
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
+	exec, ok := b.resolveExecutionLocked(domain, workflowID, runID)
 	if !ok {
 		return fmt.Errorf("%w: execution %s/%s not found", ErrNotFound, domain, workflowID)
 	}
@@ -654,14 +702,6 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 	// not ValidationException, which isn't even in this op's fault model.
 	if exec.Status != statusRunning {
 		return fmt.Errorf("%w: execution %s/%s is not open", ErrNotFound, domain, workflowID)
-	}
-	if runID != "" && exec.RunID != runID {
-		return fmt.Errorf(
-			"%w: runId %s does not match current run %s",
-			ErrNotFound,
-			runID,
-			exec.RunID,
-		)
 	}
 
 	exec.CancelRequested = true
@@ -672,7 +712,7 @@ func (b *InMemoryBackend) RequestCancelWorkflowExecution(domain, workflowID, run
 			attrCause: causeOperatorInitiated,
 		},
 	}
-	b.appendHistoryEventLocked(domain, workflowID, "WorkflowExecutionCancelRequested", attrs)
+	b.appendHistoryEventLocked(domain, workflowID, exec.RunID, "WorkflowExecutionCancelRequested", attrs)
 
 	// Enqueue a decision task so the workflow decider can react.
 	if exec.TaskList != "" {

@@ -77,6 +77,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "BatchGetDataQualityRulesetEvaluationRun",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleBatchGetDataQualityRulesetEvaluationRun)
+		},
+	},
+	{
 		name: "BatchGetDevEndpoints",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleBatchGetDevEndpoints)
@@ -646,6 +652,12 @@ var glueOpBindings = []struct {
 		},
 	},
 	{
+		name: "GetDataCatalogExportConfiguration",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handleGetDataCatalogExportConfiguration)
+		},
+	},
+	{
 		name: "GetDataQualityModel",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handleGetDataQualityModel)
@@ -1099,6 +1111,12 @@ var glueOpBindings = []struct {
 		name: "PutDataCatalogEncryptionSettings",
 		bind: func(h *Handler) service.JSONOpFunc {
 			return service.WrapOp(h.handlePutDataCatalogEncryptionSettings)
+		},
+	},
+	{
+		name: "PutDataCatalogExportConfiguration",
+		bind: func(h *Handler) service.JSONOpFunc {
+			return service.WrapOp(h.handlePutDataCatalogExportConfiguration)
 		},
 	},
 	{

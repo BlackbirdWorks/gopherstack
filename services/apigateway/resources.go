@@ -126,7 +126,8 @@ func computePath(parentPath, pathPart string) string {
 	return strings.TrimRight(parentPath, "/") + "/" + pathPart
 }
 
-// UpdateResource updates the pathPart of a resource (recomputes path if changed).
+// UpdateResource updates the pathPart and/or parent of a resource (recomputing
+// Path for it and its whole subtree if either changed), or sets CORS.
 func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input UpdateResourceInput) (*Resource, error) {
 	b.mu.Lock("UpdateResource")
 	defer b.mu.Unlock()
@@ -140,7 +141,17 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 		return nil, fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
 	}
 
+	if input.ParentID != "" && input.ParentID != res.ParentID {
+		if err := b.reparentResource(restAPIID, res, input.ParentID); err != nil {
+			return nil, err
+		}
+	}
+
 	if input.PathPart != "" {
+		res.PathPart = input.PathPart
+	}
+
+	if input.ParentID != "" || input.PathPart != "" {
 		var parentPath string
 		if res.ParentID != "" {
 			if parent, exists := b.resources.Get(resourceKey(restAPIID, res.ParentID)); exists {
@@ -148,9 +159,9 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 			}
 		}
 
-		res.PathPart = input.PathPart
-		res.Path = computePath(parentPath, input.PathPart)
+		res.Path = computePath(parentPath, res.PathPart)
 		b.resourceVersions[restAPIID]++
+		b.recomputeDescendantPaths(restAPIID, res)
 	}
 
 	if input.CorsConfiguration != nil {
@@ -160,4 +171,53 @@ func (b *InMemoryBackend) UpdateResource(restAPIID, resourceID string, input Upd
 	cp := *res
 
 	return &cp, nil
+}
+
+// reparentResource validates and applies a PATCH "/parentId" move: the new
+// parent must exist in the same REST API, and moving res under itself or one
+// of its own descendants would create a cycle.
+func (b *InMemoryBackend) reparentResource(restAPIID string, res *Resource, newParentID string) error {
+	if !b.resources.Has(resourceKey(restAPIID, newParentID)) {
+		return fmt.Errorf("%w: parent resource %s not found", ErrResourceNotFound, newParentID)
+	}
+
+	if b.isResourceOrDescendant(restAPIID, res.ID, newParentID) {
+		return fmt.Errorf("%w: resource %s cannot become its own ancestor", ErrInvalidParameter, res.ID)
+	}
+
+	res.ParentID = newParentID
+
+	return nil
+}
+
+// isResourceOrDescendant reports whether candidateID is resourceID itself or a
+// descendant of it, used by reparentResource to reject a move that would
+// create a cycle.
+func (b *InMemoryBackend) isResourceOrDescendant(restAPIID, resourceID, candidateID string) bool {
+	if resourceID == candidateID {
+		return true
+	}
+
+	for _, r := range b.resourcesByAPI.Get(restAPIID) {
+		if r.ParentID == resourceID && b.isResourceOrDescendant(restAPIID, r.ID, candidateID) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// recomputeDescendantPaths refreshes Path for every descendant of res after
+// its own Path changed (PATCH "/parentId" or "/pathPart"), since each
+// resource's Path is stored precomputed rather than derived lazily from its
+// ancestor chain.
+func (b *InMemoryBackend) recomputeDescendantPaths(restAPIID string, res *Resource) {
+	for _, child := range b.resourcesByAPI.Get(restAPIID) {
+		if child.ParentID != res.ID {
+			continue
+		}
+
+		child.Path = computePath(res.Path, child.PathPart)
+		b.recomputeDescendantPaths(restAPIID, child)
+	}
 }

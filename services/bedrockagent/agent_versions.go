@@ -3,6 +3,7 @@ package bedrockagent
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -62,8 +63,39 @@ func (b *InMemoryBackend) newAgentVersionLocked(agentID, description string) (*A
 	}
 
 	b.agentVersions.Put(av)
+	b.snapshotSubResourcesLocked(agentID, version)
 
 	return av, nil
+}
+
+// snapshotSubResourcesLocked deep-copies an agent's DRAFT action groups,
+// collaborators, and knowledge-base associations into the newly created
+// numbered version. Real AWS does this at the moment a numbered version is
+// created (confirmed via GetAgentActionGroup's API reference: its
+// {agentVersion} path pattern `(DRAFT|[0-9]{0,4}[1-9][0-9]{0,4})` accepts
+// non-DRAFT versions too, unlike Create/Associate which are DRAFT-only) --
+// without this, Get/List against a numbered version always comes back empty
+// even though DRAFT had content at snapshot time. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) snapshotSubResourcesLocked(agentID, version string) {
+	draftScope := agentVersionScope(agentID, defaultAgentVersion)
+
+	for _, ag := range b.actionGroupsByAgentVersion.Get(draftScope) {
+		cp := *ag
+		cp.AgentVersion = version
+		b.actionGroups.Put(&cp)
+	}
+
+	for _, c := range b.agentCollaboratorsByAgentVersion.Get(draftScope) {
+		cp := *c
+		cp.AgentVersion = version
+		b.agentCollaborators.Put(&cp)
+	}
+
+	for _, kb := range b.agentKBAssocsByAgentVersion.Get(draftScope) {
+		cp := *kb
+		cp.AgentVersion = version
+		b.agentKBAssocs.Put(&cp)
+	}
 }
 
 // GetAgentVersion returns a specific agent version.
@@ -115,8 +147,29 @@ func (b *InMemoryBackend) DeleteAgentVersion(
 	}
 
 	b.agentVersions.Delete(key)
+	b.deleteSubResourcesLocked(agentID, agentVersion)
 
 	return nil
+}
+
+// deleteSubResourcesLocked removes every action group, collaborator, and
+// knowledge-base association scoped to the given (agentID, version) --
+// the snapshot rows written by snapshotSubResourcesLocked for numbered
+// versions, or the live DRAFT rows. Callers must hold b.mu.Lock.
+func (b *InMemoryBackend) deleteSubResourcesLocked(agentID, version string) {
+	scope := agentVersionScope(agentID, version)
+
+	for _, ag := range slices.Clone(b.actionGroupsByAgentVersion.Get(scope)) {
+		b.actionGroups.Delete(agActionGroupKey(ag.AgentID, ag.AgentVersion, ag.ActionGroupID))
+	}
+
+	for _, cb := range slices.Clone(b.agentCollaboratorsByAgentVersion.Get(scope)) {
+		b.agentCollaborators.Delete(agentCollabKey(cb.AgentID, cb.AgentVersion, cb.CollaboratorID))
+	}
+
+	for _, kba := range slices.Clone(b.agentKBAssocsByAgentVersion.Get(scope)) {
+		b.agentKBAssocs.Delete(agKBKey(kba.AgentID, kba.AgentVersion, kba.KnowledgeBaseID))
+	}
 }
 
 // ListAgentVersions returns paginated agent version summaries.

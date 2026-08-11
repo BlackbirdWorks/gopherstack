@@ -79,7 +79,10 @@ func TestIntegration_DMS_EndpointLifecycle(t *testing.T) {
 			require.NotEmpty(t, endpointARN)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteEndpoint(ctx, &dmssdk.DeleteEndpointInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteEndpoint(cleanupCtx, &dmssdk.DeleteEndpointInput{
 					EndpointArn: aws.String(endpointARN),
 				})
 			})
@@ -147,7 +150,10 @@ func TestIntegration_DMS_ReplicationTaskLifecycle(t *testing.T) {
 			riARN := aws.ToString(riOut.ReplicationInstance.ReplicationInstanceArn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteReplicationInstance(ctx, &dmssdk.DeleteReplicationInstanceInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteReplicationInstance(cleanupCtx, &dmssdk.DeleteReplicationInstanceInput{
 					ReplicationInstanceArn: aws.String(riARN),
 				})
 			})
@@ -168,7 +174,10 @@ func TestIntegration_DMS_ReplicationTaskLifecycle(t *testing.T) {
 			srcARN := aws.ToString(srcOut.Endpoint.EndpointArn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteEndpoint(ctx, &dmssdk.DeleteEndpointInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteEndpoint(cleanupCtx, &dmssdk.DeleteEndpointInput{
 					EndpointArn: aws.String(srcARN),
 				})
 			})
@@ -189,7 +198,10 @@ func TestIntegration_DMS_ReplicationTaskLifecycle(t *testing.T) {
 			tgtARN := aws.ToString(tgtOut.Endpoint.EndpointArn)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteEndpoint(ctx, &dmssdk.DeleteEndpointInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteEndpoint(cleanupCtx, &dmssdk.DeleteEndpointInput{
 					EndpointArn: aws.String(tgtARN),
 				})
 			})
@@ -207,7 +219,10 @@ func TestIntegration_DMS_ReplicationTaskLifecycle(t *testing.T) {
 			require.NotNil(t, taskOut.ReplicationTask)
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteReplicationTask(ctx, &dmssdk.DeleteReplicationTaskInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteReplicationTask(cleanupCtx, &dmssdk.DeleteReplicationTaskInput{
 					ReplicationTaskArn: taskOut.ReplicationTask.ReplicationTaskArn,
 				})
 			})

@@ -189,7 +189,7 @@ func (h *Handler) queryReceiveMessage(vals url.Values, region string) ([]byte, i
 		WaitTimeSeconds:         waitSecs,
 		AttributeNames:          attrNames,
 		MessageAttributeNames:   msgAttrNames,
-		ReceiveRequestAttemptID: vals.Get("ReceiveRequestAttemptID"),
+		ReceiveRequestAttemptID: vals.Get("ReceiveRequestAttemptId"),
 	})
 	if err != nil {
 		return nil, 0, buildQueryError(err)

@@ -27,22 +27,25 @@ const secretsManagerSnapshotVersion = 1
 // the live Secret and the store.Table composite key ("region|name", see
 // secretTableKey in store_setup.go) on Restore.
 type secretSnapshot struct {
-	Tags              *tags.Tags                `json:"tags,omitempty"`
-	DeletedDate       *float64                  `json:"deletedDate,omitempty"`
-	LastChangedDate   *float64                  `json:"lastChangedDate,omitempty"`
-	LastRotatedDate   *float64                  `json:"lastRotatedDate,omitempty"`
-	LastAccessedDate  *float64                  `json:"lastAccessedDate,omitempty"`
-	CreatedDate       *float64                  `json:"createdDate,omitempty"`
-	Versions          map[string]*SecretVersion `json:"versions"`
-	ARN               string                    `json:"arn"`
-	Name              string                    `json:"name"`
-	Region            string                    `json:"region"`
-	Description       string                    `json:"description,omitempty"`
-	KmsKeyID          string                    `json:"kmsKeyID,omitempty"`
-	RotationLambdaARN string                    `json:"rotationLambdaARN,omitempty"`
-	RotationRules     *RotationRulesType        `json:"rotationRules,omitempty"`
-	CurrentVersionID  string                    `json:"currentVersionID"`
-	RotationEnabled   bool                      `json:"rotationEnabled,omitempty"`
+	Tags                           *tags.Tags                           `json:"tags,omitempty"`
+	DeletedDate                    *float64                             `json:"deletedDate,omitempty"`
+	LastChangedDate                *float64                             `json:"lastChangedDate,omitempty"`
+	LastRotatedDate                *float64                             `json:"lastRotatedDate,omitempty"`
+	LastAccessedDate               *float64                             `json:"lastAccessedDate,omitempty"`
+	CreatedDate                    *float64                             `json:"createdDate,omitempty"`
+	Versions                       map[string]*SecretVersion            `json:"versions"`
+	RotationRules                  *RotationRulesType                   `json:"rotationRules,omitempty"`
+	Name                           string                               `json:"name"`
+	Region                         string                               `json:"region"`
+	Description                    string                               `json:"description,omitempty"`
+	KmsKeyID                       string                               `json:"kmsKeyID,omitempty"`
+	RotationLambdaARN              string                               `json:"rotationLambdaARN,omitempty"`
+	ARN                            string                               `json:"arn"`
+	CurrentVersionID               string                               `json:"currentVersionID"`
+	Type                           string                               `json:"type,omitempty"`
+	ExternalSecretRotationRoleArn  string                               `json:"externalSecretRotationRoleArn,omitempty"`
+	ExternalSecretRotationMetadata []ExternalSecretRotationMetadataItem `json:"externalSecretRotationMetadata,omitempty"`
+	RotationEnabled                bool                                 `json:"rotationEnabled,omitempty"`
 }
 
 // secretSnapshotKeyFn is the [store.Table] key function used for the
@@ -88,22 +91,25 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for _, s := range b.secrets.Snapshot() {
 		secretDTOs.Put(&secretSnapshot{
-			ARN:               s.ARN,
-			Name:              s.Name,
-			Region:            s.region,
-			Description:       s.Description,
-			KmsKeyID:          s.KmsKeyID,
-			RotationLambdaARN: s.RotationLambdaARN,
-			RotationRules:     cloneRotationRules(s.RotationRules),
-			Tags:              s.Tags,
-			DeletedDate:       s.DeletedDate,
-			LastChangedDate:   s.LastChangedDate,
-			LastRotatedDate:   s.LastRotatedDate,
-			LastAccessedDate:  s.LastAccessedDate,
-			CreatedDate:       s.CreatedDate,
-			Versions:          s.Versions,
-			CurrentVersionID:  s.CurrentVersionID,
-			RotationEnabled:   s.RotationEnabled,
+			ARN:                            s.ARN,
+			Name:                           s.Name,
+			Region:                         s.region,
+			Description:                    s.Description,
+			KmsKeyID:                       s.KmsKeyID,
+			RotationLambdaARN:              s.RotationLambdaARN,
+			RotationRules:                  cloneRotationRules(s.RotationRules),
+			Tags:                           s.Tags,
+			DeletedDate:                    s.DeletedDate,
+			LastChangedDate:                s.LastChangedDate,
+			LastRotatedDate:                s.LastRotatedDate,
+			LastAccessedDate:               s.LastAccessedDate,
+			CreatedDate:                    s.CreatedDate,
+			Versions:                       s.Versions,
+			CurrentVersionID:               s.CurrentVersionID,
+			RotationEnabled:                s.RotationEnabled,
+			Type:                           s.Type,
+			ExternalSecretRotationRoleArn:  s.ExternalSecretRotationRoleArn,
+			ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(s.ExternalSecretRotationMetadata),
 		})
 	}
 
@@ -220,22 +226,25 @@ func secretFromSnapshot(ss *secretSnapshot) *Secret {
 	}
 
 	return &Secret{
-		region:            ss.Region,
-		ARN:               ss.ARN,
-		Name:              ss.Name,
-		Description:       ss.Description,
-		KmsKeyID:          ss.KmsKeyID,
-		RotationLambdaARN: ss.RotationLambdaARN,
-		RotationRules:     cloneRotationRules(ss.RotationRules),
-		Tags:              ss.Tags,
-		DeletedDate:       ss.DeletedDate,
-		LastChangedDate:   ss.LastChangedDate,
-		LastRotatedDate:   ss.LastRotatedDate,
-		LastAccessedDate:  ss.LastAccessedDate,
-		CreatedDate:       ss.CreatedDate,
-		Versions:          ss.Versions,
-		CurrentVersionID:  ss.CurrentVersionID,
-		RotationEnabled:   ss.RotationEnabled,
+		region:                         ss.Region,
+		ARN:                            ss.ARN,
+		Name:                           ss.Name,
+		Description:                    ss.Description,
+		KmsKeyID:                       ss.KmsKeyID,
+		RotationLambdaARN:              ss.RotationLambdaARN,
+		RotationRules:                  cloneRotationRules(ss.RotationRules),
+		Tags:                           ss.Tags,
+		DeletedDate:                    ss.DeletedDate,
+		LastChangedDate:                ss.LastChangedDate,
+		LastRotatedDate:                ss.LastRotatedDate,
+		LastAccessedDate:               ss.LastAccessedDate,
+		CreatedDate:                    ss.CreatedDate,
+		Versions:                       ss.Versions,
+		CurrentVersionID:               ss.CurrentVersionID,
+		RotationEnabled:                ss.RotationEnabled,
+		Type:                           ss.Type,
+		ExternalSecretRotationRoleArn:  ss.ExternalSecretRotationRoleArn,
+		ExternalSecretRotationMetadata: cloneExternalSecretRotationMetadata(ss.ExternalSecretRotationMetadata),
 	}
 }
 

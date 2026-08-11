@@ -183,6 +183,7 @@ type CreateAssociationInput struct {
 	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
 	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
 	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
+	Tags                          []Tag                              `json:"Tags,omitempty"`
 	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`
 }
 

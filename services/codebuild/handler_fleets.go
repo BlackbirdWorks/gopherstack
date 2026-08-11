@@ -6,7 +6,7 @@ import (
 )
 
 type createFleetInput struct {
-	Tags                 map[string]string     `json:"tags"`
+	Tags                 wireTags              `json:"tags"`
 	ComputeConfiguration *ComputeConfiguration `json:"computeConfiguration"`
 	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration"`
 	VpcConfig            *VpcConfig            `json:"vpcConfig"`
@@ -118,6 +118,7 @@ type updateFleetInput struct {
 	ProxyConfiguration   *ProxyConfiguration   `json:"proxyConfiguration"`
 	VpcConfig            *VpcConfig            `json:"vpcConfig"`
 	ScalingConfiguration *ScalingConfiguration `json:"scalingConfiguration"`
+	Tags                 wireTags              `json:"tags"`
 	Arn                  string                `json:"arn"`
 	ComputeType          string                `json:"computeType"`
 	EnvironmentType      string                `json:"environmentType"`
@@ -146,6 +147,7 @@ func (h *Handler) handleUpdateFleet(_ context.Context, in *updateFleetInput) (*u
 		ProxyConfiguration:   in.ProxyConfiguration,
 		VpcConfig:            in.VpcConfig,
 		ScalingConfiguration: in.ScalingConfiguration,
+		Tags:                 in.Tags,
 	})
 	if err != nil {
 		return nil, err

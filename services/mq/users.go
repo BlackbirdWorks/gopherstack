@@ -117,7 +117,9 @@ func validateActiveMQUserConstraints(currentUsers, groupCount int, password stri
 // immediately with the requested attributes but marked Pending.PendingChange
 // = CREATE, exactly as DescribeUser/ListUsers would show it, until
 // promoteBrokerReboot clears the marker.
-func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups []string, console bool) error {
+func (b *InMemoryBackend) CreateUser(
+	brokerID, username, password string, groups []string, console, replicationUser bool,
+) error {
 	if err := validateUsername(username); err != nil {
 		return err
 	}
@@ -141,11 +143,12 @@ func (b *InMemoryBackend) CreateUser(brokerID, username, password string, groups
 	}
 
 	br.Users[username] = &User{
-		Username: username,
-		Password: password,
-		Groups:   groups,
-		Console:  console,
-		Pending:  &UserPendingChanges{PendingChange: ChangeTypeCreate},
+		Username:        username,
+		Password:        password,
+		Groups:          groups,
+		Console:         console,
+		ReplicationUser: replicationUser,
+		Pending:         &UserPendingChanges{PendingChange: ChangeTypeCreate},
 	}
 
 	return nil
@@ -179,8 +182,11 @@ func (b *InMemoryBackend) DescribeUser(brokerID, username string) (*User, error)
 // response (DescribeUser/ListUsers never include it), so there is no
 // observable "staged vs. live" distinction to model, and
 // aws-sdk-go-v2/service/mq/types.UserPendingChanges has no password field to
-// stage it into.
-func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups []string, console *bool) error {
+// stage it into. replicationUser applies immediately for the same reason --
+// UserPendingChanges has no replicationUser field either.
+func (b *InMemoryBackend) UpdateUser(
+	brokerID, username, password string, groups []string, console, replicationUser *bool,
+) error {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
@@ -209,6 +215,10 @@ func (b *InMemoryBackend) UpdateUser(brokerID, username, password string, groups
 			"%w: user groups must not exceed %d (got %d)",
 			ErrValidation, maxUserGroups, len(groups),
 		)
+	}
+
+	if replicationUser != nil {
+		u.ReplicationUser = *replicationUser
 	}
 
 	stageUserPendingChange(u, groups, console)

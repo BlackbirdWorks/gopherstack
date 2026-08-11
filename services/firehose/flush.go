@@ -344,7 +344,7 @@ func (b *InMemoryBackend) deliverSnapshot(ctx context.Context, snap *flushSnapsh
 		b.deliverProcessedNonS3(ctx, snap, streamName, snap.redshiftDest.ProcessingConfiguration,
 			snap.redshiftDest.S3BackupDescription, nil,
 			func(recs [][]byte) {
-				b.deliverToRedshift(ctx, recs, snap.redshiftDest, snap.streamARN)
+				b.deliverToRedshift(ctx, recs, snap.redshiftDest, snap.streamARN, streamName)
 			})
 	}
 
@@ -412,7 +412,7 @@ func (b *InMemoryBackend) deliverProcessedNonS3(
 
 	if len(failed) > 0 {
 		if backup != nil {
-			_ = b.writeRecordsToBucket(ctx, failed, backup.BucketARN,
+			_, _ = b.writeRecordsToBucket(ctx, failed, backup.BucketARN,
 				backup.Prefix, "", backup.CompressionFormat, streamName)
 		}
 		b.recordFailedRecords(snap.region, streamName, len(failed))
@@ -438,7 +438,7 @@ func (b *InMemoryBackend) deliverS3Backup(
 		return
 	}
 
-	_ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
+	_, _ = b.writeRecordsToBucket(ctx, snap.backupRecords, backup.BucketARN,
 		backup.Prefix, "", backup.CompressionFormat, streamName)
 }
 

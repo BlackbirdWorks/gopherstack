@@ -93,7 +93,7 @@ func TestKeyPairOperations(t *testing.T) {
 
 			switch tt.op {
 			case "create":
-				kp, err := b.CreateKeyPair(tt.keyName)
+				kp, err := b.CreateKeyPair(tt.keyName, nil)
 				if tt.wantErr {
 					require.Error(t, err)
 				} else {
@@ -104,27 +104,27 @@ func TestKeyPairOperations(t *testing.T) {
 				}
 
 			case "create_duplicate":
-				_, err := b.CreateKeyPair(tt.keyName)
+				_, err := b.CreateKeyPair(tt.keyName, nil)
 				require.NoError(t, err)
-				_, err = b.CreateKeyPair(tt.keyName)
+				_, err = b.CreateKeyPair(tt.keyName, nil)
 				require.Error(t, err)
 
 			case "describe_all":
-				_, err := b.CreateKeyPair(tt.keyName)
+				_, err := b.CreateKeyPair(tt.keyName, nil)
 				require.NoError(t, err)
 				kps := b.DescribeKeyPairs(nil)
 				assert.NotEmpty(t, kps)
 				assert.Empty(t, kps[0].Material, "material should be stripped on describe")
 
 			case "describe_by_name":
-				_, err := b.CreateKeyPair(tt.keyName)
+				_, err := b.CreateKeyPair(tt.keyName, nil)
 				require.NoError(t, err)
 				kps := b.DescribeKeyPairs([]string{tt.keyName})
 				require.Len(t, kps, 1)
 				assert.Equal(t, tt.keyName, kps[0].Name)
 
 			case "delete":
-				_, err := b.CreateKeyPair(tt.keyName)
+				_, err := b.CreateKeyPair(tt.keyName, nil)
 				require.NoError(t, err)
 				err = b.DeleteKeyPair(tt.keyName)
 				require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestKeyPairOperations(t *testing.T) {
 				require.Error(t, err)
 
 			case "import":
-				kp, err := b.ImportKeyPair(tt.keyName, "")
+				kp, err := b.ImportKeyPair(tt.keyName, "", nil)
 				if tt.wantErr {
 					require.Error(t, err)
 				} else {
@@ -147,13 +147,13 @@ func TestKeyPairOperations(t *testing.T) {
 				}
 
 			case "import_duplicate":
-				_, err := b.ImportKeyPair(tt.keyName, "")
+				_, err := b.ImportKeyPair(tt.keyName, "", nil)
 				require.NoError(t, err)
-				_, err = b.ImportKeyPair(tt.keyName, "")
+				_, err = b.ImportKeyPair(tt.keyName, "", nil)
 				require.ErrorIs(t, err, ec2.ErrDuplicateKeyPairName)
 
 			case "import_retrievable":
-				_, err := b.ImportKeyPair(tt.keyName, "")
+				_, err := b.ImportKeyPair(tt.keyName, "", nil)
 				require.NoError(t, err)
 				kps := b.DescribeKeyPairs([]string{tt.keyName})
 				require.Len(t, kps, 1)

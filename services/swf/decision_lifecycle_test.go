@@ -12,8 +12,6 @@ import (
 )
 
 // pollDecisionTask polls for a decision task and returns the task token.
-//
-//nolint:unparam // domain is always "dom" in current tests but kept for clarity
 func pollDecisionTask(t *testing.T, b *swf.InMemoryBackend, domain, taskList string) string {
 	t.Helper()
 
@@ -70,13 +68,13 @@ func TestRespondDecisionTaskCompleted_CompleteWorkflow(t *testing.T) {
 			}}
 			require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-			exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+			exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantCloseStatus, exec.Status)
 			assert.Equal(t, tt.wantCloseStatus, exec.CloseStatus)
 			assert.NotZero(t, exec.CloseTimestamp)
 
-			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 			var found bool
 			for _, ev := range events {
 				if ev.EventType == tt.wantEventType {
@@ -131,13 +129,13 @@ func TestRespondDecisionTaskCompleted_FailWorkflow(t *testing.T) {
 			}}
 			require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-			exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+			exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 			require.NoError(t, err)
 			assert.Equal(t, "FAILED", exec.Status)
 			assert.Equal(t, "FAILED", exec.CloseStatus)
 			assert.NotZero(t, exec.CloseTimestamp)
 
-			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 			var failEvent *swf.HistoryEvent
 			for i := range events {
 				if events[i].EventType == "WorkflowExecutionFailed" {
@@ -188,7 +186,7 @@ func TestRespondDecisionTaskCompleted_CancelWorkflow(t *testing.T) {
 			}}
 			require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-			exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+			exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 			require.NoError(t, err)
 			assert.Equal(t, "CANCELED", exec.Status)
 			assert.Equal(t, "CANCELED", exec.CloseStatus)
@@ -229,7 +227,7 @@ func TestRespondDecisionTaskCompleted_ContinueAsNew(t *testing.T) {
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", exec.Status)
 	assert.Empty(t, exec.CloseStatus)
@@ -237,25 +235,40 @@ func TestRespondDecisionTaskCompleted_ContinueAsNew(t *testing.T) {
 	assert.NotEqual(t, oldRunID, exec.RunID, "continue-as-new must assign a fresh RunID")
 	assert.Equal(t, `{"round":2}`, exec.Input)
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
-	var continuedEvent, startedAgainEvent *swf.HistoryEvent
-	for i := range events {
-		switch events[i].EventType {
-		case "WorkflowExecutionContinuedAsNew":
-			continuedEvent = &events[i]
-		case "WorkflowExecutionStarted":
-			startedAgainEvent = &events[i] // last one wins: the continuation's start
+	// The old run's own history (independently queryable by RunId now that
+	// executions/history are keyed by domain+workflowID+runID -- gopherstack-jsi8)
+	// carries the closing WorkflowExecutionContinuedAsNew event; it is NOT
+	// commingled with the new run's history.
+	oldEvents, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", oldRunID, 0, "", false)
+	var continuedEvent *swf.HistoryEvent
+	for i := range oldEvents {
+		if oldEvents[i].EventType == "WorkflowExecutionContinuedAsNew" {
+			continuedEvent = &oldEvents[i]
 		}
 	}
-	require.NotNil(t, continuedEvent, "expected WorkflowExecutionContinuedAsNew in history")
+	require.NotNil(t, continuedEvent, "expected WorkflowExecutionContinuedAsNew in the OLD run's history")
 	continuedAttrs, ok := continuedEvent.Attributes["workflowExecutionContinuedAsNewEventAttributes"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, exec.RunID, continuedAttrs["newExecutionRunId"])
 
+	newEvents, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
+	var startedAgainEvent *swf.HistoryEvent
+	for i := range newEvents {
+		if newEvents[i].EventType == "WorkflowExecutionStarted" {
+			startedAgainEvent = &newEvents[i]
+		}
+	}
 	require.NotNil(t, startedAgainEvent, "expected a fresh WorkflowExecutionStarted for the continuation")
 	startedAttrs, ok := startedAgainEvent.Attributes["workflowExecutionStartedEventAttributes"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, oldRunID, startedAttrs["continuedExecutionRunId"])
+
+	// The old run is independently queryable after continuation -- the core
+	// fix: it is no longer overwritten by the new run.
+	oldExec, err := b.DescribeWorkflowExecution("dom", "wf-1", oldRunID)
+	require.NoError(t, err)
+	assert.Equal(t, "CONTINUED_AS_NEW", oldExec.Status)
+	assert.Equal(t, "CONTINUED_AS_NEW", oldExec.CloseStatus)
 
 	// A fresh decision task must have been enqueued so the decider can make
 	// progress on the new run -- this is the core bug being fixed (the old
@@ -293,12 +306,12 @@ func TestRespondDecisionTaskCompleted_ContinueAsNew_UnknownWorkflowType(t *testi
 	}}
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "RUNNING", exec.Status, "a rejected continue-as-new must leave the execution open")
 	assert.Equal(t, started.RunID, exec.RunID, "the run must not change on a rejected continuation")
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	var failedEvent *swf.HistoryEvent
 	for i := range events {
 		if events[i].EventType == "ContinueAsNewWorkflowExecutionFailed" {
@@ -394,7 +407,7 @@ func TestRespondDecisionTaskCompleted_ExecutionContext(t *testing.T) {
 
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, `{"state":"step2"}`, nil))
 
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"state":"step2"}`, exec.LatestExecutionContext)
 }
@@ -591,7 +604,7 @@ func TestRespondDecisionTask_ViaHandler(t *testing.T) {
 				} else {
 					domainName, wfID = "dom2", "wf-2"
 				}
-				exec, err := b.DescribeWorkflowExecution(domainName, wfID)
+				exec, err := b.DescribeWorkflowExecution(domainName, wfID, "")
 				require.NoError(t, err)
 				assert.Equal(t, tt.wantExecStatus, exec.Status)
 			}
@@ -640,7 +653,7 @@ func TestRespondDecisionTaskCompleted_MultipleDecisions(t *testing.T) {
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "", decisions))
 
 	assert.Equal(t, 2, b.CountPendingActivityTasks("dom", "act-list"))
-	exec, err := b.DescribeWorkflowExecution("dom", "wf-1")
+	exec, err := b.DescribeWorkflowExecution("dom", "wf-1", "")
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETED", exec.Status)
 }
@@ -661,7 +674,7 @@ func TestDecisionTask_DecisionTaskCompletedEvent(t *testing.T) {
 	token := pollDecisionTask(t, b, "dom", "default")
 	require.NoError(t, b.RespondDecisionTaskCompleted(token, "ctx-value", nil))
 
-	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+	events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 	var found bool
 	for _, ev := range events {
 		if ev.EventType == "DecisionTaskCompleted" {
@@ -842,7 +855,7 @@ func TestRespondDecisionTaskCompleted_TaskTimerMarkerAttrsPropagate(t *testing.T
 			})
 			require.Equal(t, http.StatusOK, rec.Code)
 
-			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 			var found *swf.HistoryEvent
 			for i := range events {
 				if events[i].EventType == tt.wantEventType {
@@ -897,7 +910,7 @@ func TestRespondDecisionTaskCompleted_NewDecisionTypes(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", 0, "", false)
+			events, _ := b.GetWorkflowExecutionHistory("dom", "wf-1", "", 0, "", false)
 			assert.NotEmpty(t, events)
 		})
 	}

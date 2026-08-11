@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
@@ -585,6 +586,8 @@ func toXMLMixedInstancesPolicy(policy *MixedInstancesPolicy) *xmlMixedInstancesP
 			}
 		}
 
+		xo.InstanceRequirements = toXMLInstanceRequirements(o.InstanceRequirements)
+
 		overrides = append(overrides, xo)
 	}
 
@@ -606,6 +609,99 @@ func toXMLMixedInstancesPolicy(policy *MixedInstancesPolicy) *xmlMixedInstancesP
 			SpotInstancePools:                   policy.InstancesDistribution.SpotInstancePools,
 		},
 	}
+}
+
+// toXMLInstanceRequirements converts an InstanceRequirements to its XML
+// response projection, or nil when ir is nil (matches AWS: the element is
+// entirely absent for overrides that select by InstanceType instead).
+func toXMLInstanceRequirements(ir *InstanceRequirements) *xmlInstanceRequirements {
+	if ir == nil {
+		return nil
+	}
+
+	return &xmlInstanceRequirements{
+		MemoryMiB:                 toXMLIntRangeRequest(ir.MemoryMiB),
+		VCpuCount:                 toXMLIntRangeRequest(ir.VCpuCount),
+		AcceleratorCount:          toXMLIntRangeRequest(ir.AcceleratorCount),
+		AcceleratorTotalMemoryMiB: toXMLIntRangeRequest(ir.AcceleratorTotalMemoryMiB),
+		BaselineEbsBandwidthMbps:  toXMLIntRangeRequest(ir.BaselineEbsBandwidthMbps),
+		NetworkInterfaceCount:     toXMLIntRangeRequest(ir.NetworkInterfaceCount),
+		MemoryGiBPerVCpu:          toXMLFloatRangeRequest(ir.MemoryGiBPerVCpu),
+		NetworkBandwidthGbps:      toXMLFloatRangeRequest(ir.NetworkBandwidthGbps),
+		TotalLocalStorageGB:       toXMLFloatRangeRequest(ir.TotalLocalStorageGB),
+		MaxSpotPriceAsPercentageOfOptimalOnDemandPrice: ir.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice,
+		OnDemandMaxPricePercentageOverLowestPrice:      ir.OnDemandMaxPricePercentageOverLowestPrice,
+		SpotMaxPricePercentageOverLowestPrice:          ir.SpotMaxPricePercentageOverLowestPrice,
+		RequireHibernateSupport:                        ir.RequireHibernateSupport,
+		AcceleratorManufacturers:                       toXMLStringValueList(ir.AcceleratorManufacturers),
+		AcceleratorNames:                               toXMLStringValueList(ir.AcceleratorNames),
+		AcceleratorTypes:                               toXMLStringValueList(ir.AcceleratorTypes),
+		AllowedInstanceTypes:                           toXMLStringValueList(ir.AllowedInstanceTypes),
+		CPUManufacturers:                               toXMLStringValueList(ir.CPUManufacturers),
+		ExcludedInstanceTypes:                          toXMLStringValueList(ir.ExcludedInstanceTypes),
+		InstanceGenerations:                            toXMLStringValueList(ir.InstanceGenerations),
+		LocalStorageTypes:                              toXMLStringValueList(ir.LocalStorageTypes),
+		BareMetal:                                      ir.BareMetal,
+		BurstablePerformance:                           ir.BurstablePerformance,
+		LocalStorage:                                   ir.LocalStorage,
+		BaselinePerformanceFactors:                     toXMLBaselinePerformanceFactors(ir.BaselinePerformanceFactors),
+	}
+}
+
+// toXMLPerformanceFactorReferenceList converts a []PerformanceFactorReference
+// to its XML response shape. The wrapper element is "item", not "member" --
+// see parsePerformanceFactorReferences for the citation.
+func toXMLPerformanceFactorReferenceList(refs []PerformanceFactorReference) *xmlPerformanceFactorReferenceList {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	members := make([]xmlPerformanceFactorReference, 0, len(refs))
+	for _, r := range refs {
+		members = append(members, xmlPerformanceFactorReference(r))
+	}
+
+	return &xmlPerformanceFactorReferenceList{Items: members}
+}
+
+func toXMLBaselinePerformanceFactors(bpf *BaselinePerformanceFactors) *xmlBaselinePerformanceFactors {
+	if bpf == nil || bpf.CPU == nil {
+		return nil
+	}
+
+	refs := toXMLPerformanceFactorReferenceList(bpf.CPU.References)
+	if refs == nil {
+		return nil
+	}
+
+	return &xmlBaselinePerformanceFactors{CPU: &xmlCPUPerformanceFactor{Reference: *refs}}
+}
+
+func toXMLIntRangeRequest(r *IntRangeRequest) *xmlIntRangeRequest {
+	if r == nil {
+		return nil
+	}
+
+	return &xmlIntRangeRequest{Min: r.Min, Max: r.Max}
+}
+
+func toXMLFloatRangeRequest(r *FloatRangeRequest) *xmlFloatRangeRequest {
+	if r == nil {
+		return nil
+	}
+
+	return &xmlFloatRangeRequest{Min: r.Min, Max: r.Max}
+}
+
+// toXMLStringValueList converts a []string to the shared <member> list wire
+// shape used throughout this handler for query-protocol string lists.
+func toXMLStringValueList(vs []string) xmlStringValueList {
+	members := make([]xmlStringValue, 0, len(vs))
+	for _, v := range vs {
+		members = append(members, xmlStringValue{Value: v})
+	}
+
+	return xmlStringValueList{Members: members}
 }
 
 type createAutoScalingGroupResponse struct {
@@ -678,8 +774,83 @@ type xmlLaunchTemplateSpecification struct {
 
 type xmlLaunchTemplateOverride struct {
 	LaunchTemplateSpecification *xmlLaunchTemplateSpecification `xml:"LaunchTemplateSpecification,omitempty"`
+	InstanceRequirements        *xmlInstanceRequirements        `xml:"InstanceRequirements,omitempty"`
 	InstanceType                string                          `xml:"InstanceType,omitempty"`
 	WeightedCapacity            string                          `xml:"WeightedCapacity,omitempty"`
+}
+
+type xmlIntRangeRequest struct {
+	Min *int32 `xml:"Min,omitempty"`
+	Max *int32 `xml:"Max,omitempty"`
+}
+
+type xmlFloatRangeRequest struct {
+	Min *float64 `xml:"Min,omitempty"`
+	Max *float64 `xml:"Max,omitempty"`
+}
+
+// xmlInstanceRequirements is the XML response projection of InstanceRequirements
+// (models.go), matching DescribeAutoScalingGroups' LaunchTemplateOverrides.
+// InstanceRequirements wire shape (deserializers.go:12592).
+type xmlInstanceRequirements struct {
+	RequireHibernateSupport    *bool                          `xml:"RequireHibernateSupport,omitempty"`
+	MemoryGiBPerVCpu           *xmlFloatRangeRequest          `xml:"MemoryGiBPerVCpu,omitempty"`
+	AcceleratorCount           *xmlIntRangeRequest            `xml:"AcceleratorCount,omitempty"`
+	AcceleratorTotalMemoryMiB  *xmlIntRangeRequest            `xml:"AcceleratorTotalMemoryMiB,omitempty"`
+	BaselineEbsBandwidthMbps   *xmlIntRangeRequest            `xml:"BaselineEbsBandwidthMbps,omitempty"`
+	NetworkInterfaceCount      *xmlIntRangeRequest            `xml:"NetworkInterfaceCount,omitempty"`
+	BaselinePerformanceFactors *xmlBaselinePerformanceFactors `xml:"BaselinePerformanceFactors,omitempty"`
+	// omitempty is redundant on *int32 (encoding/xml always skips a nil
+	// pointer field); dropped from the three tags below to fit the lll limit.
+	SpotMaxPricePercentageOverLowestPrice *int32                `xml:"SpotMaxPricePercentageOverLowestPrice"`
+	NetworkBandwidthGbps                  *xmlFloatRangeRequest `xml:"NetworkBandwidthGbps,omitempty"`
+	TotalLocalStorageGB                   *xmlFloatRangeRequest `xml:"TotalLocalStorageGB,omitempty"`
+
+	MaxSpotPriceAsPercentageOfOptimalOnDemandPrice *int32 `xml:"MaxSpotPriceAsPercentageOfOptimalOnDemandPrice"`
+
+	VCpuCount                                 *xmlIntRangeRequest `xml:"VCpuCount,omitempty"`
+	OnDemandMaxPricePercentageOverLowestPrice *int32              `xml:"OnDemandMaxPricePercentageOverLowestPrice"`
+	MemoryMiB                                 *xmlIntRangeRequest `xml:"MemoryMiB,omitempty"`
+	BareMetal                                 string              `xml:"BareMetal,omitempty"`
+	BurstablePerformance                      string              `xml:"BurstablePerformance,omitempty"`
+	LocalStorage                              string              `xml:"LocalStorage,omitempty"`
+	AcceleratorManufacturers                  xmlStringValueList  `xml:"AcceleratorManufacturers,omitempty"`
+	AcceleratorNames                          xmlStringValueList  `xml:"AcceleratorNames,omitempty"`
+	AcceleratorTypes                          xmlStringValueList  `xml:"AcceleratorTypes,omitempty"`
+	AllowedInstanceTypes                      xmlStringValueList  `xml:"AllowedInstanceTypes,omitempty"`
+	CPUManufacturers                          xmlStringValueList  `xml:"CpuManufacturers,omitempty"`
+	ExcludedInstanceTypes                     xmlStringValueList  `xml:"ExcludedInstanceTypes,omitempty"`
+	InstanceGenerations                       xmlStringValueList  `xml:"InstanceGenerations,omitempty"`
+	LocalStorageTypes                         xmlStringValueList  `xml:"LocalStorageTypes,omitempty"`
+}
+
+// xmlPerformanceFactorReference is the XML response projection of
+// PerformanceFactorReference, matching AWS types.PerformanceFactorReferenceRequest
+// (deserializers.go:15954).
+type xmlPerformanceFactorReference struct {
+	InstanceFamily string `xml:"InstanceFamily,omitempty"`
+}
+
+// xmlPerformanceFactorReferenceList wraps its members in "item", not
+// "member" -- see parsePerformanceFactorReferences for the citation
+// (deserializers.go:16003).
+type xmlPerformanceFactorReferenceList struct {
+	Items []xmlPerformanceFactorReference `xml:"item"`
+}
+
+// xmlCPUPerformanceFactor is the XML response projection of
+// CPUPerformanceFactor, matching AWS types.CpuPerformanceFactorRequest
+// (deserializers.go:10587). The field is named "Reference" (singular) on the
+// wire, not "References".
+type xmlCPUPerformanceFactor struct {
+	Reference xmlPerformanceFactorReferenceList `xml:"Reference"`
+}
+
+// xmlBaselinePerformanceFactors is the XML response projection of
+// BaselinePerformanceFactors, matching AWS types.BaselinePerformanceFactorsRequest
+// (deserializers.go:9834).
+type xmlBaselinePerformanceFactors struct {
+	CPU *xmlCPUPerformanceFactor `xml:"Cpu,omitempty"`
 }
 
 type xmlLaunchTemplateOverrideList struct {
@@ -852,7 +1023,11 @@ func parseMixedInstancesPolicy(vals url.Values) *MixedInstancesPolicy {
 }
 
 // parseLaunchTemplateOverrides parses the LaunchTemplate.Overrides.member.N.* form
-// values within a MixedInstancesPolicy.
+// values within a MixedInstancesPolicy. An override commonly carries
+// InstanceRequirements with no InstanceType at all (attribute-based instance
+// type selection), so InstanceRequirements presence must also gate the
+// loop-continuation check below -- otherwise such an override is silently
+// dropped as if the member list had ended.
 func parseLaunchTemplateOverrides(vals url.Values, memberPrefix string) []LaunchTemplateOverride {
 	var overrides []LaunchTemplateOverride
 
@@ -861,8 +1036,9 @@ func parseLaunchTemplateOverrides(vals url.Values, memberPrefix string) []Launch
 		instanceType := vals.Get(op + "InstanceType")
 		weighted := vals.Get(op + "WeightedCapacity")
 		olt := parseLaunchTemplate(vals, op+"LaunchTemplateSpecification")
+		instanceReq := parseInstanceRequirements(vals, op+"InstanceRequirements.")
 
-		if instanceType == "" && weighted == "" && olt == nil {
+		if instanceType == "" && weighted == "" && olt == nil && instanceReq == nil {
 			break
 		}
 
@@ -870,10 +1046,244 @@ func parseLaunchTemplateOverrides(vals url.Values, memberPrefix string) []Launch
 			InstanceType:                instanceType,
 			WeightedCapacity:            weighted,
 			LaunchTemplateSpecification: olt,
+			InstanceRequirements:        instanceReq,
 		})
 	}
 
 	return overrides
+}
+
+// parseIntRangeRequest parses the {Min,Max} shape shared by several
+// InstanceRequirements range sub-fields (e.g. types.VCpuCountRequest,
+// types.MemoryMiBRequest; types.go various). Returns nil if neither is set.
+func parseIntRangeRequest(vals url.Values, prefix string) *IntRangeRequest {
+	minStr := vals.Get(prefix + "Min")
+	maxStr := vals.Get(prefix + "Max")
+
+	if minStr == "" && maxStr == "" {
+		return nil
+	}
+
+	r := &IntRangeRequest{}
+
+	if minStr != "" {
+		if n, err := parseIntVal(minStr); err == nil {
+			r.Min = &n
+		}
+	}
+
+	if maxStr != "" {
+		if n, err := parseIntVal(maxStr); err == nil {
+			r.Max = &n
+		}
+	}
+
+	return r
+}
+
+// parseFloatRangeRequest parses the {Min,Max} shape shared by
+// types.MemoryGiBPerVCpuRequest, NetworkBandwidthGbpsRequest, and
+// TotalLocalStorageGBRequest. Returns nil if neither is set.
+func parseFloatRangeRequest(vals url.Values, prefix string) *FloatRangeRequest {
+	minStr := vals.Get(prefix + "Min")
+	maxStr := vals.Get(prefix + "Max")
+
+	if minStr == "" && maxStr == "" {
+		return nil
+	}
+
+	r := &FloatRangeRequest{}
+
+	if minStr != "" {
+		if f, err := strconv.ParseFloat(minStr, 64); err == nil {
+			r.Min = &f
+		}
+	}
+
+	if maxStr != "" {
+		if f, err := strconv.ParseFloat(maxStr, 64); err == nil {
+			r.Max = &f
+		}
+	}
+
+	return r
+}
+
+// parseInstanceRequirements parses InstanceRequirements.* form values (see
+// models.go InstanceRequirements for the field mapping to
+// types.InstanceRequirements, aws-sdk-go-v2/service/autoscaling/types/
+// types.go:1267). Returns nil if nothing was specified.
+func parseInstanceRequirements(vals url.Values, prefix string) *InstanceRequirements {
+	ir := &InstanceRequirements{}
+
+	hasRanges := parseInstanceRequirementRanges(vals, prefix, ir)
+	hasLists := parseInstanceRequirementLists(vals, prefix, ir)
+	hasScalars := parseInstanceRequirementScalars(vals, prefix, ir)
+
+	if !hasRanges && !hasLists && !hasScalars {
+		return nil
+	}
+
+	return ir
+}
+
+// parseInstanceRequirementRanges parses the six *IntRangeRequest and three
+// *FloatRangeRequest {Min,Max} sub-fields of InstanceRequirements into ir,
+// returning whether any was set.
+func parseInstanceRequirementRanges(vals url.Values, prefix string, ir *InstanceRequirements) bool {
+	hasAny := false
+
+	intRanges := []struct {
+		dest **IntRangeRequest
+		sub  string
+	}{
+		{&ir.MemoryMiB, "MemoryMiB"},
+		{&ir.VCpuCount, "VCpuCount"},
+		{&ir.AcceleratorCount, "AcceleratorCount"},
+		{&ir.AcceleratorTotalMemoryMiB, "AcceleratorTotalMemoryMiB"},
+		{&ir.BaselineEbsBandwidthMbps, "BaselineEbsBandwidthMbps"},
+		{&ir.NetworkInterfaceCount, "NetworkInterfaceCount"},
+	}
+	for _, f := range intRanges {
+		if r := parseIntRangeRequest(vals, prefix+f.sub+"."); r != nil {
+			*f.dest = r
+			hasAny = true
+		}
+	}
+
+	floatRanges := []struct {
+		dest **FloatRangeRequest
+		sub  string
+	}{
+		{&ir.MemoryGiBPerVCpu, "MemoryGiBPerVCpu"},
+		{&ir.NetworkBandwidthGbps, "NetworkBandwidthGbps"},
+		{&ir.TotalLocalStorageGB, "TotalLocalStorageGB"},
+	}
+	for _, f := range floatRanges {
+		if r := parseFloatRangeRequest(vals, prefix+f.sub+"."); r != nil {
+			*f.dest = r
+			hasAny = true
+		}
+	}
+
+	return hasAny
+}
+
+// parseInstanceRequirementLists parses the eight .member.N-flattened string
+// list sub-fields of InstanceRequirements into ir, returning whether any was
+// set.
+func parseInstanceRequirementLists(vals url.Values, prefix string, ir *InstanceRequirements) bool {
+	hasAny := false
+
+	stringLists := []struct {
+		dest *[]string
+		sub  string
+	}{
+		{&ir.AcceleratorManufacturers, "AcceleratorManufacturers"},
+		{&ir.AcceleratorNames, "AcceleratorNames"},
+		{&ir.AcceleratorTypes, "AcceleratorTypes"},
+		{&ir.AllowedInstanceTypes, "AllowedInstanceTypes"},
+		{&ir.CPUManufacturers, "CpuManufacturers"},
+		{&ir.ExcludedInstanceTypes, "ExcludedInstanceTypes"},
+		{&ir.InstanceGenerations, "InstanceGenerations"},
+		{&ir.LocalStorageTypes, "LocalStorageTypes"},
+	}
+	for _, f := range stringLists {
+		if members := parseMembers(vals, prefix+f.sub+".member"); len(members) > 0 {
+			*f.dest = members
+			hasAny = true
+		}
+	}
+
+	return hasAny
+}
+
+// parseInstanceRequirementScalars parses the remaining plain-string,
+// *int32, *bool, and BaselinePerformanceFactors sub-fields of
+// InstanceRequirements into ir, returning whether any was set.
+func parseInstanceRequirementScalars(vals url.Values, prefix string, ir *InstanceRequirements) bool {
+	hasAny := false
+
+	strFields := []struct {
+		dest *string
+		sub  string
+	}{
+		{&ir.BareMetal, "BareMetal"},
+		{&ir.BurstablePerformance, "BurstablePerformance"},
+		{&ir.LocalStorage, "LocalStorage"},
+	}
+	for _, f := range strFields {
+		if v := vals.Get(prefix + f.sub); v != "" {
+			*f.dest = v
+			hasAny = true
+		}
+	}
+
+	intFields := []struct {
+		dest **int32
+		sub  string
+	}{
+		{&ir.MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, "MaxSpotPriceAsPercentageOfOptimalOnDemandPrice"},
+		{&ir.OnDemandMaxPricePercentageOverLowestPrice, "OnDemandMaxPricePercentageOverLowestPrice"},
+		{&ir.SpotMaxPricePercentageOverLowestPrice, "SpotMaxPricePercentageOverLowestPrice"},
+	}
+	for _, f := range intFields {
+		if v := vals.Get(prefix + f.sub); v != "" {
+			if n, err := parseIntVal(v); err == nil {
+				*f.dest = &n
+				hasAny = true
+			}
+		}
+	}
+
+	if v := vals.Get(prefix + "RequireHibernateSupport"); v != "" {
+		b := v == formValueTrue
+		ir.RequireHibernateSupport = &b
+		hasAny = true
+	}
+
+	if bpf := parseBaselinePerformanceFactors(vals, prefix+"BaselinePerformanceFactors."); bpf != nil {
+		ir.BaselinePerformanceFactors = bpf
+		hasAny = true
+	}
+
+	return hasAny
+}
+
+// parsePerformanceFactorReferences parses a
+// BaselinePerformanceFactors.Cpu.Reference.item.N.InstanceFamily list.
+// Verified against serializers.go:5918
+// (awsAwsquery_serializeDocumentPerformanceFactorReferenceSetRequest): unlike
+// every other list in this handler, the wrapper element is "item", not
+// "member" -- and the field itself is serialized under the singular key
+// "Reference", not "References" (serializers.go:4971).
+func parsePerformanceFactorReferences(vals url.Values, prefix string) []PerformanceFactorReference {
+	var refs []PerformanceFactorReference
+
+	for i := 1; ; i++ {
+		key := fmt.Sprintf("%sitem.%d.InstanceFamily", prefix, i)
+
+		v := vals.Get(key)
+		if v == "" {
+			break
+		}
+
+		refs = append(refs, PerformanceFactorReference{InstanceFamily: v})
+	}
+
+	return refs
+}
+
+// parseBaselinePerformanceFactors parses InstanceRequirements.
+// BaselinePerformanceFactors.* form values (types.BaselinePerformanceFactorsRequest,
+// serializers.go:4826). Returns nil if nothing was specified.
+func parseBaselinePerformanceFactors(vals url.Values, prefix string) *BaselinePerformanceFactors {
+	refs := parsePerformanceFactorReferences(vals, prefix+"Cpu.Reference.")
+	if len(refs) == 0 {
+		return nil
+	}
+
+	return &BaselinePerformanceFactors{CPU: &CPUPerformanceFactor{References: refs}}
 }
 
 // parseInstancesDistribution parses the InstancesDistribution.* form values within a

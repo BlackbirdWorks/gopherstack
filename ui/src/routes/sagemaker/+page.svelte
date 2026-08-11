@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+	import { multiRegionList } from '$lib/multi-region';
+	import RegionChip from '$lib/components/RegionChip.svelte';
+	import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 	import { getSageMakerClient } from '$lib/aws-client';
 	import {
 		ListNotebookInstancesCommand,
@@ -24,19 +27,24 @@
 
 	const sm = regionalClient(getSageMakerClient);
 
+	// Every row carries the region its List call was made against. Detail
+	// calls must build a client for THAT region -- in All mode the same
+	// resource name can legitimately exist in two different regions.
+	type Regioned<T> = T & { region: string };
+
 	let loading = $state(false);
 	let activeTab = $state<'notebooks' | 'training' | 'models' | 'endpoints' | 'pipelines'>('notebooks');
 	let searchQuery = $state('');
-	let notebooks = $state<NotebookInstanceSummary[]>([]);
-	let trainingJobs = $state<TrainingJobSummary[]>([]);
-	let models = $state<ModelSummary[]>([]);
-	let endpoints = $state<EndpointSummary[]>([]);
-	let pipelines = $state<PipelineSummary[]>([]);
+	let notebooks = $state<Regioned<NotebookInstanceSummary>[]>([]);
+	let trainingJobs = $state<Regioned<TrainingJobSummary>[]>([]);
+	let models = $state<Regioned<ModelSummary>[]>([]);
+	let endpoints = $state<Regioned<EndpointSummary>[]>([]);
+	let pipelines = $state<Regioned<PipelineSummary>[]>([]);
 
 	// Detail panels
-	let selectedEndpoint = $state<DescribeEndpointOutput | null>(null);
+	let selectedEndpoint = $state<(DescribeEndpointOutput & { region: string }) | null>(null);
 	let loadingEndpointDetail = $state(false);
-	let selectedTrainingJob = $state<DescribeTrainingJobResponse | null>(null);
+	let selectedTrainingJob = $state<(DescribeTrainingJobResponse & { region: string }) | null>(null);
 	let loadingTrainingDetail = $state(false);
 
 	// Create Endpoint dialog
@@ -87,17 +95,19 @@
 		loading = true;
 		try {
 			const [nb, tj, mo, ep, pl] = await Promise.all([
-				sm().send(new ListNotebookInstancesCommand({})),
-				sm().send(new ListTrainingJobsCommand({})),
-				sm().send(new ListModelsCommand({})),
-				sm().send(new ListEndpointsCommand({})),
-				sm().send(new ListPipelinesCommand({}))
+				multiRegionList((region) => getSageMakerClient(region).send(new ListNotebookInstancesCommand({})), (r) => r.NotebookInstances ?? []),
+				multiRegionList((region) => getSageMakerClient(region).send(new ListTrainingJobsCommand({})), (r) => r.TrainingJobSummaries ?? []),
+				multiRegionList((region) => getSageMakerClient(region).send(new ListModelsCommand({})), (r) => r.Models ?? []),
+				multiRegionList((region) => getSageMakerClient(region).send(new ListEndpointsCommand({})), (r) => r.Endpoints ?? []),
+				multiRegionList((region) => getSageMakerClient(region).send(new ListPipelinesCommand({})), (r) => r.PipelineSummaries ?? [])
 			]);
-			notebooks = nb.NotebookInstances ?? [];
-			trainingJobs = tj.TrainingJobSummaries ?? [];
-			models = mo.Models ?? [];
-			endpoints = ep.Endpoints ?? [];
-			pipelines = pl.PipelineSummaries ?? [];
+			notebooks = nb.items.map(({ region, item }) => ({ ...item, region }));
+			trainingJobs = tj.items.map(({ region, item }) => ({ ...item, region }));
+			models = mo.items.map(({ region, item }) => ({ ...item, region }));
+			endpoints = ep.items.map(({ region, item }) => ({ ...item, region }));
+			pipelines = pl.items.map(({ region, item }) => ({ ...item, region }));
+			const errCount = nb.errors.length + tj.errors.length + mo.errors.length + ep.errors.length + pl.errors.length;
+			if (errCount > 0) toast.error(`Failed to load some SageMaker data from ${errCount} region call(s)`);
 		} catch (e) {
 			toast.error('Failed to load SageMaker data: ' + String(e));
 		} finally {
@@ -167,12 +177,12 @@
 		}
 	}
 
-	async function selectEndpoint(name: string) {
+	async function selectEndpoint(ep: Regioned<EndpointSummary>) {
 		loadingEndpointDetail = true;
 		selectedEndpoint = null;
 		try {
-			const resp = await sm().send(new DescribeEndpointCommand({ EndpointName: name }));
-			selectedEndpoint = resp;
+			const resp = await getSageMakerClient(ep.region).send(new DescribeEndpointCommand({ EndpointName: ep.EndpointName }));
+			selectedEndpoint = { ...resp, region: ep.region };
 		} catch (e) {
 			toast.error('Failed to load endpoint detail: ' + String(e));
 		} finally {
@@ -180,12 +190,12 @@
 		}
 	}
 
-	async function selectTrainingJob(name: string) {
+	async function selectTrainingJob(job: Regioned<TrainingJobSummary>) {
 		loadingTrainingDetail = true;
 		selectedTrainingJob = null;
 		try {
-			const resp = await sm().send(new DescribeTrainingJobCommand({ TrainingJobName: name }));
-			selectedTrainingJob = resp;
+			const resp = await getSageMakerClient(job.region).send(new DescribeTrainingJobCommand({ TrainingJobName: job.TrainingJobName }));
+			selectedTrainingJob = { ...resp, region: job.region };
 		} catch (e) {
 			toast.error('Failed to load training job detail: ' + String(e));
 		} finally {
@@ -212,13 +222,16 @@
 				</p>
 			</div>
 		</div>
-		<button
-			onclick={loadData}
-			title="Refresh"
-			class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
-		>
-			<RefreshCw class="w-4 h-4" /> Refresh
-		</button>
+		<div class="flex items-center gap-2">
+			<WriteRegionHint />
+			<button
+				onclick={loadData}
+				title="Refresh"
+				class="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
+			>
+				<RefreshCw class="w-4 h-4" /> Refresh
+			</button>
+		</div>
 	</div>
 
 	<div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -473,9 +486,12 @@
 								<div class="flex items-center gap-3">
 									<BookOpen class="w-5 h-5 text-teal-500" />
 									<div>
-										<p class="font-medium text-gray-900 dark:text-white">
-											{nb.NotebookInstanceName}
-										</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white">
+												{nb.NotebookInstanceName}
+											</p>
+											<RegionChip region={nb.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400">
 											{nb.InstanceType ?? 'Unknown'}
 										</p>
@@ -499,6 +515,7 @@
 							<button onclick={() => (selectedTrainingJob = null)} class="text-teal-600 hover:underline">Training Jobs</button>
 							<ChevronRight class="w-4 h-4 text-gray-400" />
 							<span class="font-medium text-gray-700 dark:text-gray-300">{selectedTrainingJob.TrainingJobName}</span>
+							<RegionChip region={selectedTrainingJob.region} />
 						</div>
 						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 							{#each [
@@ -558,13 +575,16 @@
 					<div class="space-y-2">
 						{#each filteredTraining as job}
 							<button
-								onclick={() => selectTrainingJob(job.TrainingJobName ?? '')}
+								onclick={() => selectTrainingJob(job)}
 								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left"
 							>
 								<div class="flex items-center gap-3">
 									<Activity class="w-5 h-5 text-blue-500" />
 									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{job.TrainingJobName}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white">{job.TrainingJobName}</p>
+											<RegionChip region={job.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{job.TrainingJobArn}</p>
 									</div>
 								</div>
@@ -590,7 +610,10 @@
 							<div class="flex items-center gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50">
 								<Box class="w-5 h-5 text-purple-500" />
 								<div>
-									<p class="font-medium text-gray-900 dark:text-white">{model.ModelName}</p>
+									<div class="flex items-center gap-2">
+										<p class="font-medium text-gray-900 dark:text-white">{model.ModelName}</p>
+										<RegionChip region={model.region} />
+									</div>
 									<p class="text-xs text-gray-500 dark:text-gray-400">{model.ModelArn}</p>
 								</div>
 							</div>
@@ -604,6 +627,7 @@
 							<button onclick={() => (selectedEndpoint = null)} class="text-teal-600 hover:underline">Endpoints</button>
 							<ChevronRight class="w-4 h-4 text-gray-400" />
 							<span class="font-medium text-gray-700 dark:text-gray-300">{selectedEndpoint.EndpointName}</span>
+							<RegionChip region={selectedEndpoint.region} />
 						</div>
 						<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
 							{#each [
@@ -664,13 +688,16 @@
 					<div class="space-y-2">
 						{#each filteredEndpoints as ep}
 							<button
-								onclick={() => selectEndpoint(ep.EndpointName ?? '')}
+								onclick={() => selectEndpoint(ep)}
 								class="w-full flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-slate-700/50 hover:bg-gray-100 dark:hover:bg-slate-700 text-left"
 							>
 								<div class="flex items-center gap-3">
 									<Server class="w-5 h-5 text-green-500" />
 									<div>
-										<p class="font-medium text-gray-900 dark:text-white">{ep.EndpointName}</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white">{ep.EndpointName}</p>
+											<RegionChip region={ep.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400 font-mono">{ep.EndpointArn}</p>
 									</div>
 								</div>
@@ -699,9 +726,12 @@
 								<div class="flex items-center gap-3">
 									<GitBranch class="w-5 h-5 text-indigo-500" />
 									<div>
-										<p class="font-medium text-gray-900 dark:text-white">
-											{pipeline.PipelineName}
-										</p>
+										<div class="flex items-center gap-2">
+											<p class="font-medium text-gray-900 dark:text-white">
+												{pipeline.PipelineName}
+											</p>
+											<RegionChip region={pipeline.region} />
+										</div>
 										<p class="text-xs text-gray-500 dark:text-gray-400">
 											{pipeline.PipelineArn ?? ''}
 										</p>

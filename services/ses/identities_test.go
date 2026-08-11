@@ -222,6 +222,12 @@ func TestHandler_SetIdentityHeadersInNotificationsEnabled(t *testing.T) {
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
 		},
+		{
+			name:         "invalid_notification_type",
+			body:         "Action=SetIdentityHeadersInNotificationsEnabled&Version=2010-12-01&Identity=x@example.com&NotificationType=NotARealType&Enabled=true", //nolint:lll // existing issue.
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ValidationError",
+		},
 	}
 
 	for _, tt := range tests {
@@ -297,6 +303,12 @@ func TestHandler_SetIdentityNotificationTopic(t *testing.T) {
 			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=x@example.com&NotificationType=&SnsTopic=arn:aws:sns:us-east-1:123:topic", //nolint:lll // existing issue.
 			wantCode:     http.StatusBadRequest,
 			wantContains: "InvalidParameterValue",
+		},
+		{
+			name:         "invalid_notification_type",
+			body:         "Action=SetIdentityNotificationTopic&Version=2010-12-01&Identity=x@example.com&NotificationType=NotARealType&SnsTopic=arn:aws:sns:us-east-1:123:topic", //nolint:lll // existing issue.
+			wantCode:     http.StatusBadRequest,
+			wantContains: "ValidationError",
 		},
 	}
 
@@ -452,7 +464,7 @@ func TestDeleteIdentity(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "DeleteIdentityResponse")
 
-	p := h.Backend.ListIdentities("", 100)
+	p := h.Backend.ListIdentities("", 100, "")
 	assert.NotContains(t, p.Data, "gone@example.com")
 }
 
@@ -468,6 +480,40 @@ func TestDeleteIdentity_NonExistent_IsIdempotent(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestListIdentities_IdentityTypeFilter(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	require.NoError(t, h.Backend.VerifyEmailIdentity("user@example.com"))
+	_, err := h.Backend.VerifyDomainIdentity("example.com")
+	require.NoError(t, err)
+
+	rec := postForm(t, h, url.Values{
+		"Action":       {"ListIdentities"},
+		"Version":      {"2010-12-01"},
+		"IdentityType": {"Domain"},
+	}.Encode())
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, "example.com")
+	assert.NotContains(t, body, "user@example.com",
+		"IdentityType=Domain must exclude email-address identities")
+}
+
+func TestListIdentities_InvalidIdentityType(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+	rec := postForm(t, h, url.Values{
+		"Action":       {"ListIdentities"},
+		"Version":      {"2010-12-01"},
+		"IdentityType": {"NotARealType"},
+	}.Encode())
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationError")
+}
+
 func TestListIdentities_Pagination(t *testing.T) {
 	t.Parallel()
 
@@ -476,11 +522,11 @@ func TestListIdentities_Pagination(t *testing.T) {
 		require.NoError(t, b.VerifyEmailIdentity(fmt.Sprintf("user%d@example.com", i)))
 	}
 
-	p := b.ListIdentities("", 3)
+	p := b.ListIdentities("", 3, "")
 	assert.Len(t, p.Data, 3)
 	assert.NotEmpty(t, p.Next)
 
-	p2 := b.ListIdentities(p.Next, 3)
+	p2 := b.ListIdentities(p.Next, 3, "")
 	assert.Len(t, p2.Data, 2)
 	assert.Empty(t, p2.Next)
 }
@@ -911,7 +957,7 @@ func TestListIdentities_IncludesBothEmailsAndDomains(t *testing.T) {
 	_, err := b.VerifyDomainIdentity("example.com")
 	require.NoError(t, err)
 
-	p := b.ListIdentities("", 100)
+	p := b.ListIdentities("", 100, "")
 	assert.Contains(t, p.Data, "user@example.com")
 	assert.Contains(t, p.Data, "example.com")
 }

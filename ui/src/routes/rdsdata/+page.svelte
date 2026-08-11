@@ -43,12 +43,12 @@
 	// (dbClusterOrInstanceArn / awsSecretStoreArn instead of
 	// resourceArn / secretArn) but the same underlying cluster + secret, so
 	// this page reuses the shared connection fields rather than duplicating
-	// them. Its response type, SqlStatementResult, only carries
-	// numberOfRecordsUpdated in this backend (models.go) -- the real SDK's
-	// SqlStatementResult also has a resultFrame with actual result rows, but
-	// gopherstack's handler never populates it (handleExecuteSQL only
-	// forwards numberOfRecordsUpdated). This page says so rather than
-	// implying ExecuteSql returns query results here.
+	// them. Its response type, SqlStatementResult, carries a resultFrame with
+	// real row data for query statements (models.go), converted from the
+	// same engine row extraction ExecuteStatement uses -- but on the wire it
+	// uses the older Value union (bigIntValue/bitValue, not longValue/
+	// booleanValue), so this page renders it with valueToDisplay rather than
+	// fieldToDisplay.
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getRDSDataClient } from '$lib/aws-client';
 	import {
@@ -63,6 +63,7 @@
 		type SqlParameter,
 		type UpdateResult,
 		type SqlStatementResult,
+		type Value,
 		type DecimalReturnType,
 		type LongReturnType,
 		type RecordsFormatType,
@@ -262,6 +263,22 @@
 		if (f.booleanValue !== undefined) return String(f.booleanValue);
 		if (f.blobValue !== undefined) return '<blob>';
 		if (f.arrayValue !== undefined) return '<array>';
+		return '—';
+	}
+
+	// Value is ExecuteSql's older union (bigIntValue/bitValue instead of
+	// longValue/booleanValue) -- distinct from Field, see the RDS Data API docs.
+	function valueToDisplay(v: Value): string {
+		if (v.isNull) return 'NULL';
+		if (v.stringValue !== undefined) return v.stringValue;
+		if (v.bigIntValue !== undefined) return String(v.bigIntValue);
+		if (v.intValue !== undefined) return String(v.intValue);
+		if (v.doubleValue !== undefined) return String(v.doubleValue);
+		if (v.realValue !== undefined) return String(v.realValue);
+		if (v.bitValue !== undefined) return String(v.bitValue);
+		if (v.blobValue !== undefined) return '<blob>';
+		if (v.arrayValues !== undefined) return '<array>';
+		if (v.structValue !== undefined) return '<struct>';
 		return '—';
 	}
 
@@ -1161,7 +1178,6 @@
 				<p>
 					<strong>ExecuteSql is deprecated</strong> — AWS recommends ExecuteStatement/BatchExecuteStatement instead (Query Console tab). It uses the Resource ARN and Secret ARN above as
 					<code class="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">dbClusterOrInstanceArn</code> / <code class="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">awsSecretStoreArn</code>.
-					This backend's response only carries <code class="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">numberOfRecordsUpdated</code> per statement — it does not populate <code class="bg-amber-100 dark:bg-amber-900/40 px-1 rounded">resultFrame</code>, so no result rows are shown here even for a SELECT.
 				</p>
 			</div>
 
@@ -1198,11 +1214,39 @@
 			{#if legacyResults.length > 0}
 				<div>
 					<h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">sqlStatementResults</h3>
-					<div class="space-y-1">
+					<div class="space-y-3">
 						{#each legacyResults as r, i (i)}
-							<div class="flex items-center gap-3 text-xs font-mono px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800">
-								<span class="text-gray-400">Statement {i + 1}</span>
-								<span class="text-gray-700 dark:text-gray-300">numberOfRecordsUpdated: {r.numberOfRecordsUpdated ?? 0}</span>
+							<div class="text-xs font-mono px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800">
+								<div class="flex items-center gap-3">
+									<span class="text-gray-400">Statement {i + 1}</span>
+									<span class="text-gray-700 dark:text-gray-300">numberOfRecordsUpdated: {r.numberOfRecordsUpdated ?? 0}</span>
+								</div>
+								{#if r.resultFrame?.records && r.resultFrame.records.length > 0}
+									{@const cols = r.resultFrame.resultSetMetadata?.columnMetadata ?? []}
+									<div class="overflow-auto max-h-96 rounded-lg border border-gray-200 dark:border-gray-700 mt-2">
+										<table class="w-full text-sm">
+											<thead class="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 uppercase sticky top-0">
+												<tr>
+													{#each r.resultFrame.records[0].values ?? [] as _val, j (j)}
+														<th class="px-4 py-3 text-left whitespace-nowrap">{cols[j]?.name ?? `column${j + 1}`}</th>
+													{/each}
+												</tr>
+											</thead>
+											<tbody class="divide-y divide-gray-100 dark:divide-gray-800 bg-white dark:bg-gray-900">
+												{#each r.resultFrame.records as row, ri (ri)}
+													<tr class="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+														{#each row.values ?? [] as cell, ci (ci)}
+															{@const display = valueToDisplay(cell)}
+															<td class={`px-4 py-2 whitespace-nowrap font-mono text-xs ${display === 'NULL' ? 'text-gray-400 dark:text-gray-500 italic' : ''}`}>{display}</td>
+														{/each}
+													</tr>
+												{/each}
+											</tbody>
+										</table>
+									</div>
+								{:else if r.resultFrame}
+									<p class="text-xs text-gray-400 mt-1">Statement finished with no result rows.</p>
+								{/if}
 							</div>
 						{/each}
 					</div>

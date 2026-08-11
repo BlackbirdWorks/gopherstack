@@ -1,6 +1,6 @@
 ---
 service: stepfunctions
-sdk_module: aws-sdk-go-v2/service/sfn@v1.40.8
+sdk_module: aws-sdk-go-v2/service/sfn@v1.45.4
 last_audit_commit: HEAD
 last_audit_date: 2026-07-23
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
@@ -223,8 +223,32 @@ families:
       the existing SQS/SNS/DynamoDB/ECS/Glue/EventBridge calls. Verified
       end-to-end with a real StartExecution against a Map+ItemReader
       definition and a fake S3Reader (services/stepfunctions/s3_item_reader_test.go).
-      DEFERRED (unchanged): ResultWriter (S3 write-out, bd: gopherstack-8j8)
-      and ItemProcessor.ProcessorConfig.Mode (bd: gopherstack-8im) remain
+      ResultWriter (S3 write-out, bd: gopherstack-8j8) is now implemented:
+      State.ResultWriter is parsed (parser.go), and
+      Executor.exportMapResults (asl/result_writer.go) writes
+      SUCCEEDED_n.json/FAILED_n.json plus a manifest.json to the wired
+      S3Writer on Map completion, returning
+      {MapRunArn, ResultWriterDetails:{Bucket,Key}} in place of inline
+      results -- verified against AWS docs
+      (input-output-resultwriter.html) for the ResultWriter/
+      ResultWriterDetails/manifest.json shapes, since aws-sdk-go-v2's sfn
+      client has no typed struct for any of these (they're ASL-JSON/
+      execution-output only, never part of the control-plane API surface).
+      Wired the same way as S3Reader: cli.go's
+      wireStepFunctionsServiceIntegrations now also calls
+      sfnBk.SetS3ResultWriter(sfnbackend.NewS3ResultWriterIntegration(s3H.Backend)).
+      Known deviations: WriterConfig (Transformation/OutputType) is parsed
+      but not applied -- only the plain S3-export shape is honored; per-item
+      result records omit ExecutionArn/Name/StartDate/StopDate (real AWS
+      backs each with a genuine child execution, gopherstack runs Map
+      iterations as in-process sub-executors with no such resource to
+      point to); the manifest folder segment uses gopherstack's own
+      MapRunArn suffix (.../execName/stateName) rather than real AWS's
+      Map:<uuid>, since gopherstack's MapRunArn was never shaped like
+      AWS's to begin with. When no S3Writer is wired, or Parameters.Bucket
+      is unset, the Map state degrades to its pre-existing inline-results
+      behavior rather than failing. DEFERRED (unchanged):
+      ItemProcessor.ProcessorConfig.Mode (bd: gopherstack-8im) remains
       unimplemented.
   asl_parallel:
     status: ok
@@ -242,7 +266,7 @@ families:
     status: ok
     note: "Unchanged this pass."
 gaps:
-  - "Map Distributed Map ResultWriter (S3 write-out) not implemented -- needs new S3Writer integration wired from cli.go (bd: gopherstack-8j8)"
+  - "Map Distributed Map ResultWriter's WriterConfig (Transformation/OutputType) is parsed but not applied, only the plain S3-export shape; per-item result records omit ExecutionArn/Name/StartDate/StopDate since gopherstack Map iterations aren't backed by real child executions (bd: gopherstack-8j8, implemented this pass -- see asl_map_and_distributed_map notes)"
   - "Map ItemProcessor.ProcessorConfig.Mode (INLINE/DISTRIBUTED) not parsed/validated (bd: gopherstack-8im)"
   - "StartExecution has no ClientRequestToken idempotency; EXPRESS's immediate-name-reuse semantics (vs STANDARD's reuse restriction) are not modeled (bd: gopherstack-1sf)"
   - "TaskScheduledEventDetails/TaskSucceededEventDetails still omit resourceType/region/parameters/timeoutInSeconds/heartbeatInSeconds/outputDetails.truncated; no TaskSubmitted/TaskStarted history events for .sync/.waitForTaskToken (bd: gopherstack-996)"

@@ -67,7 +67,7 @@ func classifyConfigPolicyAssocPath(method, path string) (string, string) {
 	return opUnknown, ""
 }
 
-func (h *Handler) handleCreateConfigurationPolicy( //nolint:dupl // existing issue.
+func (h *Handler) handleCreateConfigurationPolicy(
 	c *echo.Context,
 	body map[string]any,
 ) error {
@@ -92,7 +92,7 @@ func (h *Handler) handleCreateConfigurationPolicy( //nolint:dupl // existing iss
 
 	cp, err := h.Backend.CreateConfigurationPolicy(name, description, policy, tags)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
@@ -102,13 +102,13 @@ func (h *Handler) handleGetConfigurationPolicy(c *echo.Context, identifier strin
 	cp, err := h.Backend.GetConfigurationPolicy(identifier)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				map[string]any{keyMessage: "Configuration policy not found"}, //nolint:goconst // existing issue.
+			return typedErrorResponse(
+				c, http.StatusNotFound, "ResourceNotFoundException",
+				"Configuration policy not found",
 			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
@@ -127,10 +127,15 @@ func (h *Handler) handleUpdateConfigurationPolicy(c *echo.Context, identifier st
 	cp, err := h.Backend.UpdateConfigurationPolicy(identifier, name, description, policy)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Configuration policy not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Configuration policy not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
@@ -139,10 +144,15 @@ func (h *Handler) handleUpdateConfigurationPolicy(c *echo.Context, identifier st
 func (h *Handler) handleDeleteConfigurationPolicy(c *echo.Context, identifier string) error {
 	if err := h.Backend.DeleteConfigurationPolicy(identifier); err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Configuration policy not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Configuration policy not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -222,10 +232,10 @@ func (h *Handler) handleGetConfigurationPolicyAssociation(c *echo.Context, body 
 	assoc, err := h.Backend.GetConfigurationPolicyAssociation(targetID, targetType)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Association not found"})
+			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Association not found")
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, configPolicyAssocToResponse(assoc))
@@ -283,10 +293,15 @@ func (h *Handler) handleStartConfigurationPolicyAssociation(c *echo.Context, bod
 	assoc, err := h.Backend.StartConfigurationPolicyAssociation(policyID, targetID, targetType)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return c.JSON(http.StatusNotFound, map[string]any{keyMessage: "Configuration policy not found"})
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Configuration policy not found",
+			)
 		}
 
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, configPolicyAssocToResponse(assoc))
@@ -302,7 +317,7 @@ func (h *Handler) handleStartConfigurationPolicyDisassociation(c *echo.Context, 
 	targetID, targetType := extractConfigPolicyTarget(body)
 
 	if err := h.Backend.StartConfigurationPolicyDisassociation(policyID, targetID, targetType); err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]any{keyMessage: err.Error()})
+		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})

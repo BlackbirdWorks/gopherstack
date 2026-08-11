@@ -1,8 +1,8 @@
 ---
 service: sns
-sdk_module: aws-sdk-go-v2/service/sns@v1.41.0
+sdk_module: aws-sdk-go-v2/service/sns@v1.42.4
 last_audit_commit: 3afc23468
-last_audit_date: 2026-07-25
+last_audit_date: 2026-08-10
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -38,7 +38,7 @@ ops:
   GetSMSSandboxAccountStatus/CreateSMSSandboxPhoneNumber/DeleteSMSSandboxPhoneNumber/ListSMSSandboxPhoneNumbers/VerifySMSSandboxPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok}
   CheckIfPhoneNumberIsOptedOut/ListPhoneNumbersOptedOut/OptInPhoneNumber: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: ErrOptedOut sentinel text was the unrelated copy-pasted string 'KMSOptInRequired'"}
   GetSMSAttributes/SetSMSAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDataProtectionPolicy/PutDataProtectionPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "backed by topic/resource attribute; not deep-audited against a real customer-managed-data-identifier grammar"}
+  GetDataProtectionPolicy/PutDataProtectionPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass (bd gopherstack-4wtz): PutDataProtectionPolicy now enforces the documented 30,720-char max length (aws-sdk-go-v2/service/sns@v1.42.4 api_op_PutDataProtectionPolicy.go DataProtectionPolicy field doc) and the required top-level JSON keys Name/Version/Statement (docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-policies.html), both previously unenforced (any valid-JSON string was accepted); also fixed: DataProtectionPolicy no longer settable via SetTopicAttributes nor returned by GetTopicAttributes (confirmed absent from both operations' documented Attributes list — real AWS exposes it only through the dedicated Get/PutDataProtectionPolicy ops), previously it silently shared the generic topic-attributes bag; the deep data-identifier/statement grammar remains unimplemented, see deferred"}
   ListOriginationNumbers: {wire: ok, errors: ok, state: ok, persist: ok, note: "AWS has no public create API; empty by default, SeedOriginationNumber for tests"}
   TagResource/UntagResource/ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "pkgs/tags-backed"}
 families:
@@ -50,7 +50,7 @@ families:
   error_codes: {status: ok, note: "NotFound/TopicAlreadyExists/PlatformApplicationAlreadyExists/InvalidParameter/EndpointDisabled/OptedOut/AuthorizationError(permission label)/SubscriptionLimitExceeded/FilterPolicyLimitExceeded all map to correct AWS code strings; fixed this pass: handleBackendError previously only split 400-vs-500 (per the prior audit's own 'verified' note) with NO 403 bucket at all, so AuthorizationError/SubscriptionLimitExceeded/FilterPolicyLimitExceeded (all documented HTTP 403 in the SNS API errors tables) were silently returning 400; EndpointDisabled correctly stays 400 (confirmed against API_Publish.html, not 403 despite being permission-adjacent)"}
 gaps: []
 deferred:
-  - "GetDataProtectionPolicy/PutDataProtectionPolicy: not verified against the real data-identifier grammar (e.g. built-in identifiers like 'Name', 'Address'); only checked that the policy round-trips as an opaque JSON string"
+  - "PutDataProtectionPolicy: the policy statement grammar (DataIdentifier ARNs, Operation/Audit/De-identify/Deny shapes, Principal formats) is not validated — only the top-level document shape (JSON object, <=30,720 chars, Name/Version/Statement present). Amazon SNS message data protection is also no longer available to new customers as of 2026-04-30 per docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html (existing customers may continue using it); implementing the full grammar is disproportionate feature work for a frozen/legacy feature and was explicitly out of scope this pass (bd gopherstack-4wtz)."
   - "Cross-service integration (test/integration/*_parity_test.go) was not run this pass — see parity-principles.md note that unit tests are not parity proof; recommend running the SDK-driven integration suite in a follow-up"
 leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never persisted (Snapshot/Restore) and was never cleaned up on DeleteTopic (both leak + ARN-reuse resurrection bug); (2) smsDeliveries/emailDeliveries/applicationDeliveries observability buffers had no cap and grew unboundedly under sustained publish traffic without a Drain* call — added appendBounded with maxRecordedDeliveries=100k; (3) notificationSigner.certURL was read/written without synchronization (SetSigningCertBaseURL vs concurrent delivery reads) — added a dedicated RWMutex. HTTP delivery goroutines already had proper ctx-cancel + semaphore + deliveryWg cleanup (unchanged, verified correct)."}
 ---
@@ -59,6 +59,80 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 
 Freeform notes for the next auditor — AWS-behavior specifics worth remembering, and
 "looks-wrong-but-correct" traps.
+
+### 2026-08-10 re-audit (bd gopherstack-4wtz)
+Worked the four items the bd issue listed. Three were already resolved by the
+2026-07-25 pass below — the bd issue (filed 2026-07-23, two days earlier) was
+simply stale, not a live gap:
+1. **ArchivePolicy/ReplayPolicy FIFO-only enforcement** — already fully
+   implemented (`validateCreateTopicAttrs`/`validateTopicAttributeValue` in
+   topics.go/topic_attributes.go, `validateReplayPolicyEligibleLocked` in
+   subscriptions.go) and covered by `archive_test.go`'s
+   `TestArchivePolicyRejectedOnStandardTopic` /
+   `TestReplayPolicyRejectedForIneligibleProtocolOrTopic`. No HTTP-replay
+   tests on standard topics remain — the "needs test rework" excuse recorded
+   in the bd issue no longer describes the code; it was already reworked.
+2. **Subscribe sqs endpoint ARN validation** — already fully implemented
+   (`validateSubscribeEndpoint` in subscriptions.go rejects any non-ARN or
+   wrong-service Endpoint for the sqs/lambda/firehose/application
+   protocols).
+3. **SignatureVersion SHA-1 signing** — already fully implemented as real
+   signing (not accept-and-drop): `resolveSignatureVersion`/`signWithVersion`
+   in signing.go select SHA1withRSA vs SHA256withRSA per-topic and every
+   delivery envelope declares the version that actually produced its
+   Signature.
+Verified all three against the current code (not just the PARITY.md prose)
+and the full `services/sns` test suite, since a prior PARITY.md claim in this
+repo (apigatewayv2/gopherstack-jni0) turned out to be false — this one
+checked out as true.
+
+4. **DataProtectionPolicy grammar** — confirmed out of scope for the full
+   data-identifier/statement grammar (see deferred; also confirmed via
+   docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-availability-change.html
+   that the feature is frozen for new customers as of 2026-04-30). Found and
+   fixed two real, narrowly-scoped wire-level gaps instead of the full
+   grammar:
+   - `PutDataProtectionPolicy` accepted any valid-JSON string with no length
+     cap and no required-key check. aws-sdk-go-v2/service/sns@v1.42.4
+     api_op_PutDataProtectionPolicy.go documents "Length Constraints: Maximum
+     length of 30,720" on the `DataProtectionPolicy` field (also present in
+     the pinned botocore sns/2010-03-31/service-2.json.gz model) — not
+     enforced. docs.aws.amazon.com/sns/latest/dg/sns-message-data-protection-policies.html
+     states "A data protection policy requires the following basic policy
+     information for identification: Name ... Version ... Statement ..."
+     (Description explicitly marked Optional) — none of the three required
+     keys were checked. Added `validateDataProtectionPolicy`
+     (topic_attributes.go) enforcing both; `testDataProtectionPolicy` and the
+     JSON-validation test table were rewritten to include `Name` (the prior
+     fixture `{"Version":...,"Statement":[]}` would now be rejected as
+     AWS-inaccurate, since a real DataProtectionPolicy without `Name` is
+     invalid).
+   - **Bonus find, same investigation**: `DataProtectionPolicy` was listed as
+     a settable `SetTopicAttributes` attribute name and leaked into
+     `GetTopicAttributes`'s response map. Real AWS's documented AttributeName
+     list for both `SetTopicAttributesInput` and `GetTopicAttributesResponse`
+     (same SDK/botocore model) never mentions `DataProtectionPolicy` — it is
+     managed exclusively through the dedicated Get/PutDataProtectionPolicy
+     operations. This is the "more permissive than the real service" bug
+     class: `SetTopicAttributes(arn, "DataProtectionPolicy", ...)` silently
+     succeeded when real AWS would reject an unrecognized attribute name.
+     Removed `DataProtectionPolicy` from `isKnownTopicAttribute` and filtered
+     it out of `GetTopicAttributes`'s returned map; one existing test
+     (`TestSNS_GetDataProtectionPolicy`/with_policy) that used
+     `SetTopicAttributes` to seed the policy was reworked to call
+     `PutDataProtectionPolicy` instead, matching how a real client would
+     have to set it.
+   Also swept platform_applications.go, platform_endpoints.go, permissions.go,
+   sms.go, origination_numbers.go, tags.go, and topics.go's DeleteTopic for
+   the "state mutated before validation" class (the session's most recurrent
+   bug elsewhere today) — every operation here validates before mutating;
+   none found.
+
+Gates: `go build ./services/sns/...` and `go test -race ./services/sns/...`
+pass clean; `golangci-lint run ./services/sns/...` reports 0 issues. The root
+package (`go build ./...` / `go test .`) fails, but only inside
+`services/workspaces` (a concurrent, unrelated in-progress change) — confirmed
+`services/sns` alone builds and passes in isolation.
 
 ### 2026-07-25 re-audit (parity-3 phase 2, bd: gopherstack-bz6)
 Closed all three items the prior pass had deliberately left in `gaps:` rather than

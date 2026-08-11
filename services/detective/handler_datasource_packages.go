@@ -3,11 +3,33 @@ package detective
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
+
+// ingestHistoryToJSON encodes a MembershipDatasources.IngestHistory map to
+// the real wire shape: package -> state -> {Timestamp: <ISO8601>}
+// (aws-sdk-go-v2/service/detective/types.MembershipDatasources's
+// DatasourcePackageIngestHistory member).
+func ingestHistoryToJSON(history map[string]map[string]time.Time) map[string]any {
+	result := make(map[string]any, len(history))
+
+	for pkg, states := range history {
+		stateJSON := make(map[string]any, len(states))
+		for state, changedAt := range states {
+			stateJSON[state] = map[string]any{
+				"Timestamp": changedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+			}
+		}
+
+		result[pkg] = stateJSON
+	}
+
+	return result
+}
 
 func (h *Handler) handleBatchGetGraphMemberDatasources(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
@@ -36,9 +58,9 @@ func (h *Handler) handleBatchGetGraphMemberDatasources(c *echo.Context) error {
 	memberDatasources := make([]map[string]any, 0, len(results))
 	for _, r := range results {
 		memberDatasources = append(memberDatasources, map[string]any{
-			keyAccountID:                     r.AccountID,
-			keyGraphArn:                      r.GraphARN,
-			keyDatasourcePackageIngestStates: r.DatasourcePackageIngestStates,
+			keyAccountID:                      r.AccountID,
+			keyGraphArn:                       r.GraphARN,
+			keyDatasourcePackageIngestHistory: ingestHistoryToJSON(r.IngestHistory),
 		})
 	}
 
@@ -70,9 +92,9 @@ func (h *Handler) handleBatchGetMembershipDatasources(c *echo.Context) error {
 	membershipDatasources := make([]map[string]any, 0, len(results))
 	for _, r := range results {
 		membershipDatasources = append(membershipDatasources, map[string]any{
-			keyAccountID:                     r.AccountID,
-			keyGraphArn:                      r.GraphARN,
-			keyDatasourcePackageIngestStates: r.DatasourcePackageIngestStates,
+			keyAccountID:                      r.AccountID,
+			keyGraphArn:                       r.GraphARN,
+			keyDatasourcePackageIngestHistory: ingestHistoryToJSON(r.IngestHistory),
 		})
 	}
 

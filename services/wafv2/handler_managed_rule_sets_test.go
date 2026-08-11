@@ -72,6 +72,7 @@ func TestManagedRuleSet_GetNotFound(t *testing.T) {
 
 	rec := doWafv2Request(t, h, "GetManagedRuleSet", map[string]any{
 		"Id":    "does-not-exist",
+		"Name":  "does-not-exist",
 		"Scope": "REGIONAL",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -126,6 +127,7 @@ func TestManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 	// Update the expiry date for Version_1.0.
 	updateRec := doWafv2Request(t, h, "UpdateManagedRuleSetVersionExpiryDate", map[string]any{
 		"Id":              msID,
+		"Name":            "expiry-test-ruleset",
 		"Scope":           "REGIONAL",
 		"LockToken":       lockToken,
 		"VersionToExpire": "Version_1.0",
@@ -148,6 +150,7 @@ func TestManagedRuleSet_UpdateExpiryDate(t *testing.T) {
 	// Verify the expiry is stored: Get returns it.
 	getRec := doWafv2Request(t, h, "GetManagedRuleSet", map[string]any{
 		"Id":    msID,
+		"Name":  "expiry-test-ruleset",
 		"Scope": "REGIONAL",
 	})
 	require.Equal(t, http.StatusOK, getRec.Code)
@@ -168,8 +171,11 @@ func TestManagedRuleSet_UpdateExpiryNotFound(t *testing.T) {
 	// Update on non-existent managed rule set.
 	rec := doWafv2Request(t, h, "UpdateManagedRuleSetVersionExpiryDate", map[string]any{
 		"Id":              "does-not-exist",
+		"Name":            "does-not-exist",
 		"Scope":           "REGIONAL",
+		"LockToken":       "tok",
 		"VersionToExpire": "Version_1.0",
+		"ExpiryTimestamp": 9999999999,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -199,8 +205,11 @@ func TestManagedRuleSet_UpdateExpiryVersionNotFound(t *testing.T) {
 	// Attempt to expire a version that was never published.
 	rec := doWafv2Request(t, h, "UpdateManagedRuleSetVersionExpiryDate", map[string]any{
 		"Id":              msID,
+		"Name":            "no-version-ruleset",
+		"Scope":           "REGIONAL",
 		"LockToken":       lockToken,
 		"VersionToExpire": "Version_9.9",
+		"ExpiryTimestamp": 9999999999,
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -259,16 +268,9 @@ func TestListManagedRuleSets_ScopeFilter(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// List all — should return 2.
-	allRec := doWafv2Request(t, h, "ListManagedRuleSets", map[string]any{})
-	require.Equal(t, http.StatusOK, allRec.Code)
-
-	var allResp map[string]any
-	require.NoError(t, json.Unmarshal(allRec.Body.Bytes(), &allResp))
-	all, _ := allResp["ManagedRuleSets"].([]any)
-	assert.Len(t, all, 2)
-
-	// Filter by REGIONAL — should return 1.
+	// Scope is required on ListManagedRuleSetsInput (api_op_ListManagedRuleSets.go); there
+	// is no "list every scope" call in the real API, so REGIONAL and CLOUDFRONT are listed
+	// separately and each must return only its own scope's entry.
 	filtRec := doWafv2Request(t, h, "ListManagedRuleSets", map[string]any{"Scope": "REGIONAL"})
 	require.Equal(t, http.StatusOK, filtRec.Code)
 
@@ -277,6 +279,119 @@ func TestListManagedRuleSets_ScopeFilter(t *testing.T) {
 	filt, _ := filtResp["ManagedRuleSets"].([]any)
 	assert.Len(t, filt, 1)
 	assert.Equal(t, "regional-ms", filt[0].(map[string]any)["Name"])
+
+	cfRec := doWafv2Request(t, h, "ListManagedRuleSets", map[string]any{"Scope": "CLOUDFRONT"})
+	require.Equal(t, http.StatusOK, cfRec.Code)
+
+	var cfResp map[string]any
+	require.NoError(t, json.Unmarshal(cfRec.Body.Bytes(), &cfResp))
+	cf, _ := cfResp["ManagedRuleSets"].([]any)
+	assert.Len(t, cf, 1)
+	assert.Equal(t, "cloudfront-ms", cf[0].(map[string]any)["Name"])
+}
+
+func TestManagedRuleSet_RequiredFieldValidation(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		body   map[string]any
+		name   string
+		target string
+	}{
+		{
+			name:   "get missing name",
+			target: "GetManagedRuleSet",
+			body:   map[string]any{"Id": "ms-x", "Scope": "REGIONAL"},
+		},
+		{
+			name:   "get missing scope",
+			target: "GetManagedRuleSet",
+			body:   map[string]any{"Id": "ms-x", "Name": "ms-name"},
+		},
+		{
+			name:   "list missing scope",
+			target: "ListManagedRuleSets",
+			body:   map[string]any{},
+		},
+		{
+			name:   "put missing name",
+			target: "PutManagedRuleSetVersions",
+			body:   map[string]any{"Id": "ms-x", "Scope": "REGIONAL"},
+		},
+		{
+			name:   "put missing scope",
+			target: "PutManagedRuleSetVersions",
+			body:   map[string]any{"Id": "ms-x", "Name": "ms-name"},
+		},
+		{
+			name:   "put invalid scope",
+			target: "PutManagedRuleSetVersions",
+			body:   map[string]any{"Id": "ms-x", "Name": "ms-name", "Scope": "BOGUS"},
+		},
+		{
+			name:   "update missing name",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Scope": "REGIONAL", "LockToken": "tok",
+				"VersionToExpire": "v1", "ExpiryTimestamp": 9999999999,
+			},
+		},
+		{
+			name:   "update missing scope",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Name": "ms-name", "LockToken": "tok",
+				"VersionToExpire": "v1", "ExpiryTimestamp": 9999999999,
+			},
+		},
+		{
+			name:   "update invalid scope",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Name": "ms-name", "Scope": "BOGUS", "LockToken": "tok",
+				"VersionToExpire": "v1", "ExpiryTimestamp": 9999999999,
+			},
+		},
+		{
+			name:   "update missing lock token",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Name": "ms-name", "Scope": "REGIONAL",
+				"VersionToExpire": "v1", "ExpiryTimestamp": 9999999999,
+			},
+		},
+		{
+			name:   "update missing version to expire",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Name": "ms-name", "Scope": "REGIONAL", "LockToken": "tok",
+				"ExpiryTimestamp": 9999999999,
+			},
+		},
+		{
+			name:   "update missing expiry timestamp",
+			target: "UpdateManagedRuleSetVersionExpiryDate",
+			body: map[string]any{
+				"Id": "ms-x", "Name": "ms-name", "Scope": "REGIONAL", "LockToken": "tok",
+				"VersionToExpire": "v1",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doWafv2Request(t, h, tc.target, tc.body)
+
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+
+			var errResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &errResp))
+			assert.Equal(t, "WAFInvalidParameterException", errResp["__type"])
+		})
+	}
 }
 
 // ---- Mobile SDK release catalog ---------------------------------------------

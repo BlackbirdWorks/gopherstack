@@ -242,13 +242,14 @@ func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, param
 	nowEpoch := awstime.Epoch(time.Now())
 
 	return &Cluster{
-		ID:                    id,
-		Name:                  params.Name,
-		ReleaseLabel:          releaseLabel,
-		OSReleaseLabel:        params.OSReleaseLabel,
-		ARN:                   clusterARN,
-		Ec2InstanceAttributes: buildEC2Attrs(params.Instances, params.JobFlowRole),
-		KerberosAttributes:    clonePtr(params.KerberosAttributes),
+		ID:                      id,
+		Name:                    params.Name,
+		ReleaseLabel:            releaseLabel,
+		OSReleaseLabel:          params.OSReleaseLabel,
+		ARN:                     clusterARN,
+		Ec2InstanceAttributes:   buildEC2Attrs(params.Instances, params.JobFlowRole),
+		KerberosAttributes:      clonePtr(params.KerberosAttributes),
+		MonitoringConfiguration: clonePtr(params.MonitoringConfiguration),
 		Status: ClusterStatus{
 			State:             StateWaiting,
 			StateChangeReason: map[string]any{"Code": "USER_REQUEST", "Message": ""},
@@ -262,6 +263,10 @@ func (b *InMemoryBackend) buildNewCluster(region, id, releaseLabel string, param
 		Configurations:              cloneConfigurations(params.Configurations),
 		PlacementGroups:             slices.Clone(params.PlacementGroupConfigs),
 		LogURI:                      params.LogURI,
+		LogEncryptionKmsKeyID:       params.LogEncryptionKmsKeyID,
+		RepoUpgradeOnBoot:           params.RepoUpgradeOnBoot,
+		RequestedAmiVersion:         params.AmiVersion,
+		RunningAmiVersion:           params.AmiVersion,
 		ServiceRole:                 params.ServiceRole,
 		AutoScalingRole:             params.AutoScalingRole,
 		ScaleDownBehavior:           params.ScaleDownBehavior,

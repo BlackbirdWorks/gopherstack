@@ -12,6 +12,18 @@ import (
 // Pipeline ops handlers (#29) — wire real backend to stub-bypassed ops
 // ---------------------------------------------------------------------------
 
+// pipelineDefinitionS3Location mirrors types.PipelineDefinitionS3Location
+// (api_op_CreatePipeline.go:59, api_op_UpdatePipeline.go:43, types/types.go:17313,
+// sagemaker@v1.263.2). CreatePipeline/UpdatePipeline fetch the real object
+// through h.Backend's wired S3Accessor (see s3pipeline.go); an unreadable
+// object (no S3 backend wired, missing bucket/key) fails with ErrValidation
+// rather than fabricating a definition.
+type pipelineDefinitionS3Location struct {
+	Bucket    string `json:"Bucket"`
+	ObjectKey string `json:"ObjectKey"`
+	VersionID string `json:"VersionId,omitempty"`
+}
+
 func (h *Handler) handleRetryPipelineExecution(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		PipelineExecutionArn string `json:"PipelineExecutionArn"`
@@ -196,13 +208,14 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 
 func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
-		PipelineName             string                    `json:"PipelineName"`
-		PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
-		PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
-		PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
-		RoleArn                  string                    `json:"RoleArn,omitempty"`
-		Tags                     []tagObject               `json:"Tags,omitempty"`
+		ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
+		PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
+		PipelineName                 string                        `json:"PipelineName"`
+		PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
+		PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
+		PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
+		RoleArn                      string                        `json:"RoleArn,omitempty"`
+		Tags                         []tagObject                   `json:"Tags,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -213,9 +226,20 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
+	definition := req.PipelineDefinition
+
+	if loc := req.PipelineDefinitionS3Location; loc != nil {
+		fetched, err := h.Backend.readPipelineDefinitionFromS3(ctx, loc.Bucket, loc.ObjectKey, loc.VersionID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		definition = fetched
+	}
+
 	p, err := h.Backend.CreatePipelineFull(ctx, CreatePipelineOptions{
 		PipelineName:             req.PipelineName,
-		PipelineDefinition:       req.PipelineDefinition,
+		PipelineDefinition:       definition,
 		PipelineDisplayName:      req.PipelineDisplayName,
 		PipelineDescription:      req.PipelineDescription,
 		RoleArn:                  req.RoleArn,
@@ -233,12 +257,13 @@ func (h *Handler) handleCreatePipelineFull(ctx context.Context, body []byte) ([]
 
 func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		ParallelismConfiguration *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
-		PipelineName             string                    `json:"PipelineName"`
-		PipelineDefinition       string                    `json:"PipelineDefinition,omitempty"`
-		PipelineDisplayName      string                    `json:"PipelineDisplayName,omitempty"`
-		PipelineDescription      string                    `json:"PipelineDescription,omitempty"`
-		RoleArn                  string                    `json:"RoleArn,omitempty"`
+		ParallelismConfiguration     *ParallelismConfiguration     `json:"ParallelismConfiguration,omitempty"`
+		PipelineDefinitionS3Location *pipelineDefinitionS3Location `json:"PipelineDefinitionS3Location,omitempty"`
+		PipelineName                 string                        `json:"PipelineName"`
+		PipelineDefinition           string                        `json:"PipelineDefinition,omitempty"`
+		PipelineDisplayName          string                        `json:"PipelineDisplayName,omitempty"`
+		PipelineDescription          string                        `json:"PipelineDescription,omitempty"`
+		RoleArn                      string                        `json:"RoleArn,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -249,10 +274,21 @@ func (h *Handler) handleUpdatePipelineFull(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
+	definition := req.PipelineDefinition
+
+	if loc := req.PipelineDefinitionS3Location; loc != nil {
+		fetched, err := h.Backend.readPipelineDefinitionFromS3(ctx, loc.Bucket, loc.ObjectKey, loc.VersionID)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		definition = fetched
+	}
+
 	p, err := h.Backend.UpdatePipelineFull(
 		ctx,
 		req.PipelineName,
-		req.PipelineDefinition,
+		definition,
 		req.PipelineDisplayName,
 		req.PipelineDescription,
 		req.RoleArn,
@@ -273,10 +309,12 @@ func (h *Handler) handleStartPipelineExecutionFull(
 ) ([]byte, error) {
 	var req struct {
 		ParallelismConfiguration     *ParallelismConfiguration `json:"ParallelismConfiguration,omitempty"`
+		SelectiveExecutionConfig     *SelectiveExecutionConfig `json:"SelectiveExecutionConfig,omitempty"`
 		PipelineName                 string                    `json:"PipelineName"`
 		PipelineExecutionDisplayName string                    `json:"PipelineExecutionDisplayName,omitempty"`
 		PipelineExecutionDescription string                    `json:"PipelineExecutionDescription,omitempty"`
 		PipelineParameters           []PipelineParameter       `json:"PipelineParameters,omitempty"`
+		PipelineVersionID            int64                     `json:"PipelineVersionId,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -293,6 +331,8 @@ func (h *Handler) handleStartPipelineExecutionFull(
 		PipelineExecutionDescription: req.PipelineExecutionDescription,
 		PipelineParameters:           req.PipelineParameters,
 		ParallelismConfiguration:     req.ParallelismConfiguration,
+		SelectiveExecutionConfig:     req.SelectiveExecutionConfig,
+		PipelineVersionID:            req.PipelineVersionID,
 	})
 	if err != nil {
 		return nil, err
@@ -348,7 +388,8 @@ func (h *Handler) handleListPipelineParametersForExecution(
 
 func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		PipelineName string `json:"PipelineName"`
+		PipelineName      string `json:"PipelineName"`
+		PipelineVersionID int64  `json:"PipelineVersionId,omitempty"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -359,7 +400,7 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, err := h.Backend.DescribePipeline(ctx, req.PipelineName)
+	p, lastRunTime, err := h.Backend.DescribePipeline(ctx, req.PipelineName, req.PipelineVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +422,9 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 	}
 	if p.ParallelismConfiguration != nil {
 		resp["ParallelismConfiguration"] = p.ParallelismConfiguration
+	}
+	if !lastRunTime.IsZero() {
+		resp["LastRunTime"] = epochSeconds(lastRunTime)
 	}
 
 	return json.Marshal(resp)
@@ -482,6 +526,15 @@ func (h *Handler) handleDescribePipelineExecution(ctx context.Context, body []by
 	}
 	if pe.FailureReason != "" {
 		resp["FailureReason"] = pe.FailureReason
+	}
+	if pe.ParallelismConfiguration != nil {
+		resp["ParallelismConfiguration"] = pe.ParallelismConfiguration
+	}
+	if pe.PipelineVersionID != 0 {
+		resp["PipelineVersionId"] = pe.PipelineVersionID
+	}
+	if pe.SelectiveExecutionConfig != nil {
+		resp["SelectiveExecutionConfig"] = pe.SelectiveExecutionConfig
 	}
 
 	return json.Marshal(resp)

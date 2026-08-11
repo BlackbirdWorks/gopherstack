@@ -106,8 +106,10 @@ func (h *Handler) handleSwitchoverGlobalCluster(ctx context.Context, vals url.Va
 	}, nil
 }
 
+// docdb@v1.51.4 deserializers.go:14551 wraps each entry in
+// <GlobalClusterMember>, not <GlobalCluster>.
 type xmlGlobalClusterList struct {
-	Members []xmlGlobalCluster `xml:"GlobalCluster"`
+	Members []xmlGlobalCluster `xml:"GlobalClusterMember"`
 }
 
 type describeGlobalClustersResponse struct {

@@ -8,14 +8,14 @@ import (
 // StorageBackend is the interface for OpsWorks storage operations.
 type StorageBackend interface {
 	// Stack operations
-	CreateStack(name, region, defaultInstanceProfileArn, serviceRoleArn string) (*Stack, error)
+	CreateStack(name, region, defaultInstanceProfileArn, serviceRoleArn string, opts CreateStackOptions) (*Stack, error)
 	CloneStack(sourceStackID, name, region string) (*Stack, error)
 	DescribeStacks(stackIDs []string) ([]*Stack, error)
 	UpdateStack(stackID, name string) error
 	DeleteStack(stackID string) error
 	StartStack(stackID string) error
 	StopStack(stackID string) error
-	GetHostnameSuggestion(stackID, layerID string) (string, error)
+	GetHostnameSuggestion(layerID string) (string, error)
 	DescribeStackSummary(stackID string) (*StackSummary, error)
 	DescribeStackProvisioningParameters(stackID string) (map[string]string, error)
 
@@ -128,13 +128,44 @@ type StorageBackend interface {
 // pass invented one and serialized it on the wire, which this pass removed.
 type Stack struct {
 	CreatedAt                 time.Time
+	ConfigurationManager      *StackConfigurationManager
+	ChefConfiguration         *ChefConfiguration
 	Tags                      map[string]string
+	Attributes                map[string]string
 	StackID                   string
 	Arn                       string
 	Name                      string
 	Region                    string
 	DefaultInstanceProfileArn string
 	ServiceRoleArn            string
+	VpcID                     string
+}
+
+// StackConfigurationManager mirrors the real types.StackConfigurationManager
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go).
+type StackConfigurationManager struct {
+	Name    string
+	Version string
+}
+
+// ChefConfiguration mirrors the real types.ChefConfiguration (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's types.go).
+type ChefConfiguration struct {
+	BerkshelfVersion string
+	ManageBerkshelf  bool
+}
+
+// CreateStackOptions carries CreateStack's optional parameters. AWS's
+// CreateStackInput has a much larger optional surface (AgentVersion,
+// CustomCookbooksSource, CustomJson, DefaultAvailabilityZone, DefaultOs,
+// DefaultRootDeviceType, DefaultSshKeyName, DefaultSubnetId, HostnameTheme,
+// UseCustomCookbooks, UseOpsworksSecurityGroups) that remains unmodeled --
+// see PARITY.md's deferred list.
+type CreateStackOptions struct {
+	ConfigurationManager *StackConfigurationManager
+	ChefConfiguration    *ChefConfiguration
+	Attributes           map[string]string
+	VpcID                string
 }
 
 // StackSummary represents summary information about a stack.

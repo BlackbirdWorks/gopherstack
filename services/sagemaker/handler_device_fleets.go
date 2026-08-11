@@ -12,14 +12,14 @@ import (
 
 func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags         map[string]string `json:"Tags"`
 		OutputConfig *struct {
 			S3OutputLocation string `json:"S3OutputLocation"`
 			KmsKeyID         string `json:"KmsKeyId"`
 		} `json:"OutputConfig"`
-		DeviceFleetName string `json:"DeviceFleetName"`
-		Description     string `json:"Description"`
-		RoleArn         string `json:"RoleArn"`
+		DeviceFleetName string      `json:"DeviceFleetName"`
+		Description     string      `json:"Description"`
+		RoleArn         string      `json:"RoleArn"`
+		Tags            []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -47,7 +47,7 @@ func (h *Handler) handleCreateDeviceFleet(ctx context.Context, body []byte) ([]b
 		Description:     req.Description,
 		RoleArn:         req.RoleArn,
 		OutputConfig:    outputConfig,
-		Tags:            req.Tags,
+		Tags:            fromTagObjects(req.Tags),
 	}); err != nil {
 		return nil, err
 	}

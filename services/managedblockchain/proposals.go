@@ -105,6 +105,7 @@ func (b *InMemoryBackend) CreateProposal(
 	}
 
 	b.proposals.Put(proposal)
+	b.arnToResource[proposal.Arn] = proposal
 
 	return cloneProposal(proposal), nil
 }
@@ -211,6 +212,7 @@ func (b *InMemoryBackend) AddProposalInternal(region, accountID, networkID, memb
 	}
 
 	b.proposals.Put(proposal)
+	b.arnToResource[proposal.Arn] = proposal
 
 	return cloneProposal(proposal)
 }

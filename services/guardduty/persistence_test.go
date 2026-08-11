@@ -130,7 +130,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Empty(t, unprocessed)
 	require.Len(t, created, 1)
 
-	unprocessed = original.InviteMembers(detectorID, []string{"555566667777"})
+	unprocessed, err = original.InviteMembers(detectorID, []string{"555566667777"})
+	require.NoError(t, err)
 	require.Empty(t, unprocessed)
 	require.Equal(t, 1, original.GetInvitationsCount())
 

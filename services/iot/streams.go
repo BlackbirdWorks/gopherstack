@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 // StreamFile holds file info for an IoT stream.
@@ -42,11 +43,12 @@ func (b *InMemoryBackend) streamARN(id string) string {
 
 // CreateStreamInput holds input for CreateStream.
 type CreateStreamInput struct {
-	Tags        map[string]string `json:"tags,omitempty"`
-	StreamID    string            `json:"streamId"`
-	Description string            `json:"description,omitempty"`
-	RoleARN     string            `json:"roleArn,omitempty"`
-	Files       []StreamFile      `json:"files"`
+	// []types.Tag on the wire, not a map (serializers.go:4643, aws-sdk-go-v2/service/iot@v1.77.4).
+	Tags        []tags.KV    `json:"tags,omitempty"`
+	StreamID    string       `json:"streamId"`
+	Description string       `json:"description,omitempty"`
+	RoleARN     string       `json:"roleArn,omitempty"`
+	Files       []StreamFile `json:"files"`
 }
 
 func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, error) {
@@ -63,12 +65,13 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, er
 		Description:   input.Description,
 		RoleARN:       input.RoleARN,
 		Files:         append([]StreamFile(nil), input.Files...),
-		Tags:          input.Tags,
+		Tags:          tags.MapFromKV(input.Tags),
 		StreamVersion: 1,
 		CreatedAt:     now,
 		LastUpdated:   now,
 	}
 	b.streams.Put(s)
+	b.putResourceTagsLocked(s.StreamARN, s.Tags)
 
 	return cloneStream(s), nil
 }

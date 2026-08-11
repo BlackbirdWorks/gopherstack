@@ -8,16 +8,27 @@ import (
 
 func (h *Handler) handleCreateSequenceStore(c *echo.Context) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
+		Tags           map[string]string `json:"tags"`
+		S3AccessConfig *struct {
+			AccessLogLocation string `json:"accessLogLocation"`
+		} `json:"s3AccessConfig"`
+		Name                string `json:"name"`
+		Description         string `json:"description"`
+		ETagAlgorithmFamily string `json:"eTagAlgorithmFamily"`
 	}
 
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	ss, err := h.Backend.CreateSequenceStore(req.Name, req.Description, req.Tags)
+	accessLogLocation := ""
+	if req.S3AccessConfig != nil {
+		accessLogLocation = req.S3AccessConfig.AccessLogLocation
+	}
+
+	ss, err := h.Backend.CreateSequenceStore(
+		req.Name, req.Description, req.ETagAlgorithmFamily, accessLogLocation, req.Tags,
+	)
 	if err != nil {
 		return h.mapError(c, err)
 	}

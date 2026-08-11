@@ -2,14 +2,10 @@ package firehose
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/aws"
-	sdk_rddata "github.com/aws/aws-sdk-go-v2/service/redshiftdata"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
@@ -25,33 +21,39 @@ const (
 	redshiftBackoffMax     = 60 * time.Second
 )
 
-// buildRedshiftInsertSQL constructs a batch INSERT SQL statement for Redshift delivery.
-// Returns the SQL string and true, or ("", false) when records is empty.
-func buildRedshiftInsertSQL(tableName, columns string, records [][]byte) (string, bool) {
-	if columns == "" {
-		columns = "data"
-	}
-
-	sqlParts := make([]string, 0, len(records))
-	for _, rec := range records {
-		encoded := base64.StdEncoding.EncodeToString(rec)
-		escaped := strings.ReplaceAll(encoded, "'", "''")
-		sqlParts = append(sqlParts, fmt.Sprintf("('%s')", escaped))
-	}
-
-	if len(sqlParts) == 0 {
+// buildRedshiftCopySQL constructs the COPY command real Firehose synthesizes after staging
+// records to S3: "COPY <table> (<columns>) FROM 's3://<bucket>/<key>' CREDENTIALS
+// 'aws_iam_role=<roleARN>' <copyOptions>;" (matching CopyCommand's documented fields:
+// DataTableName, DataTableColumns, CopyOptions). Returns ("", false) when key is empty
+// (nothing was staged).
+func buildRedshiftCopySQL(tableName, columns, bucket, key, roleARN, copyOptions string) (string, bool) {
+	if key == "" {
 		return "", false
 	}
 
-	return fmt.Sprintf("INSERT INTO %s (%s) VALUES %s", tableName, columns, strings.Join(sqlParts, ",")), true
+	var b strings.Builder
+
+	fmt.Fprintf(&b, "COPY %s", tableName)
+
+	if columns != "" {
+		fmt.Fprintf(&b, " (%s)", columns)
+	}
+
+	fmt.Fprintf(&b, " FROM 's3://%s/%s'", bucket, key)
+
+	if roleARN != "" {
+		fmt.Fprintf(&b, " CREDENTIALS 'aws_iam_role=%s'", roleARN)
+	}
+
+	if copyOptions != "" {
+		fmt.Fprintf(&b, " %s", copyOptions)
+	}
+
+	b.WriteByte(';')
+
+	return b.String(), true
 }
 
-// deliverToRedshift inserts records into a Redshift table via the Redshift Data API
-// (ExecuteStatement). Each record is inserted as a single-column row with the raw
-// record bytes stored as a base64-encoded string in the configured DataTableName.
-//
-// The ClusterJDBCURL is parsed to extract the cluster endpoint and database name.
-// Format: jdbc:redshift://<host>:<port>/<database>
 // parseRedshiftJDBCURL extracts the cluster identifier and database name from a
 // Redshift JDBC connection string of the form
 // jdbc:redshift://<cluster>.<suffix>.redshift.amazonaws.com:<port>/<database>.
@@ -76,25 +78,27 @@ func parseRedshiftJDBCURL(clusterJDBCURL string) (string, string, error) {
 	return clusterID, database, nil
 }
 
-// executeRedshiftInsertWithRetry runs insertSQL via the Redshift Data API, retrying
-// with exponential back-off until maxRetry elapses or ctx is cancelled.
-func (b *InMemoryBackend) executeRedshiftInsertWithRetry(
+// executeRedshiftCopyWithRetry runs copySQL via the wired Redshift Data executor, retrying
+// with exponential back-off until maxRetry elapses or ctx is cancelled. A nil executor
+// (never wired, see SetRedshiftDataBackend) is a documented no-op, not a silent failure
+// dressed up as success -- logged once at the start rather than retried.
+func (b *InMemoryBackend) executeRedshiftCopyWithRetry(
 	ctx context.Context,
-	clusterID, database, dbUser, insertSQL, streamARN string,
+	clusterID, database, dbUser, copySQL, streamARN string,
 	maxRetry time.Duration,
 ) {
-	rdClient := sdk_rddata.NewFromConfig(aws.Config{Region: b.region})
+	if b.redshiftData == nil {
+		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift delivery skipped, no Redshift Data backend wired",
+			"cluster", clusterID, "database", database, "stream", streamARN)
+
+		return
+	}
 
 	deadline := time.Now().Add(maxRetry)
 	backoff := redshiftBackoffInitial
 
 	for {
-		_, execErr := rdClient.ExecuteStatement(ctx, &sdk_rddata.ExecuteStatementInput{
-			ClusterIdentifier: aws.String(clusterID),
-			Database:          aws.String(database),
-			DbUser:            aws.String(dbUser),
-			Sql:               aws.String(insertSQL),
-		})
+		execErr := b.redshiftData.ExecuteStatement(ctx, copySQL, clusterID, database, dbUser)
 		if execErr == nil {
 			return
 		}
@@ -118,13 +122,26 @@ func (b *InMemoryBackend) executeRedshiftInsertWithRetry(
 	}
 }
 
+// deliverToRedshift models real Firehose's two-hop Redshift delivery: records are staged to
+// the destination's required S3Configuration bucket (the same location a real Redshift COPY
+// reads from), then a COPY command referencing that staged object and the configured
+// CopyCommand is issued via the wired Redshift Data executor. See PARITY.md: without
+// SetRedshiftDataBackend wired (a cli.go change, out of this pass's scope), the COPY step is a
+// documented no-op rather than a silent failure -- staging still genuinely happens.
 func (b *InMemoryBackend) deliverToRedshift(
 	ctx context.Context,
 	records [][]byte,
 	dest *RedshiftDestinationDescription,
-	streamARN string,
+	streamARN, streamName string,
 ) {
 	if dest.ClusterJDBCURL == "" || dest.CopyCommand == nil || dest.CopyCommand.DataTableName == "" {
+		return
+	}
+
+	if dest.S3Destination == nil || dest.S3Destination.BucketARN == "" {
+		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift destination missing required S3 staging configuration",
+			"stream", streamARN)
+
 		return
 	}
 
@@ -136,7 +153,19 @@ func (b *InMemoryBackend) deliverToRedshift(
 		return
 	}
 
-	insertSQL, ok := buildRedshiftInsertSQL(dest.CopyCommand.DataTableName, dest.CopyCommand.DataTableColumns, records)
+	key, stageErr := b.writeRecordsToBucket(ctx, records, dest.S3Destination.BucketARN,
+		dest.S3Destination.Prefix, "", dest.S3Destination.CompressionFormat, streamName)
+	if stageErr != nil {
+		logger.Load(ctx).WarnContext(ctx, "firehose: Redshift S3 staging failed",
+			"stream", streamARN, "error", stageErr)
+
+		return
+	}
+
+	copySQL, ok := buildRedshiftCopySQL(
+		dest.CopyCommand.DataTableName, dest.CopyCommand.DataTableColumns,
+		bucketFromARN(dest.S3Destination.BucketARN), key, dest.RoleARN, dest.CopyCommand.CopyOptions,
+	)
 	if !ok {
 		return
 	}
@@ -146,5 +175,5 @@ func (b *InMemoryBackend) deliverToRedshift(
 		maxRetry = time.Duration(dest.RetryOptions.DurationInSeconds) * time.Second
 	}
 
-	b.executeRedshiftInsertWithRetry(ctx, clusterID, database, dest.Username, insertSQL, streamARN, maxRetry)
+	b.executeRedshiftCopyWithRetry(ctx, clusterID, database, dest.Username, copySQL, streamARN, maxRetry)
 }

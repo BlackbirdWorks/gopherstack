@@ -1,6 +1,7 @@
 package codecommit
 
 import (
+	"bytes"
 	"fmt"
 	"sort"
 	"time"
@@ -18,6 +19,12 @@ func (b *InMemoryBackend) PutFile(repoName, branchName, filePath string, content
 
 	if !b.repositories.Has(repoName) {
 		return nil, "", fmt.Errorf("%w: repository %s not found", ErrNotFound, repoName)
+	}
+
+	if existing, ok := b.files.Get(fileKey(repoName, filePath)); ok && bytes.Equal(existing.FileContent, content) {
+		return nil, "", fmt.Errorf(
+			"%w: file %s content is unchanged", ErrSameFileContent, filePath,
+		)
 	}
 
 	commitID := uuid.NewString()

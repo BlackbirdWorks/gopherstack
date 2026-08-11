@@ -22,4 +22,8 @@ var (
 	ErrGitHubAccountTokenNotFound    = awserr.New("GitHubAccountTokenDoesNotExistException", awserr.ErrNotFound)
 	ErrRevisionNotFound              = awserr.New("RevisionDoesNotExistException", awserr.ErrNotFound)
 	ErrDeploymentTargetNotFound      = awserr.New("DeploymentTargetDoesNotExistException", awserr.ErrNotFound)
+	ErrDeploymentAlreadyCompleted    = awserr.New("DeploymentAlreadyCompletedException", awserr.ErrConflict)
+	ErrDeploymentNotInReadyState     = awserr.New("DeploymentIsNotInReadyStateException", awserr.ErrConflict)
+	ErrInvalidDeploymentWaitType     = awserr.New("InvalidDeploymentWaitTypeException", awserr.ErrInvalidParameter)
+	ErrInvalidFileExistsBehavior     = awserr.New("InvalidFileExistsBehaviorException", awserr.ErrInvalidParameter)
 )

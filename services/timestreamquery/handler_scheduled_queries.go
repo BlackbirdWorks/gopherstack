@@ -24,6 +24,7 @@ type createScheduledQueryInput struct {
 	QueryString                    string `json:"QueryString"`
 	Name                           string `json:"Name"`
 	ClientToken                    string `json:"ClientToken"`
+	KmsKeyID                       string `json:"KmsKeyId"`
 	ScheduleConfiguration          struct {
 		ScheduleExpression string `json:"ScheduleExpression"`
 	} `json:"ScheduleConfiguration"`
@@ -101,7 +102,7 @@ func (h *Handler) handleCreateScheduledQuery(ctx context.Context, body []byte) (
 		req.ScheduleConfiguration.ScheduleExpression,
 		req.ScheduledQueryExecutionRoleArn,
 		notificationTopicArn, errorReportBucket,
-		targetDB, targetTable, req.ClientToken,
+		targetDB, targetTable, req.ClientToken, req.KmsKeyID,
 		tags,
 	)
 	if err != nil {
@@ -247,6 +248,10 @@ func scheduledQueryToView(sq *ScheduledQuery) map[string]any {
 
 	if sq.ExecutionRoleArn != "" {
 		view["ScheduledQueryExecutionRoleArn"] = sq.ExecutionRoleArn
+	}
+
+	if sq.KmsKeyID != "" {
+		view["KmsKeyId"] = sq.KmsKeyID
 	}
 
 	if sq.NotificationTopicArn != "" {

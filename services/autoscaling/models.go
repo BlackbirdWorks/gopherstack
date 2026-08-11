@@ -4,23 +4,126 @@ import "time"
 
 // ScalingPolicy represents a scaling policy for an Auto Scaling group.
 type ScalingPolicy struct {
-	CustomizedMetricSpecification string           `json:"CustomizedMetricSpecification,omitempty"`
-	PolicyName                    string           `json:"PolicyName"`
-	AutoScalingGroupName          string           `json:"AutoScalingGroupName"`
-	PolicyType                    string           `json:"PolicyType,omitempty"`
-	AdjustmentType                string           `json:"AdjustmentType,omitempty"`
-	MetricType                    string           `json:"MetricType,omitempty"`
-	CustomMetricSpec              string           `json:"CustomMetricSpec,omitempty"`
-	MetricAggregationType         string           `json:"MetricAggregationType,omitempty"`
-	PolicyARN                     string           `json:"PolicyARN"`
-	StepAdjustments               []StepAdjustment `json:"StepAdjustments,omitempty"`
-	TargetValue                   float64          `json:"TargetValue,omitempty"`
-	MinAdjustmentStep             int32            `json:"MinAdjustmentStep,omitempty"`
-	MinAdjustmentMagnitude        int32            `json:"MinAdjustmentMagnitude,omitempty"`
-	Cooldown                      int32            `json:"Cooldown,omitempty"`
-	EstimatedWarmup               int32            `json:"EstimatedWarmup,omitempty"`
-	ScalingAdjustment             int32            `json:"ScalingAdjustment,omitempty"`
-	DisableScaleIn                bool             `json:"DisableScaleIn,omitempty"`
+	PredictiveScalingConfiguration *PredictiveScalingConfiguration `json:"PredictiveScalingConfiguration,omitempty"`
+	CustomizedMetricSpecification  *CustomizedMetricSpecification  `json:"CustomizedMetricSpecification,omitempty"`
+	PolicyName                     string                          `json:"PolicyName"`
+	AutoScalingGroupName           string                          `json:"AutoScalingGroupName"`
+	PolicyType                     string                          `json:"PolicyType,omitempty"`
+	AdjustmentType                 string                          `json:"AdjustmentType,omitempty"`
+	MetricType                     string                          `json:"MetricType,omitempty"`
+	CustomMetricSpec               string                          `json:"CustomMetricSpec,omitempty"`
+	MetricAggregationType          string                          `json:"MetricAggregationType,omitempty"`
+	PolicyARN                      string                          `json:"PolicyARN"`
+	StepAdjustments                []StepAdjustment                `json:"StepAdjustments,omitempty"`
+	TargetValue                    float64                         `json:"TargetValue,omitempty"`
+	MinAdjustmentStep              int32                           `json:"MinAdjustmentStep,omitempty"`
+	MinAdjustmentMagnitude         int32                           `json:"MinAdjustmentMagnitude,omitempty"`
+	Cooldown                       int32                           `json:"Cooldown,omitempty"`
+	EstimatedWarmup                int32                           `json:"EstimatedWarmup,omitempty"`
+	ScalingAdjustment              int32                           `json:"ScalingAdjustment,omitempty"`
+	DisableScaleIn                 bool                            `json:"DisableScaleIn,omitempty"`
+}
+
+// PredictiveScalingConfiguration mirrors AWS types.PredictiveScalingConfiguration
+// (aws-sdk-go-v2/service/autoscaling/types/types.go:2558). CustomizedCapacity/
+// CustomizedLoad/CustomizedScalingMetricSpecification (CloudWatch MetricDataQuery
+// math expressions) are not modelled; only the predefined metric specifications
+// are supported.
+type PredictiveScalingConfiguration struct {
+	MaxCapacityBuffer         *int32                                 `json:"MaxCapacityBuffer,omitempty"`
+	SchedulingBufferTime      *int32                                 `json:"SchedulingBufferTime,omitempty"`
+	MaxCapacityBreachBehavior string                                 `json:"MaxCapacityBreachBehavior,omitempty"`
+	Mode                      string                                 `json:"Mode,omitempty"`
+	MetricSpecifications      []PredictiveScalingMetricSpecification `json:"MetricSpecifications,omitempty"`
+}
+
+// PredictiveScalingMetricSpecification mirrors AWS
+// types.PredictiveScalingMetricSpecification (types.go:2703).
+type PredictiveScalingMetricSpecification struct {
+	PredefinedMetricPairSpecification     *PredefinedMetricRef `json:"PredefinedMetricPairSpecification,omitempty"`
+	PredefinedLoadMetricSpecification     *PredefinedMetricRef `json:"PredefinedLoadMetricSpecification,omitempty"`
+	PredefinedScalingMetricSpecification  *PredefinedMetricRef `json:"PredefinedScalingMetricSpecification,omitempty"`
+	CustomizedLoadMetricSpecification     *CustomMetricQueries `json:"CustomizedLoadMetricSpecification,omitempty"`
+	CustomizedScalingMetricSpecification  *CustomMetricQueries `json:"CustomizedScalingMetricSpecification,omitempty"`
+	CustomizedCapacityMetricSpecification *CustomMetricQueries `json:"CustomizedCapacityMetricSpecification,omitempty"`
+	TargetValue                           float64              `json:"TargetValue"`
+}
+
+// PredefinedMetricRef mirrors the three predefined-metric AWS types that
+// share the same {PredefinedMetricType, ResourceLabel} shape:
+// PredictiveScalingPredefinedMetricPair, PredictiveScalingPredefinedLoadMetric,
+// and PredictiveScalingPredefinedScalingMetric (types.go:2743, 2778, 2821).
+type PredefinedMetricRef struct {
+	PredefinedMetricType string `json:"PredefinedMetricType"`
+	ResourceLabel        string `json:"ResourceLabel,omitempty"`
+}
+
+// MetricDimension mirrors AWS types.MetricDimension (types.go:2314), the
+// {Name,Value} shape of a CloudWatch metric dimension.
+type MetricDimension struct {
+	Name  string `json:"Name"`
+	Value string `json:"Value"`
+}
+
+// MetricRef mirrors AWS types.Metric (types.go:2182): a CloudWatch metric
+// identified by name, namespace, and dimensions.
+type MetricRef struct {
+	MetricName string            `json:"MetricName,omitempty"`
+	Namespace  string            `json:"Namespace,omitempty"`
+	Dimensions []MetricDimension `json:"Dimensions,omitempty"`
+}
+
+// MetricDataStat is the {Metric,Stat,Unit[,Period]} shape shared by AWS
+// types.MetricStat (types.go:2345, no Period -- used by predictive scaling's
+// customized metrics) and types.TargetTrackingMetricStat (types.go:3459, has
+// Period -- used by TargetTrackingConfiguration.CustomizedMetricSpecification.
+// Metrics). Period is left nil for the predictive-scaling variant, which has
+// no such field on the wire.
+type MetricDataStat struct {
+	Metric *MetricRef `json:"Metric,omitempty"`
+	Period *int32     `json:"Period,omitempty"`
+	Stat   string     `json:"Stat,omitempty"`
+	Unit   string     `json:"Unit,omitempty"`
+}
+
+// MetricDataQuery is the CloudWatch metric-math shape shared by AWS
+// types.MetricDataQuery (types.go:2268, no Period -- used by predictive
+// scaling's three customized metric specifications) and
+// types.TargetTrackingMetricDataQuery (types.go:3400, has Period -- used by
+// TargetTrackingConfiguration.CustomizedMetricSpecification.Metrics). Period
+// is left nil for the predictive-scaling variant.
+type MetricDataQuery struct {
+	MetricStat *MetricDataStat `json:"MetricStat,omitempty"`
+	Period     *int32          `json:"Period,omitempty"`
+	ReturnData *bool           `json:"ReturnData,omitempty"`
+	ID         string          `json:"Id"`
+	Expression string          `json:"Expression,omitempty"`
+	Label      string          `json:"Label,omitempty"`
+}
+
+// CustomizedMetricSpecification mirrors AWS types.CustomizedMetricSpecification
+// (types.go:587): the customized-metric alternative to
+// TargetTrackingConfiguration.PredefinedMetricSpecification, either the
+// legacy {MetricName,Namespace,Dimensions,Statistic,Unit,Period} shape or the
+// newer Metrics metric-data-query list (mutually exclusive on the wire, but
+// both accepted here since AWS itself validates that, not the parser).
+type CustomizedMetricSpecification struct {
+	Period     *int32            `json:"Period,omitempty"`
+	MetricName string            `json:"MetricName,omitempty"`
+	Namespace  string            `json:"Namespace,omitempty"`
+	Statistic  string            `json:"Statistic,omitempty"`
+	Unit       string            `json:"Unit,omitempty"`
+	Dimensions []MetricDimension `json:"Dimensions,omitempty"`
+	Metrics    []MetricDataQuery `json:"Metrics,omitempty"`
+}
+
+// CustomMetricQueries is the {MetricDataQueries} shape shared
+// by AWS types.PredictiveScalingCustomizedCapacityMetric,
+// PredictiveScalingCustomizedLoadMetric, and
+// PredictiveScalingCustomizedScalingMetric (types.go:2625, 2638, 2651) --
+// structurally identical wrappers around a metric-data-query list.
+type CustomMetricQueries struct {
+	MetricDataQueries []MetricDataQuery `json:"MetricDataQueries,omitempty"`
 }
 
 // StepAdjustment defines a scaling adjustment with a metric interval bound.
@@ -32,21 +135,22 @@ type StepAdjustment struct {
 
 // ScalingPolicyInput holds the input for PutScalingPolicy.
 type ScalingPolicyInput struct {
-	CustomizedMetricSpecification string
-	PolicyName                    string
-	PolicyType                    string
-	AdjustmentType                string
-	MetricType                    string
-	MetricAggregationType         string
-	AutoScalingGroupName          string
-	StepAdjustments               []StepAdjustment
-	TargetValue                   float64
-	MinAdjustmentStep             int32
-	ScalingAdjustment             int32
-	Cooldown                      int32
-	EstimatedWarmup               int32
-	MinAdjustmentMagnitude        int32
-	DisableScaleIn                bool
+	PredictiveScalingConfiguration *PredictiveScalingConfiguration
+	CustomizedMetricSpecification  *CustomizedMetricSpecification
+	PolicyName                     string
+	PolicyType                     string
+	AdjustmentType                 string
+	MetricType                     string
+	MetricAggregationType          string
+	AutoScalingGroupName           string
+	StepAdjustments                []StepAdjustment
+	TargetValue                    float64
+	MinAdjustmentStep              int32
+	ScalingAdjustment              int32
+	Cooldown                       int32
+	EstimatedWarmup                int32
+	MinAdjustmentMagnitude         int32
+	DisableScaleIn                 bool
 }
 
 // NotificationConfiguration represents a notification configuration for an Auto Scaling group.
@@ -183,9 +287,85 @@ type LaunchTemplateSpecification struct {
 
 // LaunchTemplateOverride allows specifying per-instance-type overrides in a MixedInstancesPolicy.
 type LaunchTemplateOverride struct {
-	InstanceType                string                       `json:"InstanceType,omitempty"`
 	LaunchTemplateSpecification *LaunchTemplateSpecification `json:"LaunchTemplateSpecification,omitempty"`
+	InstanceRequirements        *InstanceRequirements        `json:"InstanceRequirements,omitempty"`
+	InstanceType                string                       `json:"InstanceType,omitempty"`
 	WeightedCapacity            string                       `json:"WeightedCapacity,omitempty"`
+}
+
+// IntRangeRequest is the {Min,Max *int32} shape shared by six
+// InstanceRequirements sub-fields: types.VCpuCountRequest, MemoryMiBRequest,
+// AcceleratorCountRequest, AcceleratorTotalMemoryMiBRequest,
+// BaselineEbsBandwidthMbpsRequest, NetworkInterfaceCountRequest (types.go
+// ~1300-2260, various).
+type IntRangeRequest struct {
+	Min *int32 `json:"Min,omitempty"`
+	Max *int32 `json:"Max,omitempty"`
+}
+
+// FloatRangeRequest is the {Min,Max *float64} shape shared by three
+// InstanceRequirements sub-fields: types.MemoryGiBPerVCpuRequest,
+// NetworkBandwidthGbpsRequest, TotalLocalStorageGBRequest (types.go, various).
+type FloatRangeRequest struct {
+	Min *float64 `json:"Min,omitempty"`
+	Max *float64 `json:"Max,omitempty"`
+}
+
+// PerformanceFactorReference mirrors AWS types.PerformanceFactorReferenceRequest
+// (types.go:2468): an instance family used as a CPU performance baseline.
+type PerformanceFactorReference struct {
+	InstanceFamily string `json:"InstanceFamily,omitempty"`
+}
+
+// CPUPerformanceFactor mirrors AWS types.CpuPerformanceFactorRequest
+// (types.go:550). References is serialized under the singular wire key
+// "Reference" with an "item"-wrapped list, not the usual "member"
+// (serializers.go:4971, 5918) -- verified directly, not inferred from the
+// field name.
+type CPUPerformanceFactor struct {
+	References []PerformanceFactorReference `json:"References,omitempty"`
+}
+
+// BaselinePerformanceFactors mirrors AWS types.BaselinePerformanceFactorsRequest
+// (types.go, referenced from InstanceRequirements at types.go:1267/2582).
+type BaselinePerformanceFactors struct {
+	CPU *CPUPerformanceFactor `json:"Cpu,omitempty"`
+}
+
+// InstanceRequirements mirrors AWS types.InstanceRequirements
+// (aws-sdk-go-v2/service/autoscaling/types/types.go:1267), used for
+// attribute-based instance type selection in a MixedInstancesPolicy override
+// in place of a fixed InstanceType.
+type InstanceRequirements struct {
+	RequireHibernateSupport    *bool                       `json:"RequireHibernateSupport,omitempty"`
+	MemoryGiBPerVCpu           *FloatRangeRequest          `json:"MemoryGiBPerVCpu,omitempty"`
+	AcceleratorCount           *IntRangeRequest            `json:"AcceleratorCount,omitempty"`
+	AcceleratorTotalMemoryMiB  *IntRangeRequest            `json:"AcceleratorTotalMemoryMiB,omitempty"`
+	BaselineEbsBandwidthMbps   *IntRangeRequest            `json:"BaselineEbsBandwidthMbps,omitempty"`
+	NetworkInterfaceCount      *IntRangeRequest            `json:"NetworkInterfaceCount,omitempty"`
+	BaselinePerformanceFactors *BaselinePerformanceFactors `json:"BaselinePerformanceFactors,omitempty"`
+	// omitempty dropped from the three *int32 tags below: the field names
+	// alone put them at (or over) the lll line-length limit.
+	SpotMaxPricePercentageOverLowestPrice *int32             `json:"SpotMaxPricePercentageOverLowestPrice"`
+	NetworkBandwidthGbps                  *FloatRangeRequest `json:"NetworkBandwidthGbps,omitempty"`
+	TotalLocalStorageGB                   *FloatRangeRequest `json:"TotalLocalStorageGB,omitempty"`
+
+	MaxSpotPriceAsPercentageOfOptimalOnDemandPrice *int32 `json:"MaxSpotPriceAsPercentageOfOptimalOnDemandPrice"`
+
+	VCpuCount                                 *IntRangeRequest `json:"VCpuCount,omitempty"`
+	OnDemandMaxPricePercentageOverLowestPrice *int32           `json:"OnDemandMaxPricePercentageOverLowestPrice"`
+	MemoryMiB                                 *IntRangeRequest `json:"MemoryMiB,omitempty"`
+	BareMetal                                 string           `json:"BareMetal,omitempty"`
+	BurstablePerformance                      string           `json:"BurstablePerformance,omitempty"`
+	LocalStorage                              string           `json:"LocalStorage,omitempty"`
+	AcceleratorManufacturers                  []string         `json:"AcceleratorManufacturers,omitempty"`
+	AcceleratorNames                          []string         `json:"AcceleratorNames,omitempty"`
+	AcceleratorTypes                          []string         `json:"AcceleratorTypes,omitempty"`
+	AllowedInstanceTypes                      []string         `json:"AllowedInstanceTypes,omitempty"`
+	CPUManufacturers                          []string         `json:"CpuManufacturers,omitempty"`
+	ExcludedInstanceTypes                     []string         `json:"ExcludedInstanceTypes,omitempty"`
+	InstanceGenerations                       []string         `json:"InstanceGenerations,omitempty"`
+	LocalStorageTypes                         []string         `json:"LocalStorageTypes,omitempty"`
 }
 
 // MixedInstancesLaunchTemplate is the launch template component of MixedInstancesPolicy.
@@ -353,7 +533,13 @@ type Instance struct {
 	HealthStatus            string    `json:"HealthStatus"`
 	LaunchConfigurationName string    `json:"LaunchConfigurationName,omitempty"`
 	InstanceType            string    `json:"InstanceType,omitempty"`
-	ProtectedFromScaleIn    bool      `json:"ProtectedFromScaleIn,omitempty"`
+	// LifecycleHookName is the hook currently gating this instance's
+	// Pending:Wait/Terminating:Wait state, if any -- internal-only (not part of
+	// AWS's AutoScalingInstanceDetails), so a restored group resumes its hook
+	// chain at the right position instead of restarting it (see
+	// rearmPendingWaits).
+	LifecycleHookName    string `json:"LifecycleHookName,omitempty"`
+	ProtectedFromScaleIn bool   `json:"ProtectedFromScaleIn,omitempty"`
 }
 
 // Tag is a key/value pair attached to a resource, optionally propagated to new instances.
@@ -455,8 +641,15 @@ type LifecycleHook struct {
 	NotificationTargetARN string `json:"NotificationTargetARN,omitempty"`
 	NotificationMetadata  string `json:"NotificationMetadata,omitempty"`
 	RoleARN               string `json:"RoleARN,omitempty"`
-	HeartbeatTimeout      int32  `json:"HeartbeatTimeout,omitempty"`
-	GlobalTimeout         int32  `json:"GlobalTimeout,omitempty"`
+	// Sequence orders this hook within its transition's chain (registration
+	// order). AWS exposes no order/priority field on PutLifecycleHookInput or
+	// LifecycleHookSpecification (autoscaling@v1.70.4
+	// api_op_PutLifecycleHook.go:70-140, types.go:1973-2020) though
+	// lifecycle-hooks.html documents hooks as an ordered chain, so this is
+	// internal-only: never sent or accepted on the wire.
+	Sequence         int64 `json:"sequence,omitempty"`
+	HeartbeatTimeout int32 `json:"HeartbeatTimeout,omitempty"`
+	GlobalTimeout    int32 `json:"GlobalTimeout,omitempty"`
 }
 
 // CompleteLifecycleActionInput holds the input for CompleteLifecycleAction.

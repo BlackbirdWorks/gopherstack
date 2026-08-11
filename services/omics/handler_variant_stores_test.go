@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/omics"
 )
 
 func TestOmics_VariantStore(t *testing.T) {
@@ -123,4 +125,112 @@ func TestListVariantImportJobs_FiltersByStatusStoreNameAndIds(t *testing.T) {
 	jobs2, ok := resp2["importJobs"].([]any)
 	require.True(t, ok)
 	require.Len(t, jobs2, 1)
+}
+
+// createVariantStorePair creates two variant stores, "vs-creating" (left in
+// CREATING) and "vs-active" (promoted to ACTIVE via a GET poll), and returns
+// their ids for the filter tests below.
+func createVariantStorePair(t *testing.T, h *omics.Handler) map[string]string {
+	t.Helper()
+
+	ids := map[string]string{}
+
+	for _, name := range []string{"vs-creating", "vs-active"} {
+		rec := doRequest(t, h, http.MethodPost, "/variantStore", map[string]any{"name": name})
+		require.Equal(t, http.StatusCreated, rec.Code)
+
+		var resp map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+		ids[name], _ = resp["id"].(string)
+	}
+
+	getRec := doRequest(t, h, http.MethodGet, "/variantStore/vs-active", nil)
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	return ids
+}
+
+func variantStoreNames(t *testing.T, raw any) []string {
+	t.Helper()
+
+	items, ok := raw.([]any)
+	require.True(t, ok)
+
+	names := make([]string, 0, len(items))
+
+	for _, item := range items {
+		m, itemOK := item.(map[string]any)
+		require.True(t, itemOK)
+		names = append(names, m["name"].(string))
+	}
+
+	return names
+}
+
+// TestListVariantStores_Filters verifies ListVariantStores applies its status
+// body filter and explicit ids list (real AWS ListVariantStoresInput body
+// "filter"/"ids").
+func TestListVariantStores_Filters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		reqBody   func(ids map[string]string) map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name: "status filter alone matches creating",
+			reqBody: func(map[string]string) map[string]any {
+				return map[string]any{"filter": map[string]any{"status": "CREATING"}}
+			},
+			wantNames: []string{"vs-creating"},
+		},
+		{
+			name: "status filter alone matches active",
+			reqBody: func(map[string]string) map[string]any {
+				return map[string]any{"filter": map[string]any{"status": "ACTIVE"}}
+			},
+			wantNames: []string{"vs-active"},
+		},
+		{
+			name: "ids filter alone",
+			reqBody: func(ids map[string]string) map[string]any {
+				return map[string]any{"ids": []string{ids["vs-creating"]}}
+			},
+			wantNames: []string{"vs-creating"},
+		},
+		{
+			name: "status and ids combined mismatch returns empty",
+			reqBody: func(ids map[string]string) map[string]any {
+				return map[string]any{
+					"filter": map[string]any{"status": "CREATING"},
+					"ids":    []string{ids["vs-active"]},
+				}
+			},
+			wantNames: []string{},
+		},
+		{
+			name: "unmatched status returns empty",
+			reqBody: func(map[string]string) map[string]any {
+				return map[string]any{"filter": map[string]any{"status": "DELETING"}}
+			},
+			wantNames: []string{},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			ids := createVariantStorePair(t, h)
+
+			rec := doRequest(t, h, http.MethodPost, "/variantStores", tc.reqBody(ids))
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.ElementsMatch(t, tc.wantNames, variantStoreNames(t, resp["variantStores"]))
+		})
+	}
 }

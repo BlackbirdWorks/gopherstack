@@ -12,43 +12,42 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/codeconnections"
 )
 
-// TestConnectionNameUniqueness verifies duplicate connection names are rejected.
-func TestConnectionNameUniqueness(t *testing.T) {
+// TestConnectionNameNotUnique verifies a duplicate ConnectionName is accepted,
+// not rejected. CreateConnection's real error list is exactly
+// [LimitExceededException, ResourceNotFoundException, ResourceUnavailableException]
+// (aws-sdk-go-v2/service/codeconnections@v1.13.4 deserializers.go:120-134,
+// awsAwsjson10_deserializeOpErrorCreateConnection's own switch) -- no
+// ResourceAlreadyExistsException, unlike sibling ops CreateRepositoryLink and
+// CreateSyncConfiguration in the same service, which both do list it
+// (deserializers.go:349/478 case blocks). That contrast shows the omission is
+// deliberate modeling, not an oversight, so a real client's second create
+// call for the same name succeeds with a distinct ARN.
+func TestConnectionNameNotUnique(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		connName      string
-		wantStatus    int
-		wantDuplicate bool
+		name     string
+		connName string
 	}{
-		{
-			name:       "unique_name_succeeds",
-			connName:   "only-created-once",
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:          "duplicate_name_rejected",
-			connName:      "duplicate-target",
-			wantDuplicate: true,
-			wantStatus:    http.StatusBadRequest,
-		},
+		{name: "unique_name_succeeds", connName: "only-created-once"},
+		{name: "duplicate_name_also_succeeds", connName: "duplicate-target"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
-			// Pre-seed the duplicate case.
-			if tt.wantDuplicate {
-				createConn(t, h, tt.connName, "GitHub")
-			}
+
+			arn1 := createConn(t, h, tt.connName, "GitHub")
 
 			rec := doJSON(t, h, "CreateConnection", map[string]any{
 				"ConnectionName": tt.connName,
 				"ProviderType":   "GitHub",
 			})
-			assert.Equal(t, tt.wantStatus, rec.Code)
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+
+			arn2 := parseResp(t, rec)["ConnectionArn"].(string)
+			assert.NotEqual(t, arn1, arn2, "duplicate-named connections must still get distinct ARNs")
 		})
 	}
 }
@@ -122,8 +121,10 @@ func TestCreateConnectionAllProviderTypes(t *testing.T) {
 	}
 }
 
-// TestErrAlreadyExistsMapping verifies that ErrAlreadyExists maps to
-// an HTTP error response.
+// TestErrAlreadyExistsMapping verifies that ErrAlreadyExists maps to a 400
+// with the ResourceAlreadyExistsException wire type, using
+// CreateRepositoryLink -- unlike CreateConnection/CreateHost, its real error
+// list does include ResourceAlreadyExistsException (deserializers.go:349).
 func TestErrAlreadyExistsMapping(t *testing.T) {
 	t.Parallel()
 
@@ -131,22 +132,20 @@ func TestErrAlreadyExistsMapping(t *testing.T) {
 		name       string
 		wantStatus int
 	}{
-		{name: "duplicate_connection_is_400", wantStatus: http.StatusBadRequest},
+		{name: "duplicate_repository_link_is_400", wantStatus: http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler()
-			rec1 := doJSON(t, h, "CreateConnection", map[string]any{
-				"ConnectionName": "dup-conn",
-				"ProviderType":   "GitHub",
-			})
-			require.Equal(t, http.StatusOK, rec1.Code)
+			connArn := createConn(t, h, "dup-link-conn", "GitHub")
+			createRepositoryLink(t, h, connArn, "my-org", "my-repo")
 
-			rec2 := doJSON(t, h, "CreateConnection", map[string]any{
-				"ConnectionName": "dup-conn",
-				"ProviderType":   "GitHub",
+			rec2 := doJSON(t, h, "CreateRepositoryLink", map[string]any{
+				"ConnectionArn":  connArn,
+				"OwnerId":        "my-org",
+				"RepositoryName": "my-repo",
 			})
 			assert.Equal(t, tt.wantStatus, rec2.Code)
 			resp := parseResp(t, rec2)

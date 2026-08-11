@@ -268,6 +268,99 @@ func TestInMemoryBackend_Persistence(t *testing.T) {
 			},
 		},
 		{
+			name: "snapshot_restore_preserves_customized_metric_specification",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "customized-metric-persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+				})
+				_, _ = b.PutScalingPolicy(autoscaling.ScalingPolicyInput{
+					PolicyName:           "customized-metric-policy",
+					AutoScalingGroupName: "customized-metric-persist-asg",
+					PolicyType:           "TargetTrackingScaling",
+					TargetValue:          50,
+					CustomizedMetricSpecification: &autoscaling.CustomizedMetricSpecification{
+						Metrics: []autoscaling.MetricDataQuery{
+							{
+								ID: "m1",
+								MetricStat: &autoscaling.MetricDataStat{
+									Metric: &autoscaling.MetricRef{
+										MetricName: "CPUUtilization",
+										Namespace:  "AWS/EC2",
+										Dimensions: []autoscaling.MetricDimension{
+											{Name: "AutoScalingGroupName", Value: "customized-metric-persist-asg"},
+										},
+									},
+									Stat: "Average",
+								},
+							},
+						},
+					},
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				policies, err := b.DescribePolicies("customized-metric-persist-asg", nil)
+				require.NoError(t, err)
+				require.Len(t, policies, 1)
+
+				spec := policies[0].CustomizedMetricSpecification
+				require.NotNil(t, spec)
+				require.Len(t, spec.Metrics, 1)
+				assert.Equal(t, "m1", spec.Metrics[0].ID)
+				require.NotNil(t, spec.Metrics[0].MetricStat)
+				require.NotNil(t, spec.Metrics[0].MetricStat.Metric)
+				assert.Equal(t, "CPUUtilization", spec.Metrics[0].MetricStat.Metric.MetricName)
+				require.Len(t, spec.Metrics[0].MetricStat.Metric.Dimensions, 1)
+				assert.Equal(t, "AutoScalingGroupName", spec.Metrics[0].MetricStat.Metric.Dimensions[0].Name)
+			},
+		},
+		{
+			name: "snapshot_restore_preserves_baseline_performance_factors",
+			setup: func(b *autoscaling.InMemoryBackend) {
+				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{
+					AutoScalingGroupName: "baseline-perf-persist-asg",
+					MinSize:              1,
+					MaxSize:              3,
+					MixedInstancesPolicy: &autoscaling.MixedInstancesPolicy{
+						LaunchTemplate: autoscaling.MixedInstancesLaunchTemplate{
+							Overrides: []autoscaling.LaunchTemplateOverride{
+								{
+									InstanceRequirements: &autoscaling.InstanceRequirements{
+										BaselinePerformanceFactors: &autoscaling.BaselinePerformanceFactors{
+											CPU: &autoscaling.CPUPerformanceFactor{
+												References: []autoscaling.PerformanceFactorReference{
+													{InstanceFamily: "m5"},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				})
+			},
+			check: func(t *testing.T, b *autoscaling.InMemoryBackend) {
+				t.Helper()
+
+				groups, err := b.DescribeAutoScalingGroups([]string{"baseline-perf-persist-asg"})
+				require.NoError(t, err)
+				require.Len(t, groups, 1)
+				require.NotNil(t, groups[0].MixedInstancesPolicy)
+				require.Len(t, groups[0].MixedInstancesPolicy.LaunchTemplate.Overrides, 1)
+
+				ir := groups[0].MixedInstancesPolicy.LaunchTemplate.Overrides[0].InstanceRequirements
+				require.NotNil(t, ir)
+				require.NotNil(t, ir.BaselinePerformanceFactors)
+				require.NotNil(t, ir.BaselinePerformanceFactors.CPU)
+				require.Len(t, ir.BaselinePerformanceFactors.CPU.References, 1)
+				assert.Equal(t, "m5", ir.BaselinePerformanceFactors.CPU.References[0].InstanceFamily)
+			},
+		},
+		{
 			name: "snapshot_restore_rebuilds_instance_index",
 			setup: func(b *autoscaling.InMemoryBackend) {
 				_, _ = b.CreateAutoScalingGroup(autoscaling.CreateAutoScalingGroupInput{

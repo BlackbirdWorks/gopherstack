@@ -20,14 +20,10 @@ func (b *InMemoryBackend) InitializeService() {
 	b.serviceInitialized = true
 }
 
-// requireInitializedLocked returns an UninitializedAccountException-shaped
-// error if InitializeService has never been called for this account.
-// Callers must hold b.mu (either lock). Called first by every legacy
-// (non-tagging, non-/network-migration/) op whose own error set includes
-// UninitializedAccountException -- see PARITY.md's per-op tables; ops
-// outside that 69-op legacy set (the tagging trio, all 25
-// /network-migration/ ops, and InitializeService itself) must NOT call
-// this.
+// requireInitializedLocked returns an UninitializedAccountException-shaped error
+// if InitializeService has never been called for this account. Callers must hold
+// b.mu (either lock). The tagging trio, /network-migration/ ops, and
+// InitializeService itself must NOT call this -- see PARITY.md's per-op tables.
 func (b *InMemoryBackend) requireInitializedLocked() error {
 	if !b.serviceInitialized {
 		return uninitializedAccountError("account has not been initialized; call InitializeService first")
@@ -41,11 +37,12 @@ type ManagedAccount struct {
 	AccountID string
 }
 
-// ListManagedAccounts returns the accounts this caller manages. This
-// backend does not simulate real AWS Organizations delegated-admin
-// multi-account MGN management (a real, non-trivial cross-account feature
-// PARITY.md explicitly scopes out) -- it honestly returns only the calling
-// account itself, never fabricated data for other accounts.
+// ListManagedAccounts returns the accounts this caller manages: every real
+// account in this account's AWS Organizations organization
+// (resolveManagedAccountsLocked, cross_service.go) when this account is that
+// organization's management account or a registered MGN delegated
+// administrator, else just the calling account itself -- never fabricated
+// data for another account.
 func (b *InMemoryBackend) ListManagedAccounts() ([]ManagedAccount, error) {
 	b.mu.RLock("ListManagedAccounts")
 	defer b.mu.RUnlock()
@@ -54,5 +51,12 @@ func (b *InMemoryBackend) ListManagedAccounts() ([]ManagedAccount, error) {
 		return nil, err
 	}
 
-	return []ManagedAccount{{AccountID: b.accountID}}, nil
+	ids := b.resolveManagedAccountsLocked()
+	out := make([]ManagedAccount, len(ids))
+
+	for i, id := range ids {
+		out[i] = ManagedAccount{AccountID: id}
+	}
+
+	return out, nil
 }

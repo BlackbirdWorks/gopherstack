@@ -28,6 +28,8 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	b.mu.Lock("PollForDecisionTask")
 	defer b.mu.Unlock()
 
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	key := domain + ":" + taskList
 	queue := b.decisionQueues[key]
 	if len(queue) == 0 {
@@ -45,7 +47,7 @@ func (b *InMemoryBackend) PollForDecisionTask(
 		TaskToken:  task.TaskToken,
 	})
 
-	histEvents := b.history[domain+":"+task.WorkflowID]
+	histEvents := b.history[executionKey(domain, task.WorkflowID, task.RunID)]
 	if len(histEvents) > 0 {
 		cp := make([]HistoryEvent, len(histEvents))
 		copy(cp, histEvents)
@@ -56,7 +58,7 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	}
 
 	// Populate workflow type from execution if known.
-	if exec, ok := b.executions.Get(domain + ":" + task.WorkflowID); ok {
+	if exec, ok := b.executions.Get(executionKey(domain, task.WorkflowID, task.RunID)); ok {
 		task.WorkflowTypeName = exec.WorkflowTypeName
 		task.WorkflowTypeVersion = exec.WorkflowTypeVersion
 	}
@@ -72,14 +74,15 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 	b.mu.Lock("RespondDecisionTaskCompleted")
 	defer b.mu.Unlock()
 
+	b.sweepTimedOutExecutionsLocked(time.Now())
+
 	rec, ok := b.activeDecisionTasks.Get(taskToken)
 	if !ok {
 		return fmt.Errorf("%w: decision task token %s not found", ErrNotFound, taskToken)
 	}
 	b.activeDecisionTasks.Delete(taskToken)
 
-	key := rec.Domain + ":" + rec.WorkflowID
-	exec, ok := b.executions.Get(key)
+	exec, ok := b.executions.Get(executionKey(rec.Domain, rec.WorkflowID, rec.RunID))
 	if !ok {
 		return nil
 	}
@@ -88,16 +91,18 @@ func (b *InMemoryBackend) RespondDecisionTaskCompleted(
 		exec.LatestExecutionContext = executionContext
 	}
 
-	dtcEventID := b.appendHistoryEventLocked(rec.Domain, rec.WorkflowID, "DecisionTaskCompleted", map[string]any{
-		eventAttrKey("DecisionTaskCompleted"): map[string]any{
-			"executionContext": executionContext,
-		},
-	})
+	dtcEventID := b.appendHistoryEventLocked(
+		rec.Domain, rec.WorkflowID, rec.RunID, "DecisionTaskCompleted", map[string]any{
+			eventAttrKey("DecisionTaskCompleted"): map[string]any{
+				"executionContext": executionContext,
+			},
+		})
 
 	for _, d := range decisions {
 		dc := decisionCtx{
 			domain:                       rec.Domain,
 			workflowID:                   rec.WorkflowID,
+			runID:                        rec.RunID,
 			exec:                         exec,
 			decision:                     d,
 			decisionTaskCompletedEventID: dtcEventID,
@@ -117,6 +122,7 @@ type decisionCtx struct {
 	exec                         *WorkflowExecution
 	domain                       string
 	workflowID                   string
+	runID                        string
 	decision                     Decision
 	decisionTaskCompletedEventID int64
 }
@@ -160,7 +166,7 @@ func (b *InMemoryBackend) handleCompleteWorkflowExecutionDecision(dc decisionCtx
 	dc.exec.Status = statusCompleted
 	dc.exec.CloseStatus = statusCompleted
 	dc.exec.CloseTimestamp = float64(time.Now().UnixMilli()) / milliDivisor
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "WorkflowExecutionCompleted", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "WorkflowExecutionCompleted", map[string]any{
 		eventAttrKey("WorkflowExecutionCompleted"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			attrResult:     result,
@@ -183,7 +189,7 @@ func (b *InMemoryBackend) handleFailWorkflowExecutionDecision(dc decisionCtx) {
 	dc.exec.Status = statusFailed
 	dc.exec.CloseStatus = statusFailed
 	dc.exec.CloseTimestamp = float64(time.Now().UnixMilli()) / milliDivisor
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "WorkflowExecutionFailed", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "WorkflowExecutionFailed", map[string]any{
 		eventAttrKey("WorkflowExecutionFailed"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			attrReason:     reason,
@@ -203,7 +209,7 @@ func (b *InMemoryBackend) handleCancelWorkflowExecutionDecision(dc decisionCtx) 
 	dc.exec.Status = statusCanceled
 	dc.exec.CloseStatus = statusCanceled
 	dc.exec.CloseTimestamp = float64(time.Now().UnixMilli()) / milliDivisor
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "WorkflowExecutionCanceled", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "WorkflowExecutionCanceled", map[string]any{
 		eventAttrKey("WorkflowExecutionCanceled"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			attrDetails:    details,
@@ -226,18 +232,19 @@ func (b *InMemoryBackend) handleScheduleActivityTaskDecision(dc decisionCtx) {
 	if taskList == "" {
 		taskList = dc.exec.TaskList
 	}
-	scheduledEventID := b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ActivityTaskScheduled", map[string]any{
-		eventAttrKey("ActivityTaskScheduled"): map[string]any{
-			attrDTCEventID: dc.decisionTaskCompletedEventID,
-			"activityType": map[string]any{
-				attrName:    attrs.ActivityType.Name,
-				attrVersion: attrs.ActivityType.Version,
+	scheduledEventID := b.appendHistoryEventLocked(
+		dc.domain, dc.workflowID, dc.runID, "ActivityTaskScheduled", map[string]any{
+			eventAttrKey("ActivityTaskScheduled"): map[string]any{
+				attrDTCEventID: dc.decisionTaskCompletedEventID,
+				"activityType": map[string]any{
+					attrName:    attrs.ActivityType.Name,
+					attrVersion: attrs.ActivityType.Version,
+				},
+				"activityId": attrs.ActivityID,
+				attrInput:    attrs.Input,
+				attrTaskList: map[string]any{attrName: taskList},
 			},
-			"activityId": attrs.ActivityID,
-			attrInput:    attrs.Input,
-			attrTaskList: map[string]any{attrName: taskList},
-		},
-	})
+		})
 	qkey := dc.domain + ":" + taskList
 	b.activityQueues[qkey] = append(b.activityQueues[qkey], &ActivityTask{
 		ActivityID:       attrs.ActivityID,
@@ -254,7 +261,7 @@ func (b *InMemoryBackend) handleRequestCancelActivityTaskDecision(dc decisionCtx
 	if dc.decision.RequestCancelActivityTaskAttrs != nil {
 		activityID = dc.decision.RequestCancelActivityTaskAttrs.ActivityID
 	}
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "ActivityTaskCancelRequested", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "ActivityTaskCancelRequested", map[string]any{
 		eventAttrKey("ActivityTaskCancelRequested"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			"activityId":   activityID,
@@ -273,7 +280,7 @@ func (b *InMemoryBackend) handleStartTimerDecision(dc decisionCtx) {
 		return
 	}
 	if slices.Contains(dc.exec.OpenTimerIDs, attrs.TimerID) {
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "StartTimerFailed", map[string]any{
+		b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "StartTimerFailed", map[string]any{
 			eventAttrKey("StartTimerFailed"): map[string]any{
 				attrDTCEventID: dc.decisionTaskCompletedEventID,
 				attrTimerID:    attrs.TimerID,
@@ -284,7 +291,7 @@ func (b *InMemoryBackend) handleStartTimerDecision(dc decisionCtx) {
 		return
 	}
 	dc.exec.OpenTimerIDs = append(dc.exec.OpenTimerIDs, attrs.TimerID)
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "TimerStarted", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerStarted", map[string]any{
 		eventAttrKey("TimerStarted"): map[string]any{
 			attrDTCEventID:       dc.decisionTaskCompletedEventID,
 			attrTimerID:          attrs.TimerID,
@@ -304,7 +311,7 @@ func (b *InMemoryBackend) handleCancelTimerDecision(dc decisionCtx) {
 	}
 	idx := slices.Index(dc.exec.OpenTimerIDs, attrs.TimerID)
 	if idx == -1 {
-		b.appendHistoryEventLocked(dc.domain, dc.workflowID, "CancelTimerFailed", map[string]any{
+		b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "CancelTimerFailed", map[string]any{
 			eventAttrKey("CancelTimerFailed"): map[string]any{
 				attrDTCEventID: dc.decisionTaskCompletedEventID,
 				attrTimerID:    attrs.TimerID,
@@ -315,7 +322,7 @@ func (b *InMemoryBackend) handleCancelTimerDecision(dc decisionCtx) {
 		return
 	}
 	dc.exec.OpenTimerIDs = slices.Delete(dc.exec.OpenTimerIDs, idx, idx+1)
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "TimerCanceled", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerCanceled", map[string]any{
 		eventAttrKey("TimerCanceled"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			attrTimerID:    attrs.TimerID,
@@ -329,7 +336,7 @@ func (b *InMemoryBackend) handleRecordMarkerDecision(dc decisionCtx) {
 		markerName = dc.decision.RecordMarkerAttrs.MarkerName
 		details = dc.decision.RecordMarkerAttrs.Details
 	}
-	b.appendHistoryEventLocked(dc.domain, dc.workflowID, "MarkerRecorded", map[string]any{
+	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "MarkerRecorded", map[string]any{
 		eventAttrKey("MarkerRecorded"): map[string]any{
 			attrDTCEventID: dc.decisionTaskCompletedEventID,
 			"markerName":   markerName,

@@ -97,6 +97,7 @@ func (b *InMemoryBackend) DeleteVirtualGateway(meshName, name string) (*VirtualG
 	}
 	b.virtualGWs.Delete(key)
 	delete(b.tags, vg.Meta.Arn)
+	vg.Status = statusDeleted
 
 	return vg, nil
 }
@@ -225,10 +226,12 @@ func (b *InMemoryBackend) DeleteGatewayRoute(meshName, virtualGatewayName, route
 	}
 	b.gatewayRoutes.Delete(key)
 	delete(b.tags, gr.Meta.Arn)
+	gr.Status = statusDeleted
 
 	return gr, nil
 }
 
+//nolint:dupl // list/create pattern is structurally identical across resource types
 func (b *InMemoryBackend) ListGatewayRoutes(
 	meshName, virtualGatewayName string, maxResults int32, nextToken string,
 ) ([]*GatewayRouteSummary, string, error) {

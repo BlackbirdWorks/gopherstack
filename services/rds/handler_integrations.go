@@ -175,6 +175,8 @@ func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, intg.IntegrationArn)
+
 	x := toXMLIntegration(intg, h.Backend.ListTagsForResource(intg.IntegrationArn))
 
 	return &createIntegrationResponse{

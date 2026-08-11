@@ -18,6 +18,7 @@ func (b *InMemoryBackend) CreateOptionGroup(name, engine, majorVersion, descript
 	og := &OptionGroup{
 		OptionGroupName:        name,
 		OptionGroupDescription: description,
+		OptionGroupArn:         b.rdsARN("og", name),
 		EngineName:             engine,
 		MajorEngineVersion:     majorVersion,
 		Options:                []OptionGroupOption{},

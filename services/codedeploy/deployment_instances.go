@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+
+	ec2backend "github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
 // targetStatusForDeployment maps a Deployment's own lifecycle Status to the
@@ -100,10 +102,12 @@ func (b *InMemoryBackend) ecsDeploymentTargets(
 
 // instanceDeploymentTargets builds one instanceTarget per registered,
 // currently-registered (not deregistered) on-premises instance whose tags
-// satisfy the deployment group's on-premises targeting configuration. This
-// backend has no live EC2 instance registry to resolve Ec2TagFilters/Ec2TagSet
-// against, so those match zero instances here (documented as a known
-// simplification in PARITY.md rather than silently fabricated).
+// satisfy the deployment group's on-premises targeting configuration, plus
+// one instanceTarget per non-terminated services/ec2 instance whose tags
+// satisfy Ec2TagFilters/Ec2TagSet, when the EC2 backend is wired (see
+// cross_service.go). Without EC2 wired (e.g. unit tests constructing
+// InMemoryBackend directly), Ec2TagFilters/Ec2TagSet still match zero
+// instances -- a documented simplification, not silently fabricated.
 func (b *InMemoryBackend) instanceDeploymentTargets(
 	d *Deployment, dg *DeploymentGroup, status string, updatedAt time.Time,
 ) []DeploymentTargetRecord {
@@ -124,6 +128,49 @@ func (b *InMemoryBackend) instanceDeploymentTargets(
 			TargetType:    targetTypeInstance,
 			Status:        status,
 			TargetArn:     arn.Build("codedeploy", b.region, b.accountID, "instance:"+inst.InstanceName),
+			InstanceLabel: "BLUE",
+			LastUpdatedAt: updatedAt,
+		})
+	}
+
+	targets = append(targets, b.ec2DeploymentTargets(d, dg, status, updatedAt)...)
+
+	return targets
+}
+
+// ec2DeploymentTargets builds one instanceTarget per services/ec2 instance
+// whose tags satisfy dg's Ec2TagFilters/Ec2TagSet, excluding instances that
+// are terminated or terminating (TerminateInstances moves an instance to
+// shutting-down immediately and to terminated only once the ec2 backend's
+// background reconciler advances it -- see ec2/instances.go:921's "any state
+// -> shutting-down -> terminated" comment -- so both states must be excluded,
+// not just the terminal one, or a just-terminated instance stays targetable
+// until the reconciler catches up). Returns nil when the EC2 backend isn't wired.
+func (b *InMemoryBackend) ec2DeploymentTargets(
+	d *Deployment, dg *DeploymentGroup, status string, updatedAt time.Time,
+) []DeploymentTargetRecord {
+	ec2Bk, ok := b.ec2Backend()
+	if !ok {
+		return nil
+	}
+
+	var targets []DeploymentTargetRecord
+
+	for _, inst := range ec2Bk.DescribeInstances(nil, "") {
+		if inst.State.Name == ec2backend.StateTerminated.Name || inst.State.Name == ec2backend.StateShuttingDown.Name {
+			continue
+		}
+
+		if !matchesEc2Targeting(ec2Bk.TagsForResource(inst.ID), dg) {
+			continue
+		}
+
+		targets = append(targets, DeploymentTargetRecord{
+			DeploymentID:  d.DeploymentID,
+			TargetID:      inst.ID,
+			TargetType:    targetTypeInstance,
+			Status:        status,
+			TargetArn:     arn.Build("ec2", b.region, b.accountID, "instance/"+inst.ID),
 			InstanceLabel: "BLUE",
 			LastUpdatedAt: updatedAt,
 		})

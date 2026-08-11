@@ -22,10 +22,14 @@ func TestHandler_CreateHsmClientCertificate(t *testing.T) {
 		wantCode     int
 	}{
 		{
-			name:         "success",
-			body:         "Action=CreateHsmClientCertificate&Version=2012-12-01&HsmClientCertificateIdentifier=my-cert",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateHsmClientCertificateResponse", "my-cert", "PUBLIC KEY"},
+			name: "success",
+			body: "Action=CreateHsmClientCertificate&Version=2012-12-01&HsmClientCertificateIdentifier=my-cert" +
+				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateHsmClientCertificateResponse", "my-cert", "PUBLIC KEY",
+				"<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>",
+			},
 		},
 		{
 			name:         "missing_identifier",
@@ -185,10 +189,14 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 			body: "Action=CreateHsmConfiguration&Version=2012-12-01" +
 				"&HsmConfigurationIdentifier=my-hsm-config" +
 				"&Description=My+HSM+configuration" +
-				"&HsmIPAddress=192.168.1.100" +
-				"&HsmPartitionName=my-partition",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateHsmConfigurationResponse", "my-hsm-config", "192.168.1.100", "my-partition"},
+				"&HsmIpAddress=192.168.1.100" +
+				"&HsmPartitionName=my-partition" +
+				"&Tags.Tag.1.Key=env&Tags.Tag.1.Value=prod",
+			wantCode: http.StatusOK,
+			wantContains: []string{
+				"CreateHsmConfigurationResponse", "my-hsm-config", "192.168.1.100", "my-partition",
+				"<Tags><Tag><Key>env</Key><Value>prod</Value></Tag></Tags>",
+			},
 		},
 		{
 			name:         "missing_identifier",
@@ -200,7 +208,7 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 			name: "duplicate",
 			body: "Action=CreateHsmConfiguration&Version=2012-12-01" +
 				"&HsmConfigurationIdentifier=dup-config" +
-				"&HsmIPAddress=10.0.0.1" +
+				"&HsmIpAddress=10.0.0.1" +
 				"&HsmPartitionName=p1",
 			wantCode:     http.StatusBadRequest,
 			wantContains: []string{"HsmConfigurationAlreadyExists"},
@@ -214,7 +222,7 @@ func TestHandler_CreateHsmConfiguration(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "duplicate" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=dup-config&HsmIPAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=dup-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)
@@ -265,7 +273,7 @@ func TestHandler_DeleteHsmConfiguration(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "success" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=my-config&HsmIPAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=my-config&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)
@@ -322,7 +330,7 @@ func TestHandler_DescribeHsmConfigurations(t *testing.T) {
 			h := newRedshiftHandler()
 			if tt.name == "with_data" || tt.name == "filter_by_id" {
 				postRedshiftForm(t, h, "Action=CreateHsmConfiguration&Version=2012-12-01"+
-					"&HsmConfigurationIdentifier=hsm-config-1&HsmIPAddress=10.0.0.1&HsmPartitionName=p1")
+					"&HsmConfigurationIdentifier=hsm-config-1&HsmIpAddress=10.0.0.1&HsmPartitionName=p1")
 			}
 
 			rec := postRedshiftForm(t, h, tt.body)

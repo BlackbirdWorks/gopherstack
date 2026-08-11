@@ -19,6 +19,7 @@ type objectCommonDetails struct {
 	ChecksumSHA1      *string
 	ChecksumSHA256    *string
 	ChecksumCRC64NVME *string
+	TagCount          *int32
 	SSEAlgorithm      string
 	SSEKMSKeyID       string
 	SSECAlgorithm     string

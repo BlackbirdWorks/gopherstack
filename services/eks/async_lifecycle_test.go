@@ -2,6 +2,7 @@ package eks //nolint:testpackage // existing issue.
 
 import (
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -31,30 +32,41 @@ func TestAsyncLifecycle_Cluster(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-			defer b.Reset()
+			synctest.Test(t, func(t *testing.T) {
+				b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+				defer b.Reset()
 
-			created, err := b.CreateCluster("clstr", "", "arn:aws:iam::123456789012:role/eks", nil, nil, nil)
-			if err != nil {
-				t.Fatalf("CreateCluster: %v", err)
-			}
+				created, err := b.CreateCluster(
+					"clstr",
+					"",
+					"arn:aws:iam::123456789012:role/eks",
+					nil,
+					nil,
+					nil,
+				)
+				if err != nil {
+					t.Fatalf("CreateCluster: %v", err)
+				}
 
-			if created.Status != statusCreating {
-				t.Fatalf("returned status = %q, want %q", created.Status, statusCreating)
-			}
+				if created.Status != statusCreating {
+					t.Fatalf("returned status = %q, want %q", created.Status, statusCreating)
+				}
 
-			if tt.wait {
-				time.Sleep(clusterTransitionDelay + 50*time.Millisecond)
-			}
+				if tt.wait {
+					// Strictly longer than the transition delay: two timers due
+					// at the same fake instant have no guaranteed fire order.
+					time.Sleep(clusterTransitionDelay + time.Millisecond)
+				}
 
-			got, err := b.DescribeCluster("clstr")
-			if err != nil {
-				t.Fatalf("DescribeCluster: %v", err)
-			}
+				got, err := b.DescribeCluster("clstr")
+				if err != nil {
+					t.Fatalf("DescribeCluster: %v", err)
+				}
 
-			if got.Status != tt.wantStatus {
-				t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
-			}
+				if got.Status != tt.wantStatus {
+					t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
+				}
+			})
 		})
 	}
 }
@@ -85,45 +97,48 @@ func TestAsyncLifecycle_Nodegroup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
-			defer b.Reset()
+			synctest.Test(t, func(t *testing.T) {
+				b := NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+				defer b.Reset()
 
-			// Wait for the cluster to become ACTIVE so nodegroup creation is valid
-			// and not confused with the cluster's own transition.
-			if _, err := b.CreateCluster("clstr", "", "arn:aws:iam::123456789012:role/eks", nil, nil, nil); err != nil {
-				t.Fatalf("CreateCluster: %v", err)
-			}
+				// Wait for the cluster to become ACTIVE so nodegroup creation is
+				// valid and not confused with the cluster's own transition.
+				_, err := b.CreateCluster("clstr", "", "arn:aws:iam::123456789012:role/eks", nil, nil, nil)
+				if err != nil {
+					t.Fatalf("CreateCluster: %v", err)
+				}
 
-			time.Sleep(clusterTransitionDelay + 50*time.Millisecond)
+				time.Sleep(clusterTransitionDelay + time.Millisecond)
 
-			created, err := b.CreateNodegroup(
-				"clstr", "ng1", "arn:aws:iam::123456789012:role/node",
-				"", "", "", "",
-				[]string{"t3.medium"},
-				2, 1, 3,
-				NodegroupInput{},
-				nil,
-			)
-			if err != nil {
-				t.Fatalf("CreateNodegroup: %v", err)
-			}
+				created, err := b.CreateNodegroup(
+					"clstr", "ng1", "arn:aws:iam::123456789012:role/node",
+					"", "", "", "",
+					[]string{"t3.medium"},
+					2, 1, 3,
+					NodegroupInput{},
+					nil,
+				)
+				if err != nil {
+					t.Fatalf("CreateNodegroup: %v", err)
+				}
 
-			if created.Status != statusCreating {
-				t.Fatalf("returned status = %q, want %q", created.Status, statusCreating)
-			}
+				if created.Status != statusCreating {
+					t.Fatalf("returned status = %q, want %q", created.Status, statusCreating)
+				}
 
-			if tt.wait {
-				time.Sleep(nodegroupTransitionDelay + 50*time.Millisecond)
-			}
+				if tt.wait {
+					time.Sleep(nodegroupTransitionDelay + time.Millisecond)
+				}
 
-			got, err := b.DescribeNodegroup("clstr", "ng1")
-			if err != nil {
-				t.Fatalf("DescribeNodegroup: %v", err)
-			}
+				got, err := b.DescribeNodegroup("clstr", "ng1")
+				if err != nil {
+					t.Fatalf("DescribeNodegroup: %v", err)
+				}
 
-			if got.Status != tt.wantStatus {
-				t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
-			}
+				if got.Status != tt.wantStatus {
+					t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
+				}
+			})
 		})
 	}
 }

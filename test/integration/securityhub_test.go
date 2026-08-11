@@ -71,7 +71,13 @@ func TestIntegration_SecurityHub_InsightLifecycle(t *testing.T) {
 			require.NotEmpty(t, insightArn, "insight ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteInsight(ctx, &securityhubsdk.DeleteInsightInput{InsightArn: aws.String(insightArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteInsight(
+					cleanupCtx,
+					&securityhubsdk.DeleteInsightInput{InsightArn: aws.String(insightArn)},
+				)
 			})
 
 			getOut, err := client.GetInsights(ctx, &securityhubsdk.GetInsightsInput{

@@ -10,6 +10,51 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// validatePackagingConfig checks the required-together sub-fields of the
+// typed packaging blocks (Authorization, MssPackage's SPEKE chain). Each
+// block itself is optional; if present, these members are required (SDK
+// doc comments, aws-sdk-go-v2/service/mediapackage@v1.42.4):
+// types.Authorization (types.go:10-26), types.MssEncryption (types.go:
+// 563-572), types.SpekeKeyProvider (types.go:681-721),
+// types.EncryptionContractConfiguration (types.go:246-259).
+func validatePackagingConfig(pkg PackagingConfig) error {
+	if pkg.Authorization != nil {
+		a := pkg.Authorization
+		if a.CdnIdentifierSecret == "" || a.SecretsRoleArn == "" {
+			return fmt.Errorf(
+				"%w: Authorization.CdnIdentifierSecret and Authorization.SecretsRoleArn are required",
+				ErrInvalidParameter,
+			)
+		}
+	}
+
+	if pkg.MssPackage == nil || pkg.MssPackage.Encryption == nil {
+		return nil
+	}
+
+	speke := pkg.MssPackage.Encryption.SpekeKeyProvider
+	if speke == nil {
+		return fmt.Errorf("%w: MssPackage.Encryption.SpekeKeyProvider is required", ErrInvalidParameter)
+	}
+
+	if speke.ResourceID == "" || speke.RoleArn == "" || speke.URL == "" || len(speke.SystemIDs) == 0 {
+		return fmt.Errorf(
+			"%w: SpekeKeyProvider.ResourceId, RoleArn, SystemIds, and Url are required",
+			ErrInvalidParameter,
+		)
+	}
+
+	ecc := speke.EncryptionContractConfiguration
+	if ecc != nil && (ecc.PresetSpeke20Audio == "" || ecc.PresetSpeke20Video == "") {
+		return fmt.Errorf(
+			"%w: EncryptionContractConfiguration.PresetSpeke20Audio and PresetSpeke20Video are required",
+			ErrInvalidParameter,
+		)
+	}
+
+	return nil
+}
+
 // CreateOriginEndpoint creates a new origin endpoint.
 func (b *InMemoryBackend) CreateOriginEndpoint(
 	channelID, id, description, manifestName string,
@@ -25,6 +70,10 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 
 	if id == "" {
 		return nil, fmt.Errorf("%w: Id is required", ErrInvalidParameter)
+	}
+
+	if err := validatePackagingConfig(pkg); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateOriginEndpoint")
@@ -70,11 +119,11 @@ func (b *InMemoryBackend) CreateOriginEndpoint(
 		TimeDelaySeconds:       timeDelaySeconds,
 		Whitelist:              wl,
 		Tags:                   tagsCopy,
-		Authorization:          copyAnyMap(pkg.Authorization),
+		Authorization:          copyAuthorization(pkg.Authorization),
 		CmafPackage:            copyAnyMap(pkg.CmafPackage),
 		DashPackage:            copyAnyMap(pkg.DashPackage),
 		HlsPackage:             copyAnyMap(pkg.HlsPackage),
-		MssPackage:             copyAnyMap(pkg.MssPackage),
+		MssPackage:             copyMssPackage(pkg.MssPackage),
 	}
 
 	b.originEndpoints.Put(ep)
@@ -108,6 +157,10 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 	whitelist []string,
 	pkg PackagingConfig,
 ) (*OriginEndpoint, error) {
+	if err := validatePackagingConfig(pkg); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("UpdateOriginEndpoint")
 	defer b.mu.Unlock()
 
@@ -143,7 +196,7 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 	}
 
 	if pkg.Authorization != nil {
-		ep.Authorization = copyAnyMap(pkg.Authorization)
+		ep.Authorization = copyAuthorization(pkg.Authorization)
 	}
 
 	if pkg.CmafPackage != nil {
@@ -159,7 +212,7 @@ func (b *InMemoryBackend) UpdateOriginEndpoint(
 	}
 
 	if pkg.MssPackage != nil {
-		ep.MssPackage = copyAnyMap(pkg.MssPackage)
+		ep.MssPackage = copyMssPackage(pkg.MssPackage)
 	}
 
 	return ep.toOriginEndpoint(), nil

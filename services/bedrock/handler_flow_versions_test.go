@@ -21,7 +21,7 @@ func TestFlowVersionCRUD(t *testing.T) {
 
 	var fb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &fb))
-	flowID := fb["flow"].(map[string]any)["flowId"].(string)
+	flowID, _ := fb["id"].(string)
 
 	// Create version
 	rec = doAgentRequest(t, h, http.MethodPost,
@@ -30,7 +30,7 @@ func TestFlowVersionCRUD(t *testing.T) {
 
 	var vb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vb))
-	version := vb["flowVersion"].(map[string]any)["version"].(string)
+	version, _ := vb["version"].(string)
 	assert.Equal(t, "1", version)
 
 	// Get version

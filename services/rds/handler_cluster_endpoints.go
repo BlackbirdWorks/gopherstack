@@ -14,6 +14,8 @@ func (h *Handler) handleCreateDBClusterEndpoint(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	h.applyCreateTags(vals, ep.DBClusterEndpointArn)
+
 	return &createDBClusterEndpointResponse{
 		Xmlns:  rdsXMLNS,
 		Result: createDBClusterEndpointResult{toXMLClusterEndpointFields(ep)},
@@ -56,6 +58,7 @@ func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointField
 	return xmlDBClusterEndpointFields{
 		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
 		DBClusterIdentifier:         ep.DBClusterIdentifier,
+		DBClusterEndpointArn:        ep.DBClusterEndpointArn,
 		EndpointType:                ep.EndpointType,
 		Status:                      ep.Status,
 		Endpoint:                    ep.Endpoint,
@@ -68,6 +71,7 @@ func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointField
 type xmlDBClusterEndpointFields struct {
 	DBClusterEndpointIdentifier string `xml:"DBClusterEndpointIdentifier"`
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
+	DBClusterEndpointArn        string `xml:"DBClusterEndpointArn,omitempty"`
 	EndpointType                string `xml:"EndpointType"`
 	Status                      string `xml:"Status"`
 	Endpoint                    string `xml:"Endpoint,omitempty"`

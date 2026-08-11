@@ -121,6 +121,34 @@ func arnResourcePart(resourceARN string) string {
 	return parts[arnPartCount-1]
 }
 
+// TaggedEntry pairs a resource ARN with its tag map, for cross-service tag
+// enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingGuardDuty).
+type TaggedEntry struct {
+	Tags map[string]string
+	ARN  string
+}
+
+// TaggedResources returns every GuardDuty resource ARN (detectors, filters,
+// IP sets, threat intel/entity sets, trusted entity sets, publishing
+// destinations, malware protection plans) that currently has at least one
+// tag applied via TagResource.
+func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
+	b.mu.RLock("TaggedResources")
+	defer b.mu.RUnlock()
+
+	out := make([]TaggedEntry, 0, len(b.tags))
+
+	for arn, t := range b.tags {
+		if len(t) == 0 {
+			continue
+		}
+
+		out = append(out, TaggedEntry{ARN: arn, Tags: maps.Clone(t)})
+	}
+
+	return out
+}
+
 // ListTagsForResource returns tags for a resource.
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) (map[string]string, error) {
 	b.mu.RLock("ListTagsForResource")

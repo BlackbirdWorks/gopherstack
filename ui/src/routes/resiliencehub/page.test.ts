@@ -172,11 +172,63 @@ describe("Resilience Hub Page", () => {
     mockSend.mockResolvedValueOnce({ app: exampleApp });
     mockSend.mockResolvedValueOnce({ tags: {} });
     mockSend.mockResolvedValueOnce({ appVersions: [] });
+    mockSend.mockResolvedValueOnce({
+      appArn: exampleApp.appArn,
+      appVersion: "draft",
+      additionalInfo: {},
+    });
     await fireEvent.click(screen.getByTitle("View"));
 
     await waitFor(() => {
       expect(within(openDialog()).getByText(/not computed by this emulator/)).toBeInTheDocument();
     });
+  });
+
+  it("shows and edits AppVersion additional info in the app detail view", async () => {
+    mockSend.mockResolvedValueOnce({ appSummaries: [exampleApp] });
+    render(ResilienceHubPage);
+    await waitFor(() => screen.getByRole("cell", { name: "example-app" }));
+
+    mockSend.mockResolvedValueOnce({ app: exampleApp });
+    mockSend.mockResolvedValueOnce({ tags: {} });
+    mockSend.mockResolvedValueOnce({ appVersions: [] });
+    mockSend.mockResolvedValueOnce({
+      appArn: exampleApp.appArn,
+      appVersion: "draft",
+      additionalInfo: { owner: ["team-a"] },
+    });
+    await fireEvent.click(screen.getByTitle("View"));
+
+    const dialog = openDialog();
+    await waitFor(() => {
+      expect(within(dialog).getByText("owner = team-a")).toBeInTheDocument();
+    });
+
+    await fireEvent.input(within(dialog).getByLabelText("New additional info key"), {
+      target: { value: "region" },
+    });
+    await fireEvent.input(within(dialog).getByLabelText("New additional info values"), {
+      target: { value: "us-east-1, us-west-2" },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      appArn: exampleApp.appArn,
+      appVersion: "draft",
+      additionalInfo: { owner: ["team-a"], region: ["us-east-1", "us-west-2"] },
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Add info" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("region = us-east-1, us-west-2")).toBeInTheDocument();
+    });
+    expect(mockSend).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        input: expect.objectContaining({
+          appArn: exampleApp.appArn,
+          additionalInfo: { owner: ["team-a"], region: ["us-east-1", "us-west-2"] },
+        }),
+      }),
+    );
   });
 
   it("switches to the assessments tab and starts an assessment for the selected app", async () => {

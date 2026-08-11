@@ -182,6 +182,7 @@ func TestDataSync_LocationS3AgentArns(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn := createTestAgent(t, h)
 
 	rec := doRequest(t, h, "CreateLocationS3", map[string]any{
 		"S3BucketArn":  "arn:aws:s3:::outposts-bucket",
@@ -189,7 +190,7 @@ func TestDataSync_LocationS3AgentArns(t *testing.T) {
 		"S3Config": map[string]any{
 			"BucketAccessRoleArn": "arn:aws:iam::000000000000:role/Role",
 		},
-		"AgentArns": []string{"arn:aws:datasync:us-east-1:000000000000:agent/agent1"},
+		"AgentArns": []string{agentArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -205,7 +206,7 @@ func TestDataSync_LocationS3AgentArns(t *testing.T) {
 	agentArns, ok := descResp["AgentArns"].([]any)
 	require.True(t, ok)
 	require.Len(t, agentArns, 1)
-	assert.Equal(t, "arn:aws:datasync:us-east-1:000000000000:agent/agent1", agentArns[0])
+	assert.Equal(t, agentArn, agentArns[0])
 
 	// Real DescribeLocationS3Output has neither S3BucketArn nor Subdirectory.
 	assert.Nil(t, descResp["S3BucketArn"])

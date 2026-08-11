@@ -18,7 +18,7 @@ type xmlDBRecommendation struct {
 }
 
 type xmlDBRecommendationList struct {
-	Members []xmlDBRecommendation `xml:"DBRecommendation"`
+	Members []xmlDBRecommendation `xml:"member"`
 }
 
 type modifyDBRecommendationResponse struct {

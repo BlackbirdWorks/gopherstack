@@ -438,7 +438,7 @@ func TestLifecyclePolicyResult_LastEvaluatedAt_IsEpochNumber(t *testing.T) {
 // lifecyclePolicyText/repositoryName/registryId/status. Confirmed by direct
 // diff of StartLifecyclePolicyPreviewOutput /
 // awsAwsjson11_deserializeOpDocumentStartLifecyclePolicyPreviewOutput in
-// aws-sdk-go-v2/service/ecr@v1.59.0: unlike GetLifecyclePolicyPreview, Start
+// aws-sdk-go-v2/service/ecr@v1.60.4: unlike GetLifecyclePolicyPreview, Start
 // does NOT return previewResults or summary -- those must be retrieved
 // separately via GetLifecyclePolicyPreview (see
 // TestLifecyclePolicyPreview_EntryShape below). The previous implementation

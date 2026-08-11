@@ -130,6 +130,7 @@ func TestDLM_LifecyclePolicy(t *testing.T) {
 				assert.Contains(t, policy["PolicyId"], "policy-")
 				assert.Equal(t, "test policy", policy["Description"])
 				assert.NotEmpty(t, policy["PolicyArn"])
+				assert.Contains(t, policy, "StatusMessage")
 			},
 		},
 		{

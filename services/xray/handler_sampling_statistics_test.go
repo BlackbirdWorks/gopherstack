@@ -428,6 +428,84 @@ func TestGetSamplingTargets_UnprocessedForUnknownRules(t *testing.T) {
 	}
 }
 
+// TestGetSamplingTargets_BoostStatistics verifies the wire-completeness half of
+// SamplingBoostStatisticsDocuments handling: known-rule documents are accepted
+// (not reported unprocessed) and unknown-rule documents are reported in
+// UnprocessedBoostStatistics. It also verifies SamplingTargetDocument.SamplingBoost
+// is NEVER populated, in any case -- gopherstack does not implement AWS's
+// unpublished boost-trigger algorithm, and a fabricated boost rate would be an
+// honest-looking number a client could act on, which is worse than an absent one.
+func TestGetSamplingTargets_BoostStatistics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		boost           *xray.SamplingRateBoost
+		boostDoc        map[string]any
+		name            string
+		wantUnprocessed int
+	}{
+		{
+			name:  "rule with boost and anomalies is accepted, not unprocessed",
+			boost: &xray.SamplingRateBoost{MaxRate: 0.5, CooldownWindowMinutes: 5},
+			boostDoc: map[string]any{
+				"RuleName": "boost-rule", "ServiceName": "svc", "TotalCount": 100, "AnomalyCount": 80,
+			},
+		},
+		{
+			name:  "rule with no SamplingRateBoost configured is still accepted, not unprocessed",
+			boost: nil,
+			boostDoc: map[string]any{
+				"RuleName": "boost-rule", "ServiceName": "svc", "TotalCount": 100, "AnomalyCount": 80,
+			},
+		},
+		{
+			name:  "boost stats for an unknown rule are unprocessed",
+			boost: &xray.SamplingRateBoost{MaxRate: 0.5, CooldownWindowMinutes: 5},
+			boostDoc: map[string]any{
+				"RuleName": "no-such-rule", "ServiceName": "svc", "TotalCount": 100, "AnomalyCount": 80,
+			},
+			wantUnprocessed: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, b := newTestHandlerWithBackend(t)
+			b.AddSamplingRuleInternal(xray.SamplingRule{
+				RuleName:          "boost-rule",
+				FixedRate:         0.05,
+				ReservoirSize:     5,
+				Priority:          1,
+				SamplingRateBoost: tt.boost,
+			})
+
+			rec := doXrayRequest(t, h, "/SamplingTargets", map[string]any{
+				"SamplingStatisticsDocuments": []map[string]any{
+					{"RuleName": "boost-rule", "ClientId": "c-1", "RequestCount": 100, "SampledCount": 5},
+				},
+				"SamplingBoostStatisticsDocuments": []map[string]any{tt.boostDoc},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+
+			unprocessedBoost, _ := resp["UnprocessedBoostStatistics"].([]any)
+			assert.Len(t, unprocessedBoost, tt.wantUnprocessed)
+
+			targets, ok := resp["SamplingTargetDocuments"].([]any)
+			require.True(t, ok)
+			require.Len(t, targets, 1)
+
+			target, _ := targets[0].(map[string]any)
+			assert.Nil(t, target["SamplingBoost"],
+				"SamplingBoost must never be populated -- the boost-trigger algorithm is unimplemented")
+		})
+	}
+}
+
 func TestGetSamplingStatisticSummaries_AccumulationFromTargets(t *testing.T) {
 	t.Parallel()
 

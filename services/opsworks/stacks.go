@@ -14,9 +14,11 @@ import (
 // aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateStack.go) -- a
 // well-behaved SDK client validates this locally before ever sending the
 // request, but a raw/non-SDK caller can still reach this handler with one
-// missing, so the backend must reject it too.
+// missing, so the backend must reject it too. opts carries a subset of the
+// remaining optional members (see CreateStackOptions's doc comment for what
+// is still unmodeled).
 func (b *InMemoryBackend) CreateStack(
-	name, region, defaultInstanceProfileArn, serviceRoleArn string,
+	name, region, defaultInstanceProfileArn, serviceRoleArn string, opts CreateStackOptions,
 ) (*Stack, error) {
 	if name == "" || region == "" || defaultInstanceProfileArn == "" || serviceRoleArn == "" {
 		return nil, ErrValidation
@@ -31,13 +33,17 @@ func (b *InMemoryBackend) CreateStack(
 
 	s := &storedStack{
 		CreatedAt:                 now,
+		ConfigurationManager:      opts.ConfigurationManager,
+		ChefConfiguration:         opts.ChefConfiguration,
 		Tags:                      make(map[string]string),
+		Attributes:                opts.Attributes,
 		StackID:                   id,
 		Arn:                       stackArn,
 		Name:                      name,
 		Region:                    region,
 		DefaultInstanceProfileArn: defaultInstanceProfileArn,
 		ServiceRoleArn:            serviceRoleArn,
+		VpcID:                     opts.VpcID,
 	}
 	b.stacks.Put(s)
 
@@ -228,13 +234,15 @@ func (b *InMemoryBackend) StopStack(stackID string) error {
 	return nil
 }
 
-// GetHostnameSuggestion returns a suggested hostname for a new instance.
-func (b *InMemoryBackend) GetHostnameSuggestion(stackID, _ string) (string, error) {
+// GetHostnameSuggestion returns a suggested hostname for a new instance on
+// the given layer. The real GetHostnameSuggestionInput has no StackId member
+// -- only LayerId -- so this must key off the layer, not a stack.
+func (b *InMemoryBackend) GetHostnameSuggestion(layerID string) (string, error) {
 	b.mu.RLock("GetHostnameSuggestion")
 	defer b.mu.RUnlock()
 
-	if !b.stacks.Has(stackID) {
-		return "", ErrStackNotFound
+	if !b.layers.Has(layerID) {
+		return "", ErrLayerNotFound
 	}
 
 	suffix := uuid.NewString()[:8]

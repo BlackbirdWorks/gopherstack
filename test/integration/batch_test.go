@@ -32,11 +32,14 @@ func TestIntegration_Batch_ComputeEnvironmentLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.ComputeEnvironmentArn))
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 			State:              batchtypes.CEStateDisabled,
 		})
-		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+		_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
 	})
@@ -106,18 +109,21 @@ func TestIntegration_Batch_JobQueueLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateJobQueue(cleanupCtx, &batch.UpdateJobQueueInput{
 			JobQueue: aws.String(jqName),
 			State:    batchtypes.JQStateDisabled,
 		})
-		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+		_, _ = client.DeleteJobQueue(cleanupCtx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
 		})
-		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 			State:              batchtypes.CEStateDisabled,
 		})
-		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+		_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
 	})
@@ -189,7 +195,10 @@ func TestIntegration_Batch_JobDefinitionLifecycle(t *testing.T) {
 	jdARN := aws.ToString(registerOut.JobDefinitionArn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeregisterJobDefinition(ctx, &batch.DeregisterJobDefinitionInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeregisterJobDefinition(cleanupCtx, &batch.DeregisterJobDefinitionInput{
 			JobDefinition: aws.String(jdARN),
 		})
 	})
@@ -237,7 +246,10 @@ func TestIntegration_Batch_ConsumableResourceLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.ConsumableResourceArn))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteConsumableResource(ctx, &batch.DeleteConsumableResourceInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteConsumableResource(cleanupCtx, &batch.DeleteConsumableResourceInput{
 			ConsumableResource: aws.String(crName),
 		})
 	})
@@ -275,7 +287,10 @@ func TestIntegration_Batch_SchedulingPolicyLifecycle(t *testing.T) {
 	spArn := aws.ToString(createOut.Arn)
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteSchedulingPolicy(ctx, &batch.DeleteSchedulingPolicyInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteSchedulingPolicy(cleanupCtx, &batch.DeleteSchedulingPolicyInput{
 			Arn: aws.String(spArn),
 		})
 	})
@@ -329,7 +344,10 @@ func TestIntegration_Batch_ServiceEnvironmentLifecycle(t *testing.T) {
 	assert.NotEmpty(t, aws.ToString(createOut.ServiceEnvironmentArn))
 
 	t.Cleanup(func() {
-		_, _ = client.DeleteServiceEnvironment(ctx, &batch.DeleteServiceEnvironmentInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.DeleteServiceEnvironment(cleanupCtx, &batch.DeleteServiceEnvironmentInput{
 			ServiceEnvironment: aws.String(seName),
 		})
 	})
@@ -403,11 +421,14 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 			State:              batchtypes.CEStateDisabled,
 		})
-		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+		_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
 	})
@@ -424,11 +445,14 @@ func TestIntegration_Batch_ListJobsAllQueues(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateJobQueue(cleanupCtx, &batch.UpdateJobQueueInput{
 			JobQueue: aws.String(qName),
 			State:    batchtypes.JQStateDisabled,
 		})
-		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+		_, _ = client.DeleteJobQueue(cleanupCtx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(qName),
 		})
 	})
@@ -499,11 +523,14 @@ func TestIntegration_Batch_UpdateJobQueue_ComputeEnvironments(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Cleanup(func() {
-			_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+			cleanupCtx, cancel := cleanupContext(t)
+			defer cancel()
+
+			_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 				ComputeEnvironment: aws.String(name),
 				State:              batchtypes.CEStateDisabled,
 			})
-			_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+			_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 				ComputeEnvironment: aws.String(name),
 			})
 		})
@@ -521,11 +548,14 @@ func TestIntegration_Batch_UpdateJobQueue_ComputeEnvironments(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateJobQueue(cleanupCtx, &batch.UpdateJobQueueInput{
 			JobQueue: aws.String(jqName),
 			State:    batchtypes.JQStateDisabled,
 		})
-		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+		_, _ = client.DeleteJobQueue(cleanupCtx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
 		})
 	})
@@ -572,11 +602,14 @@ func TestIntegration_Batch_SubmitJob_DisabledQueue(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 			State:              batchtypes.CEStateDisabled,
 		})
-		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+		_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
 	})
@@ -592,11 +625,14 @@ func TestIntegration_Batch_SubmitJob_DisabledQueue(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateJobQueue(cleanupCtx, &batch.UpdateJobQueueInput{
 			JobQueue: aws.String(jqName),
 			State:    batchtypes.JQStateDisabled,
 		})
-		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+		_, _ = client.DeleteJobQueue(cleanupCtx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
 		})
 	})
@@ -643,11 +679,14 @@ func TestIntegration_Batch_ListJobs_ByStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateComputeEnvironment(ctx, &batch.UpdateComputeEnvironmentInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateComputeEnvironment(cleanupCtx, &batch.UpdateComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 			State:              batchtypes.CEStateDisabled,
 		})
-		_, _ = client.DeleteComputeEnvironment(ctx, &batch.DeleteComputeEnvironmentInput{
+		_, _ = client.DeleteComputeEnvironment(cleanupCtx, &batch.DeleteComputeEnvironmentInput{
 			ComputeEnvironment: aws.String(ceName),
 		})
 	})
@@ -663,11 +702,14 @@ func TestIntegration_Batch_ListJobs_ByStatus(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = client.UpdateJobQueue(ctx, &batch.UpdateJobQueueInput{
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = client.UpdateJobQueue(cleanupCtx, &batch.UpdateJobQueueInput{
 			JobQueue: aws.String(jqName),
 			State:    batchtypes.JQStateDisabled,
 		})
-		_, _ = client.DeleteJobQueue(ctx, &batch.DeleteJobQueueInput{
+		_, _ = client.DeleteJobQueue(cleanupCtx, &batch.DeleteJobQueueInput{
 			JobQueue: aws.String(jqName),
 		})
 	})

@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
 func resolveTagOps(path, method string) string {
@@ -21,13 +23,13 @@ func resolveTagOps(path, method string) string {
 
 func (h *Handler) handleTagResource(c *echo.Context) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		ResourceArn string            `json:"resourceArn"`
+		ResourceArn string    `json:"resourceArn"`
+		Tags        []tags.KV `json:"tags"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	if err := h.Backend.TagResourceGeneric(req.ResourceArn, req.Tags); err != nil {
+	if err := h.Backend.TagResourceGeneric(req.ResourceArn, tags.MapFromKV(req.Tags)); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -46,13 +48,9 @@ func (h *Handler) handleUntagResource(c *echo.Context) error {
 
 func (h *Handler) handleListTagsForResource(c *echo.Context) error {
 	resourceARN := c.Request().URL.Query().Get("resourceArn")
-	tags := h.Backend.ListTagsForResource(resourceARN)
-	tagList := make([]map[string]string, 0, len(tags))
-	for k, v := range tags {
-		tagList = append(tagList, map[string]string{"Key": k, "Value": v})
-	}
+	resourceTags := h.Backend.ListTagsForResource(resourceARN)
 
-	return c.JSON(http.StatusOK, map[string]any{"tags": tagList})
+	return c.JSON(http.StatusOK, map[string]any{"tags": tags.MapToKV(resourceTags)})
 }
 
 func (h *Handler) dispatchTagOps(c *echo.Context, op string) (bool, error) {

@@ -85,14 +85,20 @@ func (b *InMemoryBackend) GetInferenceProfile(idOrARN string) (*InferenceProfile
 	return &cp, nil
 }
 
-// ListInferenceProfiles returns all inference profiles with optional pagination.
-func (b *InMemoryBackend) ListInferenceProfiles(nextToken string) ([]*InferenceProfile, string) {
+// ListInferenceProfiles returns inference profiles matching typeEquals (real
+// query param "type", aws-sdk-go-v2 serializers.go:6752-6754), with optional
+// pagination. An empty typeEquals matches every profile.
+func (b *InMemoryBackend) ListInferenceProfiles(nextToken, typeEquals string) ([]*InferenceProfile, string) {
 	b.mu.RLock("ListInferenceProfiles")
 	defer b.mu.RUnlock()
 
 	list := make([]*InferenceProfile, 0, b.inferenceProfiles.Len())
 
 	for _, p := range b.inferenceProfiles.All() {
+		if typeEquals != "" && p.Type != typeEquals {
+			continue
+		}
+
 		cp := *p
 		cp.Tags = copyTags(p.Tags)
 		list = append(list, &cp)

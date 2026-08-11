@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/require"
@@ -61,8 +60,6 @@ func TestSSMDashboard(t *testing.T) {
 	err = page.Click("button[type='submit']:has-text('Create')")
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
 	paramRow := page.Locator("button:has-text('test-database-password')").First()
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
@@ -86,8 +83,6 @@ func TestSSMDashboard(t *testing.T) {
 	err = page.Click("button[type='submit']:has-text('Update')")
 	require.NoError(t, err)
 
-	time.Sleep(500 * time.Millisecond)
-
 	err = paramRow.WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,
 		Timeout: playwright.Float(60000),
@@ -105,8 +100,6 @@ func TestSSMDashboard(t *testing.T) {
 	require.NoError(t, err)
 	err = confirmDialog.Locator("button:has-text('Delete')").Click()
 	require.NoError(t, err)
-
-	time.Sleep(500 * time.Millisecond)
 
 	err = page.Locator("text=No parameters found").WaitFor(playwright.LocatorWaitForOptions{
 		State:   playwright.WaitForSelectorStateVisible,

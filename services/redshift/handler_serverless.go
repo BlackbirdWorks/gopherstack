@@ -9,6 +9,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -16,11 +17,21 @@ import (
 
 // ---------------------------------------------------------------------------
 // Serverless handler wiring
+//
+// Redshift Serverless is an awsJson1.1 RPC API: every operation is a POST to
+// "/" with an X-Amz-Target: RedshiftServerless.<Op> header and all parameters
+// (including resource identifiers like namespaceName) in the JSON body --
+// there is no REST-style path/verb routing (confirmed against
+// aws-sdk-go-v2/service/redshiftserverless@v1.38.5/serializers.go: every
+// awsAwsjson11_serializeOp* sets request.URL.Path = "/", Method = "POST", and
+// the X-Amz-Target header; resource identifiers are serialized as body
+// members, e.g. awsAwsjson11_serializeOpDocumentGetNamespaceInput writes
+// "namespaceName" into the JSON object, not the URL). This mirrors the
+// dispatch style already used by redshiftdata.Handler in this package's
+// sibling directory.
 // ---------------------------------------------------------------------------
 
 // ServerlessHandler is a separate Echo handler for Redshift Serverless APIs.
-// The serverless API lives at a different hostname/path prefix than the classic
-// Redshift API, so it is registered as its own Registerable.
 type ServerlessHandler struct {
 	Backend *InMemoryBackend
 }
@@ -61,6 +72,36 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"GetScheduledAction",
 		"ListScheduledActions",
 		"UpdateScheduledAction",
+		"TagResource",
+		"UntagResource",
+		"ListTagsForResource",
+		opCreateCustomDomainAssociation,
+		opDeleteCustomDomainAssociation,
+		"GetCustomDomainAssociation",
+		"ListCustomDomainAssociations",
+		"UpdateCustomDomainAssociation",
+		opGetResourcePolicy,
+		opPutResourcePolicy,
+		opDeleteResourcePolicy,
+		"CreateSnapshotCopyConfiguration",
+		"UpdateSnapshotCopyConfiguration",
+		"DeleteSnapshotCopyConfiguration",
+		"ListSnapshotCopyConfigurations",
+		"GetRecoveryPoint",
+		"ListRecoveryPoints",
+		"RestoreFromRecoveryPoint",
+		"RestoreTableFromSnapshot",
+		"RestoreTableFromRecoveryPoint",
+		"GetTableRestoreStatus",
+		"ListTableRestoreStatus",
+		opCreateEndpointAccess,
+		"GetEndpointAccess",
+		"ListEndpointAccess",
+		"UpdateEndpointAccess",
+		opDeleteEndpointAccess,
+		"ListManagedWorkgroups",
+		"RestoreFromSnapshot",
+		"ConvertRecoveryPointToSnapshot",
 	}
 }
 
@@ -83,350 +124,160 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slSnapshots.Reset()
 	h.Backend.slUsageLimits.Reset()
 	h.Backend.slScheduledActions.Reset()
+	h.Backend.slResourceTags.Reset()
+	h.Backend.slCustomDomains.Reset()
+	h.Backend.slResourcePolicies.Reset()
+	h.Backend.slSnapshotCopyConfig.Reset()
+	h.Backend.slRecoveryPoints.Reset()
+	h.Backend.slTableRestoreStatuses.Reset()
+	h.Backend.slEndpointAccesses.Reset()
+	h.Backend.resetServerlessIndexes()
 }
 
-const (
-	slPrefix                 = "/redshift-serverless/namespaces"
-	slWorkgroupsPrefix       = "/redshift-serverless/workgroups"
-	slSnapshotsPrefix        = "/redshift-serverless/snapshots"
-	slUsageLimitsPrefix      = "/redshift-serverless/usagelimits"
-	slScheduledActionsPrefix = "/redshift-serverless/scheduledactions"
-	slCredentialsPrefix      = "/redshift-serverless/workgroups/"
-	slRespNamespace          = "namespace"
-	slRespWorkgroup          = "workgroup"
-	slRespSnapshot           = "snapshot"
-	slRespUsageLimit         = "usageLimit"
-	slRespScheduledAction    = "scheduledAction"
-)
+const slTargetPrefix = "RedshiftServerless."
 
-// RouteMatcher returns a function that matches Redshift Serverless requests.
+// RouteMatcher returns a function that matches Redshift Serverless requests
+// by their X-Amz-Target header, the real wire discriminator for this
+// awsJson1.1 API (see package doc comment above).
 func (h *ServerlessHandler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
-		path := c.Request().URL.Path
-
-		return strings.HasPrefix(path, "/redshift-serverless/")
+		return strings.HasPrefix(c.Request().Header.Get("X-Amz-Target"), slTargetPrefix)
 	}
 }
 
 // MatchPriority returns the routing priority.
-func (h *ServerlessHandler) MatchPriority() int { return service.PriorityPathVersioned }
+func (h *ServerlessHandler) MatchPriority() int { return service.PriorityHeaderExact }
 
-// ExtractOperation extracts the operation name from the request. It tries each
-// resource family's matcher in turn (namespace, workgroup, snapshot, usage
-// limit, scheduled action) -- splitting the routing table this way keeps each
-// matcher's cyclomatic complexity small instead of one large combined switch.
+// ExtractOperation extracts the operation name from the X-Amz-Target header.
 func (h *ServerlessHandler) ExtractOperation(c *echo.Context) string {
-	path := c.Request().URL.Path
-	method := c.Request().Method
-
-	matchers := []func(string, string) (string, bool){
-		extractNamespaceOperation,
-		extractWorkgroupOperation,
-		extractSnapshotOperation,
-		extractUsageLimitOperation,
-		extractScheduledActionOperation,
-	}
-
-	for _, match := range matchers {
-		if op, ok := match(path, method); ok {
-			return op
-		}
-	}
-
-	return opUnknown
+	return strings.TrimPrefix(c.Request().Header.Get("X-Amz-Target"), slTargetPrefix)
 }
 
-func extractNamespaceOperation(path, method string) (string, bool) {
-	switch {
-	case strings.HasPrefix(path, slPrefix) && method == http.MethodPost && path == slPrefix:
-		return "CreateNamespace", true
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodGet &&
-		!strings.Contains(strings.TrimPrefix(path, slPrefix+"/"), "/"):
-		return "GetNamespace", true
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodDelete:
-		return "DeleteNamespace", true
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodPatch:
-		return "UpdateNamespace", true
-	case path == slPrefix && method == http.MethodGet:
-		return "ListNamespaces", true
-	default:
-		return "", false
+// ExtractResource extracts a resource identifier from the request. Best-effort
+// only (used for logging/chaos matching); the authoritative field varies per op.
+func (h *ServerlessHandler) ExtractResource(c *echo.Context) string {
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return ""
 	}
-}
 
-func extractWorkgroupOperation(path, method string) (string, bool) {
-	switch {
-	case path == slWorkgroupsPrefix && method == http.MethodPost:
-		return "CreateWorkgroup", true
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") &&
-		method == http.MethodGet && strings.HasSuffix(path, "/credentials"):
-		return "GetCredentials", true
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodGet:
-		return "GetWorkgroup", true
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteWorkgroup", true
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateWorkgroup", true
-	case path == slWorkgroupsPrefix && method == http.MethodGet:
-		return "ListWorkgroups", true
-	default:
-		return "", false
+	var probe struct {
+		NamespaceName string `json:"namespaceName"`
+		WorkgroupName string `json:"workgroupName"`
 	}
-}
 
-func extractSnapshotOperation(path, method string) (string, bool) {
-	switch {
-	case path == slSnapshotsPrefix && method == http.MethodPost:
-		return "CreateSnapshot", true
-	case path == slSnapshotsPrefix && method == http.MethodGet:
-		return "ListSnapshots", true
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodGet:
-		return "GetSnapshot", true
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteSnapshot", true
-	default:
-		return "", false
+	if json.Unmarshal(body, &probe) != nil {
+		return ""
 	}
-}
 
-func extractUsageLimitOperation(path, method string) (string, bool) {
-	switch {
-	case path == slUsageLimitsPrefix && method == http.MethodPost:
-		return "CreateUsageLimit", true
-	case path == slUsageLimitsPrefix && method == http.MethodGet:
-		return "ListUsageLimits", true
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodGet:
-		return "GetUsageLimit", true
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateUsageLimit", true
-	case strings.HasPrefix(path, slUsageLimitsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteUsageLimit", true
-	default:
-		return "", false
+	if probe.NamespaceName != "" {
+		return probe.NamespaceName
 	}
-}
 
-func extractScheduledActionOperation(path, method string) (string, bool) {
-	switch {
-	case path == slScheduledActionsPrefix && method == http.MethodPost:
-		return "CreateScheduledAction", true
-	case path == slScheduledActionsPrefix && method == http.MethodGet:
-		return "ListScheduledActions", true
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodGet:
-		return "GetScheduledAction", true
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodPatch:
-		return "UpdateScheduledAction", true
-	case strings.HasPrefix(path, slScheduledActionsPrefix+"/") && method == http.MethodDelete:
-		return "DeleteScheduledAction", true
-	default:
-		return "", false
-	}
+	return probe.WorkgroupName
 }
-
-// ExtractResource extracts a resource identifier from the request.
-func (h *ServerlessHandler) ExtractResource(_ *echo.Context) string { return "" }
 
 // Handler returns the Echo handler function.
 func (h *ServerlessHandler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		r := c.Request()
-		path := r.URL.Path
-		method := r.Method
 		log := logger.Load(r.Context())
 
-		var body []byte
-		if method == http.MethodPost || method == http.MethodPut || method == http.MethodPatch {
-			var err error
+		body, err := httputils.ReadBody(r)
+		if err != nil {
+			log.ErrorContext(r.Context(), "redshift-serverless: failed to read body", "error", err)
 
-			body, err = httputils.ReadBody(r)
-			if err != nil {
-				log.ErrorContext(
-					r.Context(),
-					"redshift-serverless: failed to read body",
-					"error",
-					err,
-				)
-
-				return c.JSON(
-					http.StatusInternalServerError,
-					slErrorResponse("InternalFailure", "internal server error"),
-				)
-			}
+			return c.JSON(
+				http.StatusInternalServerError,
+				slErrorResponse("InternalFailure", "internal server error"),
+			)
 		}
 
-		return h.dispatch(c, path, method, body)
-	}
-}
+		op := h.ExtractOperation(c)
 
-// dispatch routes a serverless request to its handler. Like ExtractOperation,
-// it delegates to one per-resource-family dispatcher in turn (each returning
-// ok=false when the request doesn't match that family) instead of one large
-// combined switch, so no single function carries the whole routing table's
-// cyclomatic complexity.
-func (h *ServerlessHandler) dispatch(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) error {
-	dispatchers := []func(*echo.Context, string, string, []byte) (bool, error){
-		h.dispatchNamespace,
-		h.dispatchWorkgroup,
-		h.dispatchSnapshot,
-		h.dispatchUsageLimit,
-		h.dispatchScheduledAction,
-	}
-
-	for _, try := range dispatchers {
-		if ok, err := try(c, path, method, body); ok {
-			return err
+		fn, ok := slDispatchTable[op]
+		if !ok {
+			return c.JSON(
+				http.StatusBadRequest,
+				slErrorResponse("ValidationException", "unknown operation: "+op),
+			)
 		}
-	}
 
-	return c.JSON(
-		http.StatusNotFound,
-		slErrorResponse("UnknownOperationException", "unknown operation: "+path),
-	)
-}
-
-func (h *ServerlessHandler) dispatchNamespace(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) (bool, error) {
-	switch {
-	case path == slPrefix && method == http.MethodPost:
-		return true, h.handleCreateNamespace(c, body)
-	case path == slPrefix && method == http.MethodGet:
-		return true, h.handleListNamespaces(c)
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodGet:
-		name := strings.TrimPrefix(path, slPrefix+"/")
-
-		return true, h.handleGetNamespace(c, name)
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodDelete:
-		name := strings.TrimPrefix(path, slPrefix+"/")
-
-		return true, h.handleDeleteNamespace(c, name)
-	case strings.HasPrefix(path, slPrefix+"/") && method == http.MethodPatch:
-		name := strings.TrimPrefix(path, slPrefix+"/")
-
-		return true, h.handleUpdateNamespace(c, name, body)
-	default:
-		return false, nil
+		return fn(h, c, body)
 	}
 }
 
-func (h *ServerlessHandler) dispatchWorkgroup(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) (bool, error) {
-	switch {
-	case path == slWorkgroupsPrefix && method == http.MethodPost:
-		return true, h.handleCreateWorkgroup(c, body)
-	case path == slWorkgroupsPrefix && method == http.MethodGet:
-		return true, h.handleListWorkgroups(c)
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") &&
-		strings.HasSuffix(path, "/credentials") && method == http.MethodGet:
-		rest := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
-		name := strings.TrimSuffix(rest, "/credentials")
+// slDispatchTable maps each supported operation to its handler. A map keeps
+// routing a flat lookup instead of one large switch, matching the pattern
+// this file used before (dispatchNamespace/dispatchWorkgroup/...) but keyed
+// by the real X-Amz-Target action name now that routing no longer derives
+// the op from URL shape.
+//
+//nolint:gochecknoglobals // read-only dispatch table, same convention as pkgs/awscron's month/day-of-week name tables
+var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte) error{
+	"CreateNamespace":       (*ServerlessHandler).handleCreateNamespace,
+	"GetNamespace":          (*ServerlessHandler).handleGetNamespace,
+	"ListNamespaces":        (*ServerlessHandler).handleListNamespaces,
+	"UpdateNamespace":       (*ServerlessHandler).handleUpdateNamespace,
+	"DeleteNamespace":       (*ServerlessHandler).handleDeleteNamespace,
+	"CreateWorkgroup":       (*ServerlessHandler).handleCreateWorkgroup,
+	"GetWorkgroup":          (*ServerlessHandler).handleGetWorkgroup,
+	"ListWorkgroups":        (*ServerlessHandler).handleListWorkgroups,
+	"UpdateWorkgroup":       (*ServerlessHandler).handleUpdateWorkgroup,
+	"DeleteWorkgroup":       (*ServerlessHandler).handleDeleteWorkgroup,
+	"GetCredentials":        (*ServerlessHandler).handleGetCredentials,
+	"CreateSnapshot":        (*ServerlessHandler).handleCreateSnapshot,
+	"GetSnapshot":           (*ServerlessHandler).handleGetSnapshot,
+	"ListSnapshots":         (*ServerlessHandler).handleListSnapshots,
+	"DeleteSnapshot":        (*ServerlessHandler).handleDeleteSnapshot,
+	"CreateUsageLimit":      (*ServerlessHandler).handleCreateUsageLimit,
+	"GetUsageLimit":         (*ServerlessHandler).handleGetUsageLimit,
+	"ListUsageLimits":       (*ServerlessHandler).handleListUsageLimits,
+	"UpdateUsageLimit":      (*ServerlessHandler).handleUpdateUsageLimit,
+	"DeleteUsageLimit":      (*ServerlessHandler).handleDeleteUsageLimit,
+	"CreateScheduledAction": (*ServerlessHandler).handleCreateScheduledAction,
+	"GetScheduledAction":    (*ServerlessHandler).handleGetScheduledAction,
+	"ListScheduledActions":  (*ServerlessHandler).handleListScheduledActions,
+	"UpdateScheduledAction": (*ServerlessHandler).handleUpdateScheduledAction,
+	"DeleteScheduledAction": (*ServerlessHandler).handleDeleteScheduledAction,
 
-		return true, h.handleGetCredentials(c, name)
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodGet:
-		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
+	"TagResource":                   (*ServerlessHandler).handleTagResource,
+	"UntagResource":                 (*ServerlessHandler).handleUntagResource,
+	"ListTagsForResource":           (*ServerlessHandler).handleListTagsForResource,
+	opCreateCustomDomainAssociation: (*ServerlessHandler).handleCreateCustomDomainAssociation,
+	"GetCustomDomainAssociation":    (*ServerlessHandler).handleGetCustomDomainAssociation,
+	"ListCustomDomainAssociations":  (*ServerlessHandler).handleListCustomDomainAssociations,
+	"UpdateCustomDomainAssociation": (*ServerlessHandler).handleUpdateCustomDomainAssociation,
+	opDeleteCustomDomainAssociation: (*ServerlessHandler).handleDeleteCustomDomainAssociation,
 
-		return true, h.handleGetWorkgroup(c, name)
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodDelete:
-		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
+	opGetResourcePolicy:    (*ServerlessHandler).handleGetResourcePolicySL,
+	opPutResourcePolicy:    (*ServerlessHandler).handlePutResourcePolicySL,
+	opDeleteResourcePolicy: (*ServerlessHandler).handleDeleteResourcePolicySL,
 
-		return true, h.handleDeleteWorkgroup(c, name)
-	case strings.HasPrefix(path, slWorkgroupsPrefix+"/") && method == http.MethodPatch:
-		name := strings.TrimPrefix(path, slWorkgroupsPrefix+"/")
+	"CreateSnapshotCopyConfiguration": (*ServerlessHandler).handleCreateSnapshotCopyConfigurationSL,
+	"UpdateSnapshotCopyConfiguration": (*ServerlessHandler).handleUpdateSnapshotCopyConfigurationSL,
+	"DeleteSnapshotCopyConfiguration": (*ServerlessHandler).handleDeleteSnapshotCopyConfigurationSL,
+	"ListSnapshotCopyConfigurations":  (*ServerlessHandler).handleListSnapshotCopyConfigurationsSL,
 
-		return true, h.handleUpdateWorkgroup(c, name, body)
-	default:
-		return false, nil
-	}
-}
+	"GetRecoveryPoint":         (*ServerlessHandler).handleGetRecoveryPoint,
+	"ListRecoveryPoints":       (*ServerlessHandler).handleListRecoveryPoints,
+	"RestoreFromRecoveryPoint": (*ServerlessHandler).handleRestoreFromRecoveryPoint,
 
-func (h *ServerlessHandler) dispatchSnapshot(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) (bool, error) {
-	switch {
-	case path == slSnapshotsPrefix && method == http.MethodPost:
-		return true, h.handleCreateSnapshot(c, body)
-	case path == slSnapshotsPrefix && method == http.MethodGet:
-		return true, h.handleListSnapshots(c)
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodGet:
-		name := strings.TrimPrefix(path, slSnapshotsPrefix+"/")
+	"RestoreTableFromSnapshot":      (*ServerlessHandler).handleRestoreTableFromSnapshot,
+	"RestoreTableFromRecoveryPoint": (*ServerlessHandler).handleRestoreTableFromRecoveryPoint,
+	"GetTableRestoreStatus":         (*ServerlessHandler).handleGetTableRestoreStatus,
+	"ListTableRestoreStatus":        (*ServerlessHandler).handleListTableRestoreStatus,
 
-		return true, h.handleGetSnapshot(c, name)
-	case strings.HasPrefix(path, slSnapshotsPrefix+"/") && method == http.MethodDelete:
-		name := strings.TrimPrefix(path, slSnapshotsPrefix+"/")
+	opCreateEndpointAccess: (*ServerlessHandler).handleCreateEndpointAccessSL,
+	"GetEndpointAccess":    (*ServerlessHandler).handleGetEndpointAccessSL,
+	"ListEndpointAccess":   (*ServerlessHandler).handleListEndpointAccessSL,
+	"UpdateEndpointAccess": (*ServerlessHandler).handleUpdateEndpointAccessSL,
+	opDeleteEndpointAccess: (*ServerlessHandler).handleDeleteEndpointAccessSL,
 
-		return true, h.handleDeleteSnapshot(c, name)
-	default:
-		return false, nil
-	}
-}
+	"ListManagedWorkgroups": (*ServerlessHandler).handleListManagedWorkgroups,
 
-// crudRoutes holds the four verb handlers for a simple Create/List/Get+Update+Delete
-// resource family whose routes are just "<prefix>" and "<prefix>/<id>". Both
-// UsageLimit and ScheduledAction follow exactly this shape, so dispatchCRUD
-// implements the routing once and both families call it with their own prefix
-// and handlers instead of duplicating the switch.
-type crudRoutes struct {
-	create func(*echo.Context, []byte) error
-	list   func(*echo.Context) error
-	get    func(*echo.Context, string) error
-	update func(*echo.Context, string, []byte) error
-	del    func(*echo.Context, string) error
-}
-
-func dispatchCRUD(c *echo.Context, prefix, path, method string, body []byte, r crudRoutes) (bool, error) {
-	switch {
-	case path == prefix && method == http.MethodPost:
-		return true, r.create(c, body)
-	case path == prefix && method == http.MethodGet:
-		return true, r.list(c)
-	case strings.HasPrefix(path, prefix+"/") && method == http.MethodGet:
-		return true, r.get(c, strings.TrimPrefix(path, prefix+"/"))
-	case strings.HasPrefix(path, prefix+"/") && method == http.MethodPatch:
-		return true, r.update(c, strings.TrimPrefix(path, prefix+"/"), body)
-	case strings.HasPrefix(path, prefix+"/") && method == http.MethodDelete:
-		return true, r.del(c, strings.TrimPrefix(path, prefix+"/"))
-	default:
-		return false, nil
-	}
-}
-
-func (h *ServerlessHandler) dispatchUsageLimit(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) (bool, error) {
-	return dispatchCRUD(c, slUsageLimitsPrefix, path, method, body, crudRoutes{
-		create: h.handleCreateUsageLimit,
-		list:   h.handleListUsageLimits,
-		get:    h.handleGetUsageLimit,
-		update: h.handleUpdateUsageLimit,
-		del:    h.handleDeleteUsageLimit,
-	})
-}
-
-func (h *ServerlessHandler) dispatchScheduledAction(
-	c *echo.Context,
-	path, method string,
-	body []byte,
-) (bool, error) {
-	return dispatchCRUD(c, slScheduledActionsPrefix, path, method, body, crudRoutes{
-		create: h.handleCreateScheduledAction,
-		list:   h.handleListScheduledActions,
-		get:    h.handleGetScheduledAction,
-		update: h.handleUpdateScheduledAction,
-		del:    h.handleDeleteScheduledAction,
-	})
+	"RestoreFromSnapshot":            (*ServerlessHandler).handleRestoreFromSnapshot,
+	"ConvertRecoveryPointToSnapshot": (*ServerlessHandler).handleConvertRecoveryPointToSnapshot,
 }
 
 // ---------------------------------------------------------------------------
@@ -435,56 +286,75 @@ func (h *ServerlessHandler) dispatchScheduledAction(
 
 func (h *ServerlessHandler) handleCreateNamespace(c *echo.Context, body []byte) error {
 	var req struct {
-		NamespaceName string   `json:"namespaceName"`
-		AdminUsername string   `json:"adminUsername"`
-		DBName        string   `json:"dbName"`
-		KmsKeyID      string   `json:"kmsKeyId"`
-		IamRoles      []string `json:"iamRoles"`
-		LogExports    []string `json:"logExports"`
+		NamespaceName               string      `json:"namespaceName"`
+		AdminUsername               string      `json:"adminUsername"`
+		DBName                      string      `json:"dbName"`
+		KmsKeyID                    string      `json:"kmsKeyId"`
+		DefaultIamRoleArn           string      `json:"defaultIamRoleArn"`
+		AdminPasswordSecretKmsKeyID string      `json:"adminPasswordSecretKmsKeyId"`
+		IamRoles                    []string    `json:"iamRoles"`
+		LogExports                  []string    `json:"logExports"`
+		Tags                        []slTagWire `json:"tags"`
+		ManageAdminPassword         bool        `json:"manageAdminPassword"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	ns, err := h.Backend.CreateNamespace(
-		req.NamespaceName,
-		req.AdminUsername,
-		req.DBName,
-		req.KmsKeyID,
-		req.IamRoles,
-		req.LogExports,
-	)
+	if req.NamespaceName == "" {
+		return slBadRequest(c, "namespaceName is required")
+	}
+
+	ns, err := h.Backend.CreateNamespace(CreateNamespaceParams{
+		NamespaceName:               req.NamespaceName,
+		AdminUsername:               req.AdminUsername,
+		DBName:                      req.DBName,
+		KmsKeyID:                    req.KmsKeyID,
+		DefaultIamRoleArn:           req.DefaultIamRoleArn,
+		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
+		ManageAdminPassword:         req.ManageAdminPassword,
+		IamRoles:                    req.IamRoles,
+		LogExports:                  req.LogExports,
+		Tags:                        slTagsFromWire(req.Tags),
+	})
 	if err != nil {
-		if errors.Is(err, ErrNamespaceAlreadyExists) {
-			return c.JSON(http.StatusConflict, slErrorResponse("ConflictException", err.Error()))
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
+}
+
+func (h *ServerlessHandler) handleGetNamespace(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName string `json:"namespaceName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	ns, err := h.Backend.GetNamespace(req.NamespaceName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
+}
+
+func (h *ServerlessHandler) handleListNamespaces(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
 		}
-
-		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
-}
-
-func (h *ServerlessHandler) handleGetNamespace(c *echo.Context, name string) error {
-	ns, err := h.Backend.GetNamespace(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
-}
-
-func (h *ServerlessHandler) handleListNamespaces(c *echo.Context) error {
-	maxResults := 0
-	nextToken := c.QueryParam("nextToken")
-	list, outToken := h.Backend.ListNamespaces(maxResults, nextToken)
+	list, outToken := h.Backend.ListNamespaces(req.MaxResults, req.NextToken)
 	resp := map[string]any{"namespaces": list}
 
 	if outToken != "" {
@@ -494,47 +364,54 @@ func (h *ServerlessHandler) handleListNamespaces(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, name string, body []byte) error {
+func (h *ServerlessHandler) handleUpdateNamespace(c *echo.Context, body []byte) error {
 	var req struct {
-		AdminUsername string   `json:"adminUsername"`
-		DBName        string   `json:"dbName"`
-		KmsKeyID      string   `json:"kmsKeyId"`
-		IamRoles      []string `json:"iamRoles"`
-		LogExports    []string `json:"logExports"`
+		NamespaceName               string   `json:"namespaceName"`
+		AdminUsername               string   `json:"adminUsername"`
+		DBName                      string   `json:"dbName"`
+		KmsKeyID                    string   `json:"kmsKeyId"`
+		DefaultIamRoleArn           string   `json:"defaultIamRoleArn"`
+		AdminPasswordSecretKmsKeyID string   `json:"adminPasswordSecretKmsKeyId"`
+		ManageAdminPassword         *bool    `json:"manageAdminPassword"`
+		IamRoles                    []string `json:"iamRoles"`
+		LogExports                  []string `json:"logExports"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	ns, err := h.Backend.UpdateNamespace(
-		name,
-		req.AdminUsername,
-		req.DBName,
-		req.KmsKeyID,
-		req.IamRoles,
-		req.LogExports,
-	)
+	ns, err := h.Backend.UpdateNamespace(req.NamespaceName, UpdateNamespaceParams{
+		AdminUsername:               req.AdminUsername,
+		DBName:                      req.DBName,
+		KmsKeyID:                    req.KmsKeyID,
+		DefaultIamRoleArn:           req.DefaultIamRoleArn,
+		AdminPasswordSecretKmsKeyID: req.AdminPasswordSecretKmsKeyID,
+		ManageAdminPassword:         req.ManageAdminPassword,
+		IamRoles:                    req.IamRoles,
+		LogExports:                  req.LogExports,
+	})
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
 }
 
-func (h *ServerlessHandler) handleDeleteNamespace(c *echo.Context, name string) error {
-	ns, err := h.Backend.DeleteNamespace(name)
+func (h *ServerlessHandler) handleDeleteNamespace(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName                string `json:"namespaceName"`
+		FinalSnapshotName            string `json:"finalSnapshotName"`
+		FinalSnapshotRetentionPeriod int    `json:"finalSnapshotRetentionPeriod"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	ns, err := h.Backend.DeleteNamespace(req.NamespaceName, req.FinalSnapshotName, req.FinalSnapshotRetentionPeriod)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespNamespace: ns})
@@ -544,59 +421,93 @@ func (h *ServerlessHandler) handleDeleteNamespace(c *echo.Context, name string) 
 // Workgroup handlers
 // ---------------------------------------------------------------------------
 
+type slWorkgroupReq struct {
+	PricePerformanceTarget *PerformanceTarget `json:"pricePerformanceTarget"`
+	NamespaceName          string             `json:"namespaceName"`
+	TrackName              string             `json:"trackName"`
+	WorkgroupName          string             `json:"workgroupName"`
+	IPAddressType          string             `json:"ipAddressType"`
+	SecurityGroupIDs       []string           `json:"securityGroupIds"`
+	ConfigParameters       []ConfigParameter  `json:"configParameters"`
+	SubnetIDs              []string           `json:"subnetIds"`
+	// Tags is CreateWorkgroupInput-only (UpdateWorkgroupRequest has no "tags"
+	// field, confirmed absent in service-2.json) but parsed on this shared
+	// struct for convenience; UpdateWorkgroup's handler simply never reads it.
+	Tags                                 []slTagWire `json:"tags"`
+	BaseCapacity                         int         `json:"baseCapacity"`
+	MaxCapacity                          int         `json:"maxCapacity"`
+	Port                                 int         `json:"port"`
+	EnhancedVpcRouting                   bool        `json:"enhancedVpcRouting"`
+	ExtraComputeForAutomaticOptimization bool        `json:"extraComputeForAutomaticOptimization"`
+	PubliclyAccessible                   bool        `json:"publiclyAccessible"`
+}
+
+func (r slWorkgroupReq) toParams() WorkgroupParams {
+	return WorkgroupParams{
+		BaseCapacity:                         r.BaseCapacity,
+		MaxCapacity:                          r.MaxCapacity,
+		Port:                                 r.Port,
+		IPAddressType:                        r.IPAddressType,
+		TrackName:                            r.TrackName,
+		ConfigParameters:                     r.ConfigParameters,
+		PricePerformanceTarget:               r.PricePerformanceTarget,
+		SubnetIDs:                            r.SubnetIDs,
+		SecurityGroupIDs:                     r.SecurityGroupIDs,
+		EnhancedVpcRouting:                   r.EnhancedVpcRouting,
+		ExtraComputeForAutomaticOptimization: r.ExtraComputeForAutomaticOptimization,
+		PubliclyAccessible:                   r.PubliclyAccessible,
+	}
+}
+
 func (h *ServerlessHandler) handleCreateWorkgroup(c *echo.Context, body []byte) error {
+	var req slWorkgroupReq
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	if req.WorkgroupName == "" || req.NamespaceName == "" {
+		return slBadRequest(c, "workgroupName and namespaceName are required")
+	}
+
+	wg, err := h.Backend.CreateWorkgroup(req.WorkgroupName, req.NamespaceName, req.toParams(), slTagsFromWire(req.Tags))
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
+}
+
+func (h *ServerlessHandler) handleGetWorkgroup(c *echo.Context, body []byte) error {
 	var req struct {
-		WorkgroupName    string   `json:"workgroupName"`
-		NamespaceName    string   `json:"namespaceName"`
-		SubnetIDs        []string `json:"subnetIds"`
-		SecurityGroupIDs []string `json:"securityGroupIds"`
-		BaseCapacity     int      `json:"baseCapacity"`
+		WorkgroupName string `json:"workgroupName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	wg, err := h.Backend.CreateWorkgroup(
-		req.WorkgroupName,
-		req.NamespaceName,
-		req.BaseCapacity,
-		req.SubnetIDs,
-		req.SecurityGroupIDs,
-	)
+	wg, err := h.Backend.GetWorkgroup(req.WorkgroupName)
 	if err != nil {
-		if errors.Is(err, ErrWorkgroupAlreadyExists) {
-			return c.JSON(http.StatusConflict, slErrorResponse("ConflictException", err.Error()))
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
+}
+
+func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
 		}
-
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
-}
-
-func (h *ServerlessHandler) handleGetWorkgroup(c *echo.Context, name string) error {
-	wg, err := h.Backend.GetWorkgroup(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
-}
-
-func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context) error {
-	maxResults := 0
-	nextToken := c.QueryParam("nextToken")
-	list, outToken := h.Backend.ListWorkgroups(maxResults, nextToken)
+	list, outToken := h.Backend.ListWorkgroups(req.MaxResults, req.NextToken)
 	resp := map[string]any{"workgroups": list}
 
 	if outToken != "" {
@@ -606,62 +517,80 @@ func (h *ServerlessHandler) handleListWorkgroups(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ServerlessHandler) handleUpdateWorkgroup(c *echo.Context, name string, body []byte) error {
+func (h *ServerlessHandler) handleUpdateWorkgroup(c *echo.Context, body []byte) error {
+	var req slWorkgroupReq
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	wg, err := h.Backend.UpdateWorkgroup(req.WorkgroupName, req.toParams())
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
+}
+
+func (h *ServerlessHandler) handleDeleteWorkgroup(c *echo.Context, body []byte) error {
 	var req struct {
-		SubnetIDs        []string `json:"subnetIds"`
-		SecurityGroupIDs []string `json:"securityGroupIds"`
-		BaseCapacity     int      `json:"baseCapacity"`
+		WorkgroupName string `json:"workgroupName"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	wg, err := h.Backend.UpdateWorkgroup(
-		name,
-		req.BaseCapacity,
-		req.SubnetIDs,
-		req.SecurityGroupIDs,
+	wg, err := h.Backend.DeleteWorkgroup(req.WorkgroupName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
+}
+
+func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, body []byte) error {
+	var req struct {
+		WorkgroupName    string `json:"workgroupName"`
+		CustomDomainName string `json:"customDomainName"`
+		DBName           string `json:"dbName"`
+		DurationSeconds  int    `json:"durationSeconds"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	workgroupName := req.WorkgroupName
+
+	// GetCredentialsRequest accepts either field: "The custom domain name or
+	// the workgroup name must be included in the request" (confirmed against
+	// GetCredentialsRequest's documentation in service-2.json).
+	if workgroupName == "" {
+		if req.CustomDomainName == "" {
+			return slBadRequest(c, "customDomainName or workgroupName is required")
+		}
+
+		resolved, err := h.Backend.WorkgroupNameByCustomDomainSL(req.CustomDomainName)
+		if err != nil {
+			return slHandleErr(c, err)
+		}
+
+		workgroupName = resolved
+	}
+
+	dbUser, dbPassword, expiration, nextRefresh, err := h.Backend.GetCredentials(
+		workgroupName, req.DBName, req.DurationSeconds,
 	)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
-}
-
-func (h *ServerlessHandler) handleDeleteWorkgroup(c *echo.Context, name string) error {
-	wg, err := h.Backend.DeleteWorkgroup(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespWorkgroup: wg})
-}
-
-func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, workgroupName string) error {
-	dbName := c.QueryParam("dbName")
-	accessKeyID, secretKey, expiry, err := h.Backend.GetCredentials(workgroupName, dbName)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
-		"dbPassword": secretKey,
-		"dbUser":     accessKeyID, // backend already includes "IAMR:" prefix
-		"expiration": expiry,
+		"dbUser":          dbUser, // backend already includes "IAMR:" prefix
+		"dbPassword":      dbPassword,
+		"expiration":      awstime.Epoch(expiration),
+		"nextRefreshTime": awstime.Epoch(nextRefresh),
 	})
 }
 
@@ -671,48 +600,63 @@ func (h *ServerlessHandler) handleGetCredentials(c *echo.Context, workgroupName 
 
 func (h *ServerlessHandler) handleCreateSnapshot(c *echo.Context, body []byte) error {
 	var req struct {
-		SnapshotName  string `json:"snapshotName"`
-		NamespaceName string `json:"namespaceName"`
+		SnapshotName    string      `json:"snapshotName"`
+		NamespaceName   string      `json:"namespaceName"`
+		Tags            []slTagWire `json:"tags"`
+		RetentionPeriod int         `json:"retentionPeriod"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	snap, err := h.Backend.CreateServerlessSnapshot(req.SnapshotName, req.NamespaceName)
+	snap, err := h.Backend.CreateServerlessSnapshot(
+		req.SnapshotName, req.NamespaceName, req.RetentionPeriod, slTagsFromWire(req.Tags),
+	)
 	if err != nil {
-		if errors.Is(err, ErrNamespaceNotFound) {
-			return c.JSON(
-				http.StatusNotFound,
-				slErrorResponse("ResourceNotFoundException", err.Error()),
-			)
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
+}
+
+func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, body []byte) error {
+	var req struct {
+		SnapshotName string `json:"snapshotName"`
+		SnapshotArn  string `json:"snapshotArn"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	lookup := req.SnapshotName
+	if lookup == "" {
+		lookup = req.SnapshotArn
+	}
+
+	snap, err := h.Backend.GetServerlessSnapshot(lookup)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
+}
+
+func (h *ServerlessHandler) handleListSnapshots(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName string `json:"namespaceName"`
+		NextToken     string `json:"nextToken"`
+		MaxResults    int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
 		}
-
-		return c.JSON(http.StatusConflict, slErrorResponse("ConflictException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
-}
-
-func (h *ServerlessHandler) handleGetSnapshot(c *echo.Context, name string) error {
-	snap, err := h.Backend.GetServerlessSnapshot(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
-}
-
-func (h *ServerlessHandler) handleListSnapshots(c *echo.Context) error {
-	namespaceName := c.QueryParam("namespaceName")
-	nextToken := c.QueryParam("nextToken")
-	list, outToken := h.Backend.ListServerlessSnapshots(namespaceName, 0, nextToken)
+	list, outToken := h.Backend.ListServerlessSnapshots(req.NamespaceName, req.MaxResults, req.NextToken)
 	resp := map[string]any{"snapshots": list}
 
 	if outToken != "" {
@@ -722,13 +666,18 @@ func (h *ServerlessHandler) handleListSnapshots(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ServerlessHandler) handleDeleteSnapshot(c *echo.Context, name string) error {
-	snap, err := h.Backend.DeleteServerlessSnapshot(name)
+func (h *ServerlessHandler) handleDeleteSnapshot(c *echo.Context, body []byte) error {
+	var req struct {
+		SnapshotName string `json:"snapshotName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	snap, err := h.Backend.DeleteServerlessSnapshot(req.SnapshotName)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespSnapshot: snap})
@@ -748,10 +697,7 @@ func (h *ServerlessHandler) handleCreateUsageLimit(c *echo.Context, body []byte)
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
 	ul, err := h.Backend.CreateServerlessUsageLimit(
@@ -762,28 +708,43 @@ func (h *ServerlessHandler) handleCreateUsageLimit(c *echo.Context, body []byte)
 		req.Amount,
 	)
 	if err != nil {
-		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespUsageLimit: ul})
 }
 
-func (h *ServerlessHandler) handleGetUsageLimit(c *echo.Context, id string) error {
-	ul, err := h.Backend.GetServerlessUsageLimit(id)
+func (h *ServerlessHandler) handleGetUsageLimit(c *echo.Context, body []byte) error {
+	var req struct {
+		UsageLimitID string `json:"usageLimitId"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	ul, err := h.Backend.GetServerlessUsageLimit(req.UsageLimitID)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespUsageLimit: ul})
 }
 
-func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context) error {
-	resourceArn := c.QueryParam("resourceArn")
-	nextToken := c.QueryParam("nextToken")
-	list, outToken := h.Backend.ListServerlessUsageLimits(resourceArn, 0, nextToken)
+func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context, body []byte) error {
+	var req struct {
+		ResourceArn string `json:"resourceArn"`
+		NextToken   string `json:"nextToken"`
+		MaxResults  int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
+		}
+	}
+
+	list, outToken := h.Backend.ListServerlessUsageLimits(req.ResourceArn, req.MaxResults, req.NextToken)
 	resp := map[string]any{"usageLimits": list}
 
 	if outToken != "" {
@@ -793,37 +754,37 @@ func (h *ServerlessHandler) handleListUsageLimits(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ServerlessHandler) handleUpdateUsageLimit(c *echo.Context, id string, body []byte) error {
+func (h *ServerlessHandler) handleUpdateUsageLimit(c *echo.Context, body []byte) error {
 	var req struct {
+		UsageLimitID string `json:"usageLimitId"`
 		BreachAction string `json:"breachAction"`
 		Amount       int64  `json:"amount"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	ul, err := h.Backend.UpdateServerlessUsageLimit(id, req.BreachAction, req.Amount)
+	ul, err := h.Backend.UpdateServerlessUsageLimit(req.UsageLimitID, req.BreachAction, req.Amount)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespUsageLimit: ul})
 }
 
-func (h *ServerlessHandler) handleDeleteUsageLimit(c *echo.Context, id string) error {
-	ul, err := h.Backend.DeleteServerlessUsageLimit(id)
+func (h *ServerlessHandler) handleDeleteUsageLimit(c *echo.Context, body []byte) error {
+	var req struct {
+		UsageLimitID string `json:"usageLimitId"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	ul, err := h.Backend.DeleteServerlessUsageLimit(req.UsageLimitID)
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{slRespUsageLimit: ul})
@@ -833,69 +794,137 @@ func (h *ServerlessHandler) handleDeleteUsageLimit(c *echo.Context, id string) e
 // Scheduled action handlers
 // ---------------------------------------------------------------------------
 
+// slScheduledActionWire is the wire shape for ServerlessScheduledAction
+// responses. StartTime/EndTime are epoch-seconds numbers on the wire (see
+// ScheduledActionResponse's "startTime"/"endTime" case in deserializers.go,
+// which requires json.Number, unlike Namespace/Workgroup/Snapshot's
+// date-time-string "creationDate"/"snapshotCreateTime") -- ServerlessScheduledAction
+// itself stores them as time.Time (json:"-") so this wrapper does the epoch
+// conversion at the response boundary, same pattern as
+// applicationautoscaling's epochSecondsPtr.
+type slScheduledActionWire struct {
+	StartTime                  *float64        `json:"startTime,omitempty"`
+	EndTime                    *float64        `json:"endTime,omitempty"`
+	NamespaceName              string          `json:"namespaceName,omitempty"`
+	RoleArn                    string          `json:"roleArn,omitempty"`
+	ScheduledActionDescription string          `json:"scheduledActionDescription,omitempty"`
+	ScheduledActionName        string          `json:"scheduledActionName"`
+	ScheduledActionUUID        string          `json:"scheduledActionUuid,omitempty"`
+	State                      string          `json:"state"`
+	Schedule                   json.RawMessage `json:"schedule,omitempty"`
+	TargetAction               json.RawMessage `json:"targetAction,omitempty"`
+}
+
+func slEpochPtr(t time.Time) *float64 {
+	if t.IsZero() {
+		return nil
+	}
+
+	v := awstime.Epoch(t)
+
+	return &v
+}
+
+func toScheduledActionWire(sa *ServerlessScheduledAction) *slScheduledActionWire {
+	return &slScheduledActionWire{
+		NamespaceName:              sa.NamespaceName,
+		RoleArn:                    sa.RoleArn,
+		Schedule:                   sa.Schedule,
+		ScheduledActionDescription: sa.ScheduledActionDescription,
+		ScheduledActionName:        sa.ScheduledActionName,
+		ScheduledActionUUID:        sa.ScheduledActionUUID,
+		State:                      sa.State,
+		TargetAction:               sa.TargetAction,
+		StartTime:                  slEpochPtr(sa.StartTime),
+		EndTime:                    slEpochPtr(sa.EndTime),
+	}
+}
+
 func (h *ServerlessHandler) handleCreateScheduledAction(c *echo.Context, body []byte) error {
 	var req struct {
-		ScheduledActionName string `json:"scheduledActionName"`
-		NamespaceName       string `json:"namespaceName"`
-		Schedule            string `json:"schedule"`
-		TargetAction        string `json:"targetAction"`
-		StartTime           string `json:"startTime"`
-		EndTime             string `json:"endTime"`
+		Enabled                    *bool           `json:"enabled"`
+		StartTime                  *float64        `json:"startTime"`
+		EndTime                    *float64        `json:"endTime"`
+		ScheduledActionName        string          `json:"scheduledActionName"`
+		NamespaceName              string          `json:"namespaceName"`
+		RoleArn                    string          `json:"roleArn"`
+		ScheduledActionDescription string          `json:"scheduledActionDescription"`
+		Schedule                   json.RawMessage `json:"schedule"`
+		TargetAction               json.RawMessage `json:"targetAction"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	var startTime, endTime time.Time
+	if req.ScheduledActionName == "" || req.NamespaceName == "" || req.RoleArn == "" || len(req.Schedule) == 0 {
+		return slBadRequest(c, "scheduledActionName, namespaceName, roleArn and schedule are required")
+	}
 
-	if req.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
-			startTime = t
+	sa, err := h.Backend.CreateServerlessScheduledAction(CreateScheduledActionParams{
+		ScheduledActionName:        req.ScheduledActionName,
+		NamespaceName:              req.NamespaceName,
+		RoleArn:                    req.RoleArn,
+		Schedule:                   req.Schedule,
+		TargetAction:               req.TargetAction,
+		ScheduledActionDescription: req.ScheduledActionDescription,
+		Enabled:                    req.Enabled,
+		StartTime:                  slEpochFromPtr(req.StartTime),
+		EndTime:                    slEpochFromPtr(req.EndTime),
+	})
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: toScheduledActionWire(sa)})
+}
+
+func slEpochFromPtr(v *float64) time.Time {
+	if v == nil {
+		return time.Time{}
+	}
+
+	return time.UnixMilli(int64(*v * 1000)).UTC() //nolint:mnd // ms-per-second conversion, not a magic threshold
+}
+
+func (h *ServerlessHandler) handleGetScheduledAction(c *echo.Context, body []byte) error {
+	var req struct {
+		ScheduledActionName string `json:"scheduledActionName"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	sa, err := h.Backend.GetServerlessScheduledAction(req.ScheduledActionName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: toScheduledActionWire(sa)})
+}
+
+func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context, body []byte) error {
+	var req struct {
+		NamespaceName string `json:"namespaceName"`
+		NextToken     string `json:"nextToken"`
+		MaxResults    int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
 		}
 	}
 
-	if req.EndTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
-			endTime = t
-		}
+	list, outToken := h.Backend.ListServerlessScheduledActions(req.NamespaceName, req.MaxResults, req.NextToken)
+
+	wire := make([]*slScheduledActionWire, 0, len(list))
+	for _, sa := range list {
+		wire = append(wire, toScheduledActionWire(sa))
 	}
 
-	sa, err := h.Backend.CreateServerlessScheduledAction(
-		req.ScheduledActionName,
-		req.NamespaceName,
-		req.Schedule,
-		req.TargetAction,
-		startTime,
-		endTime,
-	)
-	if err != nil {
-		return c.JSON(http.StatusConflict, slErrorResponse("ConflictException", err.Error()))
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: sa})
-}
-
-func (h *ServerlessHandler) handleGetScheduledAction(c *echo.Context, name string) error {
-	sa, err := h.Backend.GetServerlessScheduledAction(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
-	}
-
-	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: sa})
-}
-
-func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context) error {
-	namespaceName := c.QueryParam("namespaceName")
-	nextToken := c.QueryParam("nextToken")
-	list, outToken := h.Backend.ListServerlessScheduledActions(namespaceName, 0, nextToken)
-	resp := map[string]any{"scheduledActions": list}
+	resp := map[string]any{"scheduledActions": wire}
 
 	if outToken != "" {
 		resp["nextToken"] = outToken
@@ -904,75 +933,110 @@ func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *ServerlessHandler) handleUpdateScheduledAction(
-	c *echo.Context,
-	name string,
-	body []byte,
-) error {
+func (h *ServerlessHandler) handleUpdateScheduledAction(c *echo.Context, body []byte) error {
 	var req struct {
-		Schedule     string `json:"schedule"`
-		TargetAction string `json:"targetAction"`
-		StartTime    string `json:"startTime"`
-		EndTime      string `json:"endTime"`
+		ScheduledActionDescription *string         `json:"scheduledActionDescription"`
+		Enabled                    *bool           `json:"enabled"`
+		StartTime                  *float64        `json:"startTime"`
+		EndTime                    *float64        `json:"endTime"`
+		ScheduledActionName        string          `json:"scheduledActionName"`
+		RoleArn                    string          `json:"roleArn"`
+		Schedule                   json.RawMessage `json:"schedule"`
+		TargetAction               json.RawMessage `json:"targetAction"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
-		return c.JSON(
-			http.StatusBadRequest,
-			slErrorResponse("ValidationException", "invalid request body"),
-		)
+		return slBadRequest(c, "invalid request body")
 	}
 
-	var startTime, endTime time.Time
-
-	if req.StartTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.StartTime); err == nil {
-			startTime = t
-		}
-	}
-
-	if req.EndTime != "" {
-		if t, err := time.Parse(time.RFC3339, req.EndTime); err == nil {
-			endTime = t
-		}
-	}
-
-	sa, err := h.Backend.UpdateServerlessScheduledAction(
-		name,
-		req.Schedule,
-		req.TargetAction,
-		startTime,
-		endTime,
-	)
+	sa, err := h.Backend.UpdateServerlessScheduledAction(req.ScheduledActionName, UpdateScheduledActionParams{
+		RoleArn:                    req.RoleArn,
+		Schedule:                   req.Schedule,
+		TargetAction:               req.TargetAction,
+		ScheduledActionDescription: req.ScheduledActionDescription,
+		Enabled:                    req.Enabled,
+		StartTime:                  slEpochFromPtr(req.StartTime),
+		EndTime:                    slEpochFromPtr(req.EndTime),
+	})
 	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+		return slHandleErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: sa})
+	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: toScheduledActionWire(sa)})
 }
 
-func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, name string) error {
-	sa, err := h.Backend.DeleteServerlessScheduledAction(name)
-	if err != nil {
-		return c.JSON(
-			http.StatusNotFound,
-			slErrorResponse("ResourceNotFoundException", err.Error()),
-		)
+func (h *ServerlessHandler) handleDeleteScheduledAction(c *echo.Context, body []byte) error {
+	var req struct {
+		ScheduledActionName string `json:"scheduledActionName"`
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: sa})
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	sa, err := h.Backend.DeleteServerlessScheduledAction(req.ScheduledActionName)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: toScheduledActionWire(sa)})
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Response envelope keys and error helpers
 // ---------------------------------------------------------------------------
+
+const (
+	slRespNamespace          = "namespace"
+	slRespWorkgroup          = "workgroup"
+	slRespSnapshot           = "snapshot"
+	slRespUsageLimit         = "usageLimit"
+	slRespScheduledAction    = "scheduledAction"
+	slRespSnapshotCopyConfig = "snapshotCopyConfiguration"
+	slRespRecoveryPoint      = "recoveryPoint"
+	slRespTableRestoreStatus = "tableRestoreStatus"
+	slRespEndpoint           = "endpoint"
+)
 
 func slErrorResponse(code, msg string) map[string]any {
 	return map[string]any{
+		"__type":  code,
 		"message": msg,
-		"code":    code,
+	}
+}
+
+func slBadRequest(c *echo.Context, msg string) error {
+	return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", msg))
+}
+
+// slHandleErr maps a backend sentinel error to the AWS JSON1.1 error envelope.
+// The real protocol returns HTTP 400 for every client-fault exception
+// (ResourceNotFoundException/ConflictException/ValidationException alike) --
+// confirmed by the absence of any http-status override in
+// redshiftserverless/types/errors.go (only ErrorFault Client/Server, no
+// per-exception status trait), unlike rest-json services.
+func slHandleErr(c *echo.Context, err error) error {
+	switch {
+	case errors.Is(err, ErrNamespaceNotFound),
+		errors.Is(err, ErrWorkgroupNotFound),
+		errors.Is(err, ErrServerlessSnapshotNotFound),
+		errors.Is(err, ErrUsageLimitSLNotFound),
+		errors.Is(err, ErrScheduledActionSLNotFound),
+		errors.Is(err, ErrServerlessResourceNotFound),
+		errors.Is(err, ErrCustomDomainSLNotFound),
+		errors.Is(err, ErrResourcePolicySLNotFound),
+		errors.Is(err, ErrSnapshotCopyConfigSLNotFound),
+		errors.Is(err, ErrRecoveryPointNotFound),
+		errors.Is(err, ErrTableRestoreSLNotFound),
+		errors.Is(err, ErrEndpointAccessSLNotFound):
+		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
+	case errors.Is(err, ErrNamespaceAlreadyExists),
+		errors.Is(err, ErrWorkgroupAlreadyExists),
+		errors.Is(err, ErrServerlessConflict),
+		errors.Is(err, ErrCustomDomainSLConflict),
+		errors.Is(err, ErrEndpointAccessSLAlreadyExists):
+		return c.JSON(http.StatusBadRequest, slErrorResponse("ConflictException", err.Error()))
+	default:
+		return c.JSON(http.StatusBadRequest, slErrorResponse("ValidationException", err.Error()))
 	}
 }

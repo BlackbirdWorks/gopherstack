@@ -9,8 +9,14 @@ type mfaSessionEntry struct {
 	ClientID      string    `json:"clientID,omitempty"`
 	Username      string    `json:"username,omitempty"`
 	ChallengeType string    `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
-	// SRPPassword holds the user's password for USER_SRP_AUTH second-step validation.
-	SRPPassword string `json:"srpPassword,omitempty"`
+	// SRPA/SRPb/SRPB/SRPSecretBlock hold the server's per-session SRP-6a state between
+	// InitiateAuth (which picks b and computes B) and RespondToAuthChallenge (which
+	// needs A, b, and B again to recompute S and verify the client's password-claim
+	// signature). All four are padded-hex (A/b/B) or base64 (SecretBlock) strings.
+	SRPA           string `json:"srpA,omitempty"`
+	SRPb           string `json:"srpSmallB,omitempty"`
+	SRPB           string `json:"srpLargeB,omitempty"`
+	SRPSecretBlock string `json:"srpSecretBlock,omitempty"`
 	// Code holds the one-time code generated for SMS_MFA/EMAIL_OTP challenges. Unlike
 	// SOFTWARE_TOKEN_MFA (verified cryptographically against the user's TOTP secret), SMS
 	// and email codes have no client-held secret to re-derive from, so — exactly like

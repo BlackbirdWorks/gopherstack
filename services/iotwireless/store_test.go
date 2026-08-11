@@ -338,7 +338,7 @@ func TestInMemoryBackend_NonNilEmptySlices(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	assert.NotNil(t, b.ListWirelessDevices(testAccountID, testRegion))
+	assert.NotNil(t, b.ListWirelessDevices(testAccountID, testRegion, iotwireless.ListWirelessDevicesFilter{}))
 	assert.NotNil(t, b.ListWirelessGateways(testAccountID, testRegion))
 	assert.NotNil(t, b.ListServiceProfiles(testAccountID, testRegion))
 	assert.NotNil(t, b.ListDestinations(testAccountID, testRegion))

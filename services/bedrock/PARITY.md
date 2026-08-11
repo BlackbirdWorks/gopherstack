@@ -1,5 +1,5 @@
 service: bedrock
-sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.0
+sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.4
 last_audit_commit: 5ee940036
 last_audit_date: 2026-07-25
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the
@@ -54,18 +54,18 @@ ops:
   GetModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteModelInvocationLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateEvaluationJobRequest field is jobTags, so every real client's tags were silently discarded"}
   GetEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListEvaluationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — took zero params and always returned the full unbounded table in one page, ignoring nextToken entirely (unlike every sibling List op). Now supports nextToken/statusEquals/nameContains/creationTimeAfter/creationTimeBefore query filters via a real ListEvaluationJobsInput, mirroring ListModelInvocationJobs' filter pattern. applicationTypeEquals/sortBy/sortOrder still unhandled — see gaps."}
   BatchDeleteEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopEvaluationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as DELETE /evaluation-jobs/{id} (plural); real SDK sends POST /evaluation-job/{id}/stop (SINGULAR, different HTTP verb). Completely unreachable by real clients before this fix — a route-matcher-class bug."}
-  CreateModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — customModelName (required, distinct from jobName per bedrock@v1.66.4 CreateModelCustomizationJobRequest) was accepted nowhere and silently dropped; the job's output model was never materialized as a CustomModel at all, so it could never be listed/gotten. Now validated as required and, on job completion, becomes a real CustomModel with a real baseModelArn (gopherstack-2wuv)."}
   GetModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListModelCustomizationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken pagination only; nameContains/statusEquals/creationTime-range/sortBy/sortOrder filters not implemented — see gaps"}
+  ListModelCustomizationJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — per-item summaries reused GetModelCustomizationJob's outputModelArn/outputModelName wire keys; real ListModelCustomizationJobs uses customModelArn/customModelName instead (bedrock@v1.66.4 ModelCustomizationJobSummary via botocore), so those two fields silently deserialized to nil for every real SDK caller. Split into a dedicated summary shape (gopherstack-2wuv). sortBy/sortOrder still don't vary the sort field (always CreationTime) — see gaps."}
   StopModelCustomizationJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListCustomModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "nextToken pagination only; nameContains/modelStatus/baseModelArnEquals/foundationModelArnEquals/isOwned/creationTime-range/sortBy/sortOrder filters not implemented — see gaps"}
+  CreateCustomModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-11 -- request field was wire-tagged tags; the real CreateCustomModelRequest field is modelTags, so every real client's tags were silently discarded"}
+  GetCustomModel: {wire: ok, errors: ok, state: ok, persist: ok, note: "now returns baseModelArn/customizationType/jobArn/jobName for customization-job output models (jobArn/jobName NULL for CreateCustomModel imports, matching bedrock@v1.66.4 GetCustomModelResponse) (gopherstack-2wuv)"}
+  ListCustomModels: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — baseModelArnEquals/foundationModelArnEquals now implemented: they match a completed CreateModelCustomizationJob's output model (real baseModelArn from baseModelIdentifier) and correctly never match a CreateCustomModel import, which has no base model in its wire input to filter on (gopherstack-2wuv). sortBy/sortOrder still don't vary the sort field (always CreationTime) — see gaps."}
   DeleteCustomModel: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — List/Get/Update/Delete were routed under a fabricated \"/custom-model-deployments\" path; real SDK uses the SAME base path as Create (\"/model-customization/custom-model-deployments\") for all five ops. Completely unreachable by real clients before this fix."}
@@ -198,9 +198,25 @@ gaps:
     against the pre-fix code (POST to the base path 404'd as a ValidationException,
     silently treated as an empty Ingest, never reaching List) before applying the fix.
     Restored overall: A-->A. (bd: file follow-up closed)"
-  - "AutomatedReasoningPolicy sub-resource path model: GetAutomatedReasoningPolicyAnnotations/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario, GetAutomatedReasoningPolicyTestResult/ListAutomatedReasoningPolicyTestResults, and ExportAutomatedReasoningPolicyVersion are all build-workflow-scoped in real AWS (e.g. real annotations path is /automated-reasoning-policies/{policyArn}/build-workflows/{buildWorkflowId}/annotations) but gopherstack models them as policy-scoped only (no buildWorkflowId in the path/state at all — arpAnnotations is keyed solely by policyARN). isARPTestCaseRunPath (\"/test-cases/{id}/run\") and the policy-scoped \"/test-cases/{id}/result\"/\"/test-cases/results\" paths appear to be invented outright; real AWS has no per-test-case run endpoint (StartAutomatedReasoningPolicyTestWorkflow is build-workflow-scoped: POST .../build-workflows/{id}/test-workflows) and the real result paths are .../build-workflows/{id}/test-cases/{testCaseId}/test-results and .../build-workflows/{id}/test-results. ExportAutomatedReasoningPolicyVersion's real path takes ONLY {policyArn} (which may itself be a versioned ARN) at /automated-reasoning-policies/{policyArn}/export; gopherstack requires a separate /versions/{version}/export path shape that doesn't exist in the real API. This is a resource-model redesign (re-plumbing build-workflow-scoped storage for annotations/test-results), not a route fix — deliberately NOT attempted this pass; the 3 PUT->PATCH method-reachability bugs were fixed (see families.AutomatedReasoningPolicy) but the path-model issues remain. (bd: file follow-up)"
+  - "FIXED (gopherstack-7znk): AutomatedReasoningPolicy sub-resource path model —
+    Get/UpdateAutomatedReasoningPolicyAnnotations, GetAutomatedReasoningPolicyNextScenario,
+    Get/ListAutomatedReasoningPolicyTestResult(s), and StartAutomatedReasoningPolicyTestWorkflow
+    are now build-workflow-scoped (.../build-workflows/{buildWorkflowId}/...), matching
+    bedrock@v1.66.4 serializers.go:3874/:4122/:4282/:5937/:8117; arpAnnotations is now
+    keyed by (policyARN, buildWorkflowID). ExportAutomatedReasoningPolicyVersion now
+    routes GET (not POST) at /automated-reasoning-policies/{policyArn}/export with no
+    separate {version} segment (serializers.go:3603) — a versioned export passes the
+    versioned ARN itself; an unversioned (draft) ARN 404s since gopherstack does not
+    track a separate draft policy definition to export. The two previously-invented
+    endpoints with no direct real-AWS path shape, isARPTestCaseRunPath
+    (\"/test-cases/{id}/run\") and \"/versions/{version}/export\", were corrected onto
+    their real counterparts (StartAutomatedReasoningPolicyTestWorkflow's real shape
+    takes an optional testCaseIds list in the body, not a single test case in the
+    path) rather than deleted, since both operations do exist in real AWS. All 6
+    re-verified individually against the pinned SDK per
+    .claude/memories/parity-principles.md #2 before changing routes. (bd: gopherstack-7znk closed)"
   - "UpdateAutomatedReasoningPolicyTestCase: now reachable (PATCH fixed), but handleUpdateARPTestCase never reads/parses the request body — it's a disguised no-op that only echoes testCaseId/policyArn back. Needs real UpdateAutomatedReasoningPolicyTestCaseInput field support (expression/inputText/expectedAggregatedFindingsResult per the real SDK). (bd: file follow-up)"
-  - "ListCustomModels and ListModelCustomizationJobs: nextToken pagination only; real AWS supports nameContains/statusEquals-or-modelStatus/creationTime-range/sortBy/sortOrder filters on both (plus baseModelArnEquals/foundationModelArnEquals/isOwned on ListCustomModels specifically), all silently ignored. Same shape as AWS's minimum viable page-through, low risk, but worth aligning. (bd: file follow-up)"
+  - "ListCustomModels and ListModelCustomizationJobs: sortBy is parsed but never changes the sort field (always CreationTime, real AWS's default) — no ValidationException on an unrecognized value either. Low risk. (bd: file follow-up)"
   - "ListInferenceProfiles: missing the real typeEquals (SYSTEM_DEFINED|APPLICATION) filter. ListMarketplaceModelEndpoints: missing the real modelSourceEquals filter. Both low-risk (nextToken pagination already correct). (bd: file follow-up)"
   - "ListEvaluationJobs: applicationTypeEquals filter and sortBy/sortOrder not implemented (statusEquals/nameContains/creationTimeAfter/creationTimeBefore/nextToken now are, see ops entry). (bd: file follow-up)"
   - "RegisterMarketplaceModelEndpoint: real RegisterMarketplaceModelEndpointInput requires both endpointIdentifier and modelSourceIdentifier in the body; gopherstack's handler takes only the path-param ID and never reads/validates a request body. Not touched this pass — spotted while field-diffing the surrounding marketplace-endpoint family but out of this pass's named scope. (bd: file follow-up)"

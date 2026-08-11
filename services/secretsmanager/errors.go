@@ -30,4 +30,11 @@ var (
 	ErrInvalidParameter = errors.New("InvalidParameterException")
 	// ErrInvalidSecretName is returned when a secret name does not match the allowed pattern.
 	ErrInvalidSecretName = errors.New("InvalidParameterException")
+	// ErrRotationStrategyRequired is returned when RotateSecret is called on a secret with
+	// no RotationLambdaARN configured (neither already stored nor supplied in the request).
+	// Matches aws-sdk-go-v2/service/secretsmanager@v1.44.4 types/errors.go's
+	// InvalidRequestException doc comment: you tried to enable rotation on a secret that
+	// doesn't already have a Lambda function ARN configured, and didn't include one as a
+	// parameter in this call.
+	ErrRotationStrategyRequired = errors.New("InvalidRequestException")
 )

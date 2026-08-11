@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -1961,7 +1962,12 @@ func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
 			wantOutput: "timeout",
 		},
 		{
-			name: "timeout_not_retried_with_states_all_retry",
+			// Each retry attempt gets its own TimeoutSeconds window (AWS docs,
+			// amazon-states-language-task-state.html: "the timeout count begins
+			// when the start event is executed", and a new start event is
+			// logged per attempt), so a Task that always times out exhausts
+			// every attempt: the initial try plus all 3 retries.
+			name: "timeout_retried_with_states_all_retry",
 			lambda: &mockLambdaFnCtx{fn: func(ctx context.Context) ([]byte, int, error) {
 				timeoutCallCount.Add(1)
 				<-ctx.Done()
@@ -1985,7 +1991,7 @@ func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
 			input:         `{}`,
 			wantOutput:    "timeout",
 			counter:       &timeoutCallCount,
-			wantCallCount: 1,
+			wantCallCount: 4,
 		},
 		{
 			name: "zero_timeout_no_enforcement",
@@ -2013,20 +2019,22 @@ func TestExecutor_Task_TimeoutSeconds(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			sm, err := asl.Parse(tt.def)
-			require.NoError(t, err)
-			exec := asl.NewExecutor(sm, tt.lambda, nil)
-			result, err := exec.Execute(t.Context(), "test", tt.input)
-			require.NoError(t, err)
-			assert.Empty(t, result.Error)
+			synctest.Test(t, func(t *testing.T) {
+				sm, err := asl.Parse(tt.def)
+				require.NoError(t, err)
+				exec := asl.NewExecutor(sm, tt.lambda, nil)
+				result, err := exec.Execute(t.Context(), "test", tt.input)
+				require.NoError(t, err)
+				assert.Empty(t, result.Error)
 
-			if tt.wantOutput != nil {
-				assert.Equal(t, tt.wantOutput, result.Output)
-			}
+				if tt.wantOutput != nil {
+					assert.Equal(t, tt.wantOutput, result.Output)
+				}
 
-			if tt.counter != nil {
-				assert.Equal(t, tt.wantCallCount, tt.counter.Load())
-			}
+				if tt.counter != nil {
+					assert.Equal(t, tt.wantCallCount, tt.counter.Load())
+				}
+			})
 		})
 	}
 }

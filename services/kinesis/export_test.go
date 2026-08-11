@@ -181,32 +181,3 @@ func (b *InMemoryBackend) ResourcePolicyCount() int {
 func (h *Handler) HandlerOpsLen() int {
 	return len(h.ops)
 }
-
-// SetShardTimesForTest directly sets shard shardIdx's StartedAt/ClosedAt for
-// the named stream, letting ListShards' timestamp-bounded ShardFilter tests
-// (AT_TIMESTAMP/FROM_TIMESTAMP/AT_TRIM_HORIZON) use deterministic timestamps
-// instead of real wall-clock sleeps. A zero closedAt leaves the shard open.
-func (b *InMemoryBackend) SetShardTimesForTest(streamName string, shardIdx int, startedAt, closedAt time.Time) error {
-	b.mu.Lock("SetShardTimesForTest")
-	defer b.mu.Unlock()
-
-	stream, ok := b.streams.Get(streamKey(b.region, streamName))
-	if !ok {
-		return ErrStreamNotFound
-	}
-	stream.mu.Lock("SetShardTimesForTest.stream")
-	defer stream.mu.Unlock()
-
-	if shardIdx >= len(stream.Shards) {
-		return ErrInvalidArgument
-	}
-
-	shard := stream.Shards[shardIdx]
-	shard.StartedAt = startedAt
-	if !closedAt.IsZero() {
-		shard.Closed = true
-		shard.ClosedAt = closedAt
-	}
-
-	return nil
-}

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import CloudFormationPage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -12,10 +13,22 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("CloudFormation Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -94,5 +107,50 @@ describe("CloudFormation Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans DescribeStacks out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Stacks: [{ StackName: "my-web-stack" }] });
+      mockSend.mockResolvedValueOnce({ Stacks: [{ StackName: "eu-stack" }] });
+
+      render(CloudFormationPage);
+
+      await waitFor(() => expect(screen.getByText("my-web-stack")).toBeInTheDocument());
+      expect(screen.getByText("eu-stack")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one DescribeStacks call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ Stacks: [{ StackName: "my-web-stack" }] });
+      render(CloudFormationPage);
+      await waitFor(() => expect(screen.getByText("my-web-stack")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same stack name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ Stacks: [{ StackName: "shared-stack" }] });
+      mockSend.mockResolvedValueOnce({ Stacks: [{ StackName: "shared-stack" }] });
+
+      render(CloudFormationPage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-stack");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) => within(r.closest("tr") as HTMLElement).getByTestId("region-chip").textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

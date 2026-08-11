@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/svelte";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/svelte";
 import EventBridgePage from "./+page.svelte";
+import { ALL_REGIONS, DEFAULT_REGION, setStoredRegion } from "$lib/region.svelte";
 
 const mockSend = vi.fn();
 
@@ -12,10 +13,25 @@ vi.mock("svelte-sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
+function stubRegionsWithData(regions: string[]): void {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ regions }),
+    }),
+  );
+}
+
 describe("EventBridge Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSend.mockReset();
+    // Every test below predates "All" mode and assumes exactly one
+    // ListEventBuses call against a single region, so pin single-region
+    // mode here; the "All regions mode" describe block below opts back in.
+    setStoredRegion(DEFAULT_REGION);
   });
 
   it("renders page title", () => {
@@ -109,5 +125,65 @@ describe("EventBridge Page", () => {
       },
       { timeout: 3000 },
     );
+  });
+
+  describe("All regions mode", () => {
+    it("fans ListEventBuses out across every region with data and tags each row", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "us-bus", Arn: "arn:1" }] });
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "eu-bus", Arn: "arn:2" }] });
+
+      render(EventBridgePage);
+
+      await waitFor(() => expect(screen.getByText("us-bus")).toBeInTheDocument());
+      expect(screen.getByText("eu-bus")).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledTimes(2);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("falls back to just the default region when no region has data", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData([]);
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "solo-bus", Arn: "arn:1" }] });
+
+      render(EventBridgePage);
+
+      await waitFor(() => expect(screen.getByText("solo-bus")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+
+      vi.unstubAllGlobals();
+    });
+
+    it("issues exactly one ListEventBuses call in single-region mode", async () => {
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "solo-bus", Arn: "arn:1" }] });
+      render(EventBridgePage);
+      await waitFor(() => expect(screen.getByText("solo-bus")).toBeInTheDocument());
+      expect(mockSend).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders the same bus name from two different regions as two distinct rows, each tagged with its own region", async () => {
+      setStoredRegion(ALL_REGIONS);
+      stubRegionsWithData(["us-east-1", "eu-west-1"]);
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "shared-bus", Arn: "arn:us" }] });
+      mockSend.mockResolvedValueOnce({ EventBuses: [{ Name: "shared-bus", Arn: "arn:eu" }] });
+
+      render(EventBridgePage);
+
+      const rows = await waitFor(() => {
+        const found = screen.getAllByText("shared-bus");
+        expect(found).toHaveLength(2);
+        return found;
+      });
+      const chips = rows.map(
+        (r) =>
+          within(r.closest(".justify-between") as HTMLElement).getByTestId("region-chip")
+            .textContent,
+      );
+      expect(chips.toSorted()).toEqual(["eu-west-1", "us-east-1"]);
+
+      vi.unstubAllGlobals();
+    });
   });
 });

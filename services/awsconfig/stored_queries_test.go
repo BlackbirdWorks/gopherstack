@@ -11,7 +11,7 @@ func TestGetStoredQuery(t *testing.T) {
 
 	b := awsconfig.NewInMemoryBackend()
 
-	_ = b.PutStoredQuery("my-query")
+	_, _ = b.PutStoredQuery("my-query", "", "", nil)
 
 	q := b.GetStoredQuery("my-query")
 	if q == nil || q.QueryName != "my-query" {
@@ -33,7 +33,7 @@ func TestDeleteStoredQuery(t *testing.T) {
 	t.Parallel()
 
 	b := awsconfig.NewInMemoryBackend()
-	_ = b.PutStoredQuery("q1")
+	_, _ = b.PutStoredQuery("q1", "", "", nil)
 	_ = b.DeleteStoredQuery("q1")
 
 	q := b.GetStoredQuery("q1")

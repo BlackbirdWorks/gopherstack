@@ -1,7 +1,9 @@
 package omics
 
 import (
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo/v5"
 )
@@ -123,10 +125,10 @@ func (h *Handler) handleStartRun(c *echo.Context) error {
 	// Real StartRunOutput: arn/id/status/tags plus the optional uuid/
 	// configuration/networkingMode/runOutputUri fields (gopherstack-fedo).
 	return c.JSON(http.StatusCreated, map[string]any{
-		"arn":            run.Arn,
+		keyArn:           run.Arn,
 		"id":             run.ID,
-		"status":         run.Status,
-		"uuid":           run.UUID,
+		keyStatus:        run.Status,
+		keyUUID:          run.UUID,
 		"networkingMode": run.NetworkingMode,
 		"runOutputUri":   run.RunOutputURI,
 		"configuration":  run.Configuration,
@@ -262,23 +264,118 @@ func (h *Handler) handleUpdateRunCache(c *echo.Context, id string) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleStartRunBatch(c *echo.Context) error {
-	var req struct {
-		WorkflowID string `json:"workflowId"`
-		RoleArn    string `json:"roleArn"`
-		Name       string `json:"name"`
-	}
+// inlineRunSettingWire mirrors types.InlineSetting's real JSON keys (confirmed via
+// awsRestjson1_serializeDocumentInlineSetting, omics@v1.49.5's serializers.go).
+type inlineRunSettingWire struct {
+	Priority     *int32            `json:"priority,omitempty"`
+	RunTags      map[string]string `json:"runTags,omitempty"`
+	RunSettingID string            `json:"runSettingId"`
+	Name         string            `json:"name,omitempty"`
+	OutputURI    string            `json:"outputUri,omitempty"`
+}
 
+// batchRunSettingsWire mirrors the real BatchRunSettings union
+// ({"inlineSettings": [...]} | {"s3UriSettings": "..."}), confirmed via
+// awsRestjson1_serializeDocumentBatchRunSettings.
+type batchRunSettingsWire struct {
+	S3URISettings  string                 `json:"s3UriSettings,omitempty"`
+	InlineSettings []inlineRunSettingWire `json:"inlineSettings,omitempty"`
+}
+
+// defaultRunSettingWire mirrors the subset of types.DefaultRunSetting's real JSON keys
+// this backend models (confirmed via awsRestjson1_serializeDocumentDefaultRunSetting;
+// see the DefaultRunSetting doc comment in models.go for the fields not modeled).
+type defaultRunSettingWire struct {
+	RunTags    map[string]string `json:"runTags,omitempty"`
+	RoleArn    string            `json:"roleArn"`
+	WorkflowID string            `json:"workflowId"`
+	Name       string            `json:"name,omitempty"`
+	OutputURI  string            `json:"outputUri,omitempty"`
+	RunGroupID string            `json:"runGroupId,omitempty"`
+	Priority   int32             `json:"priority,omitempty"`
+}
+
+// startRunBatchWire mirrors the real StartRunBatchInput's JSON keys, confirmed via
+// awsRestjson1_serializeOpDocumentStartRunBatchInput.
+type startRunBatchWire struct {
+	Tags              map[string]string     `json:"tags,omitempty"`
+	RequestID         string                `json:"requestId"`
+	BatchName         string                `json:"batchName,omitempty"`
+	DefaultRunSetting defaultRunSettingWire `json:"defaultRunSetting"`
+	BatchRunSettings  batchRunSettingsWire  `json:"batchRunSettings"`
+}
+
+func (h *Handler) handleStartRunBatch(c *echo.Context) error {
+	var req startRunBatchWire
 	if err := readJSON(c, &req); err != nil {
 		return err
 	}
 
-	rb, err := h.Backend.StartRunBatch(req.WorkflowID, req.RoleArn, req.Name)
+	if req.RequestID == "" {
+		return h.mapError(c, fmt.Errorf("%w: requestId is required", ErrValidation))
+	}
+
+	if req.DefaultRunSetting.RoleArn == "" || req.DefaultRunSetting.WorkflowID == "" {
+		return h.mapError(c, fmt.Errorf(
+			"%w: defaultRunSetting.roleArn and defaultRunSetting.workflowId are required", ErrValidation,
+		))
+	}
+
+	hasInline := len(req.BatchRunSettings.InlineSettings) > 0
+	hasS3URI := req.BatchRunSettings.S3URISettings != ""
+
+	if hasInline == hasS3URI {
+		return h.mapError(c, fmt.Errorf(
+			"%w: specify exactly one of batchRunSettings.inlineSettings or batchRunSettings.s3UriSettings",
+			ErrValidation,
+		))
+	}
+
+	if hasS3URI {
+		// Real AWS reads and validates access to this S3 object synchronously during
+		// the StartRunBatch call. gopherstack has no S3 object content to read here
+		// (no cross-service wiring reads real S3 body bytes for this op), so this path
+		// cannot be honestly simulated -- rejected explicitly rather than silently
+		// creating a batch with zero runs. See PARITY.md.
+		return h.mapError(c, fmt.Errorf(
+			"%w: batchRunSettings.s3UriSettings is not supported by this emulator; use inlineSettings",
+			ErrValidation,
+		))
+	}
+
+	def := DefaultRunSetting{
+		RoleARN:    req.DefaultRunSetting.RoleArn,
+		WorkflowID: req.DefaultRunSetting.WorkflowID,
+		Name:       req.DefaultRunSetting.Name,
+		OutputURI:  req.DefaultRunSetting.OutputURI,
+		RunGroupID: req.DefaultRunSetting.RunGroupID,
+		Priority:   req.DefaultRunSetting.Priority,
+		RunTags:    req.DefaultRunSetting.RunTags,
+	}
+
+	inline := make([]InlineRunSetting, len(req.BatchRunSettings.InlineSettings))
+	for i, s := range req.BatchRunSettings.InlineSettings {
+		inline[i] = InlineRunSetting{
+			RunSettingID: s.RunSettingID,
+			Name:         s.Name,
+			OutputURI:    s.OutputURI,
+			Priority:     s.Priority,
+			RunTags:      s.RunTags,
+		}
+	}
+
+	rb, err := h.Backend.StartRunBatch(req.BatchName, def, inline, req.Tags)
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusCreated, rb)
+	return c.JSON(http.StatusCreated, map[string]any{
+		keyArn:    rb.Arn,
+		"id":      rb.ID,
+		keyStatus: rb.Status,
+		keyUUID:   rb.UUID,
+		keyTags:   rb.Tags,
+	})
 }
 
 func (h *Handler) handleCancelRunBatch(c *echo.Context) error {
@@ -314,7 +411,64 @@ func (h *Handler) handleGetRunBatch(c *echo.Context, id string) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, rb)
+	summary, err := h.Backend.GetRunBatchSummary(id)
+	if err != nil {
+		return h.mapError(c, err)
+	}
+
+	resp := map[string]any{
+		keyArn:         rb.Arn,
+		"creationTime": rb.CreationTime,
+		"id":           rb.ID,
+		"name":         rb.Name,
+		keyStatus:      rb.Status,
+		keyTags:        rb.Tags,
+		"totalRuns":    rb.TotalRuns,
+		keyUUID:        rb.UUID,
+		"defaultRunSetting": map[string]any{
+			"roleArn":    rb.RoleARN,
+			"workflowId": rb.WorkflowID,
+			"runGroupId": rb.RunGroupID,
+			"outputUri":  rb.OutputURI,
+		},
+		"runSummary": map[string]any{
+			"pendingRunCount":   summary.PendingRunCount,
+			"runningRunCount":   summary.RunningRunCount,
+			"completedRunCount": summary.CompletedRunCount,
+			"cancelledRunCount": summary.CancelledRunCount,
+			"failedRunCount":    summary.FailedRunCount,
+			"deletedRunCount":   rb.DeletedRunCount,
+			"startingRunCount":  0,
+			"stoppingRunCount":  0,
+		},
+		"submissionSummary": map[string]any{
+			"successfulStartSubmissionCount": rb.SubmissionSuccessCount,
+			"failedStartSubmissionCount":     rb.SubmissionFailureCount,
+			"pendingStartSubmissionCount":    0,
+		},
+	}
+
+	if !rb.SubmittedTime.IsZero() {
+		resp["submittedTime"] = rb.SubmittedTime
+	}
+
+	if !rb.ProcessedTime.IsZero() {
+		resp["processedTime"] = rb.ProcessedTime
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// runBatchListItemWire mirrors types.BatchListItem's real, smaller field set (real
+// ListBatch responses do NOT include runSummary/submissionSummary/defaultRunSetting --
+// those are GetBatch-only, confirmed via awsRestjson1_deserializeDocumentBatchListItem).
+type runBatchListItemWire struct {
+	CreatedAt  time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	Name       string    `json:"name,omitempty"`
+	Status     string    `json:"status"`
+	WorkflowID string    `json:"workflowId"`
+	TotalRuns  int32     `json:"totalRuns"`
 }
 
 func (h *Handler) handleListRunBatches(c *echo.Context) error {
@@ -331,7 +485,19 @@ func (h *Handler) handleListRunBatches(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"runBatches": batches, keyNextToken: next})
+	items := make([]runBatchListItemWire, len(batches))
+	for i, rb := range batches {
+		items[i] = runBatchListItemWire{
+			CreatedAt:  rb.CreationTime,
+			ID:         rb.ID,
+			Name:       rb.Name,
+			Status:     rb.Status,
+			WorkflowID: rb.WorkflowID,
+			TotalRuns:  rb.TotalRuns,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"runBatches": items, keyNextToken: next})
 }
 
 // handleDeleteRunBatch implements real AWS DeleteRunBatch: POST /runBatch/delete

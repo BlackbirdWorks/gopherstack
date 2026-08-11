@@ -32,6 +32,7 @@ type storedIAMPolicyAssignment struct {
 	AssignmentStatus string              `json:"assignmentStatus"`
 	PolicyArn        string              `json:"policyArn"`
 	Namespace        string              `json:"namespace"`
+	AwsAccountID     string              `json:"awsAccountId"`
 }
 
 func (a *storedIAMPolicyAssignment) toIAMPolicyAssignment() *IAMPolicyAssignment {
@@ -41,6 +42,7 @@ func (a *storedIAMPolicyAssignment) toIAMPolicyAssignment() *IAMPolicyAssignment
 		AssignmentStatus: a.AssignmentStatus,
 		PolicyArn:        a.PolicyArn,
 		Namespace:        a.Namespace,
+		AwsAccountID:     a.AwsAccountID,
 		Identities:       cloneIdentities(a.Identities),
 	}
 }
@@ -97,6 +99,7 @@ func (b *InMemoryBackend) CreateIAMPolicyAssignment(
 		AssignmentStatus: assignmentStatus,
 		PolicyArn:        policyArn,
 		Namespace:        namespace,
+		AwsAccountID:     accountID,
 		Identities:       maps.Clone(identities),
 	}
 	b.iamPolicyAssignments.Put(a)

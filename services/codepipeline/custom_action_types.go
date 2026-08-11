@@ -30,6 +30,7 @@ func (b *InMemoryBackend) CreateCustomActionType(
 
 	cp := copyCustomActionType(cat)
 	cp.region = region
+	cp.arn = b.buildActionTypeARN(region, cp)
 	b.customActionTypes.Put(cp)
 
 	return copyCustomActionType(cp), nil
@@ -92,6 +93,7 @@ func (b *InMemoryBackend) AddCustomActionTypeInternal(cat *CustomActionType) {
 
 	cp := copyCustomActionType(cat)
 	cp.region = b.region
+	cp.arn = b.buildActionTypeARN(b.region, cp)
 	b.customActionTypes.Put(cp)
 }
 

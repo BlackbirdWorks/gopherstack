@@ -502,6 +502,19 @@ type disassociateMacSecKeyRequest struct {
 	SecretARN    string `json:"secretARN"`
 }
 
+type listVirtualInterfaceRoutesRequest struct {
+	Filters            *routeFiltersWire `json:"filters,omitempty"`
+	MaxResults         *int32            `json:"maxResults,omitempty"`
+	NextToken          string            `json:"nextToken,omitempty"`
+	VirtualInterfaceID string            `json:"virtualInterfaceId,omitempty"`
+}
+
+type listVirtualInterfaceRoutesResponse struct {
+	NextToken          string      `json:"nextToken,omitempty"`
+	VirtualInterfaceID string      `json:"virtualInterfaceId,omitempty"`
+	Routes             []routeWire `json:"routes,omitempty"`
+}
+
 type listVifTestHistoryRequest struct {
 	MaxResults         *int32   `json:"maxResults,omitempty"`
 	NextToken          string   `json:"nextToken,omitempty"`

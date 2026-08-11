@@ -387,7 +387,9 @@ func titleCaseWords(s, sep string) string {
 // servicePrincipal -> recorder-name link is tracked separately (see
 // ServiceLinkedRecorderLink's doc comment) so it survives persistence without
 // leaking onto ConfigurationRecorder's wire-verbatim shape.
-func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder(servicePrincipal string) (string, string, error) {
+func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder(
+	servicePrincipal string, tags []Tag,
+) (string, string, error) {
 	if servicePrincipal == "" {
 		return "", "", fmt.Errorf("%w: ServicePrincipal is required", ErrValidation)
 	}
@@ -396,7 +398,10 @@ func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder(servicePrincipal
 	defer b.mu.Unlock()
 
 	if link, ok := b.serviceLinkedRecorders.Get(servicePrincipal); ok {
-		return link.RecorderName, b.recorderArn(link.RecorderName), nil
+		arn := b.recorderArn(link.RecorderName)
+		b.setResourceTagsLocked(arn, tags)
+
+		return link.RecorderName, arn, nil
 	}
 
 	recName := serviceLinkedRecorderName(servicePrincipal)
@@ -406,7 +411,10 @@ func (b *InMemoryBackend) PutServiceLinkedConfigurationRecorder(servicePrincipal
 		RecorderName:     recName,
 	})
 
-	return recName, b.recorderArn(recName), nil
+	arn := b.recorderArn(recName)
+	b.setResourceTagsLocked(arn, tags)
+
+	return recName, arn, nil
 }
 
 // DeleteServiceLinkedConfigurationRecorder deletes the service-linked

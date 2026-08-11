@@ -69,6 +69,8 @@ type InMemoryBackend struct {
 	vpcConnectionsByCluster    *store.Index[VpcConnection]
 	clusterOperations          *store.Table[ClusterOperation]
 	clusterOperationsByCluster *store.Index[ClusterOperation]
+	channels                   *store.Table[Channel]
+	channelsByCluster          *store.Index[Channel]
 	scramSecrets               map[string][]string // clusterArn → []secretArn (raw: slice-valued, not *T)
 	clusterPolicies            map[string]string   // clusterArn → policy document (raw: string-valued, not *T)
 	mu                         *lockmetrics.RWMutex

@@ -11,13 +11,13 @@ import (
 
 func (h *Handler) handleCreateInferenceComponent(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags          map[string]string `json:"Tags"`
 		RuntimeConfig *struct {
 			CopyCount int `json:"CopyCount"`
 		} `json:"RuntimeConfig"`
-		InferenceComponentName string `json:"InferenceComponentName"`
-		EndpointName           string `json:"EndpointName"`
-		VariantName            string `json:"VariantName"`
+		InferenceComponentName string      `json:"InferenceComponentName"`
+		EndpointName           string      `json:"EndpointName"`
+		VariantName            string      `json:"VariantName"`
+		Tags                   []tagObject `json:"Tags"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -34,7 +34,7 @@ func (h *Handler) handleCreateInferenceComponent(ctx context.Context, body []byt
 		EndpointName:           req.EndpointName,
 		VariantName:            req.VariantName,
 		CopyCount:              copyCount,
-		Tags:                   req.Tags,
+		Tags:                   fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err

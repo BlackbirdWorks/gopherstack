@@ -63,7 +63,10 @@ func TestIntegration_Inspector2_FilterLifecycle(t *testing.T) {
 			require.NotEmpty(t, filterArn, "filter ARN must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteFilter(ctx, &inspector2sdk.DeleteFilterInput{Arn: aws.String(filterArn)})
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteFilter(cleanupCtx, &inspector2sdk.DeleteFilterInput{Arn: aws.String(filterArn)})
 			})
 
 			listOut, err := client.ListFilters(ctx, &inspector2sdk.ListFiltersInput{})

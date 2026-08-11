@@ -89,6 +89,24 @@ func slUsageLimitsKeyFn(v *ServerlessUsageLimit) string { return v.UsageLimitID 
 
 func slScheduledActionsKeyFn(v *ServerlessScheduledAction) string { return v.ScheduledActionName }
 
+func slResourceTagsKeyFn(v *slResourceTagSet) string { return v.ResourceArn }
+
+func slCustomDomainsSLKeyFn(v *ServerlessCustomDomainAssociation) string { return v.CustomDomainName }
+
+func slResourcePoliciesKeyFn(v *ServerlessResourcePolicy) string { return v.ResourceArn }
+
+func slSnapshotCopyConfigKeyFn(v *ServerlessSnapshotCopyConfiguration) string {
+	return v.SnapshotCopyConfigurationID
+}
+
+func slRecoveryPointsKeyFn(v *RecoveryPoint) string { return v.RecoveryPointID }
+
+func slTableRestoreStatusesKeyFn(v *ServerlessTableRestoreStatus) string {
+	return v.TableRestoreRequestID
+}
+
+func slEndpointAccessesKeyFn(v *ServerlessEndpointAccess) string { return v.EndpointName }
+
 // registerAllTables registers every converted resource map on b.registry
 // exactly once. It must be called during construction only (immediately
 // after b.registry is created), never on every Reset() -- store.Register
@@ -195,6 +213,31 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slScheduledActions = store.Register(b.registry, "slScheduledActions", store.New(slScheduledActionsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slResourceTags = store.Register(b.registry, "slResourceTags", store.New(slResourceTagsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slCustomDomains = store.Register(b.registry, "slCustomDomainsSL", store.New(slCustomDomainsSLKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slResourcePolicies = store.Register(b.registry, "slResourcePolicies", store.New(slResourcePoliciesKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slSnapshotCopyConfig = store.Register(
+			b.registry, "slSnapshotCopyConfig", store.New(slSnapshotCopyConfigKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.slRecoveryPoints = store.Register(b.registry, "slRecoveryPoints", store.New(slRecoveryPointsKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slTableRestoreStatuses = store.Register(
+			b.registry, "slTableRestoreStatuses", store.New(slTableRestoreStatusesKeyFn),
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.slEndpointAccesses = store.Register(b.registry, "slEndpointAccesses", store.New(slEndpointAccessesKeyFn))
 	},
 }
 

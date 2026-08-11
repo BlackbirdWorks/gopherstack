@@ -1,5 +1,8 @@
 <script lang="ts">
 import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
+import { multiRegionList } from '$lib/multi-region';
+import RegionChip from '$lib/components/RegionChip.svelte';
+import WriteRegionHint from '$lib/components/WriteRegionHint.svelte';
 import { getKinesisClient } from '$lib/aws-client';
 import {
 	ListStreamsCommand,
@@ -43,11 +46,16 @@ interface StreamDetail {
 	streamMode: string;
 	encryptionType: string;
 	keyId: string;
+	region: string;
 }
+
+// Row and detail actions must use the region a stream's own row was fanned
+// out from, not the page's shared `kinesis()` client -- in All mode the
+// same stream name can legitimately exist in two different regions.
 
 // State
 let loading = $state(false);
-let streams = $state<string[]>([]);
+let streams = $state<{ name: string; region: string }[]>([]);
 let searchQuery = $state('');
 
 let selectedStream = $state<StreamDetail | null>(null);
@@ -106,14 +114,20 @@ let newConsumerName = $state('');
 let registeringConsumer = $state(false);
 
 const filteredStreams = $derived(
-	streams.filter(name => name.toLowerCase().includes(searchQuery.toLowerCase()))
+	streams.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase()))
 );
 
+// Fans ListStreams out across every region with data in All mode
+// (single-region mode collapses to exactly one call).
 async function loadStreams() {
 	loading = true;
 	try {
-		const res = await kinesis().send(new ListStreamsCommand({ Limit: 100 }));
-		streams = res.StreamNames ?? [];
+		const result = await multiRegionList(
+			(region) => getKinesisClient(region).send(new ListStreamsCommand({ Limit: 100 })),
+			(r) => r.StreamNames ?? []
+		);
+		streams = result.items.map(({ region, item }) => ({ name: item, region }));
+		if (result.errors.length > 0) toast.error(`Failed to load streams from ${result.errors.length} region(s)`);
 	} catch (err: unknown) {
 		toast.error(`Failed to load streams: ${(err as Error).message}`);
 	} finally {
@@ -144,10 +158,10 @@ async function createStream() {
 	}
 }
 
-async function deleteStream(name: string) {
+async function deleteStream(name: string, region: string) {
 	if (!await confirmDestructive({ title: 'Delete Stream', message: `Delete stream "${name}"?` })) return;
 	try {
-		await kinesis().send(new DeleteStreamCommand({ StreamName: name }));
+		await getKinesisClient(region).send(new DeleteStreamCommand({ StreamName: name }));
 		toast.success(`Stream "${name}" deleted`);
 		if (selectedStream?.name === name) {
 			selectedStream = null;
@@ -160,9 +174,9 @@ async function deleteStream(name: string) {
 	}
 }
 
-async function selectStream(name: string) {
+async function selectStream(name: string, region: string) {
 	try {
-		const res = await kinesis().send(new DescribeStreamCommand({ StreamName: name }));
+		const res = await getKinesisClient(region).send(new DescribeStreamCommand({ StreamName: name }));
 		const desc = res.StreamDescription;
 		if (!desc) return;
 		selectedStream = {
@@ -172,7 +186,8 @@ async function selectStream(name: string) {
 			retention: desc.RetentionPeriodHours ?? 24,
 			streamMode: desc.StreamModeDetails?.StreamMode ?? 'PROVISIONED',
 			encryptionType: desc.EncryptionType ?? 'NONE',
-			keyId: desc.KeyId ?? ''
+			keyId: desc.KeyId ?? '',
+			region
 		};
 		activeTab = 'shards';
 		viewingShardId = null;
@@ -191,7 +206,7 @@ async function loadShards() {
 	if (!selectedStream) return;
 	loadingShards = true;
 	try {
-		const res = await kinesis().send(new ListShardsCommand({ StreamName: selectedStream.name }));
+		const res = await getKinesisClient(selectedStream.region).send(new ListShardsCommand({ StreamName: selectedStream.name }));
 		streamShards = res.Shards ?? [];
 	} catch (err: unknown) {
 		toast.error(`Failed to load shards: ${(err as Error).message}`);
@@ -207,7 +222,7 @@ async function loadConsumers() {
 	}
 	loadingConsumers = true;
 	try {
-		const res = await kinesis().send(new ListStreamConsumersCommand({ StreamARN: selectedStream.arn }));
+		const res = await getKinesisClient(selectedStream.region).send(new ListStreamConsumersCommand({ StreamARN: selectedStream.arn }));
 		consumers = res.Consumers ?? [];
 	} catch (err: unknown) {
 		// A stream with no consumers should simply show an empty list.
@@ -221,7 +236,7 @@ async function putRecord() {
 	if (!selectedStream || !putRecordPartitionKey.trim() || !putRecordData) return;
 	puttingRecord = true;
 	try {
-		const res = await kinesis().send(new PutRecordCommand({
+		const res = await getKinesisClient(selectedStream.region).send(new PutRecordCommand({
 			StreamName: selectedStream.name,
 			PartitionKey: putRecordPartitionKey.trim(),
 			Data: new TextEncoder().encode(putRecordData)
@@ -253,7 +268,7 @@ async function putRecordsBatch() {
 	if (entries.length === 0) return;
 	puttingBatch = true;
 	try {
-		const res = await kinesis().send(new PutRecordsCommand({
+		const res = await getKinesisClient(selectedStream.region).send(new PutRecordsCommand({
 			StreamName: selectedStream.name,
 			Records: entries
 		}));
@@ -278,14 +293,14 @@ async function viewRecords(shardId: string) {
 	shardRecords = [];
 	nextShardIterator = null;
 	try {
-		const iterRes = await kinesis().send(new GetShardIteratorCommand({
+		const iterRes = await getKinesisClient(selectedStream.region).send(new GetShardIteratorCommand({
 			StreamName: selectedStream.name,
 			ShardId: shardId,
 			ShardIteratorType: iteratorType
 		}));
 		const iterator = iterRes.ShardIterator;
 		if (iterator) {
-			const recRes = await kinesis().send(new GetRecordsCommand({
+			const recRes = await getKinesisClient(selectedStream.region).send(new GetRecordsCommand({
 				ShardIterator: iterator,
 				Limit: 100
 			}));
@@ -303,10 +318,10 @@ async function viewRecords(shardId: string) {
 // loadMoreRecords pages forward using the NextShardIterator returned by the
 // previous GetRecords call, appending any new records.
 async function loadMoreRecords() {
-	if (!nextShardIterator) return;
+	if (!nextShardIterator || !selectedStream) return;
 	loadingMore = true;
 	try {
-		const recRes = await kinesis().send(new GetRecordsCommand({
+		const recRes = await getKinesisClient(selectedStream.region).send(new GetRecordsCommand({
 			ShardIterator: nextShardIterator,
 			Limit: 100
 		}));
@@ -367,7 +382,7 @@ async function mergeShardClicked(shard: Shard) {
 	if (!selectedStream) return;
 	merging = true;
 	try {
-		await kinesis().send(new MergeShardsCommand({
+		await getKinesisClient(selectedStream.region).send(new MergeShardsCommand({
 			StreamName: selectedStream.name,
 			ShardToMerge: shard.ShardId,
 			AdjacentShardToMerge: adjacent
@@ -390,7 +405,7 @@ async function splitShardClicked(shard: Shard) {
 	if (!selectedStream) return;
 	splitting = true;
 	try {
-		await kinesis().send(new SplitShardCommand({
+		await getKinesisClient(selectedStream.region).send(new SplitShardCommand({
 			StreamName: selectedStream.name,
 			ShardToSplit: shard.ShardId,
 			NewStartingHashKey: mid
@@ -408,7 +423,7 @@ async function reshard() {
 	if (!selectedStream || reshardTarget < 1) return;
 	resharding = true;
 	try {
-		await kinesis().send(new UpdateShardCountCommand({
+		await getKinesisClient(selectedStream.region).send(new UpdateShardCountCommand({
 			StreamName: selectedStream.name,
 			TargetShardCount: reshardTarget,
 			ScalingType: 'UNIFORM_SCALING'
@@ -435,7 +450,7 @@ async function updateRetention(increase: boolean) {
 				StreamName: selectedStream.name,
 				RetentionPeriodHours: retentionTarget
 			});
-		await kinesis().send(cmd);
+		await getKinesisClient(selectedStream.region).send(cmd);
 		toast.success(`Retention set to ${retentionTarget} hours`);
 		if (selectedStream) selectedStream = { ...selectedStream, retention: retentionTarget };
 	} catch (err: unknown) {
@@ -460,7 +475,7 @@ async function toggleEncryption(enable: boolean) {
 				EncryptionType: 'KMS',
 				KeyId: selectedStream.keyId || encryptionKeyId.trim() || 'alias/aws/kinesis'
 			});
-		await kinesis().send(cmd);
+		await getKinesisClient(selectedStream.region).send(cmd);
 		toast.success(enable ? 'Encryption enabled' : 'Encryption disabled');
 		if (selectedStream) {
 			selectedStream = {
@@ -480,7 +495,7 @@ async function updateStreamMode() {
 	if (!selectedStream?.arn) return;
 	updatingMode = true;
 	try {
-		await kinesis().send(new UpdateStreamModeCommand({
+		await getKinesisClient(selectedStream.region).send(new UpdateStreamModeCommand({
 			StreamARN: selectedStream.arn,
 			StreamModeDetails: { StreamMode: modeTarget }
 		}));
@@ -497,7 +512,7 @@ async function registerConsumer() {
 	if (!selectedStream?.arn || !newConsumerName.trim()) return;
 	registeringConsumer = true;
 	try {
-		await kinesis().send(new RegisterStreamConsumerCommand({
+		await getKinesisClient(selectedStream.region).send(new RegisterStreamConsumerCommand({
 			StreamARN: selectedStream.arn,
 			ConsumerName: newConsumerName.trim()
 		}));
@@ -514,7 +529,7 @@ async function registerConsumer() {
 async function deregisterConsumer(consumer: Consumer) {
 	if (!selectedStream?.arn || !consumer.ConsumerName) return;
 	try {
-		await kinesis().send(new DeregisterStreamConsumerCommand({
+		await getKinesisClient(selectedStream.region).send(new DeregisterStreamConsumerCommand({
 			StreamARN: selectedStream.arn,
 			ConsumerName: consumer.ConsumerName,
 			ConsumerARN: consumer.ConsumerARN
@@ -562,6 +577,7 @@ onRegionChange(() => {
 			<button onclick={() => loadStreams()} class="p-2 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white" title="Refresh">
 				<RefreshCw class="w-5 h-5 {loading ? 'animate-spin' : ''}" />
 			</button>
+			<WriteRegionHint />
 			<button onclick={() => { showCreateModal = true; }} class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2">
 				<Plus class="w-4 h-4" />Create Stream
 			</button>
@@ -613,20 +629,23 @@ onRegionChange(() => {
 					<p class="text-slate-500 dark:text-slate-400">No streams found</p>
 				</div>
 			{:else}
-				{#each filteredStreams as streamName}
+				{#each filteredStreams as stream}
 					<div
 						role="button"
 						tabindex="0"
-						onclick={() => selectStream(streamName)}
-						onkeypress={(e) => { if (e.key === 'Enter') selectStream(streamName); }}
-						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedStream?.name === streamName ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
+						onclick={() => selectStream(stream.name, stream.region)}
+						onkeypress={(e) => { if (e.key === 'Enter') selectStream(stream.name, stream.region); }}
+						class="w-full text-left bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-400 transition-colors cursor-pointer {selectedStream?.name === stream.name && selectedStream?.region === stream.region ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-slate-200 dark:border-slate-700'}"
 					>
 						<div class="flex items-center justify-between">
 							<div class="min-w-0 flex-1">
-								<p class="font-medium text-slate-900 dark:text-white truncate">{streamName}</p>
+								<div class="flex items-center gap-2">
+									<p class="font-medium text-slate-900 dark:text-white truncate">{stream.name}</p>
+									<RegionChip region={stream.region} />
+								</div>
 							</div>
 							<div class="flex items-center gap-1 ml-2 flex-shrink-0">
-								<button onclick={(e) => { e.stopPropagation(); deleteStream(streamName); }} class="p-1 text-slate-400 hover:text-red-500">
+								<button onclick={(e) => { e.stopPropagation(); deleteStream(stream.name, stream.region); }} class="p-1 text-slate-400 hover:text-red-500">
 									<Trash2 class="w-4 h-4" />
 								</button>
 							</div>
@@ -645,6 +664,7 @@ onRegionChange(() => {
 							<div>
 								<h2 class="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
 									{selectedStream.name}
+									<RegionChip region={selectedStream.region} />
 									<span class="px-2 py-0.5 text-xs rounded-full {selectedStream.status === 'ACTIVE' ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'}">{selectedStream.status}</span>
 								</h2>
 								<p class="text-xs text-slate-500 dark:text-slate-400 mt-1 font-mono">{selectedStream.arn}</p>

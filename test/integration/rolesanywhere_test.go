@@ -65,7 +65,10 @@ func TestIntegration_RolesAnywhere_TrustAnchorLifecycle(t *testing.T) {
 			require.NotEmpty(t, taID, "trust anchor id must be returned")
 
 			t.Cleanup(func() {
-				_, _ = client.DeleteTrustAnchor(ctx, &rolesanywheresdk.DeleteTrustAnchorInput{
+				cleanupCtx, cancel := cleanupContext(t)
+				defer cancel()
+
+				_, _ = client.DeleteTrustAnchor(cleanupCtx, &rolesanywheresdk.DeleteTrustAnchorInput{
 					TrustAnchorId: aws.String(taID),
 				})
 			})

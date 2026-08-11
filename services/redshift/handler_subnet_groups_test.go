@@ -24,10 +24,10 @@ func TestRedshiftHandler_CreateClusterSubnetGroup(t *testing.T) {
 		{
 			name: "success",
 			body: "Action=CreateClusterSubnetGroup&Version=2012-12-01" +
-				"&ClusterSubnetGroupName=my-sng&Description=my+desc&VpcId=vpc-123" +
+				"&ClusterSubnetGroupName=my-sng&Description=my+desc" +
 				"&SubnetIds.SubnetIdentifier.1=subnet-001&SubnetIds.SubnetIdentifier.2=subnet-002",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"CreateClusterSubnetGroupResponse", "my-sng", "vpc-123"},
+			wantContains: []string{"CreateClusterSubnetGroupResponse", "my-sng", "subnet-001"},
 		},
 		{
 			name:         "missing_name",
@@ -64,6 +64,26 @@ func TestRedshiftHandler_CreateClusterSubnetGroup(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRedshiftHandler_CreateClusterSubnetGroup_VpcIdNotFabricated locks in that
+// VpcId is no longer accepted as a CreateClusterSubnetGroup request param (real
+// CreateClusterSubnetGroupInput has no such field -- see
+// awsAwsquery_serializeOpDocumentCreateClusterSubnetGroupInput in
+// aws-sdk-go-v2/service/redshift@v1.65.4/serializers.go). A caller sending VpcId
+// on the wire (as a real SDK client never would) must not see it echoed back.
+func TestRedshiftHandler_CreateClusterSubnetGroup_VpcIdNotFabricated(t *testing.T) {
+	t.Parallel()
+
+	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+	h := redshift.NewHandler(b)
+
+	rec := postRedshiftForm(t, h, "Action=CreateClusterSubnetGroup&Version=2012-12-01"+
+		"&ClusterSubnetGroupName=honest-sng&VpcId=vpc-should-not-appear"+
+		"&SubnetIds.SubnetIdentifier.1=subnet-001")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "vpc-should-not-appear")
+	assert.NotContains(t, rec.Body.String(), "<VpcId>")
 }
 
 // ---- DeleteClusterSubnetGroup ----

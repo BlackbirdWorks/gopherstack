@@ -44,10 +44,9 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 					"my-network", "test network",
 					"HYPERLEDGER_FABRIC", "1.4",
 					"founder", "founder member",
-					map[string]string{"env": "test"},
+					map[string]string{"env": "test"}, nil,
 					nil,
-					"", "admin", "",
-				)
+					"", "admin", "")
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
@@ -80,9 +79,8 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 
 				n, _, err := b.CreateNetwork(
 					region, accountID,
-					"tag-network", "", "", "", "m1", "", nil, nil,
-					"", "admin", "",
-				)
+					"tag-network", "", "", "", "m1", "", nil, nil, nil,
+					"", "admin", "")
 				require.NoError(t, err)
 
 				require.NoError(t, b.TagResource(n.Arn, map[string]string{"key": "value"}))
@@ -106,12 +104,14 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 
 				n, _, err := b.CreateNetwork(
 					region, accountID,
-					"multi-member", "", "", "", "member1", "", nil, nil,
-					"", "admin", "",
-				)
+					"multi-member", "", "", "", "member1", "", nil, nil, nil,
+					"", "admin", "")
 				require.NoError(t, err)
 
-				_, err = b.CreateMember(region, accountID, n.ID, "member2", "second member", "admin", "", nil)
+				inv := b.AddInvitationInternal(region, accountID, n.ID, "multi-member")
+
+				_, err = b.CreateMember(
+					region, accountID, n.ID, inv.InvitationID, "member2", "second member", "admin", "", nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *managedblockchain.InMemoryBackend) {
@@ -149,7 +149,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m, err := b.CreateNetwork(region, accountID,
-					"prop-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
+					"prop-net", "", "", "", "founder", "", nil, nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
 				_, err = b.CreateProposal(region, accountID, n.ID, m.ID, "test proposal", nil, nil)
@@ -190,7 +190,7 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m, err := b.CreateNetwork(region, accountID,
-					"node-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
+					"node-net", "", "", "", "founder", "", nil, nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
 				node, err := b.CreateNode(region, accountID, n.ID, m.ID, "bc.t3.small", "us-east-1a", "", nil)
@@ -231,10 +231,12 @@ func TestManagedBlockchain_PersistenceSnapshotRestore(t *testing.T) {
 				t.Helper()
 
 				n, m1, err := b.CreateNetwork(region, accountID,
-					"vote-net", "", "", "", "founder", "", nil, nil, "", "admin", "")
+					"vote-net", "", "", "", "founder", "", nil, nil, nil, "", "admin", "")
 				require.NoError(t, err)
 
-				m2, err := b.CreateMember(region, accountID, n.ID, "second", "", "admin", "", nil)
+				inv := b.AddInvitationInternal(region, accountID, n.ID, "vote-net")
+
+				m2, err := b.CreateMember(region, accountID, n.ID, inv.InvitationID, "second", "", "admin", "", nil)
 				require.NoError(t, err)
 
 				proposal, err := b.CreateProposal(region, accountID, n.ID, m1.ID, "test proposal", nil, nil)
@@ -356,9 +358,8 @@ func TestManagedBlockchain_PersistenceVersionMismatch(t *testing.T) {
 			_, _, err := b.CreateNetwork(
 				region, accountID,
 				"mismatch-net", "", "", "", "founder", "",
-				nil, nil,
-				"", "admin", "",
-			)
+				nil, nil, nil,
+				"", "admin", "")
 			require.NoError(t, err)
 
 			snap := b.Snapshot(t.Context())
@@ -416,8 +417,12 @@ func TestManagedBlockchain_PersistenceRoundTripAllResourceCounts(t *testing.T) {
 	assert.Equal(t, 1, managedblockchain.ProposalCount(b2))
 	assert.Equal(t, 1, managedblockchain.InvitationCount(b2))
 
-	// Network, member, node, accessor all in ARN index = 4
-	assert.Equal(t, 4, managedblockchain.ARNIndexSize(b2))
+	// Network, member, node, accessor, proposal all in ARN index = 5.
+	// Proposal is included because CreateProposal accepts Tags in the real
+	// CreateProposalInput (gopherstack-2mwl: a resource kind omitted from
+	// the ARN registry can accept tags at creation but never be found again
+	// by ListTagsForResource).
+	assert.Equal(t, 5, managedblockchain.ARNIndexSize(b2))
 
 	// Tags on node work after restore
 	err := b2.TagResource(node.Arn, map[string]string{"restored": "true"})
