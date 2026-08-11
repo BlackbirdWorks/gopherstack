@@ -137,7 +137,11 @@ func TestHandler_ListReports_FilterByStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rgArn := "arn:aws:codebuild:us-east-1:000000000000:report-group/filter-rg"
+	rg, err := h.Backend.CreateReportGroup(
+		"filter-rg", "TEST", codebuild.ReportExportConfig{ExportConfigType: "NO_EXPORT"}, nil,
+	)
+	require.NoError(t, err)
+	rgArn := rg.Arn
 
 	h.Backend.AddReportInternal(&codebuild.Report{
 		Arn:            "arn:aws:codebuild:us-east-1:000000000000:report/filter-rg:ok",

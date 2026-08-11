@@ -130,7 +130,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "rg1", reportGroups[0].Name)
 
 	// reports table + reportsByGroup index.
-	reportArns := fresh.ListReportsForReportGroup(rgArn, "")
+	reportArns, err := fresh.ListReportsForReportGroup(rgArn, "")
+	require.NoError(t, err)
 	require.Len(t, reportArns, 1)
 	assert.Equal(t, "arn:aws:codebuild:us-east-1:000000000000:report/rg1:r1", reportArns[0])
 

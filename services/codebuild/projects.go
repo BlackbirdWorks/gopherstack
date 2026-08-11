@@ -253,12 +253,16 @@ func mergeTags(dst, src map[string]string) map[string]string {
 }
 
 // DeleteProject removes a project by name and all builds associated with it.
+// Idempotent: real AWS's DeleteProject declares no ResourceNotFoundException
+// (botocore codebuild/2016-10-06/service-2.json operations.DeleteProject.errors:
+// only InvalidInputException), so deleting an already-gone project is not an
+// error.
 func (b *InMemoryBackend) DeleteProject(name string) error {
 	b.mu.Lock("DeleteProject")
 	defer b.mu.Unlock()
 
 	if !b.projects.Has(name) {
-		return ErrNotFound
+		return nil
 	}
 
 	b.projects.Delete(name)

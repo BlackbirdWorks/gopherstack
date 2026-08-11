@@ -405,16 +405,32 @@ type SourceCredentials struct {
 	AuthType   string `json:"authType"`
 }
 
-// CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages.
+// CodeCoverage represents a code coverage entry returned by DescribeCodeCoverages
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/types.CodeCoverage; field-diffed via
+// deserializers.go's awsAwsjson11_deserializeDocumentCodeCoverage).
 type CodeCoverage struct {
-	FilePath       string  `json:"filePath,omitempty"`
-	BranchCoverage float64 `json:"branchCoverage,omitempty"`
-	LineCoverage   float64 `json:"lineCoverage,omitempty"`
+	ID                       string  `json:"id,omitempty"`
+	ReportARN                string  `json:"reportARN,omitempty"`
+	FilePath                 string  `json:"filePath,omitempty"`
+	LineCoveragePercentage   float64 `json:"lineCoveragePercentage,omitempty"`
+	LinesCovered             int32   `json:"linesCovered,omitempty"`
+	LinesMissed              int32   `json:"linesMissed,omitempty"`
+	BranchCoveragePercentage float64 `json:"branchCoveragePercentage,omitempty"`
+	BranchesCovered          int32   `json:"branchesCovered,omitempty"`
+	BranchesMissed           int32   `json:"branchesMissed,omitempty"`
+	Expired                  float64 `json:"expired,omitempty"`
 }
 
-// TestCase represents a test case entry returned by DescribeTestCases.
+// TestCase represents a test case entry returned by DescribeTestCases
+// (aws-sdk-go-v2/service/codebuild@v1.72.4/types.TestCase).
 type TestCase struct {
-	Name     string  `json:"name,omitempty"`
-	Status   string  `json:"status,omitempty"`
-	Duration float64 `json:"duration,omitempty"`
+	ReportArn             string  `json:"reportArn,omitempty"`
+	TestRawDataPath       string  `json:"testRawDataPath,omitempty"`
+	Prefix                string  `json:"prefix,omitempty"`
+	Name                  string  `json:"name,omitempty"`
+	Status                string  `json:"status,omitempty"`
+	Message               string  `json:"message,omitempty"`
+	TestSuiteName         string  `json:"testSuiteName,omitempty"`
+	DurationInNanoSeconds int64   `json:"durationInNanoSeconds,omitempty"`
+	Expired               float64 `json:"expired,omitempty"`
 }

@@ -104,14 +104,15 @@ func (b *InMemoryBackend) BatchGetReports(arns []string) ([]*Report, []string) {
 	return found, notFound
 }
 
-// DeleteReport removes a report by ARN.
+// DeleteReport removes a report by ARN. Idempotent: real AWS's DeleteReport
+// declares no ResourceNotFoundException (botocore
+// codebuild/2016-10-06/service-2.json operations.DeleteReport.errors: only
+// InvalidInputException), so deleting an already-gone report is not an error.
 func (b *InMemoryBackend) DeleteReport(arnStr string) error {
 	b.mu.Lock("DeleteReport")
 	defer b.mu.Unlock()
 
-	if !b.reports.Delete(arnStr) {
-		return ErrNotFound
-	}
+	b.reports.Delete(arnStr)
 
 	return nil
 }
@@ -138,10 +139,17 @@ func (b *InMemoryBackend) ListReports(statusFilter string) []string {
 
 // ListReportsForReportGroup returns all report ARNs for the given report
 // group ARN, optionally filtered by status (empty statusFilter returns every
-// report in the group).
-func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter string) []string {
+// report in the group). Unlike ListReports/ListReportGroups, real AWS
+// declares ResourceNotFoundException for this op (botocore
+// codebuild/2016-10-06/service-2.json operations.ListReportsForReportGroup.errors),
+// so a nonexistent reportGroupArn is rejected here.
+func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter string) ([]string, error) {
 	b.mu.RLock("ListReportsForReportGroup")
 	defer b.mu.RUnlock()
+
+	if matches := b.reportGroupsByARN.Get(reportGroupArn); len(matches) == 0 {
+		return nil, ErrNotFound
+	}
 
 	group := b.reportsByGroup.Get(reportGroupArn)
 	arns := make([]string, 0, len(group))
@@ -156,20 +164,20 @@ func (b *InMemoryBackend) ListReportsForReportGroup(reportGroupArn, statusFilter
 
 	sort.Strings(arns)
 
-	return arns
+	return arns, nil
 }
 
-// DeleteReportGroup removes a report group by ARN.
+// DeleteReportGroup removes a report group by ARN. Idempotent: real AWS's
+// DeleteReportGroup declares no ResourceNotFoundException (same botocore
+// evidence as DeleteReport above), so deleting an already-gone group is not
+// an error.
 func (b *InMemoryBackend) DeleteReportGroup(arnStr string) error {
 	b.mu.Lock("DeleteReportGroup")
 	defer b.mu.Unlock()
 
-	matches := b.reportGroupsByARN.Get(arnStr)
-	if len(matches) == 0 {
-		return ErrNotFound
+	if matches := b.reportGroupsByARN.Get(arnStr); len(matches) > 0 {
+		b.reportGroups.Delete(matches[0].Name)
 	}
-
-	b.reportGroups.Delete(matches[0].Name)
 
 	return nil
 }
@@ -240,17 +248,40 @@ func (b *InMemoryBackend) ListSharedReportGroups() []string {
 	return []string{}
 }
 
-// DescribeCodeCoverages returns an empty list (no state needed).
+// DescribeCodeCoverages returns an empty list; no coverage-content ingestion
+// pipeline exists. Unlike DescribeTestCases/GetReportGroupTrend below, this
+// op's real error set has no ResourceNotFoundException (botocore
+// codebuild/2016-10-06/service-2.json operations.DescribeCodeCoverages.errors:
+// only InvalidInputException), so a nonexistent reportArn is correctly not
+// rejected here.
 func (b *InMemoryBackend) DescribeCodeCoverages(_ string) ([]CodeCoverage, error) {
 	return []CodeCoverage{}, nil
 }
 
-// DescribeTestCases returns an empty list (no state needed).
-func (b *InMemoryBackend) DescribeTestCases(_ string) ([]TestCase, error) {
+// DescribeTestCases returns an empty list once reportArn is confirmed to
+// exist; no test-case-content ingestion pipeline exists. Real AWS declares
+// ResourceNotFoundException for this op (unlike DescribeCodeCoverages).
+func (b *InMemoryBackend) DescribeTestCases(reportArn string) ([]TestCase, error) {
+	b.mu.RLock("DescribeTestCases")
+	defer b.mu.RUnlock()
+
+	if _, ok := b.reports.Get(reportArn); !ok {
+		return nil, ErrNotFound
+	}
+
 	return []TestCase{}, nil
 }
 
-// GetReportGroupTrend returns an empty stats map (no state needed).
-func (b *InMemoryBackend) GetReportGroupTrend(_ string) (map[string]any, error) {
+// GetReportGroupTrend returns an empty stats map once reportGroupArn is
+// confirmed to exist; no report-execution data is modeled. Real AWS declares
+// ResourceNotFoundException for this op.
+func (b *InMemoryBackend) GetReportGroupTrend(reportGroupArn string) (map[string]any, error) {
+	b.mu.RLock("GetReportGroupTrend")
+	defer b.mu.RUnlock()
+
+	if matches := b.reportGroupsByARN.Get(reportGroupArn); len(matches) == 0 {
+		return nil, ErrNotFound
+	}
+
 	return map[string]any{}, nil
 }

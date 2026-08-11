@@ -535,10 +535,13 @@ func TestHandler_DeleteFleet_RemovesFleet(t *testing.T) {
 			wantDelete: http.StatusOK,
 			wantList:   0,
 		},
+		// DeleteFleet declares no ResourceNotFoundException in its real error set
+		// (botocore codebuild/2016-10-06/service-2.json operations.DeleteFleet.errors:
+		// only InvalidInputException), so it is idempotent.
 		{
-			name:       "delete_missing_fleet_returns_404",
+			name:       "delete_missing_fleet_is_idempotent",
 			deleteArn:  "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost-fleet",
-			wantDelete: http.StatusBadRequest,
+			wantDelete: http.StatusOK,
 		},
 	}
 

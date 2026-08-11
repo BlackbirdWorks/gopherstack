@@ -600,19 +600,21 @@ func TestHandler_ErrorTypeMapping(t *testing.T) {
 			wantStatus:  http.StatusBadRequest,
 			wantErrType: "ResourceNotFoundException",
 		},
+		// DeleteProject/DeleteFleet declare no ResourceNotFoundException in
+		// their real error sets (botocore codebuild/2016-10-06/service-2.json
+		// operations.DeleteProject.errors / DeleteFleet.errors: only
+		// InvalidInputException), so both are idempotent.
 		{
-			name:        "delete_project_missing_returns_ResourceNotFoundException",
-			action:      "DeleteProject",
-			body:        map[string]any{"name": "ghost-project"},
-			wantStatus:  http.StatusBadRequest,
-			wantErrType: "ResourceNotFoundException",
+			name:       "delete_project_missing_is_idempotent",
+			action:     "DeleteProject",
+			body:       map[string]any{"name": "ghost-project"},
+			wantStatus: http.StatusOK,
 		},
 		{
-			name:        "delete_fleet_missing_returns_ResourceNotFoundException",
-			action:      "DeleteFleet",
-			body:        map[string]any{"arn": "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost"},
-			wantStatus:  http.StatusBadRequest,
-			wantErrType: "ResourceNotFoundException",
+			name:       "delete_fleet_missing_is_idempotent",
+			action:     "DeleteFleet",
+			body:       map[string]any{"arn": "arn:aws:codebuild:us-east-1:000000000000:fleet/ghost"},
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:        "get_resource_policy_missing_returns_ResourceNotFoundException",
