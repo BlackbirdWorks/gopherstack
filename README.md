@@ -558,7 +558,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 gap |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 3 gaps |
 | [Glue](services/glue/README.md) | A | 52 | 11 gaps; 6 deferred |
-| [Glue DataBrew](services/databrew/README.md) | A | 44 | 2 gaps; 1 deferred |
+| [Glue DataBrew](services/databrew/README.md) | A | 44 | 3 gaps |
 | [Kinesis](services/kinesis/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [Kinesis Analytics](services/kinesisanalytics/README.md) | A | 20 | 2 gaps |
 | [Kinesis Analytics v2](services/kinesisanalyticsv2/README.md) | A | 33 | 6 gaps; 1 deferred |

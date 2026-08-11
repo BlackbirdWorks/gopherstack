@@ -352,3 +352,82 @@ func Test_SDKRoundTrip_Dataset_JSONFormatOptions(t *testing.T) {
 	require.NotNil(t, out.FormatOptions.Json, "FormatOptions.Json must round-trip under the exact \"Json\" wire key")
 	require.True(t, out.FormatOptions.Json.MultiLine)
 }
+
+// Test_SDKRoundTrip_ProfileJob_JobSample proves CreateProfileJob's typed
+// JobSample (previously map[string]any) round-trips through the real SDK
+// client and that an invalid Mode is rejected as ValidationException instead
+// of silently stored.
+func Test_SDKRoundTrip_ProfileJob_JobSample(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	_, err := client.CreateDataset(t.Context(), &databrewsdk.CreateDatasetInput{
+		Name:  aws.String("js-ds"),
+		Input: &types.Input{S3InputDefinition: &types.S3Location{Bucket: aws.String("b")}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateProfileJob(t.Context(), &databrewsdk.CreateProfileJobInput{
+		Name:           aws.String("js-job"),
+		DatasetName:    aws.String("js-ds"),
+		RoleArn:        aws.String("arn:aws:iam::000000000000:role/x"),
+		OutputLocation: &types.S3Location{Bucket: aws.String("out")},
+		JobSample:      &types.JobSample{Mode: types.SampleModeCustomRows, Size: aws.Int64(500)},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeJob(t.Context(), &databrewsdk.DescribeJobInput{Name: aws.String("js-job")})
+	require.NoError(t, err)
+	require.NotNil(t, out.JobSample, "JobSample must round-trip")
+	require.Equal(t, types.SampleModeCustomRows, out.JobSample.Mode)
+	require.Equal(t, int64(500), aws.ToInt64(out.JobSample.Size))
+
+	_, err = client.CreateProfileJob(t.Context(), &databrewsdk.CreateProfileJobInput{
+		Name:           aws.String("js-job-bad"),
+		DatasetName:    aws.String("js-ds"),
+		RoleArn:        aws.String("arn:aws:iam::000000000000:role/x"),
+		OutputLocation: &types.S3Location{Bucket: aws.String("out")},
+		JobSample:      &types.JobSample{Mode: "SOME_ROWS"},
+	})
+	var ve *types.ValidationException
+	require.ErrorAs(t, err, &ve, "an invalid JobSample.Mode must be rejected, not silently stored")
+}
+
+// Test_SDKRoundTrip_RecipeJob_DataCatalogOutputs proves CreateRecipeJob's
+// typed DataCatalogOutputs (previously []map[string]any) round-trips through
+// the real SDK client.
+func Test_SDKRoundTrip_RecipeJob_DataCatalogOutputs(t *testing.T) {
+	t.Parallel()
+
+	backend := databrew.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := databrew.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	_, err := client.CreateRecipe(t.Context(), &databrewsdk.CreateRecipeInput{
+		Name:  aws.String("dco-recipe"),
+		Steps: []types.RecipeStep{{Action: &types.RecipeAction{Operation: aws.String("UPPER_CASE")}}},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateRecipeJob(t.Context(), &databrewsdk.CreateRecipeJobInput{
+		Name:            aws.String("dco-job"),
+		RoleArn:         aws.String("arn:aws:iam::000000000000:role/x"),
+		RecipeReference: &types.RecipeReference{Name: aws.String("dco-recipe")},
+		DataCatalogOutputs: []types.DataCatalogOutput{{
+			DatabaseName: aws.String("db1"),
+			TableName:    aws.String("t1"),
+			S3Options:    &types.S3TableOutputOptions{Location: &types.S3Location{Bucket: aws.String("b")}},
+		}},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeJob(t.Context(), &databrewsdk.DescribeJobInput{Name: aws.String("dco-job")})
+	require.NoError(t, err)
+	require.Len(t, out.DataCatalogOutputs, 1, "DataCatalogOutputs must round-trip")
+	require.Equal(t, "db1", aws.ToString(out.DataCatalogOutputs[0].DatabaseName))
+	require.NotNil(t, out.DataCatalogOutputs[0].S3Options)
+	require.Equal(t, "b", aws.ToString(out.DataCatalogOutputs[0].S3Options.Location.Bucket))
+}

@@ -32,6 +32,9 @@ func (b *InMemoryBackend) CreateJob(
 	if t.Has(name) {
 		return nil, ErrAlreadyExists
 	}
+	if err := validateJobExtras(extra); err != nil {
+		return nil, err
+	}
 	j := &Job{
 		Name: name, Arn: b.jobARN(region, name), Type: jobType,
 		DatasetName: datasetName, ProjectName: projectName,
@@ -125,6 +128,9 @@ func (b *InMemoryBackend) UpdateJob(
 	if !ok {
 		return ErrNotFound
 	}
+	if err := validateJobExtras(extra); err != nil {
+		return err
+	}
 	if roleArn != "" {
 		j.RoleArn = roleArn
 	}
@@ -142,6 +148,76 @@ func (b *InMemoryBackend) UpdateJob(
 	}
 	applyJobExtras(j, extra)
 	j.LastModifiedDate = float64(time.Now().Unix())
+
+	return nil
+}
+
+// validateJobExtras rejects extras values the real service would reject,
+// before any caller mutates stored Job state. Enum values and DataCatalog/
+// Database output required members are confirmed against botocore
+// databrew/2017-07-25 service-2.json (EncryptionMode, LogSubscription,
+// SampleMode, DatabaseOutputMode, DataCatalogOutput/DatabaseOutput
+// "required" lists).
+func validateJobExtras(extra JobExtras) error {
+	if extra.EncryptionMode != "" && extra.EncryptionMode != "SSE-KMS" && extra.EncryptionMode != "SSE-S3" {
+		return fmt.Errorf("%w: invalid EncryptionMode %q", ErrValidation, extra.EncryptionMode)
+	}
+	if extra.LogSubscription != "" && extra.LogSubscription != "ENABLE" && extra.LogSubscription != "DISABLE" {
+		return fmt.Errorf("%w: invalid LogSubscription %q", ErrValidation, extra.LogSubscription)
+	}
+	if extra.JobSample != nil && extra.JobSample.Mode != "" &&
+		extra.JobSample.Mode != "FULL_DATASET" && extra.JobSample.Mode != "CUSTOM_ROWS" {
+		return fmt.Errorf("%w: invalid JobSample.Mode %q", ErrValidation, extra.JobSample.Mode)
+	}
+	if err := validateDataCatalogOutputs(extra.DataCatalogOutputs); err != nil {
+		return err
+	}
+
+	return validateDatabaseOutputs(extra.DatabaseOutputs)
+}
+
+func validateDataCatalogOutputs(outs []DataCatalogOutput) error {
+	for i, o := range outs {
+		if o.DatabaseName == "" || o.TableName == "" {
+			return fmt.Errorf("%w: DataCatalogOutputs[%d] requires DatabaseName and TableName", ErrValidation, i)
+		}
+		if o.DatabaseOptions != nil && o.DatabaseOptions.TableName == "" {
+			return fmt.Errorf("%w: DataCatalogOutputs[%d].DatabaseOptions requires TableName", ErrValidation, i)
+		}
+		if o.S3Options != nil && o.S3Options.Location.Bucket == "" {
+			return fmt.Errorf("%w: DataCatalogOutputs[%d].S3Options requires Location.Bucket", ErrValidation, i)
+		}
+		// Overwrite is "Not supported with DatabaseOptions" per
+		// aws-sdk-go-v2/service/databrew/types.DataCatalogOutput's doc comment.
+		if o.Overwrite && o.DatabaseOptions != nil {
+			return fmt.Errorf(
+				"%w: DataCatalogOutputs[%d].Overwrite is not supported with DatabaseOptions", ErrValidation, i,
+			)
+		}
+	}
+
+	return nil
+}
+
+func validateDatabaseOutputs(outs []DatabaseOutput) error {
+	for i, o := range outs {
+		if o.GlueConnectionName == "" || o.DatabaseOptions == nil {
+			return fmt.Errorf(
+				"%w: DatabaseOutputs[%d] requires GlueConnectionName and DatabaseOptions", ErrValidation, i,
+			)
+		}
+		if o.DatabaseOptions.TableName == "" {
+			return fmt.Errorf("%w: DatabaseOutputs[%d].DatabaseOptions requires TableName", ErrValidation, i)
+		}
+		if o.DatabaseOutputMode != "" && o.DatabaseOutputMode != "NEW_TABLE" {
+			return fmt.Errorf(
+				"%w: invalid DatabaseOutputs[%d].DatabaseOutputMode %q",
+				ErrValidation,
+				i,
+				o.DatabaseOutputMode,
+			)
+		}
+	}
 
 	return nil
 }

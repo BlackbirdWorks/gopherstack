@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+
+	"github.com/google/uuid"
 )
 
 func parseProjectOp(method, name, subOp string) string {
@@ -166,7 +168,11 @@ func (h *Handler) handleDeleteProject(ctx context.Context, body []byte) ([]byte,
 	return json.Marshal(map[string]string{keyName: req.Name})
 }
 
-func (h *Handler) handleStartProjectSession(_ context.Context, body []byte) ([]byte, error) {
+// handleStartProjectSession handles StartProjectSession. It cannot emulate a
+// real interactive session (view frame stack, recipe-step preview state) --
+// that's structural, not a stub gap -- but it does what's provable regardless:
+// reject a project name that doesn't exist instead of reporting success.
+func (h *Handler) handleStartProjectSession(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Name          string `json:"Name"`
 		AssumeControl bool   `json:"AssumeControl"`
@@ -174,17 +180,30 @@ func (h *Handler) handleStartProjectSession(_ context.Context, body []byte) ([]b
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
+	if _, err := h.Backend.DescribeProject(ctx, req.Name); err != nil {
+		return nil, err
+	}
 
-	return json.Marshal(map[string]string{keyName: req.Name})
+	return json.Marshal(map[string]string{
+		keyName:           req.Name,
+		"ClientSessionId": uuid.New().String(),
+	})
 }
 
-func (h *Handler) handleSendProjectSessionAction(_ context.Context, body []byte) ([]byte, error) {
+// handleSendProjectSessionAction handles SendProjectSessionAction. Applying
+// the action's RecipeStep/ViewFrame to a live session is a real interactive
+// session model this backend does not have; what's fixable regardless is
+// rejecting a project name that doesn't exist.
+func (h *Handler) handleSendProjectSessionAction(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Action map[string]any `json:"Action"`
 		Name   string         `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+	if _, err := h.Backend.DescribeProject(ctx, req.Name); err != nil {
+		return nil, err
 	}
 
 	return json.Marshal(map[string]string{keyName: req.Name})

@@ -132,7 +132,7 @@ func (h *Handler) handleCreateProfileJob(ctx context.Context, body []byte) ([]by
 		Tags                     map[string]string `json:"Tags"`
 		OutputLocation           *S3Location       `json:"OutputLocation"`
 		Configuration            map[string]any    `json:"Configuration"`
-		JobSample                map[string]any    `json:"JobSample"`
+		JobSample                *JobSample        `json:"JobSample"`
 		DatasetName              string            `json:"DatasetName"`
 		Name                     string            `json:"Name"`
 		RoleArn                  string            `json:"RoleArn"`
@@ -189,21 +189,21 @@ func outputLocationToOutputs(loc *S3Location) []Output {
 
 func (h *Handler) handleCreateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags               map[string]string `json:"Tags"`
-		RecipeReference    *RecipeRef        `json:"RecipeReference"`
-		DataCatalogOutputs []map[string]any  `json:"DataCatalogOutputs"`
-		DatabaseOutputs    []map[string]any  `json:"DatabaseOutputs"`
-		Name               string            `json:"Name"`
-		DatasetName        string            `json:"DatasetName"`
-		ProjectName        string            `json:"ProjectName"`
-		RoleArn            string            `json:"RoleArn"`
-		EncryptionKeyArn   string            `json:"EncryptionKeyArn"`
-		EncryptionMode     string            `json:"EncryptionMode"`
-		LogSubscription    string            `json:"LogSubscription"`
-		Outputs            []Output          `json:"Outputs"`
-		MaxCapacity        int               `json:"MaxCapacity"`
-		MaxRetries         int               `json:"MaxRetries"`
-		Timeout            int               `json:"Timeout"`
+		Tags               map[string]string   `json:"Tags"`
+		RecipeReference    *RecipeRef          `json:"RecipeReference"`
+		DataCatalogOutputs []DataCatalogOutput `json:"DataCatalogOutputs"`
+		DatabaseOutputs    []DatabaseOutput    `json:"DatabaseOutputs"`
+		Name               string              `json:"Name"`
+		DatasetName        string              `json:"DatasetName"`
+		ProjectName        string              `json:"ProjectName"`
+		RoleArn            string              `json:"RoleArn"`
+		EncryptionKeyArn   string              `json:"EncryptionKeyArn"`
+		EncryptionMode     string              `json:"EncryptionMode"`
+		LogSubscription    string              `json:"LogSubscription"`
+		Outputs            []Output            `json:"Outputs"`
+		MaxCapacity        int                 `json:"MaxCapacity"`
+		MaxRetries         int                 `json:"MaxRetries"`
+		Timeout            int                 `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
@@ -277,7 +277,7 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 	var req struct {
 		OutputLocation           *S3Location      `json:"OutputLocation"`
 		Configuration            map[string]any   `json:"Configuration"`
-		JobSample                map[string]any   `json:"JobSample"`
+		JobSample                *JobSample       `json:"JobSample"`
 		Name                     string           `json:"Name"`
 		RoleArn                  string           `json:"RoleArn"`
 		EncryptionKeyArn         string           `json:"EncryptionKeyArn"`
@@ -313,17 +313,17 @@ func (h *Handler) handleUpdateProfileJob(ctx context.Context, body []byte) ([]by
 // job's output destinations is "Outputs" (a list), matching CreateRecipeJob.
 func (h *Handler) handleUpdateRecipeJob(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Name               string           `json:"Name"`
-		RoleArn            string           `json:"RoleArn"`
-		EncryptionKeyArn   string           `json:"EncryptionKeyArn"`
-		EncryptionMode     string           `json:"EncryptionMode"`
-		LogSubscription    string           `json:"LogSubscription"`
-		Outputs            []Output         `json:"Outputs"`
-		DataCatalogOutputs []map[string]any `json:"DataCatalogOutputs"`
-		DatabaseOutputs    []map[string]any `json:"DatabaseOutputs"`
-		MaxCapacity        int              `json:"MaxCapacity"`
-		MaxRetries         int              `json:"MaxRetries"`
-		Timeout            int              `json:"Timeout"`
+		Name               string              `json:"Name"`
+		RoleArn            string              `json:"RoleArn"`
+		EncryptionKeyArn   string              `json:"EncryptionKeyArn"`
+		EncryptionMode     string              `json:"EncryptionMode"`
+		LogSubscription    string              `json:"LogSubscription"`
+		Outputs            []Output            `json:"Outputs"`
+		DataCatalogOutputs []DataCatalogOutput `json:"DataCatalogOutputs"`
+		DatabaseOutputs    []DatabaseOutput    `json:"DatabaseOutputs"`
+		MaxCapacity        int                 `json:"MaxCapacity"`
+		MaxRetries         int                 `json:"MaxRetries"`
+		Timeout            int                 `json:"Timeout"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)

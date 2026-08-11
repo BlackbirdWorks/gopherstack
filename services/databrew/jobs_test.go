@@ -610,7 +610,7 @@ func TestCreateJob_ProfileExtras(t *testing.T) {
 	b := newTestBackend()
 	extra := databrew.JobExtras{
 		ProfileConfiguration: map[string]any{"DatasetStatisticsConfiguration": map[string]any{}},
-		JobSample:            map[string]any{"Mode": "FULL_DATASET"},
+		JobSample:            &databrew.JobSample{Mode: "FULL_DATASET"},
 		ValidationConfigurations: []map[string]any{
 			{"RulesetArn": "arn:aws:databrew:us-east-1:123456789012:ruleset/r1"},
 		},
@@ -619,13 +619,15 @@ func TestCreateJob_ProfileExtras(t *testing.T) {
 		context.Background(), "profile-extras-j", "PROFILE", "ds", "", "", "", nil, nil, extra,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "FULL_DATASET", j.JobSample["Mode"])
+	require.NotNil(t, j.JobSample)
+	assert.Equal(t, "FULL_DATASET", j.JobSample.Mode)
 	assert.NotNil(t, j.ProfileConfiguration)
 	require.Len(t, j.ValidationConfigurations, 1)
 
 	described, err := b.DescribeJob(context.Background(), "profile-extras-j")
 	require.NoError(t, err)
-	assert.Equal(t, "FULL_DATASET", described.JobSample["Mode"])
+	require.NotNil(t, described.JobSample)
+	assert.Equal(t, "FULL_DATASET", described.JobSample.Mode)
 }
 
 // TestCreateJob_RecipeExtras verifies CreateJob threads
@@ -638,8 +640,11 @@ func TestCreateJob_RecipeExtras(t *testing.T) {
 		EncryptionMode:     "SSE-KMS",
 		EncryptionKeyArn:   "arn:aws:kms:us-east-1:123456789012:key/abc",
 		LogSubscription:    "ENABLE",
-		DataCatalogOutputs: []map[string]any{{"DatabaseName": "db1", "TableName": "t1"}},
-		DatabaseOutputs:    []map[string]any{{"GlueConnectionName": "conn1"}},
+		DataCatalogOutputs: []databrew.DataCatalogOutput{{DatabaseName: "db1", TableName: "t1"}},
+		DatabaseOutputs: []databrew.DatabaseOutput{{
+			GlueConnectionName: "conn1",
+			DatabaseOptions:    &databrew.DatabaseTableOutputOptions{TableName: "t1"},
+		}},
 	}
 	j, err := b.CreateJob(
 		context.Background(), "recipe-extras-j", "RECIPE", "ds", "", "r", "", nil, nil, extra,
@@ -650,7 +655,104 @@ func TestCreateJob_RecipeExtras(t *testing.T) {
 	assert.Equal(t, "ENABLE", j.LogSubscription)
 	require.Len(t, j.DataCatalogOutputs, 1)
 	require.Len(t, j.DatabaseOutputs, 1)
-	assert.Equal(t, "db1", j.DataCatalogOutputs[0]["DatabaseName"])
+	assert.Equal(t, "db1", j.DataCatalogOutputs[0].DatabaseName)
+}
+
+// TestCreateJob_ExtrasValidation proves CreateJob rejects extras values the
+// real service would reject (per botocore databrew/2017-07-25's
+// EncryptionMode/LogSubscription/SampleMode enums and DataCatalogOutput/
+// DatabaseOutput "required" lists) instead of storing them.
+func TestCreateJob_ExtrasValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		extra databrew.JobExtras
+	}{
+		{
+			name:  "invalid encryption mode",
+			extra: databrew.JobExtras{EncryptionMode: "SSE-BOGUS"},
+		},
+		{
+			name:  "invalid log subscription",
+			extra: databrew.JobExtras{LogSubscription: "MAYBE"},
+		},
+		{
+			name:  "invalid job sample mode",
+			extra: databrew.JobExtras{JobSample: &databrew.JobSample{Mode: "SOME_ROWS"}},
+		},
+		{
+			name: "data catalog output missing table name",
+			extra: databrew.JobExtras{
+				DataCatalogOutputs: []databrew.DataCatalogOutput{{DatabaseName: "db1"}},
+			},
+		},
+		{
+			name: "data catalog output overwrite with database options",
+			extra: databrew.JobExtras{
+				DataCatalogOutputs: []databrew.DataCatalogOutput{{
+					DatabaseName: "db1", TableName: "t1", Overwrite: true,
+					DatabaseOptions: &databrew.DatabaseTableOutputOptions{TableName: "t1"},
+				}},
+			},
+		},
+		{
+			name: "database output missing database options",
+			extra: databrew.JobExtras{
+				DatabaseOutputs: []databrew.DatabaseOutput{{GlueConnectionName: "conn1"}},
+			},
+		},
+		{
+			name: "database output invalid mode",
+			extra: databrew.JobExtras{
+				DatabaseOutputs: []databrew.DatabaseOutput{{
+					GlueConnectionName: "conn1",
+					DatabaseOptions:    &databrew.DatabaseTableOutputOptions{TableName: "t1"},
+					DatabaseOutputMode: "REPLACE",
+				}},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newTestBackend()
+			_, err := b.CreateJob(
+				context.Background(), "extras-validation-j", "RECIPE", "ds", "", "", "", nil, nil, tc.extra,
+			)
+			require.ErrorIs(t, err, databrew.ErrValidation)
+
+			_, describeErr := b.DescribeJob(context.Background(), "extras-validation-j")
+			require.ErrorIs(t, describeErr, databrew.ErrNotFound, "rejected CreateJob must not store partial state")
+		})
+	}
+}
+
+// TestUpdateJob_ExtrasValidation proves UpdateJob validates extras before
+// mutating the stored job -- an invalid extras value must leave the job's
+// other already-applied fields (RoleArn here) untouched.
+func TestUpdateJob_ExtrasValidation(t *testing.T) {
+	t.Parallel()
+
+	b := newTestBackend()
+	_, err := b.CreateJob(
+		context.Background(), "upd-validation-j", "RECIPE", "ds", "", "", "arn:aws:iam::123456789012:role/orig",
+		nil, nil, databrew.JobExtras{},
+	)
+	require.NoError(t, err)
+
+	err = b.UpdateJob(
+		context.Background(), "upd-validation-j", "arn:aws:iam::123456789012:role/new", nil, 0, 0, 0,
+		databrew.JobExtras{EncryptionMode: "SSE-BOGUS"},
+	)
+	require.ErrorIs(t, err, databrew.ErrValidation)
+
+	j, err := b.DescribeJob(context.Background(), "upd-validation-j")
+	require.NoError(t, err)
+	assert.Equal(t, "arn:aws:iam::123456789012:role/orig", j.RoleArn,
+		"RoleArn must not be applied when extras validation rejects the request")
 }
 
 // TestUpdateJob_Extras verifies UpdateJob overwrites extras fields when

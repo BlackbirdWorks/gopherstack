@@ -8,19 +8,16 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 44 (44 ok) |
-| Feature families | 4 (4 ok) |
-| Known gaps | 2 |
-| Deferred items | 1 |
+| Feature families | 5 (5 ok) |
+| Known gaps | 3 |
+| Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- CreateProfileJob/UpdateProfileJob's Configuration (ProfileConfiguration) and JobSample are stored as map[string]any pass-through rather than typed structs -- wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated; same for CreateRecipeJob/UpdateRecipeJob's DataCatalogOutputs/DatabaseOutputs. This mirrors the FormatOptions sub-fields deferral below and was a deliberate scope choice this pass (the fields are now at least threaded through and stored/returned, closing the actual data-loss gap; typed validation is a separate, lower-priority refinement -- bd: TODO file if prioritized).
-- StartProjectSession/SendProjectSessionAction (the interactive project-editor session flow) remain near-total no-ops beyond echoing Name -- acceptable since these model an interactive editing session tests don't poll for correctness, but flagged for completeness (unchanged from prior audit).
-
-### Deferred
-
-- CSV/Excel/Json FormatOptions sub-fields (e.g. Delimiter, HeaderRow, SheetNames) are passed through as map[string]any rather than typed structs -- wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated (unchanged from prior audit).
+- ProfileConfiguration (CreateProfileJob/UpdateProfileJob's Configuration field) remains map[string]any pass-through -- see families.job_extras_typing for the depth measurement behind that call. Wire-compatible (arbitrary nested JSON round-trips byte-for-byte) but not validated.
+- StartProjectSession/SendProjectSessionAction's interactive session lifecycle (view frames, recipe-step preview/apply) is not modeled -- structural, not a stub gap: there's no session state to be incomplete. What was fixable (rejecting a project name that doesn't exist) was fixed 2026-08-10.
+- NEW finding 2026-08-10, not fixed this pass: CreateJob doesn't validate that DatasetName/ProjectName/RecipeReference.Name reference existing resources before storing the job -- botocore databrew/2017-07-25 lists ResourceNotFoundException as a documented error for both CreateProfileJob and CreateRecipeJob, so the real service does reject unknown references. Left unfixed here because ~25 existing tests across jobs_test.go create jobs against a dataset/recipe name ("ds"/"r") that is never actually created, so adding the check would require updating every one of those call sites -- out of proportion for this pass. CreateProject's DatasetName/RecipeName were checked against the same botocore error list and do NOT include ResourceNotFoundException, confirming the existing (unvalidated) CreateProject behavior is correct, not a bug.
 
 ## More
 
