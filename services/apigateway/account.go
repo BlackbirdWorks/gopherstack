@@ -5,7 +5,9 @@ func (b *InMemoryBackend) GetAccount() (*Account, error) {
 	b.mu.RLock("GetAccount")
 	defer b.mu.RUnlock()
 
-	return b.account, nil
+	cp := *b.account
+
+	return &cp, nil
 }
 
 // UpdateAccount updates the account's throttle settings.
@@ -23,5 +25,7 @@ func (b *InMemoryBackend) UpdateAccount(input UpdateAccountInput) (*Account, err
 		b.account.Features = input.Features
 	}
 
-	return b.account, nil
+	cp := *b.account
+
+	return &cp, nil
 }

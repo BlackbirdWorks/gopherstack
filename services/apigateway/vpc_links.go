@@ -35,7 +35,9 @@ func (b *InMemoryBackend) CreateVpcLink(input CreateVpcLinkInput) (*VpcLink, err
 
 	b.vpcLinks.Put(link)
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }
 
 // GetVpcLink retrieves a VPC link by ID.
@@ -48,7 +50,9 @@ func (b *InMemoryBackend) GetVpcLink(id string) (*VpcLink, error) {
 		return nil, fmt.Errorf("%w: VPC link %s not found", ErrNotFound, id)
 	}
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }
 
 // GetVpcLinks retrieves all VPC links.
@@ -99,5 +103,7 @@ func (b *InMemoryBackend) UpdateVpcLink(input UpdateVpcLinkInput) (*VpcLink, err
 		link.Description = input.Description
 	}
 
-	return link, nil
+	cp := *link
+
+	return &cp, nil
 }

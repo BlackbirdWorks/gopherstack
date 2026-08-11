@@ -270,5 +270,7 @@ func (b *InMemoryBackend) UpdateDomainName(input UpdateDomainNameInput) (*Domain
 		d.MutualTLSAuthentication = input.MutualTLSAuthentication
 	}
 
-	return d, nil
+	cp := *d
+
+	return &cp, nil
 }

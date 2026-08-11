@@ -26,7 +26,9 @@ func (b *InMemoryBackend) GenerateClientCertificate(input GenerateClientCertific
 
 	b.clientCertificates.Put(cert)
 
-	return cert, nil
+	cp := *cert
+
+	return &cp, nil
 }
 
 // GetClientCertificate returns a client certificate by ID.
@@ -39,7 +41,9 @@ func (b *InMemoryBackend) GetClientCertificate(id string) (*ClientCertificate, e
 		return nil, fmt.Errorf("%w: client certificate %s not found", ErrNotFound, id)
 	}
 
-	return cert, nil
+	cp := *cert
+
+	return &cp, nil
 }
 
 // GetClientCertificates returns all client certificates.
@@ -84,5 +88,7 @@ func (b *InMemoryBackend) UpdateClientCertificate(input UpdateClientCertificateI
 
 	cert.Description = input.Description
 
-	return cert, nil
+	cp := *cert
+
+	return &cp, nil
 }
