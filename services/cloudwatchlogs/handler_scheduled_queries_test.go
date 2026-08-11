@@ -79,6 +79,93 @@ func TestHandler_GetScheduledQuery_WireShape(t *testing.T) {
 	assert.Equal(t, "CUSTOMER_MANAGED", sq["scheduleType"])
 }
 
+// TestHandler_ScheduledQuery_DestinationConfiguration locks the destination
+// union shape (aws-sdk-go-v2 types.DestinationConfiguration,
+// types.go:773): s3Configuration and lookupTableConfiguration are
+// alternatives, neither required, and each must round-trip through
+// Create/Get without the other's key appearing on the wire -- an unset
+// member must be genuinely absent, not serialised as an empty object.
+func TestHandler_ScheduledQuery_DestinationConfiguration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		destConfig string
+		wantS3     bool
+		wantLookup bool
+	}{
+		{
+			name: "s3_destination_unchanged",
+			destConfig: `"destinationConfiguration":{"s3Configuration":{` +
+				`"destinationIdentifier":"arn:aws:s3:::bucket","roleArn":"arn:aws:iam::123:role/s3-role"}},`,
+			wantS3: true,
+		},
+		{
+			name: "lookup_table_destination",
+			destConfig: `"destinationConfiguration":{"lookupTableConfiguration":{` +
+				`"tableName":"my-table","roleArn":"arn:aws:iam::123:role/lookup-role",` +
+				`"description":"a lookup table","kmsKeyId":"kms-key","tags":{"env":"prod"}}},`,
+			wantLookup: true,
+		},
+		{
+			name: "neither_destination_set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			h := cloudwatchlogs.NewHandler(backend)
+
+			body := `{` + tt.destConfig + `"name":"q","queryString":"fields @message","queryLanguage":"CWLI",` +
+				`"scheduleExpression":"cron(0 * * * ? *)","executionRoleArn":"arn:aws:iam::123:role/r"}`
+
+			createRec := doLogsRequest(t, h, e, "CreateScheduledQuery", body)
+			require.Equal(t, http.StatusOK, createRec.Code)
+
+			var createOut map[string]any
+			require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &createOut))
+			queryARN, arnOK := createOut["scheduledQueryArn"].(string)
+			require.True(t, arnOK)
+
+			getRec := doLogsRequest(t, h, e, "GetScheduledQuery", `{"scheduledQueryArn":"`+queryARN+`"}`)
+			require.Equal(t, http.StatusOK, getRec.Code)
+
+			var sq map[string]any
+			require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &sq))
+
+			destRaw, hasDest := sq["destinationConfiguration"]
+			if !tt.wantS3 && !tt.wantLookup {
+				assert.False(t, hasDest, "destinationConfiguration must be absent from the wire when unset")
+
+				return
+			}
+
+			require.True(t, hasDest)
+			dest, destOK := destRaw.(map[string]any)
+			require.True(t, destOK)
+
+			_, hasS3 := dest["s3Configuration"]
+			_, hasLookup := dest["lookupTableConfiguration"]
+			assert.Equal(t, tt.wantS3, hasS3)
+			assert.Equal(t, tt.wantLookup, hasLookup)
+
+			if tt.wantLookup {
+				lookup, lookupOK := dest["lookupTableConfiguration"].(map[string]any)
+				require.True(t, lookupOK)
+				assert.Equal(t, "my-table", lookup["tableName"])
+				assert.Equal(t, "arn:aws:iam::123:role/lookup-role", lookup["roleArn"])
+				assert.Equal(t, "a lookup table", lookup["description"])
+				assert.Equal(t, "kms-key", lookup["kmsKeyId"])
+				assert.Equal(t, map[string]any{"env": "prod"}, lookup["tags"])
+			}
+		})
+	}
+}
+
 func TestHandler_CreateScheduledQuery_StateValidation(t *testing.T) {
 	t.Parallel()
 

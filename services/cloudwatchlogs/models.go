@@ -265,10 +265,13 @@ type LogAnomalyDetector struct {
 }
 
 // ScheduledQueryDestinationConfig mirrors the real DestinationConfiguration
-// shape (aws-sdk-go-v2 types.DestinationConfiguration): currently only an S3
-// destination is modeled by the real API.
+// shape (aws-sdk-go-v2 types.DestinationConfiguration, types.go:773): a
+// scheduled query's results can go to an S3 bucket or a lookup table.
+// Neither member is required by the real type (no top-level required check
+// in validateDestinationConfiguration, validators.go:2451).
 type ScheduledQueryDestinationConfig struct {
-	S3Configuration *ScheduledQueryS3Configuration `json:"s3Configuration,omitempty"`
+	S3Configuration          *ScheduledQueryS3Configuration          `json:"s3Configuration,omitempty"`
+	LookupTableConfiguration *ScheduledQueryLookupTableConfiguration `json:"lookupTableConfiguration,omitempty"`
 }
 
 // ScheduledQueryS3Configuration mirrors the real S3Configuration shape used
@@ -278,6 +281,18 @@ type ScheduledQueryS3Configuration struct {
 	RoleArn               string `json:"roleArn"`
 	KmsKeyID              string `json:"kmsKeyId,omitempty"`
 	OwnerAccountID        string `json:"ownerAccountId,omitempty"`
+}
+
+// ScheduledQueryLookupTableConfiguration mirrors the real
+// LookupTableConfiguration shape (aws-sdk-go-v2 types.LookupTableConfiguration,
+// types.go:1561) used as the alternative DestinationConfiguration member to
+// S3Configuration.
+type ScheduledQueryLookupTableConfiguration struct {
+	Tags        map[string]string `json:"tags,omitempty"`
+	TableName   string            `json:"tableName"`
+	RoleArn     string            `json:"roleArn"`
+	Description string            `json:"description,omitempty"`
+	KmsKeyID    string            `json:"kmsKeyId,omitempty"`
 }
 
 // ScheduledQuery represents a CloudWatch Logs scheduled query, field-diffed
