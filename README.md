@@ -594,7 +594,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 65 | 4 gaps; 4 deferred |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 8 | clean |
+| [IAM](services/iam/README.md) | A | 9 | clean |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 2 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 55 | 3 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 4 gaps |
@@ -646,7 +646,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bedrock](services/bedrock/README.md) | A | 80 | 10 gaps |
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 4 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 6 gaps |
-| [Comprehend](services/comprehend/README.md) | A | 23 | 1 gap; 1 deferred |
+| [Comprehend](services/comprehend/README.md) | A | 28 | 1 gap; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
@@ -683,7 +683,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 95 | clean |
-| [Transfer Family](services/transfer/README.md) | A | — | 16 families; 1 gap |
+| [Transfer Family](services/transfer/README.md) | A | — | 17 families; 1 gap |
 
 ### Other
 
