@@ -21,7 +21,10 @@ import (
 // against the persisted value and discards (rather than attempts to
 // partially decode) any mismatch -- see Restore below. Mirrors the
 // services/sqs pilot (commit 0f09d77c) and services/ec2 (commit 12e611a4).
-const apigatewaySnapshotVersion = 2
+//
+// Do NOT bump for an additive omitempty field: an old snapshot still decodes,
+// and a bump silently discards every persisted snapshot on upgrade.
+const apigatewaySnapshotVersion = 1
 
 // resourceSnapshot, deploymentSnapshot, stageSnapshot, authorizerSnapshot,
 // requestValidatorSnapshot, documentationPartSnapshot,

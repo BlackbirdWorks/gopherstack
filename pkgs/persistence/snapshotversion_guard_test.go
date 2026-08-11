@@ -18,6 +18,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -57,42 +58,7 @@ func TestSnapshotVersionGuard(t *testing.T) {
 
 	golden := loadGolden(t)
 
-	var violations []string
-
-	for name, want := range live {
-		got, ok := golden[name]
-
-		switch {
-		case !ok:
-			violations = append(violations, fmt.Sprintf(
-				"%s: no golden entry (new persistence.go?); run with -update", name))
-		case want.Version != got.Version:
-			if isPureAddition(got.Fields, want.Fields) {
-				violations = append(violations, fmt.Sprintf(
-					"%s: version bumped %d -> %d for a PURELY ADDITIVE field change "+
-						"(added: %v). encoding/json decodes an older snapshot missing "+
-						"a new field fine -- do not bump the version constant for this. "+
-						"Revert the bump; the field addition alone is safe.",
-					name, got.Version, want.Version, addedFields(got.Fields, want.Fields)))
-			} else if !fieldsEqual(got.Fields, want.Fields) {
-				violations = append(violations, fmt.Sprintf(
-					"%s: version bumped %d -> %d with an incompatible struct change; "+
-						"golden is out of date, run with -update to accept it", name, got.Version, want.Version))
-			}
-		case !fieldsEqual(got.Fields, want.Fields):
-			violations = append(violations, fmt.Sprintf(
-				"%s: backendSnapshot fields changed without a version bump; golden is "+
-					"out of date, run with -update to refresh it (this is bookkeeping, "+
-					"not a version-bump case: additive fields never need a bump)", name))
-		}
-	}
-
-	for name := range golden {
-		if _, ok := live[name]; !ok {
-			violations = append(violations, fmt.Sprintf(
-				"%s: golden entry has no matching persistence.go; run with -update to remove it", name))
-		}
-	}
+	violations := diffSnapshots(live, golden)
 
 	if *updateGolden {
 		hardFailed := false
@@ -116,6 +82,143 @@ func TestSnapshotVersionGuard(t *testing.T) {
 
 	for _, v := range violations {
 		t.Error(v)
+	}
+}
+
+// diffSnapshots compares the live-scanned snapshot info against the checked-in
+// golden and returns one violation string per problem found. A version change
+// with an unchanged field list (want.Version != got.Version but the fields
+// are identical) is still a violation: it means either a nested type used by
+// the snapshot changed independently of the version-carrying struct (which
+// this scan cannot see), or the version was bumped for no reason -- either
+// way it must be confirmed, not silently absorbed by the next -update.
+func diffSnapshots(live, golden map[string]snapshotInfo) []string {
+	var violations []string
+
+	for name, want := range live {
+		got, ok := golden[name]
+
+		switch {
+		case !ok:
+			violations = append(violations, fmt.Sprintf(
+				"%s: no golden entry (new persistence.go?); run with -update", name))
+		case want.Version != got.Version:
+			switch {
+			case isPureAddition(got.Fields, want.Fields):
+				violations = append(violations, fmt.Sprintf(
+					"%s: version bumped %d -> %d for a PURELY ADDITIVE field change "+
+						"(added: %v). encoding/json decodes an older snapshot missing "+
+						"a new field fine -- do not bump the version constant for this. "+
+						"Revert the bump; the field addition alone is safe.",
+					name, got.Version, want.Version, addedFields(got.Fields, want.Fields)))
+			case !fieldsEqual(got.Fields, want.Fields):
+				violations = append(violations, fmt.Sprintf(
+					"%s: version bumped %d -> %d with an incompatible struct change; "+
+						"golden is out of date, run with -update to accept it", name, got.Version, want.Version))
+			default:
+				violations = append(violations, fmt.Sprintf(
+					"%s: version bumped %d -> %d but the version-carrying struct's own "+
+						"fields are unchanged; if a nested or dirty-table type changed "+
+						"independently, confirm an older snapshot is still unsafe to "+
+						"decode as this shape before accepting -- run with -update once "+
+						"confirmed", name, got.Version, want.Version))
+			}
+		case !fieldsEqual(got.Fields, want.Fields):
+			violations = append(violations, fmt.Sprintf(
+				"%s: backendSnapshot fields changed without a version bump; golden is "+
+					"out of date, run with -update to refresh it (this is bookkeeping, "+
+					"not a version-bump case: additive fields never need a bump)", name))
+		}
+	}
+
+	for name := range golden {
+		if _, ok := live[name]; !ok {
+			violations = append(violations, fmt.Sprintf(
+				"%s: golden entry has no matching persistence.go; run with -update to remove it", name))
+		}
+	}
+
+	return violations
+}
+
+func TestDiffSnapshots(t *testing.T) {
+	t.Parallel()
+
+	fieldsV1 := []string{
+		"Account *Account `json:\"account,omitempty\"`",
+		"Tables map[string]json.RawMessage `json:\"tables\"`",
+	}
+	fieldsV1WithExtra := append(append([]string{}, fieldsV1...),
+		"UsageOverrides map[string]map[string]int64 `json:\"usageOverrides,omitempty\"`")
+	fieldsV1Retyped := []string{
+		"Account *Account `json:\"account,omitempty\"`",
+		"Tables map[string]string `json:\"tables\"`",
+	}
+
+	tests := []struct {
+		live    map[string]snapshotInfo
+		golden  map[string]snapshotInfo
+		name    string
+		wantErr string
+	}{
+		{
+			name:   "unchanged",
+			live:   map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			golden: map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+		},
+		{
+			name:    "new service no golden entry",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			golden:  map[string]snapshotInfo{},
+			wantErr: "no golden entry",
+		},
+		{
+			name:    "stale golden entry",
+			live:    map[string]snapshotInfo{},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "no matching persistence.go",
+		},
+		{
+			name:    "fields changed without version bump",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1WithExtra, Version: 1}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "without a version bump",
+		},
+		{
+			name:    "purely additive field bumped version",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1WithExtra, Version: 2}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "PURELY ADDITIVE",
+		},
+		{
+			name:    "incompatible change bumped version",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1Retyped, Version: 2}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "incompatible struct change",
+		},
+		{
+			name:    "version bumped with fields unchanged",
+			live:    map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 2}},
+			golden:  map[string]snapshotInfo{"svc": {Fields: fieldsV1, Version: 1}},
+			wantErr: "fields are unchanged",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := diffSnapshots(tt.live, tt.golden)
+
+			if tt.wantErr == "" {
+				require.Empty(t, got)
+
+				return
+			}
+
+			require.Len(t, got, 1)
+			assert.Contains(t, got[0], tt.wantErr)
+		})
 	}
 }
 
