@@ -68,10 +68,18 @@ func (b *InMemoryBackend) CreateMembers(
 	return created, unprocessed
 }
 
-// DeleteMembers removes member accounts from a detector.
-func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) []map[string]any {
+// DeleteMembers removes member accounts from a detector. Real GuardDuty
+// rejects every detector-scoped member operation with an unknown DetectorId
+// (see ListMembers/CreateMembers, which already check this) -- this and its
+// six siblings below did not, silently returning 200 with every account
+// listed unprocessed instead.
+func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) ([]map[string]any, error) {
 	b.mu.Lock("DeleteMembers")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	var unprocessed []map[string]any
 
@@ -84,13 +92,17 @@ func (b *InMemoryBackend) DeleteMembers(detectorID string, accountIDs []string) 
 		}
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // GetMembers retrieves member account details.
-func (b *InMemoryBackend) GetMembers(detectorID string, accountIDs []string) ([]*Member, []map[string]any) {
+func (b *InMemoryBackend) GetMembers(detectorID string, accountIDs []string) ([]*Member, []map[string]any, error) {
 	b.mu.RLock("GetMembers")
 	defer b.mu.RUnlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, nil, ErrDetectorNotFound
+	}
 
 	var found []*Member
 	var unprocessed []map[string]any
@@ -109,13 +121,17 @@ func (b *InMemoryBackend) GetMembers(detectorID string, accountIDs []string) ([]
 		})
 	}
 
-	return found, unprocessed
+	return found, unprocessed, nil
 }
 
 // InviteMembers sends invitations to member accounts.
-func (b *InMemoryBackend) InviteMembers(detectorID string, accountIDs []string) []map[string]any {
+func (b *InMemoryBackend) InviteMembers(detectorID string, accountIDs []string) ([]map[string]any, error) {
 	b.mu.Lock("InviteMembers")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -138,7 +154,7 @@ func (b *InMemoryBackend) InviteMembers(detectorID string, accountIDs []string) 
 		}
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // ListMembers returns member accounts for a detector.
@@ -167,9 +183,13 @@ func (b *InMemoryBackend) ListMembers(detectorID string, onlyAssociated bool) ([
 }
 
 // StartMonitoringMembers starts monitoring member accounts.
-func (b *InMemoryBackend) StartMonitoringMembers(detectorID string, accountIDs []string) []map[string]any {
+func (b *InMemoryBackend) StartMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error) {
 	b.mu.Lock("StartMonitoringMembers")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	var unprocessed []map[string]any
 
@@ -186,13 +206,17 @@ func (b *InMemoryBackend) StartMonitoringMembers(detectorID string, accountIDs [
 		})
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // StopMonitoringMembers stops monitoring member accounts.
-func (b *InMemoryBackend) StopMonitoringMembers(detectorID string, accountIDs []string) []map[string]any {
+func (b *InMemoryBackend) StopMonitoringMembers(detectorID string, accountIDs []string) ([]map[string]any, error) {
 	b.mu.Lock("StopMonitoringMembers")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	var unprocessed []map[string]any
 
@@ -209,13 +233,17 @@ func (b *InMemoryBackend) StopMonitoringMembers(detectorID string, accountIDs []
 		})
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // DisassociateMembers disassociates member accounts from a detector.
-func (b *InMemoryBackend) DisassociateMembers(detectorID string, accountIDs []string) []map[string]any {
+func (b *InMemoryBackend) DisassociateMembers(detectorID string, accountIDs []string) ([]map[string]any, error) {
 	b.mu.Lock("DisassociateMembers")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	var unprocessed []map[string]any
 
@@ -232,16 +260,20 @@ func (b *InMemoryBackend) DisassociateMembers(detectorID string, accountIDs []st
 		})
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // GetMemberDetectors returns detector configurations for member accounts.
 func (b *InMemoryBackend) GetMemberDetectors(
 	detectorID string,
 	accountIDs []string,
-) ([]map[string]any, []map[string]any) {
+) ([]map[string]any, []map[string]any, error) {
 	b.mu.RLock("GetMemberDetectors")
 	defer b.mu.RUnlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, nil, ErrDetectorNotFound
+	}
 
 	var memberDetails []map[string]any
 	var unprocessed []map[string]any
@@ -263,16 +295,20 @@ func (b *InMemoryBackend) GetMemberDetectors(
 		})
 	}
 
-	return memberDetails, unprocessed
+	return memberDetails, unprocessed, nil
 }
 
 // UpdateMemberDetectors updates detector configurations for member accounts.
 func (b *InMemoryBackend) UpdateMemberDetectors(
 	detectorID string,
 	accountIDs []string,
-) []map[string]any {
+) ([]map[string]any, error) {
 	b.mu.Lock("UpdateMemberDetectors")
 	defer b.mu.Unlock()
+
+	if !b.detectors.Has(detectorID) {
+		return nil, ErrDetectorNotFound
+	}
 
 	var unprocessed []map[string]any
 
@@ -285,7 +321,7 @@ func (b *InMemoryBackend) UpdateMemberDetectors(
 		}
 	}
 
-	return unprocessed
+	return unprocessed, nil
 }
 
 // AcceptAdministratorInvitation records acceptance of an administrator invitation.

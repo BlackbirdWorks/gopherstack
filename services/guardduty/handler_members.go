@@ -3,9 +3,10 @@ package guardduty
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 )
 
-func (h *Handler) dispatchMemberOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchMemberOps(op, path, query string, body []byte) (any, int, bool, error) {
 	detectorID := extractID(path, pathDetector)
 
 	switch op {
@@ -30,7 +31,7 @@ func (h *Handler) dispatchMemberOps(op, path string, body []byte) (any, int, boo
 		return result, code, true, err
 
 	case opListMembers:
-		result, code, err := h.handleListMembers(detectorID)
+		result, code, err := h.handleListMembers(detectorID, query)
 
 		return result, code, true, err
 
@@ -172,7 +173,10 @@ func (h *Handler) handleDeleteMembers(detectorID string, body []byte) (any, int,
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.DeleteMembers(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.DeleteMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
@@ -186,7 +190,10 @@ func (h *Handler) handleGetMembers(detectorID string, body []byte) (any, int, er
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	members, unprocessed := h.Backend.GetMembers(detectorID, req.AccountIDs)
+	members, unprocessed, err := h.Backend.GetMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	membersOut := make([]map[string]any, 0, len(members))
 	for _, m := range members {
@@ -208,13 +215,16 @@ func (h *Handler) handleInviteMembers(detectorID string, body []byte) (any, int,
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.InviteMembers(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.InviteMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
 
-func (h *Handler) handleListMembers(detectorID string) (any, int, error) {
-	members, err := h.Backend.ListMembers(detectorID, false)
+func (h *Handler) handleListMembers(detectorID, query string) (any, int, error) {
+	members, err := h.Backend.ListMembers(detectorID, onlyAssociatedFromQuery(query))
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
@@ -236,7 +246,10 @@ func (h *Handler) handleStartMonitoringMembers(detectorID string, body []byte) (
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.StartMonitoringMembers(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.StartMonitoringMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
@@ -250,7 +263,10 @@ func (h *Handler) handleStopMonitoringMembers(detectorID string, body []byte) (a
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.StopMonitoringMembers(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.StopMonitoringMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
@@ -264,7 +280,10 @@ func (h *Handler) handleDisassociateMembers(detectorID string, body []byte) (any
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.DisassociateMembers(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.DisassociateMembers(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
@@ -278,7 +297,10 @@ func (h *Handler) handleGetMemberDetectors(detectorID string, body []byte) (any,
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	details, unprocessed := h.Backend.GetMemberDetectors(detectorID, req.AccountIDs)
+	details, unprocessed, err := h.Backend.GetMemberDetectors(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{
 		"memberDataSources":   orEmptyAny(details),
@@ -295,7 +317,10 @@ func (h *Handler) handleUpdateMemberDetectors(detectorID string, body []byte) (a
 		return nil, http.StatusBadRequest, ErrValidation
 	}
 
-	unprocessed := h.Backend.UpdateMemberDetectors(detectorID, req.AccountIDs)
+	unprocessed, err := h.Backend.UpdateMemberDetectors(detectorID, req.AccountIDs)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
 
 	return map[string]any{"unprocessedAccounts": orEmpty(unprocessed)}, http.StatusOK, nil
 }
@@ -382,6 +407,19 @@ func (h *Handler) handleListInvitations() (any, int) {
 	}
 
 	return map[string]any{"invitations": out}, http.StatusOK
+}
+
+// onlyAssociatedFromQuery parses ListMembersInput's onlyAssociated query
+// parameter (real wire key, see aws-sdk-go-v2/service/guardduty
+// serializers.go: encoder.SetQuery("onlyAssociated")). Any value other than
+// "true" behaves like the parameter being absent (returns every member).
+func onlyAssociatedFromQuery(query string) bool {
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return false
+	}
+
+	return values.Get("onlyAssociated") == "true"
 }
 
 func memberToMap(m *Member) map[string]any {

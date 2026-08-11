@@ -72,6 +72,40 @@ func TestMembers(t *testing.T) {
 			},
 		},
 		{
+			// ListMembersInput.OnlyAssociated is a real query parameter (see
+			// aws-sdk-go-v2/service/guardduty serializers.go:
+			// encoder.SetQuery("onlyAssociated")) that must filter out
+			// not-yet-invited members, not be silently ignored.
+			name: "list_only_associated_filters_unassociated_members",
+			fn: func(t *testing.T, h *guardduty.Handler) {
+				t.Helper()
+
+				id := createTestDetector(t, h)
+
+				doRequest(t, h, http.MethodPost, "/detector/"+id+"/member", map[string]any{
+					"accountDetails": []map[string]any{
+						{"accountId": "444444444444", "email": "d@example.com"},
+						{"accountId": "555555555555", "email": "e@example.com"},
+					},
+				})
+
+				doRequest(t, h, http.MethodPost, "/detector/"+id+"/member/start", map[string]any{
+					"accountIds": []string{"444444444444"},
+				})
+
+				rec := doRequest(t, h, http.MethodGet, "/detector/"+id+"/member?onlyAssociated=true", nil)
+				assert.Equal(t, http.StatusOK, rec.Code)
+
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+				members, _ := resp["members"].([]any)
+				require.Len(t, members, 1)
+
+				first, _ := members[0].(map[string]any)
+				assert.Equal(t, "444444444444", first["accountId"])
+			},
+		},
+		{
 			name: "invite_and_monitoring",
 			fn: func(t *testing.T, h *guardduty.Handler) {
 				t.Helper()
@@ -155,6 +189,53 @@ func TestMembers(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			tt.fn(t, h)
+		})
+	}
+}
+
+// TestMemberBatchOps_UnknownDetector_NotFound locks that every
+// detector-scoped member batch op rejects an unknown DetectorId with 404,
+// matching ListMembers/CreateMembers (which already validated this) instead
+// of silently returning 200 with every requested account marked
+// unprocessed -- an unknown detector is a different failure than an unknown
+// member, and conflating the two let a bogus detector ID report success.
+func TestMemberBatchOps_UnknownDetector_NotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		method string
+		path   string
+	}{
+		{name: "get_members", method: http.MethodPost, path: "/detector/no-such-detector/member/get",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "delete_members", method: http.MethodPost, path: "/detector/no-such-detector/member/delete",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "invite_members", method: http.MethodPost, path: "/detector/no-such-detector/member/invite",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "start_monitoring_members", method: http.MethodPost, path: "/detector/no-such-detector/member/start",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "stop_monitoring_members", method: http.MethodPost, path: "/detector/no-such-detector/member/stop",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "disassociate_members", method: http.MethodPost, path: "/detector/no-such-detector/member/disassociate",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{name: "get_member_detectors", method: http.MethodPost, path: "/detector/no-such-detector/member/detector/get",
+			body: map[string]any{"accountIds": []string{"111111111111"}}},
+		{
+			name: "update_member_detectors", method: http.MethodPost,
+			path: "/detector/no-such-detector/member/detector/update",
+			body: map[string]any{"accountIds": []string{"111111111111"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, tt.method, tt.path, tt.body)
+			assert.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 		})
 	}
 }

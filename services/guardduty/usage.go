@@ -3,6 +3,7 @@ package guardduty
 import (
 	"slices"
 	"sort"
+	"time"
 )
 
 // UsageQuery holds the optional criteria/type parameters for
@@ -130,8 +131,24 @@ func selectUsageStatisticType(full map[string]any, statisticType string) map[str
 	return map[string]any{field: full[field]}
 }
 
-// GetRemainingFreeTrialDays returns remaining free trial days.
-func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string) (map[string]any, error) {
+// freeTrialDays is the length of GuardDuty's free trial period.
+const freeTrialDays = 30
+
+// freeTrialBaseFeatures are the always-on data sources every GuardDuty
+// member account has from creation -- not toggleable via DetectorFeature, so
+// they always appear in GetRemainingFreeTrialDaysOutput's features list.
+//
+//nolint:gochecknoglobals // static lookup table
+var freeTrialBaseFeatures = []string{"FLOW_LOGS", "CLOUD_TRAIL", "DNS_LOGS"}
+
+// GetRemainingFreeTrialDays returns remaining free-trial days for the
+// requested member accounts. Real AccountFreeTrialInfo has no top-level
+// freeTrialDaysRemaining member -- remainders live per feature, under
+// features[]/dataSources. This backend tracks no per-feature enable
+// timestamp, only Member.UpdatedAt (set when CreateMembers added the
+// account), used as the best available honest proxy for when that account's
+// trial started, in place of a hardcoded day count.
+func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string, accountIDs []string) (map[string]any, error) {
 	b.mu.RLock("GetRemainingFreeTrialDays")
 	defer b.mu.RUnlock()
 
@@ -139,15 +156,52 @@ func (b *InMemoryBackend) GetRemainingFreeTrialDays(detectorID string) (map[stri
 		return nil, ErrDetectorNotFound
 	}
 
+	accounts := make([]any, 0, len(accountIDs))
+	unprocessed := make([]any, 0)
+
+	for _, id := range accountIDs {
+		m, ok := b.members.Get(detectorKey(detectorID, id))
+		if !ok {
+			unprocessed = append(unprocessed, map[string]any{
+				keyAccountIDField: id,
+				"result":          errResourceNotFound, //nolint:goconst // existing issue.
+			})
+
+			continue
+		}
+
+		accounts = append(accounts, map[string]any{
+			keyAccountIDField: id,
+			"features":        freeTrialFeatures(m.UpdatedAt), //nolint:goconst // existing issue.
+		})
+	}
+
 	return map[string]any{
-		"accounts": []any{
-			map[string]any{
-				"accountId":              b.accountID, //nolint:goconst // existing issue.
-				"dataSources":            map[string]any{},
-				"features":               []any{}, //nolint:goconst // existing issue.
-				"freeTrialDaysRemaining": 30,      //nolint:mnd // existing issue.
-			},
-		},
-		"unprocessedAccounts": []any{}, //nolint:goconst // existing issue.
+		"accounts":            accounts,
+		"unprocessedAccounts": unprocessed, //nolint:goconst // existing issue.
 	}, nil
+}
+
+func freeTrialFeatures(since time.Time) []map[string]any {
+	remaining := freeTrialDaysRemaining(since)
+	out := make([]map[string]any, 0, len(freeTrialBaseFeatures))
+
+	for _, name := range freeTrialBaseFeatures {
+		out = append(out, map[string]any{"name": name, "freeTrialDaysRemaining": remaining})
+	}
+
+	return out
+}
+
+func freeTrialDaysRemaining(since time.Time) int32 {
+	const hoursPerDay = 24
+
+	elapsed := int32(time.Since(since).Hours() / hoursPerDay)
+	remaining := freeTrialDays - elapsed
+
+	if remaining < 0 {
+		return 0
+	}
+
+	return remaining
 }

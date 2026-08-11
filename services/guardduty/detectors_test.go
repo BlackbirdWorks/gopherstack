@@ -318,7 +318,7 @@ func TestDeleteDetectorCleansUpSubResources(t *testing.T) {
 	b := guardduty.NewInMemoryBackend("111111111111", "us-east-1")
 
 	// Create a detector with AI_ANALYST enabled (required by CreateInvestigation).
-	det, err := b.CreateDetector(true, "ALL", nil, []guardduty.DetectorFeature{
+	det, err := b.CreateDetector(true, "", nil, []guardduty.DetectorFeature{
 		{Name: "AI_ANALYST", Status: "ENABLED"},
 	})
 	require.NoError(t, err)
@@ -369,4 +369,71 @@ func TestDeleteDetectorCleansUpSubResources(t *testing.T) {
 	// which serializes the raw table.
 	assert.NotContains(t, string(b.Snapshot(t.Context())), inv.InvestigationID,
 		"investigations must be removed when detector is deleted")
+}
+
+// TestCreateDetector_RejectsInvalidFindingPublishingFrequency locks that an
+// unknown findingPublishingFrequency is rejected, matching the real
+// types.FindingPublishingFrequency enum (FIFTEEN_MINUTES/ONE_HOUR/
+// SIX_HOURS) instead of being stored and echoed back verbatim -- this
+// backend previously accepted any string here, more permissive than the
+// real service, which rejects an invalid enum value with a validation
+// error.
+func TestCreateDetector_RejectsInvalidFindingPublishingFrequency(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/detector", map[string]any{
+		"enable":                     true,
+		"findingPublishingFrequency": "NOT_A_REAL_FREQUENCY",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+// TestCreateDetector_RejectsInvalidFeatureName locks that an unknown
+// features[].name is rejected, matching the real types.DetectorFeature
+// enum, instead of being stored and echoed back verbatim.
+func TestCreateDetector_RejectsInvalidFeatureName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/detector", map[string]any{
+		"enable": true,
+		"features": []map[string]any{
+			{"name": "NOT_A_REAL_FEATURE", "status": "ENABLED"},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+// TestCreateDetector_RejectsInvalidFeatureStatus locks that an unknown
+// features[].status is rejected, matching the real types.FeatureStatus
+// enum (ENABLED/DISABLED).
+func TestCreateDetector_RejectsInvalidFeatureStatus(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodPost, "/detector", map[string]any{
+		"enable": true,
+		"features": []map[string]any{
+			{"name": "S3_DATA_EVENTS", "status": "MAYBE"},
+		},
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+}
+
+// TestUpdateDetector_RejectsInvalidFindingPublishingFrequency locks the
+// same validation on UpdateDetector.
+func TestUpdateDetector_RejectsInvalidFindingPublishingFrequency(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	id := createTestDetector(t, h)
+
+	rec := doRequest(t, h, http.MethodPost, "/detector/"+id, map[string]any{
+		"findingPublishingFrequency": "NOT_A_REAL_FREQUENCY",
+	})
+	assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 }
