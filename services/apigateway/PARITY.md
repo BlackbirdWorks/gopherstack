@@ -6,6 +6,7 @@ last_audit_date: 2026-07-23
 overall: A            # closed all 5 documented gaps + 3 deferred items from the 2026-07-11 sweep: RestApi.{ApiStatus,ApiStatusMessage,DisableExecuteApiEndpoint,EndpointAccessMode}, Stage.DocumentationVersion, ApiKey.StageKeys (Create + PATCH /stages), UsagePlan per-route throttle PATCH, Stage canarySettings.stageVariableOverrides PATCH, MethodSetting.{CacheDataEncrypted,UnauthorizedCacheControlHeaderStrategy} + their PATCH paths, and 2 concrete instances of the top-level-scalar-PATCH-remove gap (RestApi./description, Authorizer./identitySource). Found+fixed 2 new bugs while doing so (see Notes): a multi-op-per-request PATCH clobbering bug in the 3 resolvers this sweep touches, and UpdateUsagePlan returning an unprotected pointer into backend state. Found+documented (not fixed, out of assigned scope) a pre-existing UpdateDomainName PATCH gap.
 # 2026-08-08 follow-up (bd: gopherstack-vvsy): fixed the multi-op-per-request clobbering bug in the remaining 6 resolvers; added applyDomainNamePatchOp so UpdateDomainName's nested "/endpointConfiguration/*" and "/mutualTlsAuthentication/*" PATCH paths no longer silently no-op; pointer-ified DomainName's certificateArn/regionalCertificateArn (a 3rd concrete PATCH-remove-on-scalar fix); re-verified UsagePlan throttle PATCH path shape against a fresh patch-operations.html fetch (already correct, no change needed). See gaps below for what's still open.
 # 2026-08-09 follow-up (bd: gopherstack-npq5): added the DomainName/UsagePlan fields left missing by the prior follow-up — DomainName.{CertificateName,RegionalCertificateName,OwnershipVerificationCertificateARN} (*string on UpdateDomainNameInput, remove-supported per patch-operations.html) and .{ManagementPolicy,Policy,RoutingMode,EndpointAccessMode} (plain string, replace-only); UsagePlan.ProductCode (*string on UpdateUsagePlanInput, remove-supported). All seven flow through the existing single-segment PATCH machinery (applyTopLevelPatchOp + removableTopLevelScalar) with no new resolver code needed. Corrected the ticket: endpointConfiguration/vpcEndpointIds, which the ticket listed under DomainName, is documented only under UpdateRestApi's table, not UpdateDomainName's — left unmodeled here as a RestApi-scoped gap, out of this fix's scope. Verified against a live fetch of patch-operations.html plus aws-sdk-go-v2/service/apigateway@v1.42.4's deserializers.go (wire field names match exactly). Proven via both a pre-fix-failing unit suite and two real aws-sdk-go-v2-client integration tests (test/integration/apigateway_audit_test.go) that fail against the pre-fix binary (200 OK, field silently empty) and pass post-fix.
+# 2026-08-11 follow-up (bd: gopherstack-oius): the previous "wire: ok" grading on UpdateResource/UpdateMethod/UpdateIntegration/UpdateIntegrationResponse/UpdateMethodResponse was WRONG — audited all 22 patchOperations-taking ops against a fresh patch-operations.html fetch; classification and fixes below (see the 5 op lines and Notes). Swept applyResourcePatchOp/applyStructuredPatch to return an error so a resolver can now REJECT an op/path/value combination (BadRequestException) instead of only ever silently applying-or-dropping it — used to reject AWS-documented-unsupported combinations (UpdateIntegration's "/type", any op but replace on "/parentId") and AWS-documented-but-unmodeled paths (Method.authorizationScopes, Integration.{integrationTarget,responseTransferMode,tlsConfig}) rather than fabricating support. Confirmed with real aws-sdk-go-v2 client tests (patch_ops_sdk_test.go) run against a git-worktree checkout of the pre-fix commit that every fixed case actually failed before (two as a hard 500 json-unmarshal-type-mismatch — UpdateIntegration's "/cacheKeyParameters" and "/timeoutInMillis", matching the "cannot be called successfully at all" bug class named in the ticket — the rest as a silent 200-OK no-op).
 ops:
   UpdateStage: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH semantics rewritten (/variables/{name}, canary-promotion copy op, /canarySettings/*, /accessLogSettings/*, per-route method settings, cacheCluster* fields). This sweep: documentationVersion field + PATCH added; /canarySettings/stageVariableOverrides whole-map-replace PATCH added; caching/dataEncrypted + caching/unauthorizedCacheControlHeaderStrategy per-route PATCH properties added"}
   UpdateRestApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: PATCH /binaryMediaTypes/{escaped} add/remove merge, minimumCompressionSize coercion. This sweep: ApiStatus/ApiStatusMessage/DisableExecuteApiEndpoint/EndpointAccessMode fields added (Create + Update + PATCH replace); Description switched to *string so PATCH remove on /description actually clears it (was a silent no-op) — see Notes"}
@@ -15,17 +16,17 @@ ops:
   UpdateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: enabled bool coercion, customerId field. This sweep: StageKeys field + PATCH /stages add/remove added (value '{restApiId}/{stageName}', deprecated-for-usage-plans per the SDK doc comment but still real and wire-modeled) — see Notes"}
   UpdateUsage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this sweep: verified against AWS's patch-operations.html + CLI reference that the real (and only) supported path is the single-segment scalar /remaining, NOT a per-date path as the prior code comment and test claimed; behavior was already correct (the backend loop only reads map values, not keys) but doc/test were misleading — corrected both, see Notes"}
   UpdateRequestValidator: {wire: ok, errors: ok, state: ok, persist: ok, note: "validateRequestBody/validateRequestParameters bool coercion fixed"}
-  UpdateMethod: {wire: ok, errors: ok, state: ok, persist: ok, note: "apiKeyRequired bool coercion fixed"}
+  UpdateMethod: {wire: ok, errors: ok, state: ok, persist: ok, note: "apiKeyRequired bool coercion fixed. 2026-08-11 (gopherstack-oius): /requestParameters/{name} and /requestModels/{content-type} per-key PATCH added (previously fell through the generic flatten and silently dropped — real client PATCHes never took effect); requestValidatorId field added to UpdateMethodInput (was entirely unsettable via PATCH); /authorizationScopes (AWS-documented add/remove) is REJECTED with BadRequestException — Method has no AuthorizationScopes field anywhere in this backend (PutMethod doesn't accept it either), so this is a real unmodeled-state gap, not a patch-plumbing bug — see gaps"}
   UpdateAuthorizer: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior sweep: authorizerResultTtlInSeconds int coercion. This sweep: IdentitySource switched to *string so PATCH remove on /identitySource actually clears it (was a silent no-op, AWS-documented as supported) — see Notes"}
   UpdateDeployment: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-11 (gopherstack-oius): /parentId (replace-only per patch-operations.html) added — was entirely missing from UpdateResourceInput, so a real client's PATCH silently no-opped a resource move. InMemoryBackend.UpdateResource now validates the new parent exists in the same RestApi and rejects a move into the resource's own subtree (BadRequestException), and recomputes Path for the moved resource AND its whole descendant subtree (Path is stored precomputed, not derived lazily). add/remove on /parentId rejected (replace-only per the doc table)"}
   UpdateDomainName: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-08 follow-up: applyDomainNamePatchOp added for /endpointConfiguration/{types,ipAddressType} and /mutualTlsAuthentication/{truststoreUri,truststoreVersion} (previously entirely unhandled, silently no-opped); certificateArn/regionalCertificateArn switched to *string so PATCH remove actually clears them. 2026-08-09 (gopherstack-npq5): certificateName/regionalCertificateName/ownershipVerificationCertificateArn (*string, remove-supported) and managementPolicy/policy/routingMode/endpointAccessMode (plain string, replace-only) added — all seven were accepted-and-silently-dropped before, now fields on DomainName + UpdateDomainNameInput. endpointConfiguration/vpcEndpointIds NOT added here: verified against a fresh patch-operations.html fetch that it's a UpdateRestApi-only path, not UpdateDomainName's, contra the tracking ticket — see Notes"}
   UpdateBasePathMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDocumentationPart: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDocumentationVersion: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateIntegration: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateMethodResponse: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateIntegration: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-11 (gopherstack-oius): PREVIOUSLY BROKEN — /cacheKeyParameters and /timeoutInMillis unmarshaled the wire's JSON-string Value directly into UpdateIntegrationInput's []string/int fields and failed the WHOLE PATCH request with a 500 (json: cannot unmarshal string into Go struct field ... of type []string / int) — a real client could not call this op with either field at all. Fixed: /cacheKeyParameters is now single-segment add/remove/idempotent-replace list membership (merges with existing, like /stages and /binaryMediaTypes elsewhere in this file); /timeoutInMillis added to patchFieldKind for string->int coercion. Also added: /requestParameters/{name} and /requestTemplates/{content-type} per-key PATCH (previously silently dropped, multi-segment path). REJECTED rather than silently accepted: /type (patch-operations.html documents it as \"Not supported\" for every op, but IntegrationType has a matching struct field so it previously succeeded silently and changed the integration type via PATCH — a real bug); /integrationTarget, /responseTransferMode, /tlsConfig/insecureSkipVerification (real aws-sdk-go-v2 Integration fields — IntegrationTarget *string, ResponseTransferMode, TlsConfig.InsecureSkipVerification, types.go:591,627,635,1262 — but entirely unmodeled by this backend; rejecting rather than fabricating support, see gaps)"}
+  UpdateIntegrationResponse: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-11 (gopherstack-oius): /responseParameters/{name} and /responseTemplates/{content-type} per-key PATCH added (previously silently dropped, multi-segment path never matched any Update*Input json tag)"}
+  UpdateMethodResponse: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-11 (gopherstack-oius): /responseModels/{content-type} and /responseParameters/{name} (bool, string-coerced) per-key PATCH added (previously silently dropped, multi-segment path)"}
   UpdateModel: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClientCertificate: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -140,8 +141,13 @@ gaps:
   - "FIXED (bd: gopherstack-vvsy): applyResourcePatchOp now has a case for opUpdateDomainName (applyDomainNamePatchOp), handling the nested paths \"/endpointConfiguration/types\" (add/remove), \"/endpointConfiguration/ipAddressType\" (replace), and \"/mutualTlsAuthentication/{truststoreUri,truststoreVersion}\" (add/replace/remove) — DomainName.MutualTLSAuthentication and EndpointConfiguration.IPAddressType are new fields added this follow-up. Verified by Test_ApplyStructuredPatch_DomainNameNestedPaths (four ops across two nested fields in one request, plus a remove). FIXED (bd: gopherstack-npq5, 2026-08-09): the remaining top-level scalars patch-operations.html's UpdateDomainName table documents — /certificateName, /regionalCertificateName, /ownershipVerificationCertificateArn (remove-supported, now *string on UpdateDomainNameInput) and /managementPolicy, /policy, /routingMode, /endpointAccessMode (replace-only, plain string) — are now DomainName/UpdateDomainNameInput fields; all seven route through the existing applyTopLevelPatchOp fallback, no new resolver needed. Verified against a live patch-operations.html fetch and aws-sdk-go-v2/service/apigateway@v1.42.4's deserializers.go for wire field names, and proven via real aws-sdk-go-v2 client integration tests (TestIntegration_APIGatewayAudit_UpdateDomainNameDocumentedFields). One item the tracking ticket listed under DomainName was found to actually belong to UpdateRestApi instead: /endpointConfiguration/vpcEndpointIds appears only in patch-operations.html's UpdateRestApi table, not UpdateDomainName's — left unmodeled here (UpdateRestApi doesn't handle nested endpointConfiguration paths at all yet; a RestApi-scoped gap, out of this fix's scope)."
   - "The exact property-path strings for per-route stage method settings (stageMethodSettingProperty in patch.go, e.g. \"logging/dataTrace\", \"caching/dataEncrypted\", \"caching/unauthorizedCacheControlHeaderStrategy\") were fetched and verified this sweep directly against the live AWS documentation page https://docs.aws.amazon.com/apigateway/latest/api/patch-operations.html (UpdateStage table) — every string in the map matches exactly, including the two new caching/* entries added this sweep. Still not backed by an SDK-level typed enum (PatchOperation.Path is a free string in aws-sdk-go-v2), so this remains a doc-fetch verification rather than a compile-time guarantee; re-verify if AWS changes the doc."
   - "UsagePlan.apiStages per-route throttle PATCH path shape RE-VERIFIED this follow-up (bd: gopherstack-vvsy) directly against a fresh fetch of patch-operations.html's UpdateUsagePlan table: \"/apiStages/{apidId:stageName}/throttle/{resourcePath}/{httpMethod}\" (remove-only) and the same path + \"/rateLimit\" or \"/burstLimit\" (add/replace) — gopherstack's usagePlanThrottlePathMinSegs=5 segmentation and the \"restApiId:stage\" colon-separated composite key both match AWS's own path notation exactly (AWS's doc literally uses the \"{apidId:stageName}\" spelling as the path placeholder). No wire capture example exists for the exact /apiStages add/remove Value string format, but the colon convention is corroborated by the path notation itself. No code change was needed — the existing implementation already matches."
+  - "2026-08-11 (gopherstack-oius) FULL 22-OP CLASSIFICATION of every op whose real aws-sdk-go-v2 request shape is `{...ids, patchOperations}` (verified against botocore apigateway 2015-07-09 service-2.json — all 22 request shapes carry ONLY id fields + patchOperations, no flat scalars): ALREADY CORRECT before this sweep (single-segment scalars all route through applyTopLevelPatchOp and match their Update*Input json tag, or already had a dedicated resolver) — UpdateAccount, UpdateApiKey, UpdateAuthorizer (see caveat below), UpdateClientCertificate, UpdateDeployment, UpdateDocumentationPart, UpdateDocumentationVersion, UpdateDomainName, UpdateGatewayResponse, UpdateModel, UpdateRequestValidator, UpdateRestApi, UpdateStage, UpdateUsage, UpdateUsagePlan, UpdateVpcLink. FIXED this sweep (real bugs — see the 5 op lines above for details) — UpdateResource, UpdateMethod, UpdateIntegration, UpdateIntegrationResponse, UpdateMethodResponse. NOT reached this sweep, deferred — UpdateBasePathMapping (see gaps below: wire-casing bug found, not fixed)."
+  - "FOUND, NOT FIXED (deferred — out of this sweep's 5-op scope, lowest priority per the ticket's own 'account and client-certificate last' ordering): UpdateAccount's PATCH table documents \"/features\" (add supported, remove supported except for the UsagePlans feature) but Account has no Features field on UpdateAccountInput and applyAccountPatchOp has no case for a single-segment \"features\" path, so it silently falls through applyTopLevelPatchOp and is accepted-and-dropped. Account.Features itself DOES exist as a read-only field (models.go) but nothing ever sets it."
+  - "FOUND, NOT FIXED (deferred): UpdateAuthorizer's PATCH table documents \"/providerARNs\" as add/remove-supported, and Authorizer/UpdateAuthorizerInput DOES have a matching ProviderARNs []string field — but applyResourcePatchOp has no case for opUpdateAuthorizer, so a real client's add/remove op falls through applyTopLevelPatchOp's single-segment scalar path, which sets a bare JSON-string value into a field the target struct types as []string — json.Unmarshal then FAILS THE WHOLE PATCH REQUEST with a 500 (same bug class as UpdateIntegration's /cacheKeyParameters, fixed this sweep). Needs the same single-segment list-membership resolver pattern as applyAPIKeyPatchOp's /stages case; a same-day follow-up, not fixed here to keep this sweep's diff to the 5 ops it set out to fix."
+  - "FOUND, NOT FIXED (deferred, low priority): UpdateBasePathMapping's patch-operations.html table literally spells its paths \"/basepath\" and \"/restapiId\" (no camelCase, unlike every other resource's PATCH table, and unlike BasePathMapping's own JSON attribute names \"basePath\"/\"restApiId\" — confirmed against botocore's BasePathMapping shape, which uses camelCase). UpdateBasePathMappingInput's json tags are camelCase (\"basePath\"/\"restApiId\"), so a real client's PATCH using AWS's own documented lowercase path spelling is silently accepted and does nothing (out[\"basepath\"] never matches the \"basePath\" json tag). \"/stage\" (both spelled the same either way) works correctly. Not fixed here — outside the ticket's resource/method/integration/stage priority tier."
 deferred:
   - "ApiKey.StageKeys's PATCH /labels add/remove path (listed in patch-operations.html's UpdateApiKey table) still has no corresponding field anywhere in aws-sdk-go-v2/service/apigateway/types.ApiKey (re-verified this sweep) — likely a stale doc artifact from a pre-Tags API generation. Nothing to implement against; distinct from /stages, which this sweep DID implement (see Notes)."
+  - "2026-08-11 (gopherstack-oius): Method.AuthorizationScopes is not modeled anywhere in this backend (not on Method, not on PutMethodInput/CreateAuthorizerInput's COGNITO_USER_POOLS flow) even though patch-operations.html documents UpdateMethod's \"/authorizationScopes\" as add/remove-supported and it's a real, commonly-used field (COGNITO_USER_POOLS authorizer scope matching). UpdateMethod now explicitly REJECTS this path (BadRequestException) rather than silently accepting a patch that changes nothing — see applyMethodPatchOp. Properly modeling it needs PutMethod/PutMethodInput plumbing too, a larger change than this PATCH-focused sweep; tracked here as the next real step."
 leaks: {status: clean, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly"}
 ---
 
@@ -449,3 +455,127 @@ cyclop violation surfaced mid-sweep (`applyStageCanaryPatch` hit 17 after
 adding the `stageVariableOverrides` case, max 15) and was resolved by
 extracting the per-property switch into `applyStageCanaryProp`, not a
 nolint.
+
+## 2026-08-11 sweep (bd: gopherstack-oius)
+
+The tracking ticket named three ops (`UpdateResource`, `UpdateMethod`,
+`UpdateDocumentationPart`) as taking only `patchOperations` where gopherstack
+allegedly expected flat scalar fields. Re-checked against the model directly:
+**all 22** apigateway ops whose real `Update*Request` shape is
+`{...ids, patchOperations}` (confirmed via botocore's `apigateway/2015-07-09/
+service-2.json` — every one of the 22 request shapes carries only id fields
+plus `patchOperations`, nothing else). Full classification is in the `gaps`
+entry above. The headline correction: **`UpdateDocumentationPart` was
+already fine** — its one documented path, `/properties` (replace-only,
+patch-operations.html), is a single-segment scalar whose value (a JSON
+string containing the documentation-part's own JSON-encoded properties text)
+round-trips correctly through the existing generic top-level PATCH fallback,
+since `UpdateDocumentationPartInput.Properties` is a plain string field. The
+ticket's premise was based on an earlier sampling of 3 ops that didn't verify
+each one individually before generalizing; this sweep did.
+
+The 5 ops actually fixed (`UpdateResource`, `UpdateMethod`,
+`UpdateIntegration`, `UpdateIntegrationResponse`, `UpdateMethodResponse` —
+the resource/method/integration/stage tier the ticket asked to prioritize,
+Stage having already been fixed by an earlier sweep) are detailed on their
+`ops:` lines above. Two categories of confirmed bug, both proven with a real
+aws-sdk-go-v2 client run against a `git worktree` checkout of the
+pre-fix commit (`git stash` is banned in this repo; a worktree gave a clean
+before/after comparison without touching the working tree):
+
+1. **Hard failure, not silent no-op** — `UpdateIntegration`'s `/cacheKeyParameters`
+   (a `[]string` field) and `/timeoutInMillis` (an `int` field) received
+   `PatchOperation.Value`'s wire-mandated JSON string verbatim and handed it
+   to `json.Unmarshal` against a `[]string`/`int` target, which errors the
+   whole PATCH request as a 500 (`json: cannot unmarshal string into Go
+   struct field UpdateIntegrationInput.cacheKeyParameters of type []string`)
+   — this is the literal "no real client can call this operation
+   successfully" bug class the ticket named, just on different fields than
+   it guessed. Fixed via a dedicated single-segment list-membership resolver
+   for `/cacheKeyParameters` (mirroring `/stages`/`/binaryMediaTypes`
+   elsewhere in this file) and adding `timeoutInMillis` to `patchFieldKind`
+   for string→int coercion.
+
+2. **Silent no-op** — every per-key map path this sweep added a resolver for
+   (`/requestParameters/{name}`, `/requestModels/{content-type}` on Method;
+   `/requestParameters/{name}`, `/requestTemplates/{content-type}` on
+   Integration; `/responseParameters/{name}`, `/responseTemplates/{content-type}`
+   on IntegrationResponse; `/responseModels/{content-type}`,
+   `/responseParameters/{name}` on MethodResponse) previously fell through
+   `applyTopLevelPatchOp`'s "path contains `/` → drop" guard, same as every
+   other resource's multi-segment paths before the 2026-07/08 sweeps fixed
+   them.
+
+**Structural change: `applyResourcePatchOp`/`applyStructuredPatch` can now
+reject a PATCH op with an AWS error, not just apply-or-drop it.** Every
+resolver before this sweep only ever had two outcomes: apply the edit, or
+silently do nothing (`return false`/`true` with no error). That's the root
+cause of gopherstack-oius's "silently accepting a patch that changes
+nothing" framing — there was no mechanism to say "the API rejects this."
+`applyStructuredPatch` and every per-action resolver now return `(bool,
+error)`; `handler.go`'s call site turns a returned error into a real
+`BadRequestException` via the existing `handleError` path. Used to reject:
+
+- **AWS-documented "not supported" combinations that previously silently
+  succeeded**: `UpdateIntegration`'s `/type` (patch-operations.html marks it
+  "Not supported" for every op, but `Integration.Type` has a matching struct
+  field, so a real client's PATCH previously changed a live integration's
+  type with no error — confirmed via `TestSDK_UpdateIntegration_
+  PatchOperations/type_is_rejected_as_not-supported_for_any_op`, which fails
+  with no error pre-fix); `/parentId` on any op but `replace` (add/remove/copy
+  aren't documented for it).
+- **AWS-documented paths this backend does not model as real state**, where
+  fabricating support would be worse than rejecting: `UpdateMethod`'s
+  `/authorizationScopes` (Method has no `AuthorizationScopes` field anywhere
+  in this backend, including `PutMethod` — modeling it properly needs Put-side
+  plumbing too, out of this PATCH-focused sweep's scope, see `deferred`);
+  `UpdateIntegration`'s `/integrationTarget`, `/responseTransferMode`,
+  `/tlsConfig/insecureSkipVerification` (real `aws-sdk-go-v2/service/
+  apigateway/types.Integration` fields — `types.go:591,627,635,1262` in the
+  pinned v1.42.4 — entirely absent from gopherstack's `Integration` struct).
+
+The dispatch table (`resourcePatchResolvers`) was also converted from a
+12-case `switch` to a `map[string]resourcePatchResolver` lookup specifically
+to keep `applyResourcePatchOp`'s cyclomatic complexity flat as more actions
+were added to it (this repo bans `cyclop`/`gocognit`/`funlen` nolints, so a
+growing switch was the wrong shape to keep extending).
+
+**`InMemoryBackend.UpdateResource` now supports moving a resource to a new
+parent** (`/parentId`), the one substantive backend behavior this sweep
+added beyond patch-plumbing: validates the new parent exists in the same
+`RestApi`, rejects a move into the resource's own subtree (cycle
+prevention), and recomputes `Path` for the moved resource and its entire
+descendant subtree — `Resource.Path` is stored precomputed per-resource
+rather than derived lazily from the ancestor chain, so every descendant
+under a moved resource needs its `Path` refreshed too, not just the moved
+resource itself.
+
+**`len(x) > 0` → `x != nil` fixed on every backend field this sweep wired a
+per-key PATCH resolver for** (`Method.RequestModels`/`RequestParameters`,
+`Integration.RequestTemplates`/`RequestParameters`/`CacheKeyParameters`,
+`IntegrationResponse.ResponseTemplates`/`ResponseParameters`,
+`MethodResponse.ResponseModels`/`ResponseParameters`) — the same
+"PATCH-removing-the-last-entry-of-a-map-is-silently-ignored" bug class
+`UpdateUsagePlan.APIStages` had before the 2026-07-11 sweep, latent in these
+six backend methods until a per-key resolver could produce a legitimately
+empty (but non-nil) merged map/slice as this sweep's new resolvers do.
+
+Four additional bugs/gaps were found while auditing the other 17 ops but are
+deliberately NOT fixed here (see `gaps`/`deferred` above for each): Account's
+`/features`, Authorizer's `/providerARNs` (same hard-failure bug class as
+Integration's `/cacheKeyParameters`, not yet fixed), BasePathMapping's
+lowercase-vs-camelCase wire-casing mismatch, and Method's
+`/authorizationScopes` (rejected here, not yet modeled).
+
+Verification: `patch_ops_sdk_test.go` (new) drives all 5 fixed ops through a
+real `aws-sdk-go-v2/service/apigateway` client via `newTestAPIGatewayClient`
+(in-process `httptest.Server` wrapping this package's real `Handler`, no
+Docker needed for this kind of proof). Confirmed every new assertion fails
+against the pre-fix code by running the identical test file, unmodified,
+against a `git worktree` checkout of the commit before these changes.
+
+Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
+./services/apigateway/... .`, `gofmt -l` (clean), `golangci-lint run
+./services/apigateway/...` (0 issues) all pass. `go vet ./.` (repo root) also
+run since `handler.go`'s `applyStructuredPatch` call site's signature
+changed, though nothing outside `services/apigateway` calls it.

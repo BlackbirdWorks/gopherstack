@@ -668,10 +668,15 @@ type UpdateDeploymentInput struct {
 	Description string `json:"description,omitempty"`
 }
 
-// UpdateResourceInput is the input for UpdateResource (rename pathPart or set CORS).
+// UpdateResourceInput is the input for UpdateResource (rename pathPart, move to
+// a new parent, or set CORS). ParentID is the flattened result of PATCH
+// "/parentId" (see patch.go's applyResourceEntityPatchOp); InMemoryBackend.
+// UpdateResource validates the new parent and recomputes Path for the
+// resource and its whole subtree.
 type UpdateResourceInput struct {
 	CorsConfiguration *CorsConfiguration `json:"corsConfiguration,omitempty"`
 	PathPart          string             `json:"pathPart,omitempty"`
+	ParentID          string             `json:"parentId,omitempty"`
 }
 
 // TestInvokeMethodInput is the input for TestInvokeMethod.
@@ -765,16 +770,23 @@ type UpdateDocumentationVersionInput struct {
 	Description          string `json:"description,omitempty"`
 }
 
-// UpdateMethodInput is the input for UpdateMethod.
+// UpdateMethodInput is the input for UpdateMethod. RequestParameters and
+// RequestModels are the flattened, pre-merged result of PATCH
+// "/requestParameters/{name}" and "/requestModels/{content-type}" (see
+// patch.go's applyMethodRequestParameterPatch/applyMethodRequestModelPatch);
+// InMemoryBackend.UpdateMethod applies them via a "!= nil" (not "len > 0")
+// check so a merge that removes the last entry still takes effect.
 type UpdateMethodInput struct {
-	RequestModels     map[string]string `json:"requestModels,omitempty"`
-	APIKeyRequired    *bool             `json:"apiKeyRequired,omitempty"`
-	RestAPIID         string            `json:"restApiId"`
-	ResourceID        string            `json:"resourceId"`
-	HTTPMethod        string            `json:"httpMethod"`
-	AuthorizationType string            `json:"authorizationType,omitempty"`
-	AuthorizerID      string            `json:"authorizerId,omitempty"`
-	OperationName     string            `json:"operationName,omitempty"`
+	RequestModels      map[string]string `json:"requestModels,omitempty"`
+	RequestParameters  map[string]bool   `json:"requestParameters,omitempty"`
+	APIKeyRequired     *bool             `json:"apiKeyRequired,omitempty"`
+	RestAPIID          string            `json:"restApiId"`
+	ResourceID         string            `json:"resourceId"`
+	HTTPMethod         string            `json:"httpMethod"`
+	AuthorizationType  string            `json:"authorizationType,omitempty"`
+	AuthorizerID       string            `json:"authorizerId,omitempty"`
+	OperationName      string            `json:"operationName,omitempty"`
+	RequestValidatorID string            `json:"requestValidatorId,omitempty"`
 }
 
 // UpdateIntegrationInput is the input for UpdateIntegration.

@@ -517,7 +517,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | Operations | Notes |
 |---|---|---|---|
-| [API Gateway](services/apigateway/README.md) | A | 123 | 5 gaps; 1 deferred |
+| [API Gateway](services/apigateway/README.md) | A | 123 | 9 gaps; 2 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |

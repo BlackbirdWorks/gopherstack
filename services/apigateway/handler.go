@@ -474,7 +474,10 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	// method settings, binary media types, usage-plan API stages, gateway
 	// response parameters/templates) that a flat single-field replace cannot
 	// express.
-	body = h.applyStructuredPatch(action, pathParams, body)
+	body, patchErr := h.applyStructuredPatch(action, pathParams, body)
+	if patchErr != nil {
+		return h.handleError(ctx, c, action, patchErr)
+	}
 
 	// Merge path parameters into the JSON body so existing handlers can read them.
 	for k, v := range pathParams {
