@@ -20,13 +20,12 @@ import (
 //     the emulator previously stored the reference verbatim without ever
 //     resolving it.
 //
-// Scope note: only the *top-level* required ARN-reference fields named in
-// the Amazon Forecast API models are validated here (see fkFieldSpec table
-// below). Nested config blocks that also carry a resource reference --
+// Nested config blocks that also carry a resource reference --
 // CreatePredictorInput.InputDataConfig.DatasetGroupArn and
-// CreateAutoPredictorInput.DataConfig.DatasetGroupArn -- are intentionally
-// out of scope for this pass (see PARITY.md); flagged there as a residual
-// item rather than silently ignored.
+// CreateAutoPredictorInput.DataConfig.DatasetGroupArn -- are validated by
+// validatePredictorFieldsLocked below, since both operations route to
+// kindPredictor and can't share a fkFieldSpec entry (their required ARN
+// lives one level down, under different parent field names).
 
 // validDomains enumerates types.Domain (aws-sdk-go-v2/service/forecast/types/enums.go).
 //
@@ -100,15 +99,23 @@ type fkFieldSpec struct {
 	field       string
 	targetKinds []resourceKind
 	isList      bool
+	// listRequired and listMinItems only apply when isList is true: they mirror
+	// the field's real Amazon Forecast shape ("This member is required" on the
+	// field itself, and the referenced list shape's declared "min" length).
+	listRequired bool
+	listMinItems int
 }
 
 // createFKSpecs maps each resource kind's Create* operation to the FK field
-// it must validate, built directly from the "This member is required" ARN
-// fields in aws-sdk-go-v2/service/forecast's validators.go. kindDatasetGroup,
-// kindDataset, and kindPredictor are deliberately absent: DatasetGroup has no
-// required ARN-reference field, Dataset has none either (Domain/DatasetType
-// are enums, not FKs), and Predictor's DatasetGroupArn reference is nested
-// (see scope note above).
+// it must validate, built directly from the ARN fields named in
+// aws-sdk-go-v2/service/forecast's validators.go. kindDataset and
+// kindPredictor are deliberately absent: Dataset has no ARN-reference field
+// at all (Domain/DatasetType are enums, not FKs), and Predictor's
+// DatasetGroupArn reference is nested (see validatePredictorFieldsLocked).
+// kindDatasetGroup's DatasetArns is present but optional in
+// CreateDatasetGroupRequest (no "This member is required" on it in botocore's
+// forecast/2018-06-26 model, unlike UpdateDatasetGroupInput's -- see
+// updateFKSpecs), hence listRequired: false here.
 //
 //nolint:gochecknoglobals,exhaustive // static declarative table, absent kinds documented above
 var createFKSpecs = map[resourceKind]fkFieldSpec{
@@ -122,7 +129,26 @@ var createFKSpecs = map[resourceKind]fkFieldSpec{
 	kindWhatIfAnalysis:          {field: "ForecastArn", targetKinds: []resourceKind{kindForecast}},
 	kindWhatIfForecast:          {field: "WhatIfAnalysisArn", targetKinds: []resourceKind{kindWhatIfAnalysis}},
 	kindWhatIfForecastExport: {
-		field: "WhatIfForecastArns", targetKinds: []resourceKind{kindWhatIfForecast}, isList: true,
+		field: "WhatIfForecastArns", targetKinds: []resourceKind{kindWhatIfForecast},
+		isList: true, listRequired: true, listMinItems: 1,
+	},
+	kindDatasetGroup: {
+		field: "DatasetArns", targetKinds: []resourceKind{kindDataset}, isList: true,
+	},
+}
+
+// updateFKSpecs mirrors createFKSpecs for Update* operations. DatasetGroup is
+// the only kind with an Update* operation (forecastOperations' addCRUD calls
+// pass update=true only for "DatasetGroup"), and unlike CreateDatasetGroup's
+// optional DatasetArns, UpdateDatasetGroupInput.DatasetArns carries "This
+// member is required" in validators.go's validateOpUpdateDatasetGroupInput --
+// though the underlying ArnList shape sets no minimum length, so an empty
+// (but present) list is legal and clears the group's datasets.
+//
+//nolint:gochecknoglobals,exhaustive // static declarative table, absent kinds have no Update* operation
+var updateFKSpecs = map[resourceKind]fkFieldSpec{
+	kindDatasetGroup: {
+		field: "DatasetArns", targetKinds: []resourceKind{kindDataset}, isList: true, listRequired: true,
 	},
 }
 
@@ -135,7 +161,57 @@ func (b *InMemoryBackend) validateCreateFieldsLocked(kind resourceKind, data map
 		return err
 	}
 
+	if kind == kindPredictor {
+		if err := b.validatePredictorFieldsLocked(data); err != nil {
+			return err
+		}
+	}
+
 	spec, ok := createFKSpecs[kind]
+	if !ok {
+		return nil
+	}
+
+	return b.validateFKRefLocked(spec, data)
+}
+
+// predictorDatasetGroupParents lists the nested config field names carrying
+// CreatePredictor/CreateAutoPredictor's required DatasetGroupArn reference:
+// InputDataConfig (CreatePredictorInput) and DataConfig (CreateAutoPredictorInput).
+// Both operations route to kindPredictor, so which parent is present in the
+// request -- not the operation name -- distinguishes the two shapes.
+//
+//nolint:gochecknoglobals // static declarative table
+var predictorDatasetGroupParents = []string{"InputDataConfig", "DataConfig"}
+
+// validatePredictorFieldsLocked validates the nested DatasetGroupArn
+// reference on CreatePredictor's InputDataConfig or CreateAutoPredictor's
+// DataConfig, when that parent block is present in the request. Must be
+// called with b.mu held (see validateCreateFieldsLocked).
+func (b *InMemoryBackend) validatePredictorFieldsLocked(data map[string]any) error {
+	for _, parent := range predictorDatasetGroupParents {
+		config, ok := data[parent].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		value := stringValue(config["DatasetGroupArn"])
+		if value == "" {
+			return fmt.Errorf("%w: %s.DatasetGroupArn is required", ErrValidation, parent)
+		}
+
+		if !b.fkExistsLocked([]resourceKind{kindDatasetGroup}, value) {
+			return fmt.Errorf("%w: %s.DatasetGroupArn %q", ErrNotFound, parent, value)
+		}
+	}
+
+	return nil
+}
+
+// validateUpdateFieldsLocked validates FK references on an Update* request.
+// Must be called with b.mu held (see validateCreateFieldsLocked).
+func (b *InMemoryBackend) validateUpdateFieldsLocked(kind resourceKind, data map[string]any) error {
+	spec, ok := updateFKSpecs[kind]
 	if !ok {
 		return nil
 	}
@@ -219,8 +295,18 @@ func (b *InMemoryBackend) validateFKRefLocked(spec fkFieldSpec, data map[string]
 
 func (b *InMemoryBackend) validateFKListLocked(spec fkFieldSpec, data map[string]any) error {
 	raw, ok := data[spec.field].([]any)
-	if !ok || len(raw) == 0 {
-		return fmt.Errorf("%w: %s is required", ErrValidation, spec.field)
+	if !ok {
+		if spec.listRequired {
+			return fmt.Errorf("%w: %s is required", ErrValidation, spec.field)
+		}
+
+		return nil
+	}
+
+	if len(raw) < spec.listMinItems {
+		return fmt.Errorf(
+			"%w: %s must contain at least %d entries", ErrValidation, spec.field, spec.listMinItems,
+		)
 	}
 
 	for _, entry := range raw {

@@ -155,6 +155,10 @@ func (b *InMemoryBackend) update(kind resourceKind, nameOrARN string, data map[s
 		return nil, fmt.Errorf("%w: %s %q", ErrNotFound, kind, nameOrARN)
 	}
 
+	if err := b.validateUpdateFieldsLocked(kind, data); err != nil {
+		return nil, err
+	}
+
 	for key, value := range data {
 		resource.Data[key] = cloneValue(value)
 	}

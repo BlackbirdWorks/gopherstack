@@ -647,7 +647,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bedrock Agent](services/bedrockagent/README.md) | A | 77 | 4 gaps; 2 deferred |
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 6 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 11 | 1 gap; 1 deferred |
-| [Forecast](services/forecast/README.md) | A | 20 | 3 gaps |
+| [Forecast](services/forecast/README.md) | A | 21 | 1 gap |
 | [Personalize](services/personalize/README.md) | A | 73 | clean |
 | [Polly](services/polly/README.md) | A | 10 | clean |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 1 gap; 4 deferred |

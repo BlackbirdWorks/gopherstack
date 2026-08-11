@@ -15,11 +15,12 @@ func TestDatasetGroups_FieldShapes(t *testing.T) {
 	t.Parallel()
 
 	h := newHandler()
+	dataset1ARN := createDataset(t, h)
 
 	code, created := request(t, h, "CreateDatasetGroup", map[string]any{
 		"DatasetGroupName": "field-group",
 		"Domain":           "RETAIL",
-		"DatasetArns":      []any{"arn:aws:forecast:us-east-1:000000000000:dataset/ds1"},
+		"DatasetArns":      []any{dataset1ARN},
 	})
 	require.Equal(t, http.StatusOK, code)
 	arn := created["DatasetGroupArn"].(string)
@@ -36,9 +37,14 @@ func TestDatasetGroups_FieldShapes(t *testing.T) {
 	assert.NotEmpty(t, m["LastModificationTime"])
 
 	// Update
+	_, createdDataset2 := request(t, h, "CreateDataset", map[string]any{
+		"DatasetName": "fk-dataset-2", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES",
+		"DataFrequency": "D", "Schema": map[string]any{"Attributes": []any{}},
+	})
+	dataset2ARN := createdDataset2["DatasetArn"].(string)
 	code, m = request(t, h, "UpdateDatasetGroup", map[string]any{
 		"DatasetGroupArn": arn,
-		"DatasetArns":     []any{"arn:aws:forecast:us-east-1:000000000000:dataset/ds2"},
+		"DatasetArns":     []any{dataset2ARN},
 	})
 	require.Equal(t, http.StatusOK, code)
 	assert.NotEmpty(t, m["DatasetGroupArn"])

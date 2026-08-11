@@ -523,8 +523,18 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 	_, createdGroup := request(t, h, "CreateDatasetGroup", map[string]any{
 		"DatasetGroupName": "group", "Domain": "RETAIL",
 	})
+	datasetSchema := map[string]any{"Attributes": []any{
+		map[string]any{"AttributeName": "item_id", "AttributeType": "string"},
+	}}
+	_, datasetA := request(t, h, "CreateDataset", map[string]any{
+		"DatasetName": "dataset-a", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
+	})
+	_, datasetB := request(t, h, "CreateDataset", map[string]any{
+		"DatasetName": "dataset-b", "Domain": "RETAIL", "DatasetType": "TARGET_TIME_SERIES", "Schema": datasetSchema,
+	})
+	datasetArns := []any{datasetA["DatasetArn"], datasetB["DatasetArn"]}
 	_, updated := request(t, h, "UpdateDatasetGroup", map[string]any{
-		"DatasetGroupArn": createdGroup["DatasetGroupArn"], "DatasetArns": []any{"dataset-a", "dataset-b"},
+		"DatasetGroupArn": createdGroup["DatasetGroupArn"], "DatasetArns": datasetArns,
 	})
 	assert.NotEmpty(t, updated["DatasetGroupArn"])
 	_, group := request(
@@ -533,7 +543,7 @@ func TestHandler_ConfigurationRetentionAndUpdates(t *testing.T) {
 		"DescribeDatasetGroup",
 		map[string]any{"DatasetGroupArn": createdGroup["DatasetGroupArn"]},
 	)
-	assert.Equal(t, []any{"dataset-a", "dataset-b"}, group["DatasetArns"])
+	assert.Equal(t, datasetArns, group["DatasetArns"])
 }
 
 // TestHandler_ListOperations_InvalidNextToken verifies that a malformed
