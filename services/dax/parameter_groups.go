@@ -70,32 +70,17 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
 	}
 
+	// ParameterNameValues is @required (validators.go:654); nil (vs a present-but-empty
+	// slice) means the field was omitted from the request entirely.
+	if input.ParameterNameValues == nil {
+		return nil, fmt.Errorf("%w: ParameterNameValues is required", ErrInvalidParameterValue)
+	}
+
+	if err := validateParameterNameValues(input.ParameterNameValues); err != nil {
+		return nil, err
+	}
+
 	for _, pv := range input.ParameterNameValues {
-		if _, known := defaultParameterValues[pv.ParameterName]; !known {
-			return nil, fmt.Errorf(
-				"%w: unknown parameter %q",
-				ErrInvalidParameterValue,
-				pv.ParameterName,
-			)
-		}
-
-		if pv.ParameterValue == "" {
-			return nil, fmt.Errorf(
-				"%w: value for %q must be a non-negative integer",
-				ErrInvalidParameterValue, pv.ParameterName,
-			)
-		}
-
-		val, err := strconv.ParseInt(pv.ParameterValue, 10, 64)
-		if err != nil || val < 0 {
-			return nil, fmt.Errorf(
-				"%w: value for %q must be a non-negative integer, got %q",
-				ErrInvalidParameterValue,
-				pv.ParameterName,
-				pv.ParameterValue,
-			)
-		}
-
 		pg.Parameters[pv.ParameterName] = pv.ParameterValue
 	}
 
@@ -115,6 +100,39 @@ func (b *InMemoryBackend) UpdateParameterGroup(input UpdateParameterGroupInput) 
 		fmt.Sprintf("Parameter group %s updated.", input.ParameterGroupName))
 
 	return paramGroupCopy(pg), nil
+}
+
+// validateParameterNameValues validates every entry in a batch before any of them are applied,
+// so a single invalid entry rejects the whole request instead of partially applying it.
+func validateParameterNameValues(pvs []ParameterNameValue) error {
+	for _, pv := range pvs {
+		if _, known := defaultParameterValues[pv.ParameterName]; !known {
+			return fmt.Errorf(
+				"%w: unknown parameter %q",
+				ErrInvalidParameterValue,
+				pv.ParameterName,
+			)
+		}
+
+		if pv.ParameterValue == "" {
+			return fmt.Errorf(
+				"%w: value for %q must be a non-negative integer",
+				ErrInvalidParameterValue, pv.ParameterName,
+			)
+		}
+
+		val, err := strconv.ParseInt(pv.ParameterValue, 10, 64)
+		if err != nil || val < 0 {
+			return fmt.Errorf(
+				"%w: value for %q must be a non-negative integer, got %q",
+				ErrInvalidParameterValue,
+				pv.ParameterName,
+				pv.ParameterValue,
+			)
+		}
+	}
+
+	return nil
 }
 
 // DeleteParameterGroup deletes a DAX parameter group.

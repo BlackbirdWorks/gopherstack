@@ -110,3 +110,30 @@ func TestHandlerSubnetGroups(t *testing.T) {
 		})
 	}
 }
+
+// TestHandlerSubnetGroupSubnetHasSupportedNetworkTypes verifies that each Subnet in the
+// response carries its own SupportedNetworkTypes field -- botocore's dax service-2.json
+// (2017-04-19) Subnet shape has a per-subnet SupportedNetworkTypes member (NetworkTypeList),
+// distinct from the SubnetGroup-level field of the same name.
+func TestHandlerSubnetGroupSubnetHasSupportedNetworkTypes(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler()
+
+	rec := daxRequest(t, h, "CreateSubnetGroup", map[string]any{
+		"SubnetGroupName": "per-subnet-nt",
+		"SubnetIds":       []string{"subnet-abc12345"},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	sg := resp["SubnetGroup"].(map[string]any)
+	subnets := sg["Subnets"].([]any)
+	require.Len(t, subnets, 1)
+
+	subnet := subnets[0].(map[string]any)
+	nt, ok := subnet["SupportedNetworkTypes"].([]any)
+	require.True(t, ok, "Subnet must carry its own SupportedNetworkTypes field")
+	require.Len(t, nt, 1)
+	assert.Equal(t, dax.NetworkTypeIPv4, nt[0])
+}

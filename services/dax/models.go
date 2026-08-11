@@ -130,6 +130,9 @@ type NotificationConfiguration struct {
 type SubnetEntry struct {
 	SubnetID         string `json:"subnetId"`
 	AvailabilityZone string `json:"availabilityZone"`
+	// SupportedNetworkTypes mirrors types.Subnet.SupportedNetworkTypes -- always IPv4-only
+	// for the same reason as SubnetGroup.SupportedNetworkTypes (see its doc comment).
+	SupportedNetworkTypes []string `json:"supportedNetworkTypes"`
 }
 
 // SubnetGroup represents a DAX subnet group.

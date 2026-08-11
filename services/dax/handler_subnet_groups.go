@@ -36,8 +36,9 @@ type subnetGroupResponse struct {
 }
 
 type subnetItem struct {
-	SubnetIdentifier       string `json:"SubnetIdentifier"`
-	SubnetAvailabilityZone string `json:"SubnetAvailabilityZone"`
+	SubnetIdentifier       string   `json:"SubnetIdentifier"`
+	SubnetAvailabilityZone string   `json:"SubnetAvailabilityZone"`
+	SupportedNetworkTypes  []string `json:"SupportedNetworkTypes,omitempty"`
 }
 
 // toSubnetGroupResponse converts a SubnetGroup to its JSON response form.
@@ -48,6 +49,7 @@ func toSubnetGroupResponse(sg *SubnetGroup) subnetGroupResponse {
 		item := subnetItem{
 			SubnetIdentifier:       entry.SubnetID,
 			SubnetAvailabilityZone: entry.AvailabilityZone,
+			SupportedNetworkTypes:  entry.SupportedNetworkTypes,
 		}
 
 		items = append(items, item)

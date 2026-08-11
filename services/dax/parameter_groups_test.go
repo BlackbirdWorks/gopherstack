@@ -304,6 +304,30 @@ func TestUpdateParameterGroupValueValidation(t *testing.T) {
 	}
 }
 
+// TestUpdateParameterGroupRejectedBatchDoesNotPartiallyApply verifies that when a batch of
+// ParameterNameValues contains one invalid entry, none of the batch's valid entries are
+// committed -- AWS rejects the whole UpdateParameterGroup call, not entry-by-entry.
+func TestUpdateParameterGroupRejectedBatchDoesNotPartiallyApply(t *testing.T) {
+	t.Parallel()
+	b := newTestBackend()
+	_, err := b.CreateParameterGroup("atomic-pg", "")
+	require.NoError(t, err)
+
+	_, err = b.UpdateParameterGroup(dax.UpdateParameterGroupInput{
+		ParameterGroupName: "atomic-pg",
+		ParameterNameValues: []dax.ParameterNameValue{
+			{ParameterName: "query-ttl-millis", ParameterValue: "1000"},
+			{ParameterName: "record-ttl-millis", ParameterValue: "not-a-number"},
+		},
+	})
+	require.Error(t, err)
+
+	pgs, _, err := b.DescribeParameterGroups([]string{"atomic-pg"}, 0, "")
+	require.NoError(t, err)
+	require.Len(t, pgs, 1)
+	assert.Equal(t, "300000", pgs[0].Parameters["query-ttl-millis"])
+}
+
 // ---- UpdateParameterGroup: marks dependent clusters pending-reboot ----
 
 func TestUpdateParameterGroupMarksPendingReboot(t *testing.T) {

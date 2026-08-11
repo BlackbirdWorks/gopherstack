@@ -140,9 +140,15 @@ func (h *Handler) handleUpdateParameterGroup(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	pvs := make([]ParameterNameValue, 0, len(req.ParameterNameValues))
-	for _, pv := range req.ParameterNameValues {
-		pvs = append(pvs, ParameterNameValue(pv))
+	// Preserve nil vs. present-but-empty: the backend treats a nil slice as the
+	// ParameterNameValues field being omitted from the request (see validateOpUpdateParameterGroupInput
+	// in the SDK, which requires the field's presence, not its non-emptiness).
+	var pvs []ParameterNameValue
+	if req.ParameterNameValues != nil {
+		pvs = make([]ParameterNameValue, 0, len(req.ParameterNameValues))
+		for _, pv := range req.ParameterNameValues {
+			pvs = append(pvs, ParameterNameValue(pv))
+		}
 	}
 
 	pg, err := h.Backend.UpdateParameterGroup(UpdateParameterGroupInput{

@@ -142,7 +142,7 @@ func validateCreateCluster(input *CreateClusterInput) error {
 	}
 
 	if input.IamRoleArn == "" {
-		return fmt.Errorf("%w: IamRoleArn is required", ErrInvalidARN)
+		return fmt.Errorf("%w: IamRoleArn is required", ErrInvalidParameterValue)
 	}
 
 	if input.ReplicationFactor < minReplicationFactor {
@@ -468,7 +468,7 @@ func (b *InMemoryBackend) DescribeClusters(
 // UpdateCluster updates a DAX cluster's configuration.
 func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, error) {
 	if input.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
 	}
 
 	b.mu.Lock("UpdateCluster")
@@ -487,6 +487,10 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 		)
 	}
 
+	if input.ParameterGroupName != "" && !b.paramGroups.Has(input.ParameterGroupName) {
+		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
+	}
+
 	if input.Description != nil {
 		cluster.Description = *input.Description
 	}
@@ -500,10 +504,6 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 	}
 
 	if input.ParameterGroupName != "" {
-		if !b.paramGroups.Has(input.ParameterGroupName) {
-			return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
-		}
-
 		cluster.ParameterGroup.ParameterGroupName = input.ParameterGroupName
 	}
 
@@ -529,7 +529,7 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 // DeleteCluster marks a DAX cluster as deleting and removes it from the store.
 func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	if clusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
 	}
 
 	b.mu.Lock("DeleteCluster")
@@ -574,7 +574,7 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 // IncreaseReplicationFactor adds nodes to a cluster.
 func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFactorInput) (*Cluster, error) {
 	if input.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
 	}
 
 	if input.NewReplicationFactor < minReplicationFactor || input.NewReplicationFactor > maxReplicationFactor {
@@ -663,7 +663,7 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 // DecreaseReplicationFactor removes nodes from a cluster.
 func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFactorInput) (*Cluster, error) {
 	if input.ClusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
 	}
 
 	if input.NewReplicationFactor < minReplicationFactor || input.NewReplicationFactor > maxReplicationFactor {
@@ -749,7 +749,7 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 // RebootNode initiates a reboot of a specific node in a cluster.
 func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, error) {
 	if clusterName == "" {
-		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidARN)
+		return nil, fmt.Errorf("%w: ClusterName is required", ErrInvalidParameterValue)
 	}
 
 	if nodeID == "" {

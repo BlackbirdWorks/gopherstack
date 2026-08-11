@@ -28,6 +28,12 @@ func (h *Handler) handleTagResource(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
+	// Tags is @required (validators.go:603, validateOpTagResourceInput); nil means
+	// the field was omitted from the request entirely.
+	if req.Tags == nil {
+		return nil, fmt.Errorf("%w: Tags is required", ErrInvalidParameterValue)
+	}
+
 	if err := validateTagItems(req.Tags); err != nil {
 		return nil, err
 	}
@@ -56,6 +62,12 @@ func (h *Handler) handleUntagResource(body []byte) (any, error) {
 	var req untagResourceRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	}
+
+	// TagKeys is @required (validators.go:621, validateOpUntagResourceInput); nil means
+	// the field was omitted from the request entirely.
+	if req.TagKeys == nil {
+		return nil, fmt.Errorf("%w: TagKeys is required", ErrInvalidParameterValue)
 	}
 
 	remaining, err := h.Backend.UntagResource(req.ResourceName, req.TagKeys)
