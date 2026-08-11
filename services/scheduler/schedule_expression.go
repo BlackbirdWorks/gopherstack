@@ -73,7 +73,12 @@ func validateScheduleExpression(expr string) error {
 			return fmt.Errorf("%w: ScheduleExpression cron expression must end with ')'", ErrValidation)
 		}
 
-		if _, err := parseCronExpression(expr); err != nil {
+		cf, err := parseCronExpression(expr)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrValidation, err)
+		}
+
+		if err = validateCronFields(cf); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	default:

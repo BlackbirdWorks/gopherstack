@@ -249,6 +249,140 @@ func TestCreateSchedule_ScheduleExpression_Validation(t *testing.T) {
 			wantCode: http.StatusBadRequest,
 			wantType: "ValidationException",
 		},
+		{
+			name:     "cron_garbage_field_rejected",
+			expr:     "cron(0 12 * * ? GARBAGE)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_minute_out_of_range_rejected",
+			expr:     "cron(60 12 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_hour_out_of_range_rejected",
+			expr:     "cron(0 24 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_day_of_month_zero_rejected",
+			expr:     "cron(0 12 0 * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_month_out_of_range_rejected",
+			expr:     "cron(0 12 1 13 ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_day_of_week_out_of_range_rejected",
+			expr:     "cron(0 12 ? * 8 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_year_before_1970_rejected",
+			expr:     "cron(0 12 1 1 ? 1969)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_year_after_2199_rejected",
+			expr:     "cron(0 12 1 1 ? 2200)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_question_mark_in_minutes_rejected",
+			expr:     "cron(? 12 * * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_question_mark_in_month_rejected",
+			expr:     "cron(0 12 ? ? ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_both_day_fields_wildcard_rejected",
+			expr:     "cron(0 12 * * * *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_hash_combined_with_comma_rejected",
+			expr:     "cron(0 12 ? * 3#1,6#3 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_slash_in_day_of_week_rejected",
+			expr:     "cron(0 12 ? * 1-5/2 *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
+		{
+			name:     "cron_valid_range_and_step_accepted",
+			expr:     "cron(0-5 */15 * * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_month_and_dow_names_accepted",
+			expr:     "cron(0 10 ? * MON-FRI *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_friday_of_month_accepted",
+			expr:     "cron(15 10 ? * 6L 2026-2027)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_nth_weekday_accepted",
+			expr:     "cron(0 12 ? * 3#2 *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_nearest_weekday_accepted",
+			expr:     "cron(0 12 3W * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_day_of_month_accepted",
+			expr:     "cron(0 12 L * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_day_offset_accepted",
+			expr:     "cron(30 23 L-2 * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_last_weekday_of_month_accepted",
+			expr:     "cron(0 12 LW * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_day_of_week_last_offset_accepted",
+			expr:     "cron(0 12 ? * L-1 *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_valid_list_containing_last_day_accepted",
+			expr:     "cron(0 12 L,15 * ? *)",
+			wantCode: http.StatusOK,
+		},
+		{
+			name:     "cron_last_day_offset_non_numeric_rejected",
+			expr:     "cron(0 12 L-abc * ? *)",
+			wantCode: http.StatusBadRequest,
+			wantType: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {

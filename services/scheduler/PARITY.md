@@ -2,12 +2,12 @@
 service: scheduler
 sdk_module: aws-sdk-go-v2/service/scheduler@v1.20.4   # version audited against
 last_audit_commit: 174b1f53                            # HEAD when this audit pass started
-last_audit_date: 2026-07-24
+last_audit_date: 2026-08-11
 overall: A            # genuine wire-breaking and next-invocation-computation bugs found and fixed (see Notes)
 ops:
-  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally, see 2026-08-11 Notes"}
+  CreateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes); ScheduleExpressionTimezone now validated as a real IANA name; ScheduleExpression now semantically validated (rate/cron/at), not just structurally; cron field values (ranges/names/wildcards) now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   GetSchedule:         {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented non-canonical Tags field deleted"}
-  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated, see 2026-08-11 Notes"}
+  UpdateSchedule:      {wire: ok, errors: ok, state: fixed, persist: ok, note: "ScheduleExpressionTimezone now validated as a real IANA name (prior pass's State-omission fix re-verified still correct, see Notes); ScheduleExpression now semantically validated; cron field values now validated per-field, see 2026-08-11 gopherstack-cz9e Notes"}
   DeleteSchedule:      {wire: ok, errors: ok, state: ok, persist: ok}
   ListSchedules:       {wire: fixed, errors: ok, state: ok, persist: ok, note: "invented Target.RoleArn field deleted (real TargetSummary has only Arn)"}
   CreateScheduleGroup: {wire: ok, errors: ok, state: fixed, persist: ok, note: "ClientToken now idempotent (see Notes)"}
@@ -21,10 +21,128 @@ families:
   RouteMatcher: {status: ok, note: "re-verified every op's REST method+path prefix against aws-sdk-go-v2 serializers.go this pass -- no drift; see prior pass's per-op mapping in Notes."}
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
   cross-service target delivery: {status: ok, note: "cli.go's wireSchedulerRunner wires ALL 8 Runner invoker interfaces (Lambda, SQS, SNS, StepFunctions, EventBridge, Kinesis, SageMaker, ECS); unchanged this pass, re-confirmed not a gap."}
-gaps: []
+gaps:
+  - {area: "cron L/W/# matching", note: "validateCronFields (2026-08-11, gopherstack-cz9e) accepts AWS-documented L/W/# cron tokens (last day, nearest-weekday, nth-weekday-of-month), plus the undocumented-but-plausible LW and L-<n> composite forms (see Notes), as syntactically legal, but matchesCronPart (schedule_expression.go) does not implement any of their matching semantics -- a schedule using e.g. cron(15 10 ? * 6L 2022-2023) or cron(30 23 L-2 * ? *) is accepted at Create/Update and then never fires. Deliberately left accepting rather than rejecting per this pass's under-enforcement directive (AWS genuinely accepts at least the documented subset of this syntax, and neither AWS source rules out the rest); implementing the matcher is separate follow-up work."}
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
 ---
+
+## Notes (2026-08-11 pass, gopherstack-cz9e)
+
+- **The half gopherstack-8cg7 couldn't reach: cron field *values* were never
+  checked.** `parseCronExpression` only checked field count; `matchesCronField`/
+  `matchesCronPart` swallowed any token they couldn't parse as "no match" rather
+  than erroring, so a structurally valid six-field cron with a garbage field --
+  `cron(0 12 * * ? GARBAGE)` -- passed `validateScheduleExpression` and was
+  accepted at Create/Update, then never fired: the year field never matched, so
+  `matchesCron` was always false. Same invisible-failure shape as 8cg7, but fixing
+  it needed new per-field validation logic, not just wiring up existing parsers.
+  Fixed: `validateCronFields` (new, `cron_field_validation.go`) walks each of the
+  six fields against a `cronFieldSpec` (range, name-alias resolver, legal
+  wildcards) and returns `ErrUnknownCronValue` (wrapped as `ValidationException`)
+  on anything it can't validate, called from `validateScheduleExpression`'s cron
+  branch. Covered by 16 new cases added to
+  `TestCreateSchedule_ScheduleExpression_Validation`.
+- **Field semantics sourced from AWS's own docs, not memory or Unix/Quartz cron
+  conventions** (fetched 2026-08-11,
+  https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html#cron-based,
+  the "Cron-based schedules" field/wildcard table -- the botocore model's
+  `CreateScheduleInput.ScheduleExpression` doc, `data/scheduler/2021-06-30/service-2.json.gz`,
+  confirms only the six-field split, not per-field detail):
+
+  | Field | Range | Names | Wildcards |
+  |---|---|---|---|
+  | Minutes | 0-59 | -- | `, - * /` |
+  | Hours | 0-23 | -- | `, - * /` |
+  | Day-of-month | 1-31 | -- | `, - * ? / L W` |
+  | Month | 1-12 | JAN-DEC | `, - * /` |
+  | Day-of-week | 1-7 | SUN-SAT | `, - * ? L #` |
+  | Year | 1970-2199 | -- | `, - * /` |
+
+  Enforced per field, all cited to that table: numeric range; name aliases (month,
+  day-of-week) case-insensitive via the existing `cronMonthValue`/`cronDOWValue`;
+  `?` legal only where the table lists it (day-of-month, day-of-week) -- so
+  `cron(? 12 * * ? *)` (minutes) and `cron(0 12 ? ? ? *)` (month) are now rejected;
+  `/` step legal everywhere **except day-of-week**, per the table's Day-of-week row
+  omitting it -- `cron(0 12 ? * 1-5/2 *)` is now rejected; the day-of-month/
+  day-of-week cross rule quoted verbatim from the doc's Wildcards bullets: "You
+  can't use \* in both the Day-of-month and Day-of-week fields. If you use it in
+  one, you must use ? in the other" -- so `cron(0 12 * * * *)` (both `*`) is now
+  rejected, `#`'s doc note "If you use a '#' character, you can define only one
+  expression in the day-of-week field" -- so `cron(0 12 ? * 3#1,6#3 *)` is now
+  rejected.
+- **L, W, # accepted structurally, not rejected, per this pass's
+  under-enforcement directive.** AWS documents `L` (day-of-month or day-of-week,
+  "last day of month/week"), `<n>W` (day-of-month, "nearest weekday to day n"),
+  `<n>L` (day-of-week, e.g. `6L` = "last Friday of month", from the doc's own
+  example `cron(15 10 ? * 6L 2022-2023)`), and `<n>#<m>` (day-of-week, "mth
+  occurrence of weekday n") as legal syntax. `validateCronFields` recognizes and
+  accepts well-formed instances of all four in the fields AWS places them. It does
+  **not** implement their runtime matching semantics -- `matchesCronPart`
+  (schedule_expression.go, pre-existing) has no L/W/# handling, so a schedule
+  using one is accepted but still never fires, exactly the pre-existing gap 8cg7's
+  notes flagged (not new, not widened). Filed as `gaps` above rather than silently
+  left out of PARITY, since it is a real, if narrow, next-invocation gap.
+- **Two rules could not be pinned from the fetched AWS text and were left
+  accepted rather than guessed**, per "prefer under-enforcing to guessing":
+  (1) the `#` instance number's upper bound -- Quartz-style cron typically caps it
+  at 5 (a month has at most 5 of any given weekday), but the fetched AWS doc text
+  states only that it is "a certain instance," giving no explicit maximum, so no
+  upper bound is enforced (`validateCronHashToken` only requires a positive
+  integer); (2) `"LW"` (last-weekday-of-month, a common Quartz idiom formed by
+  combining `L` and `W`) -- not shown in the fetched AWS examples in either
+  form, so `validateCronWToken` accepts it rather than reject on a guess.
+- **Follow-up: `cron(30 23 L-2 * ? *)` was initially rejected** (`ValidationException:
+  unknown cron value: day-of-month field: "L"`) -- the Quartz `L-<n>` offset idiom
+  ("n days before the last day of the month") fell through `validateCronPart`'s
+  generic dash-range parser, which tried to parse `"L"` as a range endpoint and
+  failed. Re-checked both the EventBridge Scheduler doc (schedule-types.html) and
+  the legacy EventBridge cron doc (eb-scheduled-rule-pattern.html, fetched
+  2026-08-11) end to end for any mention of an offset-from-`L` form: neither
+  confirms nor rules it out -- both document only bare `L`, `<n>W`, `<n>L` (via
+  the `6L` example), and `<n>#<m>`. Per "if you cannot establish it either way,
+  accept it," added `validateCronLOffsetToken` to recognize `L-<n>` (digits after
+  the dash) as a structurally valid token wherever bare `L` is legal --
+  day-of-month (the reported case) **and** day-of-week, since neither AWS source
+  distinguishes between the two fields for this form and there was no basis to
+  accept it in one but not the other. `LW` was already accepted (verified, not
+  changed). Lists/ranges containing `L` or `W` as one comma-separated element
+  (e.g. `L,15`) already worked correctly before this follow-up, since
+  `validateCronField` splits on comma and validates each part independently --
+  the bug was specific to the dash-offset shape, not list/comma handling. Not
+  extended further: a bare range with `L`/`W` as an endpoint outside the named
+  idioms above (e.g. `"3-L"`, `"L-W"`) has no precedent in Quartz, the legacy
+  EventBridge cron dialect, or the EventBridge Scheduler docs, so it remains
+  rejected -- accepting every string containing `L` or `W` would defeat the
+  validator's purpose of catching real typos/garbage. Covered by 5 new cases in
+  `TestCreateSchedule_ScheduleExpression_Validation`: `cron_valid_last_day_offset_accepted`
+  (the reported case), `cron_valid_last_weekday_of_month_accepted` (`LW`),
+  `cron_valid_day_of_week_last_offset_accepted` (`L-1` in day-of-week),
+  `cron_valid_list_containing_last_day_accepted` (`L,15`), and
+  `cron_last_day_offset_non_numeric_rejected` (`L-abc`, confirms the offset
+  digits are still checked, not blanket-accepted).
+- **Existing tests: none needed changing.** Grepped every `cron(` literal across
+  `services/scheduler/*_test.go` and `test/integration/scheduler_test.go` (the
+  every-file inventory, not per-file) before implementing and traced each field of
+  each literal through the new rules by hand -- all use standard 6-field AWS forms
+  (numeric ranges, `*`, `?`, month/day-of-week names, one `n-m` range, one `*/n`
+  step); none hit a newly-enforced rejection. No test needed changing in either
+  direction.
+- **Snapshot-restore test still passes.** `TestScheduler_Runner_SwallowsPreExistingInvalidExpression`
+  (added by 8cg7, unmodified this pass) snapshots a valid schedule, mutates the
+  stored expression to `rate(5)` in the raw snapshot bytes, restores, and asserts
+  `Restore` still succeeds with the mutated value intact -- `Restore` does not call
+  `validateScheduleExpression`/`validateCronFields` at all, so tightening cron
+  field validation cannot affect it. Re-ran explicitly: still passes.
+- **Runner swallow behaviour: unchanged.** `isDueCron` still returns "not due" on
+  a `cachedParseCron` error rather than propagating it; `validateCronFields` is
+  reached only from `validateScheduleExpression` (Create/Update), never from the
+  runner's poll path, so one schedule with a since-invalidated stored expression
+  still cannot stop every other schedule's evaluation.
+- **No snapshot version bump.** Persisted `Schedule.ScheduleExpression` is an
+  opaque string; this pass only tightens what `CreateSchedule`/`UpdateSchedule`
+  accept for *new* writes, and `Restore` (unchanged, see above) still loads
+  anything a prior version wrote.
 
 ## Notes (2026-08-11 pass, gopherstack-8cg7)
 
