@@ -36,6 +36,27 @@ var queryLogConfigAssociationFilterAliases = map[string]string{
 	legacyFilterStatus:                  filterFieldStatus,
 }
 
+// queryLogConfigAssociationSortLess canonicalizes SortBy for
+// ListResolverQueryLogConfigAssociations (aws-sdk-go-v2/service/route53resolver@
+// v1.48.4 api_op_ListResolverQueryLogConfigAssociations.go SortBy doc):
+// CreationTime/Error/Id/ResolverQueryLogConfigId/ResourceId/Status -- a
+// different, association-specific set from queryLogConfigSortLess (e.g. no
+// Arn/OwnerId/ShareStatus here, but Error is unique to this operation).
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as queryLogConfigAssociationFilterAliases
+var queryLogConfigAssociationSortLess = sortLess[*ResolverQueryLogConfigAssociation]{
+	filterFieldCreationTime: func(a, b *ResolverQueryLogConfigAssociation) bool {
+		return a.CreationTime < b.CreationTime
+	},
+	filterFieldError: func(a, b *ResolverQueryLogConfigAssociation) bool { return a.Error < b.Error },
+	filterFieldID:    func(a, b *ResolverQueryLogConfigAssociation) bool { return a.ID < b.ID },
+	filterFieldResolverQueryLogConfigID: func(a, b *ResolverQueryLogConfigAssociation) bool {
+		return a.ResolverQueryLogConfigID < b.ResolverQueryLogConfigID
+	},
+	filterFieldResourceID: func(a, b *ResolverQueryLogConfigAssociation) bool { return a.ResourceID < b.ResourceID },
+	filterFieldStatus:     func(a, b *ResolverQueryLogConfigAssociation) bool { return a.Status < b.Status },
+}
+
 func matchQueryLogConfigAssociationFilter(a *ResolverQueryLogConfigAssociation, name string, values []string) bool {
 	switch name {
 	case filterFieldCreationTime:
@@ -188,6 +209,8 @@ func (h *Handler) handleDisassociateResolverQueryLogConfig(
 
 type listResolverQueryLogConfigAssociationsInput struct {
 	NextToken  string       `json:"NextToken"`
+	SortBy     string       `json:"SortBy"`
+	SortOrder  string       `json:"SortOrder"`
 	Filters    []wireFilter `json:"Filters"`
 	MaxResults int32        `json:"MaxResults"`
 }
@@ -210,6 +233,10 @@ func (h *Handler) handleListResolverQueryLogConfigAssociations(
 		queryLogConfigAssociationFilterAliases,
 		matchQueryLogConfigAssociationFilter,
 	)
+	if err != nil {
+		return nil, err
+	}
+	assocs, err = applySort(assocs, in.SortBy, in.SortOrder, queryLogConfigAssociationSortLess)
 	if err != nil {
 		return nil, err
 	}

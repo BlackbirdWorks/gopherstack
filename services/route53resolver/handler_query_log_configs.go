@@ -50,6 +50,30 @@ var queryLogConfigFilterAliases = map[string]string{
 	legacyFilterStatus:           filterFieldStatus,
 }
 
+// queryLogConfigSortLess canonicalizes SortBy for ListResolverQueryLogConfigs
+// (aws-sdk-go-v2/service/route53resolver@v1.48.4 api_op_ListResolverQueryLogConfigs.go
+// SortBy doc): Arn/AssociationCount/CreationTime/CreatorRequestId/DestinationArn/
+// Id/Name/OwnerId/ShareStatus/Status -- reuses the filterField* constants above
+// since every documented SortBy name matches a documented Filter.Name here.
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as queryLogConfigFilterAliases
+var queryLogConfigSortLess = sortLess[*ResolverQueryLogConfig]{
+	filterFieldARN: func(a, b *ResolverQueryLogConfig) bool { return a.ARN < b.ARN },
+	filterFieldAssociationCount: func(a, b *ResolverQueryLogConfig) bool {
+		return a.AssociationCount < b.AssociationCount
+	},
+	filterFieldCreationTime: func(a, b *ResolverQueryLogConfig) bool { return a.CreationTime < b.CreationTime },
+	filterFieldCreatorRequestID: func(a, b *ResolverQueryLogConfig) bool {
+		return a.CreatorRequestID < b.CreatorRequestID
+	},
+	filterFieldDestinationARN: func(a, b *ResolverQueryLogConfig) bool { return a.DestinationARN < b.DestinationARN },
+	filterFieldID:             func(a, b *ResolverQueryLogConfig) bool { return a.ID < b.ID },
+	filterFieldName:           func(a, b *ResolverQueryLogConfig) bool { return a.Name < b.Name },
+	filterFieldOwnerID:        func(a, b *ResolverQueryLogConfig) bool { return a.OwnerID < b.OwnerID },
+	filterFieldShareStatus:    func(a, b *ResolverQueryLogConfig) bool { return a.ShareStatus < b.ShareStatus },
+	filterFieldStatus:         func(a, b *ResolverQueryLogConfig) bool { return a.Status < b.Status },
+}
+
 func matchQueryLogConfigFilter(c *ResolverQueryLogConfig, name string, values []string) bool {
 	switch name {
 	case filterFieldARN:
@@ -210,6 +234,8 @@ func (h *Handler) handleGetResolverQueryLogConfig(
 
 type listResolverQueryLogConfigsInput struct {
 	NextToken  string       `json:"NextToken"`
+	SortBy     string       `json:"SortBy"`
+	SortOrder  string       `json:"SortOrder"`
 	Filters    []wireFilter `json:"Filters"`
 	MaxResults int32        `json:"MaxResults"`
 }
@@ -225,6 +251,10 @@ func (h *Handler) handleListResolverQueryLogConfigs(
 ) (*listResolverQueryLogConfigsOutput, error) {
 	configs := h.Backend.ListResolverQueryLogConfigs(ctx)
 	configs, err := applyFilters(configs, in.Filters, queryLogConfigFilterAliases, matchQueryLogConfigFilter)
+	if err != nil {
+		return nil, err
+	}
+	configs, err = applySort(configs, in.SortBy, in.SortOrder, queryLogConfigSortLess)
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,7 @@ package route53resolver
 import (
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 )
 
@@ -81,6 +82,61 @@ func applyFilters[T any](
 			out = append(out, item)
 		}
 	}
+
+	return out, nil
+}
+
+const (
+	sortOrderAscending  = "ASCENDING"
+	sortOrderDescending = "DESCENDING"
+)
+
+// sortLess is an ascending-comparator table keyed by SortByKey value.
+type sortLess[T any] map[string]func(a, b T) bool
+
+// applySort stable-sorts items by sortBy/sortOrder -- the ListResolverQueryLogConfigs
+// and ListResolverQueryLogConfigAssociations request members (service-2.json.gz
+// operations.ListResolverQueryLogConfig{s,Associations}.input.SortBy/SortOrder,
+// botocore route53resolver 2018-04-01); no other operation in this service models
+// either field. Must run before paginate(): pkgs/page.New documents itself as
+// pagination over "a fully sorted slice," so sorting after paginate would order
+// each page independently instead of the whole result set, breaking global order
+// across NextToken pages.
+//
+// SortByKey is a free-form string in the model (shape SortByKey: max 64/min 1, no
+// enum) -- the valid names are enumerated only in each operation's SortBy doc
+// comment, not in the shape itself, and differ between the two operations (see the
+// per-operation sortLess tables). An unrecognized value is rejected with
+// InvalidParameterException, the same treatment applyFilters gives an unrecognized
+// Filter.Name: that error is modelled on both ops and its shape carries a
+// FieldName member for exactly this case.
+//
+// SortOrder has no documented default (unlike SortBy's per-op enumeration, its doc
+// only says "ASCENDING or DESCENDING" with no stated fallback). Empty/ASCENDING
+// sorts ascending -- the conservative, least-surprising reading, not a verified
+// fact -- and DESCENDING reverses it; any other value is rejected the same way as
+// an unrecognized SortBy.
+func applySort[T any](items []T, sortBy, sortOrder string, less sortLess[T]) ([]T, error) {
+	if sortBy == "" {
+		return items, nil
+	}
+
+	cmp, ok := less[sortBy]
+	if !ok {
+		return nil, fmt.Errorf("%w: unrecognized SortBy value %q", ErrInvalidParameter, sortBy)
+	}
+
+	switch sortOrder {
+	case "", sortOrderAscending:
+	case sortOrderDescending:
+		asc := cmp
+		cmp = func(a, b T) bool { return asc(b, a) }
+	default:
+		return nil, fmt.Errorf("%w: unrecognized SortOrder value %q", ErrInvalidParameter, sortOrder)
+	}
+
+	out := slices.Clone(items)
+	sort.SliceStable(out, func(i, j int) bool { return cmp(out[i], out[j]) })
 
 	return out, nil
 }

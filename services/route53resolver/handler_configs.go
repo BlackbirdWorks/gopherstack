@@ -148,9 +148,13 @@ func (h *Handler) handleGetResolverConfig(
 	)
 }
 
+// AutodefinedReverseFlag, not AutodefinedReverse -- the real request member
+// (aws-sdk-go-v2/service/route53resolver@v1.48.4 api_op_UpdateResolverConfig.go
+// UpdateResolverConfigInput.AutodefinedReverseFlag); the old tag matched no
+// real client and silently dropped every call's setting.
 type updateResolverConfigInput struct {
-	ResourceID         string `json:"ResourceId"`
-	AutodefinedReverse string `json:"AutodefinedReverse"`
+	ResourceID             string `json:"ResourceId"`
+	AutodefinedReverseFlag string `json:"AutodefinedReverseFlag"`
 }
 
 type updateResolverConfigOutput struct {
@@ -164,7 +168,7 @@ func (h *Handler) handleUpdateResolverConfig(
 	return updateSimpleConfig(
 		in.ResourceID,
 		func() (*ResolverConfig, error) {
-			return h.Backend.UpdateResolverConfig(ctx, in.ResourceID, in.AutodefinedReverse)
+			return h.Backend.UpdateResolverConfig(ctx, in.ResourceID, in.AutodefinedReverseFlag)
 		},
 		func(c *ResolverConfig) *updateResolverConfigOutput {
 			return &updateResolverConfigOutput{ResolverConfig: resolverConfigToOutput(c)}
