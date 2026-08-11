@@ -669,6 +669,12 @@ func parseInt32Value(s string) int32 {
 	return int32(n)
 }
 
+// maxRunInstancesCount bounds MinCount/MaxCount so a client-supplied value can
+// never drive an unbounded slice allocation in RunInstances (CodeQL
+// go/uncontrolled-allocation-size, alert #253); real AWS similarly rejects
+// requests above account instance quotas long before launch.
+const maxRunInstancesCount = 1000
+
 // parseRunInstancesCounts validates and returns MinCount and MaxCount from RunInstances params.
 // MinCount defaults to 1 when absent. MaxCount defaults to MinCount when absent.
 func parseRunInstancesCounts(vals url.Values) (int, int, error) {
@@ -677,6 +683,10 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 		if _, scanErr := fmt.Sscan(v, &minCnt); scanErr != nil || minCnt < 1 {
 			return 0, 0, fmt.Errorf("%w: MinCount must be a positive integer", ErrInvalidParameter)
 		}
+	}
+
+	if minCnt > maxRunInstancesCount {
+		return 0, 0, fmt.Errorf("%w: MinCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
 	}
 
 	maxCnt := minCnt
@@ -688,6 +698,10 @@ func parseRunInstancesCounts(vals url.Values) (int, int, error) {
 
 	if maxCnt < minCnt {
 		return 0, 0, fmt.Errorf("%w: MaxCount must be greater than or equal to MinCount", ErrInvalidParameter)
+	}
+
+	if maxCnt > maxRunInstancesCount {
+		return 0, 0, fmt.Errorf("%w: MaxCount must not exceed %d", ErrInvalidParameter, maxRunInstancesCount)
 	}
 
 	return minCnt, maxCnt, nil

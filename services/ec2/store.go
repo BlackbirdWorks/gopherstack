@@ -911,6 +911,9 @@ func (b *InMemoryBackend) RunInstances(
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
 	var instanceIDs []string
 	if outpostArn != "" {
+		// count is bounded to maxRunInstancesCount by parseRunInstancesCounts
+		// before this call, so this allocation can't be driven arbitrarily
+		// large by a client-supplied MinCount/MaxCount (CodeQL alert #253).
 		instanceIDs = make([]string, count)
 		for i := range instanceIDs {
 			instanceIDs[i] = newInstanceID()

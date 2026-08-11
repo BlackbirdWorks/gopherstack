@@ -100,6 +100,16 @@ func srpPoolName(userPoolID string) string {
 // like real Cognito, which must derive and store an SRP verifier at password-set time
 // since it never stores the plaintext password itself.
 func srpComputeX(poolName, username, password string, salt *big.Int) *big.Int {
+	// This is SRP-6a's private-exponent derivation (RFC 5054 x = H(salt, H(username,
+	// ":", password))), the same step amazon-cognito-identity-js performs client-side
+	// with SHA-256 -- not password storage, so a slow KDF here would break wire
+	// compatibility with real AWS SDK clients. The result (x) is never stored or
+	// compared directly; it only feeds g^x mod N below to produce the verifier v.
+	//
+	// CodeQL flags this as go/weak-sensitive-data-hashing; alert #254 is judged a
+	// false positive for the reasons above. Inline `codeql[...]` comments do NOT
+	// suppress Code Scanning alerts (that is legacy LGTM syntax), so do not add one
+	// here expecting it to work -- dismiss via the API or UI instead.
 	inner := sha256.Sum256([]byte(poolName + username + ":" + password))
 	combined := append(srpPadHex(salt), inner[:]...)
 	digest := sha256.Sum256(combined)
