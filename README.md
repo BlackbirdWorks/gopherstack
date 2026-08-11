@@ -503,7 +503,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [DynamoDB Streams](services/dynamodbstreams/README.md) | A | 4 | clean |
 | [ElastiCache](services/elasticache/README.md) | A | 75 | 1 gap; 2 deferred |
 | [MemoryDB](services/memorydb/README.md) | A | 45 | 3 gaps; 3 deferred |
-| [Neptune](services/neptune/README.md) | A | — | 13 families; 1 gap; 2 deferred |
+| [Neptune](services/neptune/README.md) | A | — | 13 families; 3 gaps; 2 deferred |
 | [QLDB](services/qldb/README.md) | Removed | — | removed service |
 | [QLDB Session](services/qldbsession/README.md) | Removed | — | removed service |
 | [RDS](services/rds/README.md) | A | 50 | 4 gaps |
