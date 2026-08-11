@@ -7,13 +7,20 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// PrimaryRegion: aws-sdk-go-v2/service/ssoadmin@v1.43.1/types/types.go:518
+// (InstanceMetadata.PrimaryRegion). Server-resolved with no caller-settable or
+// otherwise derivable source in this backend (AddRegion never marks a region
+// primary -- see RegionMetadata.IsPrimaryRegion gap in PARITY.md) -- left
+// permanently unset rather than filled with an invented region.
 type instanceView struct {
-	InstanceArn     string  `json:"InstanceArn"`
-	OwnerAccountID  string  `json:"OwnerAccountId"`
-	IdentityStoreID string  `json:"IdentityStoreId"`
-	Name            string  `json:"Name"`
-	Status          string  `json:"Status"`
-	CreatedDate     float64 `json:"CreatedDate,omitempty"`
+	PrimaryRegion   *string          `json:"PrimaryRegion,omitempty"`
+	InstanceArn     string           `json:"InstanceArn"`
+	OwnerAccountID  string           `json:"OwnerAccountId"`
+	IdentityStoreID string           `json:"IdentityStoreId"`
+	Name            string           `json:"Name"`
+	Status          string           `json:"Status"`
+	Regions         []map[string]any `json:"Regions,omitempty"`
+	CreatedDate     float64          `json:"CreatedDate,omitempty"`
 }
 
 func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
@@ -29,6 +36,14 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 	instances := h.Backend.ListInstances()
 	views := make([]instanceView, 0, len(instances))
 	for _, inst := range instances {
+		regions, err := h.Backend.ListRegions(inst.InstanceArn)
+		if err != nil {
+			regions = nil
+		}
+		regionViews := make([]map[string]any, 0, len(regions))
+		for _, r := range regions {
+			regionViews = append(regionViews, regionMetadataView(r))
+		}
 		views = append(views, instanceView{
 			InstanceArn:     inst.InstanceArn,
 			OwnerAccountID:  inst.OwnerAccountID,
@@ -36,6 +51,7 @@ func (h *Handler) handleListInstances(c *echo.Context, body []byte) error {
 			Name:            inst.Name,
 			Status:          inst.Status,
 			CreatedDate:     float64(inst.CreatedDate.Unix()),
+			Regions:         regionViews,
 		})
 	}
 
@@ -110,7 +126,7 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 	// an instance is in a non-ACTIVE state" -- this backend's instances are
 	// always ACTIVE (no CREATE_FAILED/DELETING-with-error path modeled), so
 	// omitting it is wire-correct, not a gap.
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyInstanceArn:    inst.InstanceArn,
 		"OwnerAccountId":  inst.OwnerAccountID,
 		"IdentityStoreId": inst.IdentityStoreID,
@@ -121,7 +137,12 @@ func (h *Handler) handleDescribeInstance(c *echo.Context, body []byte) error {
 			"EncryptionStatus": "ENABLED",
 			"KeyType":          "AWS_OWNED_KMS_KEY",
 		},
-	})
+	}
+	if inst.PermissionSetsEnabled != nil {
+		resp["PermissionSetsEnabled"] = *inst.PermissionSetsEnabled
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
@@ -144,8 +165,9 @@ func (h *Handler) handleDeleteInstance(c *echo.Context, body []byte) error {
 
 func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
 	var req struct {
-		InstanceArn string `json:"InstanceArn"`
-		Name        string `json:"Name"`
+		PermissionSetsEnabled *bool  `json:"PermissionSetsEnabled"`
+		InstanceArn           string `json:"InstanceArn"`
+		Name                  string `json:"Name"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "invalid request body")
@@ -153,7 +175,7 @@ func (h *Handler) handleUpdateInstance(c *echo.Context, body []byte) error {
 	if req.InstanceArn == "" {
 		return writeError(c, http.StatusBadRequest, "ValidationException", "InstanceArn is required")
 	}
-	if err := h.Backend.UpdateInstance(req.InstanceArn, req.Name); err != nil {
+	if err := h.Backend.UpdateInstance(req.InstanceArn, req.Name, req.PermissionSetsEnabled); err != nil {
 		return handleBackendError(c, err, "instance not found: "+req.InstanceArn)
 	}
 

@@ -182,7 +182,7 @@ type StorageBackend interface {
 
 	// Client Properties
 	DescribeClientProperties(resourceIDs []string) (map[string]storedClientProps, error)
-	ModifyClientProperties(resourceID, reconnectEnabled string) error
+	ModifyClientProperties(resourceID string, clientExperiencePolicy, logUploadEnabled, reconnectEnabled *string) error
 
 	// Directory modify ops
 	ModifyCertificateBasedAuthProperties(directoryID string, props map[string]string) error

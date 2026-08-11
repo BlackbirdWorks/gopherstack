@@ -25,6 +25,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err := original.AddRegion(instanceArn, "us-west-2")
 	require.NoError(t, err)
 
+	permissionSetsEnabled := true
+	require.NoError(t, original.UpdateInstance(instanceArn, "", &permissionSetsEnabled))
+
 	ps, err := original.CreatePermissionSet(instanceArn, "full-state-ps", "desc", "PT2H", "relay", map[string]string{
 		"env": "prod",
 	})
@@ -87,6 +90,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	inst, err := fresh.DescribeInstance(instanceArn)
 	require.NoError(t, err)
 	assert.Equal(t, "full-state-inst", inst.Name)
+	require.NotNil(t, inst.PermissionSetsEnabled)
+	assert.True(t, *inst.PermissionSetsEnabled)
 
 	regions, err := fresh.ListRegions(instanceArn)
 	require.NoError(t, err)

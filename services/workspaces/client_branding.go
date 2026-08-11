@@ -73,12 +73,29 @@ func (b *InMemoryBackend) DescribeClientProperties(
 	return out, nil
 }
 
-// ModifyClientProperties sets client properties for a resource.
-func (b *InMemoryBackend) ModifyClientProperties(resourceID, reconnectEnabled string) error {
+// ModifyClientProperties merges the supplied client properties into a
+// resource's stored properties. Each of clientExperiencePolicy,
+// logUploadEnabled, reconnectEnabled is nil when the caller omitted it from
+// the request, in which case the previously stored value (if any) is left
+// untouched rather than cleared -- matching real ModifyClientProperties,
+// which is a partial update, not a full replace.
+func (b *InMemoryBackend) ModifyClientProperties(
+	resourceID string, clientExperiencePolicy, logUploadEnabled, reconnectEnabled *string,
+) error {
 	b.mu.Lock("ModifyClientProperties")
 	defer b.mu.Unlock()
 
-	b.clientProperties[resourceID] = storedClientProps{ReconnectEnabled: reconnectEnabled}
+	props := b.clientProperties[resourceID]
+	if clientExperiencePolicy != nil {
+		props.ClientExperiencePolicy = *clientExperiencePolicy
+	}
+	if logUploadEnabled != nil {
+		props.LogUploadEnabled = *logUploadEnabled
+	}
+	if reconnectEnabled != nil {
+		props.ReconnectEnabled = *reconnectEnabled
+	}
+	b.clientProperties[resourceID] = props
 
 	return nil
 }

@@ -121,13 +121,14 @@ var (
 
 // Instance represents an AWS SSO instance.
 type Instance struct {
-	CreatedDate     time.Time         `json:"CreatedDate"`
-	Tags            map[string]string `json:"Tags"`
-	IdentityStoreID string            `json:"IdentityStoreId"`
-	InstanceArn     string            `json:"InstanceArn"`
-	Name            string            `json:"Name"`
-	OwnerAccountID  string            `json:"OwnerAccountId"`
-	Status          string            `json:"Status"`
+	CreatedDate           time.Time         `json:"CreatedDate"`
+	Tags                  map[string]string `json:"Tags"`
+	PermissionSetsEnabled *bool             `json:"PermissionSetsEnabled,omitempty"`
+	IdentityStoreID       string            `json:"IdentityStoreId"`
+	InstanceArn           string            `json:"InstanceArn"`
+	Name                  string            `json:"Name"`
+	OwnerAccountID        string            `json:"OwnerAccountId"`
+	Status                string            `json:"Status"`
 }
 
 // PermissionSet represents an AWS SSO permission set.

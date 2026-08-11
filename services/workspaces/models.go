@@ -172,8 +172,14 @@ type storedClientBranding struct {
 	ResourceID string                    `json:"resourceId"`
 }
 
+// storedClientProps mirrors aws-sdk-go-v2/service/workspaces@v1.73.1
+// types.ClientProperties (types/types.go:263). ClientExperiencePolicy is a
+// bare *string in the SDK -- no @enum trait, no generated Go enum type like
+// LogUploadEnabled/ReconnectEnabled have -- so any value is accepted here.
 type storedClientProps struct {
-	ReconnectEnabled string `json:"reconnectEnabled"`
+	ClientExperiencePolicy string `json:"clientExperiencePolicy,omitempty"`
+	LogUploadEnabled       string `json:"logUploadEnabled,omitempty"`
+	ReconnectEnabled       string `json:"reconnectEnabled"`
 }
 
 // ---------------------------------------------------------------------------

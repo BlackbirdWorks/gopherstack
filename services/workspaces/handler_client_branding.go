@@ -123,7 +123,9 @@ type describeClientPropertiesInput struct {
 type clientPropsResult struct {
 	ResourceId       string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	ClientProperties struct {
-		ReconnectEnabled string `json:"ReconnectEnabled,omitempty"`
+		ClientExperiencePolicy string `json:"ClientExperiencePolicy,omitempty"`
+		LogUploadEnabled       string `json:"LogUploadEnabled,omitempty"`
+		ReconnectEnabled       string `json:"ReconnectEnabled,omitempty"`
 	} `json:"ClientProperties"`
 }
 
@@ -142,6 +144,8 @@ func (h *Handler) handleDescribeClientProperties(
 	items := make([]clientPropsResult, 0, len(req.ResourceIds))
 	for _, id := range req.ResourceIds {
 		r := clientPropsResult{ResourceId: id}
+		r.ClientProperties.ClientExperiencePolicy = propsMap[id].ClientExperiencePolicy
+		r.ClientProperties.LogUploadEnabled = propsMap[id].LogUploadEnabled
 		r.ClientProperties.ReconnectEnabled = propsMap[id].ReconnectEnabled
 		items = append(items, r)
 	}
@@ -150,16 +154,21 @@ func (h *Handler) handleDescribeClientProperties(
 }
 
 type modifyClientPropertiesInput struct {
-	ResourceId       string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 	ClientProperties struct {
-		ReconnectEnabled string `json:"ReconnectEnabled"`
+		ClientExperiencePolicy *string `json:"ClientExperiencePolicy"`
+		LogUploadEnabled       *string `json:"LogUploadEnabled"`
+		ReconnectEnabled       *string `json:"ReconnectEnabled"`
 	} `json:"ClientProperties"`
+	ResourceId string `json:"ResourceId"` //nolint:revive,staticcheck // existing issue.
 }
 
 func (h *Handler) handleModifyClientProperties(
 	_ context.Context, req *modifyClientPropertiesInput,
 ) (*emptyOutput, error) {
 	return &emptyOutput{}, h.Backend.ModifyClientProperties(
-		req.ResourceId, req.ClientProperties.ReconnectEnabled,
+		req.ResourceId,
+		req.ClientProperties.ClientExperiencePolicy,
+		req.ClientProperties.LogUploadEnabled,
+		req.ClientProperties.ReconnectEnabled,
 	)
 }
