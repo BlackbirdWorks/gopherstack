@@ -114,7 +114,7 @@ func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb,
 }
 
 func (b *InMemoryBackend) UpdateLocationSmb(
-	locationArn, subdirectory, domain, user, password, authenticationType string,
+	locationArn, serverHostname, subdirectory, domain, user, password, authenticationType string,
 	mountOptions *MountOptions,
 	agentArns []string,
 	smbKerberos SmbKerberosConfig,
@@ -136,9 +136,16 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 		l.Smb = &storedSmbConfig{}
 	}
 
+	if serverHostname != "" {
+		l.Smb.ServerHostname = serverHostname
+	}
+
 	if subdirectory != "" {
 		l.Subdirectory = subdirectory
-		sub := strings.TrimPrefix(subdirectory, "/")
+	}
+
+	if serverHostname != "" || subdirectory != "" {
+		sub := strings.TrimPrefix(l.Subdirectory, "/")
 		l.LocationURI = fmt.Sprintf("smb://%s/%s", l.Smb.ServerHostname, sub)
 	}
 

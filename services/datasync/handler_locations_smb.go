@@ -161,6 +161,7 @@ type updateLocationSmbInput struct {
 	CmkSecretConfig    *cmkSecretConfigWire    `json:"CmkSecretConfig"`
 	CustomSecretConfig *customSecretConfigWire `json:"CustomSecretConfig"`
 	LocationArn        string                  `json:"LocationArn"`
+	ServerHostname     string                  `json:"ServerHostname,omitempty"`
 	Subdirectory       string                  `json:"Subdirectory,omitempty"`
 	Domain             string                  `json:"Domain,omitempty"`
 	User               string                  `json:"User,omitempty"`
@@ -208,7 +209,7 @@ func (h *Handler) handleUpdateLocationSmb(
 	}
 
 	if err := h.Backend.UpdateLocationSmb(
-		in.LocationArn, in.Subdirectory, in.Domain, in.User, in.Password, in.AuthenticationType,
+		in.LocationArn, in.ServerHostname, in.Subdirectory, in.Domain, in.User, in.Password, in.AuthenticationType,
 		mo, in.AgentArns, smbKerberos, secretConfig,
 	); err != nil {
 		return nil, err

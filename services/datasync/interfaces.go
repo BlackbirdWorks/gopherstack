@@ -166,7 +166,7 @@ type StorageBackend interface {
 	) (*Location, error)
 	DescribeLocationObjectStorage(locationArn string) (*LocationObjectStorage, error)
 	UpdateLocationObjectStorage(
-		locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
+		locationArn, serverHostname, serverProtocol, subdirectory, accessKey, secretKey string,
 		serverPort int32,
 		agentArns []string,
 		secretConfig SecretConfig,
@@ -183,7 +183,7 @@ type StorageBackend interface {
 	) (*Location, error)
 	DescribeLocationSmb(locationArn string) (*LocationSmb, error)
 	UpdateLocationSmb(
-		locationArn, subdirectory, domain, user, password, authenticationType string,
+		locationArn, serverHostname, subdirectory, domain, user, password, authenticationType string,
 		mountOptions *MountOptions,
 		agentArns []string,
 		smbKerberos SmbKerberosConfig,
