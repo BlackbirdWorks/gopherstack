@@ -580,6 +580,46 @@ func Test_UpdateAPI_QuickCreate_NoExistingQuickCreate(t *testing.T) {
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
 }
 
+// Test_UpdateAPI_RejectedUpdateDoesNotMutateOtherFields proves a rejected
+// UpdateApi call (invalid ipAddressType) never leaves earlier-applied fields
+// in the input (name) partially committed.
+func Test_UpdateAPI_RejectedUpdateDoesNotMutateOtherFields(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{Name: "original", ProtocolType: "HTTP"})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Name: "renamed", IPAddressType: "bogus"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Name, "rejected update must not leave a partially-applied name")
+}
+
+// Test_UpdateAPI_QuickCreate_RejectedTargetDoesNotMutateName proves that
+// when routeKey/target validation fails, name/description etc. from the same
+// UpdateApi call are not applied either.
+func Test_UpdateAPI_QuickCreate_RejectedTargetDoesNotMutateName(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name: "original", ProtocolType: "HTTP", RouteKey: "GET /", Target: "https://example.com/backend",
+	})
+	require.NoError(t, err)
+
+	_, err = b.UpdateAPI(api.APIID, apigatewayv2.UpdateAPIInput{Name: "renamed", RouteKey: "not a valid key"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetAPI(api.APIID)
+	require.NoError(t, err)
+	assert.Equal(t, "original", got.Name, "rejected update must not leave a partially-applied name")
+}
+
 // Test_CreateAPI_IPAddressType covers API.IPAddressType, which the real AWS
 // SDK carries on CreateApiInput/UpdateApiInput/Api but was entirely absent
 // from gopherstack's shapes, so a caller-supplied ipAddressType was silently

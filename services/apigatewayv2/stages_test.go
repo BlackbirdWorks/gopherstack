@@ -80,6 +80,29 @@ func TestInMemoryBackend_UpdateStage_AllFields(t *testing.T) {
 	assert.True(t, updated.AutoDeploy)
 }
 
+func TestInMemoryBackend_UpdateStage_ManagedStageImmutable(t *testing.T) {
+	t.Parallel()
+
+	b := apigatewayv2.NewInMemoryBackend()
+
+	api, err := b.CreateAPI(context.Background(), apigatewayv2.CreateAPIInput{
+		Name: "test", ProtocolType: "HTTP", RouteKey: "GET /foo", Target: "http://example.com",
+	})
+	require.NoError(t, err)
+
+	stages, err := b.GetStages(api.APIID)
+	require.NoError(t, err)
+	require.Len(t, stages, 1)
+	require.True(t, stages[0].APIGatewayManaged)
+
+	_, err = b.UpdateStage(api.APIID, stages[0].StageName, apigatewayv2.UpdateStageInput{Description: "new desc"})
+	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
+
+	got, err := b.GetStage(api.APIID, stages[0].StageName)
+	require.NoError(t, err)
+	assert.Empty(t, got.Description)
+}
+
 func TestInMemoryBackend_CreateStage_ApiNotFound(t *testing.T) {
 	t.Parallel()
 

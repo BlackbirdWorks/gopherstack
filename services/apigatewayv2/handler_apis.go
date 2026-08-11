@@ -3,7 +3,10 @@ package apigatewayv2
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -202,12 +205,80 @@ func (h *Handler) handleUpdateAPI(c *echo.Context, apiID string) error {
 // Only the fields needed to derive an API name, routes, and integrations are
 // modeled; unknown fields are ignored so that minimal specs are tolerated.
 type openAPISpec struct {
-	Paths map[string]map[string]openAPIOperation `json:"paths"`
-	Info  openAPIInfo                            `json:"info"`
+	Paths    map[string]map[string]openAPIOperation `json:"paths"`
+	Info     openAPIInfo                            `json:"info"`
+	BasePath string                                 `json:"basePath"` // Swagger 2
+	Servers  []openAPIServer                        `json:"servers"`  // OpenAPI 3
 }
 
 type openAPIInfo struct {
 	Title string `json:"title"`
+}
+
+// openAPIServer is the OpenAPI 3 servers[] entry; its URL's path component is
+// the OpenAPI-3 equivalent of Swagger 2's top-level basePath.
+type openAPIServer struct {
+	URL string `json:"url"`
+}
+
+const (
+	basepathIgnore  = "ignore"
+	basepathPrepend = "prepend"
+	basepathSplit   = "split"
+)
+
+// validateBasepath returns ErrBadRequest unless basepath is empty (defaults
+// to ignore) or one of the three values ImportApiInput/ReimportApiInput
+// document (api_op_ImportApi.go:37-41, aws-sdk-go-v2/service/apigatewayv2@v1.37.4:
+// "Valid values are ignore, prepend, and split. The default value is ignore.").
+func validateBasepath(basepath string) error {
+	switch basepath {
+	case "", basepathIgnore, basepathPrepend, basepathSplit:
+		return nil
+	default:
+		return fmt.Errorf("%w: basepath must be one of ignore, prepend, split", ErrBadRequest)
+	}
+}
+
+// validateFailOnWarnings reads the failOnWarnings query param (ImportApiInput/
+// ReimportApiInput, same querystring location as basepath). It is read and
+// validated rather than silently dropped, but has no further observable
+// effect yet: this emulator's OpenAPI import (parseOpenAPISpec/
+// applyOpenAPIToAPI) never generates import warnings for any spec it accepts,
+// so there is never a warning for failOnWarnings to escalate -- see
+// PARITY.md gaps (matches the precedent set for API.ImportInfo/Warnings,
+// which are deliberately never populated with speculative text).
+func validateFailOnWarnings(c *echo.Context) error {
+	raw := c.Request().URL.Query().Get("failOnWarnings")
+	if raw == "" {
+		return nil
+	}
+
+	if _, err := strconv.ParseBool(raw); err != nil {
+		return fmt.Errorf("%w: failOnWarnings must be a boolean", ErrBadRequest)
+	}
+
+	return nil
+}
+
+// specBasePath returns the OpenAPI document's declared base path: Swagger 2's
+// top-level basePath, or the path component of OpenAPI 3's first servers[]
+// entry. Returns "" if neither is present or the server URL doesn't parse.
+func specBasePath(spec *openAPISpec) string {
+	if spec.BasePath != "" {
+		return spec.BasePath
+	}
+
+	if len(spec.Servers) == 0 {
+		return ""
+	}
+
+	u, err := url.Parse(spec.Servers[0].URL)
+	if err != nil {
+		return ""
+	}
+
+	return u.Path
 }
 
 type openAPIOperation struct {
@@ -241,11 +312,24 @@ func parseOpenAPISpec(body string) (*openAPISpec, error) {
 
 // applyOpenAPIToAPI creates a route (and integration, when defined) for each
 // path+method in the spec. Entries that are not valid HTTP route keys are
-// skipped gracefully.
-func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec) {
+// skipped gracefully. When basepath is "prepend", the document's declared
+// base path (specBasePath) is prefixed onto every route path; "split" is not
+// implemented (falls back to the "ignore" default, since API Gateway's
+// prepend/split base-path semantics aren't described by the SDK wire model,
+// only by prose docs -- see PARITY.md gaps).
+func (h *Handler) applyOpenAPIToAPI(apiID string, spec *openAPISpec, basepath string) {
+	prefix := ""
+	if basepath == basepathPrepend {
+		prefix = strings.TrimSuffix(specBasePath(spec), "/")
+	}
+
 	for path, methods := range spec.Paths {
 		if !strings.HasPrefix(path, "/") {
 			path = "/" + path
+		}
+
+		if prefix != "" {
+			path = prefix + path
 		}
 
 		for method, op := range methods {
@@ -306,6 +390,18 @@ func openAPIIntegrationType(t string) string {
 }
 
 func (h *Handler) handleImportAPI(c *echo.Context) error {
+	// basepath and failOnWarnings are HTTP query-string params on the real
+	// ImportApiInput, not JSON body fields (api_op_ImportApi.go:37-45,
+	// aws-sdk-go-v2/service/apigatewayv2@v1.37.4).
+	basepath := c.Request().URL.Query().Get("basepath")
+	if err := validateBasepath(basepath); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
+
+	if err := validateFailOnWarnings(c); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
+
 	var input struct {
 		Body string `json:"body"`
 	}
@@ -331,12 +427,21 @@ func (h *Handler) handleImportAPI(c *echo.Context) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	h.applyOpenAPIToAPI(api.APIID, spec)
+	h.applyOpenAPIToAPI(api.APIID, spec, basepath)
 
 	return c.JSON(http.StatusCreated, api)
 }
 
 func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
+	basepath := c.Request().URL.Query().Get("basepath")
+	if err := validateBasepath(basepath); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
+
+	if err := validateFailOnWarnings(c); err != nil {
+		return writeErr(c, http.StatusBadRequest, err.Error())
+	}
+
 	var input struct {
 		Body string `json:"body"`
 	}
@@ -378,7 +483,7 @@ func (h *Handler) handleReimportAPI(c *echo.Context, apiID string) error {
 		return writeErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	h.applyOpenAPIToAPI(apiID, spec)
+	h.applyOpenAPIToAPI(apiID, spec, basepath)
 
 	return c.JSON(http.StatusCreated, api)
 }

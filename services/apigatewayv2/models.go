@@ -745,26 +745,62 @@ type UpdateVpcLinkInput struct {
 
 // RoutingRule represents an API Gateway domain routing rule.
 type RoutingRule struct {
-	DomainName     string           `json:"-"`
-	RoutingRuleID  string           `json:"routingRuleId"`
-	RoutingRuleARN string           `json:"routingRuleArn,omitempty"`
-	Actions        []map[string]any `json:"actions,omitempty"`
-	Conditions     []map[string]any `json:"conditions,omitempty"`
-	Priority       int32            `json:"priority"`
+	DomainName     string                 `json:"-"`
+	RoutingRuleID  string                 `json:"routingRuleId"`
+	RoutingRuleARN string                 `json:"routingRuleArn,omitempty"`
+	Actions        []RoutingRuleAction    `json:"actions,omitempty"`
+	Conditions     []RoutingRuleCondition `json:"conditions,omitempty"`
+	Priority       int32                  `json:"priority"`
+}
+
+// RoutingRuleAction is a routing rule action. InvokeApi is the only action
+// AWS supports (types.go:1280-1287, aws-sdk-go-v2/service/apigatewayv2@v1.37.4).
+type RoutingRuleAction struct {
+	InvokeAPI *RoutingRuleActionInvokeAPI `json:"invokeApi,omitempty"`
+}
+
+// RoutingRuleActionInvokeAPI is the InvokeApi routing rule action target.
+type RoutingRuleActionInvokeAPI struct {
+	APIID         string `json:"apiId"`
+	Stage         string `json:"stage"`
+	StripBasePath bool   `json:"stripBasePath,omitempty"`
+}
+
+// RoutingRuleCondition is a routing rule condition: base-path and/or header
+// matching, ANDed together when both are set (types.go:1310-1319).
+type RoutingRuleCondition struct {
+	MatchBasePaths *RoutingRuleMatchBasePaths `json:"matchBasePaths,omitempty"`
+	MatchHeaders   *RoutingRuleMatchHeaders   `json:"matchHeaders,omitempty"`
+}
+
+// RoutingRuleMatchBasePaths matches if the request base path is any of AnyOf.
+type RoutingRuleMatchBasePaths struct {
+	AnyOf []string `json:"anyOf,omitempty"`
+}
+
+// RoutingRuleMatchHeaders matches if any header name/value-glob pair in AnyOf matches.
+type RoutingRuleMatchHeaders struct {
+	AnyOf []RoutingRuleMatchHeaderValue `json:"anyOf,omitempty"`
+}
+
+// RoutingRuleMatchHeaderValue is a single header/value-glob pair to match.
+type RoutingRuleMatchHeaderValue struct {
+	Header    string `json:"header"`
+	ValueGlob string `json:"valueGlob"`
 }
 
 // CreateRoutingRuleInput is the input for CreateRoutingRule.
 type CreateRoutingRuleInput struct {
-	Actions    []map[string]any `json:"actions,omitempty"`
-	Conditions []map[string]any `json:"conditions,omitempty"`
-	Priority   int32            `json:"priority"`
+	Actions    []RoutingRuleAction    `json:"actions,omitempty"`
+	Conditions []RoutingRuleCondition `json:"conditions,omitempty"`
+	Priority   int32                  `json:"priority"`
 }
 
 // PutRoutingRuleInput is the input for PutRoutingRule.
 type PutRoutingRuleInput struct {
-	Actions    []map[string]any `json:"actions,omitempty"`
-	Conditions []map[string]any `json:"conditions,omitempty"`
-	Priority   int32            `json:"priority"`
+	Actions    []RoutingRuleAction    `json:"actions,omitempty"`
+	Conditions []RoutingRuleCondition `json:"conditions,omitempty"`
+	Priority   int32                  `json:"priority"`
 }
 
 // PortalProductSharingPolicy is the response body for portal product sharing policy operations.

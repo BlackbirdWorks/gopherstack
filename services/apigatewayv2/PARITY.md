@@ -1,9 +1,26 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: efc42cbc4
-last_audit_date: 2026-07-23
-overall: A            # re-audit pass (parity-3 campaign). The previously recorded
+last_audit_commit: 7c8077891
+last_audit_date: 2026-08-10
+overall: A            # gopherstack-0xs7 follow-up pass. Verified against live code (not
+                       # PARITY.md prose) that gopherstack-e81/2tx/jni0 were all still genuinely
+                       # open, then closed the real parts of each: RoutingRule Actions/Conditions
+                       # are now typed unions (gopherstack-e81, see Notes #12); UpdateRoute now
+                       # blocks route-key changes and UpdateStage blocks all changes on
+                       # quick-create-managed resources (gopherstack-2tx, partial -- see gaps);
+                       # ImportApi/ReimportApi now read+validate basepath/failOnWarnings and
+                       # implement basepath=prepend (gopherstack-jni0, partial -- see gaps). Also
+                       # swept for and fixed three "state mutated before validation" bugs
+                       # (UpdateRoute, UpdateAPI, UpdateDomainName -- see Notes #13) and two
+                       # under-validated RoutingRule inputs (priority range, action/condition
+                       # required sub-fields and API/stage FK existence). Portal/PortalProduct/
+                       # ProductPage/ProductRestEndpointPage family re-counted against botocore:
+                       # 26 operations (31 including RoutingRule's 5), all 26 already implemented
+                       # with real backend state (not stubs) -- the family is NOT the large
+                       # unmodelled surface a prior pass's note speculated it might be.
+                       # ---- prior pass's note follows ----
+                       # re-audit pass (parity-3 campaign). The previously recorded
                        # last_audit_commit (d6fae6df) was a ledger bug, not a valid baseline: that
                        # commit's own message is "parity(apigateway): ..." and its diffstat touches
                        # only services/apigateway (the v1 REST API service), never
@@ -32,15 +49,15 @@ ops:
   CreateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey+target quick-create shortcut was entirely unimplemented -- CreateAPIInput had no such fields at all, so real quick-create requests silently created a bare API with no route/integration/stage (fixed by a prior pass, see Notes #6). This pass: ipAddressType and quick-create's credentialsArn were ALSO entirely absent from CreateAPIInput -- fixed, see Notes #8-9."}
   GetApi: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Api.ipAddressType/importInfo/warnings were entirely absent -- fixed, see Notes #8"}
   GetApis: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Api shape fix as GetApi"}
-  UpdateApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "routeKey/target (\"part of quick create\" per SDK doc comments) were also entirely absent from UpdateAPIInput (fixed by a prior pass, see Notes #6). This pass: ipAddressType and quick-create's credentialsArn were ALSO entirely absent from UpdateAPIInput -- fixed, see Notes #8-9."}
+  UpdateApi: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "routeKey/target (\"part of quick create\" per SDK doc comments) were also entirely absent from UpdateAPIInput (fixed by a prior pass, see Notes #6). This pass: ipAddressType and quick-create's credentialsArn were ALSO entirely absent from UpdateAPIInput -- fixed, see Notes #8-9. Also: was mutating Name/Description/etc. before validating ipAddressType and the quick-create routeKey/target/credentialsArn fields, so a rejected update could leave those partially applied -- fixed, see Notes #13."}
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also purges authorizerCache entries for the API's authorizers on cascade delete -- see Notes #11"}
-  ImportApi: {wire: partial, errors: ok, state: ok, persist: ok, note: "basepath and failOnWarnings are HTTP query params (not body fields) on the real ImportApiInput and are silently ignored by gopherstack's handler -- newly found this pass, deferred, bd gopherstack-jni0. Api.importInfo/warnings shape itself is now correct (Notes #8) but always empty since the emulator never generates import warnings."}
-  ReimportApi: {wire: partial, errors: ok, state: ok, persist: ok, note: "same basepath/failOnWarnings gap as ImportApi -- bd gopherstack-jni0"}
+  ImportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "basepath and failOnWarnings query params (SetQuery in serializers.go, not body fields) are now read and validated instead of silently ignored; basepath=prepend now prefixes route paths with the spec's declared base path. basepath=split and failOnWarnings-triggered rollback remain unimplemented -- bd gopherstack-jni0, narrowed, see gaps. Api.importInfo/warnings shape itself is correct (Notes #8) but always empty since the emulator never generates import warnings, so failOnWarnings has no observable effect yet."}
+  ReimportApi: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same basepath/failOnWarnings fix as ImportApi -- bd gopherstack-jni0, narrowed"}
   ExportApi: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "HTTP routeKey format + WS \$connect/\$disconnect/\$default/custom validated; auth type NONE/AWS_IAM/JWT/CUSTOM enforced"}
   GetRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   GetRoutes: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateRoute: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateRoute: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was mutating RouteKey before validating AuthorizationType, so a rejected update (bad auth type) could still leave a changed route key -- fixed by validating the whole input before mutating anything, see Notes #13. Also now rejects a route-key change on a quick-create $default route (gopherstack-2tx, see Notes #14)."}
   DeleteRoute: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateIntegration: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "was missing tlsConfig, hardcoded 29000ms ceiling/default for HTTP APIs (should be 30000ms), no connectionType default/validation (fixed by a prior pass). This pass: credentialsArn was ALSO entirely absent -- fixed, see Notes #7."}
   GetIntegration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "credentialsArn fix, see Notes #7"}
@@ -60,7 +77,7 @@ ops:
   CreateStage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing clientCertificateId (WS-only) and Tags -- fixed"}
   GetStage: {wire: fixed, errors: ok, state: ok, persist: ok}
   GetStages: {wire: fixed, errors: ok, state: ok, persist: ok}
-  UpdateStage: {wire: fixed, errors: ok, state: ok, persist: ok}
+  UpdateStage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now rejects any modification of a quick-create $default stage (gopherstack-2tx, see Notes #14)"}
   DeleteStage: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessLogSettings: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteRouteSettings: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -86,7 +103,7 @@ ops:
   CreateDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was missing mutualTlsAuthentication and domainNameArn (fixed by a prior pass). This pass: routingMode was ALSO entirely absent -- fixed, see Notes #10."}
   GetDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "routingMode fix, see Notes #10"}
   GetDomainNames: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same DomainName shape fix as GetDomainName"}
-  UpdateDomainName: {wire: fixed, errors: ok, state: ok, persist: ok, note: "routingMode fix, see Notes #10"}
+  UpdateDomainName: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "routingMode fix, see Notes #10. This pass: was also mutating Tags/DomainNameConfigurations/MutualTLSAuthentication before validating RoutingMode, so a rejected update could leave those partially applied -- fixed, see Notes #13."}
   DeleteDomainName: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
   GetApiMapping: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -98,43 +115,44 @@ ops:
   GetVpcLinks: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteVpcLink: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateRoutingRule: {wire: partial, errors: ok, state: ok, persist: ok, note: "Actions/Conditions are untyped map[string]any passthrough, not AWS union shapes -- gopherstack-e81"}
-  GetRoutingRule: {wire: partial, errors: ok, state: ok, persist: ok}
-  ListRoutingRules: {wire: partial, errors: ok, state: ok, persist: ok}
-  PutRoutingRule: {wire: partial, errors: ok, state: ok, persist: ok}
+  CreateRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "Actions/Conditions are now typed AWS union shapes (RoutingRuleAction/RoutingRuleActionInvokeAPI, RoutingRuleCondition/RoutingRuleMatchBasePaths/RoutingRuleMatchHeaders/RoutingRuleMatchHeaderValue) instead of []map[string]any passthrough, with required-subfield and FK (target api/stage must exist) validation, plus RoutingRulePriority's modeled [1,1000000] range -- gopherstack-e81, closed, see Notes #12."}
+  GetRoutingRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
+  ListRoutingRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same typed-shape fix as CreateRoutingRule"}
+  PutRoutingRule: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "same typed-shape + validation fix as CreateRoutingRule"}
   DeleteRoutingRule: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now supports stage ARNs (arn:.../apis/{id}/stages/{name}) in addition to apis/vpclinks/domainnames; 404s were surfacing as 500 for stage ARNs before the errStageNotFound check was added to the handler"}
   UntagResource: {wire: fixed, errors: fixed, state: ok, persist: ok}
   GetTags: {wire: fixed, errors: fixed, state: ok, persist: ok}
 families:
-  Portal/PortalProduct/ProductPage/ProductRestEndpointPage/RoutingRule (preview APIGW "portals" feature): {status: ok, note: "out of this pass's declared scope (task enumerated the classic Apis/Routes/Integrations/Stages/Deployments/Authorizers/ApiMappings/DomainNames/VpcLinks/ExportApi/models/tags surface); spot-checked, wire shapes look reasonable, not deep-audited"}
+  Portal/PortalProduct/ProductPage/ProductRestEndpointPage (preview APIGW "portals" feature): {status: ok, note: "gopherstack-0xs7 pass counted the family against botocore apigatewayv2/2018-11-29: 26 operations (CreatePortal/GetPortal/ListPortals/UpdatePortal/DeletePortal/PreviewPortal/PublishPortal/DisablePortal, the same 5 for PortalProduct, Create/List/Get/Update/Delete for ProductPage and ProductRestEndpointPage, Get/Put/DeletePortalProductSharingPolicy). All 26 are implemented with real backend state in portals.go/handler_portals.go (confirmed via GetSupportedOperations() and backend method presence) -- NOT a large unmodelled surface as a prior pass's note speculated. PreviewPortal returns the live Portal (a reasonable preview simulation, not a stub). Field-level wire completeness of the 26 was NOT re-audited this pass (still spot-checked only, not deep-audited)."}
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
 gaps:
-  - RoutingRule Actions/Conditions untyped passthrough instead of AWS union shapes (bd: gopherstack-e81)
-  - "Quick-create route/stage immutability not enforced: AWS docs state the $default route
-    key can't be modified and the $default stage can't be modified once quick-created, but
-    this pass only added the apiGatewayManaged flag + the Create/UpdateApi provisioning
-    behavior itself (gopherstack-2tx's original scope) -- it does NOT block
-    UpdateRoute/DeleteRoute/UpdateStage/DeleteStage on a managed route/stage, or
-    DeleteIntegration on a managed integration. Deliberately deferred: the exact AWS error
-    code/message for these rejections isn't verifiable from the Go SDK alone (it's
-    server-side business logic, not encoded in serializers.go), and guessing at unverified
-    error shapes would itself violate the wire-verification principle. Tracked by
-    gopherstack-2tx (re-confirmed still open/accurate this pass, commented with the narrowed
-    remaining scope; not re-touched)."
-  - "ImportApi/ReimportApi's basepath and failOnWarnings params are HTTP query-string params
-    on the real SDK (confirmed in serializers.go: SetQuery(\"basepath\")/SetQuery
-    (\"failOnWarnings\")), not JSON body fields, and gopherstack's handleImportAPI/
-    handleReimportAPI never read them, so they're silently ignored. Newly found this pass.
-    Deferred rather than rushed: the OpenAPI import subsystem (parseOpenAPISpec/
-    applyOpenAPIToAPI) is already a minimal best-effort parser with no basePath extraction,
-    and failOnWarnings has no observable effect regardless since the emulator never
-    generates import warnings (see Notes #8, importInfo/warnings are always empty for a
-    well-formed spec). bd: gopherstack-jni0."
+  - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
+    now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
+    route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
+    can't modify the $default stage\") -- both backed by BadRequestException, which IS in
+    UpdateRoute/UpdateStage's modeled error set (service-2.json). Still NOT enforced:
+    DeleteRoute/DeleteStage/DeleteIntegration on a managed resource. Deliberately not extended
+    there: those three operations' error sets in service-2.json list only NotFoundException/
+    TooManyRequestsException, no BadRequestException or ConflictException, so there is no
+    wire-verifiable error code to reject with -- guessing one would violate the wire-verification
+    principle the same way UpdateRoute/UpdateStage's prior deferral (re-confirmed open, then
+    narrowed this pass) originally cited."
+  - "ImportApi/ReimportApi's basepath query param now supports \"prepend\" (prefixes route paths
+    with the spec's declared base path -- Swagger 2 basePath or OpenAPI 3 servers[0].url's path).
+    \"split\" is not implemented (falls back to ignore-like behavior): API Gateway's split
+    semantics (part of the base path becomes an ApiMapping key, part stays in routes) aren't
+    described by the SDK wire model, only by prose docs, so implementing it would mean guessing
+    at unverified behavior. failOnWarnings is now read and validated (boolean) but has no
+    observable effect: the emulator's OpenAPI import (parseOpenAPISpec/applyOpenAPIToAPI) never
+    generates import warnings for any spec it accepts (see Notes #8), so there is never a warning
+    for failOnWarnings to escalate into an error. Not fabricating warning-generation heuristics to
+    manufacture an effect -- see the existing trap note on API.ImportInfo/Warnings below. bd:
+    gopherstack-jni0, narrowed to these two residual items."
 deferred:
-  - Portal / PortalProduct / ProductPage / ProductRestEndpointPage families (newer preview feature, not in this pass's declared op list)
-  - RoutingRule typed action/condition validation (see gaps)
-  - ImportApi/ReimportApi basepath/failOnWarnings query params (see gaps, bd gopherstack-jni0)
+  - Portal / PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit (family confirmed fully implemented this pass, but not re-verified field-by-field against botocore)
+  - ImportApi/ReimportApi basepath=split; failOnWarnings real effect (see gaps, bd gopherstack-jni0)
+  - Quick-create DeleteRoute/DeleteStage/DeleteIntegration rejection (see gaps, bd gopherstack-2tx)
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
 
@@ -290,6 +308,56 @@ Genuine bugs found and fixed this pass (all confirmed against `aws-sdk-go-v2/ser
     `allow` decision could keep authorizing requests against a route for up to
     `authorizerResultTtlInSeconds` (max 3600s) after the authorizer or its API was deleted.
 
+Genuine bugs found and fixed in the `gopherstack-0xs7` follow-up pass (confirmed against
+`aws-sdk-go-v2/service/apigatewayv2@v1.37.4/types/types.go` and
+`botocore/data/apigatewayv2/2018-11-29/service-2.json.gz`):
+
+12. **`RoutingRule.Actions`/`Conditions` were untyped `[]map[string]any` instead of AWS's
+    modeled union shapes (bd gopherstack-e81, closed).** Sized first per this session's appmesh
+    precedent: the real shapes are only 6 small structs at max depth 3 (`RoutingRuleAction` ->
+    `RoutingRuleActionInvokeApi{ApiId,Stage,StripBasePath}`; `RoutingRuleCondition` ->
+    `RoutingRuleMatchBasePaths{AnyOf}` and/or `RoutingRuleMatchHeaders{AnyOf
+    []RoutingRuleMatchHeaderValue{Header,ValueGlob}}`) -- shallow enough to model properly rather
+    than leave opaque. Added the 6 types plus `validateRoutingRuleActions`/
+    `validateRoutingRuleConditions` (required-subfield checks per `types.go:1280-1353`'s
+    `// This member is required` doc comments) and `validateRoutingRulePriority` (the modeled
+    `RoutingRulePriority` range, min 1 max 1,000,000, `service-2.json` shape `RoutingRulePriority`
+    -- previously unvalidated entirely). Also added `validateRoutingRuleActionTargetsLocked`: each
+    action's `InvokeApi.ApiId`/`Stage` must reference an API/stage that actually exists (previously
+    any string succeeded, an "operation accepting an ID for a resource that does not exist and
+    reporting success" bug). `CreateRoutingRule`/`PutRoutingRule` validate before mutating/writing
+    (`PutRoutingRule` previously mutated the existing rule's Priority/Actions/Conditions with zero
+    validation). `routingRuleSnapshot`'s persistence DTO field types were updated to match; no
+    snapshot version bump (JSON field names unchanged, only the Go type of two existing fields).
+
+13. **Three `Update*` backends mutated fields before validating the whole input, so a rejected
+    request could still leave earlier fields in the same call changed.** The session's most
+    recurrent bug class. `UpdateRoute` set `r.RouteKey` before validating `AuthorizationType`, so
+    e.g. `{routeKey: "POST /x", authorizationType: "BOGUS"}` returned `BadRequestException` but
+    left the route key changed. `UpdateAPI` mutated `Name`/`Description`/etc. before validating
+    `IPAddressType` and the quick-create `routeKey`/`target`/`credentialsArn` fields (which
+    themselves validate against the API's existing managed route/integration). `UpdateDomainName`
+    mutated `Tags`/`DomainNameConfigurations`/`MutualTLSAuthentication` before validating
+    `RoutingMode`. Fixed by splitting each into a pure-validation pass (no mutation) that runs
+    first, then a mutation pass that runs only once every field validates --
+    `validateRouteKeyUpdate`/`validateRouteAuthUpdate`/`applyRouteUpdate` (routes.go),
+    `validateQuickCreateUpdateLocked`/`applyQuickCreateUpdateMutateLocked` (apis.go, replacing the
+    old `applyQuickCreateUpdateLocked`/`applyQuickCreateCredentialsUpdateLocked` which validated
+    and mutated in the same pass), and reordering `UpdateDomainName`'s `RoutingMode` check ahead of
+    its other field mutations.
+
+14. **Quick-create managed-resource immutability, narrowed (bd gopherstack-2tx).** Real AWS:
+    "You can't modify the $default route key" (`Route.ApiGatewayManaged` doc) and "You can't
+    modify the $default stage" (`Stage.ApiGatewayManaged` doc). `UpdateRoute` now rejects a
+    route-key change when `r.APIGatewayManaged` (other fields on a managed route remain
+    updatable, matching the doc's route-*key*-specific wording); `UpdateStage` now rejects any
+    modification of a managed stage (matching the doc's unqualified "can't modify"). Both return
+    `BadRequestException`, which is in `UpdateRoute`/`UpdateStage`'s modeled error set
+    (`service-2.json`). `DeleteRoute`/`DeleteStage`/`DeleteIntegration` remain unenforced: their
+    modeled error sets contain only `NotFoundException`/`TooManyRequestsException`, no error code
+    that fits "rejected because managed" -- guessing one would be the same fabrication risk this
+    gap's original deferral (2026-07-05) correctly flagged.
+
 Traps for the next auditor (don't re-flag):
 
 - `arnResourceType` (single `type/id` suffix) intentionally does NOT handle Stage ARNs — Stage
@@ -300,19 +368,17 @@ Traps for the next auditor (don't re-flag):
 - The hand-formatted `"arn:aws:apigateway:" + region + "::/..."` ARN construction (not
   `pkgs/arn`) is a pre-existing convention in this file (see `RoutingRuleARN`, now also
   `DomainNameArn`); left as-is for consistency rather than partially migrating one call site.
-- `Portal`/`PortalProduct`/routing-rule-adjacent code is a newer, separate APIGWv2 "portals"
-  preview feature; it was spot-checked but is intentionally out of this pass's declared scope
-  (the task's op list is the classic HTTP/WebSocket control plane).
-- The `RoutingRule` `wire: partial` rows (CreateRoutingRule/GetRoutingRule/ListRoutingRules/
-  PutRoutingRule) were re-examined this pass, not just trusted at face value: the untyped
-  `[]map[string]any` passthrough actually round-trips real client bytes *more* faithfully than
-  a hand-typed union reimplementation would (since it echoes back exactly what the client sent,
-  keyed identically), so it is not itself a wire bug — the real gap is the total absence of
-  AWS's structural validation (required-field, exactly-one-of-union enforcement, priority range/
-  uniqueness). Client-side `aws-sdk-go-v2` already rejects the two Actions/Conditions-are-
-  `required` violations locally via smithy validation before ever sending a request, which
-  lowers the real-world blast radius for the SDK-shaped clients this emulator targets. Still
-  correctly tracked as `gopherstack-e81`; not re-touched.
+- `Portal`/`PortalProduct` preview-feature code was spot-checked in the parity-3 pass and
+  confirmed fully operation-complete (26/26 ops, see `families`) in the `gopherstack-0xs7`
+  follow-up; field-level wire-shape depth still not audited — don't assume "26/26 present" means
+  "every field on those 26 is correct."
+- `RoutingRule` `Actions`/`Conditions` are typed as of `gopherstack-0xs7` (Notes #12) — do not
+  revert to `[]map[string]any` "for round-trip fidelity." That reasoning was evaluated and
+  superseded: `RoutingRuleAction`/`RoutingRuleActionInvokeApi`/`RoutingRuleCondition`/
+  `RoutingRuleMatchBasePaths`/`RoutingRuleMatchHeaders`/`RoutingRuleMatchHeaderValue` are only
+  6 small structs at a max depth of 3 (confirmed by reading `types.go:1259-1353`,
+  `aws-sdk-go-v2/service/apigatewayv2@v1.37.4`) — well inside "shallow enough to model properly,"
+  not the "genuinely deep nested union" case where opaque passthrough is the right call.
 - `quickCreateLocked`'s auto-created `$default` stage name reuses the existing `routeKeyDefault`
   constant (`proxy.go`) for its literal value rather than a new stage-specific constant — same
   string (`"$default"`), and introducing a second constant with the identical value would have

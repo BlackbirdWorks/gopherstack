@@ -98,7 +98,15 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 
 	routingRule, err := b.CreateRoutingRule(
-		ctx, domainName.DomainNameValue, apigatewayv2.CreateRoutingRuleInput{Priority: 1},
+		ctx, domainName.DomainNameValue, apigatewayv2.CreateRoutingRuleInput{
+			Priority: 1,
+			Actions: []apigatewayv2.RoutingRuleAction{
+				{InvokeAPI: &apigatewayv2.RoutingRuleActionInvokeAPI{APIID: api.APIID, Stage: stage.StageName}},
+			},
+			Conditions: []apigatewayv2.RoutingRuleCondition{
+				{MatchBasePaths: &apigatewayv2.RoutingRuleMatchBasePaths{AnyOf: []string{"/widgets"}}},
+			},
+		},
 	)
 	require.NoError(t, err)
 
@@ -184,6 +192,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	gotRoutingRule, err := fresh.GetRoutingRule(domainName.DomainNameValue, routingRule.RoutingRuleID)
 	require.NoError(t, err)
 	assert.Equal(t, routingRule.Priority, gotRoutingRule.Priority)
+	assert.Equal(t, routingRule.Actions, gotRoutingRule.Actions)
+	assert.Equal(t, routingRule.Conditions, gotRoutingRule.Conditions)
+	require.Len(t, gotRoutingRule.Actions, 1)
+	require.NotNil(t, gotRoutingRule.Actions[0].InvokeAPI)
+	assert.Equal(t, api.APIID, gotRoutingRule.Actions[0].InvokeAPI.APIID)
 }
 
 // TestInMemoryBackend_SnapshotRestore_EmptyBackend verifies an empty backend

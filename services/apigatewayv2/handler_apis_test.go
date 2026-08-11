@@ -568,3 +568,110 @@ func TestCreateAPI_ExplicitAPIKeySelectionExpressionPreserved(t *testing.T) {
 
 	assert.Equal(t, custom, resp["apiKeySelectionExpression"])
 }
+
+// TestImportAPI_Basepath_InvalidRejected proves the basepath query param
+// (ImportApiInput.Basepath, api_op_ImportApi.go:37-41,
+// aws-sdk-go-v2/service/apigatewayv2@v1.37.4) is read and validated, not
+// silently discarded.
+func TestImportAPI_Basepath_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rr := doRequest(t, h, http.MethodPut, "/v2/apis?basepath=bogus", map[string]any{
+		"body": `{"openapi":"3.0.1","info":{"title":"my-api"},"paths":{}}`,
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+// TestImportAPI_FailOnWarnings_InvalidRejected proves the failOnWarnings
+// query param is read and validated, not silently discarded.
+func TestImportAPI_FailOnWarnings_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	rr := doRequest(t, h, http.MethodPut, "/v2/apis?failOnWarnings=notabool", map[string]any{
+		"body": `{"openapi":"3.0.1","info":{"title":"my-api"},"paths":{}}`,
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}
+
+// TestImportAPI_Basepath_Prepend proves basepath=prepend actually prefixes
+// the imported routes with the spec's declared base path, rather than being
+// parsed and then never applied.
+func TestImportAPI_Basepath_Prepend(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	spec := `{
+		"openapi": "3.0.1",
+		"info": {"title": "my-api"},
+		"servers": [{"url": "https://example.com/v1"}],
+		"paths": {"/items": {"get": {}}}
+	}`
+
+	rr := doRequest(t, h, http.MethodPut, "/v2/apis?basepath=prepend", map[string]any{"body": spec})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	var api apigatewayv2.API
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+
+	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var routes struct {
+		Items []apigatewayv2.Route `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+	require.Len(t, routes.Items, 1)
+	assert.Equal(t, "GET /v1/items", routes.Items[0].RouteKey)
+}
+
+// TestImportAPI_Basepath_DefaultIgnoresSpecBasePath proves the default
+// ("ignore", also the zero value when basepath is omitted) behavior is
+// unchanged: the spec's base path is not applied to route paths.
+func TestImportAPI_Basepath_DefaultIgnoresSpecBasePath(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	spec := `{
+		"openapi": "3.0.1",
+		"info": {"title": "my-api"},
+		"servers": [{"url": "https://example.com/v1"}],
+		"paths": {"/items": {"get": {}}}
+	}`
+
+	rr := doRequest(t, h, http.MethodPut, "/v2/apis", map[string]any{"body": spec})
+	require.Equal(t, http.StatusCreated, rr.Code)
+
+	var api apigatewayv2.API
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+
+	rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
+	require.Equal(t, http.StatusOK, rr.Code)
+
+	var routes struct {
+		Items []apigatewayv2.Route `json:"items"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+	require.Len(t, routes.Items, 1)
+	assert.Equal(t, "GET /items", routes.Items[0].RouteKey)
+}
+
+// TestReimportAPI_Basepath_InvalidRejected mirrors
+// TestImportAPI_Basepath_InvalidRejected for ReimportApi (same querystring
+// location on ReimportApiInput).
+func TestReimportAPI_Basepath_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	apiID := createAPI(t, h, "reimport-target")
+
+	rr := doRequest(t, h, http.MethodPut, "/v2/apis/"+apiID+"?basepath=bogus", map[string]any{
+		"body": `{"openapi":"3.0.1","info":{"title":"my-api"},"paths":{}}`,
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+}

@@ -519,7 +519,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [API Gateway](services/apigateway/README.md) | A | 123 | 5 gaps; 1 deferred |
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
-| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 3 deferred |
+| [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 2 gaps; 3 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
 | [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 30 | 4 deferred |
