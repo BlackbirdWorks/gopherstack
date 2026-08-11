@@ -40,6 +40,8 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 					"",
 					false,
 					false,
+					false,
+					false,
 				)
 				if err != nil {
 					return ""
@@ -112,11 +114,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	ep, err := original.CreateResolverEndpoint(
 		ctx, "full-state-ep", "INBOUND", "vpc-1",
 		[]route53resolver.IPAddress{{SubnetID: "subnet-1", IP: "10.0.0.1"}},
-		[]string{"sg-1"}, "IPV4", nil, "", "", "req-1", false, false,
+		[]string{"sg-1"}, "IPV4", nil, "", "", "req-1", false, false, false, false,
 	)
 	require.NoError(t, err)
 
-	rule, err := original.CreateResolverRule(ctx, "full-state-rule", "example.com", "FORWARD", ep.ID, "req-2", nil)
+	rule, err := original.CreateResolverRule(ctx, "full-state-rule", "example.com", "FORWARD", ep.ID, "req-2", "", nil)
 	require.NoError(t, err)
 
 	// 3. Tags (raw map, keyed by ARN).
@@ -238,6 +240,45 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "policy-doc-frg", fresh.GetFirewallRuleGroupPolicy(ctx, grp.ARN))
 	assert.Equal(t, "policy-doc-qlc", fresh.GetResolverQueryLogConfigPolicy(ctx, qlc.ARN))
 	assert.Equal(t, "policy-doc-rule", fresh.GetResolverRulePolicy(ctx, rule.ARN))
+}
+
+// TestInMemoryBackend_SnapshotRestore_NewFieldsRoundTrip proves
+// ResolverEndpoint.Dns64Enabled/Ipv6InternetAccessEnabled and
+// ResolverRule.DelegationRecord -- new struct fields added this pass --
+// survive Snapshot/Restore, per the "new persisted fields must round-trip"
+// rule. No snapshot version bump: these are additive JSON fields, backward
+// compatible with older snapshots (which simply decode them as zero-value).
+func TestInMemoryBackend_SnapshotRestore_NewFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	original := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+
+	ep, err := original.CreateResolverEndpoint(
+		ctx, "newfields-ep", "INBOUND", "vpc-1", nil, nil, "IPV4", nil, "", "", "req-1",
+		false, false, true, true,
+	)
+	require.NoError(t, err)
+
+	rule, err := original.CreateResolverRule(
+		ctx, "newfields-rule", "example.com", "FORWARD", "", "req-2", "ns.example.com", nil,
+	)
+	require.NoError(t, err)
+
+	snap := original.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	fresh := route53resolver.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, fresh.Restore(ctx, snap))
+
+	gotEP, err := fresh.GetResolverEndpoint(ctx, ep.ID)
+	require.NoError(t, err)
+	assert.True(t, gotEP.DNS64Enabled)
+	assert.True(t, gotEP.Ipv6InternetAccessEnabled)
+
+	gotRule, err := fresh.GetResolverRule(ctx, rule.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "ns.example.com", gotRule.DelegationRecord)
 }
 
 func TestSnapshotRestoreAllMaps(t *testing.T) {

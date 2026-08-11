@@ -208,6 +208,7 @@ func TestBackend_RuleTypeEnforcement(t *testing.T) {
 				tt.ruleType,
 				tt.epID,
 				"",
+				"",
 				tt.targetIps,
 			)
 			if tt.wantErr {
@@ -616,6 +617,36 @@ func TestCreateResolverRule(t *testing.T) {
 	assert.Equal(t, "example.com", rule["DomainName"])
 	assert.Equal(t, "FORWARD", rule["RuleType"])
 	assert.Equal(t, "COMPLETE", rule["Status"])
+}
+
+// TestCreateResolverRule_DelegationRecord verifies DelegationRecord
+// (verified against api_op_CreateResolverRule.go and types.ResolverRule --
+// "DNS queries with delegation records that point to this domain name are
+// forwarded to resolvers on your network") is accepted, stored, and echoed
+// back on both Create and Get. The wire struct previously had no field for
+// it at all, so a real client's value was silently dropped.
+func TestCreateResolverRule_DelegationRecord(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createRec := doRequest(t, h, "CreateResolverRule", map[string]any{
+		"Name":             "delegation-rule",
+		"DomainName":       "example.com",
+		"RuleType":         "FORWARD",
+		"DelegationRecord": "ns.example.com",
+		"TargetIps":        []map[string]any{{"Ip": "10.0.0.1", "Port": 53}},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	createResp := decodeJSON(t, createRec)
+	rule, ok := createResp["ResolverRule"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ns.example.com", rule["DelegationRecord"])
+	ruleID, _ := rule["Id"].(string)
+
+	getRec := doRequest(t, h, "GetResolverRule", map[string]any{"ResolverRuleId": ruleID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	getResp := decodeJSON(t, getRec)
+	assert.Equal(t, "ns.example.com", getResp["ResolverRule"].(map[string]any)["DelegationRecord"])
 }
 
 func TestListResolverRules(t *testing.T) {

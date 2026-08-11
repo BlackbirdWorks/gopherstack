@@ -59,24 +59,13 @@ func validateFirewallRuleBlockOverride(p CreateFirewallRuleParams) error {
 	return nil
 }
 
-// validateFirewallRuleMatchSource enforces that FirewallDomainListID and
-// DnsThreatProtection -- the two match sources this backend models -- are
-// mutually exclusive, and validates DnsThreatProtection against its closed
-// enum (DGA/DNS_TUNNELING/DICTIONARY_DGA) when supplied.
-func validateFirewallRuleMatchSource(p CreateFirewallRuleParams) error {
-	if p.FirewallDomainListID != "" && p.DNSThreatProtection != "" {
-		return fmt.Errorf(
-			"%w: FirewallDomainListId and DnsThreatProtection are mutually exclusive",
-			ErrValidation,
-		)
-	}
-
-	if p.DNSThreatProtection == "" {
-		return nil
-	}
-
-	switch p.DNSThreatProtection {
-	case dnsThreatProtectionDGA, dnsThreatProtectionDNSTunneling, dnsThreatProtectionDictionaryDGA:
+// validateDNSThreatProtectionValue validates a DnsThreatProtection value
+// against its closed enum (DGA/DNS_TUNNELING/DICTIONARY_DGA -- matches
+// r53rtypes.DnsThreatProtection.Values(), the same source
+// firewallRuleTypeCatalog() reads from). An empty value is allowed.
+func validateDNSThreatProtectionValue(value string) error {
+	switch value {
+	case "", dnsThreatProtectionDGA, dnsThreatProtectionDNSTunneling, dnsThreatProtectionDictionaryDGA:
 		return nil
 	default:
 		return fmt.Errorf(
@@ -87,6 +76,42 @@ func validateFirewallRuleMatchSource(p CreateFirewallRuleParams) error {
 			dnsThreatProtectionDictionaryDGA,
 		)
 	}
+}
+
+// validateFirewallRuleMatchSource enforces that FirewallDomainListID and
+// DnsThreatProtection -- the two match sources this backend models -- are
+// mutually exclusive, and validates DnsThreatProtection against its closed
+// enum when supplied.
+func validateFirewallRuleMatchSource(p CreateFirewallRuleParams) error {
+	if p.FirewallDomainListID != "" && p.DNSThreatProtection != "" {
+		return fmt.Errorf(
+			"%w: FirewallDomainListId and DnsThreatProtection are mutually exclusive",
+			ErrValidation,
+		)
+	}
+
+	return validateDNSThreatProtectionValue(p.DNSThreatProtection)
+}
+
+// validateFirewallRuleUpdateMatchSourceUnchanged enforces that a rule's
+// top-level DnsThreatProtection match source cannot be changed by
+// UpdateFirewallRule -- verified against api_op_UpdateFirewallRule.go's doc
+// comment: "The rule's FirewallRuleType, FirewallDomainListId, and
+// top-level DnsThreatProtection match source cannot be changed after
+// creation." An empty supplied value is a no-op (the field wasn't part of
+// this update); a non-empty value must equal the rule's existing value.
+func validateFirewallRuleUpdateMatchSourceUnchanged(existing, supplied string) error {
+	if err := validateDNSThreatProtectionValue(supplied); err != nil {
+		return err
+	}
+	if supplied != "" && supplied != existing {
+		return fmt.Errorf(
+			"%w: DnsThreatProtection match source cannot be changed after creation",
+			ErrValidation,
+		)
+	}
+
+	return nil
 }
 
 // validateFirewallDomainRedirectionAction validates
@@ -399,9 +424,18 @@ func (b *InMemoryBackend) resolveFirewallRuleIdentity(
 // FirewallRuleGroupID plus EITHER firewallDomainListID (domain-list rules)
 // OR firewallThreatProtectionID (DnsThreatProtection rules) -- see
 // resolveFirewallRuleIdentity.
+//
+// qtype, when supplied, must match the resolved rule's stored Qtype or the
+// delete is treated as not-found. api_op_DeleteFirewallRule.go's own doc
+// comment does not list Qtype among the identifying fields ("Identify the
+// rule using either FirewallDomainListId ... or
+// FirewallThreatProtectionId ... together with FirewallRuleGroupId"), so
+// this is read as an additional precondition on the same request rather
+// than a third identity key -- a conservative reading that still makes a
+// caller-supplied Qtype load-bearing instead of silently discarded.
 func (b *InMemoryBackend) DeleteFirewallRule(
 	ctx context.Context,
-	firewallRuleGroupID, firewallDomainListID, firewallThreatProtectionID string,
+	firewallRuleGroupID, firewallDomainListID, firewallThreatProtectionID, qtype string,
 ) (*FirewallRule, error) {
 	b.mu.Lock("DeleteFirewallRule")
 	defer b.mu.Unlock()
@@ -415,12 +449,17 @@ func (b *InMemoryBackend) DeleteFirewallRule(
 		return nil, err
 	}
 
+	if ok && qtype != "" && rule.Qtype != qtype {
+		ok = false
+	}
+
 	if !ok {
 		return nil, fmt.Errorf(
-			"%w: firewall rule for domain list %q / threat protection %q in group %s not found",
+			"%w: firewall rule for domain list %q / threat protection %q / qtype %q in group %s not found",
 			ErrNotFound,
 			firewallDomainListID,
 			firewallThreatProtectionID,
+			qtype,
 			firewallRuleGroupID,
 		)
 	}
@@ -453,6 +492,7 @@ type UpdateFirewallRuleParams struct {
 	BlockOverrideDNSType            string
 	Qtype                           string
 	ConfidenceThreshold             string
+	DNSThreatProtection             string
 	FirewallDomainRedirectionAction string
 	BlockOverrideTTL                int32
 	Priority                        int32
@@ -489,6 +529,24 @@ func (b *InMemoryBackend) UpdateFirewallRule(ctx context.Context, p UpdateFirewa
 			p.FirewallRuleGroupID,
 		)
 	}
+
+	if matchSourceErr := validateFirewallRuleUpdateMatchSourceUnchanged(
+		rule.DNSThreatProtection, p.DNSThreatProtection,
+	); matchSourceErr != nil {
+		return nil, matchSourceErr
+	}
+
+	applyFirewallRuleUpdate(rule, p)
+	rule.ModificationTime = currentTime()
+	cp := *rule
+
+	return &cp, nil
+}
+
+// applyFirewallRuleUpdate mutates rule in place with every non-zero
+// updatable field in p. Split out of UpdateFirewallRule to keep that
+// function's cyclomatic complexity under the repo's cyclop threshold.
+func applyFirewallRuleUpdate(rule *FirewallRule, p UpdateFirewallRuleParams) {
 	if p.Name != "" {
 		rule.Name = p.Name
 	}
@@ -519,10 +577,6 @@ func (b *InMemoryBackend) UpdateFirewallRule(ctx context.Context, p UpdateFirewa
 	if p.Priority != 0 {
 		rule.Priority = p.Priority
 	}
-	rule.ModificationTime = currentTime()
-	cp := *rule
-
-	return &cp, nil
 }
 
 // ListFirewallRules lists firewall rules, optionally filtered by rule group ID.

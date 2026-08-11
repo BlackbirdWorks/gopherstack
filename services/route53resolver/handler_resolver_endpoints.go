@@ -97,6 +97,8 @@ type listResolverEndpointIPAddressesOutput struct {
 type handleCreateResolverEndpointInput struct {
 	RniEnhancedMetricsEnabled      *bool                       `json:"RniEnhancedMetricsEnabled,omitempty"`
 	TargetNameServerMetricsEnabled *bool                       `json:"TargetNameServerMetricsEnabled,omitempty"`
+	DNS64Enabled                   *bool                       `json:"Dns64Enabled,omitempty"`
+	Ipv6InternetAccessEnabled      *bool                       `json:"Ipv6InternetAccessEnabled,omitempty"`
 	Direction                      string                      `json:"Direction"`
 	VpcID                          string                      `json:"VpcId"`
 	Name                           string                      `json:"Name"`
@@ -135,6 +137,8 @@ type resolverEndpointOutput struct {
 	IPAddressCount                 int32    `json:"IpAddressCount"`
 	RniEnhancedMetricsEnabled      bool     `json:"RniEnhancedMetricsEnabled"`
 	TargetNameServerMetricsEnabled bool     `json:"TargetNameServerMetricsEnabled"`
+	DNS64Enabled                   bool     `json:"Dns64Enabled"`
+	Ipv6InternetAccessEnabled      bool     `json:"Ipv6InternetAccessEnabled"`
 }
 
 type createResolverEndpointOutput struct {
@@ -192,6 +196,8 @@ func endpointToOutput(ep *ResolverEndpoint) resolverEndpointOutput {
 		ModificationTime:               ep.ModificationTime,
 		RniEnhancedMetricsEnabled:      ep.RniEnhancedMetricsEnabled,
 		TargetNameServerMetricsEnabled: ep.TargetNameServerMetricsEnabled,
+		DNS64Enabled:                   ep.DNS64Enabled,
+		Ipv6InternetAccessEnabled:      ep.Ipv6InternetAccessEnabled,
 	}
 }
 
@@ -209,6 +215,7 @@ func (h *Handler) handleCreateResolverEndpoint(
 		in.Name, in.Direction, in.VpcID, ips, in.SecurityGroupIDs, in.ResolverEndpointType,
 		in.Protocols, in.OutpostArn, in.PreferredInstanceType, in.CreatorRequestID,
 		boolValue(in.RniEnhancedMetricsEnabled), boolValue(in.TargetNameServerMetricsEnabled),
+		boolValue(in.DNS64Enabled), boolValue(in.Ipv6InternetAccessEnabled),
 	)
 	if err != nil {
 		return nil, err
@@ -326,13 +333,23 @@ func (h *Handler) handleAssociateResolverEndpointIPAddress(
 
 // --- CreateResolverQueryLogConfig ---
 
+// updateIPAddressInput mirrors types.UpdateIpAddress (IpId+Ipv6, both
+// required -- verified against api_op_UpdateResolverEndpoint.go).
+type updateIPAddressInput struct {
+	IPID string `json:"IpId"`
+	Ipv6 string `json:"Ipv6"`
+}
+
 type updateResolverEndpointInput struct {
-	RniEnhancedMetricsEnabled      *bool    `json:"RniEnhancedMetricsEnabled,omitempty"`
-	TargetNameServerMetricsEnabled *bool    `json:"TargetNameServerMetricsEnabled,omitempty"`
-	ResolverEndpointID             string   `json:"ResolverEndpointId"`
-	Name                           string   `json:"Name"`
-	ResolverEndpointType           string   `json:"ResolverEndpointType"`
-	Protocols                      []string `json:"Protocols"`
+	RniEnhancedMetricsEnabled      *bool                  `json:"RniEnhancedMetricsEnabled,omitempty"`
+	TargetNameServerMetricsEnabled *bool                  `json:"TargetNameServerMetricsEnabled,omitempty"`
+	DNS64Enabled                   *bool                  `json:"Dns64Enabled,omitempty"`
+	Ipv6InternetAccessEnabled      *bool                  `json:"Ipv6InternetAccessEnabled,omitempty"`
+	ResolverEndpointID             string                 `json:"ResolverEndpointId"`
+	Name                           string                 `json:"Name"`
+	ResolverEndpointType           string                 `json:"ResolverEndpointType"`
+	Protocols                      []string               `json:"Protocols"`
+	UpdateIPAddresses              []updateIPAddressInput `json:"UpdateIpAddresses"`
 }
 
 type updateResolverEndpointOutput struct {
@@ -346,6 +363,10 @@ func (h *Handler) handleUpdateResolverEndpoint(
 	if in.ResolverEndpointID == "" {
 		return nil, fmt.Errorf("%w: ResolverEndpointId is required", ErrValidation)
 	}
+	updates := make([]UpdateIPAddress, 0, len(in.UpdateIPAddresses))
+	for _, u := range in.UpdateIPAddresses {
+		updates = append(updates, UpdateIPAddress(u))
+	}
 	ep, err := h.Backend.UpdateResolverEndpoint(
 		ctx,
 		in.ResolverEndpointID,
@@ -354,6 +375,9 @@ func (h *Handler) handleUpdateResolverEndpoint(
 		in.Protocols,
 		in.RniEnhancedMetricsEnabled,
 		in.TargetNameServerMetricsEnabled,
+		in.DNS64Enabled,
+		in.Ipv6InternetAccessEnabled,
+		updates,
 	)
 	if err != nil {
 		return nil, err

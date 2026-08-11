@@ -28,13 +28,13 @@ func TestRoute53ResolverRegionIsolation(t *testing.T) {
 
 	// 1. Create a resolver endpoint with the SAME name in both regions.
 	eastEP, err := b.CreateResolverEndpoint(
-		ctxEast, "shared-ep", "INBOUND", "vpc-east", nil, nil, "IPV4", nil, "", "", "", false, false,
+		ctxEast, "shared-ep", "INBOUND", "vpc-east", nil, nil, "IPV4", nil, "", "", "", false, false, false, false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, eastEP.ARN, "us-east-1")
 
 	westEP, err := b.CreateResolverEndpoint(
-		ctxWest, "shared-ep", "OUTBOUND", "vpc-west", nil, nil, "IPV4", nil, "", "", "", false, false,
+		ctxWest, "shared-ep", "OUTBOUND", "vpc-west", nil, nil, "IPV4", nil, "", "", "", false, false, false, false,
 	)
 	require.NoError(t, err)
 	assert.Contains(t, westEP.ARN, "us-west-2")
@@ -60,11 +60,11 @@ func TestRoute53ResolverRegionIsolation(t *testing.T) {
 	require.Error(t, err, "east endpoint must not be visible from the west region")
 
 	// 4. Create a resolver rule with the same name in both regions.
-	eastRule, err := b.CreateResolverRule(ctxEast, "shared-rule", "example.com", "SYSTEM", "", "", nil)
+	eastRule, err := b.CreateResolverRule(ctxEast, "shared-rule", "example.com", "SYSTEM", "", "", "", nil)
 	require.NoError(t, err)
 	assert.Contains(t, eastRule.ARN, "us-east-1")
 
-	westRule, err := b.CreateResolverRule(ctxWest, "shared-rule", "example.com", "SYSTEM", "", "", nil)
+	westRule, err := b.CreateResolverRule(ctxWest, "shared-rule", "example.com", "SYSTEM", "", "", "", nil)
 	require.NoError(t, err)
 	assert.Contains(t, westRule.ARN, "us-west-2")
 
@@ -137,7 +137,21 @@ func TestRoute53ResolverDefaultRegionFallback(t *testing.T) {
 
 	// No region in context → default region store.
 	ep, err := b.CreateResolverEndpoint(
-		context.Background(), "def-ep", "INBOUND", "vpc-def", nil, nil, "IPV4", nil, "", "", "", false, false,
+		context.Background(),
+		"def-ep",
+		"INBOUND",
+		"vpc-def",
+		nil,
+		nil,
+		"IPV4",
+		nil,
+		"",
+		"",
+		"",
+		false,
+		false,
+		false,
+		false,
 	)
 	require.NoError(t, err)
 

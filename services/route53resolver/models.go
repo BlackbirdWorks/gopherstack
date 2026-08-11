@@ -127,6 +127,8 @@ type ResolverEndpoint struct {
 	Protocols                      []string     `json:"protocols,omitempty"`
 	RniEnhancedMetricsEnabled      bool         `json:"rniEnhancedMetricsEnabled"`
 	TargetNameServerMetricsEnabled bool         `json:"targetNameServerMetricsEnabled"`
+	DNS64Enabled                   bool         `json:"dns64Enabled"`
+	Ipv6InternetAccessEnabled      bool         `json:"ipv6InternetAccessEnabled"`
 }
 
 type ResolverRule struct {
@@ -145,6 +147,7 @@ type ResolverRule struct {
 	OwnerID            string     `json:"ownerId,omitempty"`
 	CreationTime       string     `json:"creationTime,omitempty"`
 	ModificationTime   string     `json:"modificationTime,omitempty"`
+	DelegationRecord   string     `json:"delegationRecord,omitempty"`
 	TargetIps          []TargetIP `json:"targetIps,omitempty"`
 }
 

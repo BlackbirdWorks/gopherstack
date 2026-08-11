@@ -34,7 +34,7 @@ func (b *InMemoryBackend) resolverRulePoliciesStoreRO(region string) map[string]
 
 func (b *InMemoryBackend) CreateResolverRule(
 	ctx context.Context,
-	name, domainName, ruleType, endpointID, creatorRequestID string,
+	name, domainName, ruleType, endpointID, creatorRequestID, delegationRecord string,
 	targetIps []TargetIP,
 ) (*ResolverRule, error) {
 	b.mu.Lock("CreateResolverRule")
@@ -107,6 +107,7 @@ func (b *InMemoryBackend) CreateResolverRule(
 		Region:             region,
 		TargetIps:          tipsCopy,
 		CreatorRequestID:   creatorRequestID,
+		DelegationRecord:   delegationRecord,
 		OwnerID:            b.accountID,
 		CreationTime:       now,
 		ModificationTime:   now,

@@ -445,6 +445,108 @@ func TestResolverEndpoint_MetricsFlags(t *testing.T) {
 	assert.Equal(t, true, updEP2["TargetNameServerMetricsEnabled"])
 }
 
+// TestResolverEndpoint_Dns64AndIpv6InternetAccess verifies Dns64Enabled and
+// Ipv6InternetAccessEnabled -- settable on both CreateResolverEndpoint and
+// UpdateResolverEndpoint (verified against api_op_CreateResolverEndpoint.go
+// / api_op_UpdateResolverEndpoint.go) -- round-trip through Create, default
+// to false when omitted, and partial-update correctly on
+// UpdateResolverEndpoint, mirroring TestResolverEndpoint_MetricsFlags.
+func TestResolverEndpoint_Dns64AndIpv6InternetAccess(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "dns64-ep",
+		"Direction": "INBOUND",
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	ep := decodeJSON(t, createRec)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, false, ep["Dns64Enabled"])
+	assert.Equal(t, false, ep["Ipv6InternetAccessEnabled"])
+	epID := ep["Id"].(string)
+
+	createRec2 := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":                      "dns64-ep-2",
+		"Direction":                 "INBOUND",
+		"Dns64Enabled":              true,
+		"Ipv6InternetAccessEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, createRec2.Code)
+	ep2 := decodeJSON(t, createRec2)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, ep2["Dns64Enabled"])
+	assert.Equal(t, true, ep2["Ipv6InternetAccessEnabled"])
+
+	updRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId": epID,
+		"Dns64Enabled":       true,
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+	updEP := decodeJSON(t, updRec)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP["Dns64Enabled"])
+	assert.Equal(t, false, updEP["Ipv6InternetAccessEnabled"])
+
+	updRec2 := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":        epID,
+		"Ipv6InternetAccessEnabled": true,
+	})
+	require.Equal(t, http.StatusOK, updRec2.Code)
+	updEP2 := decodeJSON(t, updRec2)["ResolverEndpoint"].(map[string]any)
+	assert.Equal(t, true, updEP2["Dns64Enabled"], "prior update must not be clobbered")
+	assert.Equal(t, true, updEP2["Ipv6InternetAccessEnabled"])
+}
+
+// TestUpdateResolverEndpoint_UpdateIpAddresses verifies UpdateIpAddresses
+// (verified against api_op_UpdateResolverEndpoint.go: "Specifies the IPv6
+// address when you update the Resolver endpoint from IPv4 to dual-stack")
+// assigns an Ipv6 address to an existing IP identified by IpId, visible via
+// a follow-up ListResolverEndpointIpAddresses, and that an unknown IpId is
+// rejected rather than silently ignored.
+func TestUpdateResolverEndpoint_UpdateIpAddresses(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	createRec := doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name":      "dualstack-ep",
+		"Direction": "INBOUND",
+		"IpAddresses": []map[string]any{
+			{"SubnetId": "subnet-1", "Ip": "10.0.0.1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, createRec.Code)
+	epID := decodeJSON(t, createRec)["ResolverEndpoint"].(map[string]any)["Id"].(string)
+
+	ipsRec := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, ipsRec.Code)
+	ips, _ := decodeJSON(t, ipsRec)["IpAddresses"].([]any)
+	require.Len(t, ips, 1)
+	ipID := ips[0].(map[string]any)["IpId"].(string)
+
+	updRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId":   epID,
+		"ResolverEndpointType": "DUALSTACK",
+		"UpdateIpAddresses": []map[string]any{
+			{"IpId": ipID, "Ipv6": "2001:db8::1"},
+		},
+	})
+	require.Equal(t, http.StatusOK, updRec.Code)
+
+	ipsRec2 := doRequest(t, h, "ListResolverEndpointIpAddresses", map[string]any{"ResolverEndpointId": epID})
+	require.Equal(t, http.StatusOK, ipsRec2.Code)
+	ips2, _ := decodeJSON(t, ipsRec2)["IpAddresses"].([]any)
+	require.Len(t, ips2, 1)
+	assert.Equal(t, "2001:db8::1", ips2[0].(map[string]any)["Ipv6"])
+
+	badRec := doRequest(t, h, "UpdateResolverEndpoint", map[string]any{
+		"ResolverEndpointId": epID,
+		"UpdateIpAddresses": []map[string]any{
+			{"IpId": "rni-does-not-exist", "Ipv6": "2001:db8::2"},
+		},
+	})
+	assert.Equal(t, http.StatusNotFound, badRec.Code)
+}
+
 // --- Issue 7: AssociateResolverEndpointIpAddress with IPv6 ---
 
 // TestAssociateResolverEndpointIpAddress_IPv6 verifies the associated IP is
@@ -578,6 +680,8 @@ func TestBackend_CreateEndpointTypeEnum(t *testing.T) {
 				"",
 				false,
 				false,
+				false,
+				false,
 			)
 			if tt.wantErr {
 				assert.Error(t, err)
@@ -606,6 +710,8 @@ func TestBackend_EndpointTimestampsRoundTrip(t *testing.T) {
 		"",
 		"",
 		"req-ts-1",
+		false,
+		false,
 		false,
 		false,
 	)

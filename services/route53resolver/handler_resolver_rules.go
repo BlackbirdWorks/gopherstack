@@ -79,6 +79,7 @@ type resolverRuleOutput struct {
 	OwnerID            string     `json:"OwnerId,omitempty"`
 	CreationTime       string     `json:"CreationTime,omitempty"`
 	ModificationTime   string     `json:"ModificationTime,omitempty"`
+	DelegationRecord   string     `json:"DelegationRecord,omitempty"`
 	TargetIps          []targetIP `json:"TargetIps,omitempty"`
 }
 
@@ -130,6 +131,7 @@ func ruleToOutput(r *ResolverRule) resolverRuleOutput {
 		OwnerID:            r.OwnerID,
 		CreationTime:       r.CreationTime,
 		ModificationTime:   r.ModificationTime,
+		DelegationRecord:   r.DelegationRecord,
 	}
 }
 
@@ -139,6 +141,7 @@ type handleCreateResolverRuleInput struct {
 	RuleType           string       `json:"RuleType"`
 	ResolverEndpointID string       `json:"ResolverEndpointId"`
 	CreatorRequestID   string       `json:"CreatorRequestId"`
+	DelegationRecord   string       `json:"DelegationRecord"`
 	TargetIps          []targetIP   `json:"TargetIps"`
 	Tags               []svcTags.KV `json:"Tags"`
 }
@@ -162,6 +165,7 @@ func (h *Handler) handleCreateResolverRule(
 		in.RuleType,
 		in.ResolverEndpointID,
 		in.CreatorRequestID,
+		in.DelegationRecord,
 		tips,
 	)
 	if err != nil {
