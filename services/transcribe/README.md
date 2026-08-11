@@ -8,14 +8,13 @@
 | Metric | Value |
 | --- | --- |
 | Operations audited | 43 (43 ok) |
-| Feature families | 6 (6 ok) |
-| Known gaps | 3 |
+| Feature families | 7 (7 ok) |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- NEW since v1.55.0 (found by gopherstack-u8my's pin-correction pass, not fixed): types.LanguageCode gained 12 new values (am-ET, cy-GB, es-MX, fa-AF, ga-IE, gd-GB, ht-HT, jv-ID, km-KH, my-MM, ne-NP, sq-AL). validation.go's supportedLanguageCodes() is a hardcoded 42-entry list predating these; validateLanguageCode rejects any of the 12 with InvalidInputException/ErrValidation ('unsupported LanguageCode') even though the real API now accepts them -- a real SDK client legitimately using e.g. es-MX would be incorrectly rejected by StartTranscriptionJob/LanguageIdSettings validation. (needs bd issue)
 - CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority. Re-checked this pass (gopherstack-5or5): still true, still no backing data to populate Skipped[] truthfully, left undone rather than fabricated.
 - MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking. Re-checked this pass (gopherstack-5or5): still true.
 

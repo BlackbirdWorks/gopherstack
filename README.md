@@ -521,7 +521,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [API Gateway Management API](services/apigatewaymanagementapi/README.md) | A | 3 | 1 gap; 2 deferred |
 | [API Gateway v2](services/apigatewayv2/README.md) | A | 77 | 3 gaps; 3 deferred |
 | [App Mesh](services/appmesh/README.md) | A | 38 | 2 gaps |
-| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 4 gaps; 1 deferred |
+| [Cloud Map](services/servicediscovery/README.md) | A | 30 | 3 gaps; 1 deferred |
 | [CloudFront](services/cloudfront/README.md) | A | 30 | 4 deferred |
 | [CloudWatch Network Monitor](services/networkmonitor/README.md) | A | 12 | 1 deferred |
 | [ELB (Classic)](services/elb/README.md) | A | 29 | 2 gaps; 1 deferred |
@@ -580,7 +580,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Inspector](services/inspector2/README.md) | A | 13 | 8 gaps; 1 deferred |
 | [KMS](services/kms/README.md) | A | 54 | 5 gaps; 2 deferred |
 | [Macie](services/macie2/README.md) | A | 82 | clean |
-| [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 2 gaps; 2 deferred |
+| [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 4 gaps; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 116 | 4 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
 | [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 4 gaps |
@@ -654,7 +654,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [SageMaker](services/sagemaker/README.md) | A | 54 | 13 gaps; 6 deferred |
 | [SageMaker Runtime](services/sagemakerruntime/README.md) | A | 3 | 1 gap |
 | [Textract](services/textract/README.md) | A | 25 | 1 gap; 1 structural gap; 1 deferred |
-| [Transcribe](services/transcribe/README.md) | A | 43 | 3 gaps |
+| [Transcribe](services/transcribe/README.md) | A | 43 | 2 gaps |
 | [Translate](services/translate/README.md) | A | 19 | 3 gaps |
 
 ### Media
