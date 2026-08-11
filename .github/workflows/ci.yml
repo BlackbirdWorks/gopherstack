@@ -49,6 +49,8 @@ jobs:
 
       - name: Run UI type check
         run: npm --prefix ui run check
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
 
   lint:
     runs-on: ubuntu-latest
@@ -450,6 +452,8 @@ jobs:
 
       - name: Build UI
         working-directory: ui
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: |
           npm ci
           npm run build
@@ -506,6 +510,8 @@ jobs:
 
       - name: Run UI Tests
         working-directory: ui
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
         run: npx vitest run
 
   coverage:

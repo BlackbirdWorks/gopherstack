@@ -17,7 +17,7 @@ ui-lint: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint
 
 ui-check: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run check
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run check
 
 ui-lint-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run lint:fix
@@ -29,12 +29,12 @@ ui-fmt-fix: ui-install
 	PATH="/opt/homebrew/bin:$(PATH)" npm --prefix ui run fmt
 
 ui-test: ui-install
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run test:coverage
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run test:coverage
 
 ui-build: ui-install
 	mkdir -p dashboard/static/spa
 	find dashboard/static/spa -mindepth 1 ! -name '.keep' -exec rm -rf {} +
-	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=4096" npm --prefix ui run build
+	PATH="/opt/homebrew/bin:$(PATH)" NODE_OPTIONS="--max-old-space-size=8192" npm --prefix ui run build
 	@# Embedded so a browser repro / server log can show what SPA is actually
 	@# running instead of silently serving a stale go:embed artifact (gopherstack-0rkc).
 	echo "{\"builtAt\":\"$$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"commit\":\"$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)\"}" > dashboard/static/spa/build-stamp.json
