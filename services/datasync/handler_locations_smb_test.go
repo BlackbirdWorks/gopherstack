@@ -14,6 +14,7 @@ func TestDataSync_Smb(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn := createTestAgent(t, h)
 
 	// Create
 	rec := doRequest(t, h, "CreateLocationSmb", map[string]any{
@@ -23,9 +24,7 @@ func TestDataSync_Smb(t *testing.T) {
 		"User":           "smbuser",
 		"Password":       "smbpass",
 		"MountOptions":   map[string]any{"Version": "SMB3"},
-		"AgentArns": []string{
-			"arn:aws:datasync:us-east-1:000000000000:agent/agent1",
-		},
+		"AgentArns":      []string{agentArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

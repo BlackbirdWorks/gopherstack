@@ -14,9 +14,14 @@ func (b *InMemoryBackend) CreateLocationObjectStorage(
 	serverPort int32,
 	agentArns []string,
 	tags map[string]string,
+	secretConfig SecretConfig,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationObjectStorage")
 	defer b.mu.Unlock()
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
 
 	id := newID()
 	locationArn := b.locationARN(id)
@@ -36,13 +41,15 @@ func (b *InMemoryBackend) CreateLocationObjectStorage(
 		CreationTime: now,
 		Tags:         locationTags,
 		ObjectStorage: &storedObjectStorageConfig{
-			ServerHostname: serverHostname,
-			ServerProtocol: serverProtocol,
-			BucketName:     bucketName,
-			AccessKey:      accessKey,
-			SecretKey:      secretKey,
-			ServerPort:     serverPort,
-			AgentArns:      agentArns,
+			ServerHostname:     serverHostname,
+			ServerProtocol:     serverProtocol,
+			BucketName:         bucketName,
+			AccessKey:          accessKey,
+			SecretKey:          secretKey,
+			ServerPort:         serverPort,
+			AgentArns:          agentArns,
+			CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
+			CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 		},
 	}
 	b.locations.Put(l)
@@ -80,6 +87,8 @@ func (b *InMemoryBackend) DescribeLocationObjectStorage(locationArn string) (*Lo
 		out.AccessKey = l.ObjectStorage.AccessKey
 		out.ServerPort = l.ObjectStorage.ServerPort
 		out.AgentArns = l.ObjectStorage.AgentArns
+		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.ObjectStorage.CmkSecretConfig)
+		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.ObjectStorage.CustomSecretConfig)
 	}
 
 	return out, nil
@@ -89,6 +98,7 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 	locationArn, serverProtocol, subdirectory, accessKey, secretKey string,
 	serverPort int32,
 	agentArns []string,
+	secretConfig SecretConfig,
 ) error {
 	b.mu.Lock("UpdateLocationObjectStorage")
 	defer b.mu.Unlock()
@@ -96,6 +106,10 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeObjectStorage {
 		return ErrNotFound
+	}
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return err
 	}
 
 	if l.ObjectStorage == nil {
@@ -131,6 +145,14 @@ func (b *InMemoryBackend) UpdateLocationObjectStorage(
 
 	if agentArns != nil {
 		l.ObjectStorage.AgentArns = agentArns
+	}
+
+	if secretConfig.Cmk != nil {
+		l.ObjectStorage.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+	}
+
+	if secretConfig.Custom != nil {
+		l.ObjectStorage.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
 	}
 
 	return nil

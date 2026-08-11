@@ -14,6 +14,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	agentArn := createTestAgent(t, h)
 
 	// Create
 	rec := doRequest(t, h, "CreateLocationAzureBlob", map[string]any{
@@ -25,7 +26,7 @@ func TestDataSync_AzureBlob(t *testing.T) {
 		"SasConfiguration": map[string]any{
 			"Token": "sv=2020-08-04&ss=b&srt=sco&sp=rwdlacupx&se=2023-01-01T00:00:00Z",
 		},
-		"AgentArns": []string{"arn:aws:datasync:us-east-1:000000000000:agent/agent1"},
+		"AgentArns": []string{agentArn},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

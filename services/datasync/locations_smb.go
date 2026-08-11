@@ -14,9 +14,15 @@ func (b *InMemoryBackend) CreateLocationSmb(
 	mountOptions *MountOptions,
 	agentArns []string,
 	tags map[string]string,
+	smbKerberos SmbKerberosConfig,
+	secretConfig SecretConfig,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationSmb")
 	defer b.mu.Unlock()
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return nil, err
+	}
 
 	id := newID()
 	locationArn := b.locationARN(id)
@@ -39,6 +45,12 @@ func (b *InMemoryBackend) CreateLocationSmb(
 		Password:           password,
 		AuthenticationType: authenticationType,
 		AgentArns:          agentArns,
+		KerberosPrincipal:  smbKerberos.KerberosPrincipal,
+		KerberosKeytab:     smbKerberos.KerberosKeytab,
+		KerberosKrb5Conf:   smbKerberos.KerberosKrb5Conf,
+		DNSIPAddresses:     smbKerberos.DNSIPAddresses,
+		CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
+		CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 	}
 
 	if mountOptions != nil {
@@ -88,6 +100,10 @@ func (b *InMemoryBackend) DescribeLocationSmb(locationArn string) (*LocationSmb,
 		out.User = l.Smb.User
 		out.AuthenticationType = l.Smb.AuthenticationType
 		out.AgentArns = l.Smb.AgentArns
+		out.KerberosPrincipal = l.Smb.KerberosPrincipal
+		out.DNSIPAddresses = l.Smb.DNSIPAddresses
+		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.Smb.CmkSecretConfig)
+		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.Smb.CustomSecretConfig)
 
 		if l.Smb.MountOptions != nil {
 			out.MountOptions = &MountOptions{Version: l.Smb.MountOptions.Version}
@@ -101,6 +117,8 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 	locationArn, subdirectory, domain, user, password, authenticationType string,
 	mountOptions *MountOptions,
 	agentArns []string,
+	smbKerberos SmbKerberosConfig,
+	secretConfig SecretConfig,
 ) error {
 	b.mu.Lock("UpdateLocationSmb")
 	defer b.mu.Unlock()
@@ -108,6 +126,10 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 	l, ok := b.locations.Get(locationArn)
 	if !ok || l.LocationType != locationTypeSMB {
 		return ErrNotFound
+	}
+
+	if err := b.validateAgentArns(agentArns); err != nil {
+		return err
 	}
 
 	if l.Smb == nil {
@@ -144,5 +166,36 @@ func (b *InMemoryBackend) UpdateLocationSmb(
 		l.Smb.AgentArns = agentArns
 	}
 
+	updateSmbKerberos(l.Smb, smbKerberos)
+	updateSmbSecretConfig(l.Smb, secretConfig)
+
 	return nil
+}
+
+func updateSmbKerberos(cfg *storedSmbConfig, smbKerberos SmbKerberosConfig) {
+	if smbKerberos.KerberosPrincipal != "" {
+		cfg.KerberosPrincipal = smbKerberos.KerberosPrincipal
+	}
+
+	if smbKerberos.KerberosKeytab != "" {
+		cfg.KerberosKeytab = smbKerberos.KerberosKeytab
+	}
+
+	if smbKerberos.KerberosKrb5Conf != "" {
+		cfg.KerberosKrb5Conf = smbKerberos.KerberosKrb5Conf
+	}
+
+	if smbKerberos.DNSIPAddresses != nil {
+		cfg.DNSIPAddresses = smbKerberos.DNSIPAddresses
+	}
+}
+
+func updateSmbSecretConfig(cfg *storedSmbConfig, secretConfig SecretConfig) {
+	if secretConfig.Cmk != nil {
+		cfg.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+	}
+
+	if secretConfig.Custom != nil {
+		cfg.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
+	}
 }

@@ -13,6 +13,7 @@ func (b *InMemoryBackend) CreateLocationFsxWindows(
 	fsxFilesystemArn, subdirectory, domain, user, password string,
 	securityGroupArns []string,
 	tags map[string]string,
+	secretConfig SecretConfig,
 ) (*Location, error) {
 	b.mu.Lock("CreateLocationFsxWindows")
 	defer b.mu.Unlock()
@@ -35,11 +36,13 @@ func (b *InMemoryBackend) CreateLocationFsxWindows(
 		CreationTime: now,
 		Tags:         locationTags,
 		FsxWindows: &storedFsxWindowsConfig{
-			FsxFilesystemArn:  fsxFilesystemArn,
-			Domain:            domain,
-			User:              user,
-			Password:          password,
-			SecurityGroupArns: securityGroupArns,
+			FsxFilesystemArn:   fsxFilesystemArn,
+			Domain:             domain,
+			User:               user,
+			Password:           password,
+			SecurityGroupArns:  securityGroupArns,
+			CmkSecretConfig:    toStoredCmkSecretConfig(secretConfig.Cmk),
+			CustomSecretConfig: toStoredCustomSecretConfig(secretConfig.Custom),
 		},
 	}
 	b.locations.Put(l)
@@ -75,12 +78,17 @@ func (b *InMemoryBackend) DescribeLocationFsxWindows(locationArn string) (*Locat
 		out.Domain = l.FsxWindows.Domain
 		out.User = l.FsxWindows.User
 		out.SecurityGroupArns = l.FsxWindows.SecurityGroupArns
+		out.CmkSecretConfig = fromStoredCmkSecretConfig(l.FsxWindows.CmkSecretConfig)
+		out.CustomSecretConfig = fromStoredCustomSecretConfig(l.FsxWindows.CustomSecretConfig)
 	}
 
 	return out, nil
 }
 
-func (b *InMemoryBackend) UpdateLocationFsxWindows(locationArn, subdirectory, domain, user, password string) error {
+func (b *InMemoryBackend) UpdateLocationFsxWindows(
+	locationArn, subdirectory, domain, user, password string,
+	secretConfig SecretConfig,
+) error {
 	b.mu.Lock("UpdateLocationFsxWindows")
 	defer b.mu.Unlock()
 
@@ -109,6 +117,14 @@ func (b *InMemoryBackend) UpdateLocationFsxWindows(locationArn, subdirectory, do
 
 	if password != "" {
 		l.FsxWindows.Password = password
+	}
+
+	if secretConfig.Cmk != nil {
+		l.FsxWindows.CmkSecretConfig = toStoredCmkSecretConfig(secretConfig.Cmk)
+	}
+
+	if secretConfig.Custom != nil {
+		l.FsxWindows.CustomSecretConfig = toStoredCustomSecretConfig(secretConfig.Custom)
 	}
 
 	return nil
