@@ -424,6 +424,7 @@ func (b *InMemoryBackend) buildReplicationGroupFromCreateOpts(
 		MultiAZEnabled:             opts.MultiAZEnabled,
 		SnapshotRetentionLimit:     opts.SnapshotRetentionLimit,
 		LogDeliveryConfigurations:  opts.LogDeliveryConfigurations,
+		Durability:                 opts.Durability,
 	}
 
 	applyAuthToken(rg, opts.AuthToken, opts.AuthTokenEnabled)
@@ -547,6 +548,10 @@ func (b *InMemoryBackend) applyModifyOptsLocked(rg *ReplicationGroup, opts Repli
 
 	if opts.NotificationTopicArn != "" {
 		rg.NotificationTopicArn = opts.NotificationTopicArn
+	}
+
+	if opts.Durability != "" {
+		rg.Durability = opts.Durability
 	}
 
 	if len(opts.LogDeliveryConfigurations) > 0 {

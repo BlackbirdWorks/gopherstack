@@ -65,6 +65,7 @@ type ReplicationGroup struct {
 	KmsKeyID                   string                   `json:"kmsKeyId,omitempty"`
 	NotificationTopicArn       string                   `json:"notificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                   `json:"transitEncryptionMode,omitempty"`
+	Durability                 string                   `json:"durability,omitempty"`
 	NodeGroups                 []NodeGroup              `json:"nodeGroups,omitempty"`
 	LogDeliveryConfigurations  []LogDeliveryConfig      `json:"logDeliveryConfigurations,omitempty"`
 	UserGroupIDs               []string                 `json:"userGroupIds,omitempty"`
@@ -521,6 +522,7 @@ type ReplicationGroupCreateOpts struct {
 	NotificationTopicArn      string
 	CacheNodeType             string
 	SnapshotWindow            string
+	Durability                string
 	UserGroupIDs              []string
 	LogDeliveryConfigurations []LogDeliveryConfig
 	SnapshotRetentionLimit    int
@@ -551,6 +553,7 @@ type ReplicationGroupModifyOpts struct {
 	AuthTokenUpdateStrategy   string
 	NotificationTopicArn      string
 	TransitEncryptionMode     string
+	Durability                string
 	LogDeliveryConfigurations []LogDeliveryConfig
 	UserGroupIDsToAdd         []string
 	UserGroupIDsToRemove      []string
@@ -643,6 +646,7 @@ type ServerlessCache struct {
 	SubnetGroupName        string                   `json:"subnetGroupName,omitempty"`
 	DailySnapshotTime      string                   `json:"dailySnapshotTime,omitempty"`
 	MajorEngineVersion     string                   `json:"majorEngineVersion,omitempty"`
+	NetworkType            string                   `json:"networkType,omitempty"`
 	SubnetIDs              []string                 `json:"subnetIds,omitempty"`
 	SecurityGroupIDs       []string                 `json:"securityGroupIds,omitempty"`
 	SnapshotRetentionLimit int32                    `json:"snapshotRetentionLimit,omitempty"`
@@ -814,6 +818,7 @@ type ServerlessCreateOpts struct {
 	SubnetGroupName        string
 	DailySnapshotTime      string
 	MajorEngineVersion     string
+	NetworkType            string
 	SecurityGroupIDs       []string
 	SubnetIDs              []string
 	SnapshotRetentionLimit int32

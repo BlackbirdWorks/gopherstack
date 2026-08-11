@@ -101,6 +101,7 @@ func parseCreateReplicationGroupOpts(form url.Values) ReplicationGroupCreateOpts
 		Engine:                form.Get("Engine"),
 		EngineVersion:         form.Get("EngineVersion"),
 		CacheNodeType:         form.Get("CacheNodeType"),
+		Durability:            form.Get("Durability"),
 	}
 
 	opts.AuthTokenEnabled = !strings.EqualFold(form.Get("AuthToken"), "") ||
@@ -276,7 +277,18 @@ type rgUserGroupIDsXML struct {
 	UserGroupID []string `xml:"member"`
 }
 
-// replicationGroupXML is the XML representation of a single replication group.
+// replicationGroupXML is the XML representation of a single replication
+// group. Durability/EffectiveDurability/StorageEncryptionType
+// (deserializers.go:21351/21364/21564, awsAwsquery_deserializeDocumentReplicationGroup)
+// were added by the SDK after this service's last field diff
+// (gopherstack-31dm). Durability is echoed from
+// CreateReplicationGroupInput.Durability (serializers.go:6506) /
+// ModifyReplicationGroupInput.Durability (serializers.go:8171) -- both real
+// input members. EffectiveDurability and StorageEncryptionType have no
+// Create/Modify input member (EffectiveDurability is server-resolved from
+// engine version/cluster mode, StorageEncryptionType from KMS-key state) --
+// deliberately left always empty rather than guessed, per parity-principles.md's
+// no-fabrication rule.
 type replicationGroupXML struct {
 	PendingModifiedValues      *rgPendingModifiedXML  `xml:"PendingModifiedValues,omitempty"`
 	NodeGroups                 *nodeGroupsListXML     `xml:"NodeGroups,omitempty"`
@@ -299,6 +311,9 @@ type replicationGroupXML struct {
 	NotificationTopicArn       string                 `xml:"NotificationTopicArn,omitempty"`
 	TransitEncryptionMode      string                 `xml:"TransitEncryptionMode,omitempty"`
 	DataTiering                string                 `xml:"DataTiering,omitempty"`
+	Durability                 string                 `xml:"Durability,omitempty"`
+	EffectiveDurability        string                 `xml:"EffectiveDurability,omitempty"`
+	StorageEncryptionType      string                 `xml:"StorageEncryptionType,omitempty"`
 	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
 	NumCacheClusters           int                    `xml:"NumCacheClusters,omitempty"`
 	ClusterEnabled             bool                   `xml:"ClusterEnabled,omitempty"`
@@ -411,6 +426,7 @@ func rgToXML(rg ReplicationGroup) replicationGroupXML {
 		KmsKeyID:                   rg.KmsKeyID,
 		NotificationTopicArn:       rg.NotificationTopicArn,
 		TransitEncryptionMode:      rg.TransitEncryptionMode,
+		Durability:                 rg.Durability,
 		SnapshotRetentionLimit:     rg.SnapshotRetentionLimit,
 		NumCacheClusters:           numCacheClusters,
 		ClusterEnabled:             rg.ClusterModeEnabled,
@@ -500,6 +516,7 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		AuthTokenUpdateStrategy: form.Get("AuthTokenUpdateStrategy"),
 		NotificationTopicArn:    form.Get("NotificationTopicArn"),
 		TransitEncryptionMode:   form.Get("TransitEncryptionMode"),
+		Durability:              form.Get("Durability"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}
 
