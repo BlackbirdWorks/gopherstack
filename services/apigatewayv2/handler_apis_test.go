@@ -675,3 +675,120 @@ func TestReimportAPI_Basepath_InvalidRejected(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
+
+// basepathSpec builds a minimal OpenAPI 3 document with a single "GET /pets"
+// path and, when specBasePath is non-empty, a servers[0].url carrying it.
+func basepathSpec(specBasePath string) string {
+	servers := ""
+	if specBasePath != "" {
+		servers = fmt.Sprintf(`"servers": [{"url": "https://example.com%s"}],`, specBasePath)
+	}
+
+	return fmt.Sprintf(`{
+		"openapi": "3.0.1",
+		"info": {"title": "my-api"},
+		%s
+		"paths": {"/pets": {"get": {}}}
+	}`, servers)
+}
+
+// TestImportAPI_Basepath_RouteKeyTransforms proves the route key each
+// basepath mode produces for a spec whose declared base path is "/v1", and
+// for a spec with no declared base path at all. "split" is documented
+// (applyOpenAPIToAPI) as unimplemented -- api_op_ImportApi.go:37-41 names it
+// as a valid value but does not define its transformation -- so it is
+// expected to behave like "ignore" here, not like "prepend".
+func TestImportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		basepath     string
+		specBasePath string
+		wantRouteKey string
+	}{
+		{name: "ignore_with_basepath", basepath: "ignore", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+		{name: "ignore_without_basepath", basepath: "ignore", specBasePath: "", wantRouteKey: "GET /pets"},
+		{name: "default_with_basepath", basepath: "", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+		{name: "default_without_basepath", basepath: "", specBasePath: "", wantRouteKey: "GET /pets"},
+		{name: "prepend_with_basepath", basepath: "prepend", specBasePath: "/v1", wantRouteKey: "GET /v1/pets"},
+		{name: "prepend_without_basepath", basepath: "prepend", specBasePath: "", wantRouteKey: "GET /pets"},
+		{name: "split_with_basepath", basepath: "split", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+		{name: "split_without_basepath", basepath: "split", specBasePath: "", wantRouteKey: "GET /pets"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			path := "/v2/apis"
+			if tt.basepath != "" {
+				path += "?basepath=" + tt.basepath
+			}
+
+			rr := doRequest(t, h, http.MethodPut, path, map[string]any{"body": basepathSpec(tt.specBasePath)})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			var api apigatewayv2.API
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &api))
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+api.APIID+"/routes", nil)
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			var routes struct {
+				Items []apigatewayv2.Route `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+			require.Len(t, routes.Items, 1)
+			assert.Equal(t, tt.wantRouteKey, routes.Items[0].RouteKey)
+		})
+	}
+}
+
+// TestReimportAPI_Basepath_RouteKeyTransforms mirrors
+// TestImportAPI_Basepath_RouteKeyTransforms for ReimportApi, which shares
+// applyOpenAPIToAPI with ImportApi and must honour the same basepath modes.
+func TestReimportAPI_Basepath_RouteKeyTransforms(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		basepath     string
+		specBasePath string
+		wantRouteKey string
+	}{
+		{name: "ignore_with_basepath", basepath: "ignore", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+		{name: "prepend_with_basepath", basepath: "prepend", specBasePath: "/v1", wantRouteKey: "GET /v1/pets"},
+		{name: "prepend_without_basepath", basepath: "prepend", specBasePath: "", wantRouteKey: "GET /pets"},
+		{name: "split_with_basepath", basepath: "split", specBasePath: "/v1", wantRouteKey: "GET /pets"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+			apiID := createAPI(t, h, "reimport-target")
+
+			path := "/v2/apis/" + apiID
+			if tt.basepath != "" {
+				path += "?basepath=" + tt.basepath
+			}
+
+			rr := doRequest(t, h, http.MethodPut, path, map[string]any{"body": basepathSpec(tt.specBasePath)})
+			require.Equal(t, http.StatusCreated, rr.Code)
+
+			rr = doRequest(t, h, http.MethodGet, "/v2/apis/"+apiID+"/routes", nil)
+			require.Equal(t, http.StatusOK, rr.Code)
+
+			var routes struct {
+				Items []apigatewayv2.Route `json:"items"`
+			}
+			require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &routes))
+			require.Len(t, routes.Items, 1)
+			assert.Equal(t, tt.wantRouteKey, routes.Items[0].RouteKey)
+		})
+	}
+}
