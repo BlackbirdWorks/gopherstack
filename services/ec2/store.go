@@ -880,6 +880,8 @@ func (b *InMemoryBackend) RunInstances(
 
 	if count < 1 {
 		count = 1
+	} else if count > maxRunInstancesCount {
+		count = maxRunInstancesCount
 	}
 
 	b.mu.Lock("RunInstances")
@@ -911,9 +913,9 @@ func (b *InMemoryBackend) RunInstances(
 	// ec2.Instance at all -- matches real RunInstances failing atomically.
 	var instanceIDs []string
 	if outpostArn != "" {
-		// count is bounded to maxRunInstancesCount by parseRunInstancesCounts
-		// before this call, so this allocation can't be driven arbitrarily
-		// large by a client-supplied MinCount/MaxCount (CodeQL alert #253).
+		// count is clamped to maxRunInstancesCount above, in this function,
+		// so this allocation can't be driven arbitrarily large regardless of
+		// caller (CodeQL alert #253).
 		instanceIDs = make([]string, count)
 		for i := range instanceIDs {
 			instanceIDs[i] = newInstanceID()

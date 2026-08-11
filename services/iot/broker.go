@@ -160,13 +160,11 @@ func mqtt5PropertiesToPacket(props iotdataplane.MQTT5Properties) packets.Propert
 
 	if props.MessageExpiry > 0 {
 		// PublishInput.MessageExpiry is int64, the wire property is uint32; clamp defensively.
-		expiry := props.MessageExpiry
-		//nolint:modernize // explicit if, not min(): CodeQL alert #255 doesn't model the min builtin as a bound check
-		if expiry > math.MaxUint32 {
-			expiry = math.MaxUint32
+		if props.MessageExpiry <= math.MaxUint32 {
+			pp.MessageExpiryInterval = uint32(props.MessageExpiry)
+		} else {
+			pp.MessageExpiryInterval = math.MaxUint32
 		}
-
-		pp.MessageExpiryInterval = uint32(expiry)
 	}
 
 	switch props.PayloadFormatIndicator {
