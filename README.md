@@ -538,7 +538,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [AppSync](services/appsync/README.md) | A | 74 | 2 gaps; 2 deferred |
 | [EventBridge](services/eventbridge/README.md) | A | 61 | 1 gap; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
-| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | clean |
+| [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 35 | 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | clean |

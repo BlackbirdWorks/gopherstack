@@ -3,11 +3,56 @@ package route53resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+const (
+	filterFieldDomainName         = "DomainName"
+	filterFieldResolverEndpointID = "ResolverEndpointId"
+	filterFieldType               = "Type"
+)
+
+// resolverRuleFilterAliases canonicalizes Filter.Name for ListResolverRules
+// -- see resolverEndpointFilterAliases's doc comment for the two-forms rule.
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as other services' dispatch/alias tables
+var resolverRuleFilterAliases = map[string]string{
+	filterFieldCreatorRequestID:   filterFieldCreatorRequestID,
+	legacyFilterCreatorRequestID:  filterFieldCreatorRequestID,
+	filterFieldDomainName:         filterFieldDomainName,
+	"DOMAIN_NAME":                 filterFieldDomainName,
+	filterFieldName:               filterFieldName,
+	legacyFilterName:              filterFieldName,
+	filterFieldResolverEndpointID: filterFieldResolverEndpointID,
+	"RESOLVER_ENDPOINT_ID":        filterFieldResolverEndpointID,
+	filterFieldStatus:             filterFieldStatus,
+	legacyFilterStatus:            filterFieldStatus,
+	filterFieldType:               filterFieldType,
+	"TYPE":                        filterFieldType,
+}
+
+func matchResolverRuleFilter(r *ResolverRule, name string, values []string) bool {
+	switch name {
+	case filterFieldCreatorRequestID:
+		return slices.Contains(values, r.CreatorRequestID)
+	case filterFieldDomainName:
+		return slices.Contains(values, r.DomainName)
+	case filterFieldName:
+		return slices.Contains(values, r.Name)
+	case filterFieldResolverEndpointID:
+		return slices.Contains(values, r.ResolverEndpointID)
+	case filterFieldStatus:
+		return slices.Contains(values, r.Status)
+	case filterFieldType:
+		return slices.Contains(values, r.RuleType)
+	default:
+		return false
+	}
+}
 
 type resolverRuleIDInput struct {
 	ResolverRuleID string `json:"ResolverRuleId"`
@@ -48,8 +93,9 @@ type getResolverRuleOutput struct {
 type deleteResolverRuleOutput struct{}
 
 type listResolverRulesInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string       `json:"NextToken"`
+	Filters    []wireFilter `json:"Filters"`
+	MaxResults int32        `json:"MaxResults"`
 }
 
 type listResolverRulesOutput struct {
@@ -159,6 +205,10 @@ func (h *Handler) handleListResolverRules(
 	in *listResolverRulesInput,
 ) (*listResolverRulesOutput, error) {
 	rules := h.Backend.ListResolverRules(ctx)
+	rules, err := applyFilters(rules, in.Filters, resolverRuleFilterAliases, matchResolverRuleFilter)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]resolverRuleOutput, 0, len(rules))
 	for _, r := range rules {
 		items = append(items, ruleToOutput(r))

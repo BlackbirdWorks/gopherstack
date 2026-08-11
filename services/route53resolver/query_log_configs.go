@@ -77,13 +77,24 @@ func (b *InMemoryBackend) CreateResolverQueryLogConfig(
 }
 
 func isValidQueryLogDestination(destinationARN string) bool {
-	for _, prefix := range []string{"arn:aws:s3:::", "arn:aws:logs:", "arn:aws:firehose:"} {
-		if strings.HasPrefix(destinationARN, prefix) {
-			return true
-		}
-	}
+	return queryLogDestinationKind(destinationARN) != ""
+}
 
-	return false
+// queryLogDestinationKind classifies a DestinationArn into the "Destination"
+// filter value ListResolverQueryLogConfigs documents (S3/CloudWatchLogs/
+// KinesisFirehose) -- derived from the same ARN prefixes
+// isValidQueryLogDestination already validates against, not fabricated.
+func queryLogDestinationKind(destinationARN string) string {
+	switch {
+	case strings.HasPrefix(destinationARN, "arn:aws:s3:::"):
+		return "S3"
+	case strings.HasPrefix(destinationARN, "arn:aws:logs:"):
+		return "CloudWatchLogs"
+	case strings.HasPrefix(destinationARN, "arn:aws:firehose:"):
+		return "KinesisFirehose"
+	default:
+		return ""
+	}
 }
 
 // AddQueryLogConfigInternal adds a query log config directly to the backend (test seed helper).

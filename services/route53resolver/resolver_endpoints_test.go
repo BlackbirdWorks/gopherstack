@@ -1321,6 +1321,132 @@ func TestListResolverEndpoints(t *testing.T) {
 	assert.Len(t, endpoints, 2)
 }
 
+func TestListResolverEndpoints_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+			"Name": "in-ep", "Direction": "INBOUND", "VpcId": "vpc-1",
+			"CreatorRequestId": "req-in", "SecurityGroupIds": []string{"sg-1", "sg-2"},
+		})
+		doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+			"Name": "out-ep", "Direction": "OUTBOUND", "VpcId": "vpc-2",
+			"CreatorRequestId": "req-out", "SecurityGroupIds": []string{"sg-3"},
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "direction canonical name",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{"INBOUND"}},
+			wantNames: []string{"in-ep"},
+		},
+		{
+			name:      "direction legacy uppercase name",
+			filter:    map[string]any{"Name": "DIRECTION", "Values": []string{"OUTBOUND"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "host vpc id",
+			filter:    map[string]any{"Name": "HostVPCId", "Values": []string{"vpc-2"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "creator request id",
+			filter:    map[string]any{"Name": "CreatorRequestId", "Values": []string{"req-in"}},
+			wantNames: []string{"in-ep"},
+		},
+		{
+			name:      "security group ids matches any member",
+			filter:    map[string]any{"Name": "SecurityGroupIds", "Values": []string{"sg-3"}},
+			wantNames: []string{"out-ep"},
+		},
+		{
+			name:      "values are OR-combined",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{"INBOUND", "OUTBOUND"}},
+			wantNames: []string{"in-ep", "out-ep"},
+		},
+		{
+			name:      "empty values matches nothing",
+			filter:    map[string]any{"Name": "Direction", "Values": []string{}},
+			wantNames: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+				"Filters": []map[string]any{tt.filter},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			eps, _ := resp["ResolverEndpoints"].([]any)
+			gotNames := make([]string, len(eps))
+			for i, e := range eps {
+				gotNames[i] = e.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverEndpoints_FiltersANDedTogether(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name": "in-vpc1", "Direction": "INBOUND", "VpcId": "vpc-1",
+	})
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{
+		"Name": "in-vpc2", "Direction": "INBOUND", "VpcId": "vpc-2",
+	})
+
+	rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "Direction", "Values": []string{"INBOUND"}},
+			{"Name": "HostVPCId", "Values": []string{"vpc-2"}},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	eps, _ := resp["ResolverEndpoints"].([]any)
+	require.Len(t, eps, 1)
+	assert.Equal(t, "in-vpc2", eps[0].(map[string]any)["Name"])
+}
+
+func TestListResolverEndpoints_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverEndpoint", map[string]any{"Name": "ep1", "Direction": "INBOUND"})
+
+	rec := doRequest(t, h, "ListResolverEndpoints", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}
+
 func TestDeleteResolverEndpoint(t *testing.T) {
 	t.Parallel()
 

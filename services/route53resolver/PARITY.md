@@ -69,7 +69,7 @@ overall: A            # new: BatchCreate/Update/DeleteFirewallRule + ListFirewal
 ops:
   CreateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field (see notes); added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled input+output"}
   GetResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field; added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled output"}
-  ListResolverEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same fix, see CreateResolverEndpoint"}
+  ListResolverEndpoints: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same IpAddresses fix, see CreateResolverEndpoint; gopherstack-66dr: Filters was modelled in the SDK but not on this wire-input struct, so it was silently dropped and every call returned the unfiltered list. Added Filters (CreatorRequestId/Direction/HostVPCId/IpAddressCount/Name/SecurityGroupIds/Status, both CamelCase and legacy UPPER_SNAKE names per types.Filter's doc); unknown filter names now reject with InvalidParameterException."}
   DeleteResolverEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades rules + tags + rule associations"}
   UpdateResolverEndpoint: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added RniEnhancedMetricsEnabled/TargetNameServerMetricsEnabled partial-update input+output"}
   ListResolverEndpointIpAddresses: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -77,7 +77,7 @@ ops:
   DisassociateResolverEndpointIpAddress: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented IpAddresses response field, see notes"}
   CreateResolverRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Tags input field was missing entirely -- silently dropped tags on create; added"}
   GetResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolverRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: Filters was modelled but not on this wire-input struct -- same silently-ignored-filter bug as ListResolverEndpoints. Added Filters (CreatorRequestId/DomainName/Name/ResolverEndpointId/Status/Type, both name forms); unknown filter names reject with InvalidParameterException."}
   DeleteResolverRule: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades tags + rule associations"}
   UpdateResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateResolverRule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -88,7 +88,7 @@ ops:
   PutResolverRulePolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListResolverQueryLogConfigs: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListResolverQueryLogConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-66dr: same silently-ignored-Filters bug. Added Filters (Arn/AssociationCount/CreationTime/CreatorRequestId/Destination/DestinationArn/Id/Name/OwnerId/ShareStatus/Status, both name forms); Destination (S3/CloudWatchLogs/KinesisFirehose) is derived from DestinationArn's prefix, the same classification isValidQueryLogDestination already used, not a fabricated field. Unknown filter names reject with InvalidParameterException."}
   DeleteResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascades tags + associations"}
   AssociateResolverQueryLogConfig: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResolverQueryLogConfigAssociation: {wire: ok, errors: ok, state: ok, persist: ok}

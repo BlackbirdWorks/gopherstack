@@ -650,6 +650,98 @@ func TestListResolverRules(t *testing.T) {
 	assert.Len(t, rules, 2)
 }
 
+func TestListResolverRules_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverRule", map[string]any{
+			"Name": "fwd-rule", "DomainName": "fwd.example.com", "RuleType": "FORWARD",
+			"CreatorRequestId": "req-fwd",
+		})
+		doRequest(t, h, "CreateResolverRule", map[string]any{
+			"Name": "sys-rule", "DomainName": "sys.example.com", "RuleType": "SYSTEM",
+			"CreatorRequestId": "req-sys",
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "type canonical name",
+			filter:    map[string]any{"Name": "Type", "Values": []string{"FORWARD"}},
+			wantNames: []string{"fwd-rule"},
+		},
+		{
+			name:      "type legacy uppercase name",
+			filter:    map[string]any{"Name": "TYPE", "Values": []string{"SYSTEM"}},
+			wantNames: []string{"sys-rule"},
+		},
+		{
+			name:      "domain name",
+			filter:    map[string]any{"Name": "DomainName", "Values": []string{"sys.example.com"}},
+			wantNames: []string{"sys-rule"},
+		},
+		{
+			name:      "creator request id",
+			filter:    map[string]any{"Name": "CreatorRequestId", "Values": []string{"req-fwd"}},
+			wantNames: []string{"fwd-rule"},
+		},
+		{
+			name:      "values are OR-combined",
+			filter:    map[string]any{"Name": "Type", "Values": []string{"FORWARD", "SYSTEM"}},
+			wantNames: []string{"fwd-rule", "sys-rule"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverRules", map[string]any{
+				"Filters": []map[string]any{tt.filter},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			rules, _ := resp["ResolverRules"].([]any)
+			gotNames := make([]string, len(rules))
+			for i, r := range rules {
+				gotNames[i] = r.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverRules_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverRule", map[string]any{
+		"Name": "r1", "DomainName": "a.com", "RuleType": "FORWARD",
+	})
+
+	rec := doRequest(t, h, "ListResolverRules", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}
+
 func TestDeleteResolverRule(t *testing.T) {
 	t.Parallel()
 

@@ -3,10 +3,81 @@ package route53resolver
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+const (
+	filterFieldARN              = "Arn"
+	filterFieldAssociationCount = "AssociationCount"
+	filterFieldCreationTime     = "CreationTime"
+	filterFieldDestination      = "Destination"
+	filterFieldDestinationARN   = "DestinationArn"
+	filterFieldID               = "Id"
+	filterFieldOwnerID          = "OwnerId"
+	filterFieldShareStatus      = "ShareStatus"
+)
+
+// queryLogConfigFilterAliases canonicalizes Filter.Name for
+// ListResolverQueryLogConfigs -- see resolverEndpointFilterAliases's doc
+// comment for the two-forms rule.
+//
+//nolint:gochecknoglobals // immutable lookup table, same pattern as other services' dispatch/alias tables
+var queryLogConfigFilterAliases = map[string]string{
+	filterFieldARN:               filterFieldARN,
+	"ARN":                        filterFieldARN,
+	filterFieldAssociationCount:  filterFieldAssociationCount,
+	"ASSOCIATION_COUNT":          filterFieldAssociationCount,
+	filterFieldCreationTime:      filterFieldCreationTime,
+	"CREATION_TIME":              filterFieldCreationTime,
+	filterFieldCreatorRequestID:  filterFieldCreatorRequestID,
+	legacyFilterCreatorRequestID: filterFieldCreatorRequestID,
+	filterFieldDestination:       filterFieldDestination,
+	"DESTINATION":                filterFieldDestination,
+	filterFieldDestinationARN:    filterFieldDestinationARN,
+	"DESTINATION_ARN":            filterFieldDestinationARN,
+	filterFieldID:                filterFieldID,
+	"ID":                         filterFieldID,
+	filterFieldName:              filterFieldName,
+	legacyFilterName:             filterFieldName,
+	filterFieldOwnerID:           filterFieldOwnerID,
+	"OWNER_ID":                   filterFieldOwnerID,
+	filterFieldShareStatus:       filterFieldShareStatus,
+	"SHARE_STATUS":               filterFieldShareStatus,
+	filterFieldStatus:            filterFieldStatus,
+	legacyFilterStatus:           filterFieldStatus,
+}
+
+func matchQueryLogConfigFilter(c *ResolverQueryLogConfig, name string, values []string) bool {
+	switch name {
+	case filterFieldARN:
+		return slices.Contains(values, c.ARN)
+	case filterFieldAssociationCount:
+		return slices.Contains(values, int32ToString(c.AssociationCount))
+	case filterFieldCreationTime:
+		return slices.Contains(values, c.CreationTime)
+	case filterFieldCreatorRequestID:
+		return slices.Contains(values, c.CreatorRequestID)
+	case filterFieldDestination:
+		return slices.Contains(values, queryLogDestinationKind(c.DestinationARN))
+	case filterFieldDestinationARN:
+		return slices.Contains(values, c.DestinationARN)
+	case filterFieldID:
+		return slices.Contains(values, c.ID)
+	case filterFieldName:
+		return slices.Contains(values, c.Name)
+	case filterFieldOwnerID:
+		return slices.Contains(values, c.OwnerID)
+	case filterFieldShareStatus:
+		return slices.Contains(values, c.ShareStatus)
+	case filterFieldStatus:
+		return slices.Contains(values, c.Status)
+	default:
+		return false
+	}
+}
 
 // resolverQueryLogConfigOutput is the JSON representation of a ResolverQueryLogConfig.
 type resolverQueryLogConfigOutput struct {
@@ -138,8 +209,9 @@ func (h *Handler) handleGetResolverQueryLogConfig(
 // --- ListResolverQueryLogConfigs ---
 
 type listResolverQueryLogConfigsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken  string       `json:"NextToken"`
+	Filters    []wireFilter `json:"Filters"`
+	MaxResults int32        `json:"MaxResults"`
 }
 
 type listResolverQueryLogConfigsOutput struct {
@@ -152,6 +224,10 @@ func (h *Handler) handleListResolverQueryLogConfigs(
 	in *listResolverQueryLogConfigsInput,
 ) (*listResolverQueryLogConfigsOutput, error) {
 	configs := h.Backend.ListResolverQueryLogConfigs(ctx)
+	configs, err := applyFilters(configs, in.Filters, queryLogConfigFilterAliases, matchQueryLogConfigFilter)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]resolverQueryLogConfigOutput, 0, len(configs))
 	for _, c := range configs {
 		items = append(items, queryLogConfigToOutput(c))

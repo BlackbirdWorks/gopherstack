@@ -476,3 +476,95 @@ func TestListResolverQueryLogConfigs_Pagination(t *testing.T) {
 		})
 	}
 }
+
+func TestListResolverQueryLogConfigs_Filters(t *testing.T) {
+	t.Parallel()
+
+	setup := func(t *testing.T) *route53resolver.Handler {
+		t.Helper()
+		h := newTestHandler(t)
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name": "s3-cfg", "DestinationArn": "arn:aws:s3:::my-bucket",
+			"CreatorRequestId": "req-s3",
+		})
+		doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+			"Name":           "cwl-cfg",
+			"DestinationArn": "arn:aws:logs:us-east-1:000000000000:log-group:/my/group",
+		})
+
+		return h
+	}
+
+	tests := []struct {
+		filter    map[string]any
+		name      string
+		wantNames []string
+	}{
+		{
+			name:      "name canonical",
+			filter:    map[string]any{"Name": "Name", "Values": []string{"s3-cfg"}},
+			wantNames: []string{"s3-cfg"},
+		},
+		{
+			name:      "name legacy uppercase",
+			filter:    map[string]any{"Name": "NAME", "Values": []string{"cwl-cfg"}},
+			wantNames: []string{"cwl-cfg"},
+		},
+		{
+			name:      "creator request id",
+			filter:    map[string]any{"Name": "CreatorRequestId", "Values": []string{"req-s3"}},
+			wantNames: []string{"s3-cfg"},
+		},
+		{
+			name:      "destination derived from arn kind",
+			filter:    map[string]any{"Name": "Destination", "Values": []string{"CloudWatchLogs"}},
+			wantNames: []string{"cwl-cfg"},
+		},
+		{
+			name:      "values are OR-combined",
+			filter:    map[string]any{"Name": "Destination", "Values": []string{"S3", "CloudWatchLogs"}},
+			wantNames: []string{"s3-cfg", "cwl-cfg"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			h := setup(t)
+
+			rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+				"Filters": []map[string]any{tt.filter},
+			})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			cfgs, _ := resp["ResolverQueryLogConfigs"].([]any)
+			gotNames := make([]string, len(cfgs))
+			for i, c := range cfgs {
+				gotNames[i] = c.(map[string]any)["Name"].(string)
+			}
+			assert.ElementsMatch(t, tt.wantNames, gotNames)
+		})
+	}
+}
+
+func TestListResolverQueryLogConfigs_UnknownFilterNameRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, "CreateResolverQueryLogConfig", map[string]any{
+		"Name": "cfg1", "DestinationArn": "arn:aws:s3:::bucket",
+	})
+
+	rec := doRequest(t, h, "ListResolverQueryLogConfigs", map[string]any{
+		"Filters": []map[string]any{
+			{"Name": "NotARealFilter", "Values": []string{"x"}},
+		},
+	})
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "InvalidParameterException", resp["__type"])
+}
