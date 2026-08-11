@@ -44,7 +44,7 @@ func (h *Handler) handleUpdateDomainConfigDryRun(
 	})
 }
 
-// toDomainConfigJSON builds the DescribeDomainConfig / UpdateDomainConfig response body.
+// Builds the DescribeDomainConfig / UpdateDomainConfig response body.
 func toDomainConfigJSON(d *Domain) domainConfigFields {
 	active := opensearchConfigStatus{State: domainStatusActive}
 	st := toDomainStatusJSON(d)

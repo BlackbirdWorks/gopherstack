@@ -504,9 +504,10 @@ func TestElasticsearchHandler_CreateDomain_SAMLOptionsValidation(t *testing.T) {
 // AutoTuneOptions.MaintenanceSchedules round-trips through
 // DescribeElasticsearchDomainConfig's DomainConfig.AutoTuneOptions.Options
 // (types.AutoTuneOptions -- DesiredState/MaintenanceSchedules), which is a
-// different shape from the DomainStatus response's AutoTuneOptions (see
-// toDomainConfigAutoTuneOptionsJSON's doc comment). Status.State must use
-// the AutoTuneState enum (ENABLED/DISABLED), not OptionState's Active.
+// different shape from the DomainStatus response's AutoTuneOptions (see the
+// AutoTune converter's doc comment in handler_domain_config.go). Status.State
+// must use the AutoTuneState enum (ENABLED/DISABLED), not OptionState's
+// Active.
 func TestElasticsearchHandler_DomainConfig_AutoTuneMaintenanceSchedules(t *testing.T) {
 	t.Parallel()
 

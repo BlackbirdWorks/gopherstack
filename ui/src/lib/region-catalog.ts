@@ -18,7 +18,7 @@ export function fetchRegionCatalog(): Promise<string[]> {
       .then((res) => {
         const names = (res.Regions ?? [])
           .map((r) => r.RegionName)
-          .filter((n): n is string => Boolean(n))
+          .filter((n): n is string => typeof n === "string")
           .toSorted((a, b) => a.localeCompare(b));
         cache = names;
         return names;

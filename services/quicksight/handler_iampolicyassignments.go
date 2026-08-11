@@ -288,8 +288,7 @@ func classifyNamespaceSingularPaths(method string, segs []string, n int) (string
 	subID := seg(segs, segSubResID)
 
 	if sub == pathSegIAMPolicyAssignments {
-		switch method { //nolint:gocritic // existing issue.
-		case http.MethodDelete:
+		if method == http.MethodDelete {
 			return opDeleteIAMPolicyAssignment, subID
 		}
 	}

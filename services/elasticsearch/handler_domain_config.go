@@ -256,13 +256,13 @@ func applySecurityConfigFields(out *describeDomainConfigOutput, d *Domain, statu
 	}
 }
 
-// toDomainConfigAutoTuneOptionsJSON converts a backend AutoTuneOptions to the
-// DomainConfig response's Options shape (types.AutoTuneOptions --
-// DesiredState/MaintenanceSchedules/RollbackOnDisable), which is DIFFERENT
-// from the DomainStatus response's shape (types.AutoTuneOptionsOutput, see
-// toAutoTuneOptionsJSON in handler_domains.go). RollbackOnDisable is not
-// modeled: it only applies to UpdateElasticsearchDomainConfig (not Create)
-// and this backend has no rollback state machine to act on it.
+// Converts a backend AutoTuneOptions to the DomainConfig response's Options
+// shape (types.AutoTuneOptions -- DesiredState/MaintenanceSchedules/
+// RollbackOnDisable), which is DIFFERENT from the DomainStatus response's
+// shape (types.AutoTuneOptionsOutput, see toAutoTuneOptionsJSON in
+// handler_domains.go). RollbackOnDisable is not modeled: it only applies to
+// UpdateElasticsearchDomainConfig (not Create) and this backend has no
+// rollback state machine to act on it.
 func toDomainConfigAutoTuneOptionsJSON(a *AutoTuneOptions) domainConfigAutoTuneOptionsJSON {
 	if a == nil {
 		return domainConfigAutoTuneOptionsJSON{DesiredState: autoTuneStateDisabled}
@@ -324,10 +324,9 @@ func autoTuneConfigStatus(d *Domain) autoTuneStatusJSON {
 	}
 }
 
-// toDomainConfigDeploymentStrategyOptionsJSON converts a backend
-// DeploymentStrategyOptions to its DomainConfig wire representation,
-// defaulting to "Default" when the domain never set one (matching
-// types.DeploymentStrategy's Default value).
+// Converts a backend DeploymentStrategyOptions to its DomainConfig wire
+// representation, defaulting to "Default" when the domain never set one
+// (matching types.DeploymentStrategy's Default value).
 func toDomainConfigDeploymentStrategyOptionsJSON(d *DeploymentStrategyOptions) deploymentStrategyOptionsJSON {
 	if d == nil {
 		return deploymentStrategyOptionsJSON{DeploymentStrategy: "Default"}
